@@ -52,8 +52,6 @@ def test_default_check_only_lists_non_audio_gates_without_running_commands(
     assert "uv run python scripts/pyinstaller_build_smoke.py --check-only" in output
     assert "root artifact hygiene: project-root build/ and dist/ must be absent" in output
     assert "real Mixed In Key audio QA: PENDING MANUAL" in output
-    assert "clean macOS account validation: PENDING MANUAL" in output
-    assert "signing/notarization/DMG: PENDING MANUAL" in output
 
 
 def test_check_only_with_include_packaging_build_lists_optional_command_without_running(
@@ -200,8 +198,6 @@ def test_check_only_report_json_lists_gates_and_pending_manual_gates(
     assert all(gate["return_code"] is None for gate in report["gates"])
     assert report["manual_gates"] == [
         {"name": "real Mixed In Key audio QA", "status": "pending_manual"},
-        {"name": "clean macOS account validation", "status": "pending_manual"},
-        {"name": "signing/notarization/DMG", "status": "pending_manual"},
     ]
     assert "Does not prove real Mixed In Key audio QA" in report["limitations"]
 

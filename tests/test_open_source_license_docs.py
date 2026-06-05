@@ -27,7 +27,6 @@ SOURCE_AND_PLAN_POSTURE_FILES = [
 LEGACY_POSTURE_DOCS = [
     PROJECT_ROOT / "docs" / "IMPLEMENTATION_HANDOFF.md",
     PROJECT_ROOT / "docs" / "xfinaudio-stack-and-scope-decision.md",
-    PROJECT_ROOT / "docs" / "macos-signing-notarization-dmg-plan.md",
     PROJECT_ROOT / "docs" / "pyinstaller-packaging-spike.md",
     PROJECT_ROOT / "docs" / "help-8-release-hardening.md",
     PROJECT_ROOT / "docs" / "plans" / "2026-06-03-help-8-release-hardening.md",

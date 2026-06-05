@@ -13,10 +13,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SPEC_PATH = PROJECT_ROOT / "packaging" / "pyinstaller" / "xfinaudio.spec"
 SMOKE_SCRIPT_PATH = PROJECT_ROOT / "scripts" / "pyinstaller_build_smoke.py"
 PYPROJECT_PATH = PROJECT_ROOT / "pyproject.toml"
-CLEAN_ACCOUNT_VALIDATION_DOC = PROJECT_ROOT / "docs" / "clean-macos-account-validation.md"
-PACKAGING_STRATEGY_DOC = PROJECT_ROOT / "docs" / "packaging-strategy.md"
-RELEASE_CANDIDATE_EVIDENCE_DOC = PROJECT_ROOT / "docs" / "release-candidate-evidence.md"
-OPEN_SOURCE_RELEASE_BACKLOG_DOC = PROJECT_ROOT / "docs" / "open-source-release-backlog.md"
 
 _smoke_script_spec = importlib.util.spec_from_file_location("pyinstaller_build_smoke", SMOKE_SCRIPT_PATH)
 assert _smoke_script_spec is not None
@@ -41,66 +37,6 @@ def test_pyinstaller_is_pinned_in_dev_dependencies() -> None:
     pyproject_text = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert "pyinstaller==6.20.0" in pyproject_text
-
-
-def test_clean_macos_account_validation_runbook_records_pending_manual_gate() -> None:
-    doc_text = CLEAN_ACCOUNT_VALIDATION_DOC.read_text(encoding="utf-8")
-
-    required_fragments = [
-        "# Clean macOS account validation runbook",
-        "uv run python scripts/pyinstaller_build_smoke.py --build-temp --validate-launch",
-        "PyInstaller version: 6.20.0",
-        "PyInstaller warning report:",
-        "PyInstaller expected warnings: 57",
-        "PyInstaller unexpected warnings: 0",
-        "Launch validation completed in package smoke mode.",
-        "must not create project-root `build/` or `dist/` directories",
-        "macOS version",
-        "CPU architecture",
-        "account type",
-        "app path",
-        "DB path",
-        "settings path",
-        "Passing local temp-launch smoke is not clean-account validation.",
-        "Clean-account validation remains pending until this command is manually run from the clean account.",
-    ]
-    for fragment in required_fragments:
-        assert fragment in doc_text
-
-    forbidden_fragments = [
-        "clean-account validation completed",
-        "clean account validation completed",
-        "signed app is ready",
-        "notarized app is ready",
-        "installer completed",
-    ]
-    for fragment in forbidden_fragments:
-        assert fragment not in doc_text.lower()
-
-
-def test_release_docs_reference_clean_account_runbook_without_marking_gate_complete() -> None:
-    strategy_text = PACKAGING_STRATEGY_DOC.read_text(encoding="utf-8")
-    evidence_text = RELEASE_CANDIDATE_EVIDENCE_DOC.read_text(encoding="utf-8")
-    backlog_text = OPEN_SOURCE_RELEASE_BACKLOG_DOC.read_text(encoding="utf-8")
-
-    for doc_text in (strategy_text, evidence_text, backlog_text):
-        assert "docs/clean-macos-account-validation.md" in doc_text
-
-    assert "Clean macOS account validation" in strategy_text
-    assert "clean-account validation remains pending" in evidence_text.lower()
-    clean_account_row = next(
-        line for line in backlog_text.splitlines() if "| Clean app-bundle launch validation |" in line
-    )
-    clean_account_cells = [cell.strip() for cell in clean_account_row.strip("|").split("|")]
-    assert clean_account_cells == [
-        "P1",
-        "Clean app-bundle launch validation",
-        (
-            "Pending: follow `docs/clean-macos-account-validation.md`; generated temp app bundle must launch "
-            "on a clean macOS test account with PyInstaller warnings resolved or explicitly triaged."
-        ),
-    ]
-    assert "Completed" not in clean_account_cells[2]
 
 
 def test_pyinstaller_spec_declares_safe_xfinaudio_desktop_bundle_configuration() -> None:

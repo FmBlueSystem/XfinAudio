@@ -5,9 +5,28 @@ XfinAudio is a GPL-3.0-only desktop DJ playlist assistant for building metadata-
 ## Status
 
 - License posture: full open source under GPL-3.0-only. See `LICENSE` and `docs/open-source-license.md`.
-- Packaging posture: source/dev use is documented; binary/app bundle redistribution remains pending legal review.
-- Release posture: signing, notarization, DMG creation, and release publishing are not claimed complete.
+- Distribution model: XfinAudio ships as an installable Python package (source/wheel). Users install it with `pip`, `pipx`, or `uv tool` and the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses.
+- Packaging posture: no signed macOS `.app`/DMG is distributed. A self-contained binary bundle would require Developer ID signing, notarization, and separate legal review for binary redistribution, and is out of scope for this distribution model.
+- Platform posture: validated on macOS with Python 3.11. The dependencies are cross-platform, but Linux and Windows are not yet validated.
 - Publication checklist: follow `docs/repository-publication-checklist.md` before turning a local tree into a public source repository.
+
+## Install
+
+XfinAudio is distributed as a Python package, not as a signed binary. Install it as an isolated tool straight from the repository (no PyPI account or Apple Developer ID required):
+
+```bash
+uv tool install git+https://github.com/FmBlueSystem/XfinAudio.git
+# or
+pipx install git+https://github.com/FmBlueSystem/XfinAudio.git
+```
+
+Then launch the desktop app:
+
+```bash
+xfinaudio
+```
+
+Publishing the package to PyPI (so users can run `pipx install xfinaudio`) is an optional later step that requires a PyPI account and API token; it does not require code changes.
 
 ## Quick start for development
 
@@ -52,7 +71,7 @@ uv run python scripts/release_gate_check.py --run
 uv run python scripts/smoke_release_readiness.py
 ```
 
-Manual desktop QA is still required for real user workflows. Clean macOS account validation, signing, notarization, DMG checks, and binary redistribution review remain separate pending gates.
+Manual desktop QA is still required for real user workflows. Signed macOS `.app`/DMG redistribution is out of scope for this distribution model; GPLv3 and dependency-license compliance for package distribution still warrant legal review.
 
 ## License and dependency caveats
 

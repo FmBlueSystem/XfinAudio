@@ -28,11 +28,11 @@ The CI workflow exposes that heavy temp packaging build only as the manual `incl
 
 The runner covers every automated gate that does not require audio files. It runs or documents tests, lint, format, open-source publication docs, publication artifact hygiene, source package hygiene, PyInstaller check-only metadata, root artifact hygiene, and optional PyInstaller temp build + launch/warning triage without creating project-root `build/` or `dist/` artifacts.
 
-XfinAudio source is full open source under GPL-3.0-only. Redistribution must comply with GPLv3 and third-party dependency obligations. Binary/app bundle redistribution still needs legal review for PySide6/Qt, mutagen, and other third-party dependencies; No legal clearance is implied by this runbook.
+XfinAudio source is full open source under GPL-3.0-only and is distributed as a Python package. Redistribution must comply with GPLv3 and third-party dependency obligations. Signed macOS `.app`/DMG redistribution is out of scope; GPLv3 and dependency-license compliance for package distribution still warrant legal review. No legal clearance is implied by this runbook.
 
 Use `--report-json PATH` to persist structured CI/release evidence for check-only listing, `--run`, or `--include-packaging-build`. The report parent directories may be created, but the runner refuses to create project-root `build/` or `dist/` as report directories. Prefer a temporary path or a project-ignored local path for evidence that should not be committed.
 
-Use `scripts/render_release_gate_evidence.py REPORT_JSON [--output PATH]` to convert that JSON into a copy/paste Markdown snippet. The output still documents only non-audio gates and explicitly does not prove manual audio QA, clean macOS account validation, signing/notarization/DMG, or release completion.
+Use `scripts/render_release_gate_evidence.py REPORT_JSON [--output PATH]` to convert that JSON into a copy/paste Markdown snippet. The output still documents only non-audio gates and explicitly does not prove manual audio QA or release completion.
 
 Individual automated gate commands used by the runner are:
 
@@ -83,7 +83,7 @@ PASS release readiness smoke completed
 | Source package hygiene | Builds `uv build --out-dir` under a temporary directory, inspects the sdist/wheel for private/local files, confirms key public docs are in the sdist, and checks package metadata. |
 | Root artifact hygiene | Confirms project-root `build/` and `dist/` are absent. |
 
-The JSON report can support CI/release evidence, including failed runs because it is written before the runner returns a non-zero gate result. It still cannot prove real Mixed In Key audio QA, clean macOS account behavior, signing, notarization, DMG distribution, binary redistribution legal review, or release completion. Those remain manual/pending release gates.
+The JSON report can support CI/release evidence, including failed runs because it is written before the runner returns a non-zero gate result. It still cannot prove real Mixed In Key audio QA, which remains a manual pending gate. Signed macOS `.app`/DMG redistribution is out of scope for this distribution model.
 
 ## Automated smoke coverage
 
@@ -123,9 +123,10 @@ The automated smoke script does not create, read, render, mix, mutate, or analyz
 ## Known limitations
 
 - This is release readiness verification, not an installer or packaging workflow.
-- GPL-3.0-only source licensing does not clear PySide6/Qt, mutagen, or third-party dependency obligations for binary redistribution.
+- GPL-3.0-only source licensing does not clear PySide6/Qt, mutagen, or third-party dependency obligations for package distribution.
 - The automated smoke uses deterministic metadata fixtures, not real audio files.
-- The non-audio gate runner cannot prove real Mixed In Key audio QA, clean macOS account validation, signing, notarization, or DMG readiness.
+- The non-audio gate runner cannot prove real Mixed In Key audio QA.
+- Signed macOS `.app`/DMG redistribution is out of scope for this distribution model.
 - Desktop QA still requires a human-owned Mixed In Key processed sample folder.
 - Live Serato database/library writes remain out of scope.
 

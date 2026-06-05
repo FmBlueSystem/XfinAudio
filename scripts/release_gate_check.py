@@ -69,14 +69,10 @@ PACKAGING_BUILD_GATE = CommandGate(
 )
 MANUAL_GATE_NAMES = [
     "real Mixed In Key audio QA",
-    "clean macOS account validation",
-    "signing/notarization/DMG",
 ]
 MANUAL_GATES = [f"{gate}: PENDING MANUAL" for gate in MANUAL_GATE_NAMES]
 LIMITATIONS = [
     "Does not prove real Mixed In Key audio QA",
-    "Does not prove clean macOS account validation",
-    "Does not prove signing, notarization, DMG distribution, or release completion",
 ]
 
 
