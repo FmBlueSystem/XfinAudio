@@ -1,0 +1,28 @@
+# Local Pi/Claude runtime state and tooling (not part of the XfinAudio product)
+.atl/
+.pi/
+.claude/
+node_modules/
+package.json
+pnpm-lock.yaml
+PI_CLAUDE_BRIDGE_OPUS_4_8.md
+
+# OS/editor local state
+.DS_Store
+*.bak
+
+# Local/private handoff and credential files
+apiJira.txt
+context.md
+
+# Python local/runtime state
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+
+# Build/release evidence artifacts
+build/
+dist/
+.release-evidence/

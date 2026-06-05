@@ -1,0 +1,61 @@
+{
+  "flac_mik_json_preferred": {
+    "title": ["A Lover's Holiday (A Jim Burgess Mix) - 11B - Energy 7"],
+    "artist": ["Change"],
+    "bpm": ["116.000000"],
+    "initialkey": ["Am"],
+    "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiIxMUIiLCJzb3VyY2UiOiJtaXhlZGlua2V5In0=\n"],
+    "energy": ["eyJhbGdvcml0aG0iOjEzLCJlbmVyZ3lMZXZlbCI6Nywic291cmNlIjoibWl4ZWRpbmtleSJ9\n\n"],
+    "energylevel": ["7"],
+    "grouping": ["7"],
+    "comment": ["[⚡️6 | 💃0.92 | 🎤0.50 | ☀️0.50 | 🔊+6.5dB]"],
+    "genre": ["Disco, Funk & Soul"],
+    "mood": ["Euphoric, Danceable"],
+    "subgenre": ["Boogie"],
+    "dj_zone": ["Peak Mid"]
+  },
+  "flac_lowercase_variants_conflicting_energy": {
+    "title": ["Hey DJ - 9A - Energy 5"],
+    "artist": ["World's Famous Supreme Team"],
+    "bpm": ["94.890000"],
+    "tbpm": ["95"],
+    "ibpm": ["94"],
+    "tkey": ["9A"],
+    "initialkey": ["9A"],
+    "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiI5QSIsInNvdXJjZSI6Im1peGVkaW5rZXkifQ==\n"],
+    "energy": ["eyJhbGdvcml0aG0iOjEzLCJlbmVyZ3lMZXZlbCI6NSwic291cmNlIjoibWl4ZWRpbmtleSJ9\n\n"],
+    "energylevel": ["5"],
+    "grouping": ["4"],
+    "publisher": ["Energy 5"],
+    "comment": ["[⚡️4 | 💃0.65 | 🎤0.50 | ☀️0.50 | 🔊+6.0dB]"],
+    "genre": ["Hip-Hop & R&B"],
+    "mood": ["Classic, Party"],
+    "subgenre": ["Old School Hip-Hop"],
+    "dj_zone": ["Warm-Up Slow"]
+  },
+  "aiff_id3_without_mik_key_energy": {
+    "TIT2": ["Give It All You Got (Mic by Jason Willmon) - full track from MIK"],
+    "TBPM": ["128.550000"],
+    "TLEN": ["325079"],
+    "TXXX:Serato Analysis Flags": ["AAAAAAAAADg="],
+    "GEOB:Serato Autotags": ["<binary 24 bytes redacted>"],
+    "GEOB:Serato BeatGrid": ["<binary redacted>"],
+    "GEOB:Serato Overview": ["<binary redacted>"]
+  },
+  "flac_invalid_primary_bpm_uses_fallback": {
+    "title": ["Fallback BPM - 8A - Energy 6"],
+    "bpm": ["not-a-number"],
+    "tbpm": ["107.670000"],
+    "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiI4QSIsInNvdXJjZSI6Im1peGVkaW5rZXkifQ==\n"],
+    "energy": ["eyJhbGdvcml0aG0iOjEzLCJlbmVyZ3lMZXZlbCI6Niwic291cmNlIjoibWl4ZWRpbmtleSJ9\n\n"]
+  },
+  "flac_non_json_energy_uses_energylevel": {
+    "title": ["Energy Fallback - 9A - Energy 6"],
+    "bpm": ["112.670000"],
+    "initialkey": ["9A"],
+    "energy": ["not-json"],
+    "energylevel": ["6"],
+    "grouping": ["5"],
+    "comment": ["[⚡️4 | 💃0.65]"]
+  }
+}

@@ -1,0 +1,180 @@
+"""Playlist recommendation service combining strategy policy, controls, and sequencing."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict
+
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.controls import DJControls, apply_controls
+from xfinaudio.recommendation.optimizer import recommend_sequence
+from xfinaudio.recommendation.scoring import ScoringWeights, TransitionScore, score_transition
+from xfinaudio.recommendation.strategies import (
+    PlaylistStrategy,
+    StrategyName,
+    StrategyRegistry,
+    default_strategy_registry,
+)
+
+
+class PlaylistRecommendation(BaseModel):
+    """Product-level playlist recommendation returned to desktop callers."""
+
+    model_config = ConfigDict(frozen=True)
+
+    ordered_tracks: list[TrackRecord]
+    transition_scores: list[TransitionScore]
+    strategy: PlaylistStrategy
+    warnings: list[str]
+    applied_controls: dict[str, object]
+    optimizer: str
+    total_score: float
+
+
+def recommend_playlist(
+    tracks: list[TrackRecord],
+    strategy_name: StrategyName | str,
+    controls: DJControls | None = None,
+    weights_override: ScoringWeights | None = None,
+    strategy_registry: StrategyRegistry | None = None,
+) -> PlaylistRecommendation:
+    """Recommend a playlist using a strategy profile and optional DJ controls."""
+    strategy = (strategy_registry or default_strategy_registry()).get(str(strategy_name))
+    controls = controls or DJControls()
+    warnings: list[str] = []
+    complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
+    incomplete_count = len(tracks) - len(complete_tracks)
+    if incomplete_count:
+        warnings.append(f"Excluded {incomplete_count} incomplete track(s)")
+
+    filtered_tracks, filter_warnings = _apply_strategy_filters(
+        complete_tracks, strategy, preserve_paths=_preserved_control_paths(controls)
+    )
+    warnings.extend(filter_warnings)
+    applied = apply_controls(filtered_tracks, controls)
+    weights = weights_override or strategy.weights
+
+    manual_prefix = _manual_prefix_without_terminal_end(applied.manual_prefix, applied.end_path)
+    manual_paths = {track.path for track in manual_prefix}
+    remaining_tracks = [track for track in applied.candidate_tracks if track.path not in manual_paths]
+    start_path = applied.start_path if not manual_prefix else None
+    if manual_prefix and applied.start_path not in (None, manual_prefix[0].path):
+        warnings.append("start_path ignored because manual order prefix is applied")
+
+    if _vibe_metadata_unavailable(strategy, applied.candidate_tracks):
+        warnings.append("same_vibe metadata unavailable; falling back to harmonic sequencing")
+
+    if _uses_strategy_order(strategy):
+        sequenced_tracks = _apply_terminal_constraints(remaining_tracks, start_path, applied.end_path)
+        optimizer = "strategy-order"
+    else:
+        sequenced = recommend_sequence(
+            remaining_tracks,
+            start_path=start_path,
+            end_path=applied.end_path,
+            weights=weights,
+        )
+        sequenced_tracks = sequenced.ordered_tracks
+        optimizer = sequenced.optimizer
+
+    ordered_tracks = [*manual_prefix, *sequenced_tracks]
+    transition_scores = _score_ordered_tracks(ordered_tracks, weights)
+
+    return PlaylistRecommendation(
+        ordered_tracks=ordered_tracks,
+        transition_scores=transition_scores,
+        strategy=strategy,
+        warnings=warnings,
+        applied_controls=applied.summary(),
+        optimizer=optimizer,
+        total_score=sum(score.total_score for score in transition_scores),
+    )
+
+
+def _manual_prefix_without_terminal_end(manual_prefix: list[TrackRecord], end_path: str | None) -> list[TrackRecord]:
+    if end_path is None:
+        return manual_prefix
+    return [track for track in manual_prefix if track.path != end_path]
+
+
+def _uses_strategy_order(strategy: PlaylistStrategy) -> bool:
+    return strategy.sort_hint in {"energy_ascending", "energy_descending", "bpm_ascending"}
+
+
+def _apply_terminal_constraints(
+    tracks: list[TrackRecord], start_path: str | None, end_path: str | None
+) -> list[TrackRecord]:
+    ordered = list(tracks)
+    if start_path is not None:
+        ordered = _move_path_to_edge(ordered, start_path, first=True)
+    if end_path is not None:
+        ordered = _move_path_to_edge(ordered, end_path, first=False)
+    return ordered
+
+
+def _move_path_to_edge(tracks: list[TrackRecord], path: str, *, first: bool) -> list[TrackRecord]:
+    matching = [track for track in tracks if track.path == path]
+    if not matching:
+        return tracks
+    others = [track for track in tracks if track.path != path]
+    return [*matching, *others] if first else [*others, *matching]
+
+
+def _apply_strategy_filters(
+    tracks: list[TrackRecord], strategy: PlaylistStrategy, preserve_paths: set[str]
+) -> tuple[list[TrackRecord], list[str]]:
+    filtered = tracks
+    warnings: list[str] = []
+    if strategy.energy_range is not None:
+        low, high = strategy.energy_range
+        filtered = [
+            track
+            for track in filtered
+            if track.path in preserve_paths or (track.energy_level is not None and low <= track.energy_level <= high)
+        ]
+        removed = len(tracks) - len(filtered)
+        if removed:
+            warnings.append(f"Filtered {removed} track(s) outside {strategy.name} energy range")
+    if strategy.bpm_range is not None:
+        low, high = strategy.bpm_range
+        before = len(filtered)
+        filtered = [
+            track
+            for track in filtered
+            if track.path in preserve_paths or (track.bpm is not None and low <= track.bpm <= high)
+        ]
+        removed = before - len(filtered)
+        if removed:
+            warnings.append(f"Filtered {removed} track(s) outside {strategy.name} BPM range")
+    return _sort_by_hint(filtered, strategy), warnings
+
+
+def _preserved_control_paths(controls: DJControls) -> set[str]:
+    preserved = set(controls.locked_paths) | set(controls.manual_order_paths)
+    if controls.start_path is not None:
+        preserved.add(controls.start_path)
+    if controls.end_path is not None:
+        preserved.add(controls.end_path)
+    return preserved - controls.excluded_paths
+
+
+def _sort_by_hint(tracks: list[TrackRecord], strategy: PlaylistStrategy) -> list[TrackRecord]:
+    if strategy.sort_hint == "energy_ascending":
+        return sorted(tracks, key=lambda track: (track.energy_level is None, track.energy_level or 0, track.path))
+    if strategy.sort_hint == "energy_descending":
+        return sorted(tracks, key=lambda track: (track.energy_level is None, -(track.energy_level or 0), track.path))
+    if strategy.sort_hint == "bpm_ascending":
+        return sorted(tracks, key=lambda track: (track.bpm is None, track.bpm or 0.0, track.path))
+    return sorted(tracks, key=lambda track: track.path)
+
+
+def _vibe_metadata_unavailable(strategy: PlaylistStrategy, tracks: list[TrackRecord]) -> bool:
+    if not (strategy.requires_vibe_metadata and strategy.degrade_without_vibe_metadata):
+        return False
+    return all(not track.genre and not track.tags for track in tracks)
+
+
+def _score_ordered_tracks(tracks: list[TrackRecord], weights: ScoringWeights) -> list[TransitionScore]:
+    return [score_transition(left, right, weights=weights) for left, right in zip(tracks, tracks[1:], strict=False)]
+
+
+__all__ = ["PlaylistRecommendation", "recommend_playlist"]

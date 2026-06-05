@@ -1,0 +1,75 @@
+name: Non-audio release gates
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_packaging_build:
+        description: "Run the optional temp PyInstaller packaging build gate"
+        required: false
+        type: boolean
+        default: false
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  non-audio-release-gates:
+    name: Non-audio release gates
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Prepare release evidence directory
+        run: mkdir -p .release-evidence
+
+      - name: Run optional packaging release gates
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_packaging_build }}
+        run: >-
+          uv run python scripts/release_gate_check.py
+          --include-packaging-build
+          --report-json .release-evidence/release-gate-report.json
+
+      - name: Run default non-audio release gates
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.include_packaging_build }}
+        run: >-
+          uv run python scripts/release_gate_check.py --run
+          --report-json .release-evidence/release-gate-report.json
+
+      - name: Render non-audio release gate Markdown evidence
+        if: always()
+        run: >-
+          uv run python scripts/render_release_gate_evidence.py
+          .release-evidence/release-gate-report.json
+          --output .release-evidence/release-gate-evidence.md
+
+      - name: Append non-audio release gate evidence to step summary
+        if: always()
+        run: cat .release-evidence/release-gate-evidence.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload non-audio release gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: non-audio-release-gate-evidence
+          path: |
+            .release-evidence/release-gate-report.json
+            .release-evidence/release-gate-evidence.md
+          if-no-files-found: error
