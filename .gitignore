@@ -25,4 +25,5 @@ __pycache__/
 # Build/release evidence artifacts
 build/
 dist/
+release-dist/
 .release-evidence/

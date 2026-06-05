@@ -6,6 +6,22 @@ This plan defines the macOS binary/app bundle redistribution path for the GPL-3.
 
 Binary/app bundle redistribution, PySide6/Qt, mutagen, signing/notarization/DMG, and third-party dependencies still require release-specific legal review. No legal clearance is implied.
 
+## Executable runbook
+
+Once every gate below is satisfied and a Developer ID Application certificate
+plus a notarytool keychain profile are available, the full chain is automated
+by `scripts/sign_notarize_dmg.sh`. It reads all secrets from the environment
+and the macOS keychain and writes signed artifacts to `release-dist/` (ignored
+by git). The script is syntax- and shellcheck-validated but has not been run
+end-to-end because no signing identity exists in the development environment.
+
+```bash
+export XFIN_SIGN_IDENTITY="Developer ID Application: <Company> (<TEAMID>)"
+export XFIN_TEAM_ID="<TEAMID>"
+export XFIN_NOTARY_PROFILE="<notarytool-profile>"
+scripts/sign_notarize_dmg.sh
+```
+
 ## Quick path after gates pass
 
 1. Build the PyInstaller `.app` candidate from the approved release process.
