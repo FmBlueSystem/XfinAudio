@@ -32,6 +32,7 @@ from xfinaudio.config.settings import AppSettings, ExportSettings
 from xfinaudio.desktop._workers import BackgroundWorker, ScanWorker
 from xfinaudio.desktop.export_coordinator import record_export, write_readiness_sidecars
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
+from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
@@ -1524,42 +1525,7 @@ class MainWindow(QMainWindow):
 
     def _desktop_recommendation_records(self, controls: DJControls | None) -> list[TrackRecord]:
         """Return an interactive-size recommendation pool while preserving selected control tracks."""
-        complete_records = [record for record in self.scanned_records if record.metadata_status == "complete"]
-        priority_paths: list[str] = []
-        if controls is not None:
-            priority_paths.extend(controls.manual_order_paths)
-            if controls.start_path is not None:
-                priority_paths.append(controls.start_path)
-            if controls.end_path is not None:
-                priority_paths.append(controls.end_path)
-            priority_paths.extend(sorted(controls.locked_paths))
-
-        unique_priority_paths = list(dict.fromkeys(priority_paths))
-        by_path = {record.path: record for record in complete_records}
-        priority_records = [by_path[path] for path in unique_priority_paths if path in by_path]
-        priority_set = {record.path for record in priority_records}
-        remaining_slots = max(0, _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT - len(priority_records))
-        remaining_records = [record for record in complete_records if record.path not in priority_set]
-        if not priority_records or remaining_slots == 0:
-            return [*priority_records, *remaining_records[:remaining_slots]]
-
-        anchor_terms = set().union(*(_track_vibe_terms(record) for record in priority_records))
-        if not anchor_terms:
-            return [*priority_records, *remaining_records[:remaining_slots]]
-
-        terms_by_path = {record.path: _track_vibe_terms(record) for record in remaining_records}
-        compatible_records = [record for record in remaining_records if anchor_terms & terms_by_path[record.path]]
-        compatible_paths = {record.path for record in compatible_records}
-        fallback_records = [record for record in remaining_records if record.path not in compatible_paths]
-        compatible_records = sorted(
-            compatible_records,
-            key=lambda record: _track_similarity_key(anchor_terms, priority_records, record),
-        )
-        fallback_records = sorted(
-            fallback_records,
-            key=lambda record: _track_similarity_key(anchor_terms, priority_records, record),
-        )
-        return [*priority_records, *compatible_records, *fallback_records][:_DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT]
+        return build_recommendation_pool(self.scanned_records, controls, _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT)
 
     def _begin_recommendation_state(self, candidate_count: int) -> None:
         """Disable recommendation controls while the optimizer runs."""
