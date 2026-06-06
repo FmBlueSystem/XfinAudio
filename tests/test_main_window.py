@@ -1510,6 +1510,18 @@ def test_main_window_collapses_empty_recommendation_sections_to_prioritize_brows
     assert window.song_search_input.placeholderText() == "Search songs"
 
 
+def test_main_window_uses_two_row_responsive_command_bars_for_mac_resolution() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.song_search_input.maximumWidth() <= 220
+    assert window.prep_copilot_genre_focus_input.maximumWidth() <= 360
+    assert window.recommend_button.minimumWidth() <= 260
+    assert window.prep_copilot_button.minimumWidth() <= 220
+    assert window.folder_label.maximumWidth() <= 260
+    assert window.library_guidance_label.maximumWidth() <= 560
+
+
 def test_main_window_shows_dj_readiness_after_recommendation(tmp_path) -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
