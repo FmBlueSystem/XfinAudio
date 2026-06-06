@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
 from xfinaudio.desktop._workers import BackgroundWorker, ScanWorker
+from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
@@ -893,15 +894,11 @@ class MainWindow(QMainWindow):
 
     def _metadata_status_records(self, status: str) -> list[TrackRecord]:
         """Return records matching the requested metadata status."""
-        return [record for record in self.scanned_records if record.metadata_status == status]
+        return metadata_status_records(self.scanned_records, status)
 
     def _metadata_missing_field_records(self, missing_field: str) -> list[TrackRecord]:
         """Return incomplete records missing the requested metadata field."""
-        return [
-            record
-            for record in self.scanned_records
-            if record.metadata_status == "incomplete" and missing_field in record.missing_required_fields
-        ]
+        return metadata_missing_field_records(self.scanned_records, missing_field)
 
     def restore_persisted_tracks(self, records: list[TrackRecord]) -> None:
         """Restore app-owned persisted tracks into the visible desktop session."""
