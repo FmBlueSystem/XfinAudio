@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
-
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 
 
-def _record(path: str, bpm: float | None = None, genre: str | None = None, tags: list[str] | None = None) -> TrackRecord:
+def _record(
+    path: str, bpm: float | None = None, genre: str | None = None, tags: list[str] | None = None
+) -> TrackRecord:
     return TrackRecord(
         path=path,
         metadata_status="complete",
