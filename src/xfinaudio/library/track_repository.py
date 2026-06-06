@@ -66,6 +66,19 @@ class TrackRepository:
             ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
+    def list_display_tracks(self) -> list[TrackRecord]:
+        """Return persisted tracks for UI display without loading large raw metadata blobs."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT path, title, artist, bpm, camelot_key, energy_level, genre, tags_json,
+                       metadata_status, missing_required_fields_json
+                FROM tracks
+                ORDER BY path
+                """
+            ).fetchall()
+        return [self._display_row_to_record(row) for row in rows]
+
     def _initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
@@ -147,4 +160,19 @@ class TrackRepository:
             missing_required_fields=json.loads(row["missing_required_fields_json"]),
             source_fields=json.loads(row["source_fields_json"]),
             raw_metadata=json.loads(row["raw_metadata_json"]),
+        )
+
+    @staticmethod
+    def _display_row_to_record(row: sqlite3.Row) -> TrackRecord:
+        return TrackRecord(
+            path=row["path"],
+            title=row["title"],
+            artist=row["artist"],
+            bpm=row["bpm"],
+            camelot_key=row["camelot_key"],
+            energy_level=row["energy_level"],
+            genre=row["genre"],
+            tags=json.loads(row["tags_json"]),
+            metadata_status=row["metadata_status"],
+            missing_required_fields=json.loads(row["missing_required_fields_json"]),
         )

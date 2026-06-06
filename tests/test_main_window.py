@@ -1,14 +1,18 @@
 from pathlib import Path
 
+from PySide6.QtCore import QItemSelectionModel
 from PySide6.QtWidgets import QApplication
 
-from xfinaudio.config.settings import AppSettings, ExportSettings
+from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings
 from xfinaudio.desktop import main_window
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.exporting.explainability import PlaylistExplanation, TrackExplanation, TransitionExplanation
+from xfinaudio.exporting.serato_crate import parse_serato_crate_bytes
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancelledError, ScanProgress
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
+from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.playlist_service import recommend_playlist
 
 
 def ensure_app() -> QApplication:
@@ -57,6 +61,43 @@ class FakeSettingsRepository:
         self.saved_settings = settings
 
 
+class RefreshingScanService:
+    def __init__(self, records: list[TrackRecord]) -> None:
+        self.records = records
+        self.scanned_folder: Path | None = None
+
+    def scan(self, folder: Path, **kwargs) -> list[TrackRecord]:
+        self.scanned_folder = folder
+        progress_callback = kwargs.get("on_progress")
+        if progress_callback is not None:
+            progress_callback(
+                ScanProgress(
+                    processed_count=len(self.records),
+                    total_count=len(self.records),
+                    current_path=folder,
+                )
+            )
+        return self.records
+
+
+def make_recommendation(records: list[TrackRecord]):
+    return recommend_playlist(records, "build")
+
+
+def _visible_track_titles(window: MainWindow) -> list[str]:
+    return [
+        window.tracks_table.item(row, 0).text()
+        for row in range(window.tracks_table.rowCount())
+        if not window.tracks_table.isRowHidden(row)
+    ]
+
+
+def _track_table_headers(window: MainWindow) -> list[str]:
+    return [
+        window.tracks_table.horizontalHeaderItem(column).text() for column in range(window.tracks_table.columnCount())
+    ]
+
+
 def test_main_window_constructs_desktop_scanning_skeleton() -> None:
     app = ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
@@ -81,6 +122,63 @@ def test_main_window_displays_initial_empty_state_guidance() -> None:
     assert window.review_summary_label.text() == "No recommendation is ready for review."
     assert window.transition_review_table.rowCount() == 0
     assert window.safe_export_folder_label.text() == "No safe export folder selected"
+
+
+def test_main_window_initial_flow_disables_invalid_next_actions() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.scan_button.isEnabled() is False
+    assert window.recommend_button.isEnabled() is False
+    assert window.cancel_scan_button.isEnabled() is False
+
+
+def test_main_window_selecting_folder_enables_scan_but_not_recommendation(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    window.set_selected_folder(tmp_path)
+
+    assert window.scan_button.isEnabled() is True
+    assert window.recommend_button.isEnabled() is False
+
+
+def test_main_window_changing_folder_clears_stale_scan_and_recommendation_state(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    first_folder = tmp_path / "first"
+    second_folder = tmp_path / "second"
+
+    window.set_selected_folder(first_folder)
+    window.scan_selected_folder()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
+    window.tracks_table.selectRow(0)
+    window.strategy_combo.setCurrentText("warmup")
+    window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
+
+    window.set_selected_folder(second_folder)
+
+    assert window.scanned_records == []
+    assert window.tracks_table.rowCount() == 0
+    assert window.recommendation_table.rowCount() == 0
+    assert window.recommend_button.isEnabled() is False
+    assert window.recommendation_guidance_label.text() == "Scan metadata before recommending a playlist."
+
+
+def test_main_window_recommendation_becomes_available_only_after_successful_scan_and_selection(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    window.set_selected_folder(tmp_path)
+    window.scan_selected_folder()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
+
+    assert window.recommend_button.isEnabled() is False
+
+    window.tracks_table.selectRow(0)
+
+    assert window.recommend_button.isEnabled() is True
 
 
 def test_format_quality_summary_lists_review_counts() -> None:
@@ -111,6 +209,30 @@ def test_main_window_displays_existing_safe_export_folder(tmp_path) -> None:
     assert window.safe_export_folder_label.text() == f"Safe export folder: {export_folder}"
 
 
+def test_main_window_restores_last_scan_folder_without_clearing_saved_library(tmp_path) -> None:
+    ensure_app()
+    library_folder = tmp_path / "library"
+    window = MainWindow(
+        scan_service=FakeScanService(),
+        repository=FakeRepository(),
+        settings=AppSettings(library=LibrarySettings(last_scan_folder=library_folder)),
+    )
+    window.restore_persisted_tracks(
+        [
+            TrackRecord(
+                path=str(library_folder / "persisted.flac"),
+                title="Persisted",
+                metadata_status="complete",
+            )
+        ]
+    )
+
+    assert window.selected_folder == library_folder
+    assert window.tracks_table.rowCount() == 1
+    assert window.scan_button.isEnabled() is True
+    assert "refresh metadata" in window.library_guidance_label.text()
+
+
 def test_main_window_setting_safe_export_folder_persists_and_updates_label(tmp_path) -> None:
     ensure_app()
     settings_repository = FakeSettingsRepository()
@@ -128,6 +250,21 @@ def test_main_window_setting_safe_export_folder_persists_and_updates_label(tmp_p
     assert settings_repository.saved_settings.export.safe_export_folder == export_folder
 
 
+def test_main_window_persists_selected_scan_folder_for_future_refresh(tmp_path) -> None:
+    ensure_app()
+    settings_repository = FakeSettingsRepository()
+    window = MainWindow(
+        scan_service=FakeScanService(),
+        repository=FakeRepository(),
+        settings_repository=settings_repository,
+    )
+
+    window.set_selected_folder(tmp_path)
+
+    assert settings_repository.saved_settings is not None
+    assert settings_repository.saved_settings.library.last_scan_folder == tmp_path
+
+
 def test_main_window_rejects_safe_export_folder_equal_to_audio_scan_folder(tmp_path) -> None:
     ensure_app()
     settings_repository = FakeSettingsRepository()
@@ -137,10 +274,13 @@ def test_main_window_rejects_safe_export_folder_equal_to_audio_scan_folder(tmp_p
         settings_repository=settings_repository,
     )
     window.set_selected_folder(tmp_path)
+    saved_after_folder = settings_repository.saved_settings
 
     window.set_safe_export_folder(tmp_path)
 
-    assert settings_repository.saved_settings is None
+    assert settings_repository.saved_settings == saved_after_folder
+    assert settings_repository.saved_settings is not None
+    assert settings_repository.saved_settings.export.safe_export_folder is None
     assert window.safe_export_folder_label.text() == "No safe export folder selected"
     assert "must be outside the selected audio folder" in window.status_label.text()
 
@@ -153,11 +293,179 @@ def test_main_window_scan_action_populates_table_and_status_counts(tmp_path) -> 
 
     window.set_selected_folder(tmp_path)
     window.scan_selected_folder()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
 
     assert scan_service.scanned_folder == tmp_path
     assert len(repository.saved_records) == 2
     assert window.tracks_table.rowCount() == 2
     assert window.status_label.text() == "Scan complete: 1 complete, 1 incomplete"
+
+
+def test_main_window_refresh_reports_metadata_completion_delta(tmp_path) -> None:
+    ensure_app()
+    track_path = str(tmp_path / "track.flac")
+    scan_service = RefreshingScanService(
+        [
+            TrackRecord(
+                path=track_path,
+                title="Track",
+                bpm=120,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            )
+        ]
+    )
+    window = MainWindow(scan_service=scan_service, repository=FakeRepository())
+    window.selected_folder = tmp_path
+    window.scanned_records = [
+        TrackRecord(
+            path=track_path,
+            title="Track",
+            bpm=120,
+            metadata_status="incomplete",
+            missing_required_fields=["camelot_key", "energy_level"],
+        )
+    ]
+    window.show_tracks(window.scanned_records)
+
+    window.scan_selected_folder()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
+
+    assert scan_service.scanned_folder == tmp_path
+    assert window.status_label.text() == "Refresh complete: 1 incomplete → 0 incomplete; 1 fixed"
+
+
+def test_main_window_filters_library_by_song_title(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.show_tracks(
+        [
+            TrackRecord(
+                path=str(tmp_path / "one.flac"),
+                title="Love Song",
+                artist="Artist",
+                metadata_status="complete",
+            ),
+            TrackRecord(
+                path=str(tmp_path / "two.flac"),
+                title="Night Drive",
+                artist="Love Artist",
+                metadata_status="complete",
+            ),
+            TrackRecord(
+                path=str(tmp_path / "three.flac"),
+                title="Another Love",
+                artist="Singer",
+                metadata_status="complete",
+            ),
+        ]
+    )
+
+    window.song_search_input.setText("love")
+
+    assert _visible_track_titles(window) == ["Love Song", "Another Love"]
+
+
+def test_main_window_filters_library_by_metadata_status_and_shows_missing_fields(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    complete_path = str(tmp_path / "complete.flac")
+    incomplete_path = str(tmp_path / "incomplete.flac")
+    window.scanned_records = [
+        TrackRecord(
+            path=complete_path,
+            title="Ready Track",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=incomplete_path,
+            title="Needs Tags",
+            bpm=120,
+            metadata_status="incomplete",
+            missing_required_fields=["camelot_key", "energy_level"],
+        ),
+    ]
+    window.show_tracks(window.scanned_records)
+
+    missing_column = _track_table_headers(window).index("Missing")
+    window.metadata_status_filter_combo.setCurrentText("Incomplete")
+
+    assert _visible_track_titles(window) == ["Needs Tags"]
+    assert window.tracks_table.item(1, missing_column).text() == "Camelot key, energy level"
+
+    window.metadata_status_filter_combo.setCurrentText("Complete")
+
+    assert _visible_track_titles(window) == ["Ready Track"]
+
+
+def test_main_window_filters_library_by_specific_missing_metadata_field(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = [
+        TrackRecord(
+            path=str(tmp_path / "needs-key.flac"),
+            title="Needs Key",
+            metadata_status="incomplete",
+            missing_required_fields=["camelot_key"],
+        ),
+        TrackRecord(
+            path=str(tmp_path / "needs-energy.flac"),
+            title="Needs Energy",
+            metadata_status="incomplete",
+            missing_required_fields=["energy_level"],
+        ),
+        TrackRecord(
+            path=str(tmp_path / "ready.flac"),
+            title="Ready",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        ),
+    ]
+    window.show_tracks(window.scanned_records)
+
+    window.missing_metadata_filter_combo.setCurrentText("Missing Key")
+
+    assert _visible_track_titles(window) == ["Needs Key"]
+
+
+def test_main_window_sorts_library_bpm_column_numerically(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.show_tracks(
+        [
+            TrackRecord(path=str(tmp_path / "high.flac"), title="High", bpm=128, metadata_status="complete"),
+            TrackRecord(path=str(tmp_path / "low.flac"), title="Low", bpm=95, metadata_status="complete"),
+            TrackRecord(path=str(tmp_path / "mid.flac"), title="Mid", bpm=104, metadata_status="complete"),
+        ]
+    )
+
+    window.tracks_table.horizontalHeader().sectionClicked.emit(2)
+
+    assert _visible_track_titles(window) == ["Low", "Mid", "High"]
+
+
+def test_main_window_sorted_selection_maps_to_correct_track_path(tmp_path) -> None:
+    ensure_app()
+    low_bpm_path = str(tmp_path / "low.flac")
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = [
+        TrackRecord(path=str(tmp_path / "high.flac"), title="High", bpm=128, metadata_status="complete"),
+        TrackRecord(path=low_bpm_path, title="Low", bpm=95, metadata_status="complete"),
+    ]
+    window.show_tracks(window.scanned_records)
+
+    window.tracks_table.horizontalHeader().sectionClicked.emit(2)
+    window.tracks_table.selectRow(0)
+
+    controls = window._selected_track_controls()
+    assert controls is not None
+    assert controls.start_path == low_bpm_path
 
 
 def test_main_window_scan_progress_controls_start_disabled() -> None:
@@ -175,6 +483,7 @@ def test_main_window_scan_enables_cancel_and_updates_progress_then_disables_on_s
 
     window.set_selected_folder(tmp_path)
     window.scan_selected_folder()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
 
     assert window.cancel_scan_button.isEnabled() is False
     assert window.scan_progress_label.text() == f"Scan progress: 1/2 - {tmp_path / 'track.flac'}"
@@ -214,6 +523,7 @@ def test_main_window_cancelled_scan_status_and_no_partial_persistence(tmp_path) 
 
     window.set_selected_folder(tmp_path)
     window.scan_selected_folder()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
 
     assert repository.saved_records == []
     assert window.scanned_records == []
@@ -228,12 +538,15 @@ def test_main_window_updates_guidance_after_scan_and_recommend(tmp_path) -> None
 
     window.set_selected_folder(tmp_path)
     window.scan_selected_folder()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
 
     assert "Choose a strategy" in window.recommendation_guidance_label.text()
     assert "Recommend Playlist" in window.recommendation_guidance_label.text()
 
+    window.tracks_table.selectRow(0)
     window.strategy_combo.setCurrentText("warmup")
     window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
 
     assert "Review scores and warnings" in window.export_guidance_label.text()
     assert "safe export" in window.export_guidance_label.text()
@@ -245,14 +558,148 @@ def test_main_window_recommend_action_populates_playlist_table_and_status(tmp_pa
 
     window.set_selected_folder(tmp_path)
     window.scan_selected_folder()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
+    window.tracks_table.selectRow(0)
     window.strategy_combo.setCurrentText("warmup")
     window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
 
     assert window.recommendation_table.rowCount() == 1
-    path_item = window.recommendation_table.item(0, 6)
+    headers = [
+        window.recommendation_table.horizontalHeaderItem(column).text()
+        for column in range(window.recommendation_table.columnCount())
+    ]
+    path_item = window.recommendation_table.item(0, headers.index("Path"))
     assert path_item is not None
     assert path_item.text() == str(tmp_path / "track.flac")
     assert window.status_label.text() == "Recommended 1 track(s) using warmup"
+
+
+def test_main_window_recommendation_uses_single_selected_track_as_start(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = [
+        TrackRecord(
+            path=str(tmp_path / "a.flac"),
+            title="A",
+            bpm=120.0,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "b.flac"),
+            title="B",
+            bpm=120.0,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        ),
+    ]
+    window.show_tracks(window.scanned_records)
+    window._refresh_idle_action_state()
+    window.tracks_table.selectRow(1)
+
+    window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
+
+    assert window.last_recommendation is not None
+    assert window.last_recommendation.ordered_tracks[0].path == str(tmp_path / "b.flac")
+    assert window.last_recommendation.applied_controls["start_path"] == str(tmp_path / "b.flac")
+
+
+def test_main_window_recommendation_uses_multiple_selected_tracks_as_manual_prefix(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = [
+        TrackRecord(
+            path=str(tmp_path / "a.flac"),
+            title="A",
+            bpm=120.0,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "b.flac"),
+            title="B",
+            bpm=120.0,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "c.flac"),
+            title="C",
+            bpm=120.0,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        ),
+    ]
+    window.show_tracks(window.scanned_records)
+    window._refresh_idle_action_state()
+    selection_model = window.tracks_table.selectionModel()
+    assert selection_model is not None
+    selection_model.select(
+        window.tracks_table.model().index(0, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    selection_model.select(
+        window.tracks_table.model().index(2, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+
+    window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
+
+    assert window.last_recommendation is not None
+    assert [track.path for track in window.last_recommendation.ordered_tracks[:2]] == [
+        str(tmp_path / "a.flac"),
+        str(tmp_path / "c.flac"),
+    ]
+    assert window.last_recommendation.applied_controls["manual_order_paths"] == [
+        str(tmp_path / "a.flac"),
+        str(tmp_path / "c.flac"),
+    ]
+
+
+def test_main_window_shows_genre_and_tags_subgenre_columns(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    record = TrackRecord(
+        path=str(tmp_path / "track.flac"),
+        title="Track",
+        artist="Artist",
+        bpm=124.0,
+        camelot_key="8B",
+        energy_level=7,
+        genre="Disco, Funk & Soul",
+        tags=["Boogie", "Peak Mid"],
+        metadata_status="complete",
+    )
+
+    window.show_tracks([record])
+    window.show_recommendation([record], "build")
+
+    track_headers = [
+        window.tracks_table.horizontalHeaderItem(column).text() for column in range(window.tracks_table.columnCount())
+    ]
+    recommendation_headers = [
+        window.recommendation_table.horizontalHeaderItem(column).text()
+        for column in range(window.recommendation_table.columnCount())
+    ]
+
+    assert "Genre" in track_headers
+    assert "Tags/Subgenre" in track_headers
+    assert "Genre" in recommendation_headers
+    assert "Tags/Subgenre" in recommendation_headers
+    assert window.tracks_table.item(0, track_headers.index("Genre")).text() == "Disco, Funk & Soul"
+    assert window.tracks_table.item(0, track_headers.index("Tags/Subgenre")).text() == "Boogie, Peak Mid"
+    assert window.recommendation_table.item(0, recommendation_headers.index("Genre")).text() == "Disco, Funk & Soul"
+    recommendation_tags_item = window.recommendation_table.item(0, recommendation_headers.index("Tags/Subgenre"))
+    assert recommendation_tags_item is not None
+    assert recommendation_tags_item.text() == "Boogie, Peak Mid"
 
 
 def test_main_window_recommend_action_exposes_transition_explanation_table_data(tmp_path) -> None:
@@ -277,8 +724,11 @@ def test_main_window_recommend_action_exposes_transition_explanation_table_data(
         ),
     ]
 
+    window.show_tracks(window.scanned_records)
+    window.tracks_table.selectRow(0)
     window.strategy_combo.setCurrentText("harmonic_journey")
     window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
 
     assert window.recommendation_table.columnCount() >= 9
     score_item = window.recommendation_table.item(1, 7)
@@ -310,8 +760,11 @@ def test_main_window_recommend_action_populates_review_summary(tmp_path) -> None
         ),
     ]
 
+    window.show_tracks(window.scanned_records)
+    window.tracks_table.selectRow(0)
     window.strategy_combo.setCurrentText("harmonic_journey")
     window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
 
     summary = window.review_summary_label.text()
     assert "Tracks: 2" in summary
@@ -344,8 +797,11 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
         ),
     ]
 
+    window.show_tracks(window.scanned_records)
+    window.tracks_table.selectRow(0)
     window.strategy_combo.setCurrentText("harmonic_journey")
     window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
 
     headers = [
         window.transition_review_table.horizontalHeaderItem(column).text()
@@ -399,8 +855,11 @@ def test_main_window_recommend_action_guides_review_table_before_export(tmp_path
         ),
     ]
 
+    window.show_tracks(window.scanned_records)
+    window.tracks_table.selectRow(0)
     window.strategy_combo.setCurrentText("harmonic_journey")
     window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
 
     guidance = window.export_guidance_label.text()
     assert "Inspect the review table" in guidance
@@ -466,7 +925,584 @@ def test_recommendation_table_formats_warning_cells_without_mutating_raw_explana
 
     window.show_recommendation([left, right], "harmonic_journey", explanation)
 
-    warnings_item = window.recommendation_table.item(1, 8)
+    headers = [
+        window.recommendation_table.horizontalHeaderItem(column).text()
+        for column in range(window.recommendation_table.columnCount())
+    ]
+    warnings_item = window.recommendation_table.item(1, headers.index("Warnings"))
     assert warnings_item is not None
     assert warnings_item.text() == main_window.format_recommendation_warning(raw_warning)
     assert window.last_playlist_explanation.transitions[0].warnings == [raw_warning]
+
+
+def _process_events_until(predicate, timeout_ms: int = 3000) -> None:
+    app = ensure_app()
+    deadline = __import__("time").monotonic() + timeout_ms / 1000
+    while not predicate():
+        app.processEvents()
+        if __import__("time").monotonic() > deadline:
+            raise AssertionError("condition was not reached while processing Qt events")
+        __import__("time").sleep(0.01)
+
+
+class SlowFakeScanService(FakeScanService):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = __import__("threading").Event()
+        self.release = __import__("threading").Event()
+
+    def scan(self, folder: Path, **kwargs) -> list[TrackRecord]:
+        self.started.set()
+        self.release.wait(timeout=3)
+        return super().scan(folder, **kwargs)
+
+
+def test_main_window_scan_runs_in_background_without_blocking_ui(tmp_path) -> None:
+    ensure_app()
+    scan_service = SlowFakeScanService()
+    window = MainWindow(scan_service=scan_service, repository=FakeRepository())
+    window.set_selected_folder(tmp_path)
+
+    window.scan_selected_folder()
+
+    assert scan_service.started.wait(timeout=1)
+    assert window.scan_button.isEnabled() is False
+    assert window.cancel_scan_button.isEnabled() is True
+    assert window.status_label.text() == "Scanning metadata"
+
+    scan_service.release.set()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
+
+    assert window.tracks_table.rowCount() == 2
+    assert window.status_label.text() == "Scan complete: 1 complete, 1 incomplete"
+    assert window.scan_button.isEnabled() is True
+
+
+class SlowFakeRecommendationWorkflow:
+    def __init__(self, result) -> None:
+        self.result = result
+        self.started = __import__("threading").Event()
+        self.release = __import__("threading").Event()
+
+    def recommend(self, records: list[TrackRecord], strategy_name: str, **kwargs):
+        self.started.set()
+        self.release.wait(timeout=3)
+        return self.result
+
+
+def test_main_window_recommendation_runs_in_background_without_blocking_ui(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = [
+        TrackRecord(
+            path=str(tmp_path / "a.flac"),
+            title="A",
+            bpm=124.0,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        )
+    ]
+    window.show_tracks(window.scanned_records)
+    window.tracks_table.selectRow(0)
+    window.strategy_combo.setCurrentText("warmup")
+    expected_result = window.workflow_service.recommend(window.scanned_records, "warmup")
+    slow_workflow = SlowFakeRecommendationWorkflow(expected_result)
+    window.workflow_service = slow_workflow
+
+    window.recommend_playlist()
+
+    assert slow_workflow.started.wait(timeout=1)
+    assert window.recommend_button.isEnabled() is False
+    assert window.status_label.text() == "Generating recommendation from 1 candidate track(s)"
+
+    slow_workflow.release.set()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
+
+    assert window.recommendation_table.rowCount() == 1
+    assert window.status_label.text() == "Recommended 1 track(s) using warmup"
+
+
+def test_main_window_with_defaults_restores_persisted_tracks_on_startup(tmp_path) -> None:
+    ensure_app()
+    from xfinaudio.library.track_repository import TrackRepository
+
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    settings_path = tmp_path / "settings.json"
+    repository = TrackRepository(db_path)
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(tmp_path / "persisted.flac"),
+                title="Persisted",
+                bpm=124.0,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            )
+        ]
+    )
+
+    window = MainWindow.with_defaults(db_path, settings_path)
+
+    assert len(window.scanned_records) == 1
+    assert window.tracks_table.rowCount() == 1
+    assert window.tracks_table.item(0, 0).text() == "Persisted"
+    assert window.folder_label.text() == "Saved library loaded (no scan folder selected)"
+    assert window.library_guidance_label.text() == (
+        "Showing saved library from the app database. Choose a folder to re-scan or update metadata."
+    )
+    assert window.recommend_button.isEnabled() is False
+    window.tracks_table.selectRow(0)
+    assert window.recommend_button.isEnabled() is True
+    assert window.status_label.text() == "Loaded saved library: 1 complete, 0 incomplete"
+
+
+def test_main_window_limits_large_recommendation_candidate_pool_for_interactive_use(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = [
+        TrackRecord(
+            path=str(tmp_path / f"track-{index:03}.flac"),
+            title=f"Track {index:03}",
+            bpm=120.0,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        )
+        for index in range(100)
+    ]
+    window.show_tracks(window.scanned_records)
+    window.tracks_table.selectRow(80)
+
+    controls = window._selected_track_controls()
+    records = window._desktop_recommendation_records(controls)
+
+    assert len(records) == 25
+    assert records[0].path == str(tmp_path / "track-080.flac")
+    assert str(tmp_path / "track-080.flac") in {record.path for record in records}
+
+
+def test_main_window_candidate_pool_prefers_selected_track_genre_family(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    selected = TrackRecord(
+        path=str(tmp_path / "selected-pop.flac"),
+        title="Selected Pop",
+        bpm=128.0,
+        camelot_key="11B",
+        energy_level=7,
+        genre="Pop & Dance",
+        tags=["Pop & Dance", "Dance-Pop"],
+        metadata_status="complete",
+    )
+    unrelated = [
+        TrackRecord(
+            path=str(tmp_path / f"unrelated-{index}.flac"),
+            title=f"Unrelated {index}",
+            bpm=95.0 + index,
+            camelot_key="1A",
+            energy_level=4,
+            genre="Hip-Hop & R&B" if index % 2 else "Rock",
+            tags=["Hip-Hop & R&B" if index % 2 else "Rock"],
+            metadata_status="complete",
+        )
+        for index in range(30)
+    ]
+    compatible = [
+        TrackRecord(
+            path=str(tmp_path / f"compatible-{index}.flac"),
+            title=f"Compatible {index}",
+            bpm=126.0 + (index % 4),
+            camelot_key="11B",
+            energy_level=6 + (index % 2),
+            genre="Pop & Dance",
+            tags=["Pop & Dance", "Dance-Pop"],
+            metadata_status="complete",
+        )
+        for index in range(30)
+    ]
+    window.scanned_records = [*unrelated[:15], selected, *unrelated[15:], *compatible]
+    window.show_tracks(window.scanned_records)
+    window.tracks_table.selectRow(15)
+
+    records = window._desktop_recommendation_records(window._selected_track_controls())
+
+    assert records[0].path == selected.path
+    assert len(records) == 25
+    assert all(record.genre == "Pop & Dance" for record in records)
+
+
+def test_main_window_requires_selected_complete_track_before_recommending(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = [
+        TrackRecord(
+            path=str(tmp_path / "track.flac"),
+            title="Track",
+            bpm=124.0,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        )
+    ]
+    window.show_tracks(window.scanned_records)
+    window._refresh_idle_action_state()
+
+    assert window.recommend_button.isEnabled() is False
+
+    window.tracks_table.selectRow(0)
+    window._refresh_idle_action_state()
+
+    assert window.recommend_button.isEnabled() is True
+
+
+def test_main_window_rejects_recommendation_without_selected_track(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = [
+        TrackRecord(
+            path=str(tmp_path / "track.flac"),
+            title="Track",
+            bpm=124.0,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        )
+    ]
+    window.show_tracks(window.scanned_records)
+
+    window.recommend_playlist()
+
+    assert window.status_label.text() == "Select at least one complete track before recommending"
+    assert window.recommendation_table.rowCount() == 0
+
+
+def test_main_window_exports_last_recommendation_to_serato_crate(tmp_path) -> None:
+    ensure_app()
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.last_recommendation = make_recommendation(
+        [
+            TrackRecord(
+                path=str(tmp_path / "dd" / "_Lossless" / "A.flac"),
+                title="A",
+                bpm=120,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            ),
+            TrackRecord(
+                path=str(tmp_path / "dd" / "_Lossless" / "B.flac"),
+                title="B",
+                bpm=121,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            ),
+        ]
+    )
+
+    window.export_recommendation_to_serato(serato_folder=serato_folder, crate_name="XfinAudio Test")
+
+    target = serato_folder / "Subcrates" / "XfinAudio Test.crate"
+    assert target.exists()
+    assert "Exported Serato crate" in window.status_label.text()
+    assert str(target) in window.status_label.text()
+
+
+def test_main_window_exports_incomplete_metadata_worklist_to_serato_crate(tmp_path) -> None:
+    ensure_app()
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = [
+        TrackRecord(
+            path=str(tmp_path / "dd" / "_Lossless" / "Complete.flac"),
+            title="Complete",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "dd" / "_Lossless" / "Needs Metadata.flac"),
+            title="Needs Metadata",
+            bpm=120,
+            metadata_status="incomplete",
+            missing_required_fields=["camelot_key", "energy_level"],
+        ),
+    ]
+    window.show_tracks(window.scanned_records)
+
+    window.export_metadata_status_to_serato(status="incomplete", serato_folder=serato_folder)
+
+    exported = list((serato_folder / "Subcrates").glob("XfinAudio%%Metadata%%Incomplete%%*.crate"))
+    assert len(exported) == 1
+    parsed = parse_serato_crate_bytes(exported[0].read_bytes())
+    assert parsed.paths == ("_Lossless/Needs Metadata.flac",)
+    assert str(exported[0]) in window.export_guidance_label.text()
+    assert "Scan Metadata" in window.export_guidance_label.text()
+
+
+def test_main_window_exports_specific_missing_key_worklist_to_serato_crate(tmp_path) -> None:
+    ensure_app()
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = [
+        TrackRecord(
+            path=str(tmp_path / "dd" / "_Lossless" / "Needs Key.flac"),
+            title="Needs Key",
+            metadata_status="incomplete",
+            missing_required_fields=["camelot_key"],
+        ),
+        TrackRecord(
+            path=str(tmp_path / "dd" / "_Lossless" / "Needs Energy.flac"),
+            title="Needs Energy",
+            metadata_status="incomplete",
+            missing_required_fields=["energy_level"],
+        ),
+    ]
+    window.show_tracks(window.scanned_records)
+
+    window.export_metadata_status_to_serato(
+        status="incomplete",
+        missing_field="camelot_key",
+        serato_folder=serato_folder,
+    )
+
+    exported = list((serato_folder / "Subcrates").glob("XfinAudio%%Metadata%%Missing Key%%*.crate"))
+    assert len(exported) == 1
+    parsed = parse_serato_crate_bytes(exported[0].read_bytes())
+    assert parsed.paths == ("_Lossless/Needs Key.flac",)
+    assert "Missing Key" in window.status_label.text()
+
+
+def test_main_window_serato_export_records_receipt_and_history(tmp_path) -> None:
+    ensure_app()
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.last_recommendation = make_recommendation(
+        [
+            TrackRecord(
+                path=str(tmp_path / "dd" / "_Lossless" / "A.flac"),
+                title="A",
+                bpm=120,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            ),
+            TrackRecord(
+                path=str(tmp_path / "dd" / "_Lossless" / "B.flac"),
+                title="B",
+                bpm=121,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            ),
+        ]
+    )
+
+    window.export_recommendation_to_serato(serato_folder=serato_folder, crate_name="XfinAudio Receipt")
+
+    target = serato_folder / "Subcrates" / "XfinAudio Receipt.crate"
+    assert str(target) in window.export_guidance_label.text()
+    assert window.serato_export_history_table.rowCount() == 1
+    assert window.serato_export_history_table.item(0, 1).text() == "build"
+    assert window.serato_export_history_table.item(0, 2).text() == "2"
+    assert window.serato_export_history_table.item(0, 3).text() == str(target)
+
+
+def test_main_window_serato_export_history_keeps_five_recent_rows(tmp_path) -> None:
+    ensure_app()
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.last_recommendation = make_recommendation(
+        [
+            TrackRecord(
+                path=str(tmp_path / "dd" / "_Lossless" / "Track.flac"),
+                title="Track",
+                bpm=120,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            )
+        ]
+    )
+
+    for index in range(6):
+        window.export_recommendation_to_serato(serato_folder=serato_folder, crate_name=f"Receipt {index}")
+
+    assert window.serato_export_history_table.rowCount() == 5
+    rendered_paths = [window.serato_export_history_table.item(row, 3).text() for row in range(5)]
+    assert rendered_paths[0].endswith("Receipt 5.crate")
+    assert rendered_paths[-1].endswith("Receipt 1.crate")
+    assert all(not path.endswith("Receipt 0.crate") for path in rendered_paths)
+
+
+def test_main_window_serato_export_button_requires_recommendation(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.serato_export_button.isEnabled() is False
+
+    window.last_recommendation = make_recommendation(
+        [
+            TrackRecord(
+                path=str(tmp_path / "track.flac"),
+                title="Track",
+                bpm=120,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            )
+        ]
+    )
+    window._refresh_export_action_state()
+
+    assert window.serato_export_button.isEnabled() is True
+
+
+def test_main_window_auto_serato_export_preserves_detected_library_volume_root(tmp_path, monkeypatch) -> None:
+    ensure_app()
+    serato_folder = tmp_path / "Users" / "freddy" / "Music" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    library = main_window.SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path)
+    monkeypatch.setattr(main_window, "discover_serato_libraries", lambda: [library])
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.last_recommendation = make_recommendation(
+        [
+            TrackRecord(
+                path=str(tmp_path / "Users" / "freddy" / "Music" / "Track.wav"),
+                title="Track",
+                bpm=120,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            )
+        ]
+    )
+
+    window.export_recommendation_to_serato(crate_name="Home Auto")
+
+    parsed = parse_serato_crate_bytes((serato_folder / "Subcrates" / "Home Auto.crate").read_bytes())
+    assert parsed.paths == ("Users/freddy/Music/Track.wav",)
+
+
+def test_main_window_default_serato_export_uses_strategy_grouped_generated_crate(tmp_path, monkeypatch) -> None:
+    ensure_app()
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    library = main_window.SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd")
+    monkeypatch.setattr(main_window, "discover_serato_libraries", lambda: [library])
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.last_recommendation = make_recommendation(
+        [
+            TrackRecord(
+                path=str(tmp_path / "dd" / "_Lossless" / "Track.wav"),
+                title="Track",
+                bpm=120,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            )
+        ]
+    )
+
+    window.export_recommendation_to_serato()
+
+    target_folder = serato_folder / "Subcrates"
+    exported = list(target_folder.glob("XfinAudio%%Build%%*.crate"))
+    assert len(exported) == 1
+    assert "build - Track - 1 track" in exported[0].stem
+    assert "Exported Serato crate" in window.status_label.text()
+
+
+def test_desktop_recommendation_pool_uses_path_sets_instead_of_model_equality(monkeypatch) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    selected = TrackRecord(
+        path="/music/selected.flac",
+        title="Selected",
+        bpm=120,
+        camelot_key="8A",
+        energy_level=5,
+        genre="Disco",
+        tags=["Disco"],
+        metadata_status="complete",
+    )
+    compatible = [
+        TrackRecord(
+            path=f"/music/compatible-{index}.flac",
+            title=f"Compatible {index}",
+            bpm=120 + index * 0.1,
+            camelot_key="8A",
+            energy_level=5,
+            genre="Disco",
+            tags=["Disco"],
+            metadata_status="complete",
+        )
+        for index in range(30)
+    ]
+    fallback = [
+        TrackRecord(
+            path=f"/music/fallback-{index}.flac",
+            title=f"Fallback {index}",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=5,
+            genre="Rock",
+            tags=["Rock"],
+            metadata_status="complete",
+        )
+        for index in range(30)
+    ]
+    window.scanned_records = [selected, *compatible, *fallback]
+
+    def fail_on_model_equality(self, other):
+        raise AssertionError("candidate pool should compare track paths, not TrackRecord models")
+
+    monkeypatch.setattr(TrackRecord, "__eq__", fail_on_model_equality)
+
+    pool = window._desktop_recommendation_records(DJControls(start_path=selected.path))
+
+    assert pool[0].path == selected.path
+    assert len(pool) == 25
+
+
+def test_main_window_applies_dj_visual_style() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert "#00d4ff" in window.styleSheet()
+    assert "#ffb000" in window.styleSheet()
+    assert window.serato_export_button.objectName() == "seratoExportButton"
+    assert window.recommend_button.objectName() == "primaryAction"
+
+
+def test_main_window_uses_compact_macbook_layout_for_library_section() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    layout = window.centralWidget().layout()
+    assert layout is not None
+    assert layout.spacing() <= 6
+    assert window.tracks_table.maximumHeight() <= 150
+    assert window.tracks_table.verticalHeader().defaultSectionSize() <= 24
+    headers = _track_table_headers(window)
+    assert window.tracks_table.columnWidth(headers.index("Tags/Subgenre")) >= 140
+    assert window.tracks_table.horizontalHeader().stretchLastSection() is True
+    assert "QPushButton#seratoExportButton:disabled" in window.styleSheet()
+
+
+def test_main_window_collapses_empty_recommendation_sections_to_prioritize_browsing() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.recommendation_table.maximumHeight() <= 80
+    assert window.transition_review_table.maximumHeight() <= 80
+    assert window.song_search_input.placeholderText() == "Search songs"

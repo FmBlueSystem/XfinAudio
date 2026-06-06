@@ -126,3 +126,33 @@ def test_recommend_playlist_uses_injected_strategy_registry() -> None:
 
     assert result.strategy.name == "custom_peak"
     assert [item.path for item in result.ordered_tracks] == ["/high.flac"]
+
+
+def test_warmup_drops_generated_tracks_after_impossible_bpm_jump_from_selected_start() -> None:
+    tracks = [
+        track("/stay.flac", bpm=102.34, camelot_key="4A", energy_level=7, genre="Disco", tags=["Disco"]),
+        track("/thinking.flac", bpm=104.14, camelot_key="3A", energy_level=5, genre="Disco", tags=["Disco"]),
+        track("/more.flac", bpm=106.09, camelot_key="9A", energy_level=6, genre="Disco", tags=["Disco"]),
+        track("/knock.flac", bpm=122.0, camelot_key="11B", energy_level=6, genre="Disco", tags=["Disco"]),
+        track("/number.flac", bpm=121.87, camelot_key="11A", energy_level=6, genre="Disco", tags=["Disco"]),
+    ]
+
+    result = recommend_playlist(tracks, "warmup", controls=DJControls(start_path="/stay.flac"))
+
+    assert [item.path for item in result.ordered_tracks] == ["/stay.flac", "/thinking.flac", "/more.flac"]
+    assert all(score.component_scores["bpm"] > 0.0 for score in result.transition_scores)
+    assert "Dropped 2 generated track(s) because adjacent BPM jump exceeded 3.0%" in result.warnings
+
+
+def test_harmonic_journey_drops_generated_tracks_after_bpm_jump_over_three_percent() -> None:
+    tracks = [
+        track("/start.flac", bpm=100.0, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+        track("/good.flac", bpm=102.9, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+        track("/too-fast.flac", bpm=106.1, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+    ]
+
+    result = recommend_playlist(tracks, "harmonic_journey", controls=DJControls(start_path="/start.flac"))
+
+    assert [item.path for item in result.ordered_tracks] == ["/start.flac", "/good.flac"]
+    assert "Dropped 1 generated track(s) because adjacent BPM jump exceeded 3.0%" in result.warnings
+    assert all(score.component_scores["bpm"] > 0.0 for score in result.transition_scores)

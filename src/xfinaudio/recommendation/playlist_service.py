@@ -7,13 +7,20 @@ from pydantic import BaseModel, ConfigDict
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls, apply_controls
 from xfinaudio.recommendation.optimizer import recommend_sequence
-from xfinaudio.recommendation.scoring import ScoringWeights, TransitionScore, score_transition
+from xfinaudio.recommendation.scoring import (
+    ScoringWeights,
+    TransitionScore,
+    _bpm_difference_percent,
+    score_transition,
+)
 from xfinaudio.recommendation.strategies import (
     PlaylistStrategy,
     StrategyName,
     StrategyRegistry,
     default_strategy_registry,
 )
+
+MAX_ADJACENT_BPM_DIFFERENCE_PERCENT = 3.0
 
 
 class PlaylistRecommendation(BaseModel):
@@ -77,6 +84,13 @@ def recommend_playlist(
         optimizer = sequenced.optimizer
 
     ordered_tracks = [*manual_prefix, *sequenced_tracks]
+    ordered_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(ordered_tracks)
+    if dropped_bpm_jump_count:
+        warnings.append(
+            "Dropped "
+            f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
+            f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
+        )
     transition_scores = _score_ordered_tracks(ordered_tracks, weights)
 
     return PlaylistRecommendation(
@@ -159,12 +173,49 @@ def _preserved_control_paths(controls: DJControls) -> set[str]:
 
 def _sort_by_hint(tracks: list[TrackRecord], strategy: PlaylistStrategy) -> list[TrackRecord]:
     if strategy.sort_hint == "energy_ascending":
-        return sorted(tracks, key=lambda track: (track.energy_level is None, track.energy_level or 0, track.path))
+        return sorted(
+            tracks,
+            key=lambda track: (
+                track.energy_level is None,
+                track.energy_level or 0,
+                track.bpm is None,
+                track.bpm or 0.0,
+                track.path,
+            ),
+        )
     if strategy.sort_hint == "energy_descending":
-        return sorted(tracks, key=lambda track: (track.energy_level is None, -(track.energy_level or 0), track.path))
+        return sorted(
+            tracks,
+            key=lambda track: (
+                track.energy_level is None,
+                -(track.energy_level or 0),
+                track.bpm is None,
+                track.bpm or 0.0,
+                track.path,
+            ),
+        )
     if strategy.sort_hint == "bpm_ascending":
         return sorted(tracks, key=lambda track: (track.bpm is None, track.bpm or 0.0, track.path))
     return sorted(tracks, key=lambda track: track.path)
+
+
+def _drop_generated_tracks_after_impossible_bpm_jumps(
+    tracks: list[TrackRecord], *, max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT
+) -> tuple[list[TrackRecord], int]:
+    if len(tracks) < 2:
+        return tracks, 0
+
+    kept = [tracks[0]]
+    dropped_count = 0
+    for candidate in tracks[1:]:
+        if candidate.bpm is None or kept[-1].bpm is None:
+            kept.append(candidate)
+            continue
+        if _bpm_difference_percent(kept[-1].bpm, candidate.bpm) > max_bpm_difference_percent:
+            dropped_count += 1
+            continue
+        kept.append(candidate)
+    return kept, dropped_count
 
 
 def _vibe_metadata_unavailable(strategy: PlaylistStrategy, tracks: list[TrackRecord]) -> bool:

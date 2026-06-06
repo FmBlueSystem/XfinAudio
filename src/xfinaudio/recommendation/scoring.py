@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.recommendation.camelot import BoostRule, score_camelot_transition
+from xfinaudio.recommendation.camelot import BoostRule, score_camelot_transition, shift_camelot_key
 
 
 class ScoringWeights(BaseModel):
@@ -52,6 +53,15 @@ class ThresholdScore(BaseModel):
     score: float = Field(ge=0.0, le=1.0)
 
 
+class KeyShiftConfig(BaseModel):
+    """Optional chromatic key shifts applied only while scoring a transition."""
+
+    model_config = ConfigDict(frozen=True)
+
+    left_semitones: int = 0
+    right_semitones: int = 0
+
+
 class TransitionScoringConfig(BaseModel):
     """Configurable scoring policy with defaults matching existing behavior."""
 
@@ -69,10 +79,12 @@ class TransitionScoringConfig(BaseModel):
         ThresholdScore(max_delta=3.0, score=0.4),
     )
     required_fields: tuple[str, ...] = ("camelot_key", "bpm", "energy_level")
+    score_curve: Literal["threshold", "fuzzy"] = "threshold"
+    key_shift: KeyShiftConfig = Field(default_factory=KeyShiftConfig)
 
 
 DEFAULT_WEIGHTS = ScoringWeights()
-DEFAULT_SCORING_CONFIG = TransitionScoringConfig(weights=DEFAULT_WEIGHTS)
+DEFAULT_SCORING_CONFIG = TransitionScoringConfig(weights=DEFAULT_WEIGHTS, score_curve="fuzzy")
 REQUIRED_FIELDS = DEFAULT_SCORING_CONFIG.required_fields
 
 
@@ -98,7 +110,9 @@ def score_transition(
         )
 
     try:
-        harmonic_score = score_camelot_transition(left.camelot_key or "", right.camelot_key or "", boost_rules)
+        left_key = _shifted_key(left.camelot_key or "", scoring_config.key_shift.left_semitones)
+        right_key = _shifted_key(right.camelot_key or "", scoring_config.key_shift.right_semitones)
+        harmonic_score = score_camelot_transition(left_key, right_key, boost_rules)
     except ValueError:
         return TransitionScore(
             left_path=left.path,
@@ -111,14 +125,23 @@ def score_transition(
 
     component_scores = {
         "harmonic": harmonic_score,
-        "bpm": _score_bpm(left.bpm or 0.0, right.bpm or 0.0, scoring_config.bpm_thresholds),
-        "energy": _score_energy(left.energy_level or 0, right.energy_level or 0, scoring_config.energy_thresholds),
+        "bpm": _score_bpm(left.bpm or 0.0, right.bpm or 0.0, scoring_config),
+        "energy": _score_energy(left.energy_level or 0, right.energy_level or 0, scoring_config),
     }
     explanations = [
         f"Harmonic compatibility score is {component_scores['harmonic']:.2f}",
         f"BPM difference is {_bpm_difference_percent(left.bpm or 0.0, right.bpm or 0.0):.2f}%",
         f"Energy level difference is {abs((left.energy_level or 0) - (right.energy_level or 0))}",
     ]
+    explanations.extend(
+        _key_shift_explanations(
+            left.camelot_key or "",
+            right.camelot_key or "",
+            left_key,
+            right_key,
+            scoring_config.key_shift,
+        )
+    )
 
     tag_score = _score_tags(left, right)
     if tag_score is None:
@@ -126,6 +149,8 @@ def score_transition(
     else:
         component_scores["tags"] = tag_score[0]
         explanations.append(f"Tag overlap is {tag_score[1]}/{tag_score[2]}")
+        if tag_score[1] == 0:
+            warnings.append("Genre/tag mismatch: no shared genre, subgenre, mood, or tag metadata")
 
     total_score = _weighted_total(component_scores, effective_weights)
     return TransitionScore(
@@ -165,12 +190,45 @@ def _bpm_difference_percent(left_bpm: float, right_bpm: float) -> float:
     return abs(left_bpm - right_bpm) / lower * 100
 
 
-def _score_bpm(left_bpm: float, right_bpm: float, thresholds: tuple[ThresholdScore, ...]) -> float:
-    return _score_threshold(_bpm_difference_percent(left_bpm, right_bpm), thresholds)
+def _shifted_key(camelot_key: str, semitones: int) -> str:
+    return shift_camelot_key(camelot_key, semitones)
 
 
-def _score_energy(left_energy: int, right_energy: int, thresholds: tuple[ThresholdScore, ...]) -> float:
-    return _score_threshold(float(abs(left_energy - right_energy)), thresholds)
+def _key_shift_explanations(
+    left_original: str,
+    right_original: str,
+    left_effective: str,
+    right_effective: str,
+    key_shift: KeyShiftConfig,
+) -> list[str]:
+    explanations: list[str] = []
+    if key_shift.left_semitones:
+        explanations.append(f"Pitch/key normalization shifted left key from {left_original} to {left_effective}")
+    if key_shift.right_semitones:
+        explanations.append(f"Pitch/key normalization shifted right key from {right_original} to {right_effective}")
+    return explanations
+
+
+def _score_bpm(left_bpm: float, right_bpm: float, config: TransitionScoringConfig) -> float:
+    delta = _bpm_difference_percent(left_bpm, right_bpm)
+    if config.score_curve == "fuzzy":
+        return _score_fuzzy(delta, config.bpm_thresholds)
+    return _score_threshold(delta, config.bpm_thresholds)
+
+
+def _score_energy(left_energy: int, right_energy: int, config: TransitionScoringConfig) -> float:
+    delta = float(abs(left_energy - right_energy))
+    if config.score_curve == "fuzzy":
+        return _score_fuzzy(delta, config.energy_thresholds)
+    return _score_threshold(delta, config.energy_thresholds)
+
+
+def _score_fuzzy(delta: float, thresholds: tuple[ThresholdScore, ...]) -> float:
+    max_delta = max((threshold.max_delta for threshold in thresholds), default=0.0)
+    if max_delta <= 0:
+        return 0.0
+    normalized = min(max(delta / max_delta, 0.0), 1.0)
+    return round(1.0 - normalized**2, 6)
 
 
 def _score_threshold(delta: float, thresholds: tuple[ThresholdScore, ...]) -> float:

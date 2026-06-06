@@ -36,6 +36,14 @@ class ScoringSettings(BaseModel):
     weights: ScoringWeights = DEFAULT_WEIGHTS
 
 
+class LibrarySettings(BaseModel):
+    """Configuration for app-owned library refresh workflow."""
+
+    model_config = ConfigDict(frozen=True)
+
+    last_scan_folder: Path | None = None
+
+
 class ExportSettings(BaseModel):
     """Configuration for future safe export actions."""
 
@@ -53,6 +61,7 @@ class AppSettings(BaseModel):
     scan: ScanSettings = Field(default_factory=ScanSettings)
     optimizer: OptimizerSettings = Field(default_factory=OptimizerSettings)
     scoring: ScoringSettings = Field(default_factory=ScoringSettings)
+    library: LibrarySettings = Field(default_factory=LibrarySettings)
     export: ExportSettings = Field(default_factory=ExportSettings)
 
     @field_validator("settings_version")
@@ -68,6 +77,7 @@ __all__ = [
     "AppSettings",
     "CURRENT_SETTINGS_VERSION",
     "ExportSettings",
+    "LibrarySettings",
     "OptimizerSettings",
     "ScanSettings",
     "ScoringSettings",
