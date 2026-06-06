@@ -143,3 +143,40 @@ def test_serato_round_trip_is_ready_when_written_crate_and_tracks_resolve(tmp_pa
 
     assert check.status == "ready"
     assert "2 track(s) resolve" in check.detail
+
+
+def test_export_dj_readiness_json_is_deterministic() -> None:
+    from xfinaudio.quality.dj_readiness import export_dj_readiness_json
+
+    recommendation = manual_recommendation(
+        [
+            track("/music/a.flac", bpm=100, key="8A", energy=5),
+            track("/music/b.flac", bpm=110, key="8A", energy=5),
+        ]
+    )
+    report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
+
+    exported = export_dj_readiness_json(report)
+
+    assert '"status": "blocked"' in exported
+    assert '"blocker_count": 1' in exported
+    assert '"label": "BPM continuity"' in exported
+    assert exported.endswith("\n")
+
+
+def test_export_dj_readiness_csv_has_stable_columns() -> None:
+    from xfinaudio.quality.dj_readiness import export_dj_readiness_csv
+
+    recommendation = manual_recommendation(
+        [
+            track("/music/a.flac", bpm=120, key="8A", energy=5),
+            track("/music/b.flac", bpm=121, key="8A", energy=5),
+        ]
+    )
+    report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
+
+    exported = export_dj_readiness_csv(report)
+
+    assert exported.splitlines()[0] == "check,status,detail"
+    assert "BPM continuity,ready," in exported
+    assert exported.endswith("\n")

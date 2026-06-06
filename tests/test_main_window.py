@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelectionModel
@@ -1681,3 +1682,67 @@ def test_main_window_colors_dj_readiness_status_cells() -> None:
     assert status_by_check["Required metadata"].text() == "Ready"
     assert status_by_check["Required metadata"].background().color().name() == "#1fd16a"
     assert status_by_check["Required metadata"].toolTip() == "Ready: no action needed"
+
+
+def test_main_window_exports_dj_readiness_report_files_to_safe_folder(tmp_path) -> None:
+    ensure_app()
+    safe_folder = tmp_path / "exports"
+    safe_folder.mkdir()
+    window = MainWindow(
+        scan_service=FakeScanService(),
+        repository=FakeRepository(),
+        settings=AppSettings(export=ExportSettings(safe_export_folder=safe_folder)),
+    )
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "a.flac"),
+            title="A",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["Peak"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "b.flac"),
+            title="B",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["Peak"],
+            metadata_status="complete",
+        ),
+    ]
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
+
+    window.export_dj_readiness_report(generated_at=datetime(2026, 6, 6, 9, 30, 0))
+
+    json_path = safe_folder / "xfinaudio-dj-readiness-20260606-093000.json"
+    csv_path = safe_folder / "xfinaudio-dj-readiness-20260606-093000.csv"
+    assert json_path.exists()
+    assert csv_path.exists()
+    assert '"status": "ready"' in json_path.read_text(encoding="utf-8")
+    assert csv_path.read_text(encoding="utf-8").splitlines()[0] == "check,status,detail"
+    assert window.status_label.text() == f"Exported DJ readiness report: {json_path} and {csv_path}"
+
+
+def test_main_window_rejects_dj_readiness_export_without_recommendation(tmp_path) -> None:
+    ensure_app()
+    safe_folder = tmp_path / "exports"
+    safe_folder.mkdir()
+    window = MainWindow(
+        scan_service=FakeScanService(),
+        repository=FakeRepository(),
+        settings=AppSettings(export=ExportSettings(safe_export_folder=safe_folder)),
+    )
+
+    window.export_dj_readiness_report()
+
+    assert window.status_label.text() == "Generate a recommendation before exporting DJ readiness"
+    assert list(safe_folder.iterdir()) == []
