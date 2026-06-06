@@ -245,3 +245,52 @@ def test_serato_playlist_planners_are_exported_from_package_api() -> None:
     assert generated_export is plan_generated_serato_playlist_export
     assert missing_field_export is plan_metadata_missing_field_serato_export
     assert status_export is plan_metadata_status_serato_export
+
+
+def test_plan_copilot_variant_serato_playlist_export_groups_by_strategy_and_variant(tmp_path: Path) -> None:
+    from xfinaudio.exporting.serato_playlist_exporter import plan_copilot_variant_serato_playlist_export
+
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    recommendation = _recommendation(
+        [str(tmp_path / "dd" / "_Lossless" / "Stayin Alive.flac"), str(tmp_path / "dd" / "_Lossless" / "B.flac")]
+    )
+
+    plan = plan_copilot_variant_serato_playlist_export(
+        "balanced",
+        recommendation,
+        SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd"),
+        generated_at=datetime(2026, 6, 6, 14, 30, 0),
+    )
+
+    assert plan.target_path == (
+        serato_folder
+        / "Subcrates"
+        / "XfinAudio%%Prep Copilot%%Build%%Balanced%%20260606-143000 - build - balanced - Stayin Alive - 2 tracks.crate"
+    )
+    assert plan.relative_paths == ("_Lossless/Stayin Alive.flac", "_Lossless/B.flac")
+
+
+def test_plan_copilot_variant_serato_playlist_export_avoids_existing_crate_collision(tmp_path: Path) -> None:
+    from xfinaudio.exporting.serato_playlist_exporter import plan_copilot_variant_serato_playlist_export
+
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    target_folder = serato_folder / "Subcrates"
+    target_folder.mkdir(parents=True)
+    existing = (
+        target_folder / "XfinAudio%%Prep Copilot%%Build%%Safe%%20260606-143000 - build - safe - Track - 1 track.crate"
+    )
+    existing.write_bytes(b"existing")
+    recommendation = _recommendation([str(tmp_path / "dd" / "_Lossless" / "Track.flac")])
+
+    plan = plan_copilot_variant_serato_playlist_export(
+        "safe",
+        recommendation,
+        SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd"),
+        generated_at=datetime(2026, 6, 6, 14, 30, 0),
+    )
+
+    assert plan.target_path == (
+        target_folder / "XfinAudio%%Prep Copilot%%Build%%Safe%%20260606-143000 - build - safe - Track - 1 track-2.crate"
+    )
+    assert existing.read_bytes() == b"existing"

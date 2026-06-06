@@ -1887,3 +1887,54 @@ def test_main_window_rejects_apply_prep_copilot_without_variant_selection(tmp_pa
 
     assert window.status_label.text() == "Generate and select a Prep Copilot variant before applying"
     assert window.recommendation_table.rowCount() == 0
+
+
+def test_main_window_exports_applied_prep_copilot_variant_with_variant_crate_name(tmp_path) -> None:
+    ensure_app()
+    volume_root = tmp_path / "dd"
+    serato_folder = volume_root / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    records = [
+        TrackRecord(
+            path=str(volume_root / "Music" / "start.flac"),
+            title="Start",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=4,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(volume_root / "Music" / "groove.flac"),
+            title="Groove",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+    ]
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.prep_copilot_target_count_input.setValue(2)
+    window.prep_copilot_genre_focus_input.setText("House")
+    window.generate_prep_copilot()
+    window.prep_copilot_table.selectRow(1)
+    window.apply_selected_prep_copilot_variant()
+
+    window.export_recommendation_to_serato(
+        serato_folder=serato_folder,
+        generated_at=datetime(2026, 6, 6, 14, 30, 0),
+    )
+
+    expected_name = (
+        "XfinAudio%%Prep Copilot%%Harmonic Journey%%Balanced%%"
+        "20260606-143000 - harmonic_journey - balanced - Start - 2 tracks.crate"
+    )
+    expected = serato_folder / "Subcrates" / expected_name
+    assert expected.exists()
+    assert str(expected) in window.status_label.text()

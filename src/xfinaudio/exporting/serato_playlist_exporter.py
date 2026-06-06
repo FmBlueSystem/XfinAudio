@@ -156,6 +156,42 @@ def plan_generated_serato_playlist_export(
     )
 
 
+def plan_copilot_variant_serato_playlist_export(
+    variant_name: str,
+    recommendation: PlaylistRecommendation,
+    serato_folder: SeratoLibrary | str | Path,
+    *,
+    generated_at: datetime | None = None,
+) -> SeratoExportPlan:
+    """Create a non-overwriting Serato crate plan for a selected Prep Copilot variant."""
+    if isinstance(serato_folder, SeratoLibrary):
+        library = serato_folder
+        folder = library.serato_folder
+    else:
+        folder = Path(serato_folder)
+        library = SeratoLibrary(serato_folder=folder, volume_root=folder.parent)
+
+    if folder.name != SERATO_FOLDER_NAME:
+        raise ValueError("Serato export destination must be a _Serato_ folder")
+    if not (folder / SERATO_SUBCRATES_DIR).exists():
+        raise ValueError("Serato export destination must contain a Subcrates folder")
+
+    relative_paths = tuple(
+        _to_serato_crate_path_for_library(Path(track.path), library) for track in recommendation.ordered_tracks
+    )
+    crate_name = _copilot_variant_crate_name(variant_name, recommendation, generated_at=generated_at)
+    target_folder = folder / SERATO_SUBCRATES_DIR
+    target_path = _unique_crate_path(target_folder, crate_name)
+    return SeratoExportPlan(
+        crate_name=target_path.stem,
+        relative_paths=relative_paths,
+        serato_root=folder,
+        target_path=target_path,
+        backup_path=target_path.with_name(f"{target_path.name}.bak"),
+        crate_bytes=build_serato_crate_bytes(relative_paths),
+    )
+
+
 def plan_metadata_status_serato_export(
     records: list[TrackRecord] | tuple[TrackRecord, ...],
     status: MetadataStatus,
@@ -294,6 +330,28 @@ def _generated_crate_name(
     return f"{strategy_group}%%{leaf_name}"
 
 
+def _copilot_variant_crate_name(
+    variant_name: str,
+    recommendation: PlaylistRecommendation,
+    *,
+    generated_at: datetime | None = None,
+) -> str:
+    generated_at = generated_at or datetime.now()
+    timestamp = generated_at.strftime("%Y%m%d-%H%M%S")
+    safe_variant = _sanitize_name(variant_name.casefold())
+    display_variant = _sanitize_name(variant_name.replace("_", " ").title())
+    anchor = _anchor_name(recommendation)
+    count = len(recommendation.ordered_tracks)
+    track_word = "track" if count == 1 else "tracks"
+    group = _sanitize_name(
+        f"{GENERATED_CRATE_ROOT}%%Prep Copilot%%{recommendation.strategy.display_name}%%{display_variant}"
+    )
+    leaf_name = _sanitize_name(
+        f"{timestamp} - {recommendation.strategy.name} - {safe_variant} - {anchor} - {count} {track_word}"
+    )
+    return f"{group}%%{leaf_name}"
+
+
 def _metadata_status_crate_name(
     status: MetadataStatus,
     count: int,
@@ -370,6 +428,7 @@ __all__ = [
     "SeratoLibrary",
     "SeratoLibraryNotFoundError",
     "discover_serato_libraries",
+    "plan_copilot_variant_serato_playlist_export",
     "plan_generated_serato_playlist_export",
     "plan_metadata_missing_field_serato_export",
     "plan_metadata_status_serato_export",
