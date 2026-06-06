@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -75,8 +76,8 @@ _RECOMMENDATION_READY_GUIDANCE = (
     "Up to 25 candidates are used for interactive speed. Choose a strategy, then click Recommend Playlist."
 )
 _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
-_COMPACT_LIBRARY_TABLE_MAX_HEIGHT = 150
-_COMPACT_LIBRARY_TABLE_MIN_HEIGHT = 110
+_COMPACT_LIBRARY_TABLE_MAX_HEIGHT = 190
+_COMPACT_LIBRARY_TABLE_MIN_HEIGHT = 132
 _COMPACT_RESULTS_TABLE_MIN_HEIGHT = 118
 _COMPACT_REVIEW_TABLE_MIN_HEIGHT = 100
 _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT = 72
@@ -442,8 +443,8 @@ class MainWindow(QMainWindow):
         self.scan_button.setEnabled(False)
         self.cancel_scan_button = QPushButton("Cancel Scan")
         self.cancel_scan_button.setEnabled(False)
-        self.folder_label = QLabel("No folder selected")
-        self.library_guidance_label = QLabel("Choose a Mixed In Key processed folder to scan metadata.")
+        self.folder_label = QLabel("Library: none")
+        self.library_guidance_label = QLabel("Choose a folder to scan metadata.")
         self.recommendation_guidance_label = QLabel("Scan metadata before recommending a playlist.")
         self.export_guidance_label = QLabel(
             "Review recommendations before exporting; desktop export setup is intentionally out of scope."
@@ -458,8 +459,15 @@ class MainWindow(QMainWindow):
         self.serato_export_button.setEnabled(False)
         self.dj_readiness_export_button = QPushButton("Export DJ Readiness Report")
         self.dj_readiness_export_button.setEnabled(False)
-        self.scan_progress_label = QLabel("Scan progress: idle")
+        self.scan_progress_label = QLabel("Scan: idle")
         self.status_label = QLabel("Ready")
+        self.library_decision_label = QLabel("DJ Decision Point: choose source, filters, and the track anchor.")
+        self.build_decision_label = QLabel("DJ Decision Point: choose strategy, target length, and genre focus.")
+        self.review_decision_label = QLabel(
+            "DJ Decision Point: accept the mix or revise anchor, metadata, or strategy."
+        )
+        self.export_decision_label = QLabel("DJ Decision Point: preview crate target before writing to Serato.")
+        self.metadata_decision_label = QLabel("DJ Decision Point: complete missing metadata, then refresh the library.")
         self.song_search_input = QLineEdit()
         self.song_search_input.setPlaceholderText("Search songs")
         self.song_search_input.setClearButtonEnabled(True)
@@ -525,11 +533,11 @@ class MainWindow(QMainWindow):
         )
         self.serato_export_history_table.setVisible(False)
         self.folder_label.setWordWrap(False)
-        self.folder_label.setMaximumWidth(260)
+        self.folder_label.setMaximumWidth(220)
         self.library_guidance_label.setWordWrap(False)
-        self.library_guidance_label.setMaximumWidth(560)
+        self.library_guidance_label.setMaximumWidth(720)
         self.scan_progress_label.setWordWrap(False)
-        self.scan_progress_label.setMaximumWidth(180)
+        self.scan_progress_label.setMaximumWidth(140)
         self.recommendation_guidance_label.setWordWrap(True)
         self.export_guidance_label.setWordWrap(True)
         for label in (self.folder_label, self.library_guidance_label, self.scan_progress_label):
@@ -591,28 +599,71 @@ class MainWindow(QMainWindow):
         prep_copilot_controls.addWidget(self.prep_copilot_apply_button)
         prep_copilot_controls.addStretch(1)
 
+        library_page = QWidget()
+        library_layout = QVBoxLayout()
+        library_layout.addWidget(self.library_decision_label)
+        library_layout.addLayout(library_status_controls)
+        library_layout.addLayout(library_filter_controls)
+        library_layout.addWidget(self.tracks_table, 1)
+        library_page.setLayout(library_layout)
+
+        build_page = QWidget()
+        build_layout = QVBoxLayout()
+        build_layout.addWidget(self.build_decision_label)
+        build_layout.addWidget(self.recommendation_guidance_label)
+        build_layout.addLayout(recommendation_controls)
+        build_layout.addLayout(prep_copilot_controls)
+        build_layout.addWidget(self.prep_copilot_table)
+        build_layout.addStretch(1)
+        build_page.setLayout(build_layout)
+
+        review_page = QWidget()
+        review_layout = QVBoxLayout()
+        review_layout.addWidget(self.review_decision_label)
+        review_layout.addWidget(self.recommendation_table, 2)
+        review_layout.addWidget(self.review_summary_label)
+        review_layout.addWidget(self.dj_readiness_label)
+        review_layout.addWidget(self.dj_readiness_table)
+        review_layout.addWidget(self.transition_review_table, 1)
+        review_page.setLayout(review_layout)
+
+        export_page = QWidget()
+        export_layout = QVBoxLayout()
+        export_layout.addWidget(self.export_decision_label)
+        export_layout.addWidget(self.applied_copilot_variant_label)
+        export_layout.addWidget(self.export_guidance_label)
+        export_layout.addWidget(self.serato_export_history_table)
+        export_layout.addWidget(self.serato_preview_button)
+        export_layout.addWidget(self.serato_export_button)
+        export_layout.addWidget(self.dj_readiness_export_button)
+        export_layout.addWidget(self.safe_export_folder_button)
+        export_layout.addWidget(self.safe_export_folder_label)
+        export_layout.addStretch(1)
+        export_page.setLayout(export_layout)
+
+        metadata_page = QWidget()
+        metadata_layout = QVBoxLayout()
+        metadata_layout.addWidget(self.metadata_decision_label)
+        metadata_layout.addWidget(
+            QLabel(
+                "Use the Library filters to isolate incomplete tracks, export a metadata worklist, "
+                "complete it in Serato/Mixed In Key, then scan again."
+            )
+        )
+        metadata_layout.addStretch(1)
+        metadata_page.setLayout(metadata_layout)
+
+        self.workflow_tabs = QTabWidget()
+        self.workflow_tabs.setTabPosition(QTabWidget.TabPosition.West)
+        self.workflow_tabs.addTab(library_page, "Library")
+        self.workflow_tabs.addTab(build_page, "Build Playlist")
+        self.workflow_tabs.addTab(review_page, "Review Mix")
+        self.workflow_tabs.addTab(export_page, "Export to Serato")
+        self.workflow_tabs.addTab(metadata_page, "Metadata Worklist")
+
         layout = QVBoxLayout()
         layout.addLayout(controls)
-        layout.addLayout(library_status_controls)
-        layout.addLayout(library_filter_controls)
-        layout.addWidget(self.tracks_table, 0)
-        layout.addWidget(self.recommendation_guidance_label)
-        layout.addLayout(recommendation_controls)
-        layout.addLayout(prep_copilot_controls)
-        layout.addWidget(self.prep_copilot_table)
-        layout.addWidget(self.recommendation_table, 2)
-        layout.addWidget(self.review_summary_label)
-        layout.addWidget(self.dj_readiness_label)
-        layout.addWidget(self.dj_readiness_table)
-        layout.addWidget(self.transition_review_table, 1)
-        layout.addWidget(self.applied_copilot_variant_label)
-        layout.addWidget(self.export_guidance_label)
-        layout.addWidget(self.serato_export_history_table)
-        layout.addWidget(self.serato_preview_button)
-        layout.addWidget(self.serato_export_button)
-        layout.addWidget(self.dj_readiness_export_button)
-        layout.addWidget(self.safe_export_folder_button)
-        layout.addWidget(self.safe_export_folder_label)
+        layout.addWidget(self.workflow_tabs, 1)
         layout.addWidget(self.status_label)
         self._apply_compact_mac_layout(
             layout,
@@ -662,6 +713,7 @@ class MainWindow(QMainWindow):
         self.tracks_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.prep_copilot_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
         self.prep_copilot_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.prep_copilot_table.setHidden(True)
         self.recommendation_table.setMinimumHeight(_COMPACT_RESULTS_TABLE_MIN_HEIGHT)
         self.recommendation_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.transition_review_table.setMinimumHeight(_COMPACT_REVIEW_TABLE_MIN_HEIGHT)
@@ -701,6 +753,11 @@ class MainWindow(QMainWindow):
             self.recommendation_guidance_label,
             self.export_guidance_label,
             self.safe_export_folder_label,
+            self.library_decision_label,
+            self.build_decision_label,
+            self.review_decision_label,
+            self.export_decision_label,
+            self.metadata_decision_label,
         ):
             label.setObjectName("guidanceLabel")
         for table in (
@@ -722,6 +779,9 @@ class MainWindow(QMainWindow):
     def _set_recommendation_sections_expanded(self, expanded: bool) -> None:
         """Give vertical space back to browsing until a recommendation exists."""
         maximum_height = 16777215 if expanded else _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT
+        self.recommendation_table.setHidden(not expanded)
+        self.transition_review_table.setHidden(not expanded)
+        self.dj_readiness_table.setHidden(not expanded)
         self.recommendation_table.setMaximumHeight(maximum_height)
         self.transition_review_table.setMaximumHeight(maximum_height)
         self.dj_readiness_table.setMaximumHeight(
@@ -891,13 +951,17 @@ class MainWindow(QMainWindow):
         incomplete_count = len(records) - complete_count
         self._populate_track_table(records)
         if self.selected_folder is None:
-            self.folder_label.setText("Saved library loaded (no scan folder selected)")
-            self.library_guidance_label.setText(
+            self.folder_label.setText("Library: saved")
+            self.folder_label.setToolTip("Saved library loaded; no scan folder selected.")
+            self.library_guidance_label.setText("Use filters/search, select a complete track, then recommend.")
+            self.library_guidance_label.setToolTip(
                 "Showing saved library from the app database. Choose a folder to re-scan or update metadata."
             )
         else:
-            self.folder_label.setText(f"Saved library loaded: {self.selected_folder}")
-            self.library_guidance_label.setText(
+            self.folder_label.setText("Library: saved folder")
+            self.folder_label.setToolTip(f"Saved library loaded: {self.selected_folder}")
+            self.library_guidance_label.setText("Use filters/search, select a complete track, then recommend.")
+            self.library_guidance_label.setToolTip(
                 "Saved library loaded. Click Scan Metadata to refresh metadata from the last folder."
             )
         self.recommendation_guidance_label.setText(_RECOMMENDATION_READY_GUIDANCE)
@@ -1440,6 +1504,7 @@ class MainWindow(QMainWindow):
 
     def _populate_prep_copilot_table(self, plan: PrepCopilotPlan) -> None:
         """Render Safe/Balanced/Adventurous copilot variants for quick comparison."""
+        self.prep_copilot_table.setHidden(False)
         self.prep_copilot_table.setRowCount(len(plan.variants))
         for row_index, variant in enumerate(plan.variants):
             values = [
@@ -1658,6 +1723,7 @@ class MainWindow(QMainWindow):
         self.dj_readiness_label.setText("DJ Readiness: No recommendation ready.")
         self.dj_readiness_table.setRowCount(0)
         self.transition_review_table.setRowCount(0)
+        self.prep_copilot_table.setHidden(True)
         if self.recommendation_table.rowCount() == 0:
             self._set_recommendation_sections_expanded(False)
 
