@@ -2100,3 +2100,79 @@ def test_main_window_exports_dj_readiness_sidecar_reports_with_serato_crate(tmp_
     assert '"status": "ready"' in json_path.read_text(encoding="utf-8")
     assert csv_path.read_text(encoding="utf-8").splitlines()[0] == "check,status,detail"
     assert f"Readiness reports: {json_path} and {csv_path}" in window.export_guidance_label.text()
+
+
+def test_main_window_colors_prep_copilot_readiness_cells(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "start.flac"),
+            title="Start",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=4,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "groove.flac"),
+            title="Groove",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+    ]
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.prep_copilot_target_count_input.setValue(2)
+    window.generate_prep_copilot()
+
+    readiness_item = window.prep_copilot_table.item(0, 1)
+
+    assert readiness_item.text() == "Ready"
+    assert readiness_item.background().color().name() == "#1fd16a"
+    assert readiness_item.toolTip().startswith("Ready")
+
+
+def test_main_window_double_click_applies_prep_copilot_variant(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "start.flac"),
+            title="Start",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=4,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "groove.flac"),
+            title="Groove",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+    ]
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.prep_copilot_target_count_input.setValue(2)
+    window.generate_prep_copilot()
+
+    item = window.prep_copilot_table.item(2, 0)
+    window.prep_copilot_table.itemDoubleClicked.emit(item)
+
+    assert window.last_recommendation == window.last_prep_copilot_plan.variants[2].recommendation
+    assert window.status_label.text() == "Applied Prep Copilot variant: adventurous"
