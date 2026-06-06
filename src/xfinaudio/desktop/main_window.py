@@ -420,6 +420,7 @@ class MainWindow(QMainWindow):
         self.settings_repository = settings_repository
         self.selected_folder: Path | None = None
         self.scanned_records: list[TrackRecord] = []
+        self._records_by_path: dict[str, TrackRecord] = {}
         self.last_recommendation: PlaylistRecommendation | None = None
         self.last_playlist_explanation: PlaylistExplanation | None = None
         self.last_quality_report: RecommendationQualityReport | None = None
@@ -864,6 +865,7 @@ class MainWindow(QMainWindow):
 
     def _populate_track_table(self, records: list[TrackRecord]) -> None:
         """Populate the library table in source order, then re-apply the active filter."""
+        self._records_by_path = {record.path: record for record in records}
         self.tracks_table.setRowCount(len(records))
         for row_index, record in enumerate(records):
             values = [
@@ -911,7 +913,7 @@ class MainWindow(QMainWindow):
             status = "" if status_item is None else status_item.text()
             path_item = self.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
             path = "" if path_item is None else path_item.text()
-            record = next((candidate for candidate in self.scanned_records if candidate.path == path), None)
+            record = self._records_by_path.get(path)
             title_mismatch = bool(search_query) and search_query not in title
             status_mismatch = status_filter is not None and status != status_filter
             missing_mismatch = missing_filter is not None and (
@@ -971,6 +973,7 @@ class MainWindow(QMainWindow):
     def _clear_scan_dependent_state(self) -> None:
         """Clear scan and recommendation results that belong to a previous folder."""
         self.scanned_records = []
+        self._records_by_path = {}
         self.last_recommendation = None
         self.last_playlist_explanation = None
         self.last_quality_report = None
