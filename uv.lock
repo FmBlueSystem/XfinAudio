@@ -412,9 +412,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mutagen", specifier = ">=1.47" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pyside6", specifier = ">=6.0" },
+    { name = "mutagen", specifier = ">=1.47,<2.0" },
+    { name = "pydantic", specifier = ">=2.0,<3.0" },
+    { name = "pyside6", specifier = ">=6.0,<7.0" },
 ]
 
 [package.metadata.requires-dev]
