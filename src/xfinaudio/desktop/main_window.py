@@ -40,6 +40,7 @@ from xfinaudio.exporting.serato_playlist_exporter import (
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import MetadataScanService, ScanCancellationToken, ScanProgress
 from xfinaudio.library.track_repository import TrackRepository
+from xfinaudio.quality.dj_readiness import build_dj_readiness_report, format_dj_readiness_summary
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -470,6 +471,7 @@ class MainWindow(QMainWindow):
             ]
         )
         self.review_summary_label = QLabel(_EMPTY_REVIEW_SUMMARY)
+        self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
         self.transition_review_table = QTableWidget(0, len(_TRANSITION_REVIEW_HEADERS))
         self.transition_review_table.setHorizontalHeaderLabels(_TRANSITION_REVIEW_HEADERS)
         self.serato_export_history_table = QTableWidget(0, 4)
@@ -529,6 +531,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(recommendation_controls)
         layout.addWidget(self.recommendation_table, 2)
         layout.addWidget(self.review_summary_label)
+        layout.addWidget(self.dj_readiness_label)
         layout.addWidget(self.transition_review_table, 1)
         layout.addWidget(self.export_guidance_label)
         layout.addWidget(self.serato_export_history_table)
@@ -874,6 +877,13 @@ class MainWindow(QMainWindow):
             "Open Serato DJ Pro and check the crate under Subcrates." + backup_note
         )
         self.status_label.setText(f"Exported Serato crate: {result.written_path}")
+        if self.last_quality_report is not None:
+            self._show_dj_readiness(
+                self.last_recommendation,
+                self.last_quality_report,
+                serato_plan=plan,
+                serato_volume_root=library.volume_root,
+            )
         self._record_serato_export(result.written_path)
 
     def export_metadata_status_to_serato(
@@ -1251,6 +1261,7 @@ class MainWindow(QMainWindow):
             result.explanation,
         )
         self.review_summary_label.setText(format_quality_summary(result.quality_report))
+        self._show_dj_readiness(result.recommendation, result.quality_report)
         self.show_transition_review(result.explanation)
         recommended_count = len(result.recommendation.ordered_tracks)
         strategy_name = result.recommendation.strategy.name
@@ -1323,9 +1334,27 @@ class MainWindow(QMainWindow):
     def clear_recommendation_review(self) -> None:
         """Reset recommendation review widgets to their empty state."""
         self.review_summary_label.setText(_EMPTY_REVIEW_SUMMARY)
+        self.dj_readiness_label.setText("DJ Readiness: No recommendation ready.")
         self.transition_review_table.setRowCount(0)
         if self.recommendation_table.rowCount() == 0:
             self._set_recommendation_sections_expanded(False)
+
+    def _show_dj_readiness(
+        self,
+        recommendation: PlaylistRecommendation,
+        quality_report: RecommendationQualityReport,
+        *,
+        serato_plan: Any | None = None,
+        serato_volume_root: Path | None = None,
+    ) -> None:
+        """Render operational DJ readiness for the current recommendation."""
+        report = build_dj_readiness_report(
+            recommendation,
+            quality_report,
+            serato_plan=serato_plan,
+            serato_volume_root=serato_volume_root,
+        )
+        self.dj_readiness_label.setText(format_dj_readiness_summary(report))
 
     def show_transition_review(self, explanation: PlaylistExplanation) -> None:
         """Render transition component scores and warnings in the review table."""
