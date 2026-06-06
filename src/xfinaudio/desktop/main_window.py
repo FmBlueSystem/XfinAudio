@@ -531,6 +531,7 @@ class MainWindow(QMainWindow):
         self.recommend_button.clicked.connect(self.recommend_playlist)
         self.prep_copilot_button.clicked.connect(self.generate_prep_copilot)
         self.prep_copilot_apply_button.clicked.connect(self.apply_selected_prep_copilot_variant)
+        self.prep_copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
         self.safe_export_folder_button.clicked.connect(self.choose_safe_export_folder)
         self.serato_preview_button.clicked.connect(lambda: self.preview_serato_export())
         self.serato_export_button.clicked.connect(lambda: self.export_recommendation_to_serato())
@@ -1334,6 +1335,11 @@ class MainWindow(QMainWindow):
         self.prep_copilot_apply_button.setEnabled(True)
         self.status_label.setText(f"Generated {len(plan.variants)} Prep Copilot variant(s)")
 
+    def _apply_prep_copilot_item(self, item: QTableWidgetItem) -> None:
+        """Apply the Prep Copilot variant represented by a double-clicked table item."""
+        self.prep_copilot_table.selectRow(item.row())
+        self.apply_selected_prep_copilot_variant()
+
     def apply_selected_prep_copilot_variant(self) -> None:
         """Apply the selected Prep Copilot variant to the main review/export flow."""
         if self.last_prep_copilot_plan is None:
@@ -1378,6 +1384,8 @@ class MainWindow(QMainWindow):
             for column_index, value in enumerate(values):
                 item = _table_item(value, value.casefold() if isinstance(value, str) else value)
                 if column_index == 1:
+                    item.setBackground(QColor(_READINESS_STATUS_COLORS[variant.readiness.status]))
+                    item.setForeground(QColor("#061016"))
                     item.setToolTip(variant.readiness.summary)
                 self.prep_copilot_table.setItem(row_index, column_index, item)
 
