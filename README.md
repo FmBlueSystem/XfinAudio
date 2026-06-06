@@ -374,6 +374,7 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 - Narrows candidates for interactive desktop speed.
 - Applies selected strategy profile.
 - Supports DJ Prep Copilot intent planning with comparable Safe, Balanced, and Adventurous variants.
+- Shows a desktop Prep Copilot comparison panel with variant readiness, track count, warnings, target track count, and genre focus controls.
 - Runs recommendation off the UI thread.
 - Shows ordered output and transition scores.
 
@@ -868,6 +869,7 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 - Reduce candidatos para velocidad interactiva.
 - Aplica perfil de estrategia.
 - Soporta planificación DJ Prep Copilot con variantes comparables Safe, Balanced y Adventurous.
+- Muestra un panel desktop Prep Copilot comparando readiness, cantidad de tracks, warnings, target track count y genre focus.
 - Corre recomendación fuera del thread de UI.
 - Muestra resultado ordenado y scores de transición.
 

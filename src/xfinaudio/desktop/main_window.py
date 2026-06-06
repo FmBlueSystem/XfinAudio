@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSizePolicy,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -50,6 +51,7 @@ from xfinaudio.quality.dj_readiness import (
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+from xfinaudio.recommendation.prep_copilot import DJSetIntent, PrepCopilotPlan, build_prep_copilot_plan
 from xfinaudio.recommendation.strategies import available_strategies
 
 
@@ -95,6 +97,7 @@ _READINESS_STATUS_TOOLTIPS = {
     "needs_review": "Needs Review: inspect before export",
     "blocked": "Blocked: fix before export",
 }
+_READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "blocked": "Blocked"}
 
 _MISSING_METADATA_FILTERS = {
     "Missing BPM": "bpm",
@@ -419,6 +422,7 @@ class MainWindow(QMainWindow):
         self.last_playlist_explanation: PlaylistExplanation | None = None
         self.last_quality_report: RecommendationQualityReport | None = None
         self.last_dj_readiness_report: DjReadinessReport | None = None
+        self.last_prep_copilot_plan: PrepCopilotPlan | None = None
         self.current_scan_cancellation_token: ScanCancellationToken | None = None
         self._scan_thread: QThread | None = None
         self._scan_worker: _ScanWorker | None = None
@@ -471,6 +475,13 @@ class MainWindow(QMainWindow):
         self.strategy_combo.addItems(available_strategies())
         self.recommend_button = QPushButton("Recommend Playlist")
         self.recommend_button.setEnabled(False)
+        self.prep_copilot_target_count_input = QSpinBox()
+        self.prep_copilot_target_count_input.setRange(2, 100)
+        self.prep_copilot_target_count_input.setValue(25)
+        self.prep_copilot_genre_focus_input = QLineEdit()
+        self.prep_copilot_genre_focus_input.setPlaceholderText("Genre focus")
+        self.prep_copilot_button = QPushButton("Generate Prep Copilot")
+        self.prep_copilot_button.setEnabled(False)
         self.recommendation_table = QTableWidget(0, 11)
         self.recommendation_table.setHorizontalHeaderLabels(
             [
@@ -487,6 +498,8 @@ class MainWindow(QMainWindow):
                 "Warnings",
             ]
         )
+        self.prep_copilot_table = QTableWidget(0, 4)
+        self.prep_copilot_table.setHorizontalHeaderLabels(["Variant", "Readiness", "Tracks", "Warnings"])
         self.review_summary_label = QLabel(_EMPTY_REVIEW_SUMMARY)
         self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
         self.dj_readiness_table = QTableWidget(0, 3)
@@ -508,6 +521,7 @@ class MainWindow(QMainWindow):
         self.scan_button.clicked.connect(self.scan_selected_folder)
         self.cancel_scan_button.clicked.connect(self.cancel_scan)
         self.recommend_button.clicked.connect(self.recommend_playlist)
+        self.prep_copilot_button.clicked.connect(self.generate_prep_copilot)
         self.safe_export_folder_button.clicked.connect(self.choose_safe_export_folder)
         self.serato_export_button.clicked.connect(lambda: self.export_recommendation_to_serato())
         self.dj_readiness_export_button.clicked.connect(lambda: self.export_dj_readiness_report())
@@ -518,6 +532,7 @@ class MainWindow(QMainWindow):
         for table in (
             self.tracks_table,
             self.recommendation_table,
+            self.prep_copilot_table,
             self.transition_review_table,
             self.dj_readiness_table,
             self.serato_export_history_table,
@@ -544,12 +559,20 @@ class MainWindow(QMainWindow):
         recommendation_controls.addWidget(self.strategy_combo)
         recommendation_controls.addWidget(self.recommend_button)
 
+        prep_copilot_controls = QHBoxLayout()
+        prep_copilot_controls.addWidget(QLabel("Set Tracks"))
+        prep_copilot_controls.addWidget(self.prep_copilot_target_count_input)
+        prep_copilot_controls.addWidget(self.prep_copilot_genre_focus_input, 1)
+        prep_copilot_controls.addWidget(self.prep_copilot_button)
+
         layout = QVBoxLayout()
         layout.addLayout(controls)
         layout.addLayout(library_status_controls)
         layout.addWidget(self.tracks_table, 0)
         layout.addWidget(self.recommendation_guidance_label)
         layout.addLayout(recommendation_controls)
+        layout.addLayout(prep_copilot_controls)
+        layout.addWidget(self.prep_copilot_table)
         layout.addWidget(self.recommendation_table, 2)
         layout.addWidget(self.review_summary_label)
         layout.addWidget(self.dj_readiness_label)
@@ -585,6 +608,8 @@ class MainWindow(QMainWindow):
         self.tracks_table.setMinimumHeight(_COMPACT_LIBRARY_TABLE_MIN_HEIGHT)
         self.tracks_table.setMaximumHeight(_COMPACT_LIBRARY_TABLE_MAX_HEIGHT)
         self.tracks_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.prep_copilot_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
+        self.prep_copilot_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.recommendation_table.setMinimumHeight(_COMPACT_RESULTS_TABLE_MIN_HEIGHT)
         self.recommendation_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.transition_review_table.setMinimumHeight(_COMPACT_REVIEW_TABLE_MIN_HEIGHT)
@@ -601,6 +626,7 @@ class MainWindow(QMainWindow):
         table_widths = (
             (self.tracks_table, _TRACK_TABLE_COLUMN_WIDTHS),
             (self.recommendation_table, _RECOMMENDATION_TABLE_COLUMN_WIDTHS),
+            (self.prep_copilot_table, (120, 120, 80, 420)),
             (self.transition_review_table, _REVIEW_TABLE_COLUMN_WIDTHS),
             (self.dj_readiness_table, _DJ_READINESS_TABLE_COLUMN_WIDTHS),
             (self.serato_export_history_table, _SERATO_EXPORT_HISTORY_COLUMN_WIDTHS),
@@ -628,6 +654,7 @@ class MainWindow(QMainWindow):
         for table in (
             self.tracks_table,
             self.recommendation_table,
+            self.prep_copilot_table,
             self.transition_review_table,
             self.dj_readiness_table,
             self.serato_export_history_table,
@@ -830,6 +857,7 @@ class MainWindow(QMainWindow):
         self.last_playlist_explanation = None
         self.last_quality_report = None
         self.last_dj_readiness_report = None
+        self.last_prep_copilot_plan = None
         self.tracks_table.setRowCount(0)
         self.song_search_input.clear()
         self.recommendation_table.setRowCount(0)
@@ -1016,6 +1044,7 @@ class MainWindow(QMainWindow):
     def _refresh_export_action_state(self) -> None:
         """Enable Serato export only when a recommendation exists."""
         self.serato_export_button.setEnabled(self.last_recommendation is not None)
+        self.prep_copilot_button.setEnabled(self._selected_track_controls() is not None)
         self.dj_readiness_export_button.setEnabled(
             self.last_dj_readiness_report is not None and self.settings.export.safe_export_folder is not None
         )
@@ -1188,6 +1217,45 @@ class MainWindow(QMainWindow):
         if incomplete_count is None:
             incomplete_count = len(records) - complete_count
         self.status_label.setText(f"Scan complete: {complete_count} complete, {incomplete_count} incomplete")
+
+    def generate_prep_copilot(self) -> None:
+        """Generate comparable DJ Prep Copilot variants from current selection and intent controls."""
+        controls = self._selected_track_controls()
+        if controls is None:
+            self.last_prep_copilot_plan = None
+            self.prep_copilot_table.setRowCount(0)
+            self.status_label.setText("Select at least one complete track before generating Prep Copilot")
+            return
+        records = self._desktop_recommendation_records(controls)
+        genre_focus = self.prep_copilot_genre_focus_input.text().strip() or None
+        intent = DJSetIntent(
+            name="Desktop Prep Copilot",
+            strategy=self.strategy_combo.currentText(),
+            target_track_count=self.prep_copilot_target_count_input.value(),
+            start_path=controls.start_path,
+            required_paths=controls.manual_order_paths,
+            genre_focus=genre_focus,
+        )
+        plan = build_prep_copilot_plan(records, intent)
+        self.last_prep_copilot_plan = plan
+        self._populate_prep_copilot_table(plan)
+        self.status_label.setText(f"Generated {len(plan.variants)} Prep Copilot variant(s)")
+
+    def _populate_prep_copilot_table(self, plan: PrepCopilotPlan) -> None:
+        """Render Safe/Balanced/Adventurous copilot variants for quick comparison."""
+        self.prep_copilot_table.setRowCount(len(plan.variants))
+        for row_index, variant in enumerate(plan.variants):
+            values = [
+                variant.name,
+                _READINESS_STATUS_LABELS[variant.readiness.status],
+                str(len(variant.recommendation.ordered_tracks)),
+                "; ".join([*variant.blockers, *variant.warnings]),
+            ]
+            for column_index, value in enumerate(values):
+                item = _table_item(value, value.casefold() if isinstance(value, str) else value)
+                if column_index == 1:
+                    item.setToolTip(variant.readiness.summary)
+                self.prep_copilot_table.setItem(row_index, column_index, item)
 
     def recommend_playlist(self) -> None:
         """Generate and display a playlist recommendation from scanned records."""
@@ -1414,10 +1482,9 @@ class MainWindow(QMainWindow):
     def _populate_dj_readiness_table(self, report: DjReadinessReport) -> None:
         """Render actionable readiness checks in a compact table."""
         self.dj_readiness_table.setRowCount(len(report.checks))
-        status_labels = {"ready": "Ready", "needs_review": "Needs Review", "blocked": "Blocked"}
         status_sort = {"blocked": 0, "needs_review": 1, "ready": 2}
         for row_index, check in enumerate(report.checks):
-            values = [check.label, status_labels[check.status], check.detail]
+            values = [check.label, _READINESS_STATUS_LABELS[check.status], check.detail]
             sort_values: list[object] = [
                 check.label.casefold(),
                 status_sort[check.status],

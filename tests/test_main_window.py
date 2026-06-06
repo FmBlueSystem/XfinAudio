@@ -1746,3 +1746,80 @@ def test_main_window_rejects_dj_readiness_export_without_recommendation(tmp_path
 
     assert window.status_label.text() == "Generate a recommendation before exporting DJ readiness"
     assert list(safe_folder.iterdir()) == []
+
+
+def test_main_window_constructs_prep_copilot_controls() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.prep_copilot_button.text() == "Generate Prep Copilot"
+    assert window.prep_copilot_target_count_input.value() == 25
+    assert window.prep_copilot_genre_focus_input.placeholderText() == "Genre focus"
+    assert window.prep_copilot_table.horizontalHeaderItem(0).text() == "Variant"
+    assert window.prep_copilot_table.horizontalHeaderItem(1).text() == "Readiness"
+    assert window.prep_copilot_table.horizontalHeaderItem(2).text() == "Tracks"
+    assert window.prep_copilot_table.horizontalHeaderItem(3).text() == "Warnings"
+
+
+def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "start.flac"),
+            title="Start",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=4,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "groove.flac"),
+            title="Groove",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "lift.flac"),
+            title="Lift",
+            bpm=122,
+            camelot_key="9A",
+            energy_level=6,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+    ]
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.prep_copilot_target_count_input.setValue(3)
+    window.prep_copilot_genre_focus_input.setText("House")
+
+    window.generate_prep_copilot()
+
+    assert window.prep_copilot_table.rowCount() == 3
+    assert [window.prep_copilot_table.item(row, 0).text() for row in range(3)] == ["safe", "balanced", "adventurous"]
+    assert {window.prep_copilot_table.item(row, 1).text() for row in range(3)} == {"Ready"}
+    assert window.last_prep_copilot_plan is not None
+    assert all(
+        variant.recommendation.ordered_tracks[0].path == str(tmp_path / "start.flac")
+        for variant in window.last_prep_copilot_plan.variants
+    )
+    assert window.status_label.text() == "Generated 3 Prep Copilot variant(s)"
+
+
+def test_main_window_rejects_prep_copilot_without_complete_selection() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    window.generate_prep_copilot()
+
+    assert window.prep_copilot_table.rowCount() == 0
+    assert window.status_label.text() == "Select at least one complete track before generating Prep Copilot"
