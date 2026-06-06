@@ -12,8 +12,4 @@ def metadata_status_records(records: list[TrackRecord], status: str) -> list[Tra
 
 def metadata_missing_field_records(records: list[TrackRecord], missing_field: str) -> list[TrackRecord]:
     """Return incomplete records missing the requested metadata field."""
-    return [
-        r
-        for r in records
-        if r.metadata_status == "incomplete" and missing_field in r.missing_required_fields
-    ]
+    return [r for r in records if r.metadata_status == "incomplete" and missing_field in r.missing_required_fields]
