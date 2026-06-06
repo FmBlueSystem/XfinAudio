@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
-from xfinaudio.exporting.explainability import PlaylistExplanation
+from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
     SeratoLibrary,
@@ -48,7 +48,7 @@ from xfinaudio.quality.dj_readiness import (
     format_dj_readiness_summary,
     write_dj_readiness_report,
 )
-from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
+from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, PrepCopilotPlan, build_prep_copilot_plan
@@ -482,6 +482,8 @@ class MainWindow(QMainWindow):
         self.prep_copilot_genre_focus_input.setPlaceholderText("Genre focus")
         self.prep_copilot_button = QPushButton("Generate Prep Copilot")
         self.prep_copilot_button.setEnabled(False)
+        self.prep_copilot_apply_button = QPushButton("Apply Selected Variant")
+        self.prep_copilot_apply_button.setEnabled(False)
         self.recommendation_table = QTableWidget(0, 11)
         self.recommendation_table.setHorizontalHeaderLabels(
             [
@@ -500,6 +502,8 @@ class MainWindow(QMainWindow):
         )
         self.prep_copilot_table = QTableWidget(0, 4)
         self.prep_copilot_table.setHorizontalHeaderLabels(["Variant", "Readiness", "Tracks", "Warnings"])
+        self.prep_copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.prep_copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.review_summary_label = QLabel(_EMPTY_REVIEW_SUMMARY)
         self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
         self.dj_readiness_table = QTableWidget(0, 3)
@@ -522,6 +526,7 @@ class MainWindow(QMainWindow):
         self.cancel_scan_button.clicked.connect(self.cancel_scan)
         self.recommend_button.clicked.connect(self.recommend_playlist)
         self.prep_copilot_button.clicked.connect(self.generate_prep_copilot)
+        self.prep_copilot_apply_button.clicked.connect(self.apply_selected_prep_copilot_variant)
         self.safe_export_folder_button.clicked.connect(self.choose_safe_export_folder)
         self.serato_export_button.clicked.connect(lambda: self.export_recommendation_to_serato())
         self.dj_readiness_export_button.clicked.connect(lambda: self.export_dj_readiness_report())
@@ -564,6 +569,7 @@ class MainWindow(QMainWindow):
         prep_copilot_controls.addWidget(self.prep_copilot_target_count_input)
         prep_copilot_controls.addWidget(self.prep_copilot_genre_focus_input, 1)
         prep_copilot_controls.addWidget(self.prep_copilot_button)
+        prep_copilot_controls.addWidget(self.prep_copilot_apply_button)
 
         layout = QVBoxLayout()
         layout.addLayout(controls)
@@ -1045,6 +1051,7 @@ class MainWindow(QMainWindow):
         """Enable Serato export only when a recommendation exists."""
         self.serato_export_button.setEnabled(self.last_recommendation is not None)
         self.prep_copilot_button.setEnabled(self._selected_track_controls() is not None)
+        self.prep_copilot_apply_button.setEnabled(self.last_prep_copilot_plan is not None)
         self.dj_readiness_export_button.setEnabled(
             self.last_dj_readiness_report is not None and self.settings.export.safe_export_folder is not None
         )
@@ -1224,6 +1231,7 @@ class MainWindow(QMainWindow):
         if controls is None:
             self.last_prep_copilot_plan = None
             self.prep_copilot_table.setRowCount(0)
+            self.prep_copilot_apply_button.setEnabled(False)
             self.status_label.setText("Select at least one complete track before generating Prep Copilot")
             return
         records = self._desktop_recommendation_records(controls)
@@ -1239,7 +1247,38 @@ class MainWindow(QMainWindow):
         plan = build_prep_copilot_plan(records, intent)
         self.last_prep_copilot_plan = plan
         self._populate_prep_copilot_table(plan)
+        self.prep_copilot_apply_button.setEnabled(True)
         self.status_label.setText(f"Generated {len(plan.variants)} Prep Copilot variant(s)")
+
+    def apply_selected_prep_copilot_variant(self) -> None:
+        """Apply the selected Prep Copilot variant to the main review/export flow."""
+        if self.last_prep_copilot_plan is None:
+            self.status_label.setText("Generate and select a Prep Copilot variant before applying")
+            return
+        selected_rows = sorted({index.row() for index in self.prep_copilot_table.selectedIndexes()})
+        if not selected_rows:
+            self.status_label.setText("Generate and select a Prep Copilot variant before applying")
+            return
+        row_index = selected_rows[0]
+        if row_index >= len(self.last_prep_copilot_plan.variants):
+            self.status_label.setText("Generate and select a Prep Copilot variant before applying")
+            return
+        variant = self.last_prep_copilot_plan.variants[row_index]
+        recommendation = variant.recommendation
+        explanation = build_playlist_explanation(recommendation)
+        quality_report = build_quality_report(recommendation)
+        self.last_recommendation = recommendation
+        self.last_playlist_explanation = explanation
+        self.last_quality_report = quality_report
+        self.last_dj_readiness_report = variant.readiness
+        self.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)
+        self.review_summary_label.setText(format_quality_summary(quality_report))
+        self.dj_readiness_label.setText(format_dj_readiness_summary(variant.readiness))
+        self._populate_dj_readiness_table(variant.readiness)
+        self.show_transition_review(explanation)
+        self.export_guidance_label.setText("Inspect the selected Prep Copilot variant before exporting it to Serato.")
+        self.status_label.setText(f"Applied Prep Copilot variant: {variant.name}")
+        self._refresh_export_action_state()
 
     def _populate_prep_copilot_table(self, plan: PrepCopilotPlan) -> None:
         """Render Safe/Balanced/Adventurous copilot variants for quick comparison."""
