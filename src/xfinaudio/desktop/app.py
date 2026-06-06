@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from xfinaudio.desktop.main_window import MainWindow
@@ -50,6 +51,9 @@ def main() -> int:
     if package_smoke_enabled():
         return 0
     window.show()
+    window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)
+    window.raise_()
+    window.activateWindow()
     return app.exec()
 
 
