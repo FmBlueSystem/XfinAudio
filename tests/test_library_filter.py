@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
-
 from xfinaudio.library.models import TrackRecord
 
 
