@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
 from xfinaudio.desktop._workers import BackgroundWorker, ScanWorker
+from xfinaudio.desktop.export_coordinator import record_export, write_readiness_sidecars
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.exporting.serato_crate import write_serato_crate
@@ -1084,9 +1085,7 @@ class MainWindow(QMainWindow):
         """Write DJ Readiness JSON/CSV files next to a Serato crate export."""
         if self.last_dj_readiness_report is None:
             raise ValueError("DJ Readiness report is not available for sidecar export")
-        json_path = crate_path.with_suffix(".dj-readiness.json")
-        csv_path = crate_path.with_suffix(".dj-readiness.csv")
-        return write_dj_readiness_report(self.last_dj_readiness_report, json_path, csv_path)
+        return write_readiness_sidecars(self.last_dj_readiness_report, crate_path)
 
     def _plan_current_serato_export(
         self,
@@ -1224,18 +1223,15 @@ class MainWindow(QMainWindow):
         """Record a bounded in-session Serato export receipt for user verification."""
         if self.last_recommendation is None:
             return
-        self.serato_export_history.insert(
-            0,
-            {
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "strategy": self.last_recommendation.strategy.name,
-                "tracks": str(len(self.last_recommendation.ordered_tracks)),
-                "path": str(written_path),
-                "readiness_json_path": "" if readiness_json_path is None else str(readiness_json_path),
-                "readiness_csv_path": "" if readiness_csv_path is None else str(readiness_csv_path),
-            },
-        )
-        self.serato_export_history = self.serato_export_history[:_SERATO_EXPORT_HISTORY_LIMIT]
+        entry = {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "strategy": self.last_recommendation.strategy.name,
+            "tracks": str(len(self.last_recommendation.ordered_tracks)),
+            "path": str(written_path),
+            "readiness_json_path": "" if readiness_json_path is None else str(readiness_json_path),
+            "readiness_csv_path": "" if readiness_csv_path is None else str(readiness_csv_path),
+        }
+        self.serato_export_history = record_export(self.serato_export_history, entry, _SERATO_EXPORT_HISTORY_LIMIT)
         self._render_serato_export_history()
 
     def _render_serato_export_history(self) -> None:
