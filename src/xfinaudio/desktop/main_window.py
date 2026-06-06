@@ -450,6 +450,8 @@ class MainWindow(QMainWindow):
         )
         self.safe_export_folder_button = QPushButton("Choose Safe Export Folder")
         self.safe_export_folder_label = QLabel(self._format_safe_export_folder_label())
+        self.serato_preview_button = QPushButton("Preview Serato Export")
+        self.serato_preview_button.setEnabled(False)
         self.serato_export_button = QPushButton("Export to Serato Crate")
         self.serato_export_button.setEnabled(False)
         self.dj_readiness_export_button = QPushButton("Export DJ Readiness Report")
@@ -530,6 +532,7 @@ class MainWindow(QMainWindow):
         self.prep_copilot_button.clicked.connect(self.generate_prep_copilot)
         self.prep_copilot_apply_button.clicked.connect(self.apply_selected_prep_copilot_variant)
         self.safe_export_folder_button.clicked.connect(self.choose_safe_export_folder)
+        self.serato_preview_button.clicked.connect(lambda: self.preview_serato_export())
         self.serato_export_button.clicked.connect(lambda: self.export_recommendation_to_serato())
         self.dj_readiness_export_button.clicked.connect(lambda: self.export_dj_readiness_report())
         self.song_search_input.textChanged.connect(lambda text: self._apply_song_filter(text, clear_selection=True))
@@ -588,6 +591,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.transition_review_table, 1)
         layout.addWidget(self.export_guidance_label)
         layout.addWidget(self.serato_export_history_table)
+        layout.addWidget(self.serato_preview_button)
         layout.addWidget(self.serato_export_button)
         layout.addWidget(self.dj_readiness_export_button)
         layout.addWidget(self.safe_export_folder_button)
@@ -924,6 +928,42 @@ class MainWindow(QMainWindow):
         json_path, csv_path = write_dj_readiness_report(self.last_dj_readiness_report, json_path, csv_path)
         self.status_label.setText(f"Exported DJ readiness report: {json_path} and {csv_path}")
 
+    def preview_serato_export(
+        self,
+        *,
+        serato_folder: Path | None = None,
+        crate_name: str | None = None,
+        generated_at: datetime | None = None,
+    ) -> None:
+        """Preview the Serato crate destination without writing files."""
+        if self.last_recommendation is None:
+            self.status_label.setText("Generate a recommendation before previewing Serato export")
+            return
+
+        try:
+            plan, _library = self._plan_current_serato_export(
+                serato_folder=serato_folder,
+                crate_name=crate_name,
+                generated_at=generated_at,
+            )
+        except Exception as exc:
+            self.status_label.setText(f"Serato export preview failed: {exc}")
+            return
+
+        variant = self.applied_prep_copilot_variant_name or "none"
+        readiness = (
+            _READINESS_STATUS_LABELS[self.last_dj_readiness_report.status]
+            if self.last_dj_readiness_report is not None
+            else "Not available"
+        )
+        will_write = "yes" if not plan.target_path.exists() else "replace with backup"
+        self.export_guidance_label.setText(
+            f"Serato export preview: {plan.target_path} | "
+            f"Variant: {variant} | Tracks: {len(plan.relative_paths)} | "
+            f"Will write: {will_write} | Readiness: {readiness}"
+        )
+        self.status_label.setText(f"Serato export preview: {plan.target_path}")
+
     def export_recommendation_to_serato(
         self,
         *,
@@ -937,29 +977,11 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            library = (
-                SeratoLibrary(serato_folder=serato_folder, volume_root=serato_folder.parent)
-                if serato_folder is not None
-                else select_serato_library_for_tracks(
-                    [track.path for track in self.last_recommendation.ordered_tracks],
-                    discover_serato_libraries(),
-                )
+            plan, library = self._plan_current_serato_export(
+                serato_folder=serato_folder,
+                crate_name=crate_name,
+                generated_at=generated_at,
             )
-            if crate_name is not None:
-                plan = plan_serato_playlist_export(crate_name, self.last_recommendation, library)
-            elif self.applied_prep_copilot_variant_name is not None:
-                plan = plan_copilot_variant_serato_playlist_export(
-                    self.applied_prep_copilot_variant_name,
-                    self.last_recommendation,
-                    library,
-                    generated_at=generated_at,
-                )
-            else:
-                plan = plan_generated_serato_playlist_export(
-                    self.last_recommendation,
-                    library,
-                    generated_at=generated_at,
-                )
             result = write_serato_crate(plan, confirm=True)
         except Exception as exc:
             self.status_label.setText(f"Serato export failed: {exc}")
@@ -981,6 +1003,41 @@ class MainWindow(QMainWindow):
                 serato_volume_root=library.volume_root,
             )
         self._record_serato_export(result.written_path)
+
+    def _plan_current_serato_export(
+        self,
+        *,
+        serato_folder: Path | None = None,
+        crate_name: str | None = None,
+        generated_at: datetime | None = None,
+    ) -> tuple[Any, SeratoLibrary]:
+        """Build the current Serato export plan without writing it."""
+        if self.last_recommendation is None:
+            raise ValueError("Generate a recommendation before planning Serato export")
+        library = (
+            SeratoLibrary(serato_folder=serato_folder, volume_root=serato_folder.parent)
+            if serato_folder is not None
+            else select_serato_library_for_tracks(
+                [track.path for track in self.last_recommendation.ordered_tracks],
+                discover_serato_libraries(),
+            )
+        )
+        if crate_name is not None:
+            plan = plan_serato_playlist_export(crate_name, self.last_recommendation, library)
+        elif self.applied_prep_copilot_variant_name is not None:
+            plan = plan_copilot_variant_serato_playlist_export(
+                self.applied_prep_copilot_variant_name,
+                self.last_recommendation,
+                library,
+                generated_at=generated_at,
+            )
+        else:
+            plan = plan_generated_serato_playlist_export(
+                self.last_recommendation,
+                library,
+                generated_at=generated_at,
+            )
+        return plan, library
 
     def export_metadata_status_to_serato(
         self,
@@ -1063,6 +1120,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_export_action_state(self) -> None:
         """Enable Serato export only when a recommendation exists."""
+        self.serato_preview_button.setEnabled(self.last_recommendation is not None)
         self.serato_export_button.setEnabled(self.last_recommendation is not None)
         self.prep_copilot_button.setEnabled(self._selected_track_controls() is not None)
         self.prep_copilot_apply_button.setEnabled(self.last_prep_copilot_plan is not None)

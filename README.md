@@ -377,6 +377,7 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 - Shows a desktop Prep Copilot comparison panel with variant readiness, track count, warnings, target track count, and genre focus controls.
 - Applies the selected Prep Copilot variant into the main review, DJ Readiness, transition review, and Serato export flow.
 - Exports applied Prep Copilot variants to non-overwriting Serato crates grouped by strategy and variant.
+- Previews the exact Serato export destination, track count, variant, write behavior, and readiness before writing a crate.
 - Runs recommendation off the UI thread.
 - Shows ordered output and transition scores.
 
@@ -874,6 +875,7 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 - Muestra un panel desktop Prep Copilot comparando readiness, cantidad de tracks, warnings, target track count y genre focus.
 - Aplica la variante Prep Copilot seleccionada al flujo principal de review, DJ Readiness, transición y export Serato.
 - Exporta variantes Prep Copilot aplicadas a crates Serato no destructivos agrupados por estrategia y variante.
+- Previsualiza destino exacto de export Serato, cantidad de tracks, variante, comportamiento de escritura y readiness antes de escribir el crate.
 - Corre recomendación fuera del thread de UI.
 - Muestra resultado ordenado y scores de transición.
 

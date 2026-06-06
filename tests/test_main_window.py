@@ -1938,3 +1938,108 @@ def test_main_window_exports_applied_prep_copilot_variant_with_variant_crate_nam
     expected = serato_folder / "Subcrates" / expected_name
     assert expected.exists()
     assert str(expected) in window.status_label.text()
+
+
+def test_main_window_constructs_serato_export_preview_action() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.serato_preview_button.text() == "Preview Serato Export"
+    assert window.serato_preview_button.isEnabled() is False
+
+
+def test_main_window_previews_applied_copilot_serato_export_without_writing(tmp_path) -> None:
+    ensure_app()
+    volume_root = tmp_path / "dd"
+    serato_folder = volume_root / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    records = [
+        TrackRecord(
+            path=str(volume_root / "Music" / "start.flac"),
+            title="Start",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=4,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(volume_root / "Music" / "groove.flac"),
+            title="Groove",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+    ]
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.prep_copilot_target_count_input.setValue(2)
+    window.prep_copilot_genre_focus_input.setText("House")
+    window.generate_prep_copilot()
+    window.prep_copilot_table.selectRow(1)
+    window.apply_selected_prep_copilot_variant()
+
+    window.preview_serato_export(
+        serato_folder=serato_folder,
+        generated_at=datetime(2026, 6, 6, 14, 30, 0),
+    )
+
+    expected_name = (
+        "XfinAudio%%Prep Copilot%%Harmonic Journey%%Balanced%%"
+        "20260606-143000 - harmonic_journey - balanced - Start - 2 tracks.crate"
+    )
+    expected = serato_folder / "Subcrates" / expected_name
+    assert not expected.exists()
+    assert window.status_label.text() == f"Serato export preview: {expected}"
+    assert "Variant: balanced" in window.export_guidance_label.text()
+    assert "Tracks: 2" in window.export_guidance_label.text()
+    assert "Will write: yes" in window.export_guidance_label.text()
+    assert "Readiness: Ready" in window.export_guidance_label.text()
+
+
+def test_main_window_previews_collision_suffix_without_overwriting(tmp_path) -> None:
+    ensure_app()
+    volume_root = tmp_path / "dd"
+    serato_folder = volume_root / "_Serato_"
+    target_folder = serato_folder / "Subcrates"
+    target_folder.mkdir(parents=True)
+    existing_name = "XfinAudio%%Build%%20260606-143000 - build - Start - 2 tracks.crate"
+    existing = target_folder / existing_name
+    existing.write_bytes(b"existing")
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.last_recommendation = make_recommendation(
+        [
+            TrackRecord(
+                path=str(volume_root / "Music" / "start.flac"),
+                title="Start",
+                bpm=120,
+                camelot_key="8A",
+                energy_level=4,
+                metadata_status="complete",
+            ),
+            TrackRecord(
+                path=str(volume_root / "Music" / "groove.flac"),
+                title="Groove",
+                bpm=121,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            ),
+        ]
+    )
+
+    window.preview_serato_export(
+        serato_folder=serato_folder,
+        generated_at=datetime(2026, 6, 6, 14, 30, 0),
+    )
+
+    expected = target_folder / "XfinAudio%%Build%%20260606-143000 - build - Start - 2 tracks-2.crate"
+    assert existing.read_bytes() == b"existing"
+    assert not expected.exists()
+    assert window.status_label.text() == f"Serato export preview: {expected}"
