@@ -90,7 +90,7 @@ _TRACK_PATH_COLUMN = 9
 _TRACK_TABLE_COLUMN_WIDTHS = (160, 145, 70, 70, 76, 150, 130, 140, 86, 220)
 _RECOMMENDATION_TABLE_COLUMN_WIDTHS = (160, 150, 72, 70, 82, 130, 145, 92, 180, 120, 150)
 _REVIEW_TABLE_COLUMN_WIDTHS = (70, 170, 170, 100, 100, 112, 100, 110, 180)
-_SERATO_EXPORT_HISTORY_COLUMN_WIDTHS = (86, 110, 70, 360)
+_SERATO_EXPORT_HISTORY_COLUMN_WIDTHS = (86, 110, 70, 260, 260, 260)
 _DJ_READINESS_TABLE_COLUMN_WIDTHS = (180, 112, 520)
 _READINESS_STATUS_COLORS = {"ready": "#1fd16a", "needs_review": "#ffb000", "blocked": "#ff4d4f"}
 _READINESS_STATUS_TOOLTIPS = {
@@ -516,8 +516,10 @@ class MainWindow(QMainWindow):
         self.dj_readiness_table.setHorizontalHeaderLabels(["Check", "Status", "Detail"])
         self.transition_review_table = QTableWidget(0, len(_TRANSITION_REVIEW_HEADERS))
         self.transition_review_table.setHorizontalHeaderLabels(_TRANSITION_REVIEW_HEADERS)
-        self.serato_export_history_table = QTableWidget(0, 4)
-        self.serato_export_history_table.setHorizontalHeaderLabels(["Time", "Strategy", "Tracks", "Serato Crate"])
+        self.serato_export_history_table = QTableWidget(0, 6)
+        self.serato_export_history_table.setHorizontalHeaderLabels(
+            ["Time", "Strategy", "Tracks", "Serato Crate", "Readiness JSON", "Readiness CSV"]
+        )
         self.serato_export_history_table.setVisible(False)
         self.folder_label.setWordWrap(False)
         self.library_guidance_label.setWordWrap(False)
@@ -787,6 +789,8 @@ class MainWindow(QMainWindow):
                 values[1].casefold(),
                 record.bpm if record.bpm is not None else float("inf"),
                 values[3].casefold(),
+                values[4].casefold(),
+                values[5].casefold(),
                 record.energy_level if record.energy_level is not None else 999,
                 values[5].casefold(),
                 values[6].casefold(),
@@ -995,6 +999,7 @@ class MainWindow(QMainWindow):
             f" Backup: {result.backup_path}" if result.backup_path is not None else " No previous crate existed."
         )
         readiness_note = ""
+        readiness_paths: tuple[Path | None, Path | None] = (None, None)
         if self.last_quality_report is not None:
             self._show_dj_readiness(
                 self.last_recommendation,
@@ -1004,13 +1009,16 @@ class MainWindow(QMainWindow):
             )
         if self.last_dj_readiness_report is not None:
             json_path, csv_path = self._write_serato_readiness_sidecars(result.written_path)
+            readiness_paths = (json_path, csv_path)
             readiness_note = f" Readiness reports: {json_path} and {csv_path}."
         self.export_guidance_label.setText(
             f"Serato crate exported: {result.written_path}. "
             "Open Serato DJ Pro and check the crate under Subcrates." + backup_note + readiness_note
         )
         self.status_label.setText(f"Exported Serato crate: {result.written_path}")
-        self._record_serato_export(result.written_path)
+        self._record_serato_export(
+            result.written_path, readiness_json_path=readiness_paths[0], readiness_csv_path=readiness_paths[1]
+        )
 
     def _write_serato_readiness_sidecars(self, crate_path: Path) -> tuple[Path, Path]:
         """Write DJ Readiness JSON/CSV files next to a Serato crate export."""
@@ -1144,7 +1152,13 @@ class MainWindow(QMainWindow):
             self.last_dj_readiness_report is not None and self.settings.export.safe_export_folder is not None
         )
 
-    def _record_serato_export(self, written_path: Path) -> None:
+    def _record_serato_export(
+        self,
+        written_path: Path,
+        *,
+        readiness_json_path: Path | None = None,
+        readiness_csv_path: Path | None = None,
+    ) -> None:
         """Record a bounded in-session Serato export receipt for user verification."""
         if self.last_recommendation is None:
             return
@@ -1155,6 +1169,8 @@ class MainWindow(QMainWindow):
                 "strategy": self.last_recommendation.strategy.name,
                 "tracks": str(len(self.last_recommendation.ordered_tracks)),
                 "path": str(written_path),
+                "readiness_json_path": "" if readiness_json_path is None else str(readiness_json_path),
+                "readiness_csv_path": "" if readiness_csv_path is None else str(readiness_csv_path),
             },
         )
         self.serato_export_history = self.serato_export_history[:_SERATO_EXPORT_HISTORY_LIMIT]
@@ -1170,16 +1186,20 @@ class MainWindow(QMainWindow):
                 export_receipt["strategy"],
                 export_receipt["tracks"],
                 export_receipt["path"],
+                export_receipt.get("readiness_json_path", ""),
+                export_receipt.get("readiness_csv_path", ""),
             ]
             sort_values: list[object] = [
                 values[0],
                 values[1].casefold(),
                 int(values[2]),
                 values[3].casefold(),
+                values[4].casefold(),
+                values[5].casefold(),
             ]
             for column_index, value in enumerate(values):
                 item = _table_item(value, sort_values[column_index])
-                if column_index == 3:
+                if column_index in {3, 4, 5}:
                     item.setToolTip(value)
                 self.serato_export_history_table.setItem(row_index, column_index, item)
 
@@ -1581,6 +1601,8 @@ class MainWindow(QMainWindow):
                 values[1].casefold(),
                 record.bpm if record.bpm is not None else float("inf"),
                 values[3].casefold(),
+                values[4].casefold(),
+                values[5].casefold(),
                 record.energy_level if record.energy_level is not None else 999,
                 values[5].casefold(),
                 values[6].casefold(),

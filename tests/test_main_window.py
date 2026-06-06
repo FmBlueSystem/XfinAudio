@@ -2260,3 +2260,52 @@ def test_main_window_clears_applied_copilot_variant_badge_for_normal_recommendat
     _process_events_until(lambda: window.recommend_button.isEnabled())
 
     assert window.applied_copilot_variant_label.text() == "Applied Variant: none"
+
+
+def test_main_window_serato_export_history_includes_readiness_sidecar_paths(tmp_path) -> None:
+    ensure_app()
+    volume_root = tmp_path / "dd"
+    serato_folder = volume_root / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    records = [
+        TrackRecord(
+            path=str(volume_root / "Music" / "start.flac"),
+            title="Start",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=4,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(volume_root / "Music" / "groove.flac"),
+            title="Groove",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+    ]
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.prep_copilot_target_count_input.setValue(2)
+    window.generate_prep_copilot()
+    window.prep_copilot_table.selectRow(1)
+    window.apply_selected_prep_copilot_variant()
+
+    window.export_recommendation_to_serato(
+        serato_folder=serato_folder,
+        generated_at=datetime(2026, 6, 6, 14, 30, 0),
+    )
+
+    crate_path = Path(window.serato_export_history[0]["path"])
+    assert window.serato_export_history_table.columnCount() == 6
+    assert window.serato_export_history_table.horizontalHeaderItem(4).text() == "Readiness JSON"
+    assert window.serato_export_history_table.horizontalHeaderItem(5).text() == "Readiness CSV"
+    assert window.serato_export_history_table.item(0, 4).text() == str(crate_path.with_suffix(".dj-readiness.json"))
+    assert window.serato_export_history_table.item(0, 5).text() == str(crate_path.with_suffix(".dj-readiness.csv"))
