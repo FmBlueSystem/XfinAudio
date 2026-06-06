@@ -1823,3 +1823,67 @@ def test_main_window_rejects_prep_copilot_without_complete_selection() -> None:
 
     assert window.prep_copilot_table.rowCount() == 0
     assert window.status_label.text() == "Select at least one complete track before generating Prep Copilot"
+
+
+def test_main_window_applies_selected_prep_copilot_variant_to_review_flow(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "start.flac"),
+            title="Start",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=4,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "groove.flac"),
+            title="Groove",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "lift.flac"),
+            title="Lift",
+            bpm=122,
+            camelot_key="9A",
+            energy_level=6,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+    ]
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.prep_copilot_target_count_input.setValue(3)
+    window.prep_copilot_genre_focus_input.setText("House")
+    window.generate_prep_copilot()
+    window.prep_copilot_table.selectRow(1)
+
+    window.apply_selected_prep_copilot_variant()
+
+    assert window.last_recommendation is not None
+    assert window.last_recommendation == window.last_prep_copilot_plan.variants[1].recommendation
+    assert window.recommendation_table.rowCount() == 3
+    assert window.transition_review_table.rowCount() == 2
+    assert window.dj_readiness_table.rowCount() > 0
+    assert window.serato_export_button.isEnabled() is True
+    assert window.status_label.text() == "Applied Prep Copilot variant: balanced"
+
+
+def test_main_window_rejects_apply_prep_copilot_without_variant_selection(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    window.apply_selected_prep_copilot_variant()
+
+    assert window.status_label.text() == "Generate and select a Prep Copilot variant before applying"
+    assert window.recommendation_table.rowCount() == 0
