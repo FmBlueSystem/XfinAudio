@@ -342,6 +342,7 @@ The app can export deterministic playlist artifacts:
 - CSV playlist export.
 - M3U playlist export.
 - JSON quality report export.
+- JSON and CSV DJ Readiness report export.
 
 The JSON recommendation includes the explanation model so reviewers can inspect not just the playlist, but why each transition exists.
 
@@ -386,6 +387,7 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 - Quality summary with track count, transition count, average score, and warning count.
 - DJ Readiness status: `Ready`, `Needs Review`, or `Blocked`.
 - DJ Readiness check panel with `Check`, `Status`, and `Detail` columns, plus color-coded status badges.
+- DJ Readiness report export to JSON and CSV in the configured safe export folder for audit and prep handoff.
 - Operational blockers for impossible BPM jumps, missing required metadata, and unresolved Serato paths.
 - Serato round-trip validation after export: crate bytes must match the plan and referenced files must resolve on disk.
 - Export guidance that tells the DJ to inspect results before Serato export.
@@ -833,6 +835,7 @@ La app puede exportar artefactos determinísticos:
 - CSV de playlist.
 - M3U.
 - JSON de quality report.
+- JSON y CSV del DJ Readiness report.
 
 El JSON incluye el modelo de explicación para revisar no solo la playlist, sino por qué existe cada transición.
 
@@ -877,6 +880,7 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 - Resumen con track count, transition count, average score y warning count.
 - Estado DJ Readiness: `Ready`, `Needs Review` o `Blocked`.
 - Panel DJ Readiness con columnas `Check`, `Status` y `Detail`, más badges visuales por estado.
+- Export del DJ Readiness report a JSON y CSV en la carpeta segura configurada para auditoría y preparación.
 - Bloqueos operativos para saltos BPM imposibles, metadata obligatoria faltante y paths que Serato no puede resolver.
 - Validación Serato round-trip después de exportar: los bytes del crate deben coincidir con el plan y los archivos referenciados deben existir en disco.
 - Guía de exportación para revisar antes de mandar a Serato.

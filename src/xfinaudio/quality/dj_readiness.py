@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import csv
+import json
 from collections.abc import Iterable
+from io import StringIO
 from pathlib import Path
 from typing import Literal
 
@@ -78,6 +81,32 @@ def build_dj_readiness_report(
         blocker_count=blocker_count,
         review_count=review_count,
     )
+
+
+def export_dj_readiness_json(report: DjReadinessReport) -> str:
+    """Return a deterministic JSON export for a DJ readiness report."""
+    return json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def export_dj_readiness_csv(report: DjReadinessReport) -> str:
+    """Return a CSV export with stable DJ readiness check columns."""
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=["check", "status", "detail"], lineterminator="\n")
+    writer.writeheader()
+    for check in report.checks:
+        writer.writerow({"check": check.label, "status": check.status, "detail": check.detail})
+    return output.getvalue()
+
+
+def write_dj_readiness_report(
+    report: DjReadinessReport, json_target: str | Path, csv_target: str | Path
+) -> tuple[Path, Path]:
+    """Write JSON and CSV DJ readiness reports to caller-provided targets."""
+    json_path = Path(json_target)
+    csv_path = Path(csv_target)
+    json_path.write_text(export_dj_readiness_json(report), encoding="utf-8")
+    csv_path.write_text(export_dj_readiness_csv(report), encoding="utf-8")
+    return json_path, csv_path
 
 
 def validate_serato_round_trip(plan: SeratoExportPlan, *, volume_root: Path | None = None) -> DjReadinessCheck:
@@ -231,6 +260,9 @@ __all__ = [
     "DjReadinessReport",
     "ReadinessStatus",
     "build_dj_readiness_report",
+    "export_dj_readiness_csv",
+    "export_dj_readiness_json",
     "format_dj_readiness_summary",
     "validate_serato_round_trip",
+    "write_dj_readiness_report",
 ]

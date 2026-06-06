@@ -45,6 +45,7 @@ from xfinaudio.quality.dj_readiness import (
     DjReadinessReport,
     build_dj_readiness_report,
     format_dj_readiness_summary,
+    write_dj_readiness_report,
 )
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls
@@ -417,6 +418,7 @@ class MainWindow(QMainWindow):
         self.last_recommendation: PlaylistRecommendation | None = None
         self.last_playlist_explanation: PlaylistExplanation | None = None
         self.last_quality_report: RecommendationQualityReport | None = None
+        self.last_dj_readiness_report: DjReadinessReport | None = None
         self.current_scan_cancellation_token: ScanCancellationToken | None = None
         self._scan_thread: QThread | None = None
         self._scan_worker: _ScanWorker | None = None
@@ -444,6 +446,8 @@ class MainWindow(QMainWindow):
         self.safe_export_folder_label = QLabel(self._format_safe_export_folder_label())
         self.serato_export_button = QPushButton("Export to Serato Crate")
         self.serato_export_button.setEnabled(False)
+        self.dj_readiness_export_button = QPushButton("Export DJ Readiness Report")
+        self.dj_readiness_export_button.setEnabled(False)
         self.scan_progress_label = QLabel("Scan progress: idle")
         self.status_label = QLabel("Ready")
         self.song_search_input = QLineEdit()
@@ -506,6 +510,7 @@ class MainWindow(QMainWindow):
         self.recommend_button.clicked.connect(self.recommend_playlist)
         self.safe_export_folder_button.clicked.connect(self.choose_safe_export_folder)
         self.serato_export_button.clicked.connect(lambda: self.export_recommendation_to_serato())
+        self.dj_readiness_export_button.clicked.connect(lambda: self.export_dj_readiness_report())
         self.song_search_input.textChanged.connect(lambda text: self._apply_song_filter(text, clear_selection=True))
         self.metadata_status_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
         self.missing_metadata_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
@@ -553,6 +558,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.export_guidance_label)
         layout.addWidget(self.serato_export_history_table)
         layout.addWidget(self.serato_export_button)
+        layout.addWidget(self.dj_readiness_export_button)
         layout.addWidget(self.safe_export_folder_button)
         layout.addWidget(self.safe_export_folder_label)
         layout.addWidget(self.status_label)
@@ -823,6 +829,7 @@ class MainWindow(QMainWindow):
         self.last_recommendation = None
         self.last_playlist_explanation = None
         self.last_quality_report = None
+        self.last_dj_readiness_report = None
         self.tracks_table.setRowCount(0)
         self.song_search_input.clear()
         self.recommendation_table.setRowCount(0)
@@ -862,6 +869,23 @@ class MainWindow(QMainWindow):
             self.settings_repository.save(self.settings)
         self.safe_export_folder_label.setText(self._format_safe_export_folder_label())
         self.status_label.setText("Safe export folder selected")
+        self._refresh_export_action_state()
+
+    def export_dj_readiness_report(self, *, generated_at: datetime | None = None) -> None:
+        """Export the latest DJ readiness report as JSON and CSV audit artifacts."""
+        if self.last_dj_readiness_report is None:
+            self.status_label.setText("Generate a recommendation before exporting DJ readiness")
+            return
+        safe_folder = self.settings.export.safe_export_folder
+        if safe_folder is None:
+            self.status_label.setText("Choose a safe export folder before exporting DJ readiness")
+            return
+        generated_at = generated_at or datetime.now()
+        timestamp = generated_at.strftime("%Y%m%d-%H%M%S")
+        json_path = safe_folder / f"xfinaudio-dj-readiness-{timestamp}.json"
+        csv_path = safe_folder / f"xfinaudio-dj-readiness-{timestamp}.csv"
+        json_path, csv_path = write_dj_readiness_report(self.last_dj_readiness_report, json_path, csv_path)
+        self.status_label.setText(f"Exported DJ readiness report: {json_path} and {csv_path}")
 
     def export_recommendation_to_serato(
         self,
@@ -992,6 +1016,9 @@ class MainWindow(QMainWindow):
     def _refresh_export_action_state(self) -> None:
         """Enable Serato export only when a recommendation exists."""
         self.serato_export_button.setEnabled(self.last_recommendation is not None)
+        self.dj_readiness_export_button.setEnabled(
+            self.last_dj_readiness_report is not None and self.settings.export.safe_export_folder is not None
+        )
 
     def _record_serato_export(self, written_path: Path) -> None:
         """Record a bounded in-session Serato export receipt for user verification."""
@@ -1379,8 +1406,10 @@ class MainWindow(QMainWindow):
             serato_plan=serato_plan,
             serato_volume_root=serato_volume_root,
         )
+        self.last_dj_readiness_report = report
         self.dj_readiness_label.setText(format_dj_readiness_summary(report))
         self._populate_dj_readiness_table(report)
+        self._refresh_export_action_state()
 
     def _populate_dj_readiness_table(self, report: DjReadinessReport) -> None:
         """Render actionable readiness checks in a compact table."""
