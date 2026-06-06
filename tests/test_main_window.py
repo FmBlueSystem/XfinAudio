@@ -436,6 +436,39 @@ def test_main_window_filters_library_by_specific_missing_metadata_field(tmp_path
     assert _visible_track_titles(window) == ["Needs Key"]
 
 
+def test_main_window_filter_uses_path_index_instead_of_rescanning_records(tmp_path, monkeypatch) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "needs-key.flac"),
+            title="Needs Key",
+            metadata_status="incomplete",
+            missing_required_fields=["camelot_key"],
+        ),
+        TrackRecord(
+            path=str(tmp_path / "ready.flac"),
+            title="Ready",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        ),
+    ]
+    window.show_tracks(records)
+
+    class IterationFails(list):
+        def __iter__(self):
+            raise AssertionError("filter must use the path index, not iterate scanned_records")
+
+    window.scanned_records = IterationFails(records)
+    monkeypatch.setattr(window, "_refresh_idle_action_state", lambda: None)
+
+    window.missing_metadata_filter_combo.setCurrentText("Missing Key")
+
+    assert _visible_track_titles(window) == ["Needs Key"]
+
+
 def test_main_window_sorts_library_bpm_column_numerically(tmp_path) -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
