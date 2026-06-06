@@ -1506,3 +1506,48 @@ def test_main_window_collapses_empty_recommendation_sections_to_prioritize_brows
     assert window.recommendation_table.maximumHeight() <= 80
     assert window.transition_review_table.maximumHeight() <= 80
     assert window.song_search_input.placeholderText() == "Search songs"
+
+
+def test_main_window_shows_dj_readiness_after_recommendation(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "a.flac"),
+            title="A",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["Peak"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "b.flac"),
+            title="B",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["Peak"],
+            metadata_status="complete",
+        ),
+    ]
+
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
+
+    assert "DJ Readiness: Ready" in window.dj_readiness_label.text()
+
+
+def test_main_window_resets_dj_readiness_when_recommendation_is_cleared() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    window.dj_readiness_label.setText("DJ Readiness: Ready — previous result")
+    window.clear_recommendation_review()
+
+    assert window.dj_readiness_label.text() == "DJ Readiness: No recommendation ready."
