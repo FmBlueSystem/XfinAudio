@@ -73,6 +73,7 @@ Current scope:
 - Mixed In Key-oriented metadata parsing.
 - SQLite persistence for scanned library records.
 - Strategy-based playlist recommendation.
+- DJ Prep Copilot planning with Safe, Balanced, and Adventurous variants from one set intent.
 - Explainable transition scoring.
 - Serato crate export and metadata-cleanup worklists.
 - Manual desktop QA required before any release claim.
@@ -372,6 +373,7 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 - Preserves DJ-selected controls.
 - Narrows candidates for interactive desktop speed.
 - Applies selected strategy profile.
+- Supports DJ Prep Copilot intent planning with comparable Safe, Balanced, and Adventurous variants.
 - Runs recommendation off the UI thread.
 - Shows ordered output and transition scores.
 
@@ -865,6 +867,7 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 - Respeta controles del DJ.
 - Reduce candidatos para velocidad interactiva.
 - Aplica perfil de estrategia.
+- Soporta planificación DJ Prep Copilot con variantes comparables Safe, Balanced y Adventurous.
 - Corre recomendación fuera del thread de UI.
 - Muestra resultado ordenado y scores de transición.
 
