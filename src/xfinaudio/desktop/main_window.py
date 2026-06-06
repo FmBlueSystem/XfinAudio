@@ -448,6 +448,8 @@ class MainWindow(QMainWindow):
         self.export_guidance_label = QLabel(
             "Review recommendations before exporting; desktop export setup is intentionally out of scope."
         )
+        self.applied_copilot_variant_label = QLabel("Applied Variant: none")
+        self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
         self.safe_export_folder_button = QPushButton("Choose Safe Export Folder")
         self.safe_export_folder_label = QLabel(self._format_safe_export_folder_label())
         self.serato_preview_button = QPushButton("Preview Serato Export")
@@ -590,6 +592,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.dj_readiness_label)
         layout.addWidget(self.dj_readiness_table)
         layout.addWidget(self.transition_review_table, 1)
+        layout.addWidget(self.applied_copilot_variant_label)
         layout.addWidget(self.export_guidance_label)
         layout.addWidget(self.serato_export_history_table)
         layout.addWidget(self.serato_preview_button)
@@ -871,7 +874,7 @@ class MainWindow(QMainWindow):
         self.last_quality_report = None
         self.last_dj_readiness_report = None
         self.last_prep_copilot_plan = None
-        self.applied_prep_copilot_variant_name = None
+        self._set_applied_copilot_variant(None)
         self.tracks_table.setRowCount(0)
         self.song_search_input.clear()
         self.recommendation_table.setRowCount(0)
@@ -1361,7 +1364,7 @@ class MainWindow(QMainWindow):
         self.last_playlist_explanation = explanation
         self.last_quality_report = quality_report
         self.last_dj_readiness_report = variant.readiness
-        self.applied_prep_copilot_variant_name = variant.name
+        self._set_applied_copilot_variant(variant.name)
         self.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)
         self.review_summary_label.setText(format_quality_summary(quality_report))
         self.dj_readiness_label.setText(format_dj_readiness_summary(variant.readiness))
@@ -1370,6 +1373,16 @@ class MainWindow(QMainWindow):
         self.export_guidance_label.setText("Inspect the selected Prep Copilot variant before exporting it to Serato.")
         self.status_label.setText(f"Applied Prep Copilot variant: {variant.name}")
         self._refresh_export_action_state()
+
+    def _set_applied_copilot_variant(self, variant_name: str | None) -> None:
+        """Update applied Copilot variant state and export badge."""
+        self.applied_prep_copilot_variant_name = variant_name
+        if variant_name is None:
+            self.applied_copilot_variant_label.setText("Applied Variant: none")
+            self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
+            return
+        self.applied_copilot_variant_label.setText(f"Applied Variant: {variant_name}")
+        self.applied_copilot_variant_label.setToolTip("This variant will be used for Serato preview/export.")
 
     def _populate_prep_copilot_table(self, plan: PrepCopilotPlan) -> None:
         """Render Safe/Balanced/Adventurous copilot variants for quick comparison."""
@@ -1503,7 +1516,7 @@ class MainWindow(QMainWindow):
     def _finish_recommendation(self, result: Any) -> None:
         """Render a completed background recommendation."""
         self._end_recommendation_state()
-        self.applied_prep_copilot_variant_name = None
+        self._set_applied_copilot_variant(None)
         self.last_recommendation = result.recommendation
         self.last_playlist_explanation = result.explanation
         self.last_quality_report = result.quality_report

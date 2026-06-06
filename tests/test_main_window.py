@@ -2176,3 +2176,87 @@ def test_main_window_double_click_applies_prep_copilot_variant(tmp_path) -> None
 
     assert window.last_recommendation == window.last_prep_copilot_plan.variants[2].recommendation
     assert window.status_label.text() == "Applied Prep Copilot variant: adventurous"
+
+
+def test_main_window_shows_empty_applied_copilot_variant_badge_initially() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.applied_copilot_variant_label.text() == "Applied Variant: none"
+
+
+def test_main_window_updates_applied_copilot_variant_badge_after_apply(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "start.flac"),
+            title="Start",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=4,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "groove.flac"),
+            title="Groove",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+    ]
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.prep_copilot_target_count_input.setValue(2)
+    window.generate_prep_copilot()
+    window.prep_copilot_table.selectRow(1)
+
+    window.apply_selected_prep_copilot_variant()
+
+    assert window.applied_copilot_variant_label.text() == "Applied Variant: balanced"
+    assert window.applied_copilot_variant_label.toolTip() == "This variant will be used for Serato preview/export."
+
+
+def test_main_window_clears_applied_copilot_variant_badge_for_normal_recommendation(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "start.flac"),
+            title="Start",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=4,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "groove.flac"),
+            title="Groove",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["House"],
+            metadata_status="complete",
+        ),
+    ]
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.prep_copilot_target_count_input.setValue(2)
+    window.generate_prep_copilot()
+    window.prep_copilot_table.selectRow(1)
+    window.apply_selected_prep_copilot_variant()
+
+    window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
+
+    assert window.applied_copilot_variant_label.text() == "Applied Variant: none"

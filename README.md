@@ -375,7 +375,7 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 - Applies selected strategy profile.
 - Supports DJ Prep Copilot intent planning with comparable Safe, Balanced, and Adventurous variants.
 - Shows a desktop Prep Copilot comparison panel with variant readiness, track count, warnings, target track count, and genre focus controls.
-- Color-codes Prep Copilot readiness cells and supports double-click to apply a variant quickly.
+- Color-codes Prep Copilot readiness cells, supports double-click to apply a variant quickly, and shows the applied variant near export controls.
 - Applies the selected Prep Copilot variant into the main review, DJ Readiness, transition review, and Serato export flow.
 - Exports applied Prep Copilot variants to non-overwriting Serato crates grouped by strategy and variant.
 - Previews the exact Serato export destination, track count, variant, write behavior, and readiness before writing a crate.
@@ -875,7 +875,7 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 - Aplica perfil de estrategia.
 - Soporta planificación DJ Prep Copilot con variantes comparables Safe, Balanced y Adventurous.
 - Muestra un panel desktop Prep Copilot comparando readiness, cantidad de tracks, warnings, target track count y genre focus.
-- Colorea las celdas de readiness del Prep Copilot y permite doble-click para aplicar una variante rápido.
+- Colorea las celdas de readiness del Prep Copilot, permite doble-click para aplicar una variante rápido y muestra la variante aplicada cerca de export.
 - Aplica la variante Prep Copilot seleccionada al flujo principal de review, DJ Readiness, transición y export Serato.
 - Exporta variantes Prep Copilot aplicadas a crates Serato no destructivos agrupados por estrategia y variante.
 - Previsualiza destino exacto de export Serato, cantidad de tracks, variante, comportamiento de escritura y readiness antes de escribir el crate.
