@@ -990,11 +990,7 @@ class MainWindow(QMainWindow):
         backup_note = (
             f" Backup: {result.backup_path}" if result.backup_path is not None else " No previous crate existed."
         )
-        self.export_guidance_label.setText(
-            f"Serato crate exported: {result.written_path}. "
-            "Open Serato DJ Pro and check the crate under Subcrates." + backup_note
-        )
-        self.status_label.setText(f"Exported Serato crate: {result.written_path}")
+        readiness_note = ""
         if self.last_quality_report is not None:
             self._show_dj_readiness(
                 self.last_recommendation,
@@ -1002,7 +998,23 @@ class MainWindow(QMainWindow):
                 serato_plan=plan,
                 serato_volume_root=library.volume_root,
             )
+        if self.last_dj_readiness_report is not None:
+            json_path, csv_path = self._write_serato_readiness_sidecars(result.written_path)
+            readiness_note = f" Readiness reports: {json_path} and {csv_path}."
+        self.export_guidance_label.setText(
+            f"Serato crate exported: {result.written_path}. "
+            "Open Serato DJ Pro and check the crate under Subcrates." + backup_note + readiness_note
+        )
+        self.status_label.setText(f"Exported Serato crate: {result.written_path}")
         self._record_serato_export(result.written_path)
+
+    def _write_serato_readiness_sidecars(self, crate_path: Path) -> tuple[Path, Path]:
+        """Write DJ Readiness JSON/CSV files next to a Serato crate export."""
+        if self.last_dj_readiness_report is None:
+            raise ValueError("DJ Readiness report is not available for sidecar export")
+        json_path = crate_path.with_suffix(".dj-readiness.json")
+        csv_path = crate_path.with_suffix(".dj-readiness.csv")
+        return write_dj_readiness_report(self.last_dj_readiness_report, json_path, csv_path)
 
     def _plan_current_serato_export(
         self,
