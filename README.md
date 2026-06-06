@@ -385,7 +385,7 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 - Human-readable warnings.
 - Quality summary with track count, transition count, average score, and warning count.
 - DJ Readiness status: `Ready`, `Needs Review`, or `Blocked`.
-- DJ Readiness check panel with `Check`, `Status`, and `Detail` columns.
+- DJ Readiness check panel with `Check`, `Status`, and `Detail` columns, plus color-coded status badges.
 - Operational blockers for impossible BPM jumps, missing required metadata, and unresolved Serato paths.
 - Serato round-trip validation after export: crate bytes must match the plan and referenced files must resolve on disk.
 - Export guidance that tells the DJ to inspect results before Serato export.
@@ -876,7 +876,7 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 - Warnings legibles.
 - Resumen con track count, transition count, average score y warning count.
 - Estado DJ Readiness: `Ready`, `Needs Review` o `Blocked`.
-- Panel DJ Readiness con columnas `Check`, `Status` y `Detail`.
+- Panel DJ Readiness con columnas `Check`, `Status` y `Detail`, más badges visuales por estado.
 - Bloqueos operativos para saltos BPM imposibles, metadata obligatoria faltante y paths que Serato no puede resolver.
 - Validación Serato round-trip después de exportar: los bytes del crate deben coincidir con el plan y los archivos referenciados deben existir en disco.
 - Guía de exportación para revisar antes de mandar a Serato.
