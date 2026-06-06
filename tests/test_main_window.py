@@ -10,6 +10,7 @@ from xfinaudio.exporting.explainability import PlaylistExplanation, TrackExplana
 from xfinaudio.exporting.serato_crate import parse_serato_crate_bytes
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancelledError, ScanProgress
+from xfinaudio.quality.dj_readiness import DjReadinessCheck, DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import recommend_playlist
@@ -1647,3 +1648,36 @@ def test_main_window_clears_dj_readiness_check_table() -> None:
     window.clear_recommendation_review()
 
     assert window.dj_readiness_table.rowCount() == 0
+
+
+def test_main_window_colors_dj_readiness_status_cells() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    report = DjReadinessReport(
+        status="blocked",
+        summary="Blocked — 1 blocker(s), 1 review item(s); max BPM jump 10.00%",
+        blocker_count=1,
+        review_count=1,
+        checks=[
+            DjReadinessCheck(label="Required metadata", status="ready", detail="All metadata is present"),
+            DjReadinessCheck(label="BPM continuity", status="blocked", detail="Max jump is 10.00%"),
+            DjReadinessCheck(label="Transition warnings", status="needs_review", detail="1 warning needs review"),
+        ],
+    )
+
+    window._populate_dj_readiness_table(report)
+
+    status_by_check = {
+        window.dj_readiness_table.item(row, 0).text(): window.dj_readiness_table.item(row, 1)
+        for row in range(window.dj_readiness_table.rowCount())
+    }
+
+    assert status_by_check["BPM continuity"].text() == "Blocked"
+    assert status_by_check["BPM continuity"].background().color().name() == "#ff4d4f"
+    assert status_by_check["BPM continuity"].toolTip() == "Blocked: fix before export"
+    assert status_by_check["Transition warnings"].text() == "Needs Review"
+    assert status_by_check["Transition warnings"].background().color().name() == "#ffb000"
+    assert status_by_check["Transition warnings"].toolTip() == "Needs Review: inspect before export"
+    assert status_by_check["Required metadata"].text() == "Ready"
+    assert status_by_check["Required metadata"].background().color().name() == "#1fd16a"
+    assert status_by_check["Required metadata"].toolTip() == "Ready: no action needed"

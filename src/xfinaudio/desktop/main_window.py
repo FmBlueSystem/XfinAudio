@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -87,6 +88,13 @@ _RECOMMENDATION_TABLE_COLUMN_WIDTHS = (160, 150, 72, 70, 82, 130, 145, 92, 180, 
 _REVIEW_TABLE_COLUMN_WIDTHS = (70, 170, 170, 100, 100, 112, 100, 110, 180)
 _SERATO_EXPORT_HISTORY_COLUMN_WIDTHS = (86, 110, 70, 360)
 _DJ_READINESS_TABLE_COLUMN_WIDTHS = (180, 112, 520)
+_READINESS_STATUS_COLORS = {"ready": "#1fd16a", "needs_review": "#ffb000", "blocked": "#ff4d4f"}
+_READINESS_STATUS_TOOLTIPS = {
+    "ready": "Ready: no action needed",
+    "needs_review": "Needs Review: inspect before export",
+    "blocked": "Blocked: fix before export",
+}
+
 _MISSING_METADATA_FILTERS = {
     "Missing BPM": "bpm",
     "Missing Key": "camelot_key",
@@ -1387,7 +1395,12 @@ class MainWindow(QMainWindow):
                 check.detail.casefold(),
             ]
             for column_index, value in enumerate(values):
-                self.dj_readiness_table.setItem(row_index, column_index, _table_item(value, sort_values[column_index]))
+                item = _table_item(value, sort_values[column_index])
+                if column_index == 1:
+                    item.setBackground(QColor(_READINESS_STATUS_COLORS[check.status]))
+                    item.setForeground(QColor("#061016"))
+                    item.setToolTip(_READINESS_STATUS_TOOLTIPS[check.status])
+                self.dj_readiness_table.setItem(row_index, column_index, item)
 
     def show_transition_review(self, explanation: PlaylistExplanation) -> None:
         """Render transition component scores and warnings in the review table."""
