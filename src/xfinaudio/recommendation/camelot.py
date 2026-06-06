@@ -32,6 +32,42 @@ class _Move(NamedTuple):
     same_letter: bool
 
 
+_PITCH_CLASS_BY_CAMELOT: dict[CamelotLetter, dict[int, int]] = {
+    "A": {
+        1: 8,
+        2: 3,
+        3: 10,
+        4: 5,
+        5: 0,
+        6: 7,
+        7: 2,
+        8: 9,
+        9: 4,
+        10: 11,
+        11: 6,
+        12: 1,
+    },
+    "B": {
+        1: 11,
+        2: 6,
+        3: 1,
+        4: 8,
+        5: 3,
+        6: 10,
+        7: 5,
+        8: 0,
+        9: 7,
+        10: 2,
+        11: 9,
+        12: 4,
+    },
+}
+_CAMELOT_NUMBER_BY_PITCH_CLASS: dict[CamelotLetter, dict[int, int]] = {
+    letter: {pitch_class: number for number, pitch_class in values.items()}
+    for letter, values in _PITCH_CLASS_BY_CAMELOT.items()
+}
+
+
 def parse_camelot_key(value: str) -> CamelotKey:
     """Parse a Camelot key such as ``11B``.
 
@@ -43,6 +79,17 @@ def parse_camelot_key(value: str) -> CamelotKey:
         raise ValueError(f"Invalid Camelot key: {value!r}")
     letter: CamelotLetter = "A" if match.group("letter").upper() == "A" else "B"
     return CamelotKey(number=int(match.group("number")), letter=letter)
+
+
+def shift_camelot_key(value: str, semitones: int) -> str:
+    """Shift a Camelot key by chromatic semitones while preserving major/minor mode."""
+    parsed = parse_camelot_key(value)
+    if semitones == 0:
+        return parsed.normalized()
+    current_pitch_class = _PITCH_CLASS_BY_CAMELOT[parsed.letter][parsed.number]
+    shifted_pitch_class = (current_pitch_class + semitones) % 12
+    shifted_number = _CAMELOT_NUMBER_BY_PITCH_CLASS[parsed.letter][shifted_pitch_class]
+    return CamelotKey(number=shifted_number, letter=parsed.letter).normalized()
 
 
 def score_camelot_transition(

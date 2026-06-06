@@ -88,3 +88,41 @@ def test_track_repository_rejects_unversioned_partial_tracks_table_without_marki
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+
+
+def test_track_repository_list_display_tracks_omits_large_raw_metadata_for_ui(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    repository = TrackRepository(db_path)
+    original = TrackRecord(
+        path="/music/track.flac",
+        title="Track One",
+        artist="Artist One",
+        bpm=116.0,
+        camelot_key="11B",
+        energy_level=7,
+        genre="Disco",
+        tags=["Disco", "Classic"],
+        metadata_status="complete",
+        missing_required_fields=[],
+        source_fields={"bpm": "bpm"},
+        raw_metadata={"huge": ["payload"]},
+    )
+
+    repository.save_scan_results([original])
+
+    display_records = repository.list_display_tracks()
+
+    assert display_records == [
+        TrackRecord(
+            path="/music/track.flac",
+            title="Track One",
+            artist="Artist One",
+            bpm=116.0,
+            camelot_key="11B",
+            energy_level=7,
+            genre="Disco",
+            tags=["Disco", "Classic"],
+            metadata_status="complete",
+            missing_required_fields=[],
+        )
+    ]

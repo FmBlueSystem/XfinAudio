@@ -11,6 +11,7 @@ from xfinaudio.exporting.explainability import PlaylistExplanation, build_playli
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ProgressCallback, ScanCancellationToken, ScanCancelledError
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
+from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
 from xfinaudio.recommendation.strategies import StrategyName
 
@@ -95,9 +96,14 @@ class PlaylistWorkflowService:
             incomplete_count=len(records) - complete_count,
         )
 
-    def recommend(self, records: list[TrackRecord], strategy_name: StrategyName | str) -> RecommendationWorkflowResult:
+    def recommend(
+        self,
+        records: list[TrackRecord],
+        strategy_name: StrategyName | str,
+        controls: DJControls | None = None,
+    ) -> RecommendationWorkflowResult:
         """Build a recommendation plus explanation and quality report for UI rendering."""
-        recommendation = recommend_playlist(records, strategy_name)
+        recommendation = recommend_playlist(records, strategy_name, controls=controls)
         explanation = build_playlist_explanation(recommendation)
         quality_report = build_quality_report(recommendation)
         return RecommendationWorkflowResult(

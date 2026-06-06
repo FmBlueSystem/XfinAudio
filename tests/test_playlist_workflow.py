@@ -72,6 +72,21 @@ def test_playlist_workflow_cancelled_scan_does_not_persist_partial_results(tmp_p
     assert scan_service.cancellation_token is token
 
 
+def test_workflow_forwards_dj_controls_to_recommendation() -> None:
+    from xfinaudio.recommendation.controls import DJControls
+
+    service = PlaylistWorkflowService(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(path="/a.flac", bpm=120.0, camelot_key="8A", energy_level=5, metadata_status="complete"),
+        TrackRecord(path="/b.flac", bpm=120.0, camelot_key="8A", energy_level=5, metadata_status="complete"),
+    ]
+
+    result = service.recommend(records, "harmonic_journey", controls=DJControls(start_path="/b.flac"))
+
+    assert result.recommendation.ordered_tracks[0].path == "/b.flac"
+    assert result.recommendation.applied_controls["start_path"] == "/b.flac"
+
+
 def test_playlist_workflow_recommend_returns_recommendation_explanation_and_quality_report(tmp_path) -> None:
     records = [
         TrackRecord(

@@ -18,8 +18,8 @@ def test_build_quality_report_summarizes_transition_metrics() -> None:
     recommendation = recommend_playlist(
         [
             complete_track("/music/a.flac", 120.0, 3, "8A"),
-            complete_track("/music/b.flac", 126.0, 6, "8A"),
-            complete_track("/music/c.flac", 127.0, 7, "9A"),
+            complete_track("/music/b.flac", 123.0, 6, "8A"),
+            complete_track("/music/c.flac", 126.0, 7, "9A"),
         ],
         "harmonic_journey",
     )
@@ -29,7 +29,7 @@ def test_build_quality_report_summarizes_transition_metrics() -> None:
     assert report.track_count == 3
     assert report.transition_count == 2
     assert report.average_transition_score == round(recommendation.total_score / 2, 6)
-    assert report.bpm_jumps == [6.0, 1.0]
+    assert report.bpm_jumps == [3.0, 3.0]
     assert report.energy_jumps == [3, 1]
     assert report.warning_count == sum(len(score.warnings) for score in recommendation.transition_scores)
 

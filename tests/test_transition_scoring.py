@@ -1,7 +1,13 @@
 import pytest
 
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.recommendation.scoring import ScoringWeights, ThresholdScore, TransitionScoringConfig, score_transition
+from xfinaudio.recommendation.scoring import (
+    KeyShiftConfig,
+    ScoringWeights,
+    ThresholdScore,
+    TransitionScoringConfig,
+    score_transition,
+)
 
 
 def track(
@@ -29,14 +35,14 @@ def track(
 def test_score_transition_scores_bpm_compatibility() -> None:
     result = score_transition(track("left", bpm=120.0), track("right", bpm=123.0))
 
-    assert result.component_scores["bpm"] == 0.75
+    assert result.component_scores["bpm"] == pytest.approx(0.902344)
     assert "BPM difference is 2.50%" in result.explanations
 
 
 def test_score_transition_scores_energy_compatibility() -> None:
     result = score_transition(track("left", energy_level=4), track("right", energy_level=6))
 
-    assert result.component_scores["energy"] == 0.7
+    assert result.component_scores["energy"] == pytest.approx(0.555556)
     assert "Energy level difference is 2" in result.explanations
 
 
@@ -77,8 +83,13 @@ def test_score_transition_combines_weighted_component_scores() -> None:
 
     result = score_transition(left, right)
 
-    assert result.total_score == pytest.approx(0.8125)
-    assert result.component_scores == {"harmonic": 1.0, "bpm": 0.75, "energy": 0.7, "tags": 0.5}
+    assert result.total_score == pytest.approx(0.814475)
+    assert result.component_scores == {
+        "harmonic": 1.0,
+        "bpm": pytest.approx(0.902344),
+        "energy": pytest.approx(0.555556),
+        "tags": 0.5,
+    }
 
 
 def test_score_transition_warns_and_returns_zero_for_invalid_camelot_key() -> None:
@@ -126,3 +137,38 @@ def test_score_transition_uses_custom_energy_thresholds() -> None:
     result = score_transition(track("left", energy_level=4), track("right", energy_level=6), config=config)
 
     assert result.component_scores["energy"] == 0.25
+
+
+def test_score_transition_default_harmonic_score_is_unchanged_without_key_shift() -> None:
+    result = score_transition(track("left", camelot_key="8A"), track("right", camelot_key="6A"))
+
+    assert result.component_scores["harmonic"] == 0.0
+
+
+def test_score_transition_can_normalize_key_with_pitch_shift() -> None:
+    config = TransitionScoringConfig(key_shift=KeyShiftConfig(right_semitones=2))
+
+    result = score_transition(track("left", camelot_key="8A"), track("right", camelot_key="6A"), config=config)
+
+    assert result.component_scores["harmonic"] == 1.0
+    assert "Pitch/key normalization shifted right key from 6A to 8A" in result.explanations
+
+
+def test_fuzzy_bpm_and_energy_scores_are_monotonic() -> None:
+    close_bpm = score_transition(track("left", bpm=120.0), track("right", bpm=121.0))
+    wider_bpm = score_transition(track("left", bpm=120.0), track("right", bpm=123.0))
+    close_energy = score_transition(track("left", energy_level=5), track("right", energy_level=6))
+    wider_energy = score_transition(track("left", energy_level=5), track("right", energy_level=7))
+
+    assert close_bpm.component_scores["bpm"] > wider_bpm.component_scores["bpm"]
+    assert close_energy.component_scores["energy"] > wider_energy.component_scores["energy"]
+
+
+def test_score_transition_warns_when_genre_and_tags_do_not_overlap() -> None:
+    result = score_transition(
+        track("left", genre="Pop & Dance", tags=["Pop & Dance", "Dance-Pop"]),
+        track("right", genre="Hip-Hop & R&B", tags=["Hip-Hop & R&B", "Rap"]),
+    )
+
+    assert result.component_scores["tags"] == 0.0
+    assert "Genre/tag mismatch: no shared genre, subgenre, mood, or tag metadata" in result.warnings
