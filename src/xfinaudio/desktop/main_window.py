@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtCore import Qt, QThread, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
+from xfinaudio.desktop._workers import BackgroundWorker, ScanWorker
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
@@ -41,7 +42,7 @@ from xfinaudio.exporting.serato_playlist_exporter import (
     plan_serato_playlist_export,
     select_serato_library_for_tracks,
 )
-from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.models import MetadataStatus, TrackRecord
 from xfinaudio.library.scan_service import MetadataScanService, ScanCancellationToken, ScanProgress
 from xfinaudio.library.track_repository import TrackRepository
 from xfinaudio.quality.dj_readiness import (
@@ -55,6 +56,8 @@ from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, PrepCopilotPlan, build_prep_copilot_plan
 from xfinaudio.recommendation.strategies import available_strategies
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SettingsPersistence(Protocol):
@@ -350,7 +353,7 @@ class _SortAwareTableItem(QTableWidgetItem):
     def __lt__(self, other: QTableWidgetItem) -> bool:
         other_value = getattr(other, "_sort_value", other.text().casefold())
         try:
-            return self._sort_value < other_value
+            return self._sort_value < other_value  # type: ignore[operator]
         except TypeError:
             return str(self._sort_value).casefold() < str(other_value).casefold()
 
@@ -358,49 +361,6 @@ class _SortAwareTableItem(QTableWidgetItem):
 def _table_item(display_value: str, sort_value: object | None = None) -> QTableWidgetItem:
     """Build a table item with a stable display value and optional typed sort value."""
     return _SortAwareTableItem(display_value, sort_value)
-
-
-class _BackgroundWorker(QObject):
-    """Run one workflow operation away from the Qt UI thread."""
-
-    finished = Signal(object)
-    failed = Signal(object)
-
-    def __init__(self, operation: Callable[[], object]) -> None:
-        super().__init__()
-        self._operation = operation
-
-    @Slot()
-    def run(self) -> None:
-        """Execute the operation and publish its result back to the UI thread."""
-        try:
-            result = self._operation()
-        except Exception as exc:  # pragma: no cover - exercised through Qt signal plumbing
-            self.failed.emit(exc)
-            return
-        self.finished.emit(result)
-
-
-class _ScanWorker(QObject):
-    """Run metadata scanning away from the Qt UI thread."""
-
-    progress = Signal(object)
-    finished = Signal(object)
-    failed = Signal(object)
-
-    def __init__(self, operation: Callable[[Callable[[ScanProgress], None]], object]) -> None:
-        super().__init__()
-        self._operation = operation
-
-    @Slot()
-    def run(self) -> None:
-        """Execute the scan operation and publish progress/results through Qt signals."""
-        try:
-            result = self._operation(self.progress.emit)
-        except Exception as exc:  # pragma: no cover - exercised through Qt signal plumbing
-            self.failed.emit(exc)
-            return
-        self.finished.emit(result)
 
 
 class MainWindow(QMainWindow):
@@ -429,9 +389,9 @@ class MainWindow(QMainWindow):
         self.applied_prep_copilot_variant_name: str | None = None
         self.current_scan_cancellation_token: ScanCancellationToken | None = None
         self._scan_thread: QThread | None = None
-        self._scan_worker: _ScanWorker | None = None
+        self._scan_worker: ScanWorker | None = None
         self._recommendation_thread: QThread | None = None
-        self._recommendation_worker: _BackgroundWorker | None = None
+        self._recommendation_worker: BackgroundWorker | None = None
         self.serato_export_history: list[dict[str, str]] = []
         self._table_sort_orders: dict[int, Qt.SortOrder] = {}
         self._active_song_search_query = ""
@@ -1056,6 +1016,7 @@ class MainWindow(QMainWindow):
                 generated_at=generated_at,
             )
         except Exception as exc:
+            LOGGER.exception("Serato export preview failed")
             self.status_label.setText(f"Serato export preview failed: {exc}")
             return
 
@@ -1093,6 +1054,7 @@ class MainWindow(QMainWindow):
             )
             result = write_serato_crate(plan, confirm=True)
         except Exception as exc:
+            LOGGER.exception("Serato export failed")
             self.status_label.setText(f"Serato export failed: {exc}")
             return
 
@@ -1196,9 +1158,10 @@ class MainWindow(QMainWindow):
                     discover_serato_libraries(),
                 )
             )
-            plan = plan_metadata_status_serato_export(records, selected_status, library)
+            plan = plan_metadata_status_serato_export(records, cast(MetadataStatus, selected_status), library)
             result = write_serato_crate(plan, confirm=True)
         except Exception as exc:
+            LOGGER.exception("Serato metadata status export failed")
             self.status_label.setText(f"Serato metadata export failed: {exc}")
             return
 
@@ -1234,6 +1197,7 @@ class MainWindow(QMainWindow):
             plan = plan_metadata_missing_field_serato_export(records, missing_field, library)
             result = write_serato_crate(plan, confirm=True)
         except Exception as exc:
+            LOGGER.exception("Serato missing-metadata export failed")
             self.status_label.setText(f"Serato metadata export failed: {exc}")
             return
 
@@ -1312,11 +1276,10 @@ class MainWindow(QMainWindow):
             return
         self._pre_scan_records_by_path = {record.path: record for record in self.scanned_records}
         self._begin_scan_state()
-        assert self.current_scan_cancellation_token is not None
         token = self.current_scan_cancellation_token
         folder = self.selected_folder
-        assert token is not None
-        assert folder is not None
+        if token is None or folder is None:  # pragma: no cover - guarded by _begin_scan_state and folder check
+            raise RuntimeError("Scan state was not initialized before starting the scan worker")
         self._start_scan_worker(folder, token)
 
     def _begin_scan_state(self) -> None:
@@ -1336,7 +1299,7 @@ class MainWindow(QMainWindow):
     def _start_scan_worker(self, folder: Path, token: ScanCancellationToken) -> None:
         """Start metadata scanning in a worker thread so the UI stays responsive."""
         thread = QThread(self)
-        worker = _ScanWorker(
+        worker = ScanWorker(
             lambda progress_callback: self.workflow_service.scan_folder(
                 folder,
                 on_progress=progress_callback,
@@ -1620,7 +1583,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Start recommendation generation in a worker thread."""
         thread = QThread(self)
-        worker = _BackgroundWorker(lambda: self.workflow_service.recommend(records, strategy_name, controls=controls))
+        worker = BackgroundWorker(lambda: self.workflow_service.recommend(records, strategy_name, controls=controls))
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self._finish_recommendation)
