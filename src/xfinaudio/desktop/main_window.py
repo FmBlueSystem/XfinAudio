@@ -463,7 +463,8 @@ class MainWindow(QMainWindow):
         self.song_search_input = QLineEdit()
         self.song_search_input.setPlaceholderText("Search songs")
         self.song_search_input.setClearButtonEnabled(True)
-        self.song_search_input.setMinimumWidth(240)
+        self.song_search_input.setMinimumWidth(160)
+        self.song_search_input.setMaximumWidth(220)
         self.metadata_status_filter_combo = QComboBox()
         self.metadata_status_filter_combo.addItems(["All statuses", "Complete", "Incomplete"])
         self.missing_metadata_filter_combo = QComboBox()
@@ -486,6 +487,8 @@ class MainWindow(QMainWindow):
         self.prep_copilot_target_count_input.setValue(25)
         self.prep_copilot_genre_focus_input = QLineEdit()
         self.prep_copilot_genre_focus_input.setPlaceholderText("Genre focus")
+        self.prep_copilot_genre_focus_input.setMinimumWidth(160)
+        self.prep_copilot_genre_focus_input.setMaximumWidth(360)
         self.prep_copilot_button = QPushButton("Generate Prep Copilot")
         self.prep_copilot_button.setEnabled(False)
         self.prep_copilot_apply_button = QPushButton("Apply Selected Variant")
@@ -522,8 +525,11 @@ class MainWindow(QMainWindow):
         )
         self.serato_export_history_table.setVisible(False)
         self.folder_label.setWordWrap(False)
+        self.folder_label.setMaximumWidth(260)
         self.library_guidance_label.setWordWrap(False)
+        self.library_guidance_label.setMaximumWidth(560)
         self.scan_progress_label.setWordWrap(False)
+        self.scan_progress_label.setMaximumWidth(180)
         self.recommendation_guidance_label.setWordWrap(True)
         self.export_guidance_label.setWordWrap(True)
         for label in (self.folder_label, self.library_guidance_label, self.scan_progress_label):
@@ -562,28 +568,33 @@ class MainWindow(QMainWindow):
 
         library_status_controls = QHBoxLayout()
         library_status_controls.addWidget(self.folder_label)
-        library_status_controls.addWidget(self.library_guidance_label, 2)
+        library_status_controls.addWidget(self.library_guidance_label, 1)
         library_status_controls.addWidget(self.scan_progress_label)
-        library_status_controls.addWidget(self.metadata_status_filter_combo)
-        library_status_controls.addWidget(self.missing_metadata_filter_combo)
-        library_status_controls.addWidget(self.song_search_input, 1)
-        library_status_controls.addWidget(self.metadata_status_export_button)
+
+        library_filter_controls = QHBoxLayout()
+        library_filter_controls.addWidget(self.metadata_status_filter_combo)
+        library_filter_controls.addWidget(self.missing_metadata_filter_combo)
+        library_filter_controls.addWidget(self.song_search_input)
+        library_filter_controls.addWidget(self.metadata_status_export_button)
+        library_filter_controls.addStretch(1)
 
         recommendation_controls = QHBoxLayout()
         recommendation_controls.addWidget(QLabel("Strategy"))
-        recommendation_controls.addWidget(self.strategy_combo)
+        recommendation_controls.addWidget(self.strategy_combo, 1)
         recommendation_controls.addWidget(self.recommend_button)
 
         prep_copilot_controls = QHBoxLayout()
         prep_copilot_controls.addWidget(QLabel("Set Tracks"))
         prep_copilot_controls.addWidget(self.prep_copilot_target_count_input)
-        prep_copilot_controls.addWidget(self.prep_copilot_genre_focus_input, 1)
+        prep_copilot_controls.addWidget(self.prep_copilot_genre_focus_input)
         prep_copilot_controls.addWidget(self.prep_copilot_button)
         prep_copilot_controls.addWidget(self.prep_copilot_apply_button)
+        prep_copilot_controls.addStretch(1)
 
         layout = QVBoxLayout()
         layout.addLayout(controls)
         layout.addLayout(library_status_controls)
+        layout.addLayout(library_filter_controls)
         layout.addWidget(self.tracks_table, 0)
         layout.addWidget(self.recommendation_guidance_label)
         layout.addLayout(recommendation_controls)
@@ -603,7 +614,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.safe_export_folder_button)
         layout.addWidget(self.safe_export_folder_label)
         layout.addWidget(self.status_label)
-        self._apply_compact_mac_layout(layout, controls, recommendation_controls, library_status_controls)
+        self._apply_compact_mac_layout(
+            layout,
+            controls,
+            recommendation_controls,
+            library_status_controls,
+            library_filter_controls,
+            prep_copilot_controls,
+        )
 
         container = QWidget()
         container.setLayout(layout)
@@ -615,13 +633,29 @@ class MainWindow(QMainWindow):
         controls: QHBoxLayout,
         recommendation_controls: QHBoxLayout,
         library_status_controls: QHBoxLayout,
+        library_filter_controls: QHBoxLayout,
+        prep_copilot_controls: QHBoxLayout,
     ) -> None:
         """Use dense desktop spacing so the library browser does not dominate MacBook screens."""
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(6)
         controls.setSpacing(8)
         library_status_controls.setSpacing(8)
+        library_filter_controls.setSpacing(8)
         recommendation_controls.setSpacing(8)
+        prep_copilot_controls.setSpacing(8)
+
+        self.folder_button.setMinimumWidth(220)
+        self.scan_button.setMinimumWidth(220)
+        self.cancel_scan_button.setMinimumWidth(220)
+        self.recommend_button.setMinimumWidth(220)
+        self.recommend_button.setMaximumWidth(260)
+        self.prep_copilot_button.setMinimumWidth(190)
+        self.prep_copilot_button.setMaximumWidth(220)
+        self.prep_copilot_apply_button.setMaximumWidth(220)
+        self.metadata_status_filter_combo.setMaximumWidth(170)
+        self.missing_metadata_filter_combo.setMaximumWidth(220)
+        self.metadata_status_export_button.setMaximumWidth(220)
 
         self.tracks_table.setMinimumHeight(_COMPACT_LIBRARY_TABLE_MIN_HEIGHT)
         self.tracks_table.setMaximumHeight(_COMPACT_LIBRARY_TABLE_MAX_HEIGHT)
