@@ -40,7 +40,11 @@ from xfinaudio.exporting.serato_playlist_exporter import (
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import MetadataScanService, ScanCancellationToken, ScanProgress
 from xfinaudio.library.track_repository import TrackRepository
-from xfinaudio.quality.dj_readiness import build_dj_readiness_report, format_dj_readiness_summary
+from xfinaudio.quality.dj_readiness import (
+    DjReadinessReport,
+    build_dj_readiness_report,
+    format_dj_readiness_summary,
+)
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -82,6 +86,7 @@ _TRACK_TABLE_COLUMN_WIDTHS = (160, 145, 70, 70, 76, 150, 130, 140, 86, 220)
 _RECOMMENDATION_TABLE_COLUMN_WIDTHS = (160, 150, 72, 70, 82, 130, 145, 92, 180, 120, 150)
 _REVIEW_TABLE_COLUMN_WIDTHS = (70, 170, 170, 100, 100, 112, 100, 110, 180)
 _SERATO_EXPORT_HISTORY_COLUMN_WIDTHS = (86, 110, 70, 360)
+_DJ_READINESS_TABLE_COLUMN_WIDTHS = (180, 112, 520)
 _MISSING_METADATA_FILTERS = {
     "Missing BPM": "bpm",
     "Missing Key": "camelot_key",
@@ -472,6 +477,8 @@ class MainWindow(QMainWindow):
         )
         self.review_summary_label = QLabel(_EMPTY_REVIEW_SUMMARY)
         self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
+        self.dj_readiness_table = QTableWidget(0, 3)
+        self.dj_readiness_table.setHorizontalHeaderLabels(["Check", "Status", "Detail"])
         self.transition_review_table = QTableWidget(0, len(_TRANSITION_REVIEW_HEADERS))
         self.transition_review_table.setHorizontalHeaderLabels(_TRANSITION_REVIEW_HEADERS)
         self.serato_export_history_table = QTableWidget(0, 4)
@@ -499,6 +506,7 @@ class MainWindow(QMainWindow):
             self.tracks_table,
             self.recommendation_table,
             self.transition_review_table,
+            self.dj_readiness_table,
             self.serato_export_history_table,
         ):
             self._connect_table_sorting(table)
@@ -532,6 +540,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.recommendation_table, 2)
         layout.addWidget(self.review_summary_label)
         layout.addWidget(self.dj_readiness_label)
+        layout.addWidget(self.dj_readiness_table)
         layout.addWidget(self.transition_review_table, 1)
         layout.addWidget(self.export_guidance_label)
         layout.addWidget(self.serato_export_history_table)
@@ -566,6 +575,8 @@ class MainWindow(QMainWindow):
         self.recommendation_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.transition_review_table.setMinimumHeight(_COMPACT_REVIEW_TABLE_MIN_HEIGHT)
         self.transition_review_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.dj_readiness_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
+        self.dj_readiness_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.serato_export_history_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
         self.serato_export_history_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._apply_compact_table_columns()
@@ -577,6 +588,7 @@ class MainWindow(QMainWindow):
             (self.tracks_table, _TRACK_TABLE_COLUMN_WIDTHS),
             (self.recommendation_table, _RECOMMENDATION_TABLE_COLUMN_WIDTHS),
             (self.transition_review_table, _REVIEW_TABLE_COLUMN_WIDTHS),
+            (self.dj_readiness_table, _DJ_READINESS_TABLE_COLUMN_WIDTHS),
             (self.serato_export_history_table, _SERATO_EXPORT_HISTORY_COLUMN_WIDTHS),
         )
         for table, widths in table_widths:
@@ -603,6 +615,7 @@ class MainWindow(QMainWindow):
             self.tracks_table,
             self.recommendation_table,
             self.transition_review_table,
+            self.dj_readiness_table,
             self.serato_export_history_table,
         ):
             table.setAlternatingRowColors(True)
@@ -618,6 +631,9 @@ class MainWindow(QMainWindow):
         maximum_height = 16777215 if expanded else _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT
         self.recommendation_table.setMaximumHeight(maximum_height)
         self.transition_review_table.setMaximumHeight(maximum_height)
+        self.dj_readiness_table.setMaximumHeight(
+            _COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT if expanded else _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT
+        )
 
     def _connect_table_sorting(self, table: QTableWidget) -> None:
         """Make table headers clickable without enabling disruptive always-on sorting."""
@@ -1335,6 +1351,7 @@ class MainWindow(QMainWindow):
         """Reset recommendation review widgets to their empty state."""
         self.review_summary_label.setText(_EMPTY_REVIEW_SUMMARY)
         self.dj_readiness_label.setText("DJ Readiness: No recommendation ready.")
+        self.dj_readiness_table.setRowCount(0)
         self.transition_review_table.setRowCount(0)
         if self.recommendation_table.rowCount() == 0:
             self._set_recommendation_sections_expanded(False)
@@ -1355,6 +1372,22 @@ class MainWindow(QMainWindow):
             serato_volume_root=serato_volume_root,
         )
         self.dj_readiness_label.setText(format_dj_readiness_summary(report))
+        self._populate_dj_readiness_table(report)
+
+    def _populate_dj_readiness_table(self, report: DjReadinessReport) -> None:
+        """Render actionable readiness checks in a compact table."""
+        self.dj_readiness_table.setRowCount(len(report.checks))
+        status_labels = {"ready": "Ready", "needs_review": "Needs Review", "blocked": "Blocked"}
+        status_sort = {"blocked": 0, "needs_review": 1, "ready": 2}
+        for row_index, check in enumerate(report.checks):
+            values = [check.label, status_labels[check.status], check.detail]
+            sort_values: list[object] = [
+                check.label.casefold(),
+                status_sort[check.status],
+                check.detail.casefold(),
+            ]
+            for column_index, value in enumerate(values):
+                self.dj_readiness_table.setItem(row_index, column_index, _table_item(value, sort_values[column_index]))
 
     def show_transition_review(self, explanation: PlaylistExplanation) -> None:
         """Render transition component scores and warnings in the review table."""

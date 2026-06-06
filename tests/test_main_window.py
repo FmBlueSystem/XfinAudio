@@ -1551,3 +1551,99 @@ def test_main_window_resets_dj_readiness_when_recommendation_is_cleared() -> Non
     window.clear_recommendation_review()
 
     assert window.dj_readiness_label.text() == "DJ Readiness: No recommendation ready."
+
+
+def _table_texts(table) -> list[list[str]]:
+    return [
+        [table.item(row, column).text() for column in range(table.columnCount())] for row in range(table.rowCount())
+    ]
+
+
+def test_main_window_renders_dj_readiness_check_table_after_recommendation(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "a.flac"),
+            title="A",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["Peak"],
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path=str(tmp_path / "b.flac"),
+            title="B",
+            bpm=121,
+            camelot_key="8A",
+            energy_level=5,
+            genre="House",
+            tags=["Peak"],
+            metadata_status="complete",
+        ),
+    ]
+
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
+
+    headers = [
+        window.dj_readiness_table.horizontalHeaderItem(column).text()
+        for column in range(window.dj_readiness_table.columnCount())
+    ]
+    rows = _table_texts(window.dj_readiness_table)
+
+    assert headers == ["Check", "Status", "Detail"]
+    assert len(rows) >= 5
+    assert rows[2][:2] == ["BPM continuity", "Ready"]
+    assert any(row[0] == "Average transition score" for row in rows)
+
+
+def test_main_window_adds_serato_round_trip_check_after_export(tmp_path) -> None:
+    ensure_app()
+    volume_root = tmp_path / "dd"
+    serato_folder = volume_root / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    records: list[TrackRecord] = []
+    for name, bpm in [("a.flac", 120), ("b.flac", 121)]:
+        path = volume_root / "Music" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"audio")
+        records.append(
+            TrackRecord(
+                path=str(path),
+                title=name,
+                bpm=bpm,
+                camelot_key="8A",
+                energy_level=5,
+                genre="House",
+                tags=["Peak"],
+                metadata_status="complete",
+            )
+        )
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.scanned_records = records
+    window.show_tracks(records)
+    window.tracks_table.selectRow(0)
+    window.recommend_playlist()
+    _process_events_until(lambda: window.recommend_button.isEnabled())
+
+    window.export_recommendation_to_serato(serato_folder=serato_folder)
+
+    rows = _table_texts(window.dj_readiness_table)
+    serato_rows = [row for row in rows if row[0] == "Serato round-trip"]
+    assert serato_rows == [["Serato round-trip", "Ready", "Serato crate validates and 2 track(s) resolve on disk"]]
+
+
+def test_main_window_clears_dj_readiness_check_table() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.dj_readiness_table.setRowCount(1)
+
+    window.clear_recommendation_review()
+
+    assert window.dj_readiness_table.rowCount() == 0
