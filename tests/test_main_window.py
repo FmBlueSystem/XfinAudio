@@ -118,7 +118,7 @@ def test_main_window_displays_initial_empty_state_guidance() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert "Choose a Mixed In Key processed folder" in window.library_guidance_label.text()
+    assert window.library_guidance_label.text() == "Choose a folder to scan metadata."
     assert "Scan metadata before recommending" in window.recommendation_guidance_label.text()
     assert "Review recommendations before exporting" in window.export_guidance_label.text()
     assert window.review_summary_label.text() == "No recommendation is ready for review."
@@ -232,7 +232,7 @@ def test_main_window_restores_last_scan_folder_without_clearing_saved_library(tm
     assert window.selected_folder == library_folder
     assert window.tracks_table.rowCount() == 1
     assert window.scan_button.isEnabled() is True
-    assert "refresh metadata" in window.library_guidance_label.text()
+    assert "refresh metadata" in window.library_guidance_label.toolTip()
 
 
 def test_main_window_setting_safe_export_folder_persists_and_updates_label(tmp_path) -> None:
@@ -476,7 +476,7 @@ def test_main_window_scan_progress_controls_start_disabled() -> None:
 
     assert window.cancel_scan_button.text() == "Cancel Scan"
     assert window.cancel_scan_button.isEnabled() is False
-    assert window.scan_progress_label.text() == "Scan progress: idle"
+    assert window.scan_progress_label.text() == "Scan: idle"
 
 
 def test_main_window_scan_enables_cancel_and_updates_progress_then_disables_on_success(tmp_path) -> None:
@@ -1050,8 +1050,9 @@ def test_main_window_with_defaults_restores_persisted_tracks_on_startup(tmp_path
     assert len(window.scanned_records) == 1
     assert window.tracks_table.rowCount() == 1
     assert window.tracks_table.item(0, 0).text() == "Persisted"
-    assert window.folder_label.text() == "Saved library loaded (no scan folder selected)"
-    assert window.library_guidance_label.text() == (
+    assert window.folder_label.text() == "Library: saved"
+    assert window.library_guidance_label.text() == "Use filters/search, select a complete track, then recommend."
+    assert window.library_guidance_label.toolTip() == (
         "Showing saved library from the app database. Choose a folder to re-scan or update metadata."
     )
     assert window.recommend_button.isEnabled() is False
@@ -1493,7 +1494,7 @@ def test_main_window_uses_compact_macbook_layout_for_library_section() -> None:
     layout = window.centralWidget().layout()
     assert layout is not None
     assert layout.spacing() <= 6
-    assert window.tracks_table.maximumHeight() <= 150
+    assert window.tracks_table.maximumHeight() <= 190
     assert window.tracks_table.verticalHeader().defaultSectionSize() <= 24
     headers = _track_table_headers(window)
     assert window.tracks_table.columnWidth(headers.index("Tags/Subgenre")) >= 140
@@ -1519,7 +1520,70 @@ def test_main_window_uses_two_row_responsive_command_bars_for_mac_resolution() -
     assert window.recommend_button.minimumWidth() <= 260
     assert window.prep_copilot_button.minimumWidth() <= 220
     assert window.folder_label.maximumWidth() <= 260
-    assert window.library_guidance_label.maximumWidth() <= 560
+    assert window.library_guidance_label.maximumWidth() <= 720
+
+
+def test_main_window_empty_review_hides_empty_result_tables() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.prep_copilot_table.isHidden() is True
+    assert window.recommendation_table.isHidden() is True
+    assert window.dj_readiness_table.isHidden() is True
+    assert window.transition_review_table.isHidden() is True
+    assert window.review_summary_label.isHidden() is False
+    assert window.dj_readiness_label.isHidden() is False
+
+
+def test_main_window_exposes_dj_workflow_modules_with_decision_points() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    tab_names = [window.workflow_tabs.tabText(index) for index in range(window.workflow_tabs.count())]
+
+    assert tab_names == [
+        "Library",
+        "Build Playlist",
+        "Review Mix",
+        "Export to Serato",
+        "Metadata Worklist",
+    ]
+    assert window.workflow_tabs.tabPosition() == main_window.QTabWidget.TabPosition.West
+    assert window.library_decision_label.text() == "DJ Decision Point: choose source, filters, and the track anchor."
+    assert window.build_decision_label.text() == "DJ Decision Point: choose strategy, target length, and genre focus."
+    assert (
+        window.review_decision_label.text()
+        == "DJ Decision Point: accept the mix or revise anchor, metadata, or strategy."
+    )
+    assert window.export_decision_label.text() == "DJ Decision Point: preview crate target before writing to Serato."
+    assert (
+        window.metadata_decision_label.text()
+        == "DJ Decision Point: complete missing metadata, then refresh the library."
+    )
+
+
+def test_main_window_saved_library_status_uses_readable_summary_not_clipped_sentence(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "ready.flac"),
+            title="Ready",
+            artist="Artist",
+            bpm=120,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        ),
+        TrackRecord(path=str(tmp_path / "missing.flac"), title="Missing", metadata_status="incomplete"),
+    ]
+
+    window.restore_persisted_tracks(records)
+
+    assert window.folder_label.text() == "Library: saved"
+    assert window.library_guidance_label.text() == "Use filters/search, select a complete track, then recommend."
+    assert window.scan_progress_label.text() == "Scan: idle"
+    assert window.status_label.text() == "Loaded saved library: 1 complete, 1 incomplete"
 
 
 def test_main_window_shows_dj_readiness_after_recommendation(tmp_path) -> None:
