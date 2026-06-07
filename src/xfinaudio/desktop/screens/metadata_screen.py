@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.metadata_view_model import MetadataViewModel
 
 
 class MetadataScreen(QWidget):
@@ -51,11 +52,8 @@ class MetadataScreen(QWidget):
     # Render
     # ------------------------------------------------------------------
 
-    def render(self, state: AppState) -> None:
-        """Update widgets from AppState."""
-        track_count = len(state.scanned_records)
-        if track_count == 0:
-            self.status_label.setText("No tracks loaded")
-        else:
-            complete = sum(1 for t in state.scanned_records if t.metadata_status == "complete")
-            self.status_label.setText(f"{track_count} tracks · {complete}/{track_count} complete")
+    def render(self, state: AppState, vm: MetadataViewModel | None = None) -> None:
+        """Update widgets from AppState via MetadataViewModel."""
+        if vm is None:
+            vm = MetadataViewModel()
+        self.status_label.setText(vm.status_text(state))

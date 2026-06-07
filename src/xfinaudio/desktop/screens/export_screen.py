@@ -110,4 +110,4 @@ class ExportScreen(QWidget):
                 row_data.destination,
             ]
             for col, value in enumerate(values):
-                self.history_table.setItem(row, col, QTableWidgetItem(value))
+                self.history_table.setItem(row, col, QTableWidgetItem(str(value)))

@@ -71,6 +71,8 @@ class TestBuildScreen:
         assert hasattr(screen, "copilot_table")
         assert hasattr(screen, "apply_variant_button")
         assert hasattr(screen, "proceed_button")
+        assert hasattr(screen, "variant_label")
+        assert hasattr(screen, "back_button")
 
     def test_render_empty_state_does_not_raise(self, qapp) -> None:
         screen = BuildScreen()
@@ -140,6 +142,10 @@ class TestExportScreen:
         assert hasattr(screen, "export_button")
         assert hasattr(screen, "preview_button")
         assert hasattr(screen, "history_table")
+        assert hasattr(screen, "safe_folder_label")
+        assert hasattr(screen, "safe_folder_button")
+        assert hasattr(screen, "export_readiness_button")
+        assert hasattr(screen, "back_button")
 
     def test_render_empty_state_does_not_raise(self, qapp) -> None:
         screen = ExportScreen()
