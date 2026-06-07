@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -31,6 +31,8 @@ class ReviewScreen(QWidget):
 
     back_requested = Signal()
     proceed_to_export_requested = Signal()
+    track_remove_requested = Signal(str)  # emits the track path
+    track_play_requested = Signal(str)  # emits the track path
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -77,6 +79,14 @@ class ReviewScreen(QWidget):
         self.recommendation_table.setAlternatingRowColors(True)
         layout.addWidget(self.recommendation_table)
 
+        # Action row for the recommendation table
+        actions = QHBoxLayout()
+        self.remove_track_button = QPushButton("Remove from Playlist")
+        self.remove_track_button.setEnabled(False)
+        actions.addWidget(self.remove_track_button)
+        actions.addStretch()
+        layout.addLayout(actions)
+
         # Transition table
         self.transition_table = QTableWidget(0, len(_TRANSITION_COLUMNS))
         self.transition_table.setHorizontalHeaderLabels(_TRANSITION_COLUMNS)
@@ -97,6 +107,9 @@ class ReviewScreen(QWidget):
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
         self.export_button.clicked.connect(self.proceed_to_export_requested)
+        self.recommendation_table.itemSelectionChanged.connect(self._on_recommendation_selection_changed)
+        self.remove_track_button.clicked.connect(self._on_remove_clicked)
+        self.recommendation_table.itemDoubleClicked.connect(self._on_rec_double_clicked)
 
     # ------------------------------------------------------------------
     # Render
@@ -135,4 +148,36 @@ class ReviewScreen(QWidget):
             ]
             for col, value in enumerate(values):
                 self.recommendation_table.setItem(row, col, QTableWidgetItem(value))
+            # Store path as UserRole on col 0 for removal and play actions
+            position_item = self.recommendation_table.item(row, 0)
+            if position_item is not None:
+                position_item.setData(Qt.ItemDataRole.UserRole, row_data.path)
+
+    # ------------------------------------------------------------------
+    # Internal slots
+    # ------------------------------------------------------------------
+
+    def _on_recommendation_selection_changed(self) -> None:
+        self.remove_track_button.setEnabled(bool(self.recommendation_table.selectedItems()))
+
+    def _on_remove_clicked(self) -> None:
+        selected = self.recommendation_table.selectedItems()
+        if not selected:
+            return
+        row = self.recommendation_table.currentRow()
+        path_item = self.recommendation_table.item(row, 0)
+        if path_item is None:
+            return
+        path = path_item.data(Qt.ItemDataRole.UserRole)
+        if path:
+            self.track_remove_requested.emit(path)
+
+    def _on_rec_double_clicked(self, item: QTableWidgetItem) -> None:
+        row = item.row()
+        path_item = self.recommendation_table.item(row, 0)
+        if path_item is None:
+            return
+        path = path_item.data(Qt.ItemDataRole.UserRole)
+        if path:
+            self.track_play_requested.emit(path)
 

@@ -43,6 +43,7 @@ class RecommendationRow:
     camelot_key: str  # "8A" or "—"
     energy: str  # "7" or "—"
     overall_score: str  # "0.92" or "—"
+    path: str = ""
 
 
 class ReviewViewModel:
@@ -52,10 +53,17 @@ class ReviewViewModel:
         """Primary semaphore output.
 
         - No recommendation → BLOCKED
+        - All tracks removed → BLOCKED
         - Recommendation but no readiness report → NEEDS_REVIEW
         - Readiness report present → map its status directly
         """
         if state.last_recommendation is None:
+            return ReadinessStatus.BLOCKED
+        remaining = [
+            t for t in state.last_recommendation.ordered_tracks
+            if t.path not in state.playlist_removed_paths
+        ]
+        if not remaining:
             return ReadinessStatus.BLOCKED
         if state.last_dj_readiness_report is None:
             return ReadinessStatus.NEEDS_REVIEW
@@ -122,29 +130,47 @@ class ReviewViewModel:
         )
 
     def can_export(self, state: AppState) -> bool:
-        """Export is allowed for READY and NEEDS_REVIEW; BLOCKED gates it."""
+        """Export is allowed for READY and NEEDS_REVIEW; BLOCKED gates it.
+
+        Also returns False when all tracks have been removed from the playlist.
+        """
+        if state.last_recommendation is not None:
+            remaining = [
+                t for t in state.last_recommendation.ordered_tracks
+                if t.path not in state.playlist_removed_paths
+            ]
+            if not remaining:
+                return False
         return self.readiness_status(state) != ReadinessStatus.BLOCKED
 
     def recommendation_rows(self, state: AppState) -> list[RecommendationRow]:
-        """Track rows for the recommendation table. Empty if no recommendation."""
+        """Track rows for the recommendation table. Empty if no recommendation.
+
+        Tracks in playlist_removed_paths are excluded from the output.
+        """
         if state.last_recommendation is None:
             return []
         rows: list[RecommendationRow] = []
-        for index, track in enumerate(state.last_recommendation.ordered_tracks, start=1):
+        position = 1
+        for track in state.last_recommendation.ordered_tracks:
+            if track.path in state.playlist_removed_paths:
+                continue
             bpm_str = str(int(track.bpm)) if track.bpm is not None else "—"
             key_str = track.camelot_key if track.camelot_key is not None else "—"
             energy_str = str(track.energy_level) if track.energy_level is not None else "—"
             rows.append(
                 RecommendationRow(
-                    position=index,
+                    position=position,
                     title=track.title or track.path,
                     artist=track.artist or "—",
                     bpm=bpm_str,
                     camelot_key=key_str,
                     energy=energy_str,
                     overall_score="—",  # score not available at track level
+                    path=track.path,
                 )
             )
+            position += 1
         return rows
 
 

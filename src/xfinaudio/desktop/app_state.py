@@ -46,6 +46,7 @@ class AppState:
     # Track constraints
     excluded_paths: frozenset[str] = field(default_factory=frozenset)
     locked_paths: frozenset[str] = field(default_factory=frozenset)
+    playlist_removed_paths: frozenset[str] = field(default_factory=frozenset)
 
     # Navigation
     current_screen: ScreenName = "library"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -361,6 +362,14 @@ class MainWindow(QMainWindow):
     def locked_paths(self, value: frozenset[str]) -> None:
         self._state.locked_paths = value
 
+    @property
+    def playlist_removed_paths(self) -> frozenset[str]:
+        return self._state.playlist_removed_paths
+
+    @playlist_removed_paths.setter
+    def playlist_removed_paths(self, value: frozenset[str]) -> None:
+        self._state.playlist_removed_paths = value
+
     # ------------------------------------------------------------------
     # Screen widget aliases — backward-compat read-only properties that
     # forward to the live Screen widgets so existing call sites and tests
@@ -552,6 +561,10 @@ class MainWindow(QMainWindow):
         # ReviewScreen signals
         self._review_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(1))
         self._review_screen.proceed_to_export_requested.connect(self._on_proceed_to_export)
+        self._review_screen.track_remove_requested.connect(self._on_track_remove_requested)
+        self._review_screen.track_play_requested.connect(self._on_track_play_requested)
+        # LibraryScreen play signal
+        self._library_screen.track_play_requested.connect(self._on_track_play_requested)
         # ExportScreen signals
         self._export_screen.preview_requested.connect(self.preview_serato_export)
         self._export_screen.export_requested.connect(self.export_recommendation_to_serato)
@@ -1300,6 +1313,7 @@ class MainWindow(QMainWindow):
         self.last_playlist_explanation = explanation
         self.last_quality_report = quality_report
         self.last_dj_readiness_report = variant.readiness
+        self._state.playlist_removed_paths = frozenset()
         self._sync_state()
         self._set_applied_copilot_variant(variant.name)
         self.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)
@@ -1445,6 +1459,7 @@ class MainWindow(QMainWindow):
         self.last_recommendation = result.recommendation
         self.last_playlist_explanation = result.explanation
         self.last_quality_report = result.quality_report
+        self._state.playlist_removed_paths = frozenset()
         self._sync_state()
         self.show_recommendation(
             result.recommendation.ordered_tracks,
@@ -1581,3 +1596,16 @@ class MainWindow(QMainWindow):
         vm = ReviewViewModel()
         if vm.can_export(self._state):
             self.workflow_tabs.setCurrentIndex(3)
+
+    def _on_track_remove_requested(self, path: str) -> None:
+        """Remove a track from the current session's playlist without affecting future recommendations."""
+        self._state.playlist_removed_paths = self._state.playlist_removed_paths | {path}
+        self._sync_state()
+
+    def _on_track_play_requested(self, path: str) -> None:
+        """Open a track in the system default audio player."""
+        try:
+            subprocess.Popen(["open", path])  # macOS
+        except Exception as exc:
+            LOGGER.warning("Could not open track %s: %s", path, exc)
+            self.status_label.setText(f"Could not open: {Path(path).name}")

@@ -36,6 +36,7 @@ class LibraryScreen(QWidget):
     selection_changed = Signal(list)
     metadata_screen_requested = Signal()
     settings_requested = Signal()
+    track_play_requested = Signal(str)  # emits full path
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -98,6 +99,7 @@ class LibraryScreen(QWidget):
         self.scan_button.clicked.connect(self.scan_requested)
         self.cancel_button.clicked.connect(self.cancel_scan_requested)
         self.tracks_table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.tracks_table.itemDoubleClicked.connect(self._on_track_double_clicked)
         self.search_input.textChanged.connect(self._on_search_changed)
         self.settings_button.clicked.connect(self.settings_requested)
 
@@ -182,6 +184,13 @@ class LibraryScreen(QWidget):
                 item = self.tracks_table.item(row, col)
                 if item is not None:
                     item.setBackground(color)
+
+    def _on_track_double_clicked(self, item: QTableWidgetItem) -> None:
+        row = item.row()
+        path_col = len(_COLUMNS) - 1  # Path is last column
+        path_item = self.tracks_table.item(row, path_col)
+        if path_item is not None:
+            self.track_play_requested.emit(path_item.text())
 
     def _on_selection_changed(self) -> None:
         selected_rows = {idx.row() for idx in self.tracks_table.selectedIndexes()}
