@@ -84,8 +84,15 @@ def record_export(
     return [entry, *history][:max_entries]
 
 
-def write_readiness_sidecars(report: DjReadinessReport, crate_path: Path) -> tuple[Path, Path]:
-    """Write DJ Readiness JSON/CSV sidecars next to a Serato crate path."""
-    json_path = crate_path.with_suffix(".dj-readiness.json")
-    csv_path = crate_path.with_suffix(".dj-readiness.csv")
+def write_readiness_sidecars(
+    report: DjReadinessReport,
+    crate_path: Path,
+    *,
+    safe_folder: Path | None = None,
+) -> tuple[Path, Path]:
+    """Write DJ Readiness JSON/CSV sidecars to safe_folder (or next to the crate as fallback)."""
+    base = safe_folder if safe_folder is not None else crate_path.parent
+    stem = crate_path.stem
+    json_path = base / f"{stem}.dj-readiness.json"
+    csv_path = base / f"{stem}.dj-readiness.csv"
     return write_dj_readiness_report(report, json_path, csv_path)

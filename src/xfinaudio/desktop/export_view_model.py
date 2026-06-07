@@ -25,6 +25,13 @@ class ExportHistoryRow:
 class ExportViewModel:
     """Pure data transformer: AppState → export screen display values. No PySide6."""
 
+    def export_readiness_enabled(self, state: AppState) -> bool:
+        """True only when a readiness report exists AND a safe folder is configured."""
+        return (
+            state.last_dj_readiness_report is not None
+            and state.settings.export.safe_export_folder is not None
+        )
+
     def export_enabled(self, state: AppState) -> bool:
         """True if a recommendation exists and readiness is not blocked.
 

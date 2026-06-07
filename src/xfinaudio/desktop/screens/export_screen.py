@@ -59,7 +59,9 @@ class ExportScreen(QWidget):
         self.preview_button = QPushButton("Preview")
         self.export_button = QPushButton("Export to Serato")
         self.export_button.setObjectName("seratoExportButton")
+        self.export_button.setEnabled(False)
         self.export_readiness_button = QPushButton("Export Readiness Report")
+        self.export_readiness_button.setEnabled(False)
         actions.addWidget(self.preview_button)
         actions.addWidget(self.export_button)
         actions.addWidget(self.export_readiness_button)
@@ -96,6 +98,7 @@ class ExportScreen(QWidget):
         self.variant_label.setText(vm.applied_variant_label(state))
         self.safe_folder_label.setText(vm.safe_folder_label(state))
         self.export_button.setEnabled(vm.export_enabled(state))
+        self.export_readiness_button.setEnabled(vm.export_readiness_enabled(state))
         self._populate_history_table(vm.export_history_rows(state))
 
     def _populate_history_table(self, rows: list[ExportHistoryRow]) -> None:

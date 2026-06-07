@@ -93,6 +93,7 @@ from xfinaudio.exporting.explainability import PlaylistExplanation, build_playli
 from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
     SeratoLibrary,
+    SeratoLibraryNotFoundError,
     discover_serato_libraries,
     plan_metadata_missing_field_serato_export,
     plan_metadata_status_serato_export,
@@ -861,7 +862,7 @@ class MainWindow(QMainWindow):
         self.export_guidance_label.setText(
             "Review recommendations before exporting. Serato export is enabled only after a recommendation is ready."
         )
-        self._refresh_export_action_state()
+
         self._sync_state()
 
     def _refresh_idle_action_state(self) -> None:
@@ -893,7 +894,7 @@ class MainWindow(QMainWindow):
             self.settings_repository.save(self.settings)
         self.safe_export_folder_label.setText(self._format_safe_export_folder_label())
         self.status_label.setText("Safe export folder selected")
-        self._refresh_export_action_state()
+
         self._sync_state()
 
     def export_dj_readiness_report(self, *, generated_at: datetime | None = None) -> None:
@@ -930,6 +931,11 @@ class MainWindow(QMainWindow):
                 crate_name=crate_name,
                 generated_at=generated_at,
             )
+        except SeratoLibraryNotFoundError:
+            self.status_label.setText(
+                "Serato not found — open Serato DJ Pro at least once to create its library folder"
+            )
+            return
         except Exception as exc:
             LOGGER.exception("Serato export preview failed")
             self.status_label.setText(f"Serato export preview failed: {exc}")
@@ -968,6 +974,11 @@ class MainWindow(QMainWindow):
                 generated_at=generated_at,
             )
             result = write_serato_crate(plan, confirm=True)
+        except SeratoLibraryNotFoundError:
+            self.status_label.setText(
+                "Serato not found — open Serato DJ Pro at least once to create its library folder"
+            )
+            return
         except Exception as exc:
             LOGGER.exception("Serato export failed")
             self.status_label.setText(f"Serato export failed: {exc}")
@@ -986,7 +997,10 @@ class MainWindow(QMainWindow):
                 serato_volume_root=library.volume_root,
             )
         if self.last_dj_readiness_report is not None:
-            json_path, csv_path = write_readiness_sidecars(self.last_dj_readiness_report, result.written_path)
+            safe_folder = self.settings.export.safe_export_folder
+            json_path, csv_path = write_readiness_sidecars(
+                self.last_dj_readiness_report, result.written_path, safe_folder=safe_folder
+            )
             readiness_paths = (json_path, csv_path)
             readiness_note = f" Readiness reports: {json_path} and {csv_path}."
         self.export_guidance_label.setText(
@@ -1096,16 +1110,6 @@ class MainWindow(QMainWindow):
             "Complete missing metadata in Serato, then click Scan Metadata in XfinAudio to refresh."
         )
         self.status_label.setText(f"Exported Missing {display_field} metadata crate: {result.written_path}")
-
-    def _refresh_export_action_state(self) -> None:
-        """Enable Serato export only when a recommendation exists."""
-        self.serato_preview_button.setEnabled(self.last_recommendation is not None)
-        self.serato_export_button.setEnabled(self.last_recommendation is not None)
-        self.prep_copilot_button.setEnabled(self._selected_track_controls() is not None)
-        self.prep_copilot_apply_button.setEnabled(self.last_prep_copilot_plan is not None)
-        self.dj_readiness_export_button.setEnabled(
-            self.last_dj_readiness_report is not None and self.settings.export.safe_export_folder is not None
-        )
 
     def _record_serato_export(
         self,
@@ -1313,7 +1317,7 @@ class MainWindow(QMainWindow):
         self.show_transition_review(explanation)
         self.export_guidance_label.setText("Inspect the selected Prep Copilot variant before exporting it to Serato.")
         self.status_label.setText(f"Applied Prep Copilot variant: {variant.name}")
-        self._refresh_export_action_state()
+
 
     def _set_applied_copilot_variant(self, variant_name: str | None) -> None:
         """Update applied Copilot variant state and export badge."""
@@ -1448,7 +1452,7 @@ class MainWindow(QMainWindow):
         self.export_guidance_label.setText(
             "Inspect the review table before exporting. Review scores and warnings before any safe export to Serato."
         )
-        self._refresh_export_action_state()
+
 
     @Slot(object)
     def _fail_recommendation(self, error: object) -> None:
@@ -1507,7 +1511,7 @@ class MainWindow(QMainWindow):
         self._sync_state()
         self.dj_readiness_label.setText(format_dj_readiness_summary(report))
         self._populate_dj_readiness_table(report)
-        self._refresh_export_action_state()
+
 
     def _populate_dj_readiness_table(self, report: DjReadinessReport) -> None:
         """Render actionable readiness checks in a compact table."""

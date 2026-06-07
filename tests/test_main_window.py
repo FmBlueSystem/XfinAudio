@@ -1515,7 +1515,7 @@ def test_main_window_serato_export_button_requires_recommendation(tmp_path) -> N
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert window.serato_export_button.isEnabled() is False
+    assert window._export_screen.export_button.isEnabled() is False
 
     window.last_recommendation = make_recommendation(
         [
@@ -1529,9 +1529,13 @@ def test_main_window_serato_export_button_requires_recommendation(tmp_path) -> N
             )
         ]
     )
-    window._refresh_export_action_state()
+    # Export tab also requires a readiness report (NavigationController rule).
+    window.last_dj_readiness_report = DjReadinessReport(
+        status="ready", summary="All good", blocker_count=0, review_count=0, checks=[]
+    )
+    window._sync_state()
 
-    assert window.serato_export_button.isEnabled() is True
+    assert window._export_screen.export_button.isEnabled() is True
 
 
 def test_main_window_auto_serato_export_preserves_detected_library_volume_root(tmp_path, monkeypatch) -> None:
@@ -2118,7 +2122,7 @@ def test_main_window_applies_selected_prep_copilot_variant_to_review_flow(tmp_pa
     assert window.recommendation_table.rowCount() == 3
     assert window.transition_review_table.rowCount() == 2
     assert window.dj_readiness_table.rowCount() > 0
-    assert window.serato_export_button.isEnabled() is True
+    assert window._export_screen.export_button.isEnabled() is True
     assert window.status_label.text() == "Applied Prep Copilot variant: balanced"
 
 
