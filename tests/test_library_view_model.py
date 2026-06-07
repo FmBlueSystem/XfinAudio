@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_view_model import LibraryFilters, LibraryViewModel
 from xfinaudio.library.models import TrackRecord
@@ -49,7 +51,9 @@ def make_state(
     return state
 
 
-vm = LibraryViewModel()
+@pytest.fixture
+def vm() -> LibraryViewModel:
+    return LibraryViewModel()
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +61,7 @@ vm = LibraryViewModel()
 # ---------------------------------------------------------------------------
 
 
-def test_tracks_for_display_no_filters_returns_all_tracks() -> None:
+def test_tracks_for_display_no_filters_returns_all_tracks(vm: LibraryViewModel) -> None:
     tracks = [make_track(path="/lib/a.mp3"), make_track(path="/lib/b.mp3")]
     state = make_state(tracks=tracks)
 
@@ -66,7 +70,7 @@ def test_tracks_for_display_no_filters_returns_all_tracks() -> None:
     assert len(rows) == 2
 
 
-def test_tracks_for_display_search_query_filters_by_title() -> None:
+def test_tracks_for_display_search_query_filters_by_title(vm: LibraryViewModel) -> None:
     tracks = [
         make_track(path="/lib/a.mp3", title="Deep House Anthem"),
         make_track(path="/lib/b.mp3", title="Techno Banger"),
@@ -79,7 +83,7 @@ def test_tracks_for_display_search_query_filters_by_title() -> None:
     assert rows[0].title == "Deep House Anthem"
 
 
-def test_tracks_for_display_status_filter_complete_returns_only_complete() -> None:
+def test_tracks_for_display_status_filter_complete_returns_only_complete(vm: LibraryViewModel) -> None:
     tracks = [
         make_track(path="/lib/a.mp3", metadata_status="complete"),
         make_track(path="/lib/b.mp3", metadata_status="incomplete"),
@@ -92,7 +96,7 @@ def test_tracks_for_display_status_filter_complete_returns_only_complete() -> No
     assert rows[0].metadata_status == "complete"
 
 
-def test_tracks_for_display_status_filter_incomplete_returns_only_incomplete() -> None:
+def test_tracks_for_display_status_filter_incomplete_returns_only_incomplete(vm: LibraryViewModel) -> None:
     tracks = [
         make_track(path="/lib/a.mp3", metadata_status="complete"),
         make_track(path="/lib/b.mp3", metadata_status="incomplete"),
@@ -105,7 +109,7 @@ def test_tracks_for_display_status_filter_incomplete_returns_only_incomplete() -
     assert rows[0].metadata_status == "incomplete"
 
 
-def test_tracks_for_display_missing_field_filter_returns_matching_tracks() -> None:
+def test_tracks_for_display_missing_field_filter_returns_matching_tracks(vm: LibraryViewModel) -> None:
     tracks = [
         make_track(path="/lib/a.mp3", missing_required_fields=["bpm", "energy_level"]),
         make_track(path="/lib/b.mp3", missing_required_fields=[]),
@@ -118,12 +122,31 @@ def test_tracks_for_display_missing_field_filter_returns_matching_tracks() -> No
     assert rows[0].path == "/lib/a.mp3"
 
 
+def test_tracks_for_display_with_search_and_status_filter(vm: LibraryViewModel) -> None:
+    """AND composition: search_query + status_filter applied together."""
+    tracks = [
+        # passes both filters
+        make_track(path="/lib/a.mp3", title="Deep House Anthem", metadata_status="complete"),
+        # passes search only
+        make_track(path="/lib/b.mp3", title="Deep Minimal", metadata_status="incomplete"),
+        # passes status only
+        make_track(path="/lib/c.mp3", title="Techno Banger", metadata_status="complete"),
+    ]
+    state = make_state(tracks=tracks)
+
+    filters = LibraryFilters(search_query="deep", status_filter="complete")
+    rows = vm.tracks_for_display(state, filters)
+
+    assert len(rows) == 1
+    assert rows[0].path == "/lib/a.mp3"
+
+
 # ---------------------------------------------------------------------------
 # tracks_for_display — field formatting
 # ---------------------------------------------------------------------------
 
 
-def test_bpm_none_formats_as_dash() -> None:
+def test_bpm_none_formats_as_dash(vm: LibraryViewModel) -> None:
     state = make_state(tracks=[make_track(bpm=None)])
 
     rows = vm.tracks_for_display(state)
@@ -131,7 +154,7 @@ def test_bpm_none_formats_as_dash() -> None:
     assert rows[0].bpm == "—"
 
 
-def test_bpm_value_formats_as_integer_string() -> None:
+def test_bpm_value_formats_as_integer_string(vm: LibraryViewModel) -> None:
     state = make_state(tracks=[make_track(bpm=128.7)])
 
     rows = vm.tracks_for_display(state)
@@ -139,7 +162,7 @@ def test_bpm_value_formats_as_integer_string() -> None:
     assert rows[0].bpm == "128"
 
 
-def test_energy_none_formats_as_dash() -> None:
+def test_energy_none_formats_as_dash(vm: LibraryViewModel) -> None:
     state = make_state(tracks=[make_track(energy_level=None)])
 
     rows = vm.tracks_for_display(state)
@@ -147,7 +170,7 @@ def test_energy_none_formats_as_dash() -> None:
     assert rows[0].energy == "—"
 
 
-def test_musical_key_empty_formats_as_dash() -> None:
+def test_musical_key_empty_formats_as_dash(vm: LibraryViewModel) -> None:
     state = make_state(tracks=[make_track(camelot_key=None)])
 
     rows = vm.tracks_for_display(state)
@@ -155,7 +178,7 @@ def test_musical_key_empty_formats_as_dash() -> None:
     assert rows[0].musical_key == "—"
 
 
-def test_musical_key_blank_string_formats_as_dash() -> None:
+def test_musical_key_blank_string_formats_as_dash(vm: LibraryViewModel) -> None:
     state = make_state(tracks=[make_track(camelot_key="")])
 
     rows = vm.tracks_for_display(state)
@@ -163,7 +186,7 @@ def test_musical_key_blank_string_formats_as_dash() -> None:
     assert rows[0].musical_key == "—"
 
 
-def test_display_path_is_filename_only() -> None:
+def test_display_path_is_filename_only(vm: LibraryViewModel) -> None:
     state = make_state(tracks=[make_track(path="/some/deep/folder/track.mp3")])
 
     rows = vm.tracks_for_display(state)
@@ -171,7 +194,7 @@ def test_display_path_is_filename_only() -> None:
     assert rows[0].display_path == "track.mp3"
 
 
-def test_missing_fields_with_values_joined_by_comma() -> None:
+def test_missing_fields_with_values_joined_by_comma(vm: LibraryViewModel) -> None:
     state = make_state(
         tracks=[make_track(missing_required_fields=["bpm", "energy_level"])]
     )
@@ -181,7 +204,7 @@ def test_missing_fields_with_values_joined_by_comma() -> None:
     assert rows[0].missing_fields == "bpm, energy_level"
 
 
-def test_missing_fields_empty_formats_as_dash() -> None:
+def test_missing_fields_empty_formats_as_dash(vm: LibraryViewModel) -> None:
     state = make_state(tracks=[make_track(missing_required_fields=[])])
 
     rows = vm.tracks_for_display(state)
@@ -194,19 +217,19 @@ def test_missing_fields_empty_formats_as_dash() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_scan_button_enabled_with_folder_and_not_scanning() -> None:
+def test_scan_button_enabled_with_folder_and_not_scanning(vm: LibraryViewModel) -> None:
     state = make_state(folder="/music", is_scanning=False)
 
     assert vm.scan_button_enabled(state) is True
 
 
-def test_scan_button_enabled_false_without_folder() -> None:
+def test_scan_button_enabled_false_without_folder(vm: LibraryViewModel) -> None:
     state = make_state(folder=None, is_scanning=False)
 
     assert vm.scan_button_enabled(state) is False
 
 
-def test_scan_button_enabled_false_when_scanning() -> None:
+def test_scan_button_enabled_false_when_scanning(vm: LibraryViewModel) -> None:
     state = make_state(folder="/music", is_scanning=True)
 
     assert vm.scan_button_enabled(state) is False
@@ -217,13 +240,13 @@ def test_scan_button_enabled_false_when_scanning() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_cancel_button_visible_when_scanning() -> None:
+def test_cancel_button_visible_when_scanning(vm: LibraryViewModel) -> None:
     state = make_state(is_scanning=True)
 
     assert vm.cancel_button_visible(state) is True
 
 
-def test_cancel_button_not_visible_when_not_scanning() -> None:
+def test_cancel_button_not_visible_when_not_scanning(vm: LibraryViewModel) -> None:
     state = make_state(is_scanning=False)
 
     assert vm.cancel_button_visible(state) is False
@@ -234,13 +257,13 @@ def test_cancel_button_not_visible_when_not_scanning() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_status_text_no_folder() -> None:
+def test_status_text_no_folder(vm: LibraryViewModel) -> None:
     state = make_state()
 
     assert vm.status_text(state) == "Choose a folder to begin"
 
 
-def test_status_text_folder_no_tracks_contains_ready_to_scan() -> None:
+def test_status_text_folder_no_tracks_contains_ready_to_scan(vm: LibraryViewModel) -> None:
     state = make_state(folder="/music/collection")
 
     text = vm.status_text(state)
@@ -249,13 +272,13 @@ def test_status_text_folder_no_tracks_contains_ready_to_scan() -> None:
     assert "collection" in text
 
 
-def test_status_text_scanning() -> None:
+def test_status_text_scanning(vm: LibraryViewModel) -> None:
     state = make_state(folder="/music", is_scanning=True)
 
     assert vm.status_text(state) == "Scanning…"
 
 
-def test_status_text_with_tracks_contains_count() -> None:
+def test_status_text_with_tracks_contains_count(vm: LibraryViewModel) -> None:
     tracks = [
         make_track(path="/lib/a.mp3", metadata_status="complete"),
         make_track(path="/lib/b.mp3", metadata_status="incomplete"),
@@ -265,7 +288,7 @@ def test_status_text_with_tracks_contains_count() -> None:
     text = vm.status_text(state)
 
     assert "2" in text
-    assert "1" in text  # 1 complete out of 2
+    assert "1/" in text  # "1/2" — 1 complete out of 2
 
 
 # ---------------------------------------------------------------------------
@@ -273,13 +296,13 @@ def test_status_text_with_tracks_contains_count() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_can_proceed_without_tracks_is_false() -> None:
+def test_can_proceed_without_tracks_is_false(vm: LibraryViewModel) -> None:
     state = make_state()
 
     assert vm.can_proceed(state) is False
 
 
-def test_can_proceed_with_tracks_is_true() -> None:
+def test_can_proceed_with_tracks_is_true(vm: LibraryViewModel) -> None:
     state = make_state(tracks=[make_track()])
 
     assert vm.can_proceed(state) is True
@@ -290,13 +313,13 @@ def test_can_proceed_with_tracks_is_true() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_selected_count_text_empty_list_returns_empty_string() -> None:
+def test_selected_count_text_empty_list_returns_empty_string(vm: LibraryViewModel) -> None:
     assert vm.selected_count_text([]) == ""
 
 
-def test_selected_count_text_one_item_returns_singular() -> None:
+def test_selected_count_text_one_item_returns_singular(vm: LibraryViewModel) -> None:
     assert vm.selected_count_text(["x"]) == "1 track selected"
 
 
-def test_selected_count_text_multiple_items_returns_plural() -> None:
+def test_selected_count_text_multiple_items_returns_plural(vm: LibraryViewModel) -> None:
     assert vm.selected_count_text(["x", "y"]) == "2 tracks selected"

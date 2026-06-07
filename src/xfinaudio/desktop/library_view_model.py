@@ -109,6 +109,7 @@ class LibraryViewModel:
         records: list[TrackRecord] = state.scanned_records
 
         # 1. Search query — match title (or filename if title is empty)
+        # Search applies to title (falling back to filename) only, not artist.
         if filters.search_query:
             query = filters.search_query.lower()
             records = [r for r in records if query in _track_title_or_filename(r).lower()]
