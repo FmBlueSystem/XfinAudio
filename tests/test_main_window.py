@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelectionModel
-from PySide6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QTableWidget, QTableWidgetItem
 
 from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings
 from xfinaudio.desktop import main_window
@@ -223,6 +223,16 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
     assert window.recommendation_table.isHidden() is True
     assert window.transition_review_table.isHidden() is True
     assert window.dj_readiness_table.isHidden() is True
+
+
+def test_main_window_table_selection_configuration() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.tracks_table.selectionBehavior() == QAbstractItemView.SelectionBehavior.SelectRows
+    assert window.tracks_table.selectionMode() == QAbstractItemView.SelectionMode.ExtendedSelection
+    assert window.prep_copilot_table.selectionBehavior() == QAbstractItemView.SelectionBehavior.SelectRows
+    assert window.prep_copilot_table.selectionMode() == QAbstractItemView.SelectionMode.SingleSelection
 
 
 def test_main_window_displays_initial_empty_state_guidance() -> None:

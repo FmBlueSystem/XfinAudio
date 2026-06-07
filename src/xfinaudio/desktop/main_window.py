@@ -381,111 +381,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._initialize_window_state(scan_service, repository, settings, settings_repository)
 
-        self.setWindowTitle("XfinAudio")
-        self.folder_button = QPushButton("Choose Folder")
-        self.scan_button = QPushButton("Scan Metadata")
-        self.scan_button.setEnabled(False)
-        self.cancel_scan_button = QPushButton("Cancel Scan")
-        self.cancel_scan_button.setEnabled(False)
-        self.folder_label = QLabel("Library: none")
-        self.library_guidance_label = QLabel("Choose a folder to scan metadata.")
-        self.recommendation_guidance_label = QLabel("Scan metadata before recommending a playlist.")
-        self.export_guidance_label = QLabel(
-            "Review recommendations before exporting; desktop export setup is intentionally out of scope."
-        )
-        self.applied_copilot_variant_label = QLabel("Applied Variant: none")
-        self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
-        self.safe_export_folder_button = QPushButton("Choose Safe Export Folder")
-        self.safe_export_folder_label = QLabel(self._format_safe_export_folder_label())
-        self.serato_preview_button = QPushButton("Preview Serato Export")
-        self.serato_preview_button.setEnabled(False)
-        self.serato_export_button = QPushButton("Export to Serato Crate")
-        self.serato_export_button.setEnabled(False)
-        self.dj_readiness_export_button = QPushButton("Export DJ Readiness Report")
-        self.dj_readiness_export_button.setEnabled(False)
-        self.scan_progress_label = QLabel("Scan: idle")
-        self.status_label = QLabel("Ready")
-        self.library_decision_label = QLabel("DJ Decision Point: choose source, filters, and the track anchor.")
-        self.build_decision_label = QLabel("DJ Decision Point: choose strategy, target length, and genre focus.")
-        self.review_decision_label = QLabel(
-            "DJ Decision Point: accept the mix or revise anchor, metadata, or strategy."
-        )
-        self.export_decision_label = QLabel("DJ Decision Point: preview crate target before writing to Serato.")
-        self.metadata_decision_label = QLabel("DJ Decision Point: complete missing metadata, then refresh the library.")
-        self.song_search_input = QLineEdit()
-        self.song_search_input.setPlaceholderText("Search songs")
-        self.song_search_input.setClearButtonEnabled(True)
-        self.song_search_input.setMinimumWidth(160)
-        self.song_search_input.setMaximumWidth(220)
-        self.metadata_status_filter_combo = QComboBox()
-        self.metadata_status_filter_combo.addItems(["All statuses", "Complete", "Incomplete"])
-        self.missing_metadata_filter_combo = QComboBox()
-        self.missing_metadata_filter_combo.addItems(["All missing fields", *_MISSING_METADATA_FILTERS])
-        self.metadata_status_export_button = QPushButton("Export Status Crate")
-        self.metadata_status_export_button.setEnabled(False)
-        self.tracks_table = QTableWidget(0, 10)
-        self.tracks_table.setHorizontalHeaderLabels(
-            ["Title", "Artist", "BPM", "Key", "Energy", "Missing", "Genre", "Tags/Subgenre", "Status", "Path"]
-        )
-        self.tracks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tracks_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.tracks_table.itemSelectionChanged.connect(self._refresh_idle_action_state)
-        self.strategy_combo = QComboBox()
-        self.strategy_combo.addItems(available_strategies())
-        self.recommend_button = QPushButton("Recommend Playlist")
-        self.recommend_button.setEnabled(False)
-        self.prep_copilot_target_count_input = QSpinBox()
-        self.prep_copilot_target_count_input.setRange(2, 100)
-        self.prep_copilot_target_count_input.setValue(25)
-        self.prep_copilot_genre_focus_input = QLineEdit()
-        self.prep_copilot_genre_focus_input.setPlaceholderText("Genre focus")
-        self.prep_copilot_genre_focus_input.setMinimumWidth(160)
-        self.prep_copilot_genre_focus_input.setMaximumWidth(360)
-        self.prep_copilot_button = QPushButton("Generate Prep Copilot")
-        self.prep_copilot_button.setEnabled(False)
-        self.prep_copilot_apply_button = QPushButton("Apply Selected Variant")
-        self.prep_copilot_apply_button.setEnabled(False)
-        self.recommendation_table = QTableWidget(0, 11)
-        self.recommendation_table.setHorizontalHeaderLabels(
-            [
-                "Title",
-                "Artist",
-                "BPM",
-                "Key",
-                "Energy",
-                "Genre",
-                "Tags/Subgenre",
-                "Strategy",
-                "Path",
-                "Transition Score",
-                "Warnings",
-            ]
-        )
-        self.prep_copilot_table = QTableWidget(0, 4)
-        self.prep_copilot_table.setHorizontalHeaderLabels(["Variant", "Readiness", "Tracks", "Warnings"])
-        self.prep_copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.prep_copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.review_summary_label = QLabel(_EMPTY_REVIEW_SUMMARY)
-        self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
-        self.dj_readiness_table = QTableWidget(0, 3)
-        self.dj_readiness_table.setHorizontalHeaderLabels(["Check", "Status", "Detail"])
-        self.transition_review_table = QTableWidget(0, len(_TRANSITION_REVIEW_HEADERS))
-        self.transition_review_table.setHorizontalHeaderLabels(_TRANSITION_REVIEW_HEADERS)
-        self.serato_export_history_table = QTableWidget(0, 6)
-        self.serato_export_history_table.setHorizontalHeaderLabels(
-            ["Time", "Strategy", "Tracks", "Serato Crate", "Readiness JSON", "Readiness CSV"]
-        )
-        self.serato_export_history_table.setVisible(False)
-        self.folder_label.setWordWrap(False)
-        self.folder_label.setMaximumWidth(220)
-        self.library_guidance_label.setWordWrap(False)
-        self.library_guidance_label.setMaximumWidth(720)
-        self.scan_progress_label.setWordWrap(False)
-        self.scan_progress_label.setMaximumWidth(140)
-        self.recommendation_guidance_label.setWordWrap(True)
-        self.export_guidance_label.setWordWrap(True)
-        for label in (self.folder_label, self.library_guidance_label, self.scan_progress_label):
-            label.setMaximumHeight(24)
+        self._build_widgets()
 
         self._connect_widget_signals()
         self._apply_visual_design()
@@ -630,6 +526,113 @@ class MainWindow(QMainWindow):
         self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
         self.selected_folder = self.settings.library.last_scan_folder
 
+    def _build_widgets(self) -> None:
+        """Build constructor widgets and intrinsic widget configuration."""
+        self.setWindowTitle("XfinAudio")
+        self.folder_button = QPushButton("Choose Folder")
+        self.scan_button = QPushButton("Scan Metadata")
+        self.scan_button.setEnabled(False)
+        self.cancel_scan_button = QPushButton("Cancel Scan")
+        self.cancel_scan_button.setEnabled(False)
+        self.folder_label = QLabel("Library: none")
+        self.library_guidance_label = QLabel("Choose a folder to scan metadata.")
+        self.recommendation_guidance_label = QLabel("Scan metadata before recommending a playlist.")
+        self.export_guidance_label = QLabel(
+            "Review recommendations before exporting; desktop export setup is intentionally out of scope."
+        )
+        self.applied_copilot_variant_label = QLabel("Applied Variant: none")
+        self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
+        self.safe_export_folder_button = QPushButton("Choose Safe Export Folder")
+        self.safe_export_folder_label = QLabel(self._format_safe_export_folder_label())
+        self.serato_preview_button = QPushButton("Preview Serato Export")
+        self.serato_preview_button.setEnabled(False)
+        self.serato_export_button = QPushButton("Export to Serato Crate")
+        self.serato_export_button.setEnabled(False)
+        self.dj_readiness_export_button = QPushButton("Export DJ Readiness Report")
+        self.dj_readiness_export_button.setEnabled(False)
+        self.scan_progress_label = QLabel("Scan: idle")
+        self.status_label = QLabel("Ready")
+        self.library_decision_label = QLabel("DJ Decision Point: choose source, filters, and the track anchor.")
+        self.build_decision_label = QLabel("DJ Decision Point: choose strategy, target length, and genre focus.")
+        self.review_decision_label = QLabel(
+            "DJ Decision Point: accept the mix or revise anchor, metadata, or strategy."
+        )
+        self.export_decision_label = QLabel("DJ Decision Point: preview crate target before writing to Serato.")
+        self.metadata_decision_label = QLabel("DJ Decision Point: complete missing metadata, then refresh the library.")
+        self.song_search_input = QLineEdit()
+        self.song_search_input.setPlaceholderText("Search songs")
+        self.song_search_input.setClearButtonEnabled(True)
+        self.song_search_input.setMinimumWidth(160)
+        self.song_search_input.setMaximumWidth(220)
+        self.metadata_status_filter_combo = QComboBox()
+        self.metadata_status_filter_combo.addItems(["All statuses", "Complete", "Incomplete"])
+        self.missing_metadata_filter_combo = QComboBox()
+        self.missing_metadata_filter_combo.addItems(["All missing fields", *_MISSING_METADATA_FILTERS])
+        self.metadata_status_export_button = QPushButton("Export Status Crate")
+        self.metadata_status_export_button.setEnabled(False)
+        self.tracks_table = QTableWidget(0, 10)
+        self.tracks_table.setHorizontalHeaderLabels(
+            ["Title", "Artist", "BPM", "Key", "Energy", "Missing", "Genre", "Tags/Subgenre", "Status", "Path"]
+        )
+        self.tracks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tracks_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.strategy_combo = QComboBox()
+        self.strategy_combo.addItems(available_strategies())
+        self.recommend_button = QPushButton("Recommend Playlist")
+        self.recommend_button.setEnabled(False)
+        self.prep_copilot_target_count_input = QSpinBox()
+        self.prep_copilot_target_count_input.setRange(2, 100)
+        self.prep_copilot_target_count_input.setValue(25)
+        self.prep_copilot_genre_focus_input = QLineEdit()
+        self.prep_copilot_genre_focus_input.setPlaceholderText("Genre focus")
+        self.prep_copilot_genre_focus_input.setMinimumWidth(160)
+        self.prep_copilot_genre_focus_input.setMaximumWidth(360)
+        self.prep_copilot_button = QPushButton("Generate Prep Copilot")
+        self.prep_copilot_button.setEnabled(False)
+        self.prep_copilot_apply_button = QPushButton("Apply Selected Variant")
+        self.prep_copilot_apply_button.setEnabled(False)
+        self.recommendation_table = QTableWidget(0, 11)
+        self.recommendation_table.setHorizontalHeaderLabels(
+            [
+                "Title",
+                "Artist",
+                "BPM",
+                "Key",
+                "Energy",
+                "Genre",
+                "Tags/Subgenre",
+                "Strategy",
+                "Path",
+                "Transition Score",
+                "Warnings",
+            ]
+        )
+        self.prep_copilot_table = QTableWidget(0, 4)
+        self.prep_copilot_table.setHorizontalHeaderLabels(["Variant", "Readiness", "Tracks", "Warnings"])
+        self.prep_copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.prep_copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.review_summary_label = QLabel(_EMPTY_REVIEW_SUMMARY)
+        self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
+        self.dj_readiness_table = QTableWidget(0, 3)
+        self.dj_readiness_table.setHorizontalHeaderLabels(["Check", "Status", "Detail"])
+        self.transition_review_table = QTableWidget(0, len(_TRANSITION_REVIEW_HEADERS))
+        self.transition_review_table.setHorizontalHeaderLabels(_TRANSITION_REVIEW_HEADERS)
+        self.serato_export_history_table = QTableWidget(0, 6)
+        self.serato_export_history_table.setHorizontalHeaderLabels(
+            ["Time", "Strategy", "Tracks", "Serato Crate", "Readiness JSON", "Readiness CSV"]
+        )
+        self.serato_export_history_table.setVisible(False)
+        self.folder_label.setWordWrap(False)
+        self.folder_label.setMaximumWidth(220)
+        self.library_guidance_label.setWordWrap(False)
+        self.library_guidance_label.setMaximumWidth(720)
+        self.scan_progress_label.setWordWrap(False)
+        self.scan_progress_label.setMaximumWidth(140)
+        self.recommendation_guidance_label.setWordWrap(True)
+        self.export_guidance_label.setWordWrap(True)
+        for label in (self.folder_label, self.library_guidance_label, self.scan_progress_label):
+            label.setMaximumHeight(24)
+
     def _connect_widget_signals(self) -> None:
         """Connect constructor-created widgets to their existing slots and sorting handlers."""
         self.folder_button.clicked.connect(self.choose_folder)
@@ -639,6 +642,7 @@ class MainWindow(QMainWindow):
         self.prep_copilot_button.clicked.connect(self.generate_prep_copilot)
         self.prep_copilot_apply_button.clicked.connect(self.apply_selected_prep_copilot_variant)
         self.prep_copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
+        self.tracks_table.itemSelectionChanged.connect(self._refresh_idle_action_state)
         self.safe_export_folder_button.clicked.connect(self.choose_safe_export_folder)
         self.serato_preview_button.clicked.connect(lambda: self.preview_serato_export())
         self.serato_export_button.clicked.connect(lambda: self.export_recommendation_to_serato())
