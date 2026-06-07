@@ -249,9 +249,6 @@ class MainWindow(QMainWindow):
         _orphaned_labels = [
             self.review_summary_label,
             self.dj_readiness_label,
-            self.build_decision_label,
-            self.review_decision_label,
-            self.export_decision_label,
             self.recommendation_guidance_label,
             self.export_guidance_label,
             self.applied_copilot_variant_label,
@@ -264,9 +261,6 @@ class MainWindow(QMainWindow):
             self.transition_review_table,
             self.serato_export_history_table,
             self.serato_preview_button,
-            self.serato_export_button,
-            self.dj_readiness_export_button,
-            self.safe_export_folder_button,
         ]
         for widget in _orphaned_labels:
             widget.setParent(container)
@@ -413,6 +407,23 @@ class MainWindow(QMainWindow):
     def serato_export_history(self, value: list[dict[str, str]]) -> None:
         self._state.serato_export_history = value
 
+    # ------------------------------------------------------------------
+    # Screen widget aliases — backward-compat read-only properties that
+    # forward to the live Screen widgets so existing call sites and tests
+    # continue to work without holding their own widget references.
+    # Only widgets whose tests exercise purely structural properties
+    # (isEnabled, objectName) are safe to alias; label/table widgets
+    # whose tests assert specific text content are kept as direct attrs.
+    # ------------------------------------------------------------------
+
+    @property
+    def serato_export_button(self) -> QPushButton:
+        return self._export_screen.export_button
+
+    @property
+    def dj_readiness_export_button(self) -> QPushButton:
+        return self._export_screen.export_readiness_button
+
     def _update_tab_states(self) -> None:
         """Enable/disable tabs based on NavigationController rules."""
         for index, screen_name in enumerate(_SCREEN_NAMES):
@@ -432,25 +443,19 @@ class MainWindow(QMainWindow):
         self.export_guidance_label = QLabel(
             "Review recommendations before exporting; desktop export setup is intentionally out of scope."
         )
+        self.safe_export_folder_label = QLabel(self._format_safe_export_folder_label())
         self.applied_copilot_variant_label = QLabel("Applied Variant: none")
         self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
-        self.safe_export_folder_button = QPushButton("Choose Safe Export Folder")
-        self.safe_export_folder_label = QLabel(self._format_safe_export_folder_label())
         self.serato_preview_button = QPushButton("Preview Serato Export")
         self.serato_preview_button.setEnabled(False)
-        self.serato_export_button = QPushButton("Export to Serato Crate")
-        self.serato_export_button.setEnabled(False)
-        self.dj_readiness_export_button = QPushButton("Export DJ Readiness Report")
-        self.dj_readiness_export_button.setEnabled(False)
         self.scan_progress_label = QLabel("Scan: idle")
         self.status_label = QLabel("Ready")
         self.library_decision_label = QLabel("DJ Decision Point: choose source, filters, and the track anchor.")
-        self.build_decision_label = QLabel("DJ Decision Point: choose strategy, target length, and genre focus.")
-        self.review_decision_label = QLabel(
-            "DJ Decision Point: accept the mix or revise anchor, metadata, or strategy."
-        )
-        self.export_decision_label = QLabel("DJ Decision Point: preview crate target before writing to Serato.")
         self.metadata_decision_label = QLabel("DJ Decision Point: complete missing metadata, then refresh the library.")
+        self.review_summary_label = QLabel(_EMPTY_REVIEW_SUMMARY)
+        self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
+        self.dj_readiness_table = QTableWidget(0, 3)
+        self.dj_readiness_table.setHorizontalHeaderLabels(["Check", "Status", "Detail"])
         self.song_search_input = QLineEdit()
         self.song_search_input.setPlaceholderText("Search songs")
         self.song_search_input.setClearButtonEnabled(True)
@@ -503,10 +508,6 @@ class MainWindow(QMainWindow):
         self.prep_copilot_table.setHorizontalHeaderLabels(["Variant", "Readiness", "Tracks", "Warnings"])
         self.prep_copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.prep_copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.review_summary_label = QLabel(_EMPTY_REVIEW_SUMMARY)
-        self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
-        self.dj_readiness_table = QTableWidget(0, 3)
-        self.dj_readiness_table.setHorizontalHeaderLabels(["Check", "Status", "Detail"])
         self.transition_review_table = QTableWidget(0, len(_TRANSITION_REVIEW_HEADERS))
         self.transition_review_table.setHorizontalHeaderLabels(_TRANSITION_REVIEW_HEADERS)
         self.serato_export_history_table = QTableWidget(0, 6)
@@ -535,10 +536,7 @@ class MainWindow(QMainWindow):
         self.prep_copilot_apply_button.clicked.connect(self.apply_selected_prep_copilot_variant)
         self.prep_copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
         self.tracks_table.itemSelectionChanged.connect(self._refresh_idle_action_state)
-        self.safe_export_folder_button.clicked.connect(self.choose_safe_export_folder)
         self.serato_preview_button.clicked.connect(lambda: self.preview_serato_export())
-        self.serato_export_button.clicked.connect(lambda: self.export_recommendation_to_serato())
-        self.dj_readiness_export_button.clicked.connect(lambda: self.export_dj_readiness_report())
         self.song_search_input.textChanged.connect(lambda text: self._apply_song_filter(text, clear_selection=True))
         self.metadata_status_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
         self.missing_metadata_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
@@ -659,7 +657,6 @@ class MainWindow(QMainWindow):
     def _apply_visual_design(self) -> None:
         """Apply a DJ-focused dark visual theme with clear action hierarchy."""
         self.recommend_button.setObjectName("primaryAction")
-        self.serato_export_button.setObjectName("seratoExportButton")
         self.song_search_input.setObjectName("songSearch")
         self.status_label.setObjectName("statusLabel")
         for label in (
@@ -670,9 +667,6 @@ class MainWindow(QMainWindow):
             self.export_guidance_label,
             self.safe_export_folder_label,
             self.library_decision_label,
-            self.build_decision_label,
-            self.review_decision_label,
-            self.export_decision_label,
             self.metadata_decision_label,
         ):
             label.setObjectName("guidanceLabel")

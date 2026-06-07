@@ -1718,12 +1718,6 @@ def test_main_window_exposes_dj_workflow_modules_with_decision_points() -> None:
     ]
     assert window.workflow_tabs.tabPosition() == main_window.QTabWidget.TabPosition.West
     assert window.library_decision_label.text() == "DJ Decision Point: choose source, filters, and the track anchor."
-    assert window.build_decision_label.text() == "DJ Decision Point: choose strategy, target length, and genre focus."
-    assert (
-        window.review_decision_label.text()
-        == "DJ Decision Point: accept the mix or revise anchor, metadata, or strategy."
-    )
-    assert window.export_decision_label.text() == "DJ Decision Point: preview crate target before writing to Serato."
     assert (
         window.metadata_decision_label.text()
         == "DJ Decision Point: complete missing metadata, then refresh the library."
