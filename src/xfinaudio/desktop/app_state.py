@@ -1,0 +1,78 @@
+"""Central mutable state container for the XfinAudio desktop application."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Literal
+
+from xfinaudio.config.settings import AppSettings
+from xfinaudio.exporting.explainability import PlaylistExplanation
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.quality.dj_readiness import DjReadinessReport
+from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
+from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
+
+ScreenName = Literal["library", "build", "review", "export", "metadata"]
+
+VALID_SCREENS: frozenset[str] = frozenset(
+    {"library", "build", "review", "export", "metadata"}
+)
+
+
+@dataclass
+class AppState:
+    # Library / Scan
+    selected_folder: Path | None = None
+    scanned_records: list[TrackRecord] = field(default_factory=list)
+    records_by_path: dict[str, TrackRecord] = field(default_factory=dict)
+
+    # Recommendation
+    last_recommendation: PlaylistRecommendation | None = None
+    last_playlist_explanation: PlaylistExplanation | None = None
+    last_quality_report: RecommendationQualityReport | None = None
+    last_dj_readiness_report: DjReadinessReport | None = None
+
+    # Prep Copilot
+    last_prep_copilot_plan: PrepCopilotPlan | None = None
+    applied_variant_name: str | None = None  # "safe" | "balanced" | "adventurous" | None
+
+    # Export
+    serato_export_history: list[dict] = field(default_factory=list)
+
+    # Settings
+    settings: AppSettings = field(default_factory=AppSettings)
+
+    # Navigation
+    current_screen: ScreenName = "library"
+
+    # Transient scan state (not persisted)
+    is_scanning: bool = False
+    is_recommending: bool = False
+
+    def with_screen(self, screen: ScreenName) -> AppState:
+        from copy import copy
+
+        s = copy(self)
+        s.current_screen = screen
+        return s
+
+    def with_scanned_records(self, records: list[TrackRecord]) -> AppState:
+        from copy import copy
+
+        s = copy(self)
+        s.scanned_records = list(records)
+        s.records_by_path = {r.path: r for r in records}
+        return s
+
+    def debug_summary(self) -> dict:
+        return {
+            "screen": self.current_screen,
+            "folder": str(self.selected_folder),
+            "tracks": len(self.scanned_records),
+            "has_recommendation": self.last_recommendation is not None,
+            "has_readiness": self.last_dj_readiness_report is not None,
+            "applied_variant": self.applied_variant_name,
+            "export_history": len(self.serato_export_history),
+        }
