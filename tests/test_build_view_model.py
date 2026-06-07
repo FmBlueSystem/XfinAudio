@@ -251,3 +251,78 @@ def test_can_proceed_false_without_recommendation(vm: BuildViewModel) -> None:
 
 def test_can_proceed_true_with_recommendation(vm: BuildViewModel, state_with_recommendation: AppState) -> None:
     assert vm.can_proceed(state_with_recommendation) is True
+
+
+# ---------------------------------------------------------------------------
+# Anchor summary
+# ---------------------------------------------------------------------------
+
+
+def test_anchor_summary_empty_without_selection(vm: BuildViewModel) -> None:
+    assert vm.anchor_summary(AppState()) is None
+
+
+def test_anchor_summary_shows_track_details(vm: BuildViewModel, tracks: list[TrackRecord]) -> None:
+    state = AppState(
+        scanned_records=tracks,
+        records_by_path={t.path: t for t in tracks},
+        selected_library_paths=[tracks[0].path],
+    )
+    result = vm.anchor_summary(state)
+    assert result is not None
+    assert str(int(tracks[0].bpm)) in result
+    assert tracks[0].camelot_key in result
+    assert str(tracks[0].energy_level) in result
+
+
+# ---------------------------------------------------------------------------
+# Strategy explanation
+# ---------------------------------------------------------------------------
+
+
+def test_strategy_explanation_returns_text_for_known_strategy(vm: BuildViewModel) -> None:
+    assert "Camelot" in vm.strategy_explanation("harmonic_journey")
+
+
+def test_strategy_explanation_fallback_for_unknown(vm: BuildViewModel) -> None:
+    assert vm.strategy_explanation("unknown") == ""
+
+
+# ---------------------------------------------------------------------------
+# Recommendation vs Prep Copilot
+# ---------------------------------------------------------------------------
+
+
+def test_recommendation_vs_copilot_text_is_nonempty(vm: BuildViewModel) -> None:
+    text = vm.recommendation_vs_copilot_text()
+    assert "Recommend Playlist" in text
+    assert "Prep Copilot" in text
+
+
+# ---------------------------------------------------------------------------
+# Constraint explanation
+# ---------------------------------------------------------------------------
+
+
+def test_constraint_explanation_is_nonempty(vm: BuildViewModel) -> None:
+    text = vm.constraint_explanation()
+    assert "Exclude" in text
+    assert "Lock" in text
+
+
+# ---------------------------------------------------------------------------
+# Recommendation summary
+# ---------------------------------------------------------------------------
+
+
+def test_recommendation_summary_empty_without_recommendation(vm: BuildViewModel) -> None:
+    assert vm.recommendation_summary(AppState()) is None
+
+
+def test_recommendation_summary_includes_track_count_and_cta(
+    vm: BuildViewModel, state_with_recommendation: AppState
+) -> None:
+    result = vm.recommendation_summary(state_with_recommendation)
+    assert result is not None
+    assert "2 tracks" in result
+    assert "Review" in result

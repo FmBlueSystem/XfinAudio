@@ -251,6 +251,7 @@ class MainWindow(QMainWindow):
         self._state.is_scanning = self.current_scan_cancellation_token is not None
         self._state.is_recommending = self._is_recommending
         self._state.current_screen = _SCREEN_NAMES[_tab_index] if 0 <= _tab_index < len(_SCREEN_NAMES) else "library"
+        self._state.selected_library_paths = list(self._library_selected_paths)
         self._render_screens()
 
     def _render_screens(self) -> None:
