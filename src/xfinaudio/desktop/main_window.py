@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
+from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.export_coordinator import (
     build_serato_export_entry,
     plan_serato_export,
@@ -300,6 +301,13 @@ class MainWindow(QMainWindow):
         self._active_song_search_query = ""
         self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
         self.selected_folder = self.settings.library.last_scan_folder
+        self._state = AppState(
+            selected_folder=self.selected_folder,
+            scanned_records=self.scanned_records,
+            records_by_path=self._records_by_path,
+            serato_export_history=self.serato_export_history,
+            settings=self.settings,
+        )
 
     def _build_widgets(self) -> None:
         """Build constructor widgets and intrinsic widget configuration."""
