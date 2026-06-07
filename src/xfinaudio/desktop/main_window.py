@@ -453,6 +453,9 @@ class MainWindow(QMainWindow):
         self._library_screen.metadata_screen_requested.connect(
             lambda: self.workflow_tabs.setCurrentIndex(4)
         )
+        self._library_screen.proceed_button.clicked.connect(
+            lambda: self.workflow_tabs.setCurrentIndex(1)
+        )
         # BuildScreen signals
         self._build_screen.recommend_requested.connect(self._on_recommend_requested)
         self._build_screen.copilot_generate_requested.connect(self.generate_prep_copilot)

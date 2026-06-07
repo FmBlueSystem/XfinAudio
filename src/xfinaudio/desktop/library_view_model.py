@@ -137,20 +137,20 @@ class LibraryViewModel:
 
     def status_text(self, state: AppState) -> str:
         """Human-readable library status line."""
-        if state.selected_folder is None:
-            return "Choose a folder to begin"
-
         if state.is_scanning:
             return "Scanning…"
 
         tracks = state.scanned_records
-        if not tracks:
-            folder_name = state.selected_folder.name
-            return f"Ready to scan · {folder_name}"
+        if tracks:
+            total = len(tracks)
+            complete = sum(1 for t in tracks if t.metadata_status == "complete")
+            folder_name = state.selected_folder.name if state.selected_folder else "saved library"
+            return f"{total} tracks · {complete}/{total} complete · {folder_name}"
 
-        total = len(tracks)
-        complete = sum(1 for t in tracks if t.metadata_status == "complete")
-        return f"{total} tracks · {complete}/{total} complete"
+        if state.selected_folder is None:
+            return "Choose a folder to begin"
+
+        return f"Ready to scan · {state.selected_folder.name}"
 
     def can_proceed(self, state: AppState) -> bool:
         """True when at least one track has been scanned."""
