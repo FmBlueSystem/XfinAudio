@@ -105,6 +105,14 @@ QTableWidget {
     selection-background-color: #005b86;
     selection-color: #ffffff;
 }
+QTableWidget::item:selected {
+    background-color: #005b86;
+    color: #ffffff;
+}
+QTableWidget::item:selected:active {
+    background-color: #0078b4;
+    color: #ffffff;
+}
 QHeaderView::section {
     background: #182635;
     color: #00d4ff;
