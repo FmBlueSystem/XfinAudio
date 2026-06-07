@@ -177,6 +177,16 @@ class MainWindow(QMainWindow):
         self._build_layout()
         self._sync_state()
 
+    def closeEvent(self, event: object) -> None:
+        """Stop all background threads before the window is destroyed."""
+        if self._scan_controller._scan_thread is not None:
+            self._scan_controller._scan_thread.quit()
+            self._scan_controller._scan_thread.wait(2000)
+        if self._recommendation_controller._recommendation_thread is not None:
+            self._recommendation_controller._recommendation_thread.quit()
+            self._recommendation_controller._recommendation_thread.wait(2000)
+        super().closeEvent(event)  # type: ignore[arg-type]
+
     def _build_layout(self) -> None:
         """Assemble widget layout hierarchy, tab pages, and central window container."""
         controls = QHBoxLayout()
