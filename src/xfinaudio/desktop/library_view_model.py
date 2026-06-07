@@ -138,6 +138,9 @@ class LibraryViewModel:
     def status_text(self, state: AppState) -> str:
         """Human-readable library status line."""
         if state.is_scanning:
+            count = state.scan_progress_count
+            if count > 0:
+                return f"Scanning… {count:,} tracks"
             return "Scanning…"
 
         tracks = state.scanned_records

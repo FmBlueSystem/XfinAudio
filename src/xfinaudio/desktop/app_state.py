@@ -49,6 +49,7 @@ class AppState:
     # Transient scan state (not persisted)
     is_scanning: bool = False
     is_recommending: bool = False
+    scan_progress_count: int = 0
 
     def with_screen(self, screen: ScreenName) -> AppState:
         s = copy.copy(self)

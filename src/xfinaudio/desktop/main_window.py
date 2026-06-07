@@ -1119,6 +1119,7 @@ class MainWindow(QMainWindow):
     def _end_scan_state(self) -> None:
         """Clear scan state after scan completion or cancellation."""
         self.current_scan_cancellation_token = None
+        self._state.scan_progress_count = 0
         self._refresh_idle_action_state()
         self._sync_state()
 
@@ -1185,6 +1186,8 @@ class MainWindow(QMainWindow):
         self.scan_progress_label.setText(
             f"Scan progress: {progress.processed_count}/{progress.total_count} - {progress.current_path}"
         )
+        self._state.scan_progress_count = progress.processed_count
+        self._sync_state()
 
     def cancel_scan(self) -> None:
         """Request cooperative cancellation for the current synchronous scan."""
