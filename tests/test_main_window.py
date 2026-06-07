@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelectionModel
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
 
 from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings
 from xfinaudio.desktop import main_window
@@ -88,16 +88,34 @@ def make_recommendation(records: list[TrackRecord]):
 
 def _visible_track_titles(window: MainWindow) -> list[str]:
     return [
-        window.tracks_table.item(row, 0).text()
+        _table_item_text(window.tracks_table, row, 0)
         for row in range(window.tracks_table.rowCount())
         if not window.tracks_table.isRowHidden(row)
     ]
 
 
+def _table_item(table: QTableWidget, row: int, column: int) -> QTableWidgetItem:
+    item = table.item(row, column)
+    assert item is not None
+    return item
+
+
+def _table_item_text(table: QTableWidget, row: int, column: int) -> str:
+    return _table_item(table, row, column).text()
+
+
+def _header_text(table: QTableWidget, column: int) -> str:
+    item = table.horizontalHeaderItem(column)
+    assert item is not None
+    return item.text()
+
+
+def _table_headers(table: QTableWidget) -> list[str]:
+    return [_header_text(table, column) for column in range(table.columnCount())]
+
+
 def _track_table_headers(window: MainWindow) -> list[str]:
-    return [
-        window.tracks_table.horizontalHeaderItem(column).text() for column in range(window.tracks_table.columnCount())
-    ]
+    return _table_headers(window.tracks_table)
 
 
 def test_main_window_constructs_desktop_scanning_skeleton() -> None:
@@ -112,6 +130,99 @@ def test_main_window_constructs_desktop_scanning_skeleton() -> None:
     assert window.tracks_table.columnCount() >= 7
     assert window.recommendation_table.columnCount() >= 7
     assert app is not None
+
+
+def test_main_window_constructor_exposes_initial_panel_contract() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.windowTitle() == "XfinAudio"
+    assert window.folder_button.text() == "Choose Folder"
+    assert window.scan_button.text() == "Scan Metadata"
+    assert window.cancel_scan_button.text() == "Cancel Scan"
+    assert window.folder_label.text() == "Library: none"
+    assert window.library_guidance_label.text() == "Choose a folder to scan metadata."
+    assert window.recommendation_guidance_label.text() == "Scan metadata before recommending a playlist."
+    assert window.export_guidance_label.text() == (
+        "Review recommendations before exporting; desktop export setup is intentionally out of scope."
+    )
+    assert window.status_label.text() == "Ready"
+    assert window.safe_export_folder_label.text() == "No safe export folder selected"
+    assert window.applied_copilot_variant_label.text() == "Applied Variant: none"
+    assert window.song_search_input.placeholderText() == "Search songs"
+    assert window.prep_copilot_genre_focus_input.placeholderText() == "Genre focus"
+    assert window.prep_copilot_target_count_input.value() == 25
+
+    assert _table_headers(window.tracks_table) == [
+        "Title",
+        "Artist",
+        "BPM",
+        "Key",
+        "Energy",
+        "Missing",
+        "Genre",
+        "Tags/Subgenre",
+        "Status",
+        "Path",
+    ]
+    assert _table_headers(window.recommendation_table) == [
+        "Title",
+        "Artist",
+        "BPM",
+        "Key",
+        "Energy",
+        "Genre",
+        "Tags/Subgenre",
+        "Strategy",
+        "Path",
+        "Transition Score",
+        "Warnings",
+    ]
+    assert _table_headers(window.prep_copilot_table) == ["Variant", "Readiness", "Tracks", "Warnings"]
+    assert _table_headers(window.transition_review_table) == [
+        "Order",
+        "From",
+        "To",
+        "Key Score",
+        "BPM Score",
+        "Energy Score",
+        "Tag Score",
+        "Final Score",
+        "Warnings",
+    ]
+    assert _table_headers(window.serato_export_history_table) == [
+        "Time",
+        "Strategy",
+        "Tracks",
+        "Serato Crate",
+        "Readiness JSON",
+        "Readiness CSV",
+    ]
+    assert _table_headers(window.dj_readiness_table) == ["Check", "Status", "Detail"]
+
+    assert [window.workflow_tabs.tabText(index) for index in range(window.workflow_tabs.count())] == [
+        "Library",
+        "Build Playlist",
+        "Review Mix",
+        "Export to Serato",
+        "Metadata Worklist",
+    ]
+    assert window.workflow_tabs.tabPosition() == main_window.QTabWidget.TabPosition.West
+
+    assert window.scan_button.isEnabled() is False
+    assert window.cancel_scan_button.isEnabled() is False
+    assert window.recommend_button.isEnabled() is False
+    assert window.serato_preview_button.isEnabled() is False
+    assert window.serato_export_button.isEnabled() is False
+    assert window.dj_readiness_export_button.isEnabled() is False
+    assert window.metadata_status_export_button.isEnabled() is False
+    assert window.prep_copilot_button.isEnabled() is False
+    assert window.prep_copilot_apply_button.isEnabled() is False
+    assert window.serato_export_history_table.isHidden() is True
+    assert window.prep_copilot_table.isHidden() is True
+    assert window.recommendation_table.isHidden() is True
+    assert window.transition_review_table.isHidden() is True
+    assert window.dj_readiness_table.isHidden() is True
 
 
 def test_main_window_displays_initial_empty_state_guidance() -> None:
@@ -397,7 +508,7 @@ def test_main_window_filters_library_by_metadata_status_and_shows_missing_fields
     window.metadata_status_filter_combo.setCurrentText("Incomplete")
 
     assert _visible_track_titles(window) == ["Needs Tags"]
-    assert window.tracks_table.item(1, missing_column).text() == "Camelot key, energy level"
+    assert _table_item_text(window.tracks_table, 1, missing_column) == "Camelot key, energy level"
 
     window.metadata_status_filter_combo.setCurrentText("Complete")
 
@@ -617,10 +728,7 @@ def test_main_window_recommend_action_populates_playlist_table_and_status(tmp_pa
     _process_events_until(lambda: window.recommend_button.isEnabled())
 
     assert window.recommendation_table.rowCount() == 1
-    headers = [
-        window.recommendation_table.horizontalHeaderItem(column).text()
-        for column in range(window.recommendation_table.columnCount())
-    ]
+    headers = _table_headers(window.recommendation_table)
     path_item = window.recommendation_table.item(0, headers.index("Path"))
     assert path_item is not None
     assert path_item.text() == str(tmp_path / "track.flac")
@@ -734,21 +842,18 @@ def test_main_window_shows_genre_and_tags_subgenre_columns(tmp_path) -> None:
     window.show_tracks([record])
     window.show_recommendation([record], "build")
 
-    track_headers = [
-        window.tracks_table.horizontalHeaderItem(column).text() for column in range(window.tracks_table.columnCount())
-    ]
-    recommendation_headers = [
-        window.recommendation_table.horizontalHeaderItem(column).text()
-        for column in range(window.recommendation_table.columnCount())
-    ]
+    track_headers = _table_headers(window.tracks_table)
+    recommendation_headers = _table_headers(window.recommendation_table)
 
     assert "Genre" in track_headers
     assert "Tags/Subgenre" in track_headers
     assert "Genre" in recommendation_headers
     assert "Tags/Subgenre" in recommendation_headers
-    assert window.tracks_table.item(0, track_headers.index("Genre")).text() == "Disco, Funk & Soul"
-    assert window.tracks_table.item(0, track_headers.index("Tags/Subgenre")).text() == "Boogie, Peak Mid"
-    assert window.recommendation_table.item(0, recommendation_headers.index("Genre")).text() == "Disco, Funk & Soul"
+    assert _table_item_text(window.tracks_table, 0, track_headers.index("Genre")) == "Disco, Funk & Soul"
+    assert _table_item_text(window.tracks_table, 0, track_headers.index("Tags/Subgenre")) == "Boogie, Peak Mid"
+    assert (
+        _table_item_text(window.recommendation_table, 0, recommendation_headers.index("Genre")) == "Disco, Funk & Soul"
+    )
     recommendation_tags_item = window.recommendation_table.item(0, recommendation_headers.index("Tags/Subgenre"))
     assert recommendation_tags_item is not None
     assert recommendation_tags_item.text() == "Boogie, Peak Mid"
@@ -855,10 +960,7 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
     window.recommend_playlist()
     _process_events_until(lambda: window.recommend_button.isEnabled())
 
-    headers = [
-        window.transition_review_table.horizontalHeaderItem(column).text()
-        for column in range(window.transition_review_table.columnCount())
-    ]
+    headers = _table_headers(window.transition_review_table)
     assert headers == [
         "Order",
         "From",
@@ -871,7 +973,7 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
         "Warnings",
     ]
     assert window.transition_review_table.rowCount() == 1
-    row_values = [window.transition_review_table.item(0, column).text() for column in range(9)]
+    row_values = [_table_item_text(window.transition_review_table, 0, column) for column in range(9)]
     assert row_values[0] == "1"
     assert row_values[1] == "A"
     assert row_values[2] == "B"
@@ -977,10 +1079,7 @@ def test_recommendation_table_formats_warning_cells_without_mutating_raw_explana
 
     window.show_recommendation([left, right], "harmonic_journey", explanation)
 
-    headers = [
-        window.recommendation_table.horizontalHeaderItem(column).text()
-        for column in range(window.recommendation_table.columnCount())
-    ]
+    headers = _table_headers(window.recommendation_table)
     score_item = window.recommendation_table.item(1, headers.index("Transition Score"))
     warnings_item = window.recommendation_table.item(1, headers.index("Warnings"))
     assert score_item is not None
@@ -1104,7 +1203,7 @@ def test_main_window_with_defaults_restores_persisted_tracks_on_startup(tmp_path
 
     assert len(window.scanned_records) == 1
     assert window.tracks_table.rowCount() == 1
-    assert window.tracks_table.item(0, 0).text() == "Persisted"
+    assert _table_item_text(window.tracks_table, 0, 0) == "Persisted"
     assert window.folder_label.text() == "Library: saved"
     assert window.library_guidance_label.text() == "Use filters/search, select a complete track, then recommend."
     assert window.library_guidance_label.toolTip() == (
@@ -1369,9 +1468,9 @@ def test_main_window_serato_export_records_receipt_and_history(tmp_path) -> None
     target = serato_folder / "Subcrates" / "XfinAudio Receipt.crate"
     assert str(target) in window.export_guidance_label.text()
     assert window.serato_export_history_table.rowCount() == 1
-    assert window.serato_export_history_table.item(0, 1).text() == "build"
-    assert window.serato_export_history_table.item(0, 2).text() == "2"
-    assert window.serato_export_history_table.item(0, 3).text() == str(target)
+    assert _table_item_text(window.serato_export_history_table, 0, 1) == "build"
+    assert _table_item_text(window.serato_export_history_table, 0, 2) == "2"
+    assert _table_item_text(window.serato_export_history_table, 0, 3) == str(target)
 
 
 def test_main_window_serato_export_history_keeps_five_recent_rows(tmp_path) -> None:
@@ -1396,7 +1495,7 @@ def test_main_window_serato_export_history_keeps_five_recent_rows(tmp_path) -> N
         window.export_recommendation_to_serato(serato_folder=serato_folder, crate_name=f"Receipt {index}")
 
     assert window.serato_export_history_table.rowCount() == 5
-    rendered_paths = [window.serato_export_history_table.item(row, 3).text() for row in range(5)]
+    rendered_paths = [_table_item_text(window.serato_export_history_table, row, 3) for row in range(5)]
     assert rendered_paths[0].endswith("Receipt 5.crate")
     assert rendered_paths[-1].endswith("Receipt 1.crate")
     assert all(not path.endswith("Receipt 0.crate") for path in rendered_paths)
@@ -1686,9 +1785,10 @@ def test_main_window_resets_dj_readiness_when_recommendation_is_cleared() -> Non
     assert window.dj_readiness_label.text() == "DJ Readiness: No recommendation ready."
 
 
-def _table_texts(table) -> list[list[str]]:
+def _table_texts(table: QTableWidget) -> list[list[str]]:
     return [
-        [table.item(row, column).text() for column in range(table.columnCount())] for row in range(table.rowCount())
+        [_table_item_text(table, row, column) for column in range(table.columnCount())]
+        for row in range(table.rowCount())
     ]
 
 
@@ -1724,10 +1824,7 @@ def test_main_window_renders_dj_readiness_check_table_after_recommendation(tmp_p
     window.recommend_playlist()
     _process_events_until(lambda: window.recommend_button.isEnabled())
 
-    headers = [
-        window.dj_readiness_table.horizontalHeaderItem(column).text()
-        for column in range(window.dj_readiness_table.columnCount())
-    ]
+    headers = _table_headers(window.dj_readiness_table)
     rows = _table_texts(window.dj_readiness_table)
 
     assert headers == ["Check", "Status", "Detail"]
@@ -1800,7 +1897,7 @@ def test_main_window_colors_dj_readiness_status_cells() -> None:
     window._populate_dj_readiness_table(report)
 
     status_by_check = {
-        window.dj_readiness_table.item(row, 0).text(): window.dj_readiness_table.item(row, 1)
+        _table_item_text(window.dj_readiness_table, row, 0): _table_item(window.dj_readiness_table, row, 1)
         for row in range(window.dj_readiness_table.rowCount())
     }
 
@@ -1886,10 +1983,10 @@ def test_main_window_constructs_prep_copilot_controls() -> None:
     assert window.prep_copilot_button.text() == "Generate Prep Copilot"
     assert window.prep_copilot_target_count_input.value() == 25
     assert window.prep_copilot_genre_focus_input.placeholderText() == "Genre focus"
-    assert window.prep_copilot_table.horizontalHeaderItem(0).text() == "Variant"
-    assert window.prep_copilot_table.horizontalHeaderItem(1).text() == "Readiness"
-    assert window.prep_copilot_table.horizontalHeaderItem(2).text() == "Tracks"
-    assert window.prep_copilot_table.horizontalHeaderItem(3).text() == "Warnings"
+    assert _header_text(window.prep_copilot_table, 0) == "Variant"
+    assert _header_text(window.prep_copilot_table, 1) == "Readiness"
+    assert _header_text(window.prep_copilot_table, 2) == "Tracks"
+    assert _header_text(window.prep_copilot_table, 3) == "Warnings"
 
 
 def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_path) -> None:
@@ -1936,8 +2033,12 @@ def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_pat
     window.generate_prep_copilot()
 
     assert window.prep_copilot_table.rowCount() == 3
-    assert [window.prep_copilot_table.item(row, 0).text() for row in range(3)] == ["safe", "balanced", "adventurous"]
-    assert {window.prep_copilot_table.item(row, 1).text() for row in range(3)} == {"Ready"}
+    assert [_table_item_text(window.prep_copilot_table, row, 0) for row in range(3)] == [
+        "safe",
+        "balanced",
+        "adventurous",
+    ]
+    assert {_table_item_text(window.prep_copilot_table, row, 1) for row in range(3)} == {"Ready"}
     assert window.last_prep_copilot_plan is not None
     assert all(
         variant.recommendation.ordered_tracks[0].path == str(tmp_path / "start.flac")
@@ -2002,6 +2103,7 @@ def test_main_window_applies_selected_prep_copilot_variant_to_review_flow(tmp_pa
     window.apply_selected_prep_copilot_variant()
 
     assert window.last_recommendation is not None
+    assert window.last_prep_copilot_plan is not None
     assert window.last_recommendation == window.last_prep_copilot_plan.variants[1].recommendation
     assert window.recommendation_table.rowCount() == 3
     assert window.transition_review_table.rowCount() == 2
@@ -2264,7 +2366,7 @@ def test_main_window_colors_prep_copilot_readiness_cells(tmp_path) -> None:
     window.prep_copilot_target_count_input.setValue(2)
     window.generate_prep_copilot()
 
-    readiness_item = window.prep_copilot_table.item(0, 1)
+    readiness_item = _table_item(window.prep_copilot_table, 0, 1)
 
     assert readiness_item.text() == "Ready"
     assert readiness_item.background().color().name() == "#1fd16a"
@@ -2302,9 +2404,10 @@ def test_main_window_double_click_applies_prep_copilot_variant(tmp_path) -> None
     window.prep_copilot_target_count_input.setValue(2)
     window.generate_prep_copilot()
 
-    item = window.prep_copilot_table.item(2, 0)
+    item = _table_item(window.prep_copilot_table, 2, 0)
     window.prep_copilot_table.itemDoubleClicked.emit(item)
 
+    assert window.last_prep_copilot_plan is not None
     assert window.last_recommendation == window.last_prep_copilot_plan.variants[2].recommendation
     assert window.status_label.text() == "Applied Prep Copilot variant: adventurous"
 
@@ -2436,7 +2539,11 @@ def test_main_window_serato_export_history_includes_readiness_sidecar_paths(tmp_
 
     crate_path = Path(window.serato_export_history[0]["path"])
     assert window.serato_export_history_table.columnCount() == 6
-    assert window.serato_export_history_table.horizontalHeaderItem(4).text() == "Readiness JSON"
-    assert window.serato_export_history_table.horizontalHeaderItem(5).text() == "Readiness CSV"
-    assert window.serato_export_history_table.item(0, 4).text() == str(crate_path.with_suffix(".dj-readiness.json"))
-    assert window.serato_export_history_table.item(0, 5).text() == str(crate_path.with_suffix(".dj-readiness.csv"))
+    assert _header_text(window.serato_export_history_table, 4) == "Readiness JSON"
+    assert _header_text(window.serato_export_history_table, 5) == "Readiness CSV"
+    assert _table_item_text(window.serato_export_history_table, 0, 4) == str(
+        crate_path.with_suffix(".dj-readiness.json")
+    )
+    assert _table_item_text(window.serato_export_history_table, 0, 5) == str(
+        crate_path.with_suffix(".dj-readiness.csv")
+    )

@@ -1,55 +1,6 @@
-# Desktop Main Window Specification
+# Delta for Desktop Main Window
 
-## Purpose
-
-Define the required behavior-preserving refactor constraints for the desktop `MainWindow` Qt coordinator, the extracted table-population slice, and the constructor/page/panel builder extraction slice.
-
-## Requirements
-
-### Requirement: Public Desktop Entry Point Compatibility
-
-The system MUST preserve the public desktop application entry point and `MainWindow` compatibility contract while slimming internal rendering and construction responsibilities.
-
-#### Scenario: Application entry point remains unchanged
-
-- GIVEN the installed console entry point resolves to `xfinaudio.desktop.app:main`
-- WHEN the desktop application is launched through that entry point
-- THEN application startup MUST continue to construct and show the same public `MainWindow` coordinator as before the refactor.
-
-#### Scenario: Application module remains unchanged by constructor extraction
-
-- GIVEN the constructor/page/panel builder extraction is implemented
-- WHEN desktop application startup code is reviewed or exercised
-- THEN `xfinaudio.desktop.app:main` MUST remain the application entry point
-- AND startup MUST NOT require a new entrypoint, factory, or panel-builder import path.
-
-#### Scenario: MainWindow remains import-compatible
-
-- GIVEN existing code imports and constructs `MainWindow`
-- WHEN the refactored desktop UI is used
-- THEN `MainWindow` MUST remain publicly available from its existing module path and construction MUST preserve the existing external contract.
-
-### Requirement: Public Widget and Wrapper Method Compatibility
-
-The system MUST keep existing `MainWindow` widget attributes, Qt signal behavior, and wrapper methods available with their previous externally observable behavior.
-
-#### Scenario: Existing widget attributes remain available
-
-- GIVEN a `MainWindow` instance is constructed in an offscreen Qt test environment
-- WHEN callers access existing public widget attributes such as workflow tabs, table widgets, buttons, filters, and guidance labels
-- THEN those attributes MUST exist and refer to usable Qt widgets with unchanged labels, headers, visibility expectations, enabled states, and initial content.
-
-#### Scenario: Existing signal behavior remains available
-
-- GIVEN a `MainWindow` instance is constructed after constructor code is split into private builders
-- WHEN existing buttons, filters, table selections, header sorting, table double-clicks, and export controls are used
-- THEN their externally observable signal-driven behavior MUST match the behavior before the extraction.
-
-#### Scenario: Existing wrapper methods remain callable
-
-- GIVEN existing callers or tests invoke `MainWindow` methods that populate library tracks or show recommendations
-- WHEN those methods run after the refactor
-- THEN the methods MUST remain callable on `MainWindow` and MUST produce the same externally observable table and state outcomes as before.
+## ADDED Requirements
 
 ### Requirement: Constructor Builder Extraction Preservation
 
@@ -90,41 +41,59 @@ The system MUST preserve the initial labels, table headers, tab labels, visibili
 - WHEN buttons, action controls, review sections, export history, and recommendation/prep sections are inspected
 - THEN their visible, hidden, enabled, and disabled states MUST match the behavior before the constructor extraction.
 
-### Requirement: Library Table Population Behavior Preservation
+## MODIFIED Requirements
 
-The system MUST preserve visible and test-observable library table behavior while moving first-slice library row population responsibility out of `MainWindow` internals.
+### Requirement: Public Desktop Entry Point Compatibility
 
-#### Scenario: Library table rows match existing behavior
+The system MUST preserve the public desktop application entry point and `MainWindow` compatibility contract while slimming internal rendering and construction responsibilities.
+(Previously: The requirement covered entrypoint compatibility while slimming internal rendering responsibilities.)
 
-- GIVEN scanned or persisted library records that were previously displayable in the library table
-- WHEN the library table is populated after the refactor
-- THEN row count, column order, headers, hidden path/status behavior, cell text, item sort behavior, and record-to-row lookup side effects MUST match the pre-refactor behavior.
+#### Scenario: Application entry point remains unchanged
 
-#### Scenario: Library filtering and sorting remain stable
+- GIVEN the installed console entry point resolves to `xfinaudio.desktop.app:main`
+- WHEN the desktop application is launched through that entry point
+- THEN application startup MUST continue to construct and show the same public `MainWindow` coordinator as before the refactor.
 
-- GIVEN filters or table sorting are applied to the library table
-- WHEN library records are repopulated by the refactored first slice
-- THEN filtering results, sort order semantics, selected row behavior, and displayed cell values MUST remain unchanged.
+#### Scenario: Application module remains unchanged by constructor extraction
 
-### Requirement: Recommendation Table Population Behavior Preservation
+- GIVEN the constructor/page/panel builder extraction is implemented
+- WHEN desktop application startup code is reviewed or exercised
+- THEN `xfinaudio.desktop.app:main` MUST remain the application entry point
+- AND startup MUST NOT require a new entrypoint, factory, or panel-builder import path.
 
-The system MUST preserve visible and test-observable recommendation table behavior while moving first-slice recommendation row population responsibility out of `MainWindow` internals.
+#### Scenario: MainWindow remains import-compatible
 
-#### Scenario: Recommendation rows match existing behavior
+- GIVEN existing code imports and constructs `MainWindow`
+- WHEN the refactored desktop UI is used
+- THEN `MainWindow` MUST remain publicly available from its existing module path and construction MUST preserve the existing external contract.
 
-- GIVEN a recommendation result that was previously renderable by `MainWindow.show_recommendation`
-- WHEN the recommendation is displayed after the refactor
-- THEN recommendation table row count, column order, headers, cell text, explanations, row mappings, and selected/recommended state outcomes MUST match the pre-refactor behavior.
+### Requirement: Public Widget and Wrapper Method Compatibility
 
-#### Scenario: Recommendation controls remain stable
+The system MUST keep existing `MainWindow` widget attributes, Qt signal behavior, and wrapper methods available with their previous externally observable behavior.
+(Previously: The requirement covered existing widget attributes and wrapper methods, but did not explicitly call out constructor-extracted signal behavior.)
 
-- GIVEN recommendation display updates enable, disable, or update related controls
-- WHEN recommendation data is rendered after the refactor
-- THEN button states, guidance text, and follow-on workflow availability MUST remain unchanged.
+#### Scenario: Existing widget attributes remain available
+
+- GIVEN a `MainWindow` instance is constructed in an offscreen Qt test environment
+- WHEN callers access existing public widget attributes such as workflow tabs, table widgets, buttons, filters, and guidance labels
+- THEN those attributes MUST exist and refer to usable Qt widgets with unchanged labels, headers, visibility expectations, enabled states, and initial content.
+
+#### Scenario: Existing signal behavior remains available
+
+- GIVEN a `MainWindow` instance is constructed after constructor code is split into private builders
+- WHEN existing buttons, filters, table selections, header sorting, table double-clicks, and export controls are used
+- THEN their externally observable signal-driven behavior MUST match the behavior before the extraction.
+
+#### Scenario: Existing wrapper methods remain callable
+
+- GIVEN existing callers or tests invoke `MainWindow` methods that populate library tracks or show recommendations
+- WHEN those methods run after the refactor
+- THEN the methods MUST remain callable on `MainWindow` and MUST produce the same externally observable table and state outcomes as before.
 
 ### Requirement: No Product Feature or UX Change
 
 The system MUST treat this change as a behavior-preserving refactor only and MUST NOT introduce product feature, workflow, copy, layout, or visual behavior changes while extracting constructor/page/panel builders.
+(Previously: The requirement treated constructor/page builders as deferred outside the earlier table-populator slice.)
 
 #### Scenario: Existing desktop flows are unchanged
 
@@ -147,6 +116,7 @@ The system MUST treat this change as a behavior-preserving refactor only and MUS
 ### Requirement: Offscreen Qt Characterization Coverage
 
 The system MUST validate extracted table-population and constructor-builder behavior with automated Qt tests that run offscreen and do not depend on real display rendering.
+(Previously: The requirement covered extracted table-population behavior only.)
 
 #### Scenario: Library table behavior is covered offscreen
 

@@ -379,28 +379,7 @@ class MainWindow(QMainWindow):
         settings_repository: SettingsPersistence | None = None,
     ) -> None:
         super().__init__()
-        self.workflow_service = PlaylistWorkflowService(scan_service=scan_service, repository=repository)
-        self.settings = settings or AppSettings()
-        self.settings_repository = settings_repository
-        self.selected_folder: Path | None = None
-        self.scanned_records: list[TrackRecord] = []
-        self._records_by_path: dict[str, TrackRecord] = {}
-        self.last_recommendation: PlaylistRecommendation | None = None
-        self.last_playlist_explanation: PlaylistExplanation | None = None
-        self.last_quality_report: RecommendationQualityReport | None = None
-        self.last_dj_readiness_report: DjReadinessReport | None = None
-        self.last_prep_copilot_plan: PrepCopilotPlan | None = None
-        self.applied_prep_copilot_variant_name: str | None = None
-        self.current_scan_cancellation_token: ScanCancellationToken | None = None
-        self._scan_thread: QThread | None = None
-        self._scan_worker: ScanWorker | None = None
-        self._recommendation_thread: QThread | None = None
-        self._recommendation_worker: BackgroundWorker | None = None
-        self.serato_export_history: list[dict[str, str]] = []
-        self._table_sort_orders: dict[int, Qt.SortOrder] = {}
-        self._active_song_search_query = ""
-        self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
-        self.selected_folder = self.settings.library.last_scan_folder
+        self._initialize_window_state(scan_service, repository, settings, settings_repository)
 
         self.setWindowTitle("XfinAudio")
         self.folder_button = QPushButton("Choose Folder")
@@ -508,30 +487,7 @@ class MainWindow(QMainWindow):
         for label in (self.folder_label, self.library_guidance_label, self.scan_progress_label):
             label.setMaximumHeight(24)
 
-        self.folder_button.clicked.connect(self.choose_folder)
-        self.scan_button.clicked.connect(self.scan_selected_folder)
-        self.cancel_scan_button.clicked.connect(self.cancel_scan)
-        self.recommend_button.clicked.connect(self.recommend_playlist)
-        self.prep_copilot_button.clicked.connect(self.generate_prep_copilot)
-        self.prep_copilot_apply_button.clicked.connect(self.apply_selected_prep_copilot_variant)
-        self.prep_copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
-        self.safe_export_folder_button.clicked.connect(self.choose_safe_export_folder)
-        self.serato_preview_button.clicked.connect(lambda: self.preview_serato_export())
-        self.serato_export_button.clicked.connect(lambda: self.export_recommendation_to_serato())
-        self.dj_readiness_export_button.clicked.connect(lambda: self.export_dj_readiness_report())
-        self.song_search_input.textChanged.connect(lambda text: self._apply_song_filter(text, clear_selection=True))
-        self.metadata_status_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
-        self.missing_metadata_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
-        self.metadata_status_export_button.clicked.connect(lambda: self.export_metadata_status_to_serato())
-        for table in (
-            self.tracks_table,
-            self.recommendation_table,
-            self.prep_copilot_table,
-            self.transition_review_table,
-            self.dj_readiness_table,
-            self.serato_export_history_table,
-        ):
-            self._connect_table_sorting(table)
+        self._connect_widget_signals()
         self._apply_visual_design()
 
         controls = QHBoxLayout()
@@ -642,6 +598,64 @@ class MainWindow(QMainWindow):
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
+
+    def _initialize_window_state(
+        self,
+        scan_service: ScanService,
+        repository: TrackPersistence,
+        settings: AppSettings | None,
+        settings_repository: SettingsPersistence | None,
+    ) -> None:
+        """Initialize constructor dependencies and runtime state before widgets are created."""
+        self.workflow_service = PlaylistWorkflowService(scan_service=scan_service, repository=repository)
+        self.settings = settings or AppSettings()
+        self.settings_repository = settings_repository
+        self.selected_folder: Path | None = None
+        self.scanned_records: list[TrackRecord] = []
+        self._records_by_path: dict[str, TrackRecord] = {}
+        self.last_recommendation: PlaylistRecommendation | None = None
+        self.last_playlist_explanation: PlaylistExplanation | None = None
+        self.last_quality_report: RecommendationQualityReport | None = None
+        self.last_dj_readiness_report: DjReadinessReport | None = None
+        self.last_prep_copilot_plan: PrepCopilotPlan | None = None
+        self.applied_prep_copilot_variant_name: str | None = None
+        self.current_scan_cancellation_token: ScanCancellationToken | None = None
+        self._scan_thread: QThread | None = None
+        self._scan_worker: ScanWorker | None = None
+        self._recommendation_thread: QThread | None = None
+        self._recommendation_worker: BackgroundWorker | None = None
+        self.serato_export_history: list[dict[str, str]] = []
+        self._table_sort_orders: dict[int, Qt.SortOrder] = {}
+        self._active_song_search_query = ""
+        self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
+        self.selected_folder = self.settings.library.last_scan_folder
+
+    def _connect_widget_signals(self) -> None:
+        """Connect constructor-created widgets to their existing slots and sorting handlers."""
+        self.folder_button.clicked.connect(self.choose_folder)
+        self.scan_button.clicked.connect(self.scan_selected_folder)
+        self.cancel_scan_button.clicked.connect(self.cancel_scan)
+        self.recommend_button.clicked.connect(self.recommend_playlist)
+        self.prep_copilot_button.clicked.connect(self.generate_prep_copilot)
+        self.prep_copilot_apply_button.clicked.connect(self.apply_selected_prep_copilot_variant)
+        self.prep_copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
+        self.safe_export_folder_button.clicked.connect(self.choose_safe_export_folder)
+        self.serato_preview_button.clicked.connect(lambda: self.preview_serato_export())
+        self.serato_export_button.clicked.connect(lambda: self.export_recommendation_to_serato())
+        self.dj_readiness_export_button.clicked.connect(lambda: self.export_dj_readiness_report())
+        self.song_search_input.textChanged.connect(lambda text: self._apply_song_filter(text, clear_selection=True))
+        self.metadata_status_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
+        self.missing_metadata_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
+        self.metadata_status_export_button.clicked.connect(lambda: self.export_metadata_status_to_serato())
+        for table in (
+            self.tracks_table,
+            self.recommendation_table,
+            self.prep_copilot_table,
+            self.transition_review_table,
+            self.dj_readiness_table,
+            self.serato_export_history_table,
+        ):
+            self._connect_table_sorting(table)
 
     def _apply_compact_mac_layout(
         self,
