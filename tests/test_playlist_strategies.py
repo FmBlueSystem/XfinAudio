@@ -1,5 +1,8 @@
 import pytest
 
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.playlist_service import recommend_playlist
 from xfinaudio.recommendation.scoring import ScoringWeights
 from xfinaudio.recommendation.strategies import (
     PlaylistStrategy,
@@ -127,3 +130,34 @@ def test_strategy_registry_rejects_unknown_strategy() -> None:
 
     with pytest.raises(ValueError, match="Unknown playlist strategy"):
         registry.get("unknown")
+
+
+def _track(title: str, energy: int | None = None, path: str | None = None) -> TrackRecord:
+    return TrackRecord(
+        path=path or f"/{title}.flac",
+        title=title,
+        energy_level=energy,
+        metadata_status="complete",
+    )
+
+
+def test_same_energy_filters_candidates_outside_anchor_energy_tolerance() -> None:
+    tracks = [
+        _track("anchor", energy=5, path="/anchor.flac"),
+        _track("near_low", energy=4),
+        _track("near_same", energy=5),
+        _track("near_high", energy=6),
+        _track("too_low", energy=1),
+        _track("too_high", energy=9),
+    ]
+
+    result = recommend_playlist(
+        tracks,
+        "same_energy",
+        DJControls(start_path="/anchor.flac"),
+    )
+
+    titles = [track.title for track in result.ordered_tracks]
+    assert "too_low" not in titles
+    assert "too_high" not in titles
+    assert {"anchor", "near_low", "near_same", "near_high"}.issubset(set(titles))
