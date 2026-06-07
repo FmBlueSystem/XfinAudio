@@ -1,0 +1,157 @@
+"""Stateless presentation helpers for the XfinAudio desktop UI."""
+
+from __future__ import annotations
+
+from PySide6.QtWidgets import QTableWidgetItem
+
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
+
+_FIELD_LABELS = {
+    "bpm": "BPM",
+    "camelot_key": "Camelot key",
+    "energy_level": "energy level",
+}
+
+
+def format_quality_summary(report: RecommendationQualityReport) -> str:
+    """Return a desktop-friendly quality summary for a recommendation report."""
+    return (
+        "Review summary: "
+        f"Tracks: {report.track_count} | "
+        f"Transitions: {report.transition_count} | "
+        f"Average transition score: {report.average_transition_score:.3f} | "
+        f"Warnings: {report.warning_count}"
+    )
+
+
+def _format_review_score(score: float | None) -> str:
+    """Format a transition review score or return an empty cell for unavailable scores."""
+    if score is None:
+        return ""
+    return f"{score:.3f}"
+
+
+def _score_sort_value(score: float | None) -> float:
+    """Sort unavailable scores before explicit zero scores."""
+    return score if score is not None else -1.0
+
+
+def _format_track_tags(track: TrackRecord) -> str:
+    """Return display text for tags, including parsed subgenre-style metadata."""
+    return ", ".join(track.tags)
+
+
+def _format_missing_metadata(track: TrackRecord) -> str:
+    """Return readable missing metadata field names for incomplete-track worklists."""
+    return ", ".join(
+        _FIELD_LABELS.get(field_name, field_name.replace("_", " ")) for field_name in track.missing_required_fields
+    )
+
+
+def _missing_worklist_display_name(missing_field: str) -> str:
+    """Return compact DJ-facing field labels for missing-field worklists."""
+    labels = {
+        "bpm": "BPM",
+        "camelot_key": "Key",
+        "energy_level": "Energy",
+    }
+    return labels.get(missing_field, missing_field.replace("_", " ").title())
+
+
+def _track_vibe_terms(track: TrackRecord) -> set[str]:
+    """Return normalized genre/tag terms for desktop candidate compatibility."""
+    values = [*track.tags]
+    if track.genre:
+        values.extend(track.genre.split(","))
+        values.append(track.genre)
+    return {value.strip().casefold() for value in values if value.strip()}
+
+
+def _track_similarity_key(
+    anchor_terms: set[str],
+    anchor_tracks: list[TrackRecord],
+    track: TrackRecord,
+) -> tuple[int, float, float, str]:
+    """Sort compatible DJ candidates before unrelated fallback tracks."""
+    terms = _track_vibe_terms(track)
+    overlap_count = len(anchor_terms & terms)
+    bpm_distance = min(
+        (abs((track.bpm or 0.0) - (anchor.bpm or 0.0)) for anchor in anchor_tracks if anchor.bpm is not None),
+        default=9999.0,
+    )
+    energy_distance = min(
+        (
+            abs((track.energy_level or 0) - (anchor.energy_level or 0))
+            for anchor in anchor_tracks
+            if anchor.energy_level is not None
+        ),
+        default=9999,
+    )
+    return (-overlap_count, bpm_distance, float(energy_distance), track.path)
+
+
+def _track_review_name(track: object) -> str:
+    """Return a compact track label for transition review cells."""
+    title = getattr(track, "title", None)
+    if title:
+        return str(title)
+    return str(getattr(track, "path", ""))
+
+
+def _component_score(transition: object, field_name: str, component_name: str) -> float | None:
+    """Read preferred explanation score fields while preserving explicit zero scores."""
+    score = getattr(transition, field_name, None)
+    if score is not None:
+        return score
+    component_scores = getattr(transition, "component_scores", {})
+    return component_scores.get(component_name)
+
+
+def format_recommendation_warning(raw_warning: str) -> str:
+    """Return desktop-friendly text for a raw recommendation warning."""
+    warning = raw_warning.strip()
+    if not warning:
+        return ""
+
+    missing_marker = " missing required metadata: "
+    if missing_marker in warning:
+        side, _, fields_text = warning.partition(missing_marker)
+        fields = [_FIELD_LABELS.get(field.strip(), field.strip().replace("_", " ")) for field in fields_text.split(",")]
+        return (
+            f"Review metadata: {side} track is missing Mixed In Key {', '.join(fields)} metadata. "
+            "Re-scan or update tags before relying on this transition."
+        )
+
+    invalid_marker = " has invalid Camelot key: "
+    if invalid_marker in warning:
+        side, _, key = warning.partition(invalid_marker)
+        return (
+            f"Review Mixed In Key metadata: {side} track has invalid Camelot key {key!r}. "
+            "Expected values look like 8A or 11B."
+        )
+
+    if warning == "invalid Camelot key":
+        return "Review Mixed In Key metadata: at least one transition has an invalid Camelot key."
+
+    return f"Review note: {warning}"
+
+
+class _SortAwareTableItem(QTableWidgetItem):
+    """Table item that sorts by typed values while displaying compact text."""
+
+    def __init__(self, display_value: str, sort_value: object | None = None) -> None:
+        super().__init__(display_value)
+        self._sort_value = sort_value if sort_value is not None else display_value.casefold()
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        other_value = getattr(other, "_sort_value", other.text().casefold())
+        try:
+            return self._sort_value < other_value  # type: ignore[operator]
+        except TypeError:
+            return str(self._sort_value).casefold() < str(other_value).casefold()
+
+
+def _table_item(display_value: str, sort_value: object | None = None) -> QTableWidgetItem:
+    """Build a table item with a stable display value and optional typed sort value."""
+    return _SortAwareTableItem(display_value, sort_value)
