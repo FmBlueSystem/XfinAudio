@@ -28,13 +28,18 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
+from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.build_view_model import BuildViewModel
 from xfinaudio.desktop.export_coordinator import (
     build_serato_export_entry,
     plan_serato_export,
     record_export,
     write_readiness_sidecars,
 )
+from xfinaudio.desktop.export_view_model import ExportViewModel
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
+from xfinaudio.desktop.library_view_model import LibraryViewModel
+from xfinaudio.desktop.navigation_controller import NavigationController
 from xfinaudio.desktop.recommendation_controller import RecommendationController
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
 from xfinaudio.desktop.rendering import (
@@ -49,7 +54,15 @@ from xfinaudio.desktop.rendering import (
     format_quality_summary,
     format_recommendation_warning,
 )
+from xfinaudio.desktop.review_view_model import ReviewViewModel
 from xfinaudio.desktop.scan_controller import ScanController
+from xfinaudio.desktop.screens import (
+    BuildScreen,
+    ExportScreen,
+    LibraryScreen,
+    MetadataScreen,
+    ReviewScreen,
+)
 from xfinaudio.desktop.table_populators import (
     populate_dj_readiness_table,
     populate_library_table,
@@ -117,6 +130,7 @@ _RECOMMENDATION_READY_GUIDANCE = (
 )
 _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
 _SERATO_EXPORT_HISTORY_LIMIT = 5
+_SCREEN_NAMES = ["library", "build", "review", "export", "metadata"]
 _TRACK_TITLE_COLUMN = 0
 _TRACK_MISSING_COLUMN = 5
 _TRACK_STATUS_COLUMN = 8
@@ -293,6 +307,7 @@ class MainWindow(QMainWindow):
         self.last_prep_copilot_plan: PrepCopilotPlan | None = None
         self.applied_prep_copilot_variant_name: str | None = None
         self.current_scan_cancellation_token: ScanCancellationToken | None = None
+        self._is_recommending: bool = False
         self._scan_controller = ScanController(self.workflow_service, parent=self)
         self._recommendation_controller = RecommendationController(self.workflow_service, parent=self)
         self.serato_export_history: list[dict[str, str]] = []
@@ -300,6 +315,43 @@ class MainWindow(QMainWindow):
         self._active_song_search_query = ""
         self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
         self.selected_folder = self.settings.library.last_scan_folder
+        self._state = AppState(
+            selected_folder=self.selected_folder,
+            scanned_records=self.scanned_records,
+            records_by_path=self._records_by_path,
+            serato_export_history=self.serato_export_history,
+            settings=self.settings,
+        )
+        self._nav = NavigationController()
+        self._library_vm = LibraryViewModel()
+        self._build_vm = BuildViewModel()
+        self._review_vm = ReviewViewModel()
+        self._export_vm = ExportViewModel()
+        self._library_screen = LibraryScreen()
+        self._build_screen = BuildScreen()
+        self._review_screen = ReviewScreen()
+        self._export_screen = ExportScreen()
+        self._metadata_screen = MetadataScreen()
+
+    def _sync_state(self) -> None:
+        """Mirror current instance fields into self._state (self.X remains the source of truth)."""
+        _tab_index = self.workflow_tabs.currentIndex()
+        self._state = AppState(
+            selected_folder=self.selected_folder,
+            scanned_records=self.scanned_records,
+            records_by_path=self._records_by_path,
+            last_recommendation=self.last_recommendation,
+            last_playlist_explanation=self.last_playlist_explanation,
+            last_quality_report=self.last_quality_report,
+            last_dj_readiness_report=self.last_dj_readiness_report,
+            last_prep_copilot_plan=self.last_prep_copilot_plan,
+            applied_variant_name=self.applied_prep_copilot_variant_name,
+            serato_export_history=self.serato_export_history,
+            settings=self.settings,
+            is_scanning=self.current_scan_cancellation_token is not None,
+            is_recommending=self._is_recommending,
+            current_screen=_SCREEN_NAMES[_tab_index] if 0 <= _tab_index < len(_SCREEN_NAMES) else "library",
+        )
 
     def _build_widgets(self) -> None:
         """Build constructor widgets and intrinsic widget configuration."""
@@ -616,6 +668,7 @@ class MainWindow(QMainWindow):
         self.recommendation_guidance_label.setText("Scan metadata before recommending a playlist.")
         self._refresh_idle_action_state()
         self.status_label.setText("Folder selected")
+        self._sync_state()
 
     def _persist_last_scan_folder(self, folder: Path) -> None:
         """Persist the latest scan folder so saved libraries can be refreshed after restart."""
@@ -985,6 +1038,7 @@ class MainWindow(QMainWindow):
             readiness_csv_path=readiness_csv_path,
         )
         self.serato_export_history = record_export(self.serato_export_history, entry, _SERATO_EXPORT_HISTORY_LIMIT)
+        self._sync_state()
         self._render_serato_export_history()
 
     def _render_serato_export_history(self) -> None:
@@ -1038,6 +1092,7 @@ class MainWindow(QMainWindow):
             self.recommendation_guidance_label.setText("Scan metadata before recommending a playlist.")
             return
         self.scanned_records = result.records
+        self._sync_state()
         self.show_tracks(result.records, result.complete_count, result.incomplete_count)
         self._end_scan_state()
         self._show_scan_completion_status(result.records)
@@ -1155,6 +1210,7 @@ class MainWindow(QMainWindow):
         self.last_playlist_explanation = explanation
         self.last_quality_report = quality_report
         self.last_dj_readiness_report = variant.readiness
+        self._sync_state()
         self._set_applied_copilot_variant(variant.name)
         self.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)
         self.review_summary_label.setText(format_quality_summary(quality_report))
@@ -1168,6 +1224,7 @@ class MainWindow(QMainWindow):
     def _set_applied_copilot_variant(self, variant_name: str | None) -> None:
         """Update applied Copilot variant state and export badge."""
         self.applied_prep_copilot_variant_name = variant_name
+        self._sync_state()
         if variant_name is None:
             self.applied_copilot_variant_label.setText("Applied Variant: none")
             self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
@@ -1234,12 +1291,14 @@ class MainWindow(QMainWindow):
 
     def _begin_recommendation_state(self, candidate_count: int) -> None:
         """Disable recommendation controls while the optimizer runs."""
+        self._is_recommending = True
         self.recommend_button.setEnabled(False)
         self.scan_button.setEnabled(False)
         self.status_label.setText(f"Generating recommendation from {candidate_count} candidate track(s)")
 
     def _end_recommendation_state(self) -> None:
         """Restore valid idle controls after the optimizer finishes."""
+        self._is_recommending = False
         self._refresh_idle_action_state()
 
     def _start_recommendation_worker(
@@ -1257,6 +1316,7 @@ class MainWindow(QMainWindow):
         self.last_recommendation = result.recommendation
         self.last_playlist_explanation = result.explanation
         self.last_quality_report = result.quality_report
+        self._sync_state()
         self.show_recommendation(
             result.recommendation.ordered_tracks,
             result.recommendation.strategy.name,
@@ -1327,6 +1387,7 @@ class MainWindow(QMainWindow):
             serato_volume_root=serato_volume_root,
         )
         self.last_dj_readiness_report = report
+        self._sync_state()
         self.dj_readiness_label.setText(format_dj_readiness_summary(report))
         self._populate_dj_readiness_table(report)
         self._refresh_export_action_state()
