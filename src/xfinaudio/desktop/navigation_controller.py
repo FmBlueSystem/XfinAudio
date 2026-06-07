@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from xfinaudio.desktop.app_state import AppState
+from typing import cast
+
+from xfinaudio.desktop.app_state import AppState, ScreenName
 
 SCREEN_ORDER: list[str] = ["library", "build", "review", "export"]
 # "metadata" is always accessible but lives outside the linear flow.
@@ -38,7 +40,7 @@ class NavigationController:
         """Return a new AppState with *current_screen* set, or the same state if the transition is invalid."""
         if not self.can_go_to(screen, state):
             return state
-        return state.with_screen(screen)  # type: ignore[arg-type]
+        return state.with_screen(cast(ScreenName, screen))
 
     def next_screen(self, state: AppState) -> str | None:
         """Return the next reachable screen in the linear flow, or None."""

@@ -73,48 +73,34 @@ def state_with_tracks() -> AppState:
 
 @pytest.fixture
 def state_scanning() -> AppState:
-    s = AppState()
-    s = s.with_scanned_records([_make_track()])
-    s.is_scanning = True
-    return s
+    s = AppState(is_scanning=True)
+    return s.with_scanned_records([_make_track()])
 
 
 @pytest.fixture
 def state_with_recommendation() -> AppState:
-    s = AppState()
-    s.last_recommendation = _make_recommendation()
-    return s
-
-
-@pytest.fixture
-def state_with_recommendation_no_readiness() -> AppState:
-    s = AppState()
-    s.last_recommendation = _make_recommendation()
-    return s
+    return AppState(last_recommendation=_make_recommendation())
 
 
 @pytest.fixture
 def state_with_ready_readiness() -> AppState:
-    s = AppState()
-    s.last_recommendation = _make_recommendation()
-    s.last_dj_readiness_report = _ready_readiness()
-    return s
+    return AppState(
+        last_recommendation=_make_recommendation(),
+        last_dj_readiness_report=_ready_readiness(),
+    )
 
 
 @pytest.fixture
 def state_with_blocked_readiness() -> AppState:
-    s = AppState()
-    s.last_recommendation = _make_recommendation()
-    s.last_dj_readiness_report = _blocked_readiness()
-    return s
+    return AppState(
+        last_recommendation=_make_recommendation(),
+        last_dj_readiness_report=_blocked_readiness(),
+    )
 
 
 @pytest.fixture
 def state_recommending() -> AppState:
-    s = AppState()
-    s.last_recommendation = _make_recommendation()
-    s.is_recommending = True
-    return s
+    return AppState(last_recommendation=_make_recommendation(), is_recommending=True)
 
 
 # ---------------------------------------------------------------------------
@@ -177,8 +163,8 @@ def test_can_go_to_review_while_recommending_returns_false(ctrl, state_recommend
 # ---------------------------------------------------------------------------
 
 
-def test_can_go_to_export_without_readiness_returns_false(ctrl, state_with_recommendation_no_readiness):
-    assert ctrl.can_go_to("export", state_with_recommendation_no_readiness) is False
+def test_can_go_to_export_without_readiness_returns_false(ctrl, state_with_recommendation):
+    assert ctrl.can_go_to("export", state_with_recommendation) is False
 
 
 def test_can_go_to_export_without_recommendation_returns_false(ctrl, empty_state):
@@ -297,3 +283,14 @@ def test_back_screen_export_returns_review(ctrl, state_with_ready_readiness):
 def test_back_screen_metadata_returns_none(ctrl, empty_state):
     s = empty_state.with_screen("metadata")
     assert ctrl.back_screen(s) is None
+
+
+# ---------------------------------------------------------------------------
+# can_go_to — unknown screen
+# ---------------------------------------------------------------------------
+
+
+def test_can_go_to_unknown_screen_returns_false():
+    ctrl = NavigationController()
+    state = AppState()
+    assert ctrl.can_go_to("nonexistent", state) is False
