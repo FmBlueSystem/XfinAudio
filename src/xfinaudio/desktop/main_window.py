@@ -352,6 +352,15 @@ class MainWindow(QMainWindow):
             is_recommending=self._is_recommending,
             current_screen=_SCREEN_NAMES[_tab_index] if 0 <= _tab_index < len(_SCREEN_NAMES) else "library",
         )
+        self._render_screens()
+
+    def _render_screens(self) -> None:
+        """Update all screens with current AppState."""
+        self._library_screen.render(self._library_vm, self._state)
+        self._build_screen.render(self._build_vm, self._state)
+        self._review_screen.render(self._review_vm, self._state)
+        self._export_screen.render(self._export_vm, self._state)
+        self._metadata_screen.render(self._state)
 
     def _build_widgets(self) -> None:
         """Build constructor widgets and intrinsic widget configuration."""
@@ -758,6 +767,7 @@ class MainWindow(QMainWindow):
         self.recommendation_guidance_label.setText(_RECOMMENDATION_READY_GUIDANCE)
         self.status_label.setText(f"Loaded saved library: {complete_count} complete, {incomplete_count} incomplete")
         self._refresh_idle_action_state()
+        self._sync_state()
 
     def _clear_scan_dependent_state(self) -> None:
         """Clear scan and recommendation results that belong to a previous folder."""
@@ -778,6 +788,7 @@ class MainWindow(QMainWindow):
             "Review recommendations before exporting. Serato export is enabled only after a recommendation is ready."
         )
         self._refresh_export_action_state()
+        self._sync_state()
 
     def _refresh_idle_action_state(self) -> None:
         """Enable only the actions that are valid for the current idle UI state."""
@@ -809,6 +820,7 @@ class MainWindow(QMainWindow):
         self.safe_export_folder_label.setText(self._format_safe_export_folder_label())
         self.status_label.setText("Safe export folder selected")
         self._refresh_export_action_state()
+        self._sync_state()
 
     def export_dj_readiness_report(self, *, generated_at: datetime | None = None) -> None:
         """Export the latest DJ readiness report as JSON and CSV audit artifacts."""
@@ -1072,11 +1084,13 @@ class MainWindow(QMainWindow):
         self.cancel_scan_button.setEnabled(True)
         self.scan_progress_label.setText("Scan progress: starting")
         self.status_label.setText("Scanning metadata")
+        self._sync_state()
 
     def _end_scan_state(self) -> None:
         """Clear scan state after scan completion or cancellation."""
         self.current_scan_cancellation_token = None
         self._refresh_idle_action_state()
+        self._sync_state()
 
     def _start_scan_worker(self, folder: Path, token: ScanCancellationToken) -> None:
         """Delegate thread/worker construction to the scan controller."""
@@ -1183,6 +1197,7 @@ class MainWindow(QMainWindow):
         self._populate_prep_copilot_table(plan)
         self.prep_copilot_apply_button.setEnabled(True)
         self.status_label.setText(f"Generated {len(plan.variants)} Prep Copilot variant(s)")
+        self._sync_state()
 
     def _apply_prep_copilot_item(self, item: QTableWidgetItem) -> None:
         """Apply the Prep Copilot variant represented by a double-clicked table item."""
@@ -1295,11 +1310,13 @@ class MainWindow(QMainWindow):
         self.recommend_button.setEnabled(False)
         self.scan_button.setEnabled(False)
         self.status_label.setText(f"Generating recommendation from {candidate_count} candidate track(s)")
+        self._sync_state()
 
     def _end_recommendation_state(self) -> None:
         """Restore valid idle controls after the optimizer finishes."""
         self._is_recommending = False
         self._refresh_idle_action_state()
+        self._sync_state()
 
     def _start_recommendation_worker(
         self, records: list[TrackRecord], strategy_name: str, controls: DJControls | None = None
