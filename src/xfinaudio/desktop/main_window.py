@@ -274,32 +274,18 @@ class MainWindow(QMainWindow):
         self.workflow_service = PlaylistWorkflowService(scan_service=scan_service, repository=repository)
         self.settings = settings or AppSettings()
         self.settings_repository = settings_repository
-        self.selected_folder: Path | None = None
-        self.scanned_records: list[TrackRecord] = []
-        self._records_by_path: dict[str, TrackRecord] = {}
-        self.last_recommendation: PlaylistRecommendation | None = None
-        self.last_playlist_explanation: PlaylistExplanation | None = None
-        self.last_quality_report: RecommendationQualityReport | None = None
-        self.last_dj_readiness_report: DjReadinessReport | None = None
-        self.last_prep_copilot_plan: PrepCopilotPlan | None = None
-        self.applied_prep_copilot_variant_name: str | None = None
+        self._state = AppState(
+            selected_folder=self.settings.library.last_scan_folder,
+            settings=self.settings,
+        )
         self.current_scan_cancellation_token: ScanCancellationToken | None = None
         self._is_recommending: bool = False
         self._scan_controller = ScanController(self.workflow_service, parent=self)
         self._recommendation_controller = RecommendationController(self.workflow_service, parent=self)
-        self.serato_export_history: list[dict[str, str]] = []
         self._table_sort_orders: dict[int, Qt.SortOrder] = {}
         self._active_song_search_query = ""
         self._library_selected_paths: list[str] = []
         self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
-        self.selected_folder = self.settings.library.last_scan_folder
-        self._state = AppState(
-            selected_folder=self.selected_folder,
-            scanned_records=self.scanned_records,
-            records_by_path=self._records_by_path,
-            serato_export_history=self.serato_export_history,
-            settings=self.settings,
-        )
         self._nav = NavigationController()
         self._library_vm = LibraryViewModel()
         self._build_vm = BuildViewModel()
@@ -312,24 +298,12 @@ class MainWindow(QMainWindow):
         self._metadata_screen = MetadataScreen()
 
     def _sync_state(self) -> None:
-        """Mirror current instance fields into self._state (self.X remains the source of truth)."""
+        """Update transient computed fields in _state, then render all screens."""
         _tab_index = self.workflow_tabs.currentIndex()
-        self._state = AppState(
-            selected_folder=self.selected_folder,
-            scanned_records=self.scanned_records,
-            records_by_path=self._records_by_path,
-            last_recommendation=self.last_recommendation,
-            last_playlist_explanation=self.last_playlist_explanation,
-            last_quality_report=self.last_quality_report,
-            last_dj_readiness_report=self.last_dj_readiness_report,
-            last_prep_copilot_plan=self.last_prep_copilot_plan,
-            applied_variant_name=self.applied_prep_copilot_variant_name,
-            serato_export_history=self.serato_export_history,
-            settings=self.settings,
-            is_scanning=self.current_scan_cancellation_token is not None,
-            is_recommending=self._is_recommending,
-            current_screen=_SCREEN_NAMES[_tab_index] if 0 <= _tab_index < len(_SCREEN_NAMES) else "library",
-        )
+        self._state.settings = self.settings
+        self._state.is_scanning = self.current_scan_cancellation_token is not None
+        self._state.is_recommending = self._is_recommending
+        self._state.current_screen = _SCREEN_NAMES[_tab_index] if 0 <= _tab_index < len(_SCREEN_NAMES) else "library"
         self._render_screens()
 
     def _render_screens(self) -> None:
@@ -340,6 +314,90 @@ class MainWindow(QMainWindow):
         self._export_screen.render(self._export_vm, self._state)
         self._metadata_screen.render(self._state)
         self._update_tab_states()
+
+    # ------------------------------------------------------------------
+    # AppState property delegates — single source of truth in self._state
+    # ------------------------------------------------------------------
+
+    @property
+    def selected_folder(self) -> Path | None:
+        return self._state.selected_folder
+
+    @selected_folder.setter
+    def selected_folder(self, value: Path | None) -> None:
+        self._state.selected_folder = value
+
+    @property
+    def scanned_records(self) -> list[TrackRecord]:
+        return self._state.scanned_records
+
+    @scanned_records.setter
+    def scanned_records(self, value: list[TrackRecord]) -> None:
+        self._state.scanned_records = value
+
+    @property
+    def _records_by_path(self) -> dict[str, TrackRecord]:
+        return self._state.records_by_path
+
+    @_records_by_path.setter
+    def _records_by_path(self, value: dict[str, TrackRecord]) -> None:
+        self._state.records_by_path = value
+
+    @property
+    def last_recommendation(self) -> PlaylistRecommendation | None:
+        return self._state.last_recommendation
+
+    @last_recommendation.setter
+    def last_recommendation(self, value: PlaylistRecommendation | None) -> None:
+        self._state.last_recommendation = value
+
+    @property
+    def last_playlist_explanation(self) -> PlaylistExplanation | None:
+        return self._state.last_playlist_explanation
+
+    @last_playlist_explanation.setter
+    def last_playlist_explanation(self, value: PlaylistExplanation | None) -> None:
+        self._state.last_playlist_explanation = value
+
+    @property
+    def last_quality_report(self) -> RecommendationQualityReport | None:
+        return self._state.last_quality_report
+
+    @last_quality_report.setter
+    def last_quality_report(self, value: RecommendationQualityReport | None) -> None:
+        self._state.last_quality_report = value
+
+    @property
+    def last_dj_readiness_report(self) -> DjReadinessReport | None:
+        return self._state.last_dj_readiness_report
+
+    @last_dj_readiness_report.setter
+    def last_dj_readiness_report(self, value: DjReadinessReport | None) -> None:
+        self._state.last_dj_readiness_report = value
+
+    @property
+    def last_prep_copilot_plan(self) -> PrepCopilotPlan | None:
+        return self._state.last_prep_copilot_plan
+
+    @last_prep_copilot_plan.setter
+    def last_prep_copilot_plan(self, value: PrepCopilotPlan | None) -> None:
+        self._state.last_prep_copilot_plan = value
+
+    @property
+    def applied_prep_copilot_variant_name(self) -> str | None:
+        return self._state.applied_variant_name
+
+    @applied_prep_copilot_variant_name.setter
+    def applied_prep_copilot_variant_name(self, value: str | None) -> None:
+        self._state.applied_variant_name = value
+
+    @property
+    def serato_export_history(self) -> list[dict[str, str]]:
+        return self._state.serato_export_history
+
+    @serato_export_history.setter
+    def serato_export_history(self, value: list[dict[str, str]]) -> None:
+        self._state.serato_export_history = value
 
     def _update_tab_states(self) -> None:
         """Enable/disable tabs based on NavigationController rules."""
