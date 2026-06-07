@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
-from xfinaudio.desktop.export_coordinator import record_export, write_readiness_sidecars
+from xfinaudio.desktop.export_coordinator import plan_serato_export, record_export, write_readiness_sidecars
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.recommendation_controller import RecommendationController
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
@@ -76,11 +76,8 @@ from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
     SeratoLibrary,
     discover_serato_libraries,
-    plan_copilot_variant_serato_playlist_export,
-    plan_generated_serato_playlist_export,
     plan_metadata_missing_field_serato_export,
     plan_metadata_status_serato_export,
-    plan_serato_playlist_export,
     select_serato_library_for_tracks,
 )
 from xfinaudio.library.models import MetadataStatus, TrackRecord
@@ -845,7 +842,7 @@ class MainWindow(QMainWindow):
                 serato_volume_root=library.volume_root,
             )
         if self.last_dj_readiness_report is not None:
-            json_path, csv_path = self._write_serato_readiness_sidecars(result.written_path)
+            json_path, csv_path = write_readiness_sidecars(self.last_dj_readiness_report, result.written_path)
             readiness_paths = (json_path, csv_path)
             readiness_note = f" Readiness reports: {json_path} and {csv_path}."
         self.export_guidance_label.setText(
@@ -857,12 +854,6 @@ class MainWindow(QMainWindow):
             result.written_path, readiness_json_path=readiness_paths[0], readiness_csv_path=readiness_paths[1]
         )
 
-    def _write_serato_readiness_sidecars(self, crate_path: Path) -> tuple[Path, Path]:
-        """Write DJ Readiness JSON/CSV files next to a Serato crate export."""
-        if self.last_dj_readiness_report is None:
-            raise ValueError("DJ Readiness report is not available for sidecar export")
-        return write_readiness_sidecars(self.last_dj_readiness_report, crate_path)
-
     def _plan_current_serato_export(
         self,
         *,
@@ -873,30 +864,13 @@ class MainWindow(QMainWindow):
         """Build the current Serato export plan without writing it."""
         if self.last_recommendation is None:
             raise ValueError("Generate a recommendation before planning Serato export")
-        library = (
-            SeratoLibrary(serato_folder=serato_folder, volume_root=serato_folder.parent)
-            if serato_folder is not None
-            else select_serato_library_for_tracks(
-                [track.path for track in self.last_recommendation.ordered_tracks],
-                discover_serato_libraries(),
-            )
+        return plan_serato_export(
+            self.last_recommendation,
+            self.applied_prep_copilot_variant_name,
+            serato_folder=serato_folder,
+            crate_name=crate_name,
+            generated_at=generated_at,
         )
-        if crate_name is not None:
-            plan = plan_serato_playlist_export(crate_name, self.last_recommendation, library)
-        elif self.applied_prep_copilot_variant_name is not None:
-            plan = plan_copilot_variant_serato_playlist_export(
-                self.applied_prep_copilot_variant_name,
-                self.last_recommendation,
-                library,
-                generated_at=generated_at,
-            )
-        else:
-            plan = plan_generated_serato_playlist_export(
-                self.last_recommendation,
-                library,
-                generated_at=generated_at,
-            )
-        return plan, library
 
     def export_metadata_status_to_serato(
         self,

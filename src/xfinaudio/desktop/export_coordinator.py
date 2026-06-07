@@ -2,9 +2,59 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
+from xfinaudio.exporting.serato_playlist_exporter import (
+    SeratoLibrary,
+    discover_serato_libraries,
+    plan_copilot_variant_serato_playlist_export,
+    plan_generated_serato_playlist_export,
+    plan_serato_playlist_export,
+    select_serato_library_for_tracks,
+)
 from xfinaudio.quality.dj_readiness import DjReadinessReport, write_dj_readiness_report
+from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+
+
+def plan_serato_export(
+    recommendation: PlaylistRecommendation,
+    copilot_variant_name: str | None,
+    *,
+    serato_folder: Path | None = None,
+    crate_name: str | None = None,
+    generated_at: datetime | None = None,
+) -> tuple[Any, SeratoLibrary]:
+    """Build a Serato export plan without writing it.
+
+    Selects the appropriate planning strategy based on whether a crate_name or
+    copilot_variant_name is provided, falling back to a generated strategy name.
+    """
+    library = (
+        SeratoLibrary(serato_folder=serato_folder, volume_root=serato_folder.parent)
+        if serato_folder is not None
+        else select_serato_library_for_tracks(
+            [track.path for track in recommendation.ordered_tracks],
+            discover_serato_libraries(),
+        )
+    )
+    if crate_name is not None:
+        plan = plan_serato_playlist_export(crate_name, recommendation, library)
+    elif copilot_variant_name is not None:
+        plan = plan_copilot_variant_serato_playlist_export(
+            copilot_variant_name,
+            recommendation,
+            library,
+            generated_at=generated_at,
+        )
+    else:
+        plan = plan_generated_serato_playlist_export(
+            recommendation,
+            library,
+            generated_at=generated_at,
+        )
+    return plan, library
 
 
 def record_export(

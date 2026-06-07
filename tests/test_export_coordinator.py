@@ -2,10 +2,37 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from xfinaudio.desktop.export_coordinator import record_export, write_readiness_sidecars
+from xfinaudio.desktop.export_coordinator import plan_serato_export, record_export, write_readiness_sidecars
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+from xfinaudio.recommendation.strategies import default_strategy_registry
+
+
+def _make_recommendation(paths: list[str]) -> PlaylistRecommendation:
+    tracks = [
+        TrackRecord(
+            path=path,
+            title=Path(path).stem,
+            bpm=120.0,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+        )
+        for path in paths
+    ]
+    return PlaylistRecommendation(
+        ordered_tracks=tracks,
+        transition_scores=[],
+        strategy=default_strategy_registry().get("build"),
+        warnings=[],
+        applied_controls={},
+        optimizer="test",
+        total_score=0.0,
+    )
 
 
 def test_record_export_prepends_entry():
@@ -69,3 +96,59 @@ def test_write_readiness_sidecars_derives_paths_from_crate(tmp_path: Path):
     report = MagicMock()
     with patch("xfinaudio.desktop.export_coordinator.write_dj_readiness_report", return_value=(Path("a"), Path("b"))):
         write_readiness_sidecars(report, crate_path)
+
+
+def test_plan_serato_export_uses_crate_name_when_provided(tmp_path: Path) -> None:
+    serato_folder = tmp_path / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    track_path = str(tmp_path / "track.flac")
+    recommendation = _make_recommendation([track_path])
+
+    plan, library = plan_serato_export(
+        recommendation,
+        None,
+        serato_folder=serato_folder,
+        crate_name="My Custom Set",
+    )
+
+    assert plan.crate_name == "My Custom Set"
+    assert plan.target_path == serato_folder / "Subcrates" / "My Custom Set.crate"
+    assert library.serato_folder == serato_folder
+
+
+def test_plan_serato_export_uses_copilot_variant_when_no_crate_name(tmp_path: Path) -> None:
+    serato_folder = tmp_path / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    track_path = str(tmp_path / "track.flac")
+    recommendation = _make_recommendation([track_path])
+    fixed_dt = datetime(2024, 1, 15, 10, 30, 0)
+
+    plan, library = plan_serato_export(
+        recommendation,
+        "balanced",
+        serato_folder=serato_folder,
+        generated_at=fixed_dt,
+    )
+
+    assert "balanced" in plan.crate_name.lower() or "Balanced" in plan.crate_name
+    assert plan.target_path.suffix == ".crate"
+    assert library.serato_folder == serato_folder
+
+
+def test_plan_serato_export_uses_generated_strategy_name_when_no_variant(tmp_path: Path) -> None:
+    serato_folder = tmp_path / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    track_path = str(tmp_path / "track.flac")
+    recommendation = _make_recommendation([track_path])
+    fixed_dt = datetime(2024, 3, 10, 8, 0, 0)
+
+    plan, library = plan_serato_export(
+        recommendation,
+        None,
+        serato_folder=serato_folder,
+        generated_at=fixed_dt,
+    )
+
+    assert "20240310" in plan.crate_name
+    assert plan.target_path.suffix == ".crate"
+    assert library.serato_folder == serato_folder

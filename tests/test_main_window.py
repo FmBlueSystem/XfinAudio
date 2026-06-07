@@ -5,7 +5,7 @@ from PySide6.QtCore import QItemSelectionModel
 from PySide6.QtWidgets import QAbstractItemView, QApplication, QTableWidget, QTableWidgetItem
 
 from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings
-from xfinaudio.desktop import main_window
+from xfinaudio.desktop import export_coordinator, main_window
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.exporting.explainability import PlaylistExplanation, TrackExplanation, TransitionExplanation
 from xfinaudio.exporting.serato_crate import parse_serato_crate_bytes
@@ -1539,7 +1539,7 @@ def test_main_window_auto_serato_export_preserves_detected_library_volume_root(t
     serato_folder = tmp_path / "Users" / "freddy" / "Music" / "_Serato_"
     (serato_folder / "Subcrates").mkdir(parents=True)
     library = main_window.SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path)
-    monkeypatch.setattr(main_window, "discover_serato_libraries", lambda: [library])
+    monkeypatch.setattr(export_coordinator, "discover_serato_libraries", lambda: [library])
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
     window.last_recommendation = make_recommendation(
         [
@@ -1565,7 +1565,7 @@ def test_main_window_default_serato_export_uses_strategy_grouped_generated_crate
     serato_folder = tmp_path / "dd" / "_Serato_"
     (serato_folder / "Subcrates").mkdir(parents=True)
     library = main_window.SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd")
-    monkeypatch.setattr(main_window, "discover_serato_libraries", lambda: [library])
+    monkeypatch.setattr(export_coordinator, "discover_serato_libraries", lambda: [library])
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
     window.last_recommendation = make_recommendation(
         [
