@@ -179,3 +179,9 @@ def test_metadata_back_navigates_to_library(qapp, window):
     window.workflow_tabs.setCurrentIndex(4)
     window._metadata_screen.back_requested.emit()
     assert window.workflow_tabs.currentIndex() == 0
+
+
+def test_main_window_exposes_visible_library_table_accessor(qapp) -> None:
+    """MainWindow must expose the visible LibraryScreen tracks_table via a public accessor."""
+    window = _make_window()
+    assert window.visible_tracks_table is window._library_screen.tracks_table

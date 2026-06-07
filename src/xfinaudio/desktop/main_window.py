@@ -380,6 +380,11 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     @property
+    def visible_tracks_table(self) -> QTableWidget:
+        """Expose the LibraryScreen tracks_table as the visible widget for tests and E2E."""
+        return self._library_screen.tracks_table
+
+    @property
     def folder_button(self) -> QPushButton:
         return self._library_screen.folder_button
 
