@@ -56,6 +56,13 @@ from xfinaudio.desktop.rendering import (
 )
 from xfinaudio.desktop.review_view_model import ReviewViewModel
 from xfinaudio.desktop.scan_controller import ScanController
+from xfinaudio.desktop.screens import (
+    BuildScreen,
+    ExportScreen,
+    LibraryScreen,
+    MetadataScreen,
+    ReviewScreen,
+)
 from xfinaudio.desktop.table_populators import (
     populate_dj_readiness_table,
     populate_library_table,
@@ -318,6 +325,11 @@ class MainWindow(QMainWindow):
         self._build_vm = BuildViewModel()
         self._review_vm = ReviewViewModel()
         self._export_vm = ExportViewModel()
+        self._library_screen = LibraryScreen()
+        self._build_screen = BuildScreen()
+        self._review_screen = ReviewScreen()
+        self._export_screen = ExportScreen()
+        self._metadata_screen = MetadataScreen()
 
     def _sync_state(self) -> None:
         """Mirror current instance fields into self._state (self.X remains the source of truth)."""
