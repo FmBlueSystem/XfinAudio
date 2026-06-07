@@ -207,14 +207,6 @@ class MainWindow(QMainWindow):
         prep_copilot_controls.addWidget(self.prep_copilot_apply_button)
         prep_copilot_controls.addStretch(1)
 
-        library_page = QWidget()
-        library_layout = QVBoxLayout()
-        library_layout.addWidget(self.library_decision_label)
-        library_layout.addLayout(library_status_controls)
-        library_layout.addLayout(library_filter_controls)
-        library_layout.addWidget(self.tracks_table, 1)
-        library_page.setLayout(library_layout)
-
         build_page = QWidget()
         build_layout = QVBoxLayout()
         build_layout.addWidget(self.build_decision_label)
@@ -263,7 +255,7 @@ class MainWindow(QMainWindow):
 
         self.workflow_tabs = QTabWidget()
         self.workflow_tabs.setTabPosition(QTabWidget.TabPosition.West)
-        self.workflow_tabs.addTab(library_page, "Library")
+        self.workflow_tabs.addTab(self._library_screen, "Library")
         self.workflow_tabs.addTab(build_page, "Build Playlist")
         self.workflow_tabs.addTab(review_page, "Review Mix")
         self.workflow_tabs.addTab(export_page, "Export to Serato")
@@ -494,6 +486,14 @@ class MainWindow(QMainWindow):
         self._recommendation_controller.recommendation_completed.connect(self._finish_recommendation)
         self._recommendation_controller.recommendation_failed.connect(self._fail_recommendation)
         self._recommendation_controller.worker_cleared.connect(self._clear_recommendation_worker_refs)
+        # LibraryScreen signals
+        self._library_screen.folder_change_requested.connect(self.choose_folder)
+        self._library_screen.scan_requested.connect(self.scan_selected_folder)
+        self._library_screen.cancel_scan_requested.connect(self.cancel_scan)
+        self._library_screen.selection_changed.connect(self._on_library_selection_changed)
+        self._library_screen.metadata_screen_requested.connect(
+            lambda: self.workflow_tabs.setCurrentIndex(4)
+        )
         for table in (
             self.tracks_table,
             self.recommendation_table,
@@ -1144,6 +1144,11 @@ class MainWindow(QMainWindow):
     @Slot()
     def _clear_scan_worker_refs(self) -> None:
         pass  # Thread/worker refs are now owned and cleared by ScanController.
+
+    def _on_library_selection_changed(self, paths: list[str]) -> None:
+        """Update state when user selection changes in LibraryScreen."""
+        self._sync_state()
+        self._refresh_idle_action_state()
 
     def _show_scan_progress(self, progress: ScanProgress) -> None:
         """Render scan progress from the workflow service."""
