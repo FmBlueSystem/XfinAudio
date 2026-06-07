@@ -229,10 +229,37 @@ class MainWindow(QMainWindow):
         )
 
         container = QWidget()
-        # Reparent standalone labels that are no longer in a tab page layout so that
-        # isHidden() returns False (Qt hides parentless top-level widgets by default).
-        self.review_summary_label.setParent(container)
-        self.dj_readiness_label.setParent(container)
+        # Reparent all widgets removed from tab-page layouts.
+        # Without a parent, Qt shows them as floating top-level windows when
+        # setHidden(False) or show() is called. Labels are reparented but kept
+        # visible (code still reads their text); interactive widgets are hidden.
+        _orphaned_labels = [
+            self.review_summary_label,
+            self.dj_readiness_label,
+            self.build_decision_label,
+            self.review_decision_label,
+            self.export_decision_label,
+            self.recommendation_guidance_label,
+            self.export_guidance_label,
+            self.applied_copilot_variant_label,
+            self.safe_export_folder_label,
+        ]
+        _orphaned_interactive = [
+            self.prep_copilot_table,
+            self.recommendation_table,
+            self.dj_readiness_table,
+            self.transition_review_table,
+            self.serato_export_history_table,
+            self.serato_preview_button,
+            self.serato_export_button,
+            self.dj_readiness_export_button,
+            self.safe_export_folder_button,
+        ]
+        for widget in _orphaned_labels:
+            widget.setParent(container)
+        for widget in _orphaned_interactive:
+            widget.setParent(container)
+            widget.hide()
         container.setLayout(layout)
         self.setCentralWidget(container)
 
