@@ -40,6 +40,8 @@ class LibraryScreen(QWidget):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
+        self._filter_query: str = ""
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
@@ -84,6 +86,7 @@ class LibraryScreen(QWidget):
         self.scan_button.clicked.connect(self.scan_requested)
         self.cancel_button.clicked.connect(self.cancel_scan_requested)
         self.tracks_table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.search_input.textChanged.connect(self._on_search_changed)
 
     # ------------------------------------------------------------------
     # Render
@@ -96,6 +99,7 @@ class LibraryScreen(QWidget):
         self.status_label.setText(vm.status_text(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
         self._populate_table(vm.tracks_for_display(state))
+        self._apply_filter()
 
     def _populate_table(self, rows: list[TrackDisplayRow]) -> None:
         self.tracks_table.setRowCount(0)
@@ -119,6 +123,17 @@ class LibraryScreen(QWidget):
     # ------------------------------------------------------------------
     # Internal slots
     # ------------------------------------------------------------------
+
+    def _on_search_changed(self, text: str) -> None:
+        self._filter_query = text.strip().casefold()
+        self._apply_filter()
+
+    def _apply_filter(self) -> None:
+        query = self._filter_query
+        for row in range(self.tracks_table.rowCount()):
+            title_item = self.tracks_table.item(row, 0)
+            title = (title_item.text() if title_item else "").casefold()
+            self.tracks_table.setRowHidden(row, bool(query) and query not in title)
 
     def _on_selection_changed(self) -> None:
         selected_rows = {idx.row() for idx in self.tracks_table.selectedIndexes()}
