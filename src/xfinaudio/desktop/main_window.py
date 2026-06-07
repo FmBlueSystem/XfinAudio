@@ -29,13 +29,16 @@ from PySide6.QtWidgets import (
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.build_view_model import BuildViewModel
 from xfinaudio.desktop.export_coordinator import (
     build_serato_export_entry,
     plan_serato_export,
     record_export,
     write_readiness_sidecars,
 )
+from xfinaudio.desktop.export_view_model import ExportViewModel
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
+from xfinaudio.desktop.library_view_model import LibraryViewModel
 from xfinaudio.desktop.navigation_controller import NavigationController
 from xfinaudio.desktop.recommendation_controller import RecommendationController
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
@@ -51,6 +54,7 @@ from xfinaudio.desktop.rendering import (
     format_quality_summary,
     format_recommendation_warning,
 )
+from xfinaudio.desktop.review_view_model import ReviewViewModel
 from xfinaudio.desktop.scan_controller import ScanController
 from xfinaudio.desktop.table_populators import (
     populate_dj_readiness_table,
@@ -310,6 +314,10 @@ class MainWindow(QMainWindow):
             settings=self.settings,
         )
         self._nav = NavigationController()
+        self._library_vm = LibraryViewModel()
+        self._build_vm = BuildViewModel()
+        self._review_vm = ReviewViewModel()
+        self._export_vm = ExportViewModel()
 
     def _sync_state(self) -> None:
         """Mirror current instance fields into self._state (self.X remains the source of truth)."""
