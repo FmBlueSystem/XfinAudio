@@ -35,6 +35,7 @@ class LibraryScreen(QWidget):
     cancel_scan_requested = Signal()
     selection_changed = Signal(list)
     metadata_screen_requested = Signal()
+    settings_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -85,7 +86,9 @@ class LibraryScreen(QWidget):
 
         # Bottom row
         bottom = QHBoxLayout()
+        self.settings_button = QPushButton("⚙ Settings")
         self.proceed_button = QPushButton("Build Playlist →")
+        bottom.addWidget(self.settings_button)
         bottom.addStretch()
         bottom.addWidget(self.proceed_button)
         layout.addLayout(bottom)
@@ -96,6 +99,7 @@ class LibraryScreen(QWidget):
         self.cancel_button.clicked.connect(self.cancel_scan_requested)
         self.tracks_table.itemSelectionChanged.connect(self._on_selection_changed)
         self.search_input.textChanged.connect(self._on_search_changed)
+        self.settings_button.clicked.connect(self.settings_requested)
 
     # ------------------------------------------------------------------
     # Render

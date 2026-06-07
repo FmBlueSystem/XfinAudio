@@ -537,6 +537,7 @@ class MainWindow(QMainWindow):
         self._library_screen.proceed_button.clicked.connect(
             lambda: self.workflow_tabs.setCurrentIndex(1)
         )
+        self._library_screen.settings_requested.connect(self._open_settings_dialog)
         # BuildScreen signals
         self._build_screen.recommend_requested.connect(self._on_recommend_requested)
         self._build_screen.copilot_generate_requested.connect(self.generate_prep_copilot)
@@ -853,6 +854,22 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Choose safe export folder")
         if folder:
             self.set_safe_export_folder(Path(folder))
+
+    def _open_settings_dialog(self) -> None:
+        """Open the settings dialog and apply changes if confirmed."""
+        from xfinaudio.desktop.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(self.settings, parent=self)
+        dialog.settings_changed.connect(self._apply_settings)
+        dialog.exec()
+
+    def _apply_settings(self, new_settings: AppSettings) -> None:
+        """Apply and persist settings from the settings dialog."""
+        self.settings = new_settings
+        if self.settings_repository is not None:
+            self.settings_repository.save(new_settings)
+        self.safe_export_folder_label.setText(self._format_safe_export_folder_label())
+        self._sync_state()
 
     def set_safe_export_folder(self, folder: Path) -> None:
         """Persist a safe export folder if it is not the selected audio folder."""
