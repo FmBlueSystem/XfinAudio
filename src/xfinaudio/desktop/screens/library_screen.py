@@ -55,8 +55,9 @@ class LibraryScreen(QWidget):
         # Top controls row
         controls = QHBoxLayout()
         self.folder_button = QPushButton("Choose Folder")
-        self.scan_button = QPushButton("Scan Library")
-        self.cancel_button = QPushButton("Cancel")
+        self.scan_button = QPushButton("Scan Metadata")
+        self.cancel_button = QPushButton("Cancel Scan")
+        self.cancel_button.setEnabled(False)
         controls.addWidget(self.folder_button)
         controls.addWidget(self.scan_button)
         controls.addWidget(self.cancel_button)

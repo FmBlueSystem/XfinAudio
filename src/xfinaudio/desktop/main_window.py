@@ -177,11 +177,6 @@ class MainWindow(QMainWindow):
 
     def _build_layout(self) -> None:
         """Assemble widget layout hierarchy, tab pages, and central window container."""
-        controls = QHBoxLayout()
-        controls.addWidget(self.folder_button)
-        controls.addWidget(self.scan_button)
-        controls.addWidget(self.cancel_scan_button)
-
         library_status_controls = QHBoxLayout()
         library_status_controls.addWidget(self.folder_label)
         library_status_controls.addWidget(self.library_guidance_label, 1)
@@ -196,12 +191,10 @@ class MainWindow(QMainWindow):
         self.workflow_tabs.addTab(self._metadata_screen, "Metadata Worklist")
 
         layout = QVBoxLayout()
-        layout.addLayout(controls)
         layout.addWidget(self.workflow_tabs, 1)
         layout.addWidget(self.status_label)
         self._apply_compact_mac_layout(
             layout,
-            controls,
             library_status_controls,
         )
 
@@ -367,6 +360,18 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     @property
+    def folder_button(self) -> QPushButton:
+        return self._library_screen.folder_button
+
+    @property
+    def scan_button(self) -> QPushButton:
+        return self._library_screen.scan_button
+
+    @property
+    def cancel_scan_button(self) -> QPushButton:
+        return self._library_screen.cancel_button
+
+    @property
     def serato_export_button(self) -> QPushButton:
         return self._export_screen.export_button
 
@@ -462,11 +467,6 @@ class MainWindow(QMainWindow):
     def _build_widgets(self) -> None:
         """Build constructor widgets and intrinsic widget configuration."""
         self.setWindowTitle("XfinAudio")
-        self.folder_button = QPushButton("Choose Folder")
-        self.scan_button = QPushButton("Scan Metadata")
-        self.scan_button.setEnabled(False)
-        self.cancel_scan_button = QPushButton("Cancel Scan")
-        self.cancel_scan_button.setEnabled(False)
         self.folder_label = QLabel("Library: none")
         self.library_guidance_label = QLabel("Choose a folder to scan metadata.")
         self.recommendation_guidance_label = QLabel("Scan metadata before recommending a playlist.")
@@ -514,9 +514,6 @@ class MainWindow(QMainWindow):
 
     def _connect_widget_signals(self) -> None:
         """Connect constructor-created widgets to their existing slots and sorting handlers."""
-        self.folder_button.clicked.connect(self.choose_folder)
-        self.scan_button.clicked.connect(self.scan_selected_folder)
-        self.cancel_scan_button.clicked.connect(self.cancel_scan)
         self.prep_copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
         self.tracks_table.itemSelectionChanged.connect(self._refresh_idle_action_state)
         self.song_search_input.textChanged.connect(lambda text: self._apply_song_filter(text, clear_selection=True))
@@ -577,18 +574,13 @@ class MainWindow(QMainWindow):
     def _apply_compact_mac_layout(
         self,
         layout: QVBoxLayout,
-        controls: QHBoxLayout,
         library_status_controls: QHBoxLayout,
     ) -> None:
         """Use dense desktop spacing so the library browser does not dominate MacBook screens."""
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(6)
-        controls.setSpacing(8)
         library_status_controls.setSpacing(8)
 
-        self.folder_button.setMinimumWidth(220)
-        self.scan_button.setMinimumWidth(220)
-        self.cancel_scan_button.setMinimumWidth(220)
         self.recommend_button.setMinimumWidth(220)
         self.recommend_button.setMaximumWidth(260)
         self.prep_copilot_button.setMinimumWidth(190)
