@@ -63,6 +63,26 @@ class BuildScreen(QWidget):
         strategy_row.addStretch()
         layout.addLayout(strategy_row)
 
+        self.anchor_label = QLabel()
+        self.anchor_label.setWordWrap(True)
+        layout.addWidget(self.anchor_label)
+
+        self.strategy_explanation_label = QLabel()
+        self.strategy_explanation_label.setWordWrap(True)
+        layout.addWidget(self.strategy_explanation_label)
+
+        self.recommendation_vs_copilot_label = QLabel()
+        self.recommendation_vs_copilot_label.setWordWrap(True)
+        layout.addWidget(self.recommendation_vs_copilot_label)
+
+        self.constraint_explanation_label = QLabel()
+        self.constraint_explanation_label.setWordWrap(True)
+        layout.addWidget(self.constraint_explanation_label)
+
+        self.recommendation_summary_label = QLabel()
+        self.recommendation_summary_label.setWordWrap(True)
+        layout.addWidget(self.recommendation_summary_label)
+
         # Constraints row
         constraints_row = QHBoxLayout()
         self.exclude_button = QPushButton("Exclude Selected")
@@ -148,6 +168,22 @@ class BuildScreen(QWidget):
         rows = vm.copilot_variants_for_display(state)
         self._populate_copilot_table(rows)
         self.copilot_table.setHidden(len(rows) == 0)
+        self.apply_variant_button.setHidden(len(rows) == 0)
+        self.applied_copilot_variant_label.setHidden(state.applied_variant_name is None)
+
+        anchor = vm.anchor_summary(state)
+        self.anchor_label.setText(f"Anchor: {anchor}" if anchor else "Select a track in the Library to set the anchor.")
+        self.anchor_label.setVisible(bool(state.scanned_records))
+
+        current_strategy = self.strategy_combo.currentData() or self.strategy_combo.currentText()
+        self.strategy_explanation_label.setText(vm.strategy_explanation(current_strategy))
+
+        self.recommendation_vs_copilot_label.setText(vm.recommendation_vs_copilot_text())
+        self.constraint_explanation_label.setText(vm.constraint_explanation())
+
+        rec_summary = vm.recommendation_summary(state)
+        self.recommendation_summary_label.setText(rec_summary or "")
+        self.recommendation_summary_label.setVisible(rec_summary is not None)
 
         excluded = len(state.excluded_paths)
         locked = len(state.locked_paths)

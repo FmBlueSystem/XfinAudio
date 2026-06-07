@@ -69,6 +69,11 @@ class ExportScreen(QWidget):
         self.playlist_info_label.setObjectName("statusLabel")
         layout.addWidget(self.playlist_info_label)
 
+        # Empty-state / guidance label
+        self.empty_state_label = QLabel()
+        self.empty_state_label.setWordWrap(True)
+        layout.addWidget(self.empty_state_label)
+
         # Action buttons
         actions = QHBoxLayout()
         self.preview_button = QPushButton("Preview Serato Export")
@@ -117,3 +122,10 @@ class ExportScreen(QWidget):
         self.export_button.setEnabled(vm.export_enabled(state))
         self.export_readiness_button.setEnabled(vm.export_readiness_enabled(state))
         # history_table is populated imperatively by _render_serato_export_history
+        empty = vm.empty_state_text(state)
+        if empty:
+            self.empty_state_label.setText(empty)
+            self.empty_state_label.setVisible(True)
+        else:
+            self.empty_state_label.setText(f"{vm.preview_explanation_text()} {vm.destination_text()}")
+            self.empty_state_label.setVisible(True)

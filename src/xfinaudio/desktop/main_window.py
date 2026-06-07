@@ -251,6 +251,7 @@ class MainWindow(QMainWindow):
         self._state.is_scanning = self.current_scan_cancellation_token is not None
         self._state.is_recommending = self._is_recommending
         self._state.current_screen = _SCREEN_NAMES[_tab_index] if 0 <= _tab_index < len(_SCREEN_NAMES) else "library"
+        self._state.selected_library_paths = list(self._library_selected_paths)
         self._render_screens()
 
     def _render_screens(self) -> None:
@@ -378,6 +379,11 @@ class MainWindow(QMainWindow):
     # (isEnabled, objectName) are safe to alias; label/table widgets
     # whose tests assert specific text content are kept as direct attrs.
     # ------------------------------------------------------------------
+
+    @property
+    def visible_tracks_table(self) -> QTableWidget:
+        """Expose the LibraryScreen tracks_table as the visible widget for tests and E2E."""
+        return self._library_screen.tracks_table
 
     @property
     def folder_button(self) -> QPushButton:
@@ -958,6 +964,9 @@ class MainWindow(QMainWindow):
         """Export the current recommendation as a confirmed Serato crate."""
         if self.last_recommendation is None:
             self.status_label.setText("Generate a recommendation before exporting to Serato")
+            return
+        if self.last_dj_readiness_report is not None and self.last_dj_readiness_report.status == "blocked":
+            self.status_label.setText("Resolve blocked readiness checks before exporting.")
             return
 
         try:

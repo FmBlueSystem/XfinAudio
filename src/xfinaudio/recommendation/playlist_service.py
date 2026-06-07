@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.recommendation.controls import DJControls, apply_controls
+from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls
 from xfinaudio.recommendation.optimizer import recommend_sequence
 from xfinaudio.recommendation.scoring import (
     ScoringWeights,
@@ -58,6 +58,23 @@ def recommend_playlist(
     )
     warnings.extend(filter_warnings)
     applied = apply_controls(filtered_tracks, controls)
+
+    anchor_energy = _resolve_anchor_energy(applied)
+    if strategy.energy_tolerance is not None and anchor_energy is not None:
+        preserve_paths = _preserved_control_paths(controls)
+        tolerance_filtered, tolerance_warnings = _apply_energy_tolerance(
+            applied.candidate_tracks, strategy, anchor_energy, preserve_paths
+        )
+        warnings.extend(tolerance_warnings)
+        applied = AppliedControls(
+            candidate_tracks=tolerance_filtered,
+            manual_prefix=applied.manual_prefix,
+            locked_paths=applied.locked_paths,
+            excluded_paths=applied.excluded_paths,
+            start_path=applied.start_path,
+            end_path=applied.end_path,
+        )
+
     weights = weights_override or strategy.weights
 
     manual_prefix = _manual_prefix_without_terminal_end(applied.manual_prefix, applied.end_path)
@@ -169,6 +186,41 @@ def _preserved_control_paths(controls: DJControls) -> set[str]:
     if controls.end_path is not None:
         preserved.add(controls.end_path)
     return preserved - controls.excluded_paths
+
+
+def _resolve_anchor_energy(applied: AppliedControls) -> int | None:
+    if applied.start_path is not None:
+        for track in applied.candidate_tracks:
+            if track.path == applied.start_path and track.energy_level is not None:
+                return track.energy_level
+    for track in applied.manual_prefix:
+        if track.energy_level is not None:
+            return track.energy_level
+    for track in applied.candidate_tracks:
+        if track.energy_level is not None:
+            return track.energy_level
+    return None
+
+
+def _apply_energy_tolerance(
+    candidate_tracks: list[TrackRecord],
+    strategy: PlaylistStrategy,
+    anchor_energy: int,
+    preserve_paths: set[str],
+) -> tuple[list[TrackRecord], list[str]]:
+    min_energy = anchor_energy - strategy.energy_tolerance
+    max_energy = anchor_energy + strategy.energy_tolerance
+    filtered = [
+        track
+        for track in candidate_tracks
+        if track.path in preserve_paths
+        or (track.energy_level is not None and min_energy <= track.energy_level <= max_energy)
+    ]
+    removed = len(candidate_tracks) - len(filtered)
+    warnings: list[str] = []
+    if removed:
+        warnings.append(f"Filtered {removed} track(s) outside same_energy energy tolerance")
+    return filtered, warnings
 
 
 def _sort_by_hint(tracks: list[TrackRecord], strategy: PlaylistStrategy) -> list[TrackRecord]:

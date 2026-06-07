@@ -61,3 +61,28 @@ def test_build_pool_genre_compatible_records_ranked_before_fallback():
     result = build_recommendation_pool([anchor, compatible, unrelated], controls=controls, limit=25)
     paths = [r.path for r in result]
     assert paths.index("/compat.mp3") < paths.index("/unrelated.mp3")
+
+
+def test_pool_prefers_bpm_feasible_candidate_over_generic_tag_overlap() -> None:
+    anchor = _record(
+        "/anchor.mp3",
+        bpm=102.0,
+        genre="Hip-Hop & R&B",
+        tags=["hip-hop", "r&b", "party"],
+    )
+    fast_more_tags = _record(
+        "/fast.mp3",
+        bpm=126.0,
+        genre="Hip-Hop & R&B",
+        tags=["hip-hop", "r&b", "party", "club", "radio"],
+    )
+    close_fewer_tags = _record(
+        "/close.mp3",
+        bpm=103.0,
+        genre="Hip-Hop & R&B",
+        tags=["hip-hop", "r&b"],
+    )
+    controls = DJControls(start_path="/anchor.mp3")
+    result = build_recommendation_pool([anchor, fast_more_tags, close_fewer_tags], controls=controls, limit=25)
+    paths = [r.path for r in result]
+    assert paths.index("/close.mp3") < paths.index("/fast.mp3")

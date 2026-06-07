@@ -58,12 +58,12 @@ class ReviewScreen(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
-        # Readiness badge — primary semaphore, large and prominent
+        # 1. Decision banner — primary semaphore, large and prominent
         self.readiness_badge = QLabel()
         self.readiness_badge.setObjectName("readinessBadge")
         layout.addWidget(self.readiness_badge)
 
-        # DJ readiness summary (set imperatively by main_window)
+        # 2. Reason summary
         self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
         layout.addWidget(self.dj_readiness_label)
 
@@ -75,14 +75,7 @@ class ReviewScreen(QWidget):
         self.quality_label = QLabel()
         layout.addWidget(self.quality_label)
 
-        # Readiness checks table
-        self.readiness_table = QTableWidget(0, len(_READINESS_COLUMNS))
-        self.readiness_table.setHorizontalHeaderLabels(_READINESS_COLUMNS)
-        self.readiness_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.readiness_table.setAlternatingRowColors(True)
-        layout.addWidget(self.readiness_table)
-
-        # Recommendation table
+        # 3. Recommendation table
         self.recommendation_table = QTableWidget(0, len(_RECOMMENDATION_COLUMNS))
         self.recommendation_table.setHorizontalHeaderLabels(_RECOMMENDATION_COLUMNS)
         self.recommendation_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -97,12 +90,19 @@ class ReviewScreen(QWidget):
         actions.addStretch()
         layout.addLayout(actions)
 
-        # Transition table
+        # 4. Transition table
         self.transition_table = QTableWidget(0, len(_TRANSITION_COLUMNS))
         self.transition_table.setHorizontalHeaderLabels(_TRANSITION_COLUMNS)
         self.transition_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.transition_table.setAlternatingRowColors(True)
         layout.addWidget(self.transition_table)
+
+        # 5. Readiness checks table (secondary)
+        self.readiness_table = QTableWidget(0, len(_READINESS_COLUMNS))
+        self.readiness_table.setHorizontalHeaderLabels(_READINESS_COLUMNS)
+        self.readiness_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.readiness_table.setAlternatingRowColors(True)
+        layout.addWidget(self.readiness_table)
 
         # Navigation
         nav = QHBoxLayout()

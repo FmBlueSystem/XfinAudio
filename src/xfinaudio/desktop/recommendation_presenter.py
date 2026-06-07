@@ -16,11 +16,25 @@ def _track_vibe_terms(track: TrackRecord) -> set[str]:
     return {v.strip().casefold() for v in values if v.strip()}
 
 
+def _camelot_compatible(track_key: str | None, anchor_key: str | None) -> bool:
+    if track_key is None or anchor_key is None:
+        return False
+    if track_key == anchor_key:
+        return True
+    track_num = int(track_key[:-1])
+    track_letter = track_key[-1]
+    anchor_num = int(anchor_key[:-1])
+    anchor_letter = anchor_key[-1]
+    return (track_letter == anchor_letter and abs(track_num - anchor_num) <= 1) or (
+        track_num == anchor_num and track_letter != anchor_letter
+    )
+
+
 def _track_similarity_key(
     anchor_terms: set[str],
     anchor_tracks: list[TrackRecord],
     track: TrackRecord,
-) -> tuple[int, float, float, str]:
+) -> tuple[int, int, int, float, float, str]:
     terms = _track_vibe_terms(track)
     overlap_count = len(anchor_terms & terms)
     bpm_distance = min(
@@ -31,7 +45,24 @@ def _track_similarity_key(
         (abs((track.energy_level or 0) - (a.energy_level or 0)) for a in anchor_tracks if a.energy_level is not None),
         default=9999,
     )
-    return (-overlap_count, bpm_distance, float(energy_distance), track.path)
+
+    if bpm_distance <= 3.0:
+        bpm_bucket = 0
+    elif bpm_distance <= 6.0:
+        bpm_bucket = 1
+    else:
+        bpm_bucket = 2
+
+    if track.camelot_key is not None and any(
+        _camelot_compatible(track.camelot_key, a.camelot_key) for a in anchor_tracks if a.camelot_key is not None
+    ):
+        key_bucket = 0
+    elif track.camelot_key is not None:
+        key_bucket = 1
+    else:
+        key_bucket = 2
+
+    return (bpm_bucket, key_bucket, -overlap_count, float(energy_distance), bpm_distance, track.path)
 
 
 def build_recommendation_pool(
