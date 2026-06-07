@@ -1,0 +1,79 @@
+# OpenSpec/SDD project context for xfinaudio.
+# Generated from repository inspection on 2026-06-06; keep user-maintained changes authoritative.
+project:
+  name: xfinaudio
+  root: /Users/freddymolina/Documents/audio
+  description: Metadata-driven DJ playlist assistant desktop app/discovery prototype.
+  language: python
+  python:
+    requires: ">=3.11"
+  application:
+    type: desktop
+    ui_framework: PySide6
+    entrypoint: xfinaudio = xfinaudio.desktop.app:main
+  source_roots:
+    - src/xfinaudio
+  test_roots:
+    - tests
+  package_manager: uv
+
+stack:
+  runtime:
+    - Python >=3.11
+    - PySide6 >=6.0,<7.0
+  core_dependencies:
+    - mutagen >=1.47,<2.0
+    - pydantic >=2.0,<3.0
+  dev_dependencies:
+    - pytest >=8.0
+    - ruff >=0.11
+    - pyinstaller ==6.20.0
+
+sdd:
+  artifact_store: openspec
+  execution_mode: auto
+  strict_tdd: true
+  phase_rules:
+    - Do not implement changes during SDD initialization.
+    - Use proposal, spec, design, tasks, apply, and verify phases for feature/refactor work.
+    - In strict TDD, write or update failing tests before implementation during apply.
+    - Keep OpenSpec artifacts in this repository's openspec/ tree.
+  current_intent:
+    requested_change: Continue Change B of the main_window refactor.
+    status: Not started by this initialization step.
+    reference_history:
+      - .planning/codebase/AGENT-DISPATCH.md
+
+testing:
+  runner: pytest
+  primary_command: uv run pytest -q
+  validation_commands:
+    - uv run pytest -q
+    - uv run ruff check .
+    - uv run ruff format --check .
+  pytest:
+    testpaths:
+      - tests
+    pythonpath:
+      - src
+  linting:
+    ruff:
+      target_version: py311
+      line_length: 120
+      lint_select:
+        - E
+        - W
+        - F
+        - I
+        - B
+        - C4
+        - UP
+        - SIM
+      format:
+        quote_style: double
+        indent_style: space
+
+conventions:
+  planning_history: .planning/codebase/AGENT-DISPATCH.md
+  skill_registry: .atl/skill-registry.md
+  review_budget_changed_lines: 400

@@ -33,6 +33,7 @@ from xfinaudio.desktop._workers import BackgroundWorker, ScanWorker
 from xfinaudio.desktop.export_coordinator import record_export, write_readiness_sidecars
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
+from xfinaudio.desktop.table_populators import populate_library_table, populate_recommendation_table
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
@@ -828,37 +829,13 @@ class MainWindow(QMainWindow):
 
     def _populate_track_table(self, records: list[TrackRecord]) -> None:
         """Populate the library table in source order, then re-apply the active filter."""
-        self._records_by_path = {record.path: record for record in records}
-        self.tracks_table.setRowCount(len(records))
-        for row_index, record in enumerate(records):
-            values = [
-                record.title or "",
-                record.artist or "",
-                "" if record.bpm is None else f"{record.bpm:g}",
-                record.camelot_key or "",
-                "" if record.energy_level is None else str(record.energy_level),
-                _format_missing_metadata(record),
-                record.genre or "",
-                _format_track_tags(record),
-                record.metadata_status,
-                record.path,
-            ]
-            sort_values: list[object] = [
-                values[_TRACK_TITLE_COLUMN].casefold(),
-                values[1].casefold(),
-                record.bpm if record.bpm is not None else float("inf"),
-                values[3].casefold(),
-                values[4].casefold(),
-                values[5].casefold(),
-                record.energy_level if record.energy_level is not None else 999,
-                values[5].casefold(),
-                values[6].casefold(),
-                values[7].casefold(),
-                values[_TRACK_STATUS_COLUMN].casefold(),
-                values[_TRACK_PATH_COLUMN].casefold(),
-            ]
-            for column_index, value in enumerate(values):
-                self.tracks_table.setItem(row_index, column_index, _table_item(value, sort_values[column_index]))
+        self._records_by_path = populate_library_table(
+            self.tracks_table,
+            records,
+            item_factory=_table_item,
+            format_missing_metadata=_format_missing_metadata,
+            format_track_tags=_format_track_tags,
+        )
         self._apply_song_filter(clear_selection=False)
 
     def _apply_song_filter(self, query: str | None = None, *, clear_selection: bool = False) -> None:
@@ -1599,48 +1576,15 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Render recommended records in the playlist table."""
         self._set_recommendation_sections_expanded(bool(records))
-        self.recommendation_table.setRowCount(len(records))
-        transition_rows = explanation.transitions if explanation is not None else []
-        for row_index, record in enumerate(records):
-            transition = (
-                transition_rows[row_index - 1] if row_index > 0 and row_index - 1 < len(transition_rows) else None
-            )
-            values = [
-                record.title or "",
-                record.artist or "",
-                "" if record.bpm is None else f"{record.bpm:g}",
-                record.camelot_key or "",
-                "" if record.energy_level is None else str(record.energy_level),
-                record.genre or "",
-                _format_track_tags(record),
-                strategy_name,
-                record.path,
-                "" if transition is None else f"{transition.final_score:.3f}",
-                ""
-                if transition is None
-                else "; ".join(format_recommendation_warning(warning) for warning in transition.warnings),
-            ]
-            sort_values: list[object] = [
-                values[0].casefold(),
-                values[1].casefold(),
-                record.bpm if record.bpm is not None else float("inf"),
-                values[3].casefold(),
-                values[4].casefold(),
-                values[5].casefold(),
-                record.energy_level if record.energy_level is not None else 999,
-                values[5].casefold(),
-                values[6].casefold(),
-                values[7].casefold(),
-                values[8].casefold(),
-                transition.final_score if transition is not None else -1.0,
-                values[10].casefold(),
-            ]
-            for column_index, value in enumerate(values):
-                self.recommendation_table.setItem(
-                    row_index,
-                    column_index,
-                    _table_item(value, sort_values[column_index]),
-                )
+        populate_recommendation_table(
+            self.recommendation_table,
+            records,
+            strategy_name,
+            explanation,
+            item_factory=_table_item,
+            format_track_tags=_format_track_tags,
+            format_warning=format_recommendation_warning,
+        )
 
     def clear_recommendation_review(self) -> None:
         """Reset recommendation review widgets to their empty state."""

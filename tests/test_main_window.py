@@ -469,6 +469,23 @@ def test_main_window_filter_uses_path_index_instead_of_rescanning_records(tmp_pa
     assert _visible_track_titles(window) == ["Needs Key"]
 
 
+def test_populate_track_table_updates_path_mapping_before_reapplying_filter(tmp_path, monkeypatch) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    record = TrackRecord(path=str(tmp_path / "ready.flac"), title="Ready", metadata_status="complete")
+    calls: list[tuple[bool, TrackRecord | None]] = []
+
+    def capture_filter(*, clear_selection: bool = False) -> None:
+        calls.append((clear_selection, window._records_by_path.get(record.path)))
+
+    monkeypatch.setattr(window, "_apply_song_filter", capture_filter)
+
+    window._populate_track_table([record])
+
+    assert calls == [(False, record)]
+    assert window._records_by_path[record.path] is record
+
+
 def test_main_window_sorts_library_bpm_column_numerically(tmp_path) -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
@@ -964,8 +981,13 @@ def test_recommendation_table_formats_warning_cells_without_mutating_raw_explana
         window.recommendation_table.horizontalHeaderItem(column).text()
         for column in range(window.recommendation_table.columnCount())
     ]
+    score_item = window.recommendation_table.item(1, headers.index("Transition Score"))
     warnings_item = window.recommendation_table.item(1, headers.index("Warnings"))
+    assert score_item is not None
     assert warnings_item is not None
+    assert window.recommendation_table.isHidden() is False
+    assert window.recommendation_table.rowCount() == 2
+    assert score_item.text() == "0.000"
     assert warnings_item.text() == main_window.format_recommendation_warning(raw_warning)
     assert window.last_playlist_explanation.transitions[0].warnings == [raw_warning]
 
