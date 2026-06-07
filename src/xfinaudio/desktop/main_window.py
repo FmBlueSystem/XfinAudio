@@ -263,6 +263,7 @@ class MainWindow(QMainWindow):
         self.serato_export_history: list[dict[str, str]] = []
         self._table_sort_orders: dict[int, Qt.SortOrder] = {}
         self._active_song_search_query = ""
+        self._library_selected_paths: list[str] = []
         self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
         self.selected_folder = self.settings.library.last_scan_folder
         self._state = AppState(
@@ -1123,6 +1124,7 @@ class MainWindow(QMainWindow):
 
     def _on_library_selection_changed(self, paths: list[str]) -> None:
         """Update state when user selection changes in LibraryScreen."""
+        self._library_selected_paths = paths
         self._sync_state()
         self._refresh_idle_action_state()
 
@@ -1259,11 +1261,32 @@ class MainWindow(QMainWindow):
         self._start_recommendation_worker(records, strategy_name, controls)
 
     def _selected_track_controls(self) -> DJControls | None:
-        """Convert selected track rows into DJ sequencing controls."""
-        selected_rows = sorted({index.row() for index in self.tracks_table.selectedIndexes()})
+        """Convert selected track rows into DJ sequencing controls.
+
+        Prefers paths reported by LibraryScreen (visible selection). Falls back to
+        the legacy tracks_table widget for test compatibility.
+        """
         records_by_path = {record.path: record for record in self.scanned_records}
-        selected_records: list[TrackRecord] = []
-        seen_paths: set[str] = set()
+
+        # Primary source: paths emitted by LibraryScreen.selection_changed
+        if self._library_selected_paths:
+            selected_records: list[TrackRecord] = []
+            seen_paths: set[str] = set()
+            for path in self._library_selected_paths:
+                record = records_by_path.get(path)
+                if record is None or record.metadata_status != "complete" or path in seen_paths:
+                    continue
+                selected_records.append(record)
+                seen_paths.add(path)
+            if selected_records:
+                if len(selected_records) == 1:
+                    return DJControls(start_path=selected_records[0].path)
+                return DJControls(manual_order_paths=[r.path for r in selected_records])
+
+        # Fallback: legacy widget used by automated tests
+        selected_rows = sorted({index.row() for index in self.tracks_table.selectedIndexes()})
+        selected_records = []
+        seen_paths = set()
         for row in selected_rows:
             if self.tracks_table.isRowHidden(row):
                 continue
