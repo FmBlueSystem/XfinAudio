@@ -207,59 +207,13 @@ class MainWindow(QMainWindow):
         prep_copilot_controls.addWidget(self.prep_copilot_apply_button)
         prep_copilot_controls.addStretch(1)
 
-        build_page = QWidget()
-        build_layout = QVBoxLayout()
-        build_layout.addWidget(self.build_decision_label)
-        build_layout.addWidget(self.recommendation_guidance_label)
-        build_layout.addLayout(recommendation_controls)
-        build_layout.addLayout(prep_copilot_controls)
-        build_layout.addWidget(self.prep_copilot_table)
-        build_layout.addStretch(1)
-        build_page.setLayout(build_layout)
-
-        review_page = QWidget()
-        review_layout = QVBoxLayout()
-        review_layout.addWidget(self.review_decision_label)
-        review_layout.addWidget(self.recommendation_table, 2)
-        review_layout.addWidget(self.review_summary_label)
-        review_layout.addWidget(self.dj_readiness_label)
-        review_layout.addWidget(self.dj_readiness_table)
-        review_layout.addWidget(self.transition_review_table, 1)
-        review_page.setLayout(review_layout)
-
-        export_page = QWidget()
-        export_layout = QVBoxLayout()
-        export_layout.addWidget(self.export_decision_label)
-        export_layout.addWidget(self.applied_copilot_variant_label)
-        export_layout.addWidget(self.export_guidance_label)
-        export_layout.addWidget(self.serato_export_history_table)
-        export_layout.addWidget(self.serato_preview_button)
-        export_layout.addWidget(self.serato_export_button)
-        export_layout.addWidget(self.dj_readiness_export_button)
-        export_layout.addWidget(self.safe_export_folder_button)
-        export_layout.addWidget(self.safe_export_folder_label)
-        export_layout.addStretch(1)
-        export_page.setLayout(export_layout)
-
-        metadata_page = QWidget()
-        metadata_layout = QVBoxLayout()
-        metadata_layout.addWidget(self.metadata_decision_label)
-        metadata_layout.addWidget(
-            QLabel(
-                "Use the Library filters to isolate incomplete tracks, export a metadata worklist, "
-                "complete it in Serato/Mixed In Key, then scan again."
-            )
-        )
-        metadata_layout.addStretch(1)
-        metadata_page.setLayout(metadata_layout)
-
         self.workflow_tabs = QTabWidget()
         self.workflow_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self.workflow_tabs.addTab(self._library_screen, "Library")
-        self.workflow_tabs.addTab(build_page, "Build Playlist")
-        self.workflow_tabs.addTab(review_page, "Review Mix")
-        self.workflow_tabs.addTab(export_page, "Export to Serato")
-        self.workflow_tabs.addTab(metadata_page, "Metadata Worklist")
+        self.workflow_tabs.addTab(self._build_screen, "Build Playlist")
+        self.workflow_tabs.addTab(self._review_screen, "Review Mix")
+        self.workflow_tabs.addTab(self._export_screen, "Export to Serato")
+        self.workflow_tabs.addTab(self._metadata_screen, "Metadata Worklist")
 
         layout = QVBoxLayout()
         layout.addLayout(controls)
@@ -275,6 +229,10 @@ class MainWindow(QMainWindow):
         )
 
         container = QWidget()
+        # Reparent standalone labels that are no longer in a tab page layout so that
+        # isHidden() returns False (Qt hides parentless top-level widgets by default).
+        self.review_summary_label.setParent(container)
+        self.dj_readiness_label.setParent(container)
         container.setLayout(layout)
         self.setCentralWidget(container)
 
@@ -494,6 +452,24 @@ class MainWindow(QMainWindow):
         self._library_screen.metadata_screen_requested.connect(
             lambda: self.workflow_tabs.setCurrentIndex(4)
         )
+        # BuildScreen signals
+        self._build_screen.recommend_requested.connect(self._on_recommend_requested)
+        self._build_screen.copilot_generate_requested.connect(self.generate_prep_copilot)
+        self._build_screen.copilot_variant_applied.connect(self._on_copilot_variant_applied)
+        self._build_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(0))
+        # ReviewScreen signals
+        self._review_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(1))
+        self._review_screen.proceed_to_export_requested.connect(self._on_proceed_to_export)
+        # ExportScreen signals
+        self._export_screen.preview_requested.connect(self.preview_serato_export)
+        self._export_screen.export_requested.connect(self.export_recommendation_to_serato)
+        self._export_screen.readiness_export_requested.connect(
+            lambda: self.export_dj_readiness_report()
+        )
+        self._export_screen.safe_folder_change_requested.connect(self.choose_safe_export_folder)
+        self._export_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(2))
+        # MetadataScreen signals
+        self._metadata_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(0))
         for table in (
             self.tracks_table,
             self.recommendation_table,
@@ -1437,3 +1413,22 @@ class MainWindow(QMainWindow):
             track_review_name=_track_review_name,
             format_warning=format_recommendation_warning,
         )
+
+    def _on_recommend_requested(self, strategy_name: str, paths: list[str]) -> None:
+        """Adapter: BuildScreen emits (strategy_name, paths), recommend_playlist reads from widgets."""
+        combo_idx = self.strategy_combo.findText(strategy_name)
+        if combo_idx >= 0:
+            self.strategy_combo.setCurrentIndex(combo_idx)
+        self.recommend_playlist()
+
+    def _on_copilot_variant_applied(self, index: int) -> None:
+        """Adapter: BuildScreen emits variant index, apply method reads from table."""
+        if hasattr(self, "prep_copilot_table") and 0 <= index < self.prep_copilot_table.rowCount():
+            self.prep_copilot_table.selectRow(index)
+        self.apply_selected_prep_copilot_variant()
+
+    def _on_proceed_to_export(self) -> None:
+        """Navigate to export only if readiness allows it."""
+        vm = ReviewViewModel()
+        if vm.can_export(self._state):
+            self.workflow_tabs.setCurrentIndex(3)

@@ -1,4 +1,4 @@
-"""Tests for visual integration: LibraryScreen connected to the Library tab."""
+"""Tests for visual integration: screens connected to their respective tabs."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from xfinaudio.desktop.main_window import MainWindow
-from xfinaudio.desktop.screens import LibraryScreen
+from xfinaudio.desktop.screens import BuildScreen, ExportScreen, LibraryScreen, MetadataScreen, ReviewScreen
 from xfinaudio.library.models import TrackRecord
 
 
@@ -69,9 +69,12 @@ def test_library_screen_renders_on_sync(qapp, window):
     assert window._library_screen.tracks_table.rowCount() >= 0  # no crash
 
 
-def test_library_screen_signals_connected(qapp, window):
+def test_library_screen_signals_connected(qapp, window, monkeypatch):
     """LibraryScreen signals must be connected without raising."""
-    # Emit each signal — if disconnected, this would not crash but checks wiring
+    # Patch dialog-opening / scan-starting handlers before emitting
+    monkeypatch.setattr(window, "choose_folder", lambda: None)
+    monkeypatch.setattr(window, "scan_selected_folder", lambda: None)
+    monkeypatch.setattr(window, "cancel_scan", lambda: None)
     window._library_screen.folder_change_requested.emit()
     window._library_screen.scan_requested.emit()
     window._library_screen.cancel_scan_requested.emit()
@@ -108,3 +111,71 @@ def test_library_screen_metadata_screen_requested_navigates_to_tab_4(qapp, windo
     window.workflow_tabs.setCurrentIndex(0)
     window._library_screen.metadata_screen_requested.emit()
     assert window.workflow_tabs.currentIndex() == 4
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — BuildScreen
+# ---------------------------------------------------------------------------
+
+
+def test_build_screen_is_tab_one(qapp, window):
+    """BuildScreen must be the widget at tab index 1."""
+    assert isinstance(window.workflow_tabs.widget(1), BuildScreen)
+
+
+def test_build_back_signal_navigates_to_library(qapp, window):
+    """back_requested from BuildScreen must navigate to tab 0 (Library)."""
+    window.workflow_tabs.setCurrentIndex(1)
+    window._build_screen.back_requested.emit()
+    assert window.workflow_tabs.currentIndex() == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 4 — ReviewScreen
+# ---------------------------------------------------------------------------
+
+
+def test_review_screen_is_tab_two(qapp, window):
+    """ReviewScreen must be the widget at tab index 2."""
+    assert isinstance(window.workflow_tabs.widget(2), ReviewScreen)
+
+
+def test_review_back_navigates_to_build(qapp, window):
+    """back_requested from ReviewScreen must navigate to tab 1 (Build)."""
+    window.workflow_tabs.setCurrentIndex(2)
+    window._review_screen.back_requested.emit()
+    assert window.workflow_tabs.currentIndex() == 1
+
+
+# ---------------------------------------------------------------------------
+# Task 5 — ExportScreen
+# ---------------------------------------------------------------------------
+
+
+def test_export_screen_is_tab_three(qapp, window):
+    """ExportScreen must be the widget at tab index 3."""
+    assert isinstance(window.workflow_tabs.widget(3), ExportScreen)
+
+
+def test_export_back_navigates_to_review(qapp, window):
+    """back_requested from ExportScreen must navigate to tab 2 (Review)."""
+    window.workflow_tabs.setCurrentIndex(3)
+    window._export_screen.back_requested.emit()
+    assert window.workflow_tabs.currentIndex() == 2
+
+
+# ---------------------------------------------------------------------------
+# Task 6 — MetadataScreen
+# ---------------------------------------------------------------------------
+
+
+def test_metadata_screen_is_tab_four(qapp, window):
+    """MetadataScreen must be the widget at tab index 4."""
+    assert isinstance(window.workflow_tabs.widget(4), MetadataScreen)
+
+
+def test_metadata_back_navigates_to_library(qapp, window):
+    """back_requested from MetadataScreen must navigate to tab 0 (Library)."""
+    window.workflow_tabs.setCurrentIndex(4)
+    window._metadata_screen.back_requested.emit()
+    assert window.workflow_tabs.currentIndex() == 0
