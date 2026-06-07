@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: xfinaudio-dj-qa-remediation
+artifact_store: openspec
+status: verify-complete
+created: 2026-06-07
+updated: 2026-06-07
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: delivery
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Implementation must proceed by PR slice, not as one monolithic patch.
+  - Behavior-changing tasks require RED -> GREEN -> REFACTOR.
