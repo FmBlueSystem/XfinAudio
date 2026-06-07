@@ -2542,3 +2542,35 @@ def test_main_window_serato_export_history_includes_readiness_sidecar_paths(tmp_
     assert _table_item_text(window.serato_export_history_table, 0, 5) == str(
         crate_path.with_suffix(".dj-readiness.csv")
     )
+
+
+def test_main_window_blocks_serato_export_when_dj_readiness_is_blocked(tmp_path) -> None:
+    ensure_app()
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.last_recommendation = make_recommendation(
+        [
+            TrackRecord(
+                path=str(tmp_path / "dd" / "_Lossless" / "A.flac"),
+                title="A",
+                bpm=120,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            ),
+        ]
+    )
+    window.last_dj_readiness_report = DjReadinessReport(
+        status="blocked",
+        summary="Blocked for testing",
+        checks=[DjReadinessCheck(label="BPM jump", status="blocked", detail="Too large")],
+        blocker_count=1,
+        review_count=0,
+    )
+
+    window.export_recommendation_to_serato(serato_folder=serato_folder, crate_name="Blocked Test")
+
+    target = serato_folder / "Subcrates" / "Blocked Test.crate"
+    assert not target.exists()
+    assert "Resolve blocked readiness checks before exporting" in window.status_label.text()
