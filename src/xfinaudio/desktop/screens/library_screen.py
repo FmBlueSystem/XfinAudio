@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+_EMPTY = QTableWidgetItem("")
 _ROW_COLOR_EVEN = QColor("#101820")
 _ROW_COLOR_ODD = QColor("#14202a")
 _ROW_COLOR_SELECTED = QColor("#0078b4")
@@ -139,10 +140,17 @@ class LibraryScreen(QWidget):
 
     def _apply_filter(self) -> None:
         query = self._filter_query
+        # Search across Title, Artist, BPM, Key, Genre (cols 0-3, 6). Exclude path (col 8).
+        _SEARCH_COLS = (0, 1, 2, 3, 6)
         for row in range(self.tracks_table.rowCount()):
-            title_item = self.tracks_table.item(row, 0)
-            title = (title_item.text() if title_item else "").casefold()
-            self.tracks_table.setRowHidden(row, bool(query) and query not in title)
+            if not query:
+                self.tracks_table.setRowHidden(row, False)
+                continue
+            match = any(
+                query in (self.tracks_table.item(row, col) or _EMPTY).text().casefold()
+                for col in _SEARCH_COLS
+            )
+            self.tracks_table.setRowHidden(row, not match)
 
     def _on_selection_changed(self) -> None:
         selected_rows = {idx.row() for idx in self.tracks_table.selectedIndexes()}
