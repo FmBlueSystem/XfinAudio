@@ -77,9 +77,9 @@ class ReviewViewModel:
         if state.last_recommendation is None:
             return "No playlist generated"
         if status == ReadinessStatus.BLOCKED:
-            return "Export blocked — resolve issues first"
+            return "Blocked: do not export yet"
         if status == ReadinessStatus.NEEDS_REVIEW:
-            return "Review warnings before export"
+            return "Needs review before export"
         return "Ready to export"
 
     def readiness_checks(self, state: AppState) -> list[ReadinessCheckRow]:

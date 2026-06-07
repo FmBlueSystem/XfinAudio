@@ -104,3 +104,22 @@ class ExportViewModel:
         if rec is None:
             return "—"
         return f"{len(rec.ordered_tracks)} tracks"
+
+    def empty_state_text(self, state: AppState) -> str:
+        """Human-readable guidance when no recommendation is available for export."""
+        if state.last_recommendation is not None:
+            return ""
+        return (
+            "Build a playlist first to see export options. "
+            "Exports are written to _Serato_/Subcrates/*.crate. "
+            "Preview shows crate contents without writing files. "
+            "Open Serato after export to verify the crate appears in Subcrates."
+        )
+
+    def preview_explanation_text(self) -> str:
+        """Explain that preview does not write files."""
+        return "Preview shows the planned crate contents without writing any files."
+
+    def destination_text(self) -> str:
+        """Explain the destination format."""
+        return "Exports are written to the _Serato_/Subcrates folder as *.crate files."

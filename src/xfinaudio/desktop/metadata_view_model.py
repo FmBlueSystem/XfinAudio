@@ -105,3 +105,18 @@ class MetadataViewModel:
     def export_enabled(self, state: AppState) -> bool:
         """True when there are incomplete tracks to export."""
         return any(r.metadata_status == "incomplete" for r in state.scanned_records)
+
+    def worklist_guidance_text(self) -> str:
+        """Explain the purpose of the metadata worklist."""
+        return (
+            "The worklist shows tracks missing BPM, Key, or Energy. "
+            "These fields are required for harmonic mixing recommendations."
+        )
+
+    def fix_metadata_guidance_text(self) -> str:
+        """Explain how to fix missing metadata."""
+        return "Fix missing tags in an external tag editor, then return to XfinAudio."
+
+    def refresh_guidance_text(self) -> str:
+        """Explain how to refresh after fixing metadata."""
+        return "Refresh the library scan to pick up corrected metadata."
