@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from PySide6.QtCore import Qt, QThread, Slot
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -45,7 +44,14 @@ from xfinaudio.desktop.rendering import (
     format_quality_summary,
     format_recommendation_warning,
 )
-from xfinaudio.desktop.table_populators import populate_library_table, populate_recommendation_table
+from xfinaudio.desktop.table_populators import (
+    populate_dj_readiness_table,
+    populate_library_table,
+    populate_prep_copilot_table,
+    populate_recommendation_table,
+    populate_serato_export_history_table,
+    populate_transition_review_table,
+)
 from xfinaudio.desktop.theme import (
     _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT,
     _COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT,
@@ -1000,30 +1006,12 @@ class MainWindow(QMainWindow):
 
     def _render_serato_export_history(self) -> None:
         """Render recent Serato export receipts without crowding the desktop layout."""
-        self.serato_export_history_table.setRowCount(len(self.serato_export_history))
         self.serato_export_history_table.setVisible(bool(self.serato_export_history))
-        for row_index, export_receipt in enumerate(self.serato_export_history):
-            values = [
-                export_receipt["time"],
-                export_receipt["strategy"],
-                export_receipt["tracks"],
-                export_receipt["path"],
-                export_receipt.get("readiness_json_path", ""),
-                export_receipt.get("readiness_csv_path", ""),
-            ]
-            sort_values: list[object] = [
-                values[0],
-                values[1].casefold(),
-                int(values[2]),
-                values[3].casefold(),
-                values[4].casefold(),
-                values[5].casefold(),
-            ]
-            for column_index, value in enumerate(values):
-                item = _table_item(value, sort_values[column_index])
-                if column_index in {3, 4, 5}:
-                    item.setToolTip(value)
-                self.serato_export_history_table.setItem(row_index, column_index, item)
+        populate_serato_export_history_table(
+            self.serato_export_history_table,
+            self.serato_export_history,
+            item_factory=_table_item,
+        )
 
     def scan_selected_folder(self) -> None:
         """Scan the selected folder, persist records, and refresh table/status widgets."""
@@ -1228,21 +1216,13 @@ class MainWindow(QMainWindow):
     def _populate_prep_copilot_table(self, plan: PrepCopilotPlan) -> None:
         """Render Safe/Balanced/Adventurous copilot variants for quick comparison."""
         self.prep_copilot_table.setHidden(False)
-        self.prep_copilot_table.setRowCount(len(plan.variants))
-        for row_index, variant in enumerate(plan.variants):
-            values = [
-                variant.name,
-                _READINESS_STATUS_LABELS[variant.readiness.status],
-                str(len(variant.recommendation.ordered_tracks)),
-                "; ".join([*variant.blockers, *variant.warnings]),
-            ]
-            for column_index, value in enumerate(values):
-                item = _table_item(value, value.casefold() if isinstance(value, str) else value)
-                if column_index == 1:
-                    item.setBackground(QColor(_READINESS_STATUS_COLORS[variant.readiness.status]))
-                    item.setForeground(QColor("#061016"))
-                    item.setToolTip(variant.readiness.summary)
-                self.prep_copilot_table.setItem(row_index, column_index, item)
+        populate_prep_copilot_table(
+            self.prep_copilot_table,
+            plan,
+            item_factory=_table_item,
+            readiness_status_labels=_READINESS_STATUS_LABELS,
+            readiness_status_colors=_READINESS_STATUS_COLORS,
+        )
 
     def recommend_playlist(self) -> None:
         """Generate and display a playlist recommendation from scanned records."""
@@ -1404,52 +1384,24 @@ class MainWindow(QMainWindow):
 
     def _populate_dj_readiness_table(self, report: DjReadinessReport) -> None:
         """Render actionable readiness checks in a compact table."""
-        self.dj_readiness_table.setRowCount(len(report.checks))
-        status_sort = {"blocked": 0, "needs_review": 1, "ready": 2}
-        for row_index, check in enumerate(report.checks):
-            values = [check.label, _READINESS_STATUS_LABELS[check.status], check.detail]
-            sort_values: list[object] = [
-                check.label.casefold(),
-                status_sort[check.status],
-                check.detail.casefold(),
-            ]
-            for column_index, value in enumerate(values):
-                item = _table_item(value, sort_values[column_index])
-                if column_index == 1:
-                    item.setBackground(QColor(_READINESS_STATUS_COLORS[check.status]))
-                    item.setForeground(QColor("#061016"))
-                    item.setToolTip(_READINESS_STATUS_TOOLTIPS[check.status])
-                self.dj_readiness_table.setItem(row_index, column_index, item)
+        populate_dj_readiness_table(
+            self.dj_readiness_table,
+            report,
+            item_factory=_table_item,
+            readiness_status_labels=_READINESS_STATUS_LABELS,
+            readiness_status_colors=_READINESS_STATUS_COLORS,
+            readiness_status_tooltips=_READINESS_STATUS_TOOLTIPS,
+        )
 
     def show_transition_review(self, explanation: PlaylistExplanation) -> None:
         """Render transition component scores and warnings in the review table."""
-        self.transition_review_table.setRowCount(len(explanation.transitions))
-        for row_index, transition in enumerate(explanation.transitions):
-            values = [
-                str(transition.order),
-                _track_review_name(transition.left),
-                _track_review_name(transition.right),
-                _format_review_score(_component_score(transition, "key_score", "harmonic")),
-                _format_review_score(_component_score(transition, "bpm_score", "bpm")),
-                _format_review_score(_component_score(transition, "energy_score", "energy")),
-                _format_review_score(_component_score(transition, "tag_score", "tags")),
-                _format_review_score(transition.final_score),
-                "; ".join(format_recommendation_warning(warning) for warning in transition.warnings),
-            ]
-            sort_values = [
-                transition.order,
-                values[1].casefold(),
-                values[2].casefold(),
-                _score_sort_value(_component_score(transition, "key_score", "harmonic")),
-                _score_sort_value(_component_score(transition, "bpm_score", "bpm")),
-                _score_sort_value(_component_score(transition, "energy_score", "energy")),
-                _score_sort_value(_component_score(transition, "tag_score", "tags")),
-                _score_sort_value(transition.final_score),
-                values[8].casefold(),
-            ]
-            for column_index, value in enumerate(values):
-                self.transition_review_table.setItem(
-                    row_index,
-                    column_index,
-                    _table_item(value, sort_values[column_index]),
-                )
+        populate_transition_review_table(
+            self.transition_review_table,
+            explanation,
+            item_factory=_table_item,
+            format_review_score=_format_review_score,
+            component_score=_component_score,
+            score_sort_value=_score_sort_value,
+            track_review_name=_track_review_name,
+            format_warning=format_recommendation_warning,
+        )
