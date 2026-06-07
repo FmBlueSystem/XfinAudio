@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.exporting.explainability import PlaylistExplanation
@@ -16,9 +17,7 @@ from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
 
 ScreenName = Literal["library", "build", "review", "export", "metadata"]
 
-VALID_SCREENS: frozenset[str] = frozenset(
-    {"library", "build", "review", "export", "metadata"}
-)
+VALID_SCREENS: frozenset[str] = frozenset(get_args(ScreenName))
 
 
 @dataclass
@@ -36,7 +35,7 @@ class AppState:
 
     # Prep Copilot
     last_prep_copilot_plan: PrepCopilotPlan | None = None
-    applied_variant_name: str | None = None  # "safe" | "balanced" | "adventurous" | None
+    applied_variant_name: Literal["safe", "balanced", "adventurous"] | None = None
 
     # Export
     serato_export_history: list[dict] = field(default_factory=list)
@@ -52,21 +51,18 @@ class AppState:
     is_recommending: bool = False
 
     def with_screen(self, screen: ScreenName) -> AppState:
-        from copy import copy
-
-        s = copy(self)
+        s = copy.copy(self)
+        s.serato_export_history = list(self.serato_export_history)
         s.current_screen = screen
         return s
 
     def with_scanned_records(self, records: list[TrackRecord]) -> AppState:
-        from copy import copy
-
-        s = copy(self)
+        s = copy.copy(self)
         s.scanned_records = list(records)
         s.records_by_path = {r.path: r for r in records}
         return s
 
-    def debug_summary(self) -> dict:
+    def debug_summary(self) -> dict[str, object]:
         return {
             "screen": self.current_screen,
             "folder": str(self.selected_folder),

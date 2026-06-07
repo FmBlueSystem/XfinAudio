@@ -93,6 +93,12 @@ class TestWithScreen:
         updated = state.with_screen("foo")  # type: ignore[arg-type]
         assert updated.current_screen == "foo"
 
+    def test_with_screen_does_not_alias_export_history(self) -> None:
+        state = AppState(serato_export_history=[{"crate": "set1"}])
+        copy = state.with_screen("build")
+        copy.serato_export_history.append({"crate": "set2"})
+        assert len(state.serato_export_history) == 1  # original not mutated
+
 
 class TestWithScannedRecords:
     def test_records_by_path_built_correctly(self) -> None:
