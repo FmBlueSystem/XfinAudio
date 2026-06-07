@@ -36,6 +36,7 @@ from xfinaudio.desktop.export_coordinator import (
     write_readiness_sidecars,
 )
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
+from xfinaudio.desktop.navigation_controller import NavigationController
 from xfinaudio.desktop.recommendation_controller import RecommendationController
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
 from xfinaudio.desktop.rendering import (
@@ -308,6 +309,7 @@ class MainWindow(QMainWindow):
             serato_export_history=self.serato_export_history,
             settings=self.settings,
         )
+        self._nav = NavigationController()
 
     def _sync_state(self) -> None:
         """Mirror current instance fields into self._state (self.X remains the source of truth)."""
