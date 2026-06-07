@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from collections.abc import Iterable
 from io import StringIO
 from pathlib import Path
@@ -14,6 +15,8 @@ from pydantic import BaseModel, ConfigDict
 from xfinaudio.exporting.serato_crate import SeratoExportPlan, validate_serato_crate_file
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import MAX_ADJACENT_BPM_DIFFERENCE_PERCENT, PlaylistRecommendation
+
+LOGGER = logging.getLogger(__name__)
 
 ReadinessStatus = Literal["ready", "needs_review", "blocked"]
 _STATUS_LABELS: dict[ReadinessStatus, str] = {
@@ -68,6 +71,16 @@ def build_dj_readiness_report(
     status = _worst_status(check.status for check in checks)
     blocker_count = sum(1 for check in checks if check.status == "blocked")
     review_count = sum(1 for check in checks if check.status == "needs_review")
+    if blocker_count:
+        LOGGER.warning(
+            "DJ readiness: %d blocker(s) in %d-track playlist", blocker_count, len(recommendation.ordered_tracks)
+        )
+    elif review_count:
+        LOGGER.info(
+            "DJ readiness: %d item(s) need review in %d-track playlist",
+            review_count,
+            len(recommendation.ordered_tracks),
+        )
     max_bpm_jump = _max_bpm_jump_percent(recommendation)
     summary = (
         f"{_STATUS_LABELS[status]} — "

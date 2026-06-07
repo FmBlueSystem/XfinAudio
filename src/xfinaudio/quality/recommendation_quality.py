@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+
+LOGGER = logging.getLogger(__name__)
 
 
 class RecommendationQualityReport(BaseModel):
@@ -44,14 +48,16 @@ def build_quality_report(
         manual_overlap_ratio = _overlap_ratio(generated_paths, list(manual_paths))
         manual_order_match_prefix_count = _order_match_prefix_count(generated_paths, list(manual_paths))
 
+    warning_count = len(recommendation.warnings)
+    if warning_count:
+        LOGGER.info("Recommendation quality: %d warning(s) across %d transition(s)", warning_count, transition_count)
     return RecommendationQualityReport(
         track_count=len(tracks),
         transition_count=transition_count,
         average_transition_score=average_transition_score,
         bpm_jumps=bpm_jumps,
         energy_jumps=energy_jumps,
-        warning_count=len(recommendation.warnings)
-        + sum(len(score.warnings) for score in recommendation.transition_scores),
+        warning_count=warning_count + sum(len(score.warnings) for score in recommendation.transition_scores),
         manual_overlap_ratio=manual_overlap_ratio,
         manual_order_match_prefix_count=manual_order_match_prefix_count,
     )
