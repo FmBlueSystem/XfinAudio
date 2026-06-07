@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from PySide6.QtCore import Qt, QThread, Slot
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -28,9 +28,9 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
-from xfinaudio.desktop._workers import BackgroundWorker
 from xfinaudio.desktop.export_coordinator import record_export, write_readiness_sidecars
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
+from xfinaudio.desktop.recommendation_controller import RecommendationController
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
 from xfinaudio.desktop.rendering import (
     _component_score,
@@ -292,8 +292,7 @@ class MainWindow(QMainWindow):
         self.applied_prep_copilot_variant_name: str | None = None
         self.current_scan_cancellation_token: ScanCancellationToken | None = None
         self._scan_controller = ScanController(self.workflow_service, parent=self)
-        self._recommendation_thread: QThread | None = None
-        self._recommendation_worker: BackgroundWorker | None = None
+        self._recommendation_controller = RecommendationController(self.workflow_service, parent=self)
         self.serato_export_history: list[dict[str, str]] = []
         self._table_sort_orders: dict[int, Qt.SortOrder] = {}
         self._active_song_search_query = ""
@@ -429,6 +428,9 @@ class MainWindow(QMainWindow):
         self._scan_controller.scan_completed.connect(self._finish_scan)
         self._scan_controller.scan_failed.connect(self._fail_scan)
         self._scan_controller.worker_cleared.connect(self._clear_scan_worker_refs)
+        self._recommendation_controller.recommendation_completed.connect(self._finish_recommendation)
+        self._recommendation_controller.recommendation_failed.connect(self._fail_recommendation)
+        self._recommendation_controller.worker_cleared.connect(self._clear_recommendation_worker_refs)
         for table in (
             self.tracks_table,
             self.recommendation_table,
@@ -1266,21 +1268,9 @@ class MainWindow(QMainWindow):
     def _start_recommendation_worker(
         self, records: list[TrackRecord], strategy_name: str, controls: DJControls | None = None
     ) -> None:
-        """Start recommendation generation in a worker thread."""
-        thread = QThread(self)
-        worker = BackgroundWorker(lambda: self.workflow_service.recommend(records, strategy_name, controls=controls))
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.finished.connect(self._finish_recommendation)
-        worker.failed.connect(self._fail_recommendation)
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._clear_recommendation_worker_refs)
-        self._recommendation_thread = thread
-        self._recommendation_worker = worker
-        thread.start()
+        """Delegate recommendation thread lifecycle to RecommendationController."""
+        self._recommendation_controller.workflow_service = self.workflow_service
+        self._recommendation_controller.start_recommendation(records, strategy_name, controls)
 
     @Slot(object)
     def _finish_recommendation(self, result: Any) -> None:
@@ -1314,8 +1304,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _clear_recommendation_worker_refs(self) -> None:
-        self._recommendation_thread = None
-        self._recommendation_worker = None
+        pass  # refs owned and cleared by RecommendationController
 
     def show_recommendation(
         self,
