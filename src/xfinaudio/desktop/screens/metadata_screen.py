@@ -46,6 +46,11 @@ class MetadataScreen(QWidget):
         self.status_label = QLabel()
         layout.addWidget(self.status_label)
 
+        # Worklist guidance
+        self.guidance_label = QLabel()
+        self.guidance_label.setWordWrap(True)
+        layout.addWidget(self.guidance_label)
+
         # Filter controls row
         filter_row = QHBoxLayout()
         self.status_combo = QComboBox()
@@ -92,6 +97,14 @@ class MetadataScreen(QWidget):
             vm = MetadataViewModel()
 
         self.status_label.setText(vm.status_text(state))
+
+        if state.scanned_records:
+            self.guidance_label.setText(
+                f"{vm.worklist_guidance_text()} {vm.fix_metadata_guidance_text()} {vm.refresh_guidance_text()}"
+            )
+            self.guidance_label.setVisible(True)
+        else:
+            self.guidance_label.setVisible(False)
 
         # Populate combos once (idempotent — skip if already populated)
         if self.status_combo.count() == 0:

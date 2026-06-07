@@ -201,9 +201,21 @@ class TestReadinessBadgeText:
         state = _state_with_readiness("ready")
         assert "Ready" in vm.readiness_badge_text(state)
 
-    def test_needs_review_text_contains_warning(self, vm: ReviewViewModel) -> None:
+    def test_needs_review_text_contains_review(self, vm: ReviewViewModel) -> None:
         state = _state_with_readiness("needs_review")
-        assert "warning" in vm.readiness_badge_text(state).lower()
+        assert "review" in vm.readiness_badge_text(state).lower()
+
+    def test_ready_says_ready_to_export(self, vm: ReviewViewModel) -> None:
+        state = _state_with_readiness("ready")
+        assert vm.readiness_badge_text(state) == "Ready to export"
+
+    def test_needs_review_says_needs_review_before_export(self, vm: ReviewViewModel) -> None:
+        state = _state_with_readiness("needs_review")
+        assert vm.readiness_badge_text(state) == "Needs review before export"
+
+    def test_blocked_says_blocked_do_not_export_yet(self, vm: ReviewViewModel) -> None:
+        state = _state_with_readiness("blocked")
+        assert vm.readiness_badge_text(state) == "Blocked: do not export yet"
 
 
 # ---------------------------------------------------------------------------
