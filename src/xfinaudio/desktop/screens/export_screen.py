@@ -127,7 +127,5 @@ class ExportScreen(QWidget):
             self.empty_state_label.setText(empty)
             self.empty_state_label.setVisible(True)
         else:
-            self.empty_state_label.setText(
-                f"{vm.preview_explanation_text()} {vm.destination_text()}"
-            )
+            self.empty_state_label.setText(f"{vm.preview_explanation_text()} {vm.destination_text()}")
             self.empty_state_label.setVisible(True)
