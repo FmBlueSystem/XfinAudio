@@ -48,6 +48,9 @@ class AppState:
     locked_paths: frozenset[str] = field(default_factory=frozenset)
     playlist_removed_paths: frozenset[str] = field(default_factory=frozenset)
 
+    # Selection
+    selected_library_paths: list[str] = field(default_factory=list)
+
     # Navigation
     current_screen: ScreenName = "library"
 
