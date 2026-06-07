@@ -309,6 +309,22 @@ class MainWindow(QMainWindow):
             settings=self.settings,
         )
 
+    def _sync_state(self) -> None:
+        """Mirror current instance fields into self._state (self.X remains the source of truth)."""
+        self._state = AppState(
+            selected_folder=self.selected_folder,
+            scanned_records=self.scanned_records,
+            records_by_path=self._records_by_path,
+            last_recommendation=self.last_recommendation,
+            last_playlist_explanation=self.last_playlist_explanation,
+            last_quality_report=self.last_quality_report,
+            last_dj_readiness_report=self.last_dj_readiness_report,
+            last_prep_copilot_plan=self.last_prep_copilot_plan,
+            applied_variant_name=self.applied_prep_copilot_variant_name,
+            serato_export_history=self.serato_export_history,
+            settings=self.settings,
+        )
+
     def _build_widgets(self) -> None:
         """Build constructor widgets and intrinsic widget configuration."""
         self.setWindowTitle("XfinAudio")
@@ -624,6 +640,7 @@ class MainWindow(QMainWindow):
         self.recommendation_guidance_label.setText("Scan metadata before recommending a playlist.")
         self._refresh_idle_action_state()
         self.status_label.setText("Folder selected")
+        self._sync_state()
 
     def _persist_last_scan_folder(self, folder: Path) -> None:
         """Persist the latest scan folder so saved libraries can be refreshed after restart."""
@@ -993,6 +1010,7 @@ class MainWindow(QMainWindow):
             readiness_csv_path=readiness_csv_path,
         )
         self.serato_export_history = record_export(self.serato_export_history, entry, _SERATO_EXPORT_HISTORY_LIMIT)
+        self._sync_state()
         self._render_serato_export_history()
 
     def _render_serato_export_history(self) -> None:
@@ -1046,6 +1064,7 @@ class MainWindow(QMainWindow):
             self.recommendation_guidance_label.setText("Scan metadata before recommending a playlist.")
             return
         self.scanned_records = result.records
+        self._sync_state()
         self.show_tracks(result.records, result.complete_count, result.incomplete_count)
         self._end_scan_state()
         self._show_scan_completion_status(result.records)
@@ -1163,6 +1182,7 @@ class MainWindow(QMainWindow):
         self.last_playlist_explanation = explanation
         self.last_quality_report = quality_report
         self.last_dj_readiness_report = variant.readiness
+        self._sync_state()
         self._set_applied_copilot_variant(variant.name)
         self.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)
         self.review_summary_label.setText(format_quality_summary(quality_report))
@@ -1176,6 +1196,7 @@ class MainWindow(QMainWindow):
     def _set_applied_copilot_variant(self, variant_name: str | None) -> None:
         """Update applied Copilot variant state and export badge."""
         self.applied_prep_copilot_variant_name = variant_name
+        self._sync_state()
         if variant_name is None:
             self.applied_copilot_variant_label.setText("Applied Variant: none")
             self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
@@ -1265,6 +1286,7 @@ class MainWindow(QMainWindow):
         self.last_recommendation = result.recommendation
         self.last_playlist_explanation = result.explanation
         self.last_quality_report = result.quality_report
+        self._sync_state()
         self.show_recommendation(
             result.recommendation.ordered_tracks,
             result.recommendation.strategy.name,
@@ -1335,6 +1357,7 @@ class MainWindow(QMainWindow):
             serato_volume_root=serato_volume_root,
         )
         self.last_dj_readiness_report = report
+        self._sync_state()
         self.dj_readiness_label.setText(format_dj_readiness_summary(report))
         self._populate_dj_readiness_table(report)
         self._refresh_export_action_state()
