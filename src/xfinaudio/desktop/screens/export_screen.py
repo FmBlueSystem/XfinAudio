@@ -54,6 +54,11 @@ class ExportScreen(QWidget):
         info_row.addWidget(self.safe_folder_button)
         layout.addLayout(info_row)
 
+        # Playlist summary
+        self.playlist_info_label = QLabel("—")
+        self.playlist_info_label.setObjectName("statusLabel")
+        layout.addWidget(self.playlist_info_label)
+
         # Action buttons
         actions = QHBoxLayout()
         self.preview_button = QPushButton("Preview")
@@ -97,6 +102,7 @@ class ExportScreen(QWidget):
         """Update all widgets from ViewModel data."""
         self.variant_label.setText(vm.applied_variant_label(state))
         self.safe_folder_label.setText(vm.safe_folder_label(state))
+        self.playlist_info_label.setText(vm.preview_text(state) or "—")
         self.export_button.setEnabled(vm.export_enabled(state))
         self.export_readiness_button.setEnabled(vm.export_readiness_enabled(state))
         self._populate_history_table(vm.export_history_rows(state))
