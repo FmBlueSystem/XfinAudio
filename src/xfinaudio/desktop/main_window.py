@@ -959,6 +959,9 @@ class MainWindow(QMainWindow):
         if self.last_recommendation is None:
             self.status_label.setText("Generate a recommendation before exporting to Serato")
             return
+        if self.last_dj_readiness_report is not None and self.last_dj_readiness_report.status == "blocked":
+            self.status_label.setText("Resolve blocked readiness checks before exporting.")
+            return
 
         try:
             plan, library = self._plan_current_serato_export(
