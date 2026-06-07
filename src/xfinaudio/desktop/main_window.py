@@ -385,7 +385,10 @@ class MainWindow(QMainWindow):
 
         self._connect_widget_signals()
         self._apply_visual_design()
+        self._build_layout()
 
+    def _build_layout(self) -> None:
+        """Assemble widget layout hierarchy, tab pages, and central window container."""
         controls = QHBoxLayout()
         controls.addWidget(self.folder_button)
         controls.addWidget(self.scan_button)
