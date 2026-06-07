@@ -102,23 +102,27 @@ class LibraryScreen(QWidget):
         self._apply_filter()
 
     def _populate_table(self, rows: list[TrackDisplayRow]) -> None:
-        self.tracks_table.setRowCount(0)
-        for row_data in rows:
-            row = self.tracks_table.rowCount()
-            self.tracks_table.insertRow(row)
-            values = [
-                row_data.title,
-                row_data.artist,
-                row_data.bpm,
-                row_data.musical_key,
-                row_data.energy,
-                row_data.missing_fields,
-                row_data.genre,
-                row_data.metadata_status,
-                row_data.display_path,
-            ]
-            for col, value in enumerate(values):
-                self.tracks_table.setItem(row, col, QTableWidgetItem(value))
+        self.tracks_table.blockSignals(True)
+        try:
+            self.tracks_table.setRowCount(0)
+            for row_data in rows:
+                row = self.tracks_table.rowCount()
+                self.tracks_table.insertRow(row)
+                values = [
+                    row_data.title,
+                    row_data.artist,
+                    row_data.bpm,
+                    row_data.musical_key,
+                    row_data.energy,
+                    row_data.missing_fields,
+                    row_data.genre,
+                    row_data.metadata_status,
+                    row_data.path,  # full path for lookup; display_path only for UI labels
+                ]
+                for col, value in enumerate(values):
+                    self.tracks_table.setItem(row, col, QTableWidgetItem(value))
+        finally:
+            self.tracks_table.blockSignals(False)
 
     # ------------------------------------------------------------------
     # Internal slots
