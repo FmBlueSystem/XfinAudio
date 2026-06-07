@@ -210,17 +210,13 @@ class TestSafeFolderLabel:
     def test_folder_returns_only_folder_name(self) -> None:
         vm = ExportViewModel()
         state = AppState()
-        state.settings = AppSettings(
-            export=ExportSettings(safe_export_folder=Path("/Users/freddy/Music/Serato"))
-        )
+        state.settings = AppSettings(export=ExportSettings(safe_export_folder=Path("/Users/freddy/Music/Serato")))
         assert vm.safe_folder_label(state) == "Serato"
 
     def test_folder_name_not_full_path(self) -> None:
         vm = ExportViewModel()
         state = AppState()
-        state.settings = AppSettings(
-            export=ExportSettings(safe_export_folder=Path("/a/b/c/d"))
-        )
+        state.settings = AppSettings(export=ExportSettings(safe_export_folder=Path("/a/b/c/d")))
         result = vm.safe_folder_label(state)
         assert "/" not in result
         assert result == "d"

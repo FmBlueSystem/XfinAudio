@@ -195,9 +195,7 @@ def test_display_path_is_filename_only(vm: LibraryViewModel) -> None:
 
 
 def test_missing_fields_with_values_joined_by_comma(vm: LibraryViewModel) -> None:
-    state = make_state(
-        tracks=[make_track(missing_required_fields=["bpm", "energy_level"])]
-    )
+    state = make_state(tracks=[make_track(missing_required_fields=["bpm", "energy_level"])])
 
     rows = vm.tracks_for_display(state)
 

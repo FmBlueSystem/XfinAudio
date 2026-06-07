@@ -66,9 +66,7 @@ class ReviewScreen(QWidget):
         # Recommendation table
         self.recommendation_table = QTableWidget(0, len(_RECOMMENDATION_COLUMNS))
         self.recommendation_table.setHorizontalHeaderLabels(_RECOMMENDATION_COLUMNS)
-        self.recommendation_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Interactive
-        )
+        self.recommendation_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.recommendation_table.setAlternatingRowColors(True)
         layout.addWidget(self.recommendation_table)
 

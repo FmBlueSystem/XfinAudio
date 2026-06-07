@@ -21,7 +21,7 @@ class ReadinessStatus(StrEnum):
 @dataclass(frozen=True)
 class ReadinessCheckRow:
     label: str
-    status: str   # "ready" | "needs_review" | "blocked"
+    status: str  # "ready" | "needs_review" | "blocked"
     detail: str
 
 
@@ -29,19 +29,19 @@ class ReadinessCheckRow:
 class TransitionRow:
     from_track: str
     to_track: str
-    score: str        # formatted as "0.85"
+    score: str  # formatted as "0.85"
     has_warning: bool
     warning_text: str  # "" if no warning
 
 
 @dataclass(frozen=True)
 class RecommendationRow:
-    position: int      # 1-indexed
+    position: int  # 1-indexed
     title: str
     artist: str
-    bpm: str           # "128" or "—"
-    camelot_key: str   # "8A" or "—"
-    energy: str        # "7" or "—"
+    bpm: str  # "128" or "—"
+    camelot_key: str  # "8A" or "—"
+    energy: str  # "7" or "—"
     overall_score: str  # "0.92" or "—"
 
 

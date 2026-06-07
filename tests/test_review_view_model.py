@@ -24,6 +24,7 @@ from xfinaudio.recommendation.strategies import PlaylistStrategy
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_track(path: str = "track.mp3", title: str = "Test Track", artist: str = "DJ Test") -> TrackRecord:
     return TrackRecord(
         path=path,
@@ -133,6 +134,7 @@ def _make_playlist_explanation(transitions: list[TransitionExplanation] | None =
 # State builders
 # ---------------------------------------------------------------------------
 
+
 def _state_with_recommendation_no_readiness() -> AppState:
     state = AppState()
     state.last_recommendation = _make_recommendation()
@@ -150,6 +152,7 @@ def _state_with_readiness(status: str) -> AppState:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def vm() -> ReviewViewModel:
     return ReviewViewModel()
@@ -158,6 +161,7 @@ def vm() -> ReviewViewModel:
 # ---------------------------------------------------------------------------
 # readiness_status
 # ---------------------------------------------------------------------------
+
 
 class TestReadinessStatus:
     def test_blocked_when_no_recommendation(self, vm: ReviewViewModel) -> None:
@@ -184,6 +188,7 @@ class TestReadinessStatus:
 # readiness_badge_text
 # ---------------------------------------------------------------------------
 
+
 class TestReadinessBadgeText:
     def test_no_playlist_when_no_recommendation(self, vm: ReviewViewModel) -> None:
         assert vm.readiness_badge_text(AppState()) == "No playlist generated"
@@ -204,6 +209,7 @@ class TestReadinessBadgeText:
 # ---------------------------------------------------------------------------
 # readiness_checks
 # ---------------------------------------------------------------------------
+
 
 class TestReadinessChecks:
     def test_empty_when_no_readiness_report(self, vm: ReviewViewModel) -> None:
@@ -232,6 +238,7 @@ class TestReadinessChecks:
 # ---------------------------------------------------------------------------
 # transition_rows
 # ---------------------------------------------------------------------------
+
 
 class TestTransitionRows:
     def test_empty_when_no_explanation(self, vm: ReviewViewModel) -> None:
@@ -278,6 +285,7 @@ class TestTransitionRows:
 # quality_summary
 # ---------------------------------------------------------------------------
 
+
 class TestQualitySummary:
     def test_dash_when_no_quality_report(self, vm: ReviewViewModel) -> None:
         assert vm.quality_summary(AppState()) == "—"
@@ -294,6 +302,7 @@ class TestQualitySummary:
 # ---------------------------------------------------------------------------
 # can_export
 # ---------------------------------------------------------------------------
+
 
 class TestCanExport:
     def test_false_when_no_recommendation(self, vm: ReviewViewModel) -> None:
@@ -315,6 +324,7 @@ class TestCanExport:
 # ---------------------------------------------------------------------------
 # recommendation_rows
 # ---------------------------------------------------------------------------
+
 
 class TestRecommendationRows:
     def test_empty_when_no_recommendation(self, vm: ReviewViewModel) -> None:
