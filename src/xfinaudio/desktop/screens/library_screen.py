@@ -16,13 +16,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.library_view_model import LibraryViewModel, TrackDisplayRow
+
 _EMPTY = QTableWidgetItem("")
 _ROW_COLOR_EVEN = QColor("#101820")
 _ROW_COLOR_ODD = QColor("#14202a")
 _ROW_COLOR_SELECTED = QColor("#0078b4")
-
-from xfinaudio.desktop.app_state import AppState
-from xfinaudio.desktop.library_view_model import LibraryViewModel, TrackDisplayRow
 
 _COLUMNS = ["Title", "Artist", "BPM", "Key", "Energy", "Missing", "Genre", "Status", "Path"]
 
@@ -156,10 +156,7 @@ class LibraryScreen(QWidget):
             if not query:
                 self.tracks_table.setRowHidden(row, False)
                 continue
-            match = any(
-                query in (self.tracks_table.item(row, col) or _EMPTY).text().casefold()
-                for col in _SEARCH_COLS
-            )
+            match = any(query in (self.tracks_table.item(row, col) or _EMPTY).text().casefold() for col in _SEARCH_COLS)
             self.tracks_table.setRowHidden(row, not match)
 
     def _apply_constraint_colors(self, excluded: frozenset[str], locked: frozenset[str]) -> None:
@@ -205,9 +202,7 @@ class LibraryScreen(QWidget):
     def _paint_row_selection(self, selected_rows: set[int]) -> None:
         col_count = self.tracks_table.columnCount()
         for row in range(self.tracks_table.rowCount()):
-            color = _ROW_COLOR_SELECTED if row in selected_rows else (
-                _ROW_COLOR_ODD if row % 2 else _ROW_COLOR_EVEN
-            )
+            color = _ROW_COLOR_SELECTED if row in selected_rows else (_ROW_COLOR_ODD if row % 2 else _ROW_COLOR_EVEN)
             for col in range(col_count):
                 item = self.tracks_table.item(row, col)
                 if item is not None:

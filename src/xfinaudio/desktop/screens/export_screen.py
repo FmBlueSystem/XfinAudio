@@ -117,4 +117,3 @@ class ExportScreen(QWidget):
         self.export_button.setEnabled(vm.export_enabled(state))
         self.export_readiness_button.setEnabled(vm.export_readiness_enabled(state))
         # history_table is populated imperatively by _render_serato_export_history
-

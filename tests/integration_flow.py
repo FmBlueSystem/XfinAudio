@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Headless integration test for XfinAudio full DJ flow."""
+
 import sys
 import time
-import threading
 from pathlib import Path
 
 # Add project source to path
@@ -29,7 +29,7 @@ def check(label, condition, detail=""):
 
 
 def section(name):
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f" {name}")
     print("=" * 50)
 
@@ -55,6 +55,7 @@ def _process_events_until(predicate, timeout_ms: int = 5000) -> bool:
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
+
 
 class FakeScanService:
     def __init__(self) -> None:
@@ -104,6 +105,7 @@ class FakeRepository:
 # Test helpers
 # ---------------------------------------------------------------------------
 
+
 def _table_headers(table) -> list[str]:
     return [
         table.horizontalHeaderItem(col).text()
@@ -119,6 +121,7 @@ def _visible_row_count(table) -> int:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def run_tests():
     app = ensure_app()
@@ -168,6 +171,7 @@ def run_tests():
 
     # Simulate scan
     import tempfile
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         window.set_selected_folder(tmp_path)
@@ -181,7 +185,11 @@ def run_tests():
         window.scan_selected_folder()
         reached = _process_events_until(lambda: window.current_scan_cancellation_token is None)
         check("Scan completed within timeout", reached)
-        check("tracks_table populated (2 rows)", window.tracks_table.rowCount() == 2, f"got {window.tracks_table.rowCount()}")
+        check(
+            "tracks_table populated (2 rows)",
+            window.tracks_table.rowCount() == 2,
+            f"got {window.tracks_table.rowCount()}",
+        )
         check("scanned_records has 2 entries", len(window.scanned_records) == 2)
 
         # Moment 2: after scan — Library and Build (and Metadata) should be enabled
@@ -366,6 +374,7 @@ def run_tests():
         app.processEvents()
         # proceed_to_export_requested goes to Export (index 3) only if can_export
         from xfinaudio.desktop.review_view_model import ReviewViewModel
+
         vm = ReviewViewModel()
         # Sync state so it has current recommendation
         window._sync_state()

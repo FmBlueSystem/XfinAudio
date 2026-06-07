@@ -59,10 +59,7 @@ class ReviewViewModel:
         """
         if state.last_recommendation is None:
             return ReadinessStatus.BLOCKED
-        remaining = [
-            t for t in state.last_recommendation.ordered_tracks
-            if t.path not in state.playlist_removed_paths
-        ]
+        remaining = [t for t in state.last_recommendation.ordered_tracks if t.path not in state.playlist_removed_paths]
         if not remaining:
             return ReadinessStatus.BLOCKED
         if state.last_dj_readiness_report is None:
@@ -136,8 +133,7 @@ class ReviewViewModel:
         """
         if state.last_recommendation is not None:
             remaining = [
-                t for t in state.last_recommendation.ordered_tracks
-                if t.path not in state.playlist_removed_paths
+                t for t in state.last_recommendation.ordered_tracks if t.path not in state.playlist_removed_paths
             ]
             if not remaining:
                 return False

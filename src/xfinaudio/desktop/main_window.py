@@ -540,21 +540,15 @@ class MainWindow(QMainWindow):
         self._library_screen.scan_requested.connect(self.scan_selected_folder)
         self._library_screen.cancel_scan_requested.connect(self.cancel_scan)
         self._library_screen.selection_changed.connect(self._on_library_selection_changed)
-        self._library_screen.metadata_screen_requested.connect(
-            lambda: self.workflow_tabs.setCurrentIndex(4)
-        )
-        self._library_screen.proceed_button.clicked.connect(
-            lambda: self.workflow_tabs.setCurrentIndex(1)
-        )
+        self._library_screen.metadata_screen_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(4))
+        self._library_screen.proceed_button.clicked.connect(lambda: self.workflow_tabs.setCurrentIndex(1))
         self._library_screen.settings_requested.connect(self._open_settings_dialog)
         # BuildScreen signals
         self._build_screen.recommend_requested.connect(self._on_recommend_requested)
         self._build_screen.copilot_generate_requested.connect(self.generate_prep_copilot)
         self._build_screen.copilot_variant_applied.connect(self._on_copilot_variant_applied)
         self._build_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(0))
-        self._build_screen.proceed_button.clicked.connect(
-            lambda: self.workflow_tabs.setCurrentIndex(2)
-        )
+        self._build_screen.proceed_button.clicked.connect(lambda: self.workflow_tabs.setCurrentIndex(2))
         self._build_screen.exclude_requested.connect(self._on_exclude_requested)
         self._build_screen.lock_requested.connect(self._on_lock_requested)
         self._build_screen.clear_constraints_requested.connect(self._on_clear_constraints)
@@ -568,9 +562,7 @@ class MainWindow(QMainWindow):
         # ExportScreen signals
         self._export_screen.preview_requested.connect(self.preview_serato_export)
         self._export_screen.export_requested.connect(self.export_recommendation_to_serato)
-        self._export_screen.readiness_export_requested.connect(
-            lambda: self.export_dj_readiness_report()
-        )
+        self._export_screen.readiness_export_requested.connect(lambda: self.export_dj_readiness_report())
         self._export_screen.safe_folder_change_requested.connect(self.choose_safe_export_folder)
         self._export_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(2))
         # MetadataScreen signals
@@ -1324,7 +1316,6 @@ class MainWindow(QMainWindow):
         self.export_guidance_label.setText("Inspect the selected Prep Copilot variant before exporting it to Serato.")
         self.status_label.setText(f"Applied Prep Copilot variant: {variant.name}")
 
-
     def _set_applied_copilot_variant(self, variant_name: str | None) -> None:
         """Update applied Copilot variant state and export badge."""
         self.applied_prep_copilot_variant_name = variant_name
@@ -1476,7 +1467,6 @@ class MainWindow(QMainWindow):
             "Inspect the review table before exporting. Review scores and warnings before any safe export to Serato."
         )
 
-
     @Slot(object)
     def _fail_recommendation(self, error: object) -> None:
         """Recover the UI if background recommendation generation fails."""
@@ -1527,7 +1517,6 @@ class MainWindow(QMainWindow):
         self.dj_readiness_label.setText(format_dj_readiness_summary(report))
         self._populate_dj_readiness_table(report)
 
-
     def _populate_dj_readiness_table(self, report: DjReadinessReport) -> None:
         """Render actionable readiness checks in a compact table."""
         populate_dj_readiness_table(
@@ -1570,7 +1559,9 @@ class MainWindow(QMainWindow):
         # Map display labels back to internal field names
         missing_field = _MISSING_METADATA_FILTERS.get(missing_filter)
         # Normalise status filter: "All" or unknown → None
-        norm_status: str | None = status_filter.casefold() if status_filter.casefold() in {"complete", "incomplete"} else None
+        norm_status: str | None = (
+            status_filter.casefold() if status_filter.casefold() in {"complete", "incomplete"} else None
+        )
         self.export_metadata_status_to_serato(status=norm_status, missing_field=missing_field)
 
     def _on_exclude_requested(self) -> None:

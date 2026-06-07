@@ -23,7 +23,17 @@ from xfinaudio.desktop.review_view_model import (
 
 _READINESS_COLUMNS = ["Check", "Status", "Detail"]
 _RECOMMENDATION_COLUMNS = ["#", "Title", "Artist", "BPM", "Key", "Energy", "Score"]
-_TRANSITION_COLUMNS = ["Order", "From", "To", "Key Score", "BPM Score", "Energy Score", "Tag Score", "Final Score", "Warnings"]
+_TRANSITION_COLUMNS = [
+    "Order",
+    "From",
+    "To",
+    "Key Score",
+    "BPM Score",
+    "Energy Score",
+    "Tag Score",
+    "Final Score",
+    "Warnings",
+]
 
 
 class ReviewScreen(QWidget):
@@ -180,4 +190,3 @@ class ReviewScreen(QWidget):
         path = path_item.data(Qt.ItemDataRole.UserRole)
         if path:
             self.track_play_requested.emit(path)
-
