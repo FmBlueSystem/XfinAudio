@@ -57,6 +57,24 @@ def plan_serato_export(
     return plan, library
 
 
+def build_serato_export_entry(
+    recommendation: PlaylistRecommendation,
+    written_path: Path,
+    *,
+    readiness_json_path: Path | None = None,
+    readiness_csv_path: Path | None = None,
+) -> dict[str, str]:
+    """Build a Serato export receipt dict from a completed export."""
+    return {
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "strategy": recommendation.strategy.name,
+        "tracks": str(len(recommendation.ordered_tracks)),
+        "path": str(written_path),
+        "readiness_json_path": "" if readiness_json_path is None else str(readiness_json_path),
+        "readiness_csv_path": "" if readiness_csv_path is None else str(readiness_csv_path),
+    }
+
+
 def record_export(
     history: list[dict],
     entry: dict,

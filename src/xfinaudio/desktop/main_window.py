@@ -28,7 +28,12 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
-from xfinaudio.desktop.export_coordinator import plan_serato_export, record_export, write_readiness_sidecars
+from xfinaudio.desktop.export_coordinator import (
+    build_serato_export_entry,
+    plan_serato_export,
+    record_export,
+    write_readiness_sidecars,
+)
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.recommendation_controller import RecommendationController
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
@@ -973,14 +978,12 @@ class MainWindow(QMainWindow):
         """Record a bounded in-session Serato export receipt for user verification."""
         if self.last_recommendation is None:
             return
-        entry = {
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "strategy": self.last_recommendation.strategy.name,
-            "tracks": str(len(self.last_recommendation.ordered_tracks)),
-            "path": str(written_path),
-            "readiness_json_path": "" if readiness_json_path is None else str(readiness_json_path),
-            "readiness_csv_path": "" if readiness_csv_path is None else str(readiness_csv_path),
-        }
+        entry = build_serato_export_entry(
+            self.last_recommendation,
+            written_path,
+            readiness_json_path=readiness_json_path,
+            readiness_csv_path=readiness_csv_path,
+        )
         self.serato_export_history = record_export(self.serato_export_history, entry, _SERATO_EXPORT_HISTORY_LIMIT)
         self._render_serato_export_history()
 
