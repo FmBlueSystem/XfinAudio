@@ -130,6 +130,7 @@ _RECOMMENDATION_READY_GUIDANCE = (
 )
 _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
 _SERATO_EXPORT_HISTORY_LIMIT = 5
+_SCREEN_NAMES = ["library", "build", "review", "export", "metadata"]
 _TRACK_TITLE_COLUMN = 0
 _TRACK_MISSING_COLUMN = 5
 _TRACK_STATUS_COLUMN = 8
@@ -306,6 +307,7 @@ class MainWindow(QMainWindow):
         self.last_prep_copilot_plan: PrepCopilotPlan | None = None
         self.applied_prep_copilot_variant_name: str | None = None
         self.current_scan_cancellation_token: ScanCancellationToken | None = None
+        self._is_recommending: bool = False
         self._scan_controller = ScanController(self.workflow_service, parent=self)
         self._recommendation_controller = RecommendationController(self.workflow_service, parent=self)
         self.serato_export_history: list[dict[str, str]] = []
@@ -333,6 +335,7 @@ class MainWindow(QMainWindow):
 
     def _sync_state(self) -> None:
         """Mirror current instance fields into self._state (self.X remains the source of truth)."""
+        _tab_index = self.workflow_tabs.currentIndex()
         self._state = AppState(
             selected_folder=self.selected_folder,
             scanned_records=self.scanned_records,
@@ -345,6 +348,9 @@ class MainWindow(QMainWindow):
             applied_variant_name=self.applied_prep_copilot_variant_name,
             serato_export_history=self.serato_export_history,
             settings=self.settings,
+            is_scanning=self.current_scan_cancellation_token is not None,
+            is_recommending=self._is_recommending,
+            current_screen=_SCREEN_NAMES[_tab_index] if 0 <= _tab_index < len(_SCREEN_NAMES) else "library",
         )
 
     def _build_widgets(self) -> None:
@@ -1285,12 +1291,14 @@ class MainWindow(QMainWindow):
 
     def _begin_recommendation_state(self, candidate_count: int) -> None:
         """Disable recommendation controls while the optimizer runs."""
+        self._is_recommending = True
         self.recommend_button.setEnabled(False)
         self.scan_button.setEnabled(False)
         self.status_label.setText(f"Generating recommendation from {candidate_count} candidate track(s)")
 
     def _end_recommendation_state(self) -> None:
         """Restore valid idle controls after the optimizer finishes."""
+        self._is_recommending = False
         self._refresh_idle_action_state()
 
     def _start_recommendation_worker(
