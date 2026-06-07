@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from PySide6.QtCore import Qt, QThread, Slot
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -29,21 +29,73 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
-from xfinaudio.desktop._workers import BackgroundWorker, ScanWorker
-from xfinaudio.desktop.export_coordinator import record_export, write_readiness_sidecars
+from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.build_view_model import BuildViewModel
+from xfinaudio.desktop.export_coordinator import (
+    build_serato_export_entry,
+    plan_serato_export,
+    record_export,
+    write_readiness_sidecars,
+)
+from xfinaudio.desktop.export_view_model import ExportViewModel
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
+from xfinaudio.desktop.library_view_model import LibraryViewModel
+from xfinaudio.desktop.metadata_view_model import MetadataViewModel
+from xfinaudio.desktop.navigation_controller import NavigationController
+from xfinaudio.desktop.recommendation_controller import RecommendationController
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
-from xfinaudio.desktop.table_populators import populate_library_table, populate_recommendation_table
+from xfinaudio.desktop.rendering import (
+    _component_score,
+    _format_missing_metadata,
+    _format_review_score,
+    _format_track_tags,
+    _missing_worklist_display_name,
+    _score_sort_value,
+    _table_item,
+    _track_review_name,
+    format_quality_summary,
+    format_recommendation_warning,
+)
+from xfinaudio.desktop.review_view_model import ReviewViewModel
+from xfinaudio.desktop.scan_controller import ScanController
+from xfinaudio.desktop.screens import (
+    BuildScreen,
+    ExportScreen,
+    LibraryScreen,
+    MetadataScreen,
+    ReviewScreen,
+)
+from xfinaudio.desktop.table_populators import (
+    populate_dj_readiness_table,
+    populate_library_table,
+    populate_prep_copilot_table,
+    populate_serato_export_history_table,
+    populate_transition_review_table,
+)
+from xfinaudio.desktop.theme import (
+    _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT,
+    _COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT,
+    _COMPACT_LIBRARY_TABLE_MAX_HEIGHT,
+    _COMPACT_LIBRARY_TABLE_MIN_HEIGHT,
+    _COMPACT_REVIEW_TABLE_MIN_HEIGHT,
+    _COMPACT_TABLE_ROW_HEIGHT,
+    _DJ_READINESS_TABLE_COLUMN_WIDTHS,
+    _DJ_VISUAL_STYLESHEET,
+    _READINESS_STATUS_COLORS,
+    _READINESS_STATUS_LABELS,
+    _READINESS_STATUS_TOOLTIPS,
+    _REVIEW_TABLE_COLUMN_WIDTHS,
+    _SERATO_EXPORT_HISTORY_COLUMN_WIDTHS,
+    _TRACK_TABLE_COLUMN_WIDTHS,
+)
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
     SeratoLibrary,
+    SeratoLibraryNotFoundError,
     discover_serato_libraries,
-    plan_copilot_variant_serato_playlist_export,
-    plan_generated_serato_playlist_export,
     plan_metadata_missing_field_serato_export,
     plan_metadata_status_serato_export,
-    plan_serato_playlist_export,
     select_serato_library_for_tracks,
 )
 from xfinaudio.library.models import MetadataStatus, TrackRecord
@@ -59,7 +111,6 @@ from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, PrepCopilotPlan, build_prep_copilot_plan
-from xfinaudio.recommendation.strategies import available_strategies
 
 LOGGER = logging.getLogger(__name__)
 
@@ -71,300 +122,24 @@ class SettingsPersistence(Protocol):
         """Persist application settings."""
 
 
-_FIELD_LABELS = {
-    "bpm": "BPM",
-    "camelot_key": "Camelot key",
-    "energy_level": "energy level",
-}
-
 _EMPTY_REVIEW_SUMMARY = "No recommendation is ready for review."
 _RECOMMENDATION_READY_GUIDANCE = (
     "Selected row starts the playlist; multiple selected rows set the opening order. "
     "Up to 25 candidates are used for interactive speed. Choose a strategy, then click Recommend Playlist."
 )
 _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
-_COMPACT_LIBRARY_TABLE_MAX_HEIGHT = 190
-_COMPACT_LIBRARY_TABLE_MIN_HEIGHT = 132
-_COMPACT_RESULTS_TABLE_MIN_HEIGHT = 118
-_COMPACT_REVIEW_TABLE_MIN_HEIGHT = 100
-_COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT = 72
-_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT = 92
-_COMPACT_TABLE_ROW_HEIGHT = 24
 _SERATO_EXPORT_HISTORY_LIMIT = 5
+_SCREEN_NAMES = ["library", "build", "review", "export", "metadata"]
 _TRACK_TITLE_COLUMN = 0
 _TRACK_MISSING_COLUMN = 5
 _TRACK_STATUS_COLUMN = 8
 _TRACK_PATH_COLUMN = 9
-_TRACK_TABLE_COLUMN_WIDTHS = (160, 145, 70, 70, 76, 150, 130, 140, 86, 220)
-_RECOMMENDATION_TABLE_COLUMN_WIDTHS = (160, 150, 72, 70, 82, 130, 145, 92, 180, 120, 150)
-_REVIEW_TABLE_COLUMN_WIDTHS = (70, 170, 170, 100, 100, 112, 100, 110, 180)
-_SERATO_EXPORT_HISTORY_COLUMN_WIDTHS = (86, 110, 70, 260, 260, 260)
-_DJ_READINESS_TABLE_COLUMN_WIDTHS = (180, 112, 520)
-_READINESS_STATUS_COLORS = {"ready": "#1fd16a", "needs_review": "#ffb000", "blocked": "#ff4d4f"}
-_READINESS_STATUS_TOOLTIPS = {
-    "ready": "Ready: no action needed",
-    "needs_review": "Needs Review: inspect before export",
-    "blocked": "Blocked: fix before export",
-}
-_READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "blocked": "Blocked"}
 
 _MISSING_METADATA_FILTERS = {
     "Missing BPM": "bpm",
     "Missing Key": "camelot_key",
     "Missing Energy": "energy_level",
 }
-
-_TRANSITION_REVIEW_HEADERS = [
-    "Order",
-    "From",
-    "To",
-    "Key Score",
-    "BPM Score",
-    "Energy Score",
-    "Tag Score",
-    "Final Score",
-    "Warnings",
-]
-
-_DJ_VISUAL_STYLESHEET = """
-QMainWindow {
-    background: #0b0f14;
-}
-QWidget {
-    background: #0b0f14;
-    color: #edf5ff;
-    font-size: 13px;
-}
-QLabel {
-    color: #d7e4f2;
-    font-weight: 600;
-}
-QLabel#statusLabel {
-    color: #ffb000;
-    padding: 6px 8px;
-    border: 1px solid #2d3744;
-    border-radius: 8px;
-    background: #111923;
-}
-QLabel#guidanceLabel {
-    color: #9fb3c8;
-}
-QPushButton {
-    background: #1c2733;
-    color: #edf5ff;
-    border: 1px solid #344456;
-    border-radius: 8px;
-    padding: 5px 10px;
-    font-weight: 700;
-}
-QPushButton:hover {
-    background: #253445;
-    border-color: #00d4ff;
-}
-QPushButton:disabled {
-    background: #141a21;
-    color: #66717d;
-    border-color: #202832;
-}
-QPushButton#primaryAction {
-    background: #00d4ff;
-    color: #061018;
-    border-color: #00d4ff;
-}
-QPushButton#seratoExportButton {
-    background: #ffb000;
-    color: #121212;
-    border-color: #ffcf5c;
-}
-QPushButton#primaryAction:disabled,
-QPushButton#seratoExportButton:disabled {
-    background: #141a21;
-    color: #66717d;
-    border-color: #202832;
-}
-QComboBox {
-    background: #17212c;
-    color: #edf5ff;
-    border: 1px solid #344456;
-    border-radius: 8px;
-    padding: 5px 8px;
-}
-QLineEdit {
-    background: #111923;
-    color: #edf5ff;
-    border: 1px solid #344456;
-    border-radius: 8px;
-    padding: 5px 8px;
-}
-QLineEdit:focus {
-    border-color: #00d4ff;
-}
-QTableWidget {
-    background: #101820;
-    alternate-background-color: #14202a;
-    color: #edf5ff;
-    gridline-color: #243241;
-    border: 1px solid #263544;
-    border-radius: 8px;
-    selection-background-color: #005b86;
-    selection-color: #ffffff;
-}
-QHeaderView::section {
-    background: #182635;
-    color: #00d4ff;
-    border: 0;
-    border-right: 1px solid #334455;
-    padding: 5px 6px;
-    font-weight: 800;
-}
-QTableCornerButton::section {
-    background: #182635;
-    border: 0;
-}
-"""
-
-
-def format_quality_summary(report: RecommendationQualityReport) -> str:
-    """Return a desktop-friendly quality summary for a recommendation report."""
-    return (
-        "Review summary: "
-        f"Tracks: {report.track_count} | "
-        f"Transitions: {report.transition_count} | "
-        f"Average transition score: {report.average_transition_score:.3f} | "
-        f"Warnings: {report.warning_count}"
-    )
-
-
-def _format_review_score(score: float | None) -> str:
-    """Format a transition review score or return an empty cell for unavailable scores."""
-    if score is None:
-        return ""
-    return f"{score:.3f}"
-
-
-def _score_sort_value(score: float | None) -> float:
-    """Sort unavailable scores before explicit zero scores."""
-    return score if score is not None else -1.0
-
-
-def _format_track_tags(track: TrackRecord) -> str:
-    """Return display text for tags, including parsed subgenre-style metadata."""
-    return ", ".join(track.tags)
-
-
-def _format_missing_metadata(track: TrackRecord) -> str:
-    """Return readable missing metadata field names for incomplete-track worklists."""
-    return ", ".join(
-        _FIELD_LABELS.get(field_name, field_name.replace("_", " ")) for field_name in track.missing_required_fields
-    )
-
-
-def _missing_worklist_display_name(missing_field: str) -> str:
-    """Return compact DJ-facing field labels for missing-field worklists."""
-    labels = {
-        "bpm": "BPM",
-        "camelot_key": "Key",
-        "energy_level": "Energy",
-    }
-    return labels.get(missing_field, missing_field.replace("_", " ").title())
-
-
-def _track_vibe_terms(track: TrackRecord) -> set[str]:
-    """Return normalized genre/tag terms for desktop candidate compatibility."""
-    values = [*track.tags]
-    if track.genre:
-        values.extend(track.genre.split(","))
-        values.append(track.genre)
-    return {value.strip().casefold() for value in values if value.strip()}
-
-
-def _track_similarity_key(
-    anchor_terms: set[str],
-    anchor_tracks: list[TrackRecord],
-    track: TrackRecord,
-) -> tuple[int, float, float, str]:
-    """Sort compatible DJ candidates before unrelated fallback tracks."""
-    terms = _track_vibe_terms(track)
-    overlap_count = len(anchor_terms & terms)
-    bpm_distance = min(
-        (abs((track.bpm or 0.0) - (anchor.bpm or 0.0)) for anchor in anchor_tracks if anchor.bpm is not None),
-        default=9999.0,
-    )
-    energy_distance = min(
-        (
-            abs((track.energy_level or 0) - (anchor.energy_level or 0))
-            for anchor in anchor_tracks
-            if anchor.energy_level is not None
-        ),
-        default=9999,
-    )
-    return (-overlap_count, bpm_distance, float(energy_distance), track.path)
-
-
-def _track_review_name(track: object) -> str:
-    """Return a compact track label for transition review cells."""
-    title = getattr(track, "title", None)
-    if title:
-        return str(title)
-    return str(getattr(track, "path", ""))
-
-
-def _component_score(transition: object, field_name: str, component_name: str) -> float | None:
-    """Read preferred explanation score fields while preserving explicit zero scores."""
-    score = getattr(transition, field_name, None)
-    if score is not None:
-        return score
-    component_scores = getattr(transition, "component_scores", {})
-    return component_scores.get(component_name)
-
-
-def format_recommendation_warning(raw_warning: str) -> str:
-    """Return desktop-friendly text for a raw recommendation warning."""
-    warning = raw_warning.strip()
-    if not warning:
-        return ""
-
-    missing_marker = " missing required metadata: "
-    if missing_marker in warning:
-        side, _, fields_text = warning.partition(missing_marker)
-        fields = [_FIELD_LABELS.get(field.strip(), field.strip().replace("_", " ")) for field in fields_text.split(",")]
-        return (
-            f"Review metadata: {side} track is missing Mixed In Key {', '.join(fields)} metadata. "
-            "Re-scan or update tags before relying on this transition."
-        )
-
-    invalid_marker = " has invalid Camelot key: "
-    if invalid_marker in warning:
-        side, _, key = warning.partition(invalid_marker)
-        return (
-            f"Review Mixed In Key metadata: {side} track has invalid Camelot key {key!r}. "
-            "Expected values look like 8A or 11B."
-        )
-
-    if warning == "invalid Camelot key":
-        return "Review Mixed In Key metadata: at least one transition has an invalid Camelot key."
-
-    return f"Review note: {warning}"
-
-
-class _SortAwareTableItem(QTableWidgetItem):
-    """Table item that sorts by typed values while displaying compact text."""
-
-    def __init__(self, display_value: str, sort_value: object | None = None) -> None:
-        super().__init__(display_value)
-        self._sort_value = sort_value if sort_value is not None else display_value.casefold()
-
-    def __lt__(self, other: QTableWidgetItem) -> bool:
-        other_value = getattr(other, "_sort_value", other.text().casefold())
-        try:
-            return self._sort_value < other_value  # type: ignore[operator]
-        except TypeError:
-            return str(self._sort_value).casefold() < str(other_value).casefold()
-
-
-def _table_item(display_value: str, sort_value: object | None = None) -> QTableWidgetItem:
-    """Build a table item with a stable display value and optional typed sort value."""
-    return _SortAwareTableItem(display_value, sort_value)
 
 
 class MainWindow(QMainWindow):
@@ -385,113 +160,52 @@ class MainWindow(QMainWindow):
 
         self._connect_widget_signals()
         self._apply_visual_design()
+        self._build_layout()
+        self._sync_state()
 
-        controls = QHBoxLayout()
-        controls.addWidget(self.folder_button)
-        controls.addWidget(self.scan_button)
-        controls.addWidget(self.cancel_scan_button)
+    def closeEvent(self, event: object) -> None:
+        """Stop all background threads before the window is destroyed."""
+        if self._scan_controller._scan_thread is not None:
+            self._scan_controller._scan_thread.quit()
+            self._scan_controller._scan_thread.wait(2000)
+        if self._recommendation_controller._recommendation_thread is not None:
+            self._recommendation_controller._recommendation_thread.quit()
+            self._recommendation_controller._recommendation_thread.wait(2000)
+        super().closeEvent(event)  # type: ignore[arg-type]
 
+    def _build_layout(self) -> None:
+        """Assemble widget layout hierarchy, tab pages, and central window container."""
         library_status_controls = QHBoxLayout()
         library_status_controls.addWidget(self.folder_label)
         library_status_controls.addWidget(self.library_guidance_label, 1)
         library_status_controls.addWidget(self.scan_progress_label)
 
-        library_filter_controls = QHBoxLayout()
-        library_filter_controls.addWidget(self.metadata_status_filter_combo)
-        library_filter_controls.addWidget(self.missing_metadata_filter_combo)
-        library_filter_controls.addWidget(self.song_search_input)
-        library_filter_controls.addWidget(self.metadata_status_export_button)
-        library_filter_controls.addStretch(1)
-
-        recommendation_controls = QHBoxLayout()
-        recommendation_controls.addWidget(QLabel("Strategy"))
-        recommendation_controls.addWidget(self.strategy_combo, 1)
-        recommendation_controls.addWidget(self.recommend_button)
-
-        prep_copilot_controls = QHBoxLayout()
-        prep_copilot_controls.addWidget(QLabel("Set Tracks"))
-        prep_copilot_controls.addWidget(self.prep_copilot_target_count_input)
-        prep_copilot_controls.addWidget(self.prep_copilot_genre_focus_input)
-        prep_copilot_controls.addWidget(self.prep_copilot_button)
-        prep_copilot_controls.addWidget(self.prep_copilot_apply_button)
-        prep_copilot_controls.addStretch(1)
-
-        library_page = QWidget()
-        library_layout = QVBoxLayout()
-        library_layout.addWidget(self.library_decision_label)
-        library_layout.addLayout(library_status_controls)
-        library_layout.addLayout(library_filter_controls)
-        library_layout.addWidget(self.tracks_table, 1)
-        library_page.setLayout(library_layout)
-
-        build_page = QWidget()
-        build_layout = QVBoxLayout()
-        build_layout.addWidget(self.build_decision_label)
-        build_layout.addWidget(self.recommendation_guidance_label)
-        build_layout.addLayout(recommendation_controls)
-        build_layout.addLayout(prep_copilot_controls)
-        build_layout.addWidget(self.prep_copilot_table)
-        build_layout.addStretch(1)
-        build_page.setLayout(build_layout)
-
-        review_page = QWidget()
-        review_layout = QVBoxLayout()
-        review_layout.addWidget(self.review_decision_label)
-        review_layout.addWidget(self.recommendation_table, 2)
-        review_layout.addWidget(self.review_summary_label)
-        review_layout.addWidget(self.dj_readiness_label)
-        review_layout.addWidget(self.dj_readiness_table)
-        review_layout.addWidget(self.transition_review_table, 1)
-        review_page.setLayout(review_layout)
-
-        export_page = QWidget()
-        export_layout = QVBoxLayout()
-        export_layout.addWidget(self.export_decision_label)
-        export_layout.addWidget(self.applied_copilot_variant_label)
-        export_layout.addWidget(self.export_guidance_label)
-        export_layout.addWidget(self.serato_export_history_table)
-        export_layout.addWidget(self.serato_preview_button)
-        export_layout.addWidget(self.serato_export_button)
-        export_layout.addWidget(self.dj_readiness_export_button)
-        export_layout.addWidget(self.safe_export_folder_button)
-        export_layout.addWidget(self.safe_export_folder_label)
-        export_layout.addStretch(1)
-        export_page.setLayout(export_layout)
-
-        metadata_page = QWidget()
-        metadata_layout = QVBoxLayout()
-        metadata_layout.addWidget(self.metadata_decision_label)
-        metadata_layout.addWidget(
-            QLabel(
-                "Use the Library filters to isolate incomplete tracks, export a metadata worklist, "
-                "complete it in Serato/Mixed In Key, then scan again."
-            )
-        )
-        metadata_layout.addStretch(1)
-        metadata_page.setLayout(metadata_layout)
-
         self.workflow_tabs = QTabWidget()
         self.workflow_tabs.setTabPosition(QTabWidget.TabPosition.West)
-        self.workflow_tabs.addTab(library_page, "Library")
-        self.workflow_tabs.addTab(build_page, "Build Playlist")
-        self.workflow_tabs.addTab(review_page, "Review Mix")
-        self.workflow_tabs.addTab(export_page, "Export to Serato")
-        self.workflow_tabs.addTab(metadata_page, "Metadata Worklist")
+        self.workflow_tabs.addTab(self._library_screen, "Library")
+        self.workflow_tabs.addTab(self._build_screen, "Build Playlist")
+        self.workflow_tabs.addTab(self._review_screen, "Review Mix")
+        self.workflow_tabs.addTab(self._export_screen, "Export to Serato")
+        self.workflow_tabs.addTab(self._metadata_screen, "Metadata Worklist")
 
         layout = QVBoxLayout()
-        layout.addLayout(controls)
         layout.addWidget(self.workflow_tabs, 1)
         layout.addWidget(self.status_label)
         self._apply_compact_mac_layout(
             layout,
-            controls,
-            recommendation_controls,
             library_status_controls,
-            library_filter_controls,
-            prep_copilot_controls,
         )
 
         container = QWidget()
+        # Reparent legacy test-hook widgets that have no visible parent.
+        # Without a parent, Qt promotes them to top-level windows on show().
+        for widget in (
+            self.folder_label,
+            self.library_guidance_label,
+            self.scan_progress_label,
+        ):
+            widget.setParent(container)
+            widget.hide()
         container.setLayout(layout)
         self.setCentralWidget(container)
 
@@ -506,122 +220,294 @@ class MainWindow(QMainWindow):
         self.workflow_service = PlaylistWorkflowService(scan_service=scan_service, repository=repository)
         self.settings = settings or AppSettings()
         self.settings_repository = settings_repository
-        self.selected_folder: Path | None = None
-        self.scanned_records: list[TrackRecord] = []
-        self._records_by_path: dict[str, TrackRecord] = {}
-        self.last_recommendation: PlaylistRecommendation | None = None
-        self.last_playlist_explanation: PlaylistExplanation | None = None
-        self.last_quality_report: RecommendationQualityReport | None = None
-        self.last_dj_readiness_report: DjReadinessReport | None = None
-        self.last_prep_copilot_plan: PrepCopilotPlan | None = None
-        self.applied_prep_copilot_variant_name: str | None = None
+        self._state = AppState(
+            selected_folder=self.settings.library.last_scan_folder,
+            settings=self.settings,
+        )
         self.current_scan_cancellation_token: ScanCancellationToken | None = None
-        self._scan_thread: QThread | None = None
-        self._scan_worker: ScanWorker | None = None
-        self._recommendation_thread: QThread | None = None
-        self._recommendation_worker: BackgroundWorker | None = None
-        self.serato_export_history: list[dict[str, str]] = []
+        self._is_recommending: bool = False
+        self._scan_controller = ScanController(self.workflow_service, parent=self)
+        self._recommendation_controller = RecommendationController(self.workflow_service, parent=self)
         self._table_sort_orders: dict[int, Qt.SortOrder] = {}
         self._active_song_search_query = ""
+        self._library_selected_paths: list[str] = []
         self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
-        self.selected_folder = self.settings.library.last_scan_folder
+        self._nav = NavigationController()
+        self._library_vm = LibraryViewModel()
+        self._build_vm = BuildViewModel()
+        self._review_vm = ReviewViewModel()
+        self._export_vm = ExportViewModel()
+        self._metadata_vm = MetadataViewModel()
+        self._library_screen = LibraryScreen()
+        self._build_screen = BuildScreen()
+        self._review_screen = ReviewScreen()
+        self._export_screen = ExportScreen()
+        self._metadata_screen = MetadataScreen()
+
+    def _sync_state(self) -> None:
+        """Update transient computed fields in _state, then render all screens."""
+        _tab_index = self.workflow_tabs.currentIndex()
+        self._state.settings = self.settings
+        self._state.is_scanning = self.current_scan_cancellation_token is not None
+        self._state.is_recommending = self._is_recommending
+        self._state.current_screen = _SCREEN_NAMES[_tab_index] if 0 <= _tab_index < len(_SCREEN_NAMES) else "library"
+        self._render_screens()
+
+    def _render_screens(self) -> None:
+        """Update all screens with current AppState."""
+        self._library_screen.render(self._library_vm, self._state)
+        self._build_screen.render(self._build_vm, self._state)
+        self._review_screen.render(self._review_vm, self._state)
+        self._export_screen.render(self._export_vm, self._state)
+        self._metadata_screen.render(self._state, self._metadata_vm)
+        self._update_tab_states()
+
+    # ------------------------------------------------------------------
+    # AppState property delegates — single source of truth in self._state
+    # ------------------------------------------------------------------
+
+    @property
+    def selected_folder(self) -> Path | None:
+        return self._state.selected_folder
+
+    @selected_folder.setter
+    def selected_folder(self, value: Path | None) -> None:
+        self._state.selected_folder = value
+
+    @property
+    def scanned_records(self) -> list[TrackRecord]:
+        return self._state.scanned_records
+
+    @scanned_records.setter
+    def scanned_records(self, value: list[TrackRecord]) -> None:
+        self._state.scanned_records = value
+
+    @property
+    def _records_by_path(self) -> dict[str, TrackRecord]:
+        return self._state.records_by_path
+
+    @_records_by_path.setter
+    def _records_by_path(self, value: dict[str, TrackRecord]) -> None:
+        self._state.records_by_path = value
+
+    @property
+    def last_recommendation(self) -> PlaylistRecommendation | None:
+        return self._state.last_recommendation
+
+    @last_recommendation.setter
+    def last_recommendation(self, value: PlaylistRecommendation | None) -> None:
+        self._state.last_recommendation = value
+
+    @property
+    def last_playlist_explanation(self) -> PlaylistExplanation | None:
+        return self._state.last_playlist_explanation
+
+    @last_playlist_explanation.setter
+    def last_playlist_explanation(self, value: PlaylistExplanation | None) -> None:
+        self._state.last_playlist_explanation = value
+
+    @property
+    def last_quality_report(self) -> RecommendationQualityReport | None:
+        return self._state.last_quality_report
+
+    @last_quality_report.setter
+    def last_quality_report(self, value: RecommendationQualityReport | None) -> None:
+        self._state.last_quality_report = value
+
+    @property
+    def last_dj_readiness_report(self) -> DjReadinessReport | None:
+        return self._state.last_dj_readiness_report
+
+    @last_dj_readiness_report.setter
+    def last_dj_readiness_report(self, value: DjReadinessReport | None) -> None:
+        self._state.last_dj_readiness_report = value
+
+    @property
+    def last_prep_copilot_plan(self) -> PrepCopilotPlan | None:
+        return self._state.last_prep_copilot_plan
+
+    @last_prep_copilot_plan.setter
+    def last_prep_copilot_plan(self, value: PrepCopilotPlan | None) -> None:
+        self._state.last_prep_copilot_plan = value
+
+    @property
+    def applied_prep_copilot_variant_name(self) -> str | None:
+        return self._state.applied_variant_name
+
+    @applied_prep_copilot_variant_name.setter
+    def applied_prep_copilot_variant_name(self, value: str | None) -> None:
+        self._state.applied_variant_name = value
+
+    @property
+    def serato_export_history(self) -> list[dict[str, str]]:
+        return self._state.serato_export_history
+
+    @serato_export_history.setter
+    def serato_export_history(self, value: list[dict[str, str]]) -> None:
+        self._state.serato_export_history = value
+
+    @property
+    def excluded_paths(self) -> frozenset[str]:
+        return self._state.excluded_paths
+
+    @excluded_paths.setter
+    def excluded_paths(self, value: frozenset[str]) -> None:
+        self._state.excluded_paths = value
+
+    @property
+    def locked_paths(self) -> frozenset[str]:
+        return self._state.locked_paths
+
+    @locked_paths.setter
+    def locked_paths(self, value: frozenset[str]) -> None:
+        self._state.locked_paths = value
+
+    @property
+    def playlist_removed_paths(self) -> frozenset[str]:
+        return self._state.playlist_removed_paths
+
+    @playlist_removed_paths.setter
+    def playlist_removed_paths(self, value: frozenset[str]) -> None:
+        self._state.playlist_removed_paths = value
+
+    # ------------------------------------------------------------------
+    # Screen widget aliases — backward-compat read-only properties that
+    # forward to the live Screen widgets so existing call sites and tests
+    # continue to work without holding their own widget references.
+    # Only widgets whose tests exercise purely structural properties
+    # (isEnabled, objectName) are safe to alias; label/table widgets
+    # whose tests assert specific text content are kept as direct attrs.
+    # ------------------------------------------------------------------
+
+    @property
+    def folder_button(self) -> QPushButton:
+        return self._library_screen.folder_button
+
+    @property
+    def scan_button(self) -> QPushButton:
+        return self._library_screen.scan_button
+
+    @property
+    def cancel_scan_button(self) -> QPushButton:
+        return self._library_screen.cancel_button
+
+    @property
+    def serato_export_button(self) -> QPushButton:
+        return self._export_screen.export_button
+
+    @property
+    def dj_readiness_export_button(self) -> QPushButton:
+        return self._export_screen.export_readiness_button
+
+    # Group C — functional widget aliases (BuildScreen)
+    @property
+    def recommend_button(self) -> QPushButton:
+        return self._build_screen.recommend_button
+
+    @property
+    def strategy_combo(self) -> QComboBox:
+        return self._build_screen.strategy_combo
+
+    @property
+    def prep_copilot_button(self) -> QPushButton:
+        return self._build_screen.copilot_button
+
+    @property
+    def prep_copilot_apply_button(self) -> QPushButton:
+        return self._build_screen.apply_variant_button
+
+    @property
+    def prep_copilot_target_count_input(self) -> QSpinBox:
+        return self._build_screen.target_count_input
+
+    @property
+    def prep_copilot_genre_focus_input(self) -> QLineEdit:
+        return self._build_screen.genre_focus_input
+
+    # Group A — label aliases
+    @property
+    def serato_preview_button(self) -> QPushButton:
+        return self._export_screen.preview_button
+
+    @property
+    def review_summary_label(self) -> QLabel:
+        return self._review_screen.review_summary_label
+
+    @property
+    def dj_readiness_label(self) -> QLabel:
+        return self._review_screen.dj_readiness_label
+
+    @property
+    def applied_copilot_variant_label(self) -> QLabel:
+        return self._build_screen.applied_copilot_variant_label
+
+    @property
+    def export_guidance_label(self) -> QLabel:
+        return self._export_screen.export_guidance_label
+
+    @property
+    def safe_export_folder_label(self) -> QLabel:
+        return self._export_screen.safe_export_folder_label
+
+    # Group B — table aliases (screen tables now have matching column layouts)
+    @property
+    def dj_readiness_table(self) -> QTableWidget:
+        return self._review_screen.readiness_table
+
+    @property
+    def transition_review_table(self) -> QTableWidget:
+        return self._review_screen.transition_table
+
+    @property
+    def serato_export_history_table(self) -> QTableWidget:
+        return self._export_screen.history_table
+
+    @property
+    def recommendation_table(self) -> QTableWidget:
+        return self._review_screen.recommendation_table
+
+    @property
+    def prep_copilot_table(self) -> QTableWidget:
+        return self._build_screen.copilot_table
+
+    # Group D — other widget aliases
+    @property
+    def song_search_input(self) -> QLineEdit:
+        return self._library_screen.search_input
+
+    @property
+    def metadata_status_filter_combo(self) -> QComboBox:
+        return self._metadata_screen.status_combo
+
+    @property
+    def missing_metadata_filter_combo(self) -> QComboBox:
+        return self._metadata_screen.missing_combo
+
+    @property
+    def metadata_status_export_button(self) -> QPushButton:
+        return self._metadata_screen.export_button
+
+    def _update_tab_states(self) -> None:
+        """Enable/disable tabs based on NavigationController rules."""
+        for index, screen_name in enumerate(_SCREEN_NAMES):
+            self.workflow_tabs.setTabEnabled(index, self._nav.can_go_to(screen_name, self._state))
 
     def _build_widgets(self) -> None:
         """Build constructor widgets and intrinsic widget configuration."""
         self.setWindowTitle("XfinAudio")
-        self.folder_button = QPushButton("Choose Folder")
-        self.scan_button = QPushButton("Scan Metadata")
-        self.scan_button.setEnabled(False)
-        self.cancel_scan_button = QPushButton("Cancel Scan")
-        self.cancel_scan_button.setEnabled(False)
         self.folder_label = QLabel("Library: none")
         self.library_guidance_label = QLabel("Choose a folder to scan metadata.")
         self.recommendation_guidance_label = QLabel("Scan metadata before recommending a playlist.")
-        self.export_guidance_label = QLabel(
-            "Review recommendations before exporting; desktop export setup is intentionally out of scope."
-        )
-        self.applied_copilot_variant_label = QLabel("Applied Variant: none")
-        self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
-        self.safe_export_folder_button = QPushButton("Choose Safe Export Folder")
-        self.safe_export_folder_label = QLabel(self._format_safe_export_folder_label())
-        self.serato_preview_button = QPushButton("Preview Serato Export")
-        self.serato_preview_button.setEnabled(False)
-        self.serato_export_button = QPushButton("Export to Serato Crate")
-        self.serato_export_button.setEnabled(False)
-        self.dj_readiness_export_button = QPushButton("Export DJ Readiness Report")
-        self.dj_readiness_export_button.setEnabled(False)
         self.scan_progress_label = QLabel("Scan: idle")
         self.status_label = QLabel("Ready")
         self.library_decision_label = QLabel("DJ Decision Point: choose source, filters, and the track anchor.")
-        self.build_decision_label = QLabel("DJ Decision Point: choose strategy, target length, and genre focus.")
-        self.review_decision_label = QLabel(
-            "DJ Decision Point: accept the mix or revise anchor, metadata, or strategy."
-        )
-        self.export_decision_label = QLabel("DJ Decision Point: preview crate target before writing to Serato.")
         self.metadata_decision_label = QLabel("DJ Decision Point: complete missing metadata, then refresh the library.")
-        self.song_search_input = QLineEdit()
-        self.song_search_input.setPlaceholderText("Search songs")
-        self.song_search_input.setClearButtonEnabled(True)
-        self.song_search_input.setMinimumWidth(160)
-        self.song_search_input.setMaximumWidth(220)
-        self.metadata_status_filter_combo = QComboBox()
-        self.metadata_status_filter_combo.addItems(["All statuses", "Complete", "Incomplete"])
-        self.missing_metadata_filter_combo = QComboBox()
-        self.missing_metadata_filter_combo.addItems(["All missing fields", *_MISSING_METADATA_FILTERS])
-        self.metadata_status_export_button = QPushButton("Export Status Crate")
-        self.metadata_status_export_button.setEnabled(False)
         self.tracks_table = QTableWidget(0, 10)
         self.tracks_table.setHorizontalHeaderLabels(
             ["Title", "Artist", "BPM", "Key", "Energy", "Missing", "Genre", "Tags/Subgenre", "Status", "Path"]
         )
         self.tracks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tracks_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.strategy_combo = QComboBox()
-        self.strategy_combo.addItems(available_strategies())
-        self.recommend_button = QPushButton("Recommend Playlist")
-        self.recommend_button.setEnabled(False)
-        self.prep_copilot_target_count_input = QSpinBox()
-        self.prep_copilot_target_count_input.setRange(2, 100)
-        self.prep_copilot_target_count_input.setValue(25)
-        self.prep_copilot_genre_focus_input = QLineEdit()
-        self.prep_copilot_genre_focus_input.setPlaceholderText("Genre focus")
-        self.prep_copilot_genre_focus_input.setMinimumWidth(160)
-        self.prep_copilot_genre_focus_input.setMaximumWidth(360)
-        self.prep_copilot_button = QPushButton("Generate Prep Copilot")
-        self.prep_copilot_button.setEnabled(False)
-        self.prep_copilot_apply_button = QPushButton("Apply Selected Variant")
-        self.prep_copilot_apply_button.setEnabled(False)
-        self.recommendation_table = QTableWidget(0, 11)
-        self.recommendation_table.setHorizontalHeaderLabels(
-            [
-                "Title",
-                "Artist",
-                "BPM",
-                "Key",
-                "Energy",
-                "Genre",
-                "Tags/Subgenre",
-                "Strategy",
-                "Path",
-                "Transition Score",
-                "Warnings",
-            ]
-        )
-        self.prep_copilot_table = QTableWidget(0, 4)
-        self.prep_copilot_table.setHorizontalHeaderLabels(["Variant", "Readiness", "Tracks", "Warnings"])
-        self.prep_copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.prep_copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.review_summary_label = QLabel(_EMPTY_REVIEW_SUMMARY)
-        self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
-        self.dj_readiness_table = QTableWidget(0, 3)
-        self.dj_readiness_table.setHorizontalHeaderLabels(["Check", "Status", "Detail"])
-        self.transition_review_table = QTableWidget(0, len(_TRANSITION_REVIEW_HEADERS))
-        self.transition_review_table.setHorizontalHeaderLabels(_TRANSITION_REVIEW_HEADERS)
-        self.serato_export_history_table = QTableWidget(0, 6)
-        self.serato_export_history_table.setHorizontalHeaderLabels(
-            ["Time", "Strategy", "Tracks", "Serato Crate", "Readiness JSON", "Readiness CSV"]
-        )
-        self.serato_export_history_table.setVisible(False)
         self.folder_label.setWordWrap(False)
         self.folder_label.setMaximumWidth(220)
         self.library_guidance_label.setWordWrap(False)
@@ -629,32 +515,62 @@ class MainWindow(QMainWindow):
         self.scan_progress_label.setWordWrap(False)
         self.scan_progress_label.setMaximumWidth(140)
         self.recommendation_guidance_label.setWordWrap(True)
-        self.export_guidance_label.setWordWrap(True)
         for label in (self.folder_label, self.library_guidance_label, self.scan_progress_label):
             label.setMaximumHeight(24)
+        # Initialize screen labels that depend on settings (not driven by ViewModel)
+        self.safe_export_folder_label.setText(self._format_safe_export_folder_label())
 
     def _connect_widget_signals(self) -> None:
         """Connect constructor-created widgets to their existing slots and sorting handlers."""
-        self.folder_button.clicked.connect(self.choose_folder)
-        self.scan_button.clicked.connect(self.scan_selected_folder)
-        self.cancel_scan_button.clicked.connect(self.cancel_scan)
-        self.recommend_button.clicked.connect(self.recommend_playlist)
-        self.prep_copilot_button.clicked.connect(self.generate_prep_copilot)
-        self.prep_copilot_apply_button.clicked.connect(self.apply_selected_prep_copilot_variant)
-        self.prep_copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
+        self._build_screen.copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
         self.tracks_table.itemSelectionChanged.connect(self._refresh_idle_action_state)
-        self.safe_export_folder_button.clicked.connect(self.choose_safe_export_folder)
-        self.serato_preview_button.clicked.connect(lambda: self.preview_serato_export())
-        self.serato_export_button.clicked.connect(lambda: self.export_recommendation_to_serato())
-        self.dj_readiness_export_button.clicked.connect(lambda: self.export_dj_readiness_report())
         self.song_search_input.textChanged.connect(lambda text: self._apply_song_filter(text, clear_selection=True))
         self.metadata_status_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
         self.missing_metadata_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
         self.metadata_status_export_button.clicked.connect(lambda: self.export_metadata_status_to_serato())
+        self._scan_controller.scan_progress_updated.connect(self._show_scan_progress)
+        self._scan_controller.scan_completed.connect(self._finish_scan)
+        self._scan_controller.scan_failed.connect(self._fail_scan)
+        self._scan_controller.worker_cleared.connect(self._clear_scan_worker_refs)
+        self._recommendation_controller.recommendation_completed.connect(self._finish_recommendation)
+        self._recommendation_controller.recommendation_failed.connect(self._fail_recommendation)
+        self._recommendation_controller.worker_cleared.connect(self._clear_recommendation_worker_refs)
+        # LibraryScreen signals
+        self._library_screen.folder_change_requested.connect(self.choose_folder)
+        self._library_screen.scan_requested.connect(self.scan_selected_folder)
+        self._library_screen.cancel_scan_requested.connect(self.cancel_scan)
+        self._library_screen.selection_changed.connect(self._on_library_selection_changed)
+        self._library_screen.metadata_screen_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(4))
+        self._library_screen.proceed_button.clicked.connect(lambda: self.workflow_tabs.setCurrentIndex(1))
+        self._library_screen.settings_requested.connect(self._open_settings_dialog)
+        # BuildScreen signals
+        self._build_screen.recommend_requested.connect(self._on_recommend_requested)
+        self._build_screen.copilot_generate_requested.connect(self.generate_prep_copilot)
+        self._build_screen.copilot_variant_applied.connect(self._on_copilot_variant_applied)
+        self._build_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(0))
+        self._build_screen.proceed_button.clicked.connect(lambda: self.workflow_tabs.setCurrentIndex(2))
+        self._build_screen.exclude_requested.connect(self._on_exclude_requested)
+        self._build_screen.lock_requested.connect(self._on_lock_requested)
+        self._build_screen.clear_constraints_requested.connect(self._on_clear_constraints)
+        # ReviewScreen signals
+        self._review_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(1))
+        self._review_screen.proceed_to_export_requested.connect(self._on_proceed_to_export)
+        self._review_screen.track_remove_requested.connect(self._on_track_remove_requested)
+        self._review_screen.track_play_requested.connect(self._on_track_play_requested)
+        # LibraryScreen play signal
+        self._library_screen.track_play_requested.connect(self._on_track_play_requested)
+        # ExportScreen signals
+        self._export_screen.preview_requested.connect(self.preview_serato_export)
+        self._export_screen.export_requested.connect(self.export_recommendation_to_serato)
+        self._export_screen.readiness_export_requested.connect(lambda: self.export_dj_readiness_report())
+        self._export_screen.safe_folder_change_requested.connect(self.choose_safe_export_folder)
+        self._export_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(2))
+        # MetadataScreen signals
+        self._metadata_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(0))
+        self._metadata_screen.filter_changed.connect(self._sync_state)
+        self._metadata_screen.export_requested.connect(self._on_metadata_export_requested)
         for table in (
             self.tracks_table,
-            self.recommendation_table,
-            self.prep_copilot_table,
             self.transition_review_table,
             self.dj_readiness_table,
             self.serato_export_history_table,
@@ -664,29 +580,20 @@ class MainWindow(QMainWindow):
     def _apply_compact_mac_layout(
         self,
         layout: QVBoxLayout,
-        controls: QHBoxLayout,
-        recommendation_controls: QHBoxLayout,
         library_status_controls: QHBoxLayout,
-        library_filter_controls: QHBoxLayout,
-        prep_copilot_controls: QHBoxLayout,
     ) -> None:
         """Use dense desktop spacing so the library browser does not dominate MacBook screens."""
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(6)
-        controls.setSpacing(8)
         library_status_controls.setSpacing(8)
-        library_filter_controls.setSpacing(8)
-        recommendation_controls.setSpacing(8)
-        prep_copilot_controls.setSpacing(8)
 
-        self.folder_button.setMinimumWidth(220)
-        self.scan_button.setMinimumWidth(220)
-        self.cancel_scan_button.setMinimumWidth(220)
         self.recommend_button.setMinimumWidth(220)
         self.recommend_button.setMaximumWidth(260)
         self.prep_copilot_button.setMinimumWidth(190)
         self.prep_copilot_button.setMaximumWidth(220)
         self.prep_copilot_apply_button.setMaximumWidth(220)
+        self.prep_copilot_genre_focus_input.setMinimumWidth(160)
+        self.prep_copilot_genre_focus_input.setMaximumWidth(360)
         self.metadata_status_filter_combo.setMaximumWidth(170)
         self.missing_metadata_filter_combo.setMaximumWidth(220)
         self.metadata_status_export_button.setMaximumWidth(220)
@@ -694,11 +601,6 @@ class MainWindow(QMainWindow):
         self.tracks_table.setMinimumHeight(_COMPACT_LIBRARY_TABLE_MIN_HEIGHT)
         self.tracks_table.setMaximumHeight(_COMPACT_LIBRARY_TABLE_MAX_HEIGHT)
         self.tracks_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.prep_copilot_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
-        self.prep_copilot_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.prep_copilot_table.setHidden(True)
-        self.recommendation_table.setMinimumHeight(_COMPACT_RESULTS_TABLE_MIN_HEIGHT)
-        self.recommendation_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.transition_review_table.setMinimumHeight(_COMPACT_REVIEW_TABLE_MIN_HEIGHT)
         self.transition_review_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.dj_readiness_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
@@ -712,8 +614,6 @@ class MainWindow(QMainWindow):
         """Allocate readable column widths while letting path/warning columns absorb spare space."""
         table_widths = (
             (self.tracks_table, _TRACK_TABLE_COLUMN_WIDTHS),
-            (self.recommendation_table, _RECOMMENDATION_TABLE_COLUMN_WIDTHS),
-            (self.prep_copilot_table, (120, 120, 80, 420)),
             (self.transition_review_table, _REVIEW_TABLE_COLUMN_WIDTHS),
             (self.dj_readiness_table, _DJ_READINESS_TABLE_COLUMN_WIDTHS),
             (self.serato_export_history_table, _SERATO_EXPORT_HISTORY_COLUMN_WIDTHS),
@@ -726,7 +626,6 @@ class MainWindow(QMainWindow):
     def _apply_visual_design(self) -> None:
         """Apply a DJ-focused dark visual theme with clear action hierarchy."""
         self.recommend_button.setObjectName("primaryAction")
-        self.serato_export_button.setObjectName("seratoExportButton")
         self.song_search_input.setObjectName("songSearch")
         self.status_label.setObjectName("statusLabel")
         for label in (
@@ -737,16 +636,11 @@ class MainWindow(QMainWindow):
             self.export_guidance_label,
             self.safe_export_folder_label,
             self.library_decision_label,
-            self.build_decision_label,
-            self.review_decision_label,
-            self.export_decision_label,
             self.metadata_decision_label,
         ):
             label.setObjectName("guidanceLabel")
         for table in (
             self.tracks_table,
-            self.recommendation_table,
-            self.prep_copilot_table,
             self.transition_review_table,
             self.dj_readiness_table,
             self.serato_export_history_table,
@@ -757,6 +651,7 @@ class MainWindow(QMainWindow):
             table.verticalHeader().setDefaultSectionSize(_COMPACT_TABLE_ROW_HEIGHT)
             table.verticalHeader().setMinimumSectionSize(_COMPACT_TABLE_ROW_HEIGHT)
             table.verticalHeader().setVisible(False)
+        self.song_search_input.setClearButtonEnabled(True)
         self.setStyleSheet(_DJ_VISUAL_STYLESHEET)
 
     def _set_recommendation_sections_expanded(self, expanded: bool) -> None:
@@ -834,6 +729,7 @@ class MainWindow(QMainWindow):
         self.recommendation_guidance_label.setText("Scan metadata before recommending a playlist.")
         self._refresh_idle_action_state()
         self.status_label.setText("Folder selected")
+        self._sync_state()
 
     def _persist_last_scan_folder(self, folder: Path) -> None:
         """Persist the latest scan folder so saved libraries can be refreshed after restart."""
@@ -923,6 +819,7 @@ class MainWindow(QMainWindow):
         self.recommendation_guidance_label.setText(_RECOMMENDATION_READY_GUIDANCE)
         self.status_label.setText(f"Loaded saved library: {complete_count} complete, {incomplete_count} incomplete")
         self._refresh_idle_action_state()
+        self._sync_state()
 
     def _clear_scan_dependent_state(self) -> None:
         """Clear scan and recommendation results that belong to a previous folder."""
@@ -942,7 +839,8 @@ class MainWindow(QMainWindow):
         self.export_guidance_label.setText(
             "Review recommendations before exporting. Serato export is enabled only after a recommendation is ready."
         )
-        self._refresh_export_action_state()
+
+        self._sync_state()
 
     def _refresh_idle_action_state(self) -> None:
         """Enable only the actions that are valid for the current idle UI state."""
@@ -962,6 +860,22 @@ class MainWindow(QMainWindow):
         if folder:
             self.set_safe_export_folder(Path(folder))
 
+    def _open_settings_dialog(self) -> None:
+        """Open the settings dialog and apply changes if confirmed."""
+        from xfinaudio.desktop.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(self.settings, parent=self)
+        dialog.settings_changed.connect(self._apply_settings)
+        dialog.exec()
+
+    def _apply_settings(self, new_settings: AppSettings) -> None:
+        """Apply and persist settings from the settings dialog."""
+        self.settings = new_settings
+        if self.settings_repository is not None:
+            self.settings_repository.save(new_settings)
+        self.safe_export_folder_label.setText(self._format_safe_export_folder_label())
+        self._sync_state()
+
     def set_safe_export_folder(self, folder: Path) -> None:
         """Persist a safe export folder if it is not the selected audio folder."""
         if self.selected_folder is not None and folder == self.selected_folder:
@@ -973,7 +887,8 @@ class MainWindow(QMainWindow):
             self.settings_repository.save(self.settings)
         self.safe_export_folder_label.setText(self._format_safe_export_folder_label())
         self.status_label.setText("Safe export folder selected")
-        self._refresh_export_action_state()
+
+        self._sync_state()
 
     def export_dj_readiness_report(self, *, generated_at: datetime | None = None) -> None:
         """Export the latest DJ readiness report as JSON and CSV audit artifacts."""
@@ -1009,6 +924,11 @@ class MainWindow(QMainWindow):
                 crate_name=crate_name,
                 generated_at=generated_at,
             )
+        except SeratoLibraryNotFoundError:
+            self.status_label.setText(
+                "Serato not found — open Serato DJ Pro at least once to create its library folder"
+            )
+            return
         except Exception as exc:
             LOGGER.exception("Serato export preview failed")
             self.status_label.setText(f"Serato export preview failed: {exc}")
@@ -1047,6 +967,11 @@ class MainWindow(QMainWindow):
                 generated_at=generated_at,
             )
             result = write_serato_crate(plan, confirm=True)
+        except SeratoLibraryNotFoundError:
+            self.status_label.setText(
+                "Serato not found — open Serato DJ Pro at least once to create its library folder"
+            )
+            return
         except Exception as exc:
             LOGGER.exception("Serato export failed")
             self.status_label.setText(f"Serato export failed: {exc}")
@@ -1065,7 +990,10 @@ class MainWindow(QMainWindow):
                 serato_volume_root=library.volume_root,
             )
         if self.last_dj_readiness_report is not None:
-            json_path, csv_path = self._write_serato_readiness_sidecars(result.written_path)
+            safe_folder = self.settings.export.safe_export_folder
+            json_path, csv_path = write_readiness_sidecars(
+                self.last_dj_readiness_report, result.written_path, safe_folder=safe_folder
+            )
             readiness_paths = (json_path, csv_path)
             readiness_note = f" Readiness reports: {json_path} and {csv_path}."
         self.export_guidance_label.setText(
@@ -1077,12 +1005,6 @@ class MainWindow(QMainWindow):
             result.written_path, readiness_json_path=readiness_paths[0], readiness_csv_path=readiness_paths[1]
         )
 
-    def _write_serato_readiness_sidecars(self, crate_path: Path) -> tuple[Path, Path]:
-        """Write DJ Readiness JSON/CSV files next to a Serato crate export."""
-        if self.last_dj_readiness_report is None:
-            raise ValueError("DJ Readiness report is not available for sidecar export")
-        return write_readiness_sidecars(self.last_dj_readiness_report, crate_path)
-
     def _plan_current_serato_export(
         self,
         *,
@@ -1093,30 +1015,13 @@ class MainWindow(QMainWindow):
         """Build the current Serato export plan without writing it."""
         if self.last_recommendation is None:
             raise ValueError("Generate a recommendation before planning Serato export")
-        library = (
-            SeratoLibrary(serato_folder=serato_folder, volume_root=serato_folder.parent)
-            if serato_folder is not None
-            else select_serato_library_for_tracks(
-                [track.path for track in self.last_recommendation.ordered_tracks],
-                discover_serato_libraries(),
-            )
+        return plan_serato_export(
+            self.last_recommendation,
+            self.applied_prep_copilot_variant_name,
+            serato_folder=serato_folder,
+            crate_name=crate_name,
+            generated_at=generated_at,
         )
-        if crate_name is not None:
-            plan = plan_serato_playlist_export(crate_name, self.last_recommendation, library)
-        elif self.applied_prep_copilot_variant_name is not None:
-            plan = plan_copilot_variant_serato_playlist_export(
-                self.applied_prep_copilot_variant_name,
-                self.last_recommendation,
-                library,
-                generated_at=generated_at,
-            )
-        else:
-            plan = plan_generated_serato_playlist_export(
-                self.last_recommendation,
-                library,
-                generated_at=generated_at,
-            )
-        return plan, library
 
     def export_metadata_status_to_serato(
         self,
@@ -1199,16 +1104,6 @@ class MainWindow(QMainWindow):
         )
         self.status_label.setText(f"Exported Missing {display_field} metadata crate: {result.written_path}")
 
-    def _refresh_export_action_state(self) -> None:
-        """Enable Serato export only when a recommendation exists."""
-        self.serato_preview_button.setEnabled(self.last_recommendation is not None)
-        self.serato_export_button.setEnabled(self.last_recommendation is not None)
-        self.prep_copilot_button.setEnabled(self._selected_track_controls() is not None)
-        self.prep_copilot_apply_button.setEnabled(self.last_prep_copilot_plan is not None)
-        self.dj_readiness_export_button.setEnabled(
-            self.last_dj_readiness_report is not None and self.settings.export.safe_export_folder is not None
-        )
-
     def _record_serato_export(
         self,
         written_path: Path,
@@ -1219,43 +1114,24 @@ class MainWindow(QMainWindow):
         """Record a bounded in-session Serato export receipt for user verification."""
         if self.last_recommendation is None:
             return
-        entry = {
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "strategy": self.last_recommendation.strategy.name,
-            "tracks": str(len(self.last_recommendation.ordered_tracks)),
-            "path": str(written_path),
-            "readiness_json_path": "" if readiness_json_path is None else str(readiness_json_path),
-            "readiness_csv_path": "" if readiness_csv_path is None else str(readiness_csv_path),
-        }
+        entry = build_serato_export_entry(
+            self.last_recommendation,
+            written_path,
+            readiness_json_path=readiness_json_path,
+            readiness_csv_path=readiness_csv_path,
+        )
         self.serato_export_history = record_export(self.serato_export_history, entry, _SERATO_EXPORT_HISTORY_LIMIT)
+        self._sync_state()
         self._render_serato_export_history()
 
     def _render_serato_export_history(self) -> None:
         """Render recent Serato export receipts without crowding the desktop layout."""
-        self.serato_export_history_table.setRowCount(len(self.serato_export_history))
         self.serato_export_history_table.setVisible(bool(self.serato_export_history))
-        for row_index, export_receipt in enumerate(self.serato_export_history):
-            values = [
-                export_receipt["time"],
-                export_receipt["strategy"],
-                export_receipt["tracks"],
-                export_receipt["path"],
-                export_receipt.get("readiness_json_path", ""),
-                export_receipt.get("readiness_csv_path", ""),
-            ]
-            sort_values: list[object] = [
-                values[0],
-                values[1].casefold(),
-                int(values[2]),
-                values[3].casefold(),
-                values[4].casefold(),
-                values[5].casefold(),
-            ]
-            for column_index, value in enumerate(values):
-                item = _table_item(value, sort_values[column_index])
-                if column_index in {3, 4, 5}:
-                    item.setToolTip(value)
-                self.serato_export_history_table.setItem(row_index, column_index, item)
+        populate_serato_export_history_table(
+            self.serato_export_history_table,
+            self.serato_export_history,
+            item_factory=_table_item,
+        )
 
     def scan_selected_folder(self) -> None:
         """Scan the selected folder, persist records, and refresh table/status widgets."""
@@ -1279,35 +1155,18 @@ class MainWindow(QMainWindow):
         self.cancel_scan_button.setEnabled(True)
         self.scan_progress_label.setText("Scan progress: starting")
         self.status_label.setText("Scanning metadata")
+        self._sync_state()
 
     def _end_scan_state(self) -> None:
         """Clear scan state after scan completion or cancellation."""
         self.current_scan_cancellation_token = None
+        self._state.scan_progress_count = 0
         self._refresh_idle_action_state()
+        self._sync_state()
 
     def _start_scan_worker(self, folder: Path, token: ScanCancellationToken) -> None:
-        """Start metadata scanning in a worker thread so the UI stays responsive."""
-        thread = QThread(self)
-        worker = ScanWorker(
-            lambda progress_callback: self.workflow_service.scan_folder(
-                folder,
-                on_progress=progress_callback,
-                cancellation_token=token,
-            )
-        )
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.progress.connect(self._show_scan_progress)
-        worker.finished.connect(self._finish_scan)
-        worker.failed.connect(self._fail_scan)
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._clear_scan_worker_refs)
-        self._scan_thread = thread
-        self._scan_worker = worker
-        thread.start()
+        """Delegate thread/worker construction to the scan controller."""
+        self._scan_controller.start_scan(folder, token)
 
     @Slot(object)
     def _finish_scan(self, result: Any) -> None:
@@ -1319,6 +1178,7 @@ class MainWindow(QMainWindow):
             self.recommendation_guidance_label.setText("Scan metadata before recommending a playlist.")
             return
         self.scanned_records = result.records
+        self._sync_state()
         self.show_tracks(result.records, result.complete_count, result.incomplete_count)
         self._end_scan_state()
         self._show_scan_completion_status(result.records)
@@ -1355,20 +1215,26 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _clear_scan_worker_refs(self) -> None:
-        self._scan_thread = None
-        self._scan_worker = None
+        pass  # Thread/worker refs are now owned and cleared by ScanController.
+
+    def _on_library_selection_changed(self, paths: list[str]) -> None:
+        """Update state when user selection changes in LibraryScreen."""
+        self._library_selected_paths = paths
+        self._refresh_idle_action_state()
 
     def _show_scan_progress(self, progress: ScanProgress) -> None:
         """Render scan progress from the workflow service."""
         self.scan_progress_label.setText(
             f"Scan progress: {progress.processed_count}/{progress.total_count} - {progress.current_path}"
         )
+        self._state.scan_progress_count = progress.processed_count
+        self._sync_state()
 
     def cancel_scan(self) -> None:
         """Request cooperative cancellation for the current synchronous scan."""
         if self.current_scan_cancellation_token is None:
             return
-        self.current_scan_cancellation_token.cancel()
+        self._scan_controller.cancel(self.current_scan_cancellation_token)
         self.cancel_scan_button.setEnabled(False)
         self.status_label.setText("Cancel requested; waiting for current file to finish")
 
@@ -1385,6 +1251,7 @@ class MainWindow(QMainWindow):
         if incomplete_count is None:
             incomplete_count = len(records) - complete_count
         self.status_label.setText(f"Scan complete: {complete_count} complete, {incomplete_count} incomplete")
+        self._sync_state()
 
     def generate_prep_copilot(self) -> None:
         """Generate comparable DJ Prep Copilot variants from current selection and intent controls."""
@@ -1410,6 +1277,7 @@ class MainWindow(QMainWindow):
         self._populate_prep_copilot_table(plan)
         self.prep_copilot_apply_button.setEnabled(True)
         self.status_label.setText(f"Generated {len(plan.variants)} Prep Copilot variant(s)")
+        self._sync_state()
 
     def _apply_prep_copilot_item(self, item: QTableWidgetItem) -> None:
         """Apply the Prep Copilot variant represented by a double-clicked table item."""
@@ -1437,6 +1305,8 @@ class MainWindow(QMainWindow):
         self.last_playlist_explanation = explanation
         self.last_quality_report = quality_report
         self.last_dj_readiness_report = variant.readiness
+        self._state.playlist_removed_paths = frozenset()
+        self._sync_state()
         self._set_applied_copilot_variant(variant.name)
         self.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)
         self.review_summary_label.setText(format_quality_summary(quality_report))
@@ -1445,11 +1315,11 @@ class MainWindow(QMainWindow):
         self.show_transition_review(explanation)
         self.export_guidance_label.setText("Inspect the selected Prep Copilot variant before exporting it to Serato.")
         self.status_label.setText(f"Applied Prep Copilot variant: {variant.name}")
-        self._refresh_export_action_state()
 
     def _set_applied_copilot_variant(self, variant_name: str | None) -> None:
         """Update applied Copilot variant state and export badge."""
         self.applied_prep_copilot_variant_name = variant_name
+        self._sync_state()
         if variant_name is None:
             self.applied_copilot_variant_label.setText("Applied Variant: none")
             self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
@@ -1460,21 +1330,13 @@ class MainWindow(QMainWindow):
     def _populate_prep_copilot_table(self, plan: PrepCopilotPlan) -> None:
         """Render Safe/Balanced/Adventurous copilot variants for quick comparison."""
         self.prep_copilot_table.setHidden(False)
-        self.prep_copilot_table.setRowCount(len(plan.variants))
-        for row_index, variant in enumerate(plan.variants):
-            values = [
-                variant.name,
-                _READINESS_STATUS_LABELS[variant.readiness.status],
-                str(len(variant.recommendation.ordered_tracks)),
-                "; ".join([*variant.blockers, *variant.warnings]),
-            ]
-            for column_index, value in enumerate(values):
-                item = _table_item(value, value.casefold() if isinstance(value, str) else value)
-                if column_index == 1:
-                    item.setBackground(QColor(_READINESS_STATUS_COLORS[variant.readiness.status]))
-                    item.setForeground(QColor("#061016"))
-                    item.setToolTip(variant.readiness.summary)
-                self.prep_copilot_table.setItem(row_index, column_index, item)
+        populate_prep_copilot_table(
+            self.prep_copilot_table,
+            plan,
+            item_factory=_table_item,
+            readiness_status_labels=_READINESS_STATUS_LABELS,
+            readiness_status_colors=_READINESS_STATUS_COLORS,
+        )
 
     def recommend_playlist(self) -> None:
         """Generate and display a playlist recommendation from scanned records."""
@@ -1496,11 +1358,40 @@ class MainWindow(QMainWindow):
         self._start_recommendation_worker(records, strategy_name, controls)
 
     def _selected_track_controls(self) -> DJControls | None:
-        """Convert selected track rows into DJ sequencing controls."""
-        selected_rows = sorted({index.row() for index in self.tracks_table.selectedIndexes()})
+        """Convert selected track rows into DJ sequencing controls.
+
+        Prefers paths reported by LibraryScreen (visible selection). Falls back to
+        the legacy tracks_table widget for test compatibility.
+        """
         records_by_path = {record.path: record for record in self.scanned_records}
-        selected_records: list[TrackRecord] = []
-        seen_paths: set[str] = set()
+
+        # Primary source: paths emitted by LibraryScreen.selection_changed
+        if self._library_selected_paths:
+            selected_records: list[TrackRecord] = []
+            seen_paths: set[str] = set()
+            for path in self._library_selected_paths:
+                record = records_by_path.get(path)
+                if record is None or record.metadata_status != "complete" or path in seen_paths:
+                    continue
+                selected_records.append(record)
+                seen_paths.add(path)
+            if selected_records:
+                if len(selected_records) == 1:
+                    return DJControls(
+                        start_path=selected_records[0].path,
+                        excluded_paths=self._state.excluded_paths,
+                        locked_paths=self._state.locked_paths,
+                    )
+                return DJControls(
+                    manual_order_paths=[r.path for r in selected_records],
+                    excluded_paths=self._state.excluded_paths,
+                    locked_paths=self._state.locked_paths,
+                )
+
+        # Fallback: legacy widget used by automated tests
+        selected_rows = sorted({index.row() for index in self.tracks_table.selectedIndexes()})
+        selected_records = []
+        seen_paths = set()
         for row in selected_rows:
             if self.tracks_table.isRowHidden(row):
                 continue
@@ -1515,8 +1406,16 @@ class MainWindow(QMainWindow):
         if not selected_records:
             return None
         if len(selected_records) == 1:
-            return DJControls(start_path=selected_records[0].path)
-        return DJControls(manual_order_paths=[record.path for record in selected_records])
+            return DJControls(
+                start_path=selected_records[0].path,
+                excluded_paths=self._state.excluded_paths,
+                locked_paths=self._state.locked_paths,
+            )
+        return DJControls(
+            manual_order_paths=[record.path for record in selected_records],
+            excluded_paths=self._state.excluded_paths,
+            locked_paths=self._state.locked_paths,
+        )
 
     def _desktop_recommendation_records(self, controls: DJControls | None) -> list[TrackRecord]:
         """Return an interactive-size recommendation pool while preserving selected control tracks."""
@@ -1524,32 +1423,24 @@ class MainWindow(QMainWindow):
 
     def _begin_recommendation_state(self, candidate_count: int) -> None:
         """Disable recommendation controls while the optimizer runs."""
+        self._is_recommending = True
         self.recommend_button.setEnabled(False)
         self.scan_button.setEnabled(False)
         self.status_label.setText(f"Generating recommendation from {candidate_count} candidate track(s)")
+        self._sync_state()
 
     def _end_recommendation_state(self) -> None:
         """Restore valid idle controls after the optimizer finishes."""
+        self._is_recommending = False
         self._refresh_idle_action_state()
+        self._sync_state()
 
     def _start_recommendation_worker(
         self, records: list[TrackRecord], strategy_name: str, controls: DJControls | None = None
     ) -> None:
-        """Start recommendation generation in a worker thread."""
-        thread = QThread(self)
-        worker = BackgroundWorker(lambda: self.workflow_service.recommend(records, strategy_name, controls=controls))
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.finished.connect(self._finish_recommendation)
-        worker.failed.connect(self._fail_recommendation)
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._clear_recommendation_worker_refs)
-        self._recommendation_thread = thread
-        self._recommendation_worker = worker
-        thread.start()
+        """Delegate recommendation thread lifecycle to RecommendationController."""
+        self._recommendation_controller.workflow_service = self.workflow_service
+        self._recommendation_controller.start_recommendation(records, strategy_name, controls)
 
     @Slot(object)
     def _finish_recommendation(self, result: Any) -> None:
@@ -1559,6 +1450,8 @@ class MainWindow(QMainWindow):
         self.last_recommendation = result.recommendation
         self.last_playlist_explanation = result.explanation
         self.last_quality_report = result.quality_report
+        self._state.playlist_removed_paths = frozenset()
+        self._sync_state()
         self.show_recommendation(
             result.recommendation.ordered_tracks,
             result.recommendation.strategy.name,
@@ -1573,7 +1466,6 @@ class MainWindow(QMainWindow):
         self.export_guidance_label.setText(
             "Inspect the review table before exporting. Review scores and warnings before any safe export to Serato."
         )
-        self._refresh_export_action_state()
 
     @Slot(object)
     def _fail_recommendation(self, error: object) -> None:
@@ -1583,8 +1475,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _clear_recommendation_worker_refs(self) -> None:
-        self._recommendation_thread = None
-        self._recommendation_worker = None
+        pass  # refs owned and cleared by RecommendationController
 
     def show_recommendation(
         self,
@@ -1592,17 +1483,9 @@ class MainWindow(QMainWindow):
         strategy_name: str,
         explanation: PlaylistExplanation | None = None,
     ) -> None:
-        """Render recommended records in the playlist table."""
+        """Update expand/collapse state and re-render the recommendation table via the VM."""
         self._set_recommendation_sections_expanded(bool(records))
-        populate_recommendation_table(
-            self.recommendation_table,
-            records,
-            strategy_name,
-            explanation,
-            item_factory=_table_item,
-            format_track_tags=_format_track_tags,
-            format_warning=format_recommendation_warning,
-        )
+        self._sync_state()
 
     def clear_recommendation_review(self) -> None:
         """Reset recommendation review widgets to their empty state."""
@@ -1630,58 +1513,90 @@ class MainWindow(QMainWindow):
             serato_volume_root=serato_volume_root,
         )
         self.last_dj_readiness_report = report
+        self._sync_state()
         self.dj_readiness_label.setText(format_dj_readiness_summary(report))
         self._populate_dj_readiness_table(report)
-        self._refresh_export_action_state()
 
     def _populate_dj_readiness_table(self, report: DjReadinessReport) -> None:
         """Render actionable readiness checks in a compact table."""
-        self.dj_readiness_table.setRowCount(len(report.checks))
-        status_sort = {"blocked": 0, "needs_review": 1, "ready": 2}
-        for row_index, check in enumerate(report.checks):
-            values = [check.label, _READINESS_STATUS_LABELS[check.status], check.detail]
-            sort_values: list[object] = [
-                check.label.casefold(),
-                status_sort[check.status],
-                check.detail.casefold(),
-            ]
-            for column_index, value in enumerate(values):
-                item = _table_item(value, sort_values[column_index])
-                if column_index == 1:
-                    item.setBackground(QColor(_READINESS_STATUS_COLORS[check.status]))
-                    item.setForeground(QColor("#061016"))
-                    item.setToolTip(_READINESS_STATUS_TOOLTIPS[check.status])
-                self.dj_readiness_table.setItem(row_index, column_index, item)
+        populate_dj_readiness_table(
+            self.dj_readiness_table,
+            report,
+            item_factory=_table_item,
+            readiness_status_labels=_READINESS_STATUS_LABELS,
+            readiness_status_colors=_READINESS_STATUS_COLORS,
+            readiness_status_tooltips=_READINESS_STATUS_TOOLTIPS,
+        )
 
     def show_transition_review(self, explanation: PlaylistExplanation) -> None:
         """Render transition component scores and warnings in the review table."""
-        self.transition_review_table.setRowCount(len(explanation.transitions))
-        for row_index, transition in enumerate(explanation.transitions):
-            values = [
-                str(transition.order),
-                _track_review_name(transition.left),
-                _track_review_name(transition.right),
-                _format_review_score(_component_score(transition, "key_score", "harmonic")),
-                _format_review_score(_component_score(transition, "bpm_score", "bpm")),
-                _format_review_score(_component_score(transition, "energy_score", "energy")),
-                _format_review_score(_component_score(transition, "tag_score", "tags")),
-                _format_review_score(transition.final_score),
-                "; ".join(format_recommendation_warning(warning) for warning in transition.warnings),
-            ]
-            sort_values = [
-                transition.order,
-                values[1].casefold(),
-                values[2].casefold(),
-                _score_sort_value(_component_score(transition, "key_score", "harmonic")),
-                _score_sort_value(_component_score(transition, "bpm_score", "bpm")),
-                _score_sort_value(_component_score(transition, "energy_score", "energy")),
-                _score_sort_value(_component_score(transition, "tag_score", "tags")),
-                _score_sort_value(transition.final_score),
-                values[8].casefold(),
-            ]
-            for column_index, value in enumerate(values):
-                self.transition_review_table.setItem(
-                    row_index,
-                    column_index,
-                    _table_item(value, sort_values[column_index]),
-                )
+        populate_transition_review_table(
+            self.transition_review_table,
+            explanation,
+            item_factory=_table_item,
+            format_review_score=_format_review_score,
+            component_score=_component_score,
+            score_sort_value=_score_sort_value,
+            track_review_name=_track_review_name,
+            format_warning=format_recommendation_warning,
+        )
+
+    def _on_recommend_requested(self, strategy_name: str, paths: list[str]) -> None:
+        """Adapter: BuildScreen emits (strategy_name, paths), recommend_playlist reads from widgets."""
+        combo_idx = self.strategy_combo.findText(strategy_name)
+        if combo_idx >= 0:
+            self.strategy_combo.setCurrentIndex(combo_idx)
+        self.recommend_playlist()
+
+    def _on_copilot_variant_applied(self, index: int) -> None:
+        """Adapter: BuildScreen emits variant index, apply method reads from table."""
+        if hasattr(self, "prep_copilot_table") and 0 <= index < self.prep_copilot_table.rowCount():
+            self.prep_copilot_table.selectRow(index)
+        self.apply_selected_prep_copilot_variant()
+
+    def _on_metadata_export_requested(self, status_filter: str, missing_filter: str) -> None:
+        """Route metadata export to the correct exporter based on active filters."""
+        # Map display labels back to internal field names
+        missing_field = _MISSING_METADATA_FILTERS.get(missing_filter)
+        # Normalise status filter: "All" or unknown → None
+        norm_status: str | None = (
+            status_filter.casefold() if status_filter.casefold() in {"complete", "incomplete"} else None
+        )
+        self.export_metadata_status_to_serato(status=norm_status, missing_field=missing_field)
+
+    def _on_exclude_requested(self) -> None:
+        """Add currently selected library tracks to excluded_paths."""
+        new_excluded = self._state.excluded_paths | frozenset(self._library_selected_paths)
+        self.excluded_paths = new_excluded
+        self._sync_state()
+
+    def _on_lock_requested(self) -> None:
+        """Add currently selected library tracks to locked_paths."""
+        new_locked = self._state.locked_paths | frozenset(self._library_selected_paths)
+        self.locked_paths = new_locked
+        self._sync_state()
+
+    def _on_clear_constraints(self) -> None:
+        """Reset all excluded and locked constraints."""
+        self.excluded_paths = frozenset()
+        self.locked_paths = frozenset()
+        self._sync_state()
+
+    def _on_proceed_to_export(self) -> None:
+        """Navigate to export only if readiness allows it."""
+        vm = ReviewViewModel()
+        if vm.can_export(self._state):
+            self.workflow_tabs.setCurrentIndex(3)
+
+    def _on_track_remove_requested(self, path: str) -> None:
+        """Remove a track from the current session's playlist without affecting future recommendations."""
+        self._state.playlist_removed_paths = self._state.playlist_removed_paths | {path}
+        self._sync_state()
+
+    def _on_track_play_requested(self, path: str) -> None:
+        """Open a track in the system default audio player."""
+        try:
+            subprocess.Popen(["open", path])  # macOS
+        except Exception as exc:
+            LOGGER.warning("Could not open track %s: %s", path, exc)
+            self.status_label.setText(f"Could not open: {Path(path).name}")

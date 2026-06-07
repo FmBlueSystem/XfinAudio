@@ -126,3 +126,17 @@ def test_track_repository_list_display_tracks_omits_large_raw_metadata_for_ui(tm
             missing_required_fields=[],
         )
     ]
+
+
+def test_track_repository_creates_index_on_metadata_status(tmp_path) -> None:
+    import sqlite3
+
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    TrackRepository(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_tracks_metadata_status'"
+        ).fetchone()
+
+    assert row is not None, "idx_tracks_metadata_status index should be created on initialization"
