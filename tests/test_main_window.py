@@ -128,7 +128,7 @@ def test_main_window_constructs_desktop_scanning_skeleton() -> None:
     assert window.strategy_combo.count() == 7
     assert window.recommend_button.text() == "Recommend Playlist"
     assert window.tracks_table.columnCount() >= 7
-    assert window.recommendation_table.columnCount() >= 7
+    assert window._review_screen.recommendation_table.columnCount() >= 7
     assert app is not None
 
 
@@ -165,20 +165,8 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "Status",
         "Path",
     ]
-    assert _table_headers(window.recommendation_table) == [
-        "Title",
-        "Artist",
-        "BPM",
-        "Key",
-        "Energy",
-        "Genre",
-        "Tags/Subgenre",
-        "Strategy",
-        "Path",
-        "Transition Score",
-        "Warnings",
-    ]
-    assert _table_headers(window.prep_copilot_table) == ["Variant", "Readiness", "Tracks", "Warnings"]
+    assert _table_headers(window.recommendation_table) == ["#", "Title", "Artist", "BPM", "Key", "Energy", "Score"]
+    assert _table_headers(window.prep_copilot_table) == ["Variant", "Description", "Tracks", "Readiness"]
     assert _table_headers(window.transition_review_table) == [
         "Order",
         "From",
@@ -738,10 +726,8 @@ def test_main_window_recommend_action_populates_playlist_table_and_status(tmp_pa
     _process_events_until(lambda: window.recommend_button.isEnabled())
 
     assert window.recommendation_table.rowCount() == 1
-    headers = _table_headers(window.recommendation_table)
-    path_item = window.recommendation_table.item(0, headers.index("Path"))
-    assert path_item is not None
-    assert path_item.text() == str(tmp_path / "track.flac")
+    assert window.last_recommendation is not None
+    assert window.last_recommendation.ordered_tracks[0].path == str(tmp_path / "track.flac")
     assert window.status_label.text() == "Recommended 1 track(s) using warmup"
 
 
@@ -853,20 +839,15 @@ def test_main_window_shows_genre_and_tags_subgenre_columns(tmp_path) -> None:
     window.show_recommendation([record], "build")
 
     track_headers = _table_headers(window.tracks_table)
-    recommendation_headers = _table_headers(window.recommendation_table)
 
     assert "Genre" in track_headers
     assert "Tags/Subgenre" in track_headers
-    assert "Genre" in recommendation_headers
-    assert "Tags/Subgenre" in recommendation_headers
     assert _table_item_text(window.tracks_table, 0, track_headers.index("Genre")) == "Disco, Funk & Soul"
     assert _table_item_text(window.tracks_table, 0, track_headers.index("Tags/Subgenre")) == "Boogie, Peak Mid"
-    assert (
-        _table_item_text(window.recommendation_table, 0, recommendation_headers.index("Genre")) == "Disco, Funk & Soul"
-    )
-    recommendation_tags_item = window.recommendation_table.item(0, recommendation_headers.index("Tags/Subgenre"))
-    assert recommendation_tags_item is not None
-    assert recommendation_tags_item.text() == "Boogie, Peak Mid"
+    # Genre and Tags/Subgenre are not shown in the ReviewScreen recommendation table (7 core columns only)
+    recommendation_headers = _table_headers(window.recommendation_table)
+    assert "Genre" not in recommendation_headers
+    assert "Tags/Subgenre" not in recommendation_headers
 
 
 def test_main_window_recommend_action_exposes_transition_explanation_table_data(tmp_path) -> None:
@@ -897,9 +878,12 @@ def test_main_window_recommend_action_exposes_transition_explanation_table_data(
     window.recommend_playlist()
     _process_events_until(lambda: window.recommend_button.isEnabled())
 
-    assert window.recommendation_table.columnCount() >= 9
-    score_item = window.recommendation_table.item(1, 7)
-    warnings_item = window.recommendation_table.item(1, 8)
+    # Transition scores and warnings are now in the transition_review_table, not recommendation_table
+    assert window.recommendation_table.rowCount() == 2
+    assert window.transition_review_table.rowCount() >= 1
+    transition_headers = _table_headers(window.transition_review_table)
+    score_item = window.transition_review_table.item(0, transition_headers.index("Final Score"))
+    warnings_item = window.transition_review_table.item(0, transition_headers.index("Warnings"))
     assert score_item is not None
     assert score_item.text() != ""
     assert warnings_item is not None
@@ -1086,16 +1070,19 @@ def test_recommendation_table_formats_warning_cells_without_mutating_raw_explana
     )
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
     window.last_playlist_explanation = explanation
+    window.last_recommendation = make_recommendation([left, right])
 
     window.show_recommendation([left, right], "harmonic_journey", explanation)
+    window.show_transition_review(explanation)
 
-    headers = _table_headers(window.recommendation_table)
-    score_item = window.recommendation_table.item(1, headers.index("Transition Score"))
-    warnings_item = window.recommendation_table.item(1, headers.index("Warnings"))
-    assert score_item is not None
-    assert warnings_item is not None
+    # Transition score and warnings are now in transition_review_table, not recommendation_table
     assert window.recommendation_table.isHidden() is False
     assert window.recommendation_table.rowCount() == 2
+    transition_headers = _table_headers(window.transition_review_table)
+    score_item = window.transition_review_table.item(0, transition_headers.index("Final Score"))
+    warnings_item = window.transition_review_table.item(0, transition_headers.index("Warnings"))
+    assert score_item is not None
+    assert warnings_item is not None
     assert score_item.text() == "0.000"
     assert warnings_item.text() == main_window.format_recommendation_warning(raw_warning)
     assert window.last_playlist_explanation.transitions[0].warnings == [raw_warning]
@@ -1992,9 +1979,9 @@ def test_main_window_constructs_prep_copilot_controls() -> None:
     assert window.prep_copilot_target_count_input.value() == 25
     assert window.prep_copilot_genre_focus_input.placeholderText() == "Genre focus"
     assert _header_text(window.prep_copilot_table, 0) == "Variant"
-    assert _header_text(window.prep_copilot_table, 1) == "Readiness"
+    assert _header_text(window.prep_copilot_table, 1) == "Description"
     assert _header_text(window.prep_copilot_table, 2) == "Tracks"
-    assert _header_text(window.prep_copilot_table, 3) == "Warnings"
+    assert _header_text(window.prep_copilot_table, 3) == "Readiness"
 
 
 def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_path) -> None:
@@ -2046,7 +2033,7 @@ def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_pat
         "balanced",
         "adventurous",
     ]
-    assert {_table_item_text(window.prep_copilot_table, row, 1) for row in range(3)} == {"Ready"}
+    assert {_table_item_text(window.prep_copilot_table, row, 3) for row in range(3)} == {"Ready"}
     assert window.last_prep_copilot_plan is not None
     assert all(
         variant.recommendation.ordered_tracks[0].path == str(tmp_path / "start.flac")
@@ -2374,7 +2361,7 @@ def test_main_window_colors_prep_copilot_readiness_cells(tmp_path) -> None:
     window.prep_copilot_target_count_input.setValue(2)
     window.generate_prep_copilot()
 
-    readiness_item = _table_item(window.prep_copilot_table, 0, 1)
+    readiness_item = _table_item(window.prep_copilot_table, 0, 3)
 
     assert readiness_item.text() == "Ready"
     assert readiness_item.background().color().name() == "#1fd16a"

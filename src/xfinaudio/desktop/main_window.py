@@ -68,7 +68,6 @@ from xfinaudio.desktop.table_populators import (
     populate_dj_readiness_table,
     populate_library_table,
     populate_prep_copilot_table,
-    populate_recommendation_table,
     populate_serato_export_history_table,
     populate_transition_review_table,
 )
@@ -202,8 +201,6 @@ class MainWindow(QMainWindow):
         # Reparent legacy test-hook widgets that have no visible parent.
         # Without a parent, Qt promotes them to top-level windows on show().
         for widget in (
-            self.recommendation_table,
-            self.prep_copilot_table,
             self.folder_label,
             self.library_guidance_label,
             self.scan_progress_label,
@@ -442,6 +439,14 @@ class MainWindow(QMainWindow):
     def serato_export_history_table(self) -> QTableWidget:
         return self._export_screen.history_table
 
+    @property
+    def recommendation_table(self) -> QTableWidget:
+        return self._review_screen.recommendation_table
+
+    @property
+    def prep_copilot_table(self) -> QTableWidget:
+        return self._build_screen.copilot_table
+
     # Group D — other widget aliases
     @property
     def song_search_input(self) -> QLineEdit:
@@ -480,26 +485,6 @@ class MainWindow(QMainWindow):
         )
         self.tracks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tracks_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.recommendation_table = QTableWidget(0, 11)
-        self.recommendation_table.setHorizontalHeaderLabels(
-            [
-                "Title",
-                "Artist",
-                "BPM",
-                "Key",
-                "Energy",
-                "Genre",
-                "Tags/Subgenre",
-                "Strategy",
-                "Path",
-                "Transition Score",
-                "Warnings",
-            ]
-        )
-        self.prep_copilot_table = QTableWidget(0, 4)
-        self.prep_copilot_table.setHorizontalHeaderLabels(["Variant", "Readiness", "Tracks", "Warnings"])
-        self.prep_copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.prep_copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.folder_label.setWordWrap(False)
         self.folder_label.setMaximumWidth(220)
         self.library_guidance_label.setWordWrap(False)
@@ -514,7 +499,7 @@ class MainWindow(QMainWindow):
 
     def _connect_widget_signals(self) -> None:
         """Connect constructor-created widgets to their existing slots and sorting handlers."""
-        self.prep_copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
+        self._build_screen.copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
         self.tracks_table.itemSelectionChanged.connect(self._refresh_idle_action_state)
         self.song_search_input.textChanged.connect(lambda text: self._apply_song_filter(text, clear_selection=True))
         self.metadata_status_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
@@ -563,8 +548,6 @@ class MainWindow(QMainWindow):
         self._metadata_screen.export_requested.connect(self._on_metadata_export_requested)
         for table in (
             self.tracks_table,
-            self.recommendation_table,
-            self.prep_copilot_table,
             self.transition_review_table,
             self.dj_readiness_table,
             self.serato_export_history_table,
@@ -595,11 +578,6 @@ class MainWindow(QMainWindow):
         self.tracks_table.setMinimumHeight(_COMPACT_LIBRARY_TABLE_MIN_HEIGHT)
         self.tracks_table.setMaximumHeight(_COMPACT_LIBRARY_TABLE_MAX_HEIGHT)
         self.tracks_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.prep_copilot_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
-        self.prep_copilot_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.prep_copilot_table.setHidden(True)
-        self.recommendation_table.setMinimumHeight(_COMPACT_RESULTS_TABLE_MIN_HEIGHT)
-        self.recommendation_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.transition_review_table.setMinimumHeight(_COMPACT_REVIEW_TABLE_MIN_HEIGHT)
         self.transition_review_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.dj_readiness_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
@@ -613,8 +591,6 @@ class MainWindow(QMainWindow):
         """Allocate readable column widths while letting path/warning columns absorb spare space."""
         table_widths = (
             (self.tracks_table, _TRACK_TABLE_COLUMN_WIDTHS),
-            (self.recommendation_table, _RECOMMENDATION_TABLE_COLUMN_WIDTHS),
-            (self.prep_copilot_table, (120, 120, 80, 420)),
             (self.transition_review_table, _REVIEW_TABLE_COLUMN_WIDTHS),
             (self.dj_readiness_table, _DJ_READINESS_TABLE_COLUMN_WIDTHS),
             (self.serato_export_history_table, _SERATO_EXPORT_HISTORY_COLUMN_WIDTHS),
@@ -642,8 +618,6 @@ class MainWindow(QMainWindow):
             label.setObjectName("guidanceLabel")
         for table in (
             self.tracks_table,
-            self.recommendation_table,
-            self.prep_copilot_table,
             self.transition_review_table,
             self.dj_readiness_table,
             self.serato_export_history_table,
@@ -1451,17 +1425,9 @@ class MainWindow(QMainWindow):
         strategy_name: str,
         explanation: PlaylistExplanation | None = None,
     ) -> None:
-        """Render recommended records in the playlist table."""
+        """Update expand/collapse state and re-render the recommendation table via the VM."""
         self._set_recommendation_sections_expanded(bool(records))
-        populate_recommendation_table(
-            self.recommendation_table,
-            records,
-            strategy_name,
-            explanation,
-            item_factory=_table_item,
-            format_track_tags=_format_track_tags,
-            format_warning=format_recommendation_warning,
-        )
+        self._sync_state()
 
     def clear_recommendation_review(self) -> None:
         """Reset recommendation review widgets to their empty state."""

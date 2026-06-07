@@ -28,6 +28,7 @@ class CopilotVariantRow:
     description: str
     track_count: int
     readiness_status: str
+    readiness_summary: str
     blocker_count: int
     warning_count: int
 
@@ -66,6 +67,7 @@ class BuildViewModel:
                 description=variant.description,
                 track_count=len(variant.recommendation.ordered_tracks),
                 readiness_status=variant.readiness.status,
+                readiness_summary=variant.readiness.summary,
                 blocker_count=len(variant.blockers),
                 warning_count=len(variant.warnings),
             )

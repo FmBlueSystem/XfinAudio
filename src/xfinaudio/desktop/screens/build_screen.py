@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QHBoxLayout,
     QHeaderView,
@@ -19,6 +21,9 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.build_view_model import BuildViewModel, CopilotVariantRow
+
+_READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "blocked": "Blocked"}
+_READINESS_STATUS_COLORS = {"ready": "#1fd16a", "needs_review": "#ffb000", "blocked": "#ff4d4f"}
 
 _COPILOT_COLUMNS = ["Variant", "Description", "Tracks", "Readiness"]
 
@@ -77,6 +82,8 @@ class BuildScreen(QWidget):
         self.copilot_table.setHorizontalHeaderLabels(_COPILOT_COLUMNS)
         self.copilot_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.copilot_table.setAlternatingRowColors(True)
+        self.copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         layout.addWidget(self.copilot_table)
 
         # Applied variant badge (set imperatively by main_window)
@@ -118,21 +125,32 @@ class BuildScreen(QWidget):
         self.copilot_button.setEnabled(vm.copilot_button_enabled(state))
         self.variant_label.setText(vm.applied_variant_label(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
-        self._populate_copilot_table(vm.copilot_variants_for_display(state))
+        rows = vm.copilot_variants_for_display(state)
+        self._populate_copilot_table(rows)
+        self.copilot_table.setHidden(len(rows) == 0)
 
     def _populate_copilot_table(self, rows: list[CopilotVariantRow]) -> None:
         self.copilot_table.setRowCount(0)
         for row_data in rows:
             row = self.copilot_table.rowCount()
             self.copilot_table.insertRow(row)
+            status = row_data.readiness_status
+            readiness_label = _READINESS_STATUS_LABELS.get(status, status)
             values = [
                 row_data.name,
                 row_data.description,
                 str(row_data.track_count),
-                row_data.readiness_status,
+                readiness_label,
             ]
             for col, value in enumerate(values):
-                self.copilot_table.setItem(row, col, QTableWidgetItem(value))
+                item = QTableWidgetItem(value)
+                if col == 3:
+                    color = _READINESS_STATUS_COLORS.get(status)
+                    if color:
+                        item.setBackground(QColor(color))
+                        item.setForeground(QColor("#061016"))
+                    item.setToolTip(row_data.readiness_summary)
+                self.copilot_table.setItem(row, col, item)
 
     # ------------------------------------------------------------------
     # Internal slots
