@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -14,6 +15,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+_ROW_COLOR_EVEN = QColor("#101820")
+_ROW_COLOR_ODD = QColor("#14202a")
+_ROW_COLOR_SELECTED = QColor("#0078b4")
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_view_model import LibraryViewModel, TrackDisplayRow
@@ -141,9 +146,21 @@ class LibraryScreen(QWidget):
 
     def _on_selection_changed(self) -> None:
         selected_rows = {idx.row() for idx in self.tracks_table.selectedIndexes()}
+        self._paint_row_selection(selected_rows)
         paths: list[str] = []
         for row in selected_rows:
             path_item = self.tracks_table.item(row, len(_COLUMNS) - 1)
             if path_item is not None:
                 paths.append(path_item.text())
         self.selection_changed.emit(paths)
+
+    def _paint_row_selection(self, selected_rows: set[int]) -> None:
+        col_count = self.tracks_table.columnCount()
+        for row in range(self.tracks_table.rowCount()):
+            color = _ROW_COLOR_SELECTED if row in selected_rows else (
+                _ROW_COLOR_ODD if row % 2 else _ROW_COLOR_EVEN
+            )
+            for col in range(col_count):
+                item = self.tracks_table.item(row, col)
+                if item is not None:
+                    item.setBackground(color)

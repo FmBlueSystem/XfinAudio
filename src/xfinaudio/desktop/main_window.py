@@ -339,6 +339,12 @@ class MainWindow(QMainWindow):
         self._review_screen.render(self._review_vm, self._state)
         self._export_screen.render(self._export_vm, self._state)
         self._metadata_screen.render(self._state)
+        self._update_tab_states()
+
+    def _update_tab_states(self) -> None:
+        """Enable/disable tabs based on NavigationController rules."""
+        for index, screen_name in enumerate(_SCREEN_NAMES):
+            self.workflow_tabs.setTabEnabled(index, self._nav.can_go_to(screen_name, self._state))
 
     def _build_widgets(self) -> None:
         """Build constructor widgets and intrinsic widget configuration."""
@@ -488,6 +494,9 @@ class MainWindow(QMainWindow):
         self._build_screen.copilot_generate_requested.connect(self.generate_prep_copilot)
         self._build_screen.copilot_variant_applied.connect(self._on_copilot_variant_applied)
         self._build_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(0))
+        self._build_screen.proceed_button.clicked.connect(
+            lambda: self.workflow_tabs.setCurrentIndex(2)
+        )
         # ReviewScreen signals
         self._review_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(1))
         self._review_screen.proceed_to_export_requested.connect(self._on_proceed_to_export)
@@ -1155,7 +1164,6 @@ class MainWindow(QMainWindow):
     def _on_library_selection_changed(self, paths: list[str]) -> None:
         """Update state when user selection changes in LibraryScreen."""
         self._library_selected_paths = paths
-        self._sync_state()
         self._refresh_idle_action_state()
 
     def _show_scan_progress(self, progress: ScanProgress) -> None:
