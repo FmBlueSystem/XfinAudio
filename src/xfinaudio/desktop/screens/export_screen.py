@@ -9,15 +9,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from xfinaudio.desktop.app_state import AppState
-from xfinaudio.desktop.export_view_model import ExportHistoryRow, ExportViewModel
+from xfinaudio.desktop.export_view_model import ExportViewModel
 
-_HISTORY_COLUMNS = ["Strategy", "Tracks", "Time", "Path"]
+_HISTORY_COLUMNS = ["Time", "Strategy", "Tracks", "Serato Crate", "Readiness JSON", "Readiness CSV"]
 
 
 class ExportScreen(QWidget):
@@ -54,6 +53,17 @@ class ExportScreen(QWidget):
         info_row.addWidget(self.safe_folder_button)
         layout.addLayout(info_row)
 
+        # Export guidance label (set imperatively by main_window)
+        self.export_guidance_label = QLabel(
+            "Review recommendations before exporting; desktop export setup is intentionally out of scope."
+        )
+        self.export_guidance_label.setWordWrap(True)
+        layout.addWidget(self.export_guidance_label)
+
+        # Safe export folder label (set imperatively by main_window)
+        self.safe_export_folder_label = QLabel("No safe export folder selected")
+        layout.addWidget(self.safe_export_folder_label)
+
         # Playlist summary
         self.playlist_info_label = QLabel("—")
         self.playlist_info_label.setObjectName("statusLabel")
@@ -61,7 +71,7 @@ class ExportScreen(QWidget):
 
         # Action buttons
         actions = QHBoxLayout()
-        self.preview_button = QPushButton("Preview")
+        self.preview_button = QPushButton("Preview Serato Export")
         self.export_button = QPushButton("Export to Serato")
         self.export_button.setObjectName("seratoExportButton")
         self.export_button.setEnabled(False)
@@ -73,11 +83,12 @@ class ExportScreen(QWidget):
         actions.addStretch()
         layout.addLayout(actions)
 
-        # Export history table
+        # Export history table (hidden until first export)
         self.history_table = QTableWidget(0, len(_HISTORY_COLUMNS))
         self.history_table.setHorizontalHeaderLabels(_HISTORY_COLUMNS)
         self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.history_table.setAlternatingRowColors(True)
+        self.history_table.setVisible(False)
         layout.addWidget(self.history_table)
 
         # Navigation
@@ -105,18 +116,5 @@ class ExportScreen(QWidget):
         self.playlist_info_label.setText(vm.preview_text(state) or "—")
         self.export_button.setEnabled(vm.export_enabled(state))
         self.export_readiness_button.setEnabled(vm.export_readiness_enabled(state))
-        self._populate_history_table(vm.export_history_rows(state))
+        # history_table is populated imperatively by _render_serato_export_history
 
-    def _populate_history_table(self, rows: list[ExportHistoryRow]) -> None:
-        self.history_table.setRowCount(0)
-        for row_data in rows:
-            row = self.history_table.rowCount()
-            self.history_table.insertRow(row)
-            values = [
-                row_data.crate_name,
-                row_data.track_count,
-                row_data.exported_at,
-                row_data.destination,
-            ]
-            for col, value in enumerate(values):
-                self.history_table.setItem(row, col, QTableWidgetItem(str(value)))

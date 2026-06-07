@@ -19,12 +19,11 @@ from xfinaudio.desktop.review_view_model import (
     ReadinessCheckRow,
     RecommendationRow,
     ReviewViewModel,
-    TransitionRow,
 )
 
 _READINESS_COLUMNS = ["Check", "Status", "Detail"]
 _RECOMMENDATION_COLUMNS = ["#", "Title", "Artist", "BPM", "Key", "Energy", "Score"]
-_TRANSITION_COLUMNS = ["From", "To", "Score", "Warning"]
+_TRANSITION_COLUMNS = ["Order", "From", "To", "Key Score", "BPM Score", "Energy Score", "Tag Score", "Final Score", "Warnings"]
 
 
 class ReviewScreen(QWidget):
@@ -52,7 +51,15 @@ class ReviewScreen(QWidget):
         self.readiness_badge.setObjectName("readinessBadge")
         layout.addWidget(self.readiness_badge)
 
-        # Quality summary
+        # DJ readiness summary (set imperatively by main_window)
+        self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
+        layout.addWidget(self.dj_readiness_label)
+
+        # Quality summary (set imperatively by main_window)
+        self.review_summary_label = QLabel("No recommendation is ready for review.")
+        layout.addWidget(self.review_summary_label)
+
+        # VM-driven quality summary
         self.quality_label = QLabel()
         layout.addWidget(self.quality_label)
 
@@ -100,9 +107,9 @@ class ReviewScreen(QWidget):
         self.readiness_badge.setText(vm.readiness_badge_text(state))
         self.quality_label.setText(vm.quality_summary(state))
         self.export_button.setEnabled(vm.can_export(state))
-        self._populate_readiness_table(vm.readiness_checks(state))
         self._populate_recommendation_table(vm.recommendation_rows(state))
-        self._populate_transition_table(vm.transition_rows(state))
+        # readiness_table and transition_table are populated imperatively by
+        # _populate_dj_readiness_table / show_transition_review / clear_recommendation_review
 
     def _populate_readiness_table(self, rows: list[ReadinessCheckRow]) -> None:
         self.readiness_table.setRowCount(0)
@@ -129,16 +136,3 @@ class ReviewScreen(QWidget):
             for col, value in enumerate(values):
                 self.recommendation_table.setItem(row, col, QTableWidgetItem(value))
 
-    def _populate_transition_table(self, rows: list[TransitionRow]) -> None:
-        self.transition_table.setRowCount(0)
-        for row_data in rows:
-            row = self.transition_table.rowCount()
-            self.transition_table.insertRow(row)
-            values = [
-                row_data.from_track,
-                row_data.to_track,
-                row_data.score,
-                row_data.warning_text,
-            ]
-            for col, value in enumerate(values):
-                self.transition_table.setItem(row, col, QTableWidgetItem(value))

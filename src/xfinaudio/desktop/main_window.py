@@ -113,7 +113,6 @@ from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, PrepCopilotPlan, build_prep_copilot_plan
-from xfinaudio.recommendation.strategies import available_strategies
 
 LOGGER = logging.getLogger(__name__)
 
@@ -143,18 +142,6 @@ _MISSING_METADATA_FILTERS = {
     "Missing Key": "camelot_key",
     "Missing Energy": "energy_level",
 }
-
-_TRANSITION_REVIEW_HEADERS = [
-    "Order",
-    "From",
-    "To",
-    "Key Score",
-    "BPM Score",
-    "Energy Score",
-    "Tag Score",
-    "Final Score",
-    "Warnings",
-]
 
 
 class MainWindow(QMainWindow):
@@ -200,26 +187,6 @@ class MainWindow(QMainWindow):
         library_status_controls.addWidget(self.library_guidance_label, 1)
         library_status_controls.addWidget(self.scan_progress_label)
 
-        library_filter_controls = QHBoxLayout()
-        library_filter_controls.addWidget(self.metadata_status_filter_combo)
-        library_filter_controls.addWidget(self.missing_metadata_filter_combo)
-        library_filter_controls.addWidget(self.song_search_input)
-        library_filter_controls.addWidget(self.metadata_status_export_button)
-        library_filter_controls.addStretch(1)
-
-        recommendation_controls = QHBoxLayout()
-        recommendation_controls.addWidget(QLabel("Strategy"))
-        recommendation_controls.addWidget(self.strategy_combo, 1)
-        recommendation_controls.addWidget(self.recommend_button)
-
-        prep_copilot_controls = QHBoxLayout()
-        prep_copilot_controls.addWidget(QLabel("Set Tracks"))
-        prep_copilot_controls.addWidget(self.prep_copilot_target_count_input)
-        prep_copilot_controls.addWidget(self.prep_copilot_genre_focus_input)
-        prep_copilot_controls.addWidget(self.prep_copilot_button)
-        prep_copilot_controls.addWidget(self.prep_copilot_apply_button)
-        prep_copilot_controls.addStretch(1)
-
         self.workflow_tabs = QTabWidget()
         self.workflow_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self.workflow_tabs.addTab(self._library_screen, "Library")
@@ -235,36 +202,19 @@ class MainWindow(QMainWindow):
         self._apply_compact_mac_layout(
             layout,
             controls,
-            recommendation_controls,
             library_status_controls,
-            library_filter_controls,
-            prep_copilot_controls,
         )
 
         container = QWidget()
-        # Reparent all widgets removed from tab-page layouts.
-        # Without a parent, Qt shows them as floating top-level windows when
-        # setHidden(False) or show() is called. Labels are reparented but kept
-        # visible (code still reads their text); interactive widgets are hidden.
-        _orphaned_labels = [
-            self.review_summary_label,
-            self.dj_readiness_label,
-            self.recommendation_guidance_label,
-            self.export_guidance_label,
-            self.applied_copilot_variant_label,
-            self.safe_export_folder_label,
-        ]
-        _orphaned_interactive = [
-            self.prep_copilot_table,
+        # Reparent legacy test-hook widgets that have no visible parent.
+        # Without a parent, Qt promotes them to top-level windows on show().
+        for widget in (
             self.recommendation_table,
-            self.dj_readiness_table,
-            self.transition_review_table,
-            self.serato_export_history_table,
-            self.serato_preview_button,
-        ]
-        for widget in _orphaned_labels:
-            widget.setParent(container)
-        for widget in _orphaned_interactive:
+            self.prep_copilot_table,
+            self.folder_label,
+            self.library_guidance_label,
+            self.scan_progress_label,
+        ):
             widget.setParent(container)
             widget.hide()
         container.setLayout(layout)
@@ -424,6 +374,86 @@ class MainWindow(QMainWindow):
     def dj_readiness_export_button(self) -> QPushButton:
         return self._export_screen.export_readiness_button
 
+    # Group C — functional widget aliases (BuildScreen)
+    @property
+    def recommend_button(self) -> QPushButton:
+        return self._build_screen.recommend_button
+
+    @property
+    def strategy_combo(self) -> QComboBox:
+        return self._build_screen.strategy_combo
+
+    @property
+    def prep_copilot_button(self) -> QPushButton:
+        return self._build_screen.copilot_button
+
+    @property
+    def prep_copilot_apply_button(self) -> QPushButton:
+        return self._build_screen.apply_variant_button
+
+    @property
+    def prep_copilot_target_count_input(self) -> QSpinBox:
+        return self._build_screen.target_count_input
+
+    @property
+    def prep_copilot_genre_focus_input(self) -> QLineEdit:
+        return self._build_screen.genre_focus_input
+
+    # Group A — label aliases
+    @property
+    def serato_preview_button(self) -> QPushButton:
+        return self._export_screen.preview_button
+
+    @property
+    def review_summary_label(self) -> QLabel:
+        return self._review_screen.review_summary_label
+
+    @property
+    def dj_readiness_label(self) -> QLabel:
+        return self._review_screen.dj_readiness_label
+
+    @property
+    def applied_copilot_variant_label(self) -> QLabel:
+        return self._build_screen.applied_copilot_variant_label
+
+    @property
+    def export_guidance_label(self) -> QLabel:
+        return self._export_screen.export_guidance_label
+
+    @property
+    def safe_export_folder_label(self) -> QLabel:
+        return self._export_screen.safe_export_folder_label
+
+    # Group B — table aliases (screen tables now have matching column layouts)
+    @property
+    def dj_readiness_table(self) -> QTableWidget:
+        return self._review_screen.readiness_table
+
+    @property
+    def transition_review_table(self) -> QTableWidget:
+        return self._review_screen.transition_table
+
+    @property
+    def serato_export_history_table(self) -> QTableWidget:
+        return self._export_screen.history_table
+
+    # Group D — other widget aliases
+    @property
+    def song_search_input(self) -> QLineEdit:
+        return self._library_screen.search_input
+
+    @property
+    def metadata_status_filter_combo(self) -> QComboBox:
+        return self._metadata_screen.status_combo
+
+    @property
+    def missing_metadata_filter_combo(self) -> QComboBox:
+        return self._metadata_screen.missing_combo
+
+    @property
+    def metadata_status_export_button(self) -> QPushButton:
+        return self._metadata_screen.export_button
+
     def _update_tab_states(self) -> None:
         """Enable/disable tabs based on NavigationController rules."""
         for index, screen_name in enumerate(_SCREEN_NAMES):
@@ -440,54 +470,16 @@ class MainWindow(QMainWindow):
         self.folder_label = QLabel("Library: none")
         self.library_guidance_label = QLabel("Choose a folder to scan metadata.")
         self.recommendation_guidance_label = QLabel("Scan metadata before recommending a playlist.")
-        self.export_guidance_label = QLabel(
-            "Review recommendations before exporting; desktop export setup is intentionally out of scope."
-        )
-        self.safe_export_folder_label = QLabel(self._format_safe_export_folder_label())
-        self.applied_copilot_variant_label = QLabel("Applied Variant: none")
-        self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
-        self.serato_preview_button = QPushButton("Preview Serato Export")
-        self.serato_preview_button.setEnabled(False)
         self.scan_progress_label = QLabel("Scan: idle")
         self.status_label = QLabel("Ready")
         self.library_decision_label = QLabel("DJ Decision Point: choose source, filters, and the track anchor.")
         self.metadata_decision_label = QLabel("DJ Decision Point: complete missing metadata, then refresh the library.")
-        self.review_summary_label = QLabel(_EMPTY_REVIEW_SUMMARY)
-        self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
-        self.dj_readiness_table = QTableWidget(0, 3)
-        self.dj_readiness_table.setHorizontalHeaderLabels(["Check", "Status", "Detail"])
-        self.song_search_input = QLineEdit()
-        self.song_search_input.setPlaceholderText("Search songs")
-        self.song_search_input.setClearButtonEnabled(True)
-        self.song_search_input.setMinimumWidth(160)
-        self.song_search_input.setMaximumWidth(220)
-        self.metadata_status_filter_combo = QComboBox()
-        self.metadata_status_filter_combo.addItems(["All statuses", "Complete", "Incomplete"])
-        self.missing_metadata_filter_combo = QComboBox()
-        self.missing_metadata_filter_combo.addItems(["All missing fields", *_MISSING_METADATA_FILTERS])
-        self.metadata_status_export_button = QPushButton("Export Status Crate")
-        self.metadata_status_export_button.setEnabled(False)
         self.tracks_table = QTableWidget(0, 10)
         self.tracks_table.setHorizontalHeaderLabels(
             ["Title", "Artist", "BPM", "Key", "Energy", "Missing", "Genre", "Tags/Subgenre", "Status", "Path"]
         )
         self.tracks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tracks_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.strategy_combo = QComboBox()
-        self.strategy_combo.addItems(available_strategies())
-        self.recommend_button = QPushButton("Recommend Playlist")
-        self.recommend_button.setEnabled(False)
-        self.prep_copilot_target_count_input = QSpinBox()
-        self.prep_copilot_target_count_input.setRange(2, 100)
-        self.prep_copilot_target_count_input.setValue(25)
-        self.prep_copilot_genre_focus_input = QLineEdit()
-        self.prep_copilot_genre_focus_input.setPlaceholderText("Genre focus")
-        self.prep_copilot_genre_focus_input.setMinimumWidth(160)
-        self.prep_copilot_genre_focus_input.setMaximumWidth(360)
-        self.prep_copilot_button = QPushButton("Generate Prep Copilot")
-        self.prep_copilot_button.setEnabled(False)
-        self.prep_copilot_apply_button = QPushButton("Apply Selected Variant")
-        self.prep_copilot_apply_button.setEnabled(False)
         self.recommendation_table = QTableWidget(0, 11)
         self.recommendation_table.setHorizontalHeaderLabels(
             [
@@ -508,13 +500,6 @@ class MainWindow(QMainWindow):
         self.prep_copilot_table.setHorizontalHeaderLabels(["Variant", "Readiness", "Tracks", "Warnings"])
         self.prep_copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.prep_copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.transition_review_table = QTableWidget(0, len(_TRANSITION_REVIEW_HEADERS))
-        self.transition_review_table.setHorizontalHeaderLabels(_TRANSITION_REVIEW_HEADERS)
-        self.serato_export_history_table = QTableWidget(0, 6)
-        self.serato_export_history_table.setHorizontalHeaderLabels(
-            ["Time", "Strategy", "Tracks", "Serato Crate", "Readiness JSON", "Readiness CSV"]
-        )
-        self.serato_export_history_table.setVisible(False)
         self.folder_label.setWordWrap(False)
         self.folder_label.setMaximumWidth(220)
         self.library_guidance_label.setWordWrap(False)
@@ -522,21 +507,18 @@ class MainWindow(QMainWindow):
         self.scan_progress_label.setWordWrap(False)
         self.scan_progress_label.setMaximumWidth(140)
         self.recommendation_guidance_label.setWordWrap(True)
-        self.export_guidance_label.setWordWrap(True)
         for label in (self.folder_label, self.library_guidance_label, self.scan_progress_label):
             label.setMaximumHeight(24)
+        # Initialize screen labels that depend on settings (not driven by ViewModel)
+        self.safe_export_folder_label.setText(self._format_safe_export_folder_label())
 
     def _connect_widget_signals(self) -> None:
         """Connect constructor-created widgets to their existing slots and sorting handlers."""
         self.folder_button.clicked.connect(self.choose_folder)
         self.scan_button.clicked.connect(self.scan_selected_folder)
         self.cancel_scan_button.clicked.connect(self.cancel_scan)
-        self.recommend_button.clicked.connect(self.recommend_playlist)
-        self.prep_copilot_button.clicked.connect(self.generate_prep_copilot)
-        self.prep_copilot_apply_button.clicked.connect(self.apply_selected_prep_copilot_variant)
         self.prep_copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
         self.tracks_table.itemSelectionChanged.connect(self._refresh_idle_action_state)
-        self.serato_preview_button.clicked.connect(lambda: self.preview_serato_export())
         self.song_search_input.textChanged.connect(lambda text: self._apply_song_filter(text, clear_selection=True))
         self.metadata_status_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
         self.missing_metadata_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
@@ -596,19 +578,13 @@ class MainWindow(QMainWindow):
         self,
         layout: QVBoxLayout,
         controls: QHBoxLayout,
-        recommendation_controls: QHBoxLayout,
         library_status_controls: QHBoxLayout,
-        library_filter_controls: QHBoxLayout,
-        prep_copilot_controls: QHBoxLayout,
     ) -> None:
         """Use dense desktop spacing so the library browser does not dominate MacBook screens."""
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(6)
         controls.setSpacing(8)
         library_status_controls.setSpacing(8)
-        library_filter_controls.setSpacing(8)
-        recommendation_controls.setSpacing(8)
-        prep_copilot_controls.setSpacing(8)
 
         self.folder_button.setMinimumWidth(220)
         self.scan_button.setMinimumWidth(220)
@@ -618,6 +594,8 @@ class MainWindow(QMainWindow):
         self.prep_copilot_button.setMinimumWidth(190)
         self.prep_copilot_button.setMaximumWidth(220)
         self.prep_copilot_apply_button.setMaximumWidth(220)
+        self.prep_copilot_genre_focus_input.setMinimumWidth(160)
+        self.prep_copilot_genre_focus_input.setMaximumWidth(360)
         self.metadata_status_filter_combo.setMaximumWidth(170)
         self.missing_metadata_filter_combo.setMaximumWidth(220)
         self.metadata_status_export_button.setMaximumWidth(220)
@@ -684,6 +662,7 @@ class MainWindow(QMainWindow):
             table.verticalHeader().setDefaultSectionSize(_COMPACT_TABLE_ROW_HEIGHT)
             table.verticalHeader().setMinimumSectionSize(_COMPACT_TABLE_ROW_HEIGHT)
             table.verticalHeader().setVisible(False)
+        self.song_search_input.setClearButtonEnabled(True)
         self.setStyleSheet(_DJ_VISUAL_STYLESHEET)
 
     def _set_recommendation_sections_expanded(self, expanded: bool) -> None:
@@ -1264,6 +1243,7 @@ class MainWindow(QMainWindow):
         if incomplete_count is None:
             incomplete_count = len(records) - complete_count
         self.status_label.setText(f"Scan complete: {complete_count} complete, {incomplete_count} incomplete")
+        self._sync_state()
 
     def generate_prep_copilot(self) -> None:
         """Generate comparable DJ Prep Copilot variants from current selection and intent controls."""

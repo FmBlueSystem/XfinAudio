@@ -69,7 +69,9 @@ class LibraryScreen(QWidget):
 
         # Search
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search tracks…")
+        self.search_input.setPlaceholderText("Search songs")
+        self.search_input.setMinimumWidth(160)
+        self.search_input.setMaximumWidth(220)
         layout.addWidget(self.search_input)
 
         # Table

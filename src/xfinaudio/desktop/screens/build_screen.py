@@ -8,7 +8,9 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -47,6 +49,7 @@ class BuildScreen(QWidget):
         strategy_row = QHBoxLayout()
         self.strategy_combo = QComboBox()
         self.recommend_button = QPushButton("Recommend Playlist")
+        self.recommend_button.setEnabled(False)
         strategy_row.addWidget(self.strategy_combo)
         strategy_row.addWidget(self.recommend_button)
         strategy_row.addStretch()
@@ -54,8 +57,16 @@ class BuildScreen(QWidget):
 
         # Copilot section
         copilot_row = QHBoxLayout()
+        self.target_count_input = QSpinBox()
+        self.target_count_input.setRange(2, 100)
+        self.target_count_input.setValue(25)
+        self.genre_focus_input = QLineEdit()
+        self.genre_focus_input.setPlaceholderText("Genre focus")
         self.copilot_button = QPushButton("Generate Prep Copilot")
         self.variant_label = QLabel()
+        copilot_row.addWidget(QLabel("Set Tracks"))
+        copilot_row.addWidget(self.target_count_input)
+        copilot_row.addWidget(self.genre_focus_input)
         copilot_row.addWidget(self.copilot_button)
         copilot_row.addWidget(self.variant_label)
         copilot_row.addStretch()
@@ -67,6 +78,11 @@ class BuildScreen(QWidget):
         self.copilot_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.copilot_table.setAlternatingRowColors(True)
         layout.addWidget(self.copilot_table)
+
+        # Applied variant badge (set imperatively by main_window)
+        self.applied_copilot_variant_label = QLabel("Applied Variant: none")
+        self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
+        layout.addWidget(self.applied_copilot_variant_label)
 
         # Apply variant button
         self.apply_variant_button = QPushButton("Apply Selected Variant")
@@ -96,9 +112,9 @@ class BuildScreen(QWidget):
         # Populate strategy combo (only if empty to avoid clearing user selection)
         if self.strategy_combo.count() == 0:
             for option in vm.available_strategies():
-                self.strategy_combo.addItem(option.display_name, userData=option.name)
+                self.strategy_combo.addItem(option.name)
 
-        self.recommend_button.setEnabled(vm.recommend_button_enabled(state))
+        # recommend_button enabled state is managed by MainWindow._refresh_idle_action_state
         self.copilot_button.setEnabled(vm.copilot_button_enabled(state))
         self.variant_label.setText(vm.applied_variant_label(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
@@ -123,7 +139,7 @@ class BuildScreen(QWidget):
     # ------------------------------------------------------------------
 
     def _on_recommend(self) -> None:
-        strategy = self.strategy_combo.currentData() or self.strategy_combo.currentText()
+        strategy = self.strategy_combo.currentText()
         self.recommend_requested.emit(strategy, [])
 
     def _on_apply_variant(self) -> None:

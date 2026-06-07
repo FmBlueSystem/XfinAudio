@@ -174,7 +174,7 @@ def run_tests():
         check("scan_button enabled after folder selected", window.scan_button.isEnabled())
         check(
             "LibraryScreen.search_input has placeholder",
-            window._library_screen.search_input.placeholderText() == "Search tracks…",
+            window._library_screen.search_input.placeholderText() == "Search songs",
             f"got '{window._library_screen.search_input.placeholderText()}'",
         )
 
