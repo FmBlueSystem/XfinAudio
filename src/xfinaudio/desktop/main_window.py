@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
 from xfinaudio.config.settings import AppSettings, ExportSettings
-from xfinaudio.desktop._workers import BackgroundWorker, ScanWorker
+from xfinaudio.desktop._workers import BackgroundWorker
 from xfinaudio.desktop.export_coordinator import record_export, write_readiness_sidecars
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
@@ -44,6 +44,7 @@ from xfinaudio.desktop.rendering import (
     format_quality_summary,
     format_recommendation_warning,
 )
+from xfinaudio.desktop.scan_controller import ScanController
 from xfinaudio.desktop.table_populators import (
     populate_dj_readiness_table,
     populate_library_table,
@@ -290,8 +291,7 @@ class MainWindow(QMainWindow):
         self.last_prep_copilot_plan: PrepCopilotPlan | None = None
         self.applied_prep_copilot_variant_name: str | None = None
         self.current_scan_cancellation_token: ScanCancellationToken | None = None
-        self._scan_thread: QThread | None = None
-        self._scan_worker: ScanWorker | None = None
+        self._scan_controller = ScanController(self.workflow_service, parent=self)
         self._recommendation_thread: QThread | None = None
         self._recommendation_worker: BackgroundWorker | None = None
         self.serato_export_history: list[dict[str, str]] = []
@@ -425,6 +425,10 @@ class MainWindow(QMainWindow):
         self.metadata_status_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
         self.missing_metadata_filter_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
         self.metadata_status_export_button.clicked.connect(lambda: self.export_metadata_status_to_serato())
+        self._scan_controller.scan_progress_updated.connect(self._show_scan_progress)
+        self._scan_controller.scan_completed.connect(self._finish_scan)
+        self._scan_controller.scan_failed.connect(self._fail_scan)
+        self._scan_controller.worker_cleared.connect(self._clear_scan_worker_refs)
         for table in (
             self.tracks_table,
             self.recommendation_table,
@@ -1042,28 +1046,8 @@ class MainWindow(QMainWindow):
         self._refresh_idle_action_state()
 
     def _start_scan_worker(self, folder: Path, token: ScanCancellationToken) -> None:
-        """Start metadata scanning in a worker thread so the UI stays responsive."""
-        thread = QThread(self)
-        worker = ScanWorker(
-            lambda progress_callback: self.workflow_service.scan_folder(
-                folder,
-                on_progress=progress_callback,
-                cancellation_token=token,
-            )
-        )
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.progress.connect(self._show_scan_progress)
-        worker.finished.connect(self._finish_scan)
-        worker.failed.connect(self._fail_scan)
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._clear_scan_worker_refs)
-        self._scan_thread = thread
-        self._scan_worker = worker
-        thread.start()
+        """Delegate thread/worker construction to the scan controller."""
+        self._scan_controller.start_scan(folder, token)
 
     @Slot(object)
     def _finish_scan(self, result: Any) -> None:
@@ -1111,8 +1095,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _clear_scan_worker_refs(self) -> None:
-        self._scan_thread = None
-        self._scan_worker = None
+        pass  # Thread/worker refs are now owned and cleared by ScanController.
 
     def _show_scan_progress(self, progress: ScanProgress) -> None:
         """Render scan progress from the workflow service."""
@@ -1124,7 +1107,7 @@ class MainWindow(QMainWindow):
         """Request cooperative cancellation for the current synchronous scan."""
         if self.current_scan_cancellation_token is None:
             return
-        self.current_scan_cancellation_token.cancel()
+        self._scan_controller.cancel(self.current_scan_cancellation_token)
         self.cancel_scan_button.setEnabled(False)
         self.status_label.setText("Cancel requested; waiting for current file to finish")
 
