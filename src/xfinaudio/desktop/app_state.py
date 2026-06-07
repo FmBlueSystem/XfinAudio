@@ -43,6 +43,10 @@ class AppState:
     # Settings
     settings: AppSettings = field(default_factory=AppSettings)
 
+    # Track constraints
+    excluded_paths: frozenset[str] = field(default_factory=frozenset)
+    locked_paths: frozenset[str] = field(default_factory=frozenset)
+
     # Navigation
     current_screen: ScreenName = "library"
 

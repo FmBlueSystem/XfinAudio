@@ -35,6 +35,9 @@ class BuildScreen(QWidget):
     copilot_generate_requested = Signal()
     copilot_variant_applied = Signal(int)
     back_requested = Signal()
+    exclude_requested = Signal()
+    lock_requested = Signal()
+    clear_constraints_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -59,6 +62,20 @@ class BuildScreen(QWidget):
         strategy_row.addWidget(self.recommend_button)
         strategy_row.addStretch()
         layout.addLayout(strategy_row)
+
+        # Constraints row
+        constraints_row = QHBoxLayout()
+        self.exclude_button = QPushButton("Exclude Selected")
+        self.lock_button = QPushButton("Lock Selected")
+        self.clear_constraints_button = QPushButton("Clear Constraints")
+        self.clear_constraints_button.setEnabled(False)
+        self.constraints_label = QLabel("")
+        constraints_row.addWidget(self.exclude_button)
+        constraints_row.addWidget(self.lock_button)
+        constraints_row.addWidget(self.clear_constraints_button)
+        constraints_row.addWidget(self.constraints_label)
+        constraints_row.addStretch()
+        layout.addLayout(constraints_row)
 
         # Copilot section
         copilot_row = QHBoxLayout()
@@ -109,6 +126,9 @@ class BuildScreen(QWidget):
         self.copilot_button.clicked.connect(self.copilot_generate_requested)
         self.apply_variant_button.clicked.connect(self._on_apply_variant)
         self.recommend_button.clicked.connect(self._on_recommend)
+        self.exclude_button.clicked.connect(self.exclude_requested)
+        self.lock_button.clicked.connect(self.lock_requested)
+        self.clear_constraints_button.clicked.connect(self.clear_constraints_requested)
 
     # ------------------------------------------------------------------
     # Render
@@ -128,6 +148,16 @@ class BuildScreen(QWidget):
         rows = vm.copilot_variants_for_display(state)
         self._populate_copilot_table(rows)
         self.copilot_table.setHidden(len(rows) == 0)
+
+        excluded = len(state.excluded_paths)
+        locked = len(state.locked_paths)
+        parts = []
+        if excluded:
+            parts.append(f"{excluded} excluded")
+        if locked:
+            parts.append(f"{locked} locked")
+        self.constraints_label.setText(", ".join(parts) if parts else "")
+        self.clear_constraints_button.setEnabled(bool(excluded or locked))
 
     def _populate_copilot_table(self, rows: list[CopilotVariantRow]) -> None:
         self.copilot_table.setRowCount(0)

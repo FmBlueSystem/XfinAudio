@@ -109,6 +109,7 @@ class LibraryScreen(QWidget):
         self.proceed_button.setEnabled(vm.can_proceed(state))
         self._populate_table(vm.tracks_for_display(state))
         self._apply_filter()
+        self._apply_constraint_colors(state.excluded_paths, state.locked_paths)
 
     def _populate_table(self, rows: list[TrackDisplayRow]) -> None:
         self.tracks_table.blockSignals(True)
@@ -154,6 +155,29 @@ class LibraryScreen(QWidget):
                 for col in _SEARCH_COLS
             )
             self.tracks_table.setRowHidden(row, not match)
+
+    def _apply_constraint_colors(self, excluded: frozenset[str], locked: frozenset[str]) -> None:
+        if not excluded and not locked:
+            return
+        _EXCLUDED_COLOR = QColor("#4a1a1a")
+        _LOCKED_COLOR = QColor("#3a3010")
+        col_count = self.tracks_table.columnCount()
+        path_col = len(_COLUMNS) - 1  # Path is last column
+        for row in range(self.tracks_table.rowCount()):
+            path_item = self.tracks_table.item(row, path_col)
+            if path_item is None:
+                continue
+            path = path_item.text()
+            if path in excluded:
+                color = _EXCLUDED_COLOR
+            elif path in locked:
+                color = _LOCKED_COLOR
+            else:
+                continue
+            for col in range(col_count):
+                item = self.tracks_table.item(row, col)
+                if item is not None:
+                    item.setBackground(color)
 
     def _on_selection_changed(self) -> None:
         selected_rows = {idx.row() for idx in self.tracks_table.selectedIndexes()}

@@ -345,6 +345,22 @@ class MainWindow(QMainWindow):
     def serato_export_history(self, value: list[dict[str, str]]) -> None:
         self._state.serato_export_history = value
 
+    @property
+    def excluded_paths(self) -> frozenset[str]:
+        return self._state.excluded_paths
+
+    @excluded_paths.setter
+    def excluded_paths(self, value: frozenset[str]) -> None:
+        self._state.excluded_paths = value
+
+    @property
+    def locked_paths(self) -> frozenset[str]:
+        return self._state.locked_paths
+
+    @locked_paths.setter
+    def locked_paths(self, value: frozenset[str]) -> None:
+        self._state.locked_paths = value
+
     # ------------------------------------------------------------------
     # Screen widget aliases — backward-compat read-only properties that
     # forward to the live Screen widgets so existing call sites and tests
@@ -529,6 +545,9 @@ class MainWindow(QMainWindow):
         self._build_screen.proceed_button.clicked.connect(
             lambda: self.workflow_tabs.setCurrentIndex(2)
         )
+        self._build_screen.exclude_requested.connect(self._on_exclude_requested)
+        self._build_screen.lock_requested.connect(self._on_lock_requested)
+        self._build_screen.clear_constraints_requested.connect(self._on_clear_constraints)
         # ReviewScreen signals
         self._review_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(1))
         self._review_screen.proceed_to_export_requested.connect(self._on_proceed_to_export)
@@ -1336,8 +1355,16 @@ class MainWindow(QMainWindow):
                 seen_paths.add(path)
             if selected_records:
                 if len(selected_records) == 1:
-                    return DJControls(start_path=selected_records[0].path)
-                return DJControls(manual_order_paths=[r.path for r in selected_records])
+                    return DJControls(
+                        start_path=selected_records[0].path,
+                        excluded_paths=self._state.excluded_paths,
+                        locked_paths=self._state.locked_paths,
+                    )
+                return DJControls(
+                    manual_order_paths=[r.path for r in selected_records],
+                    excluded_paths=self._state.excluded_paths,
+                    locked_paths=self._state.locked_paths,
+                )
 
         # Fallback: legacy widget used by automated tests
         selected_rows = sorted({index.row() for index in self.tracks_table.selectedIndexes()})
@@ -1357,8 +1384,16 @@ class MainWindow(QMainWindow):
         if not selected_records:
             return None
         if len(selected_records) == 1:
-            return DJControls(start_path=selected_records[0].path)
-        return DJControls(manual_order_paths=[record.path for record in selected_records])
+            return DJControls(
+                start_path=selected_records[0].path,
+                excluded_paths=self._state.excluded_paths,
+                locked_paths=self._state.locked_paths,
+            )
+        return DJControls(
+            manual_order_paths=[record.path for record in selected_records],
+            excluded_paths=self._state.excluded_paths,
+            locked_paths=self._state.locked_paths,
+        )
 
     def _desktop_recommendation_records(self, controls: DJControls | None) -> list[TrackRecord]:
         """Return an interactive-size recommendation pool while preserving selected control tracks."""
@@ -1505,6 +1540,24 @@ class MainWindow(QMainWindow):
         # Normalise status filter: "All" or unknown → None
         norm_status: str | None = status_filter.casefold() if status_filter.casefold() in {"complete", "incomplete"} else None
         self.export_metadata_status_to_serato(status=norm_status, missing_field=missing_field)
+
+    def _on_exclude_requested(self) -> None:
+        """Add currently selected library tracks to excluded_paths."""
+        new_excluded = self._state.excluded_paths | frozenset(self._library_selected_paths)
+        self.excluded_paths = new_excluded
+        self._sync_state()
+
+    def _on_lock_requested(self) -> None:
+        """Add currently selected library tracks to locked_paths."""
+        new_locked = self._state.locked_paths | frozenset(self._library_selected_paths)
+        self.locked_paths = new_locked
+        self._sync_state()
+
+    def _on_clear_constraints(self) -> None:
+        """Reset all excluded and locked constraints."""
+        self.excluded_paths = frozenset()
+        self.locked_paths = frozenset()
+        self._sync_state()
 
     def _on_proceed_to_export(self) -> None:
         """Navigate to export only if readiness allows it."""
