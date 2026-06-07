@@ -2,7 +2,29 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from xfinaudio.desktop.app_state import AppState
+
+_MISSING_FIELD_MAP = {
+    "Missing BPM": "bpm",
+    "Missing Key": "camelot_key",
+    "Missing Energy": "energy_level",
+}
+
+
+@dataclass(frozen=True)
+class WorklistRow:
+    """One row in the metadata worklist table."""
+
+    path: str
+    title: str
+    artist: str
+    bpm: str
+    key: str
+    energy: str
+    missing: str
+    status: str
 
 
 class MetadataViewModel:
@@ -20,3 +42,66 @@ class MetadataViewModel:
         complete = sum(1 for r in state.scanned_records if r.metadata_status == "complete")
         incomplete = total - complete
         return f"{total} tracks scanned — {complete} complete, {incomplete} incomplete"
+
+    def worklist_rows(
+        self,
+        state: AppState,
+        status_filter: str | None = None,
+        missing_filter: str | None = None,
+    ) -> list[WorklistRow]:
+        """Incomplete tracks matching the active filters. Empty when no tracks scanned."""
+        records = state.scanned_records
+        if not records:
+            return []
+
+        # Normalise status filter
+        norm_status: str | None = None
+        if status_filter and status_filter.casefold() not in ("all", ""):
+            norm_status = status_filter.casefold()
+
+        # Resolve missing-field filter label → internal field name
+        missing_field: str | None = None
+        if missing_filter and missing_filter not in ("All", "", None):
+            missing_field = _MISSING_FIELD_MAP.get(missing_filter, missing_filter)
+
+        rows: list[WorklistRow] = []
+        for record in records:
+            # Status filter
+            if norm_status is not None and record.metadata_status != norm_status:
+                continue
+            # Missing-field filter
+            if missing_field is not None and missing_field not in record.missing_required_fields:
+                continue
+
+            bpm = str(int(record.bpm)) if record.bpm is not None else "—"
+            key = record.camelot_key if record.camelot_key is not None else "—"
+            energy = str(record.energy_level) if record.energy_level is not None else "—"
+            missing_str = ", ".join(record.missing_required_fields) if record.missing_required_fields else "—"
+
+            rows.append(
+                WorklistRow(
+                    path=record.path,
+                    title=record.title or "—",
+                    artist=record.artist or "—",
+                    bpm=bpm,
+                    key=key,
+                    energy=energy,
+                    missing=missing_str,
+                    status=record.metadata_status,
+                )
+            )
+        return rows
+
+    @staticmethod
+    def status_filter_options() -> list[str]:
+        """["All", "Complete", "Incomplete"]"""
+        return ["All", "Complete", "Incomplete"]
+
+    @staticmethod
+    def missing_filter_options() -> list[str]:
+        """["All", "Missing BPM", "Missing Key", "Missing Energy"]"""
+        return ["All", "Missing BPM", "Missing Key", "Missing Energy"]
+
+    def export_enabled(self, state: AppState) -> bool:
+        """True when there are incomplete tracks to export."""
+        return any(r.metadata_status == "incomplete" for r in state.scanned_records)

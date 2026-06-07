@@ -39,6 +39,7 @@ from xfinaudio.desktop.export_coordinator import (
 from xfinaudio.desktop.export_view_model import ExportViewModel
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.library_view_model import LibraryViewModel
+from xfinaudio.desktop.metadata_view_model import MetadataViewModel
 from xfinaudio.desktop.navigation_controller import NavigationController
 from xfinaudio.desktop.recommendation_controller import RecommendationController
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
@@ -303,6 +304,7 @@ class MainWindow(QMainWindow):
         self._build_vm = BuildViewModel()
         self._review_vm = ReviewViewModel()
         self._export_vm = ExportViewModel()
+        self._metadata_vm = MetadataViewModel()
         self._library_screen = LibraryScreen()
         self._build_screen = BuildScreen()
         self._review_screen = ReviewScreen()
@@ -324,7 +326,7 @@ class MainWindow(QMainWindow):
         self._build_screen.render(self._build_vm, self._state)
         self._review_screen.render(self._review_vm, self._state)
         self._export_screen.render(self._export_vm, self._state)
-        self._metadata_screen.render(self._state)
+        self._metadata_screen.render(self._state, self._metadata_vm)
         self._update_tab_states()
 
     # ------------------------------------------------------------------
@@ -580,6 +582,8 @@ class MainWindow(QMainWindow):
         self._export_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(2))
         # MetadataScreen signals
         self._metadata_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(0))
+        self._metadata_screen.filter_changed.connect(self._sync_state)
+        self._metadata_screen.export_requested.connect(self._on_metadata_export_requested)
         for table in (
             self.tracks_table,
             self.recommendation_table,
@@ -1560,6 +1564,14 @@ class MainWindow(QMainWindow):
         if hasattr(self, "prep_copilot_table") and 0 <= index < self.prep_copilot_table.rowCount():
             self.prep_copilot_table.selectRow(index)
         self.apply_selected_prep_copilot_variant()
+
+    def _on_metadata_export_requested(self, status_filter: str, missing_filter: str) -> None:
+        """Route metadata export to the correct exporter based on active filters."""
+        # Map display labels back to internal field names
+        missing_field = _MISSING_METADATA_FILTERS.get(missing_filter)
+        # Normalise status filter: "All" or unknown → None
+        norm_status: str | None = status_filter.casefold() if status_filter.casefold() in {"complete", "incomplete"} else None
+        self.export_metadata_status_to_serato(status=norm_status, missing_field=missing_field)
 
     def _on_proceed_to_export(self) -> None:
         """Navigate to export only if readiness allows it."""
