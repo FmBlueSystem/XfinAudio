@@ -154,6 +154,18 @@ def run_tests():
     check("scan_button disabled initially", not window.scan_button.isEnabled())
     check("recommend_button disabled initially", not window.recommend_button.isEnabled())
 
+    # ------------------------------------------------------------------ #
+    section("8. NAVIGATION CONTROLLER — tab enable/disable state")
+    # ------------------------------------------------------------------ #
+
+    # Moment 1: before scan — only Library and Metadata should be enabled
+    app.processEvents()
+    check("8.1 Library tab enabled before scan", window.workflow_tabs.isTabEnabled(0))
+    check("8.1 Build Playlist tab disabled before scan", not window.workflow_tabs.isTabEnabled(1))
+    check("8.1 Review Mix tab disabled before scan", not window.workflow_tabs.isTabEnabled(2))
+    check("8.1 Export to Serato tab disabled before scan", not window.workflow_tabs.isTabEnabled(3))
+    check("8.1 Metadata Worklist tab enabled before scan", window.workflow_tabs.isTabEnabled(4))
+
     # Simulate scan
     import tempfile
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -171,6 +183,14 @@ def run_tests():
         check("Scan completed within timeout", reached)
         check("tracks_table populated (2 rows)", window.tracks_table.rowCount() == 2, f"got {window.tracks_table.rowCount()}")
         check("scanned_records has 2 entries", len(window.scanned_records) == 2)
+
+        # Moment 2: after scan — Library and Build (and Metadata) should be enabled
+        app.processEvents()
+        check("8.2 Library tab enabled after scan", window.workflow_tabs.isTabEnabled(0))
+        check("8.2 Build Playlist tab enabled after scan", window.workflow_tabs.isTabEnabled(1))
+        check("8.2 Review Mix tab disabled after scan", not window.workflow_tabs.isTabEnabled(2))
+        check("8.2 Export to Serato tab disabled after scan", not window.workflow_tabs.isTabEnabled(3))
+        check("8.2 Metadata Worklist tab enabled after scan", window.workflow_tabs.isTabEnabled(4))
 
         # Filter test
         window.song_search_input.setText("One")
@@ -208,6 +228,15 @@ def run_tests():
         window.recommend_playlist()
         reached = _process_events_until(lambda: window.recommend_button.isEnabled())
         check("Recommendation completed within timeout", reached)
+
+        # Moment 3: after recommendation — Library, Build, Review, Export, and Metadata enabled
+        # (_show_dj_readiness fires automatically after recommendation, enabling Export)
+        app.processEvents()
+        check("8.3 Library tab enabled after recommendation", window.workflow_tabs.isTabEnabled(0))
+        check("8.3 Build Playlist tab enabled after recommendation", window.workflow_tabs.isTabEnabled(1))
+        check("8.3 Review Mix tab enabled after recommendation", window.workflow_tabs.isTabEnabled(2))
+        check("8.3 Export to Serato tab enabled after recommendation", window.workflow_tabs.isTabEnabled(3))
+        check("8.3 Metadata Worklist tab enabled after recommendation", window.workflow_tabs.isTabEnabled(4))
 
         # Check recommendation table
         rec_row_count = window.recommendation_table.rowCount()
