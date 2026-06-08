@@ -1,0 +1,26 @@
+schema: gentle-ai.sdd-state.v1
+change: xfinaudio-audio-preview
+artifact_store: openspec
+status: design
+created: 2026-06-07
+updated: 2026-06-07
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: pending
+  verify: pending
+next_recommended: apply
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Audio Preview uses QMediaPlayer (PySide6 built-in); no new runtime dependencies.
+  - All audio playback is read-only; no DSP, no analysis, no mixing.
+  - Implementation must proceed by PR slice, not as one monolithic patch.
+  - Behavior-changing tasks require RED -> GREEN -> REFACTOR.
