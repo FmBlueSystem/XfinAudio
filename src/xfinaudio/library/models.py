@@ -20,6 +20,7 @@ class TrackRecord(BaseModel):
     bpm: float | None = None
     camelot_key: str | None = None
     energy_level: int | None = None
+    duration: float | None = None
     genre: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata_status: MetadataStatus = "incomplete"

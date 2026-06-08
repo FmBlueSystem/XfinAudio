@@ -52,6 +52,14 @@ class ExportSettings(BaseModel):
     safe_export_folder: Path | None = None
 
 
+class UiSettings(BaseModel):
+    """Configuration for UI language and display preferences."""
+
+    model_config = ConfigDict(frozen=True)
+
+    language: str = ""  # Empty string = auto (system locale); "en" or "es"
+
+
 class AppSettings(BaseModel):
     """Versioned root settings model for XfinAudio."""
 
@@ -63,6 +71,7 @@ class AppSettings(BaseModel):
     scoring: ScoringSettings = Field(default_factory=ScoringSettings)
     library: LibrarySettings = Field(default_factory=LibrarySettings)
     export: ExportSettings = Field(default_factory=ExportSettings)
+    ui: UiSettings = Field(default_factory=UiSettings)
 
     @field_validator("settings_version")
     @classmethod
@@ -81,4 +90,5 @@ __all__ = [
     "OptimizerSettings",
     "ScanSettings",
     "ScoringSettings",
+    "UiSettings",
 ]

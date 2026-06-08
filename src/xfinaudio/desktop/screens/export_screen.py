@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QVBoxLayout,
     QWidget,
@@ -46,7 +47,7 @@ class ExportScreen(QWidget):
         info_row = QHBoxLayout()
         self.variant_label = QLabel()
         self.safe_folder_label = QLabel()
-        self.safe_folder_button = QPushButton("Choose Folder")
+        self.safe_folder_button = QPushButton(self.tr("Choose Folder"))
         info_row.addWidget(self.variant_label)
         info_row.addStretch()
         info_row.addWidget(self.safe_folder_label)
@@ -55,13 +56,15 @@ class ExportScreen(QWidget):
 
         # Export guidance label (set imperatively by main_window)
         self.export_guidance_label = QLabel(
-            "Review recommendations before exporting; desktop export setup is intentionally out of scope."
+            self.tr("Review recommendations before exporting; desktop export setup is intentionally out of scope.")
         )
         self.export_guidance_label.setWordWrap(True)
+        self.export_guidance_label.setMaximumHeight(32)
         layout.addWidget(self.export_guidance_label)
 
         # Safe export folder label (set imperatively by main_window)
-        self.safe_export_folder_label = QLabel("No safe export folder selected")
+        self.safe_export_folder_label = QLabel(self.tr("No safe export folder selected"))
+        self.safe_export_folder_label.setMaximumHeight(24)
         layout.addWidget(self.safe_export_folder_label)
 
         # Playlist summary
@@ -72,15 +75,16 @@ class ExportScreen(QWidget):
         # Empty-state / guidance label
         self.empty_state_label = QLabel()
         self.empty_state_label.setWordWrap(True)
+        self.empty_state_label.setMaximumHeight(32)
         layout.addWidget(self.empty_state_label)
 
         # Action buttons
         actions = QHBoxLayout()
-        self.preview_button = QPushButton("Preview Serato Export")
-        self.export_button = QPushButton("Export to Serato")
+        self.preview_button = QPushButton(self.tr("Preview Serato Export"))
+        self.export_button = QPushButton(self.tr("Export to Serato"))
         self.export_button.setObjectName("seratoExportButton")
         self.export_button.setEnabled(False)
-        self.export_readiness_button = QPushButton("Export Readiness Report")
+        self.export_readiness_button = QPushButton(self.tr("Export Readiness Report"))
         self.export_readiness_button.setEnabled(False)
         actions.addWidget(self.preview_button)
         actions.addWidget(self.export_button)
@@ -88,17 +92,19 @@ class ExportScreen(QWidget):
         actions.addStretch()
         layout.addLayout(actions)
 
-        # Export history table (hidden until first export)
+        # Export history table (hidden until first export) — absorbs all spare vertical space.
         self.history_table = QTableWidget(0, len(_HISTORY_COLUMNS))
-        self.history_table.setHorizontalHeaderLabels(_HISTORY_COLUMNS)
+        self.history_table.setHorizontalHeaderLabels([self.tr(c) for c in _HISTORY_COLUMNS])
         self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.history_table.setAlternatingRowColors(True)
+        self.history_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.history_table.setMinimumHeight(200)
         self.history_table.setVisible(False)
-        layout.addWidget(self.history_table)
+        layout.addWidget(self.history_table, 1)
 
         # Navigation
         nav = QHBoxLayout()
-        self.back_button = QPushButton("← Review")
+        self.back_button = QPushButton(self.tr("← Review"))
         nav.addWidget(self.back_button)
         nav.addStretch()
         layout.addLayout(nav)

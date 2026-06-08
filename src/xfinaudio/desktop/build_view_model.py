@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from PySide6.QtCore import QCoreApplication
+
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.recommendation.strategies import _STRATEGIES
 
@@ -78,7 +80,9 @@ class BuildViewModel:
         """Return display label for the applied variant, or empty string if none."""
         if state.applied_variant_name is None:
             return ""
-        return f"Active: {state.applied_variant_name.capitalize()}"
+        return QCoreApplication.translate("BuildViewModel", "Active: {0}").format(
+            state.applied_variant_name.capitalize()
+        )
 
     def can_proceed(self, state: AppState) -> bool:
         """True if a recommendation has been generated (enables 'Review →' CTA)."""
@@ -95,13 +99,13 @@ class BuildViewModel:
         if anchor.title:
             parts.append(anchor.title)
         if anchor.artist:
-            parts.append(f"by {anchor.artist}")
+            parts.append(QCoreApplication.translate("BuildViewModel", "by {0}").format(anchor.artist))
         if anchor.bpm:
-            parts.append(f"{anchor.bpm:g} BPM")
+            parts.append(QCoreApplication.translate("BuildViewModel", "{0:g} BPM").format(anchor.bpm))
         if anchor.camelot_key:
-            parts.append(f"{anchor.camelot_key}")
+            parts.append(anchor.camelot_key)
         if anchor.energy_level:
-            parts.append(f"energy {anchor.energy_level}")
+            parts.append(QCoreApplication.translate("BuildViewModel", "energy {0}").format(anchor.energy_level))
         return ", ".join(parts) if parts else None
 
     def strategy_explanation(self, strategy_name: str) -> str:
@@ -114,17 +118,19 @@ class BuildViewModel:
     @staticmethod
     def recommendation_vs_copilot_text() -> str:
         """Explain the difference between Recommend Playlist and Prep Copilot."""
-        return (
+        return QCoreApplication.translate(
+            "BuildViewModel",
             "Recommend Playlist builds one deterministic sequence from the selected anchor. "
-            "Prep Copilot compares safe, balanced, and adventurous alternatives before you choose."
+            "Prep Copilot compares safe, balanced, and adventurous alternatives before you choose.",
         )
 
     @staticmethod
     def constraint_explanation() -> str:
         """Explain what Exclude and Lock do."""
-        return (
+        return QCoreApplication.translate(
+            "BuildViewModel",
             "Exclude removes selected library tracks from generated results. "
-            "Lock forces selected tracks into the candidate pool."
+            "Lock forces selected tracks into the candidate pool.",
         )
 
     def recommendation_summary(self, state: AppState) -> str | None:
@@ -133,11 +139,17 @@ class BuildViewModel:
         if rec is None:
             return None
         track_count = len(rec.ordered_tracks)
-        first_tracks = ", ".join(t.title or "Untitled" for t in rec.ordered_tracks[:3])
-        warning_text = f"{len(rec.warnings)} warning(s)" if rec.warnings else "no warnings"
-        return (
-            f"{track_count} tracks generated. First: {first_tracks}. {warning_text}. Review mix details before export."
+        first_tracks = ", ".join(
+            t.title or QCoreApplication.translate("BuildViewModel", "Untitled") for t in rec.ordered_tracks[:3]
         )
+        if rec.warnings:
+            warning_text = QCoreApplication.translate("BuildViewModel", "{0} warning(s)").format(len(rec.warnings))
+        else:
+            warning_text = QCoreApplication.translate("BuildViewModel", "no warnings")
+        return QCoreApplication.translate(
+            "BuildViewModel",
+            "{0} tracks generated. First: {1}. {2}. Review mix details before export.",
+        ).format(track_count, first_tracks, warning_text)
 
 
 __all__ = [

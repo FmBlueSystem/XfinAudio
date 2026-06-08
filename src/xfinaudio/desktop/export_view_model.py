@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from PySide6.QtCore import QCoreApplication
+
 from xfinaudio.desktop.app_state import AppState
 
 _VARIANT_LABELS: dict[str, str] = {
-    "safe": "Variant: Safe",
-    "balanced": "Variant: Balanced",
-    "adventurous": "Variant: Adventurous",
+    "safe": QCoreApplication.translate("ExportViewModel", "Variant: Safe"),
+    "balanced": QCoreApplication.translate("ExportViewModel", "Variant: Balanced"),
+    "adventurous": QCoreApplication.translate("ExportViewModel", "Variant: Adventurous"),
 }
 
 
@@ -51,11 +53,11 @@ class ExportViewModel:
 
         track_count = len(rec.ordered_tracks)
         strategy_name = rec.strategy.name
-        text = f"{track_count} tracks → {strategy_name}"
+        text = QCoreApplication.translate("ExportViewModel", "{0} tracks → {1}").format(track_count, strategy_name)
 
         variant = state.applied_variant_name
         if variant is not None:
-            text += f" (variant: {variant})"
+            text += QCoreApplication.translate("ExportViewModel", " (variant: {0})").format(variant)
 
         return text
 
@@ -69,9 +71,9 @@ class ExportViewModel:
         for entry in state.serato_export_history:
             raw_tracks = entry.get("tracks", "0")
             try:
-                track_count_str = f"{int(raw_tracks)} tracks"
+                track_count_str = QCoreApplication.translate("ExportViewModel", "{0} tracks").format(int(raw_tracks))
             except (ValueError, TypeError):
-                track_count_str = f"{raw_tracks} tracks"
+                track_count_str = QCoreApplication.translate("ExportViewModel", "{0} tracks").format(raw_tracks)
 
             rows.append(
                 ExportHistoryRow(
@@ -88,14 +90,17 @@ class ExportViewModel:
         """Human-readable label for the applied prep-copilot variant."""
         variant = state.applied_variant_name
         if variant is None:
-            return "Direct Recommend"
-        return _VARIANT_LABELS.get(variant, f"Variant: {variant.capitalize()}")
+            return QCoreApplication.translate("ExportViewModel", "Direct Recommend")
+        return _VARIANT_LABELS.get(
+            variant,
+            QCoreApplication.translate("ExportViewModel", "Variant: {0}").format(variant.capitalize()),
+        )
 
     def safe_folder_label(self, state: AppState) -> str:
         """Display label for the configured safe export folder."""
         folder = state.settings.export.safe_export_folder
         if folder is None:
-            return "No safe folder set"
+            return QCoreApplication.translate("ExportViewModel", "No safe folder set")
         return folder.name
 
     def track_count_text(self, state: AppState) -> str:
@@ -103,23 +108,30 @@ class ExportViewModel:
         rec = state.last_recommendation
         if rec is None:
             return "—"
-        return f"{len(rec.ordered_tracks)} tracks"
+        return QCoreApplication.translate("ExportViewModel", "{0} tracks").format(len(rec.ordered_tracks))
 
     def empty_state_text(self, state: AppState) -> str:
         """Human-readable guidance when no recommendation is available for export."""
         if state.last_recommendation is not None:
             return ""
-        return (
+        return QCoreApplication.translate(
+            "ExportViewModel",
             "Build a playlist first to see export options. "
             "Exports are written to _Serato_/Subcrates/*.crate. "
             "Preview shows crate contents without writing files. "
-            "Open Serato after export to verify the crate appears in Subcrates."
+            "Open Serato after export to verify the crate appears in Subcrates.",
         )
 
     def preview_explanation_text(self) -> str:
         """Explain that preview does not write files."""
-        return "Preview shows the planned crate contents without writing any files."
+        return QCoreApplication.translate(
+            "ExportViewModel",
+            "Preview shows the planned crate contents without writing any files.",
+        )
 
     def destination_text(self) -> str:
         """Explain the destination format."""
-        return "Exports are written to the _Serato_/Subcrates folder as *.crate files."
+        return QCoreApplication.translate(
+            "ExportViewModel",
+            "Exports are written to the _Serato_/Subcrates folder as *.crate files.",
+        )

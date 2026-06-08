@@ -4,6 +4,8 @@ XfinAudio is a GPL-3.0-only metadata-driven playlist assistant. It recommends pl
 
 The project assumes DJs may already use tools such as Mixed In Key for key, BPM, energy, and tag metadata. XfinAudio reads metadata, normalizes it, scores transitions, explains recommendations, and exports playlist artifacts. It does not detect keys or BPM from audio waveforms.
 
+> **Trademark notice:** Mixed In Key, Camelot, Camelot Wheel, and Camelot System are trademarks of Mixed In Key LLC. Serato and Serato DJ Pro are trademarks of Serato Limited. These marks are referenced for descriptive and interoperability purposes only.
+
 ## Safety and scope
 
 XfinAudio is intentionally non-destructive:

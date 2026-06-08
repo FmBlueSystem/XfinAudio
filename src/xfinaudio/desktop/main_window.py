@@ -8,7 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import QCoreApplication, Qt, Slot
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -17,6 +18,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -122,10 +125,13 @@ class SettingsPersistence(Protocol):
         """Persist application settings."""
 
 
-_EMPTY_REVIEW_SUMMARY = "No recommendation is ready for review."
+_EMPTY_REVIEW_SUMMARY = QCoreApplication.translate("MainWindow", "No recommendation is ready for review.")
 _RECOMMENDATION_READY_GUIDANCE = (
-    "Selected row starts the playlist; multiple selected rows set the opening order. "
-    "Up to 25 candidates are used for interactive speed. Choose a strategy, then click Recommend Playlist."
+    QCoreApplication.translate(
+        "MainWindow",
+        "Selected row starts the playlist; multiple selected rows set the opening order. "
+        "Up to 25 candidates are used for interactive speed. Choose a strategy, then click Recommend Playlist.",
+    )
 )
 _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
 _SERATO_EXPORT_HISTORY_LIMIT = 5
@@ -136,9 +142,9 @@ _TRACK_STATUS_COLUMN = 8
 _TRACK_PATH_COLUMN = 9
 
 _MISSING_METADATA_FILTERS = {
-    "Missing BPM": "bpm",
-    "Missing Key": "camelot_key",
-    "Missing Energy": "energy_level",
+    QCoreApplication.translate("MainWindow", "Missing BPM"): "bpm",
+    QCoreApplication.translate("MainWindow", "Missing Key"): "camelot_key",
+    QCoreApplication.translate("MainWindow", "Missing Energy"): "energy_level",
 }
 
 
@@ -161,6 +167,7 @@ class MainWindow(QMainWindow):
         self._connect_widget_signals()
         self._apply_visual_design()
         self._build_layout()
+        self._build_menu()
         self._sync_state()
 
     def closeEvent(self, event: object) -> None:
@@ -182,11 +189,11 @@ class MainWindow(QMainWindow):
 
         self.workflow_tabs = QTabWidget()
         self.workflow_tabs.setTabPosition(QTabWidget.TabPosition.West)
-        self.workflow_tabs.addTab(self._library_screen, "Library")
-        self.workflow_tabs.addTab(self._build_screen, "Build Playlist")
-        self.workflow_tabs.addTab(self._review_screen, "Review Mix")
-        self.workflow_tabs.addTab(self._export_screen, "Export to Serato")
-        self.workflow_tabs.addTab(self._metadata_screen, "Metadata Worklist")
+        self.workflow_tabs.addTab(self._library_screen, self.tr("Library"))
+        self.workflow_tabs.addTab(self._build_screen, self.tr("Build Playlist"))
+        self.workflow_tabs.addTab(self._review_screen, self.tr("Review Mix"))
+        self.workflow_tabs.addTab(self._export_screen, self.tr("Export to Serato"))
+        self.workflow_tabs.addTab(self._metadata_screen, self.tr("Metadata Worklist"))
 
         layout = QVBoxLayout()
         layout.addWidget(self.workflow_tabs, 1)
@@ -208,6 +215,65 @@ class MainWindow(QMainWindow):
             widget.hide()
         container.setLayout(layout)
         self.setCentralWidget(container)
+
+    def _build_menu(self) -> None:
+        """Create the application menu bar with About and Quit actions."""
+        menu_bar = self.menuBar()
+        app_menu = menu_bar.addMenu(self.tr("XfinAudio"))
+
+        about_action = QAction(self.tr("About XfinAudio"), self)
+        about_action.triggered.connect(self._show_about_dialog)
+        app_menu.addAction(about_action)
+
+        app_menu.addSeparator()
+
+        settings_action = QAction(self.tr("Settings…"), self)
+        settings_action.setShortcut("Ctrl+,")
+        settings_action.triggered.connect(self._open_settings_dialog)
+        app_menu.addAction(settings_action)
+
+        app_menu.addSeparator()
+
+        quit_action = QAction(self.tr("Quit"), self)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(self.close)
+        app_menu.addAction(quit_action)
+
+        help_menu = menu_bar.addMenu(self.tr("Help"))
+        help_about_action = QAction(self.tr("About XfinAudio"), self)
+        help_about_action.triggered.connect(self._show_about_dialog)
+        help_menu.addAction(help_about_action)
+
+    def _show_about_dialog(self) -> None:
+        """Show the About dialog with application metadata and trademark notices."""
+        QMessageBox.about(
+            self,
+            self.tr("About XfinAudio"),
+            "<h2 style='margin-bottom:2px;'>XfinAudio</h2>"
+            "<p style='margin-top:0px; color:#8a9bb0; font-size:12px;'>" + self.tr("Version 1.0") + "</p>"
+            "<p style='margin-top:12px;'>"
+            + self.tr(
+                "XfinAudio is a metadata-driven DJ playlist assistant that helps DJs "
+                "build harmonically coherent playlists from existing track metadata."
+            )
+            + "</p>"
+            "<p style='margin-top:8px; font-size:12px; color:#8a9bb0;'>"
+            "© 2025 <b>BlueSystem.io</b> — " + self.tr("Audio Division") + ". " + self.tr("All rights reserved.") + "<br>"
+            + self.tr("Developed by Freddy Molina.")
+            + "</p>"
+            "<p style='margin-top:8px; font-size:11px; color:#8a9bb0;'>"
+            + self.tr("This software is open-source and distributed under the GNU General Public License v3.0.")
+            + "</p>"
+            "<hr>"
+            "<p style='font-size:10px; color:#8a9bb0; line-height:1.4;'>"
+            + self.tr(
+                "Mixed In Key®, Camelot®, and Camelot System® are trademarks of Mixed In Key LLC. "
+                "Serato™ and Serato DJ Pro™ are trademarks of Serato Limited. "
+                "All other trademarks are property of their respective owners. "
+                "XfinAudio is an independent project with no affiliation to these companies."
+            )
+            + "</p>",
+        )
 
     def _initialize_window_state(
         self,
@@ -500,17 +566,32 @@ class MainWindow(QMainWindow):
 
     def _build_widgets(self) -> None:
         """Build constructor widgets and intrinsic widget configuration."""
-        self.setWindowTitle("XfinAudio")
-        self.folder_label = QLabel("Library: none")
-        self.library_guidance_label = QLabel("Choose a folder to scan metadata.")
-        self.recommendation_guidance_label = QLabel("Scan metadata before recommending a playlist.")
-        self.scan_progress_label = QLabel("Scan: idle")
-        self.status_label = QLabel("Ready")
-        self.library_decision_label = QLabel("DJ Decision Point: choose source, filters, and the track anchor.")
-        self.metadata_decision_label = QLabel("DJ Decision Point: complete missing metadata, then refresh the library.")
+        self.setWindowTitle(self.tr("XfinAudio"))
+        self.folder_label = QLabel(self.tr("Library: none"))
+        self.library_guidance_label = QLabel(self.tr("Choose a folder to scan metadata."))
+        self.recommendation_guidance_label = QLabel(self.tr("Scan metadata before recommending a playlist."))
+        self.scan_progress_label = QLabel(self.tr("Scan: idle"))
+        self.status_label = QLabel(self.tr("Ready"))
+        self.library_decision_label = QLabel(
+            self.tr("DJ Decision Point: choose source, filters, and the track anchor.")
+        )
+        self.metadata_decision_label = QLabel(
+            self.tr("DJ Decision Point: complete missing metadata, then refresh the library.")
+        )
         self.tracks_table = QTableWidget(0, 10)
         self.tracks_table.setHorizontalHeaderLabels(
-            ["Title", "Artist", "BPM", "Key", "Energy", "Missing", "Genre", "Tags/Subgenre", "Status", "Path"]
+            [
+                self.tr("Title"),
+                self.tr("Artist"),
+                self.tr("BPM"),
+                self.tr("Key"),
+                self.tr("Energy"),
+                self.tr("Missing"),
+                self.tr("Genre"),
+                self.tr("Tags/Subgenre"),
+                self.tr("Status"),
+                self.tr("Path"),
+            ]
         )
         self.tracks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tracks_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -716,12 +797,12 @@ class MainWindow(QMainWindow):
         """Return display text for the configured safe export folder."""
         folder = self.settings.export.safe_export_folder
         if folder is None:
-            return "No safe export folder selected"
-        return f"Safe export folder: {folder}"
+            return self.tr("No safe export folder selected")
+        return self.tr("Safe export folder: {0}").format(folder)
 
     def choose_folder(self) -> None:
         """Open a folder picker and store the selected library folder."""
-        folder = QFileDialog.getExistingDirectory(self, "Choose music folder")
+        folder = QFileDialog.getExistingDirectory(self, self.tr("Choose music folder"))
         if folder:
             self.set_selected_folder(Path(folder))
 
@@ -731,10 +812,12 @@ class MainWindow(QMainWindow):
         self._persist_last_scan_folder(folder)
         self._clear_scan_dependent_state()
         self.folder_label.setText(str(folder))
-        self.library_guidance_label.setText("Folder selected. Scan metadata to find complete Mixed In Key tracks.")
-        self.recommendation_guidance_label.setText("Scan metadata before recommending a playlist.")
+        self.library_guidance_label.setText(
+            self.tr("Folder selected. Scan metadata to find complete Mixed In Key tracks.")
+        )
+        self.recommendation_guidance_label.setText(self.tr("Scan metadata before recommending a playlist."))
         self._refresh_idle_action_state()
-        self.status_label.setText("Folder selected")
+        self.status_label.setText(self.tr("Folder selected"))
         self._sync_state()
 
     def _persist_last_scan_folder(self, folder: Path) -> None:
@@ -809,21 +892,25 @@ class MainWindow(QMainWindow):
         incomplete_count = len(records) - complete_count
         self._populate_track_table(records)
         if self.selected_folder is None:
-            self.folder_label.setText("Library: saved")
-            self.folder_label.setToolTip("Saved library loaded; no scan folder selected.")
-            self.library_guidance_label.setText("Use filters/search, select a complete track, then recommend.")
+            self.folder_label.setText(self.tr("Library: saved"))
+            self.folder_label.setToolTip(self.tr("Saved library loaded; no scan folder selected."))
+            self.library_guidance_label.setText(self.tr("Use filters/search, select a complete track, then recommend."))
             self.library_guidance_label.setToolTip(
-                "Showing saved library from the app database. Choose a folder to re-scan or update metadata."
+                self.tr("Showing saved library from the app database. Choose a folder to re-scan or update metadata.")
             )
         else:
-            self.folder_label.setText("Library: saved folder")
-            self.folder_label.setToolTip(f"Saved library loaded: {self.selected_folder}")
-            self.library_guidance_label.setText("Use filters/search, select a complete track, then recommend.")
+            self.folder_label.setText(self.tr("Library: saved folder"))
+            self.folder_label.setToolTip(
+                self.tr("Saved library loaded: {0}").format(self.selected_folder)
+            )
+            self.library_guidance_label.setText(self.tr("Use filters/search, select a complete track, then recommend."))
             self.library_guidance_label.setToolTip(
-                "Saved library loaded. Click Scan Metadata to refresh metadata from the last folder."
+                self.tr("Saved library loaded. Click Scan Metadata to refresh metadata from the last folder.")
             )
         self.recommendation_guidance_label.setText(_RECOMMENDATION_READY_GUIDANCE)
-        self.status_label.setText(f"Loaded saved library: {complete_count} complete, {incomplete_count} incomplete")
+        self.status_label.setText(
+            self.tr("Loaded saved library: {0} complete, {1} incomplete").format(complete_count, incomplete_count)
+        )
         self._refresh_idle_action_state()
         self._sync_state()
 
@@ -843,7 +930,9 @@ class MainWindow(QMainWindow):
         self._set_recommendation_sections_expanded(False)
         self.clear_recommendation_review()
         self.export_guidance_label.setText(
-            "Review recommendations before exporting. Serato export is enabled only after a recommendation is ready."
+            self.tr(
+                "Review recommendations before exporting. Serato export is enabled only after a recommendation is ready."
+            )
         )
 
         self._sync_state()
@@ -862,7 +951,7 @@ class MainWindow(QMainWindow):
 
     def choose_safe_export_folder(self) -> None:
         """Open a folder picker and store the selected safe export folder."""
-        folder = QFileDialog.getExistingDirectory(self, "Choose safe export folder")
+        folder = QFileDialog.getExistingDirectory(self, self.tr("Choose safe export folder"))
         if folder:
             self.set_safe_export_folder(Path(folder))
 
@@ -876,41 +965,50 @@ class MainWindow(QMainWindow):
 
     def _apply_settings(self, new_settings: AppSettings) -> None:
         """Apply and persist settings from the settings dialog."""
+        old_lang = self.settings.ui.language
         self.settings = new_settings
         if self.settings_repository is not None:
             self.settings_repository.save(new_settings)
         self.safe_export_folder_label.setText(self._format_safe_export_folder_label())
         self._sync_state()
+        if new_settings.ui.language != old_lang:
+            QMessageBox.information(
+                self,
+                self.tr("Language Changed"),
+                self.tr("Please restart XfinAudio for the language change to take effect."),
+            )
 
     def set_safe_export_folder(self, folder: Path) -> None:
         """Persist a safe export folder if it is not the selected audio folder."""
         if self.selected_folder is not None and folder == self.selected_folder:
-            self.status_label.setText("Safe export folder must be outside the selected audio folder")
+            self.status_label.setText(self.tr("Safe export folder must be outside the selected audio folder"))
             return
 
         self.settings = self.settings.model_copy(update={"export": ExportSettings(safe_export_folder=folder)})
         if self.settings_repository is not None:
             self.settings_repository.save(self.settings)
         self.safe_export_folder_label.setText(self._format_safe_export_folder_label())
-        self.status_label.setText("Safe export folder selected")
+        self.status_label.setText(self.tr("Safe export folder selected"))
 
         self._sync_state()
 
     def export_dj_readiness_report(self, *, generated_at: datetime | None = None) -> None:
         """Export the latest DJ readiness report as JSON and CSV audit artifacts."""
         if self.last_dj_readiness_report is None:
-            self.status_label.setText("Generate a recommendation before exporting DJ readiness")
+            self.status_label.setText(self.tr("Generate a recommendation before exporting DJ readiness"))
             return
         safe_folder = self.settings.export.safe_export_folder
         if safe_folder is None:
-            self.status_label.setText("Choose a safe export folder before exporting DJ readiness")
+            self.status_label.setText(self.tr("Choose a safe export folder before exporting DJ readiness"))
             return
         generated_at = generated_at or datetime.now()
         timestamp = generated_at.strftime("%Y%m%d-%H%M%S")
         json_path = safe_folder / f"xfinaudio-dj-readiness-{timestamp}.json"
         csv_path = safe_folder / f"xfinaudio-dj-readiness-{timestamp}.csv"
         json_path, csv_path = write_dj_readiness_report(self.last_dj_readiness_report, json_path, csv_path)
-        self.status_label.setText(f"Exported DJ readiness report: {json_path} and {csv_path}")
+        self.status_label.setText(
+            self.tr("Exported DJ readiness report: {0} and {1}").format(json_path, csv_path)
+        )
 
     def preview_serato_export(
         self,
@@ -921,7 +1019,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Preview the Serato crate destination without writing files."""
         if self.last_recommendation is None:
-            self.status_label.setText("Generate a recommendation before previewing Serato export")
+            self.status_label.setText(self.tr("Generate a recommendation before previewing Serato export"))
             return
 
         try:
@@ -932,27 +1030,27 @@ class MainWindow(QMainWindow):
             )
         except SeratoLibraryNotFoundError:
             self.status_label.setText(
-                "Serato not found — open Serato DJ Pro at least once to create its library folder"
+                self.tr("Serato not found — open Serato DJ Pro at least once to create its library folder")
             )
             return
         except Exception as exc:
             LOGGER.exception("Serato export preview failed")
-            self.status_label.setText(f"Serato export preview failed: {exc}")
+            self.status_label.setText(self.tr("Serato export preview failed: {0}").format(exc))
             return
 
         variant = self.applied_prep_copilot_variant_name or "none"
         readiness = (
             _READINESS_STATUS_LABELS[self.last_dj_readiness_report.status]
             if self.last_dj_readiness_report is not None
-            else "Not available"
+            else self.tr("Not available")
         )
-        will_write = "yes" if not plan.target_path.exists() else "replace with backup"
+        will_write = self.tr("yes") if not plan.target_path.exists() else self.tr("replace with backup")
         self.export_guidance_label.setText(
-            f"Serato export preview: {plan.target_path} | "
-            f"Variant: {variant} | Tracks: {len(plan.relative_paths)} | "
-            f"Will write: {will_write} | Readiness: {readiness}"
+            self.tr(
+                "Serato export preview: {0} | Variant: {1} | Tracks: {2} | Will write: {3} | Readiness: {4}"
+            ).format(plan.target_path, variant, len(plan.relative_paths), will_write, readiness)
         )
-        self.status_label.setText(f"Serato export preview: {plan.target_path}")
+        self.status_label.setText(self.tr("Serato export preview: {0}").format(plan.target_path))
 
     def export_recommendation_to_serato(
         self,
@@ -963,10 +1061,10 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Export the current recommendation as a confirmed Serato crate."""
         if self.last_recommendation is None:
-            self.status_label.setText("Generate a recommendation before exporting to Serato")
+            self.status_label.setText(self.tr("Generate a recommendation before exporting to Serato"))
             return
         if self.last_dj_readiness_report is not None and self.last_dj_readiness_report.status == "blocked":
-            self.status_label.setText("Resolve blocked readiness checks before exporting.")
+            self.status_label.setText(self.tr("Resolve blocked readiness checks before exporting."))
             return
 
         try:
@@ -978,16 +1076,18 @@ class MainWindow(QMainWindow):
             result = write_serato_crate(plan, confirm=True)
         except SeratoLibraryNotFoundError:
             self.status_label.setText(
-                "Serato not found — open Serato DJ Pro at least once to create its library folder"
+                self.tr("Serato not found — open Serato DJ Pro at least once to create its library folder")
             )
             return
         except Exception as exc:
             LOGGER.exception("Serato export failed")
-            self.status_label.setText(f"Serato export failed: {exc}")
+            self.status_label.setText(self.tr("Serato export failed: {0}").format(exc))
             return
 
         backup_note = (
-            f" Backup: {result.backup_path}" if result.backup_path is not None else " No previous crate existed."
+            self.tr(" Backup: {0}").format(result.backup_path)
+            if result.backup_path is not None
+            else self.tr(" No previous crate existed.")
         )
         readiness_note = ""
         readiness_paths: tuple[Path | None, Path | None] = (None, None)
@@ -1004,12 +1104,15 @@ class MainWindow(QMainWindow):
                 self.last_dj_readiness_report, result.written_path, safe_folder=safe_folder
             )
             readiness_paths = (json_path, csv_path)
-            readiness_note = f" Readiness reports: {json_path} and {csv_path}."
+            readiness_note = self.tr(" Readiness reports: {0} and {1}.").format(json_path, csv_path)
         self.export_guidance_label.setText(
-            f"Serato crate exported: {result.written_path}. "
-            "Open Serato DJ Pro and check the crate under Subcrates." + backup_note + readiness_note
+            self.tr("Serato crate exported: {0}. Open Serato DJ Pro and check the crate under Subcrates.").format(
+                result.written_path
+            )
+            + backup_note
+            + readiness_note
         )
-        self.status_label.setText(f"Exported Serato crate: {result.written_path}")
+        self.status_label.setText(self.tr("Exported Serato crate: {0}").format(result.written_path))
         self._record_serato_export(
             result.written_path, readiness_json_path=readiness_paths[0], readiness_csv_path=readiness_paths[1]
         )
@@ -1047,12 +1150,16 @@ class MainWindow(QMainWindow):
             return
 
         if selected_status not in {"complete", "incomplete"}:
-            self.status_label.setText("Choose Complete or Incomplete before exporting a metadata worklist")
+            self.status_label.setText(
+                self.tr("Choose Complete or Incomplete before exporting a metadata worklist")
+            )
             return
 
         records = self._metadata_status_records(selected_status)
         if not records:
-            self.status_label.setText(f"No {selected_status} tracks are available for metadata export")
+            self.status_label.setText(
+                self.tr("No {0} tracks are available for metadata export").format(selected_status)
+            )
             return
 
         try:
@@ -1068,15 +1175,18 @@ class MainWindow(QMainWindow):
             result = write_serato_crate(plan, confirm=True)
         except Exception as exc:
             LOGGER.exception("Serato metadata status export failed")
-            self.status_label.setText(f"Serato metadata export failed: {exc}")
+            self.status_label.setText(self.tr("Serato metadata export failed: {0}").format(exc))
             return
 
         self.export_guidance_label.setText(
-            f"Metadata worklist exported: {result.written_path}. "
-            "Complete missing metadata in Serato, then choose the same folder and click Scan Metadata "
-            "to refresh XfinAudio."
+            self.tr(
+                "Metadata worklist exported: {0}. Complete missing metadata in Serato, then choose the same folder "
+                "and click Scan Metadata to refresh XfinAudio."
+            ).format(result.written_path)
         )
-        self.status_label.setText(f"Exported {selected_status} metadata crate: {result.written_path}")
+        self.status_label.setText(
+            self.tr("Exported {0} metadata crate: {1}").format(selected_status, result.written_path)
+        )
 
     def _export_missing_metadata_worklist_to_serato(
         self,
@@ -1088,7 +1198,9 @@ class MainWindow(QMainWindow):
         records = self._metadata_missing_field_records(missing_field)
         display_field = _missing_worklist_display_name(missing_field)
         if not records:
-            self.status_label.setText(f"No tracks are missing {display_field} for metadata export")
+            self.status_label.setText(
+                self.tr("No tracks are missing {0} for metadata export").format(display_field)
+            )
             return
 
         try:
@@ -1104,14 +1216,18 @@ class MainWindow(QMainWindow):
             result = write_serato_crate(plan, confirm=True)
         except Exception as exc:
             LOGGER.exception("Serato missing-metadata export failed")
-            self.status_label.setText(f"Serato metadata export failed: {exc}")
+            self.status_label.setText(self.tr("Serato metadata export failed: {0}").format(exc))
             return
 
         self.export_guidance_label.setText(
-            f"Metadata worklist exported: {result.written_path}. "
-            "Complete missing metadata in Serato, then click Scan Metadata in XfinAudio to refresh."
+            self.tr(
+                "Metadata worklist exported: {0}. Complete missing metadata in Serato, then click Scan Metadata in "
+                "XfinAudio to refresh."
+            ).format(result.written_path)
         )
-        self.status_label.setText(f"Exported Missing {display_field} metadata crate: {result.written_path}")
+        self.status_label.setText(
+            self.tr("Exported Missing {0} metadata crate: {1}").format(display_field, result.written_path)
+        )
 
     def _record_serato_export(
         self,
@@ -1145,8 +1261,10 @@ class MainWindow(QMainWindow):
     def scan_selected_folder(self) -> None:
         """Scan the selected folder, persist records, and refresh table/status widgets."""
         if self.selected_folder is None:
-            self.status_label.setText("Choose a folder before scanning")
-            self.library_guidance_label.setText("Choose a Mixed In Key processed folder before scanning metadata.")
+            self.status_label.setText(self.tr("Choose a folder before scanning"))
+            self.library_guidance_label.setText(
+                self.tr("Choose a Mixed In Key processed folder before scanning metadata.")
+            )
             return
         self._pre_scan_records_by_path = {record.path: record for record in self.scanned_records}
         self._begin_scan_state()
@@ -1162,8 +1280,8 @@ class MainWindow(QMainWindow):
         self.scan_button.setEnabled(False)
         self.recommend_button.setEnabled(False)
         self.cancel_scan_button.setEnabled(True)
-        self.scan_progress_label.setText("Scan progress: starting")
-        self.status_label.setText("Scanning metadata")
+        self.scan_progress_label.setText(self.tr("Scan progress: starting"))
+        self.status_label.setText(self.tr("Scanning metadata"))
         self._sync_state()
 
     def _end_scan_state(self) -> None:
@@ -1183,8 +1301,8 @@ class MainWindow(QMainWindow):
         if result.cancelled:
             self._clear_scan_dependent_state()
             self._end_scan_state()
-            self.status_label.setText("Scan canceled; no partial results were saved")
-            self.recommendation_guidance_label.setText("Scan metadata before recommending a playlist.")
+            self.status_label.setText(self.tr("Scan canceled; no partial results were saved"))
+            self.recommendation_guidance_label.setText(self.tr("Scan metadata before recommending a playlist."))
             return
         self.scanned_records = result.records
         self._sync_state()
@@ -1194,7 +1312,7 @@ class MainWindow(QMainWindow):
         self.recommendation_guidance_label.setText(
             _RECOMMENDATION_READY_GUIDANCE
             if self.scanned_records
-            else "No tracks found. Choose another folder or re-scan after adding supported audio files."
+            else self.tr("No tracks found. Choose another folder or re-scan after adding supported audio files.")
         )
 
     def _show_scan_completion_status(self, records: list[TrackRecord]) -> None:
@@ -1212,7 +1330,9 @@ class MainWindow(QMainWindow):
             and self._pre_scan_records_by_path[record.path].metadata_status == "incomplete"
         )
         self.status_label.setText(
-            f"Refresh complete: {before_incomplete} incomplete → {after_incomplete} incomplete; {fixed_count} fixed"
+            self.tr("Refresh complete: {0} incomplete → {1} incomplete; {2} fixed").format(
+                before_incomplete, after_incomplete, fixed_count
+            )
         )
         self._pre_scan_records_by_path = {}
 
@@ -1220,7 +1340,7 @@ class MainWindow(QMainWindow):
     def _fail_scan(self, error: object) -> None:
         """Recover the UI if a background scan fails."""
         self._end_scan_state()
-        self.status_label.setText(f"Scan failed: {error}")
+        self.status_label.setText(self.tr("Scan failed: {0}").format(error))
 
     @Slot()
     def _clear_scan_worker_refs(self) -> None:
@@ -1234,7 +1354,9 @@ class MainWindow(QMainWindow):
     def _show_scan_progress(self, progress: ScanProgress) -> None:
         """Render scan progress from the workflow service."""
         self.scan_progress_label.setText(
-            f"Scan progress: {progress.processed_count}/{progress.total_count} - {progress.current_path}"
+            self.tr("Scan progress: {0}/{1} - {2}").format(
+                progress.processed_count, progress.total_count, progress.current_path
+            )
         )
         self._state.scan_progress_count = progress.processed_count
         self._sync_state()
@@ -1245,7 +1367,7 @@ class MainWindow(QMainWindow):
             return
         self._scan_controller.cancel(self.current_scan_cancellation_token)
         self.cancel_scan_button.setEnabled(False)
-        self.status_label.setText("Cancel requested; waiting for current file to finish")
+        self.status_label.setText(self.tr("Cancel requested; waiting for current file to finish"))
 
     def show_tracks(
         self,
@@ -1259,7 +1381,9 @@ class MainWindow(QMainWindow):
             complete_count = sum(1 for record in records if record.metadata_status == "complete")
         if incomplete_count is None:
             incomplete_count = len(records) - complete_count
-        self.status_label.setText(f"Scan complete: {complete_count} complete, {incomplete_count} incomplete")
+        self.status_label.setText(
+            self.tr("Scan complete: {0} complete, {1} incomplete").format(complete_count, incomplete_count)
+        )
         self._sync_state()
 
     def generate_prep_copilot(self) -> None:
@@ -1269,7 +1393,9 @@ class MainWindow(QMainWindow):
             self.last_prep_copilot_plan = None
             self.prep_copilot_table.setRowCount(0)
             self.prep_copilot_apply_button.setEnabled(False)
-            self.status_label.setText("Select at least one complete track before generating Prep Copilot")
+            self.status_label.setText(
+                self.tr("Select at least one complete track before generating Prep Copilot")
+            )
             return
         records = self._desktop_recommendation_records(controls)
         genre_focus = self.prep_copilot_genre_focus_input.text().strip() or None
@@ -1285,7 +1411,7 @@ class MainWindow(QMainWindow):
         self.last_prep_copilot_plan = plan
         self._populate_prep_copilot_table(plan)
         self.prep_copilot_apply_button.setEnabled(True)
-        self.status_label.setText(f"Generated {len(plan.variants)} Prep Copilot variant(s)")
+        self.status_label.setText(self.tr("Generated {0} Prep Copilot variant(s)").format(len(plan.variants)))
         self._sync_state()
 
     def _apply_prep_copilot_item(self, item: QTableWidgetItem) -> None:
@@ -1296,15 +1422,21 @@ class MainWindow(QMainWindow):
     def apply_selected_prep_copilot_variant(self) -> None:
         """Apply the selected Prep Copilot variant to the main review/export flow."""
         if self.last_prep_copilot_plan is None:
-            self.status_label.setText("Generate and select a Prep Copilot variant before applying")
+            self.status_label.setText(
+                self.tr("Generate and select a Prep Copilot variant before applying")
+            )
             return
         selected_rows = sorted({index.row() for index in self.prep_copilot_table.selectedIndexes()})
         if not selected_rows:
-            self.status_label.setText("Generate and select a Prep Copilot variant before applying")
+            self.status_label.setText(
+                self.tr("Generate and select a Prep Copilot variant before applying")
+            )
             return
         row_index = selected_rows[0]
         if row_index >= len(self.last_prep_copilot_plan.variants):
-            self.status_label.setText("Generate and select a Prep Copilot variant before applying")
+            self.status_label.setText(
+                self.tr("Generate and select a Prep Copilot variant before applying")
+            )
             return
         variant = self.last_prep_copilot_plan.variants[row_index]
         recommendation = variant.recommendation
@@ -1322,19 +1454,27 @@ class MainWindow(QMainWindow):
         self.dj_readiness_label.setText(format_dj_readiness_summary(variant.readiness))
         self._populate_dj_readiness_table(variant.readiness)
         self.show_transition_review(explanation)
-        self.export_guidance_label.setText("Inspect the selected Prep Copilot variant before exporting it to Serato.")
-        self.status_label.setText(f"Applied Prep Copilot variant: {variant.name}")
+        self.export_guidance_label.setText(
+            self.tr("Inspect the selected Prep Copilot variant before exporting it to Serato.")
+        )
+        self.status_label.setText(self.tr("Applied Prep Copilot variant: {0}").format(variant.name))
 
     def _set_applied_copilot_variant(self, variant_name: str | None) -> None:
         """Update applied Copilot variant state and export badge."""
         self.applied_prep_copilot_variant_name = variant_name
         self._sync_state()
         if variant_name is None:
-            self.applied_copilot_variant_label.setText("Applied Variant: none")
-            self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
+            self.applied_copilot_variant_label.setText(self.tr("Applied Variant: none"))
+            self.applied_copilot_variant_label.setToolTip(
+                self.tr("No Prep Copilot variant is currently applied.")
+            )
             return
-        self.applied_copilot_variant_label.setText(f"Applied Variant: {variant_name}")
-        self.applied_copilot_variant_label.setToolTip("This variant will be used for Serato preview/export.")
+        self.applied_copilot_variant_label.setText(
+            self.tr("Applied Variant: {0}").format(variant_name)
+        )
+        self.applied_copilot_variant_label.setToolTip(
+            self.tr("This variant will be used for Serato preview/export.")
+        )
 
     def _populate_prep_copilot_table(self, plan: PrepCopilotPlan) -> None:
         """Render Safe/Balanced/Adventurous copilot variants for quick comparison."""
@@ -1351,8 +1491,8 @@ class MainWindow(QMainWindow):
         """Generate and display a playlist recommendation from scanned records."""
         if not self.scanned_records:
             self.clear_recommendation_review()
-            self.status_label.setText("Scan tracks before recommending")
-            self.recommendation_guidance_label.setText("Scan metadata before recommending a playlist.")
+            self.status_label.setText(self.tr("Scan tracks before recommending"))
+            self.recommendation_guidance_label.setText(self.tr("Scan metadata before recommending a playlist."))
             return
         strategy_name = self.strategy_combo.currentText()
         controls = self._selected_track_controls()
@@ -1360,7 +1500,7 @@ class MainWindow(QMainWindow):
             self.clear_recommendation_review()
             self.recommendation_table.setRowCount(0)
             self._set_recommendation_sections_expanded(False)
-            self.status_label.setText("Select at least one complete track before recommending")
+            self.status_label.setText(self.tr("Select at least one complete track before recommending"))
             return
         records = self._desktop_recommendation_records(controls)
         self._begin_recommendation_state(len(records))
@@ -1435,7 +1575,9 @@ class MainWindow(QMainWindow):
         self._is_recommending = True
         self.recommend_button.setEnabled(False)
         self.scan_button.setEnabled(False)
-        self.status_label.setText(f"Generating recommendation from {candidate_count} candidate track(s)")
+        self.status_label.setText(
+            self.tr("Generating recommendation from {0} candidate track(s)").format(candidate_count)
+        )
         self._sync_state()
 
     def _end_recommendation_state(self) -> None:
@@ -1471,16 +1613,20 @@ class MainWindow(QMainWindow):
         self.show_transition_review(result.explanation)
         recommended_count = len(result.recommendation.ordered_tracks)
         strategy_name = result.recommendation.strategy.name
-        self.status_label.setText(f"Recommended {recommended_count} track(s) using {strategy_name}")
+        self.status_label.setText(
+            self.tr("Recommended {0} track(s) using {1}").format(recommended_count, strategy_name)
+        )
         self.export_guidance_label.setText(
-            "Inspect the review table before exporting. Review scores and warnings before any safe export to Serato."
+            self.tr(
+                "Inspect the review table before exporting. Review scores and warnings before any safe export to Serato."
+            )
         )
 
     @Slot(object)
     def _fail_recommendation(self, error: object) -> None:
         """Recover the UI if background recommendation generation fails."""
         self._end_recommendation_state()
-        self.status_label.setText(f"Recommendation failed: {error}")
+        self.status_label.setText(self.tr("Recommendation failed: {0}").format(error))
 
     @Slot()
     def _clear_recommendation_worker_refs(self) -> None:
@@ -1499,7 +1645,7 @@ class MainWindow(QMainWindow):
     def clear_recommendation_review(self) -> None:
         """Reset recommendation review widgets to their empty state."""
         self.review_summary_label.setText(_EMPTY_REVIEW_SUMMARY)
-        self.dj_readiness_label.setText("DJ Readiness: No recommendation ready.")
+        self.dj_readiness_label.setText(self.tr("DJ Readiness: No recommendation ready."))
         self.dj_readiness_table.setRowCount(0)
         self.transition_review_table.setRowCount(0)
         self.prep_copilot_table.setHidden(True)
@@ -1608,4 +1754,4 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["open", path])  # macOS
         except Exception as exc:
             LOGGER.warning("Could not open track %s: %s", path, exc)
-            self.status_label.setText(f"Could not open: {Path(path).name}")
+            self.status_label.setText(self.tr("Could not open: {0}").format(Path(path).name))

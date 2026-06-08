@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from PySide6.QtCore import QCoreApplication
+
 from xfinaudio.desktop.app_state import AppState
 
 
@@ -75,12 +77,12 @@ class ReviewViewModel:
         """Human-readable badge label matching the semaphore state."""
         status = self.readiness_status(state)
         if state.last_recommendation is None:
-            return "No playlist generated"
+            return QCoreApplication.translate("ReviewViewModel", "No playlist generated")
         if status == ReadinessStatus.BLOCKED:
-            return "Blocked: do not export yet"
+            return QCoreApplication.translate("ReviewViewModel", "Blocked: do not export yet")
         if status == ReadinessStatus.NEEDS_REVIEW:
-            return "Needs review before export"
-        return "Ready to export"
+            return QCoreApplication.translate("ReviewViewModel", "Needs review before export")
+        return QCoreApplication.translate("ReviewViewModel", "Ready to export")
 
     def readiness_checks(self, state: AppState) -> list[ReadinessCheckRow]:
         """Flat list of check rows from the DJ readiness report. Empty if no report."""
@@ -121,10 +123,10 @@ class ReviewViewModel:
         report = state.last_quality_report
         if report is None:
             return "—"
-        return (
-            f"Avg transition score: {report.average_transition_score:.2f} "
-            f"({report.transition_count} transition(s), {report.warning_count} warning(s))"
-        )
+        return QCoreApplication.translate(
+            "ReviewViewModel",
+            "Avg transition score: {0:.2f} ({1} transition(s), {2} warning(s))",
+        ).format(report.average_transition_score, report.transition_count, report.warning_count)
 
     def can_export(self, state: AppState) -> bool:
         """Export is allowed for READY and NEEDS_REVIEW; BLOCKED gates it.

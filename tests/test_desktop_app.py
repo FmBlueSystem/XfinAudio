@@ -5,6 +5,12 @@ def test_desktop_main_activates_window(monkeypatch, tmp_path) -> None:
         def __init__(self, argv):
             self.argv = argv
 
+        def setApplicationName(self, name):
+            pass
+
+        def setApplicationDisplayName(self, name):
+            pass
+
         def exec(self):
             return 0
 
@@ -13,11 +19,8 @@ def test_desktop_main_activates_window(monkeypatch, tmp_path) -> None:
             self.calls: list[str] = []
             self._state = desktop_app.Qt.WindowState.WindowMinimized
 
-        def resize(self, width, height):
-            self.calls.append(f"resize:{width}x{height}")
-
-        def show(self):
-            self.calls.append("show")
+        def showMaximized(self):
+            self.calls.append("showMaximized")
 
         def windowState(self):
             return self._state
@@ -40,4 +43,4 @@ def test_desktop_main_activates_window(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("XFINAUDIO_SETTINGS_PATH", str(tmp_path / "settings.json"))
 
     assert desktop_app.main() == 0
-    assert fake_window.calls == ["resize:1000x600", "show", "setWindowState", "raise", "activateWindow"]
+    assert fake_window.calls == ["showMaximized", "setWindowState", "raise", "activateWindow"]

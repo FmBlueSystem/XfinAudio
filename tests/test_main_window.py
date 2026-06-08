@@ -128,7 +128,7 @@ def test_main_window_constructs_desktop_scanning_skeleton() -> None:
     assert window.strategy_combo.count() == 7
     assert window.recommend_button.text() == "Recommend Playlist"
     assert window.tracks_table.columnCount() >= 7
-    assert window._review_screen.recommendation_table.columnCount() >= 7
+    assert window._review_screen.recommendation_table.columnCount() >= 6
     assert app is not None
 
 
@@ -165,7 +165,7 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "Status",
         "Path",
     ]
-    assert _table_headers(window.recommendation_table) == ["#", "Title", "Artist", "BPM", "Key", "Energy", "Score"]
+    assert _table_headers(window.recommendation_table) == ["#", "Title", "Artist", "BPM", "Key", "Energy"]
     assert _table_headers(window.prep_copilot_table) == ["Variant", "Description", "Tracks", "Readiness"]
     assert _table_headers(window.transition_review_table) == [
         "Order",

@@ -7,8 +7,10 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -44,18 +46,20 @@ class MetadataScreen(QWidget):
 
         # Status summary
         self.status_label = QLabel()
+        self.status_label.setMaximumHeight(28)
         layout.addWidget(self.status_label)
 
         # Worklist guidance
         self.guidance_label = QLabel()
         self.guidance_label.setWordWrap(True)
+        self.guidance_label.setMaximumHeight(40)
         layout.addWidget(self.guidance_label)
 
         # Filter controls row
         filter_row = QHBoxLayout()
         self.status_combo = QComboBox()
         self.missing_combo = QComboBox()
-        self.export_button = QPushButton("Export to Serato")
+        self.export_button = QPushButton(self.tr("Export to Serato"))
         self.export_button.setEnabled(False)
         filter_row.addWidget(self.status_combo)
         filter_row.addWidget(self.missing_combo)
@@ -63,20 +67,27 @@ class MetadataScreen(QWidget):
         filter_row.addStretch()
         layout.addLayout(filter_row)
 
-        # Worklist table
+        # Worklist table — expanding so it absorbs spare vertical space.
         self.worklist_table = QTableWidget(0, len(_WORKLIST_COLUMNS))
-        self.worklist_table.setHorizontalHeaderLabels(_WORKLIST_COLUMNS)
+        self.worklist_table.setHorizontalHeaderLabels([self.tr(c) for c in _WORKLIST_COLUMNS])
         self.worklist_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.worklist_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.worklist_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.worklist_table.setAlternatingRowColors(True)
-        self.worklist_table.horizontalHeader().setStretchLastSection(True)
+        header = self.worklist_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        for col in (2, 3, 4, 6):  # BPM, Key, Energy, Status — content-sized
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.worklist_table.verticalHeader().setVisible(False)
-        layout.addWidget(self.worklist_table)
+        self.worklist_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.worklist_table, 1)
+
+        # Push nav to bottom; spare space goes to the worklist table.
+        layout.addStretch(1)
 
         # Bottom nav
         nav = QHBoxLayout()
-        self.back_button = QPushButton("← Library")
+        self.back_button = QPushButton(self.tr("← Library"))
         nav.addWidget(self.back_button)
         nav.addStretch()
         layout.addLayout(nav)

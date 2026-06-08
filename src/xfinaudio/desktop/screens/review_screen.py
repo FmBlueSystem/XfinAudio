@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -22,7 +24,7 @@ from xfinaudio.desktop.review_view_model import (
 )
 
 _READINESS_COLUMNS = ["Check", "Status", "Detail"]
-_RECOMMENDATION_COLUMNS = ["#", "Title", "Artist", "BPM", "Key", "Energy", "Score"]
+_RECOMMENDATION_COLUMNS = ["#", "Title", "Artist", "BPM", "Key", "Energy"]
 _TRANSITION_COLUMNS = [
     "Order",
     "From",
@@ -34,6 +36,33 @@ _TRANSITION_COLUMNS = [
     "Final Score",
     "Warnings",
 ]
+
+# Header tooltips for the transition review table
+_TRANSITION_HEADER_TOOLTIPS = {
+    0: "Position of this transition in the playlist",
+    1: "First track in the transition",
+    2: "Second track in the transition",
+    3: "Tonal compatibility (Camelot). 1.0 = same key, 0.9 = adjacent or diagonal, 0.85 = relative A/B, 0.0 = incompatible",
+    4: "BPM similarity. 1.0 = ≤2% difference, drops as the gap grows",
+    5: "Energy level similarity. 1.0 = same energy, drops as levels diverge",
+    6: "Genre/tag overlap. Higher = more shared tags or genres",
+    7: "Weighted average: 60% Key + 20% BPM + 15% Energy + 5% Tags",
+    8: "Alerts about potential issues in this transition",
+}
+
+_READINESS_HEADER_TOOLTIPS = {
+    0: "Category being validated",
+    1: "Ready, Needs Review, or Blocked",
+    2: "Specific explanation for this check",
+}
+
+# Color coding for score cells
+_SCORE_COLOR_EXCELLENT = QColor("#1a3a2a")
+_SCORE_COLOR_GOOD = QColor("#3a3010")
+_SCORE_COLOR_POOR = QColor("#4a1a1a")
+_SCORE_TEXT_EXCELLENT = QColor("#1fd16a")
+_SCORE_TEXT_GOOD = QColor("#ffb000")
+_SCORE_TEXT_POOR = QColor("#ff4d4f")
 
 
 class ReviewScreen(QWidget):
@@ -63,56 +92,94 @@ class ReviewScreen(QWidget):
         self.readiness_badge.setObjectName("readinessBadge")
         layout.addWidget(self.readiness_badge)
 
-        # 2. Reason summary
-        self.dj_readiness_label = QLabel("DJ Readiness: No recommendation ready.")
+        # 2. Reason summary — keep compact so tables get space
+        self.dj_readiness_label = QLabel(self.tr("DJ Readiness: No recommendation ready."))
+        self.dj_readiness_label.setMaximumHeight(28)
         layout.addWidget(self.dj_readiness_label)
 
         # Quality summary (set imperatively by main_window)
-        self.review_summary_label = QLabel("No recommendation is ready for review.")
+        self.review_summary_label = QLabel(self.tr("No recommendation is ready for review."))
+        self.review_summary_label.setMaximumHeight(28)
         layout.addWidget(self.review_summary_label)
 
         # VM-driven quality summary
         self.quality_label = QLabel()
+        self.quality_label.setMaximumHeight(28)
         layout.addWidget(self.quality_label)
 
         # 3. Recommendation table
         self.recommendation_table = QTableWidget(0, len(_RECOMMENDATION_COLUMNS))
-        self.recommendation_table.setHorizontalHeaderLabels(_RECOMMENDATION_COLUMNS)
-        self.recommendation_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.recommendation_table.setHorizontalHeaderLabels([self.tr(c) for c in _RECOMMENDATION_COLUMNS])
+        header = self.recommendation_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        for col in (0, 3, 4, 5):  # #, BPM, Key, Energy — content-sized
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.recommendation_table.setAlternatingRowColors(True)
-        layout.addWidget(self.recommendation_table)
+        self.recommendation_table.verticalHeader().setVisible(False)
+        self.recommendation_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.recommendation_table, 1)
 
         # Action row for the recommendation table
         actions = QHBoxLayout()
-        self.remove_track_button = QPushButton("Remove from Playlist")
+        self.remove_track_button = QPushButton(self.tr("Remove from Playlist"))
         self.remove_track_button.setEnabled(False)
         actions.addWidget(self.remove_track_button)
         actions.addStretch()
         layout.addLayout(actions)
 
-        # 4. Transition table
+        # 4. Transition table help label
+        self.transition_help_label = QLabel(
+            self.tr("💡 Each row shows how two consecutive tracks blend. "
+                    "Green = excellent, Yellow = acceptable, Red = risky. "
+                    "Hover over any score for details.")
+        )
+        self.transition_help_label.setWordWrap(True)
+        self.transition_help_label.setMaximumHeight(40)
+        self.transition_help_label.setStyleSheet("color: #9fb3c8; font-size: 12px; padding: 4px 0;")
+        layout.addWidget(self.transition_help_label)
+
+        # 5. Transition table
         self.transition_table = QTableWidget(0, len(_TRANSITION_COLUMNS))
-        self.transition_table.setHorizontalHeaderLabels(_TRANSITION_COLUMNS)
+        self.transition_table.setHorizontalHeaderLabels([self.tr(c) for c in _TRANSITION_COLUMNS])
         self.transition_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.transition_table.setAlternatingRowColors(True)
-        layout.addWidget(self.transition_table)
+        self.transition_table.verticalHeader().setVisible(False)
+        self.transition_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._apply_header_tooltips(self.transition_table, _TRANSITION_HEADER_TOOLTIPS)
+        layout.addWidget(self.transition_table, 1)
 
-        # 5. Readiness checks table (secondary)
+        # 6. Readiness checks table (secondary)
         self.readiness_table = QTableWidget(0, len(_READINESS_COLUMNS))
-        self.readiness_table.setHorizontalHeaderLabels(_READINESS_COLUMNS)
+        self.readiness_table.setHorizontalHeaderLabels([self.tr(c) for c in _READINESS_COLUMNS])
         self.readiness_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.readiness_table.setAlternatingRowColors(True)
-        layout.addWidget(self.readiness_table)
+        self.readiness_table.verticalHeader().setVisible(False)
+        self.readiness_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._apply_header_tooltips(self.readiness_table, _READINESS_HEADER_TOOLTIPS)
+        layout.addWidget(self.readiness_table, 1)
+
+        # Push nav to bottom; spare space goes to tables above.
+        layout.addStretch(1)
 
         # Navigation
         nav = QHBoxLayout()
-        self.back_button = QPushButton("← Build")
-        self.export_button = QPushButton("Export →")
+        self.back_button = QPushButton(self.tr("← Build"))
+        self.export_button = QPushButton(self.tr("Export →"))
         self.export_button.setObjectName("primaryAction")
         nav.addWidget(self.back_button)
         nav.addStretch()
         nav.addWidget(self.export_button)
         layout.addLayout(nav)
+
+    def _apply_header_tooltips(self, table: QTableWidget, tooltips: dict[int, str]) -> None:
+        header = table.horizontalHeader()
+        for column_index, text in tooltips.items():
+            header_item = table.horizontalHeaderItem(column_index)
+            if header_item is None:
+                header_item = QTableWidgetItem(table.horizontalHeaderItem(column_index))
+            if header_item is not None:
+                header_item.setToolTip(self.tr(text))
+                table.setHorizontalHeaderItem(column_index, header_item)
 
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
@@ -139,8 +206,15 @@ class ReviewScreen(QWidget):
         for row_data in rows:
             row = self.readiness_table.rowCount()
             self.readiness_table.insertRow(row)
-            for col, value in enumerate([row_data.label, row_data.status, row_data.detail]):
-                self.readiness_table.setItem(row, col, QTableWidgetItem(value))
+            label_item = QTableWidgetItem(row_data.label)
+            label_item.setToolTip(self.tr("Validation: {0}").format(row_data.label))
+            status_item = QTableWidgetItem(row_data.status)
+            status_item.setToolTip(self.tr("Status: {0}").format(row_data.status))
+            detail_item = QTableWidgetItem(row_data.detail)
+            detail_item.setToolTip(row_data.detail)
+            self.readiness_table.setItem(row, 0, label_item)
+            self.readiness_table.setItem(row, 1, status_item)
+            self.readiness_table.setItem(row, 2, detail_item)
 
     def _populate_recommendation_table(self, rows: list[RecommendationRow]) -> None:
         self.recommendation_table.setRowCount(0)
@@ -154,10 +228,19 @@ class ReviewScreen(QWidget):
                 row_data.bpm,
                 row_data.camelot_key,
                 row_data.energy,
-                row_data.overall_score,
             ]
-            for col, value in enumerate(values):
-                self.recommendation_table.setItem(row, col, QTableWidgetItem(value))
+            tooltips = [
+                self.tr("Track #{0} in playlist").format(row_data.position),
+                row_data.title,
+                row_data.artist,
+                self.tr("BPM: {0}").format(row_data.bpm),
+                self.tr("Camelot key: {0}").format(row_data.camelot_key),
+                self.tr("Energy level: {0}").format(row_data.energy),
+            ]
+            for col, (value, tip) in enumerate(zip(values, tooltips)):
+                item = QTableWidgetItem(value)
+                item.setToolTip(tip)
+                self.recommendation_table.setItem(row, col, item)
             # Store path as UserRole on col 0 for removal and play actions
             position_item = self.recommendation_table.item(row, 0)
             if position_item is not None:

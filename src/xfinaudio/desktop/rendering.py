@@ -2,26 +2,30 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QTableWidgetItem
 
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 
 _FIELD_LABELS = {
-    "bpm": "BPM",
-    "camelot_key": "Camelot key",
-    "energy_level": "energy level",
+    "bpm": QCoreApplication.translate("Rendering", "BPM"),
+    "camelot_key": QCoreApplication.translate("Rendering", "Camelot key"),
+    "energy_level": QCoreApplication.translate("Rendering", "energy level"),
+    "duration": QCoreApplication.translate("Rendering", "Duration"),
 }
 
 
 def format_quality_summary(report: RecommendationQualityReport) -> str:
     """Return a desktop-friendly quality summary for a recommendation report."""
-    return (
-        "Review summary: "
-        f"Tracks: {report.track_count} | "
-        f"Transitions: {report.transition_count} | "
-        f"Average transition score: {report.average_transition_score:.3f} | "
-        f"Warnings: {report.warning_count}"
+    return QCoreApplication.translate(
+        "Rendering",
+        "Review summary: Tracks: {0} | Transitions: {1} | Average transition score: {2:.3f} | Warnings: {3}",
+    ).format(
+        report.track_count,
+        report.transition_count,
+        report.average_transition_score,
+        report.warning_count,
     )
 
 
@@ -52,9 +56,9 @@ def _format_missing_metadata(track: TrackRecord) -> str:
 def _missing_worklist_display_name(missing_field: str) -> str:
     """Return compact DJ-facing field labels for missing-field worklists."""
     labels = {
-        "bpm": "BPM",
-        "camelot_key": "Key",
-        "energy_level": "Energy",
+        "bpm": QCoreApplication.translate("Rendering", "BPM"),
+        "camelot_key": QCoreApplication.translate("Rendering", "Key"),
+        "energy_level": QCoreApplication.translate("Rendering", "Energy"),
     }
     return labels.get(missing_field, missing_field.replace("_", " ").title())
 
@@ -118,23 +122,28 @@ def format_recommendation_warning(raw_warning: str) -> str:
     if missing_marker in warning:
         side, _, fields_text = warning.partition(missing_marker)
         fields = [_FIELD_LABELS.get(field.strip(), field.strip().replace("_", " ")) for field in fields_text.split(",")]
-        return (
-            f"Review metadata: {side} track is missing Mixed In Key {', '.join(fields)} metadata. "
-            "Re-scan or update tags before relying on this transition."
-        )
+        return QCoreApplication.translate(
+            "Rendering",
+            "Review metadata: {0} track is missing Mixed In Key {1} metadata. "
+            "Re-scan or update tags before relying on this transition.",
+        ).format(side, ", ".join(fields))
 
     invalid_marker = " has invalid Camelot key: "
     if invalid_marker in warning:
         side, _, key = warning.partition(invalid_marker)
-        return (
-            f"Review Mixed In Key metadata: {side} track has invalid Camelot key {key!r}. "
-            "Expected values look like 8A or 11B."
-        )
+        return QCoreApplication.translate(
+            "Rendering",
+            "Review Mixed In Key metadata: {0} track has invalid Camelot key {1!r}. "
+            "Expected values look like 8A or 11B.",
+        ).format(side, key)
 
     if warning == "invalid Camelot key":
-        return "Review Mixed In Key metadata: at least one transition has an invalid Camelot key."
+        return QCoreApplication.translate(
+            "Rendering",
+            "Review Mixed In Key metadata: at least one transition has an invalid Camelot key.",
+        )
 
-    return f"Review note: {warning}"
+    return QCoreApplication.translate("Rendering", "Review note: {0}").format(warning)
 
 
 class _SortAwareTableItem(QTableWidgetItem):

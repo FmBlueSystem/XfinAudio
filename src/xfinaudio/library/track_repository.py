@@ -34,15 +34,16 @@ class TrackRepository:
             connection.executemany(
                 """
                 INSERT INTO tracks (
-                    path, title, artist, bpm, camelot_key, energy_level, genre, tags_json,
+                    path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
                     metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     title = excluded.title,
                     artist = excluded.artist,
                     bpm = excluded.bpm,
                     camelot_key = excluded.camelot_key,
                     energy_level = excluded.energy_level,
+                    duration = excluded.duration,
                     genre = excluded.genre,
                     tags_json = excluded.tags_json,
                     metadata_status = excluded.metadata_status,
@@ -58,7 +59,7 @@ class TrackRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT path, title, artist, bpm, camelot_key, energy_level, genre, tags_json,
+                SELECT path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json
                 FROM tracks
                 ORDER BY path
@@ -71,7 +72,7 @@ class TrackRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT path, title, artist, bpm, camelot_key, energy_level, genre, tags_json,
+                SELECT path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json
                 FROM tracks
                 ORDER BY path
@@ -113,6 +114,7 @@ class TrackRepository:
                 bpm REAL,
                 camelot_key TEXT,
                 energy_level INTEGER,
+                duration REAL,
                 genre TEXT,
                 tags_json TEXT NOT NULL DEFAULT '[]',
                 metadata_status TEXT NOT NULL CHECK(metadata_status IN ('complete', 'incomplete')),
@@ -122,6 +124,11 @@ class TrackRepository:
             )
             """
         )
+        # Gracefully add duration column to existing databases
+        try:
+            connection.execute("ALTER TABLE tracks ADD COLUMN duration REAL")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         connection.execute("CREATE INDEX IF NOT EXISTS idx_tracks_metadata_status ON tracks (metadata_status)")
 
     def _connect(self) -> sqlite3.Connection:
@@ -138,6 +145,7 @@ class TrackRepository:
             record.bpm,
             record.camelot_key,
             record.energy_level,
+            record.duration,
             record.genre,
             json.dumps(record.tags, sort_keys=True),
             record.metadata_status,
@@ -155,6 +163,7 @@ class TrackRepository:
             bpm=row["bpm"],
             camelot_key=row["camelot_key"],
             energy_level=row["energy_level"],
+            duration=row["duration"],
             genre=row["genre"],
             tags=json.loads(row["tags_json"]),
             metadata_status=row["metadata_status"],
@@ -172,6 +181,7 @@ class TrackRepository:
             bpm=row["bpm"],
             camelot_key=row["camelot_key"],
             energy_level=row["energy_level"],
+            duration=row["duration"],
             genre=row["genre"],
             tags=json.loads(row["tags_json"]),
             metadata_status=row["metadata_status"],

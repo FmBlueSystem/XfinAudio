@@ -15,8 +15,8 @@ def test_parse_camelot_key_accepts_valid_key_case_insensitively() -> None:
         ("11B", "10B", 0.9),
         ("12A", "1A", 0.9),
         ("11B", "11A", 0.85),
-        ("11B", "12A", 0.7),
-        ("11B", "10A", 0.7),
+        ("11B", "12A", 0.9),
+        ("11B", "10A", 0.9),
         ("11B", "4A", 0.0),
     ],
 )

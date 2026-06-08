@@ -99,11 +99,14 @@ QTableWidget {
     background: #101820;
     alternate-background-color: #14202a;
     color: #edf5ff;
-    gridline-color: #243241;
+    gridline-color: #1e2d3a;
     border: 1px solid #263544;
     border-radius: 8px;
     selection-background-color: #005b86;
     selection-color: #ffffff;
+}
+QTableWidget::item {
+    padding: 4px 6px;
 }
 QTableWidget::item:selected {
     background-color: #005b86;
@@ -114,15 +117,23 @@ QTableWidget::item:selected:active {
     color: #ffffff;
 }
 QHeaderView::section {
-    background: #182635;
-    color: #00d4ff;
+    background: #151e28;
+    color: #5caeb8;
     border: 0;
-    border-right: 1px solid #334455;
-    padding: 5px 6px;
-    font-weight: 800;
+    border-right: 1px solid #2a3847;
+    padding: 6px 8px;
+    font-weight: 600;
 }
 QTableCornerButton::section {
     background: #182635;
     border: 0;
+}
+QToolTip {
+    background: #1a2633;
+    color: #edf5ff;
+    border: 1px solid #00d4ff;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
 }
 """

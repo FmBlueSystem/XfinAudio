@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1c2733"/>
+      <stop offset="100%" stop-color="#0b0f14"/>
+    </radialGradient>
+    <linearGradient id="cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="100%" stop-color="#5caeb8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="512" cy="512" r="480" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="480" fill="none" stroke="#00d4ff" stroke-width="12" opacity="0.6"/>
+  <circle cx="512" cy="512" r="440" fill="none" stroke="#00d4ff" stroke-width="4" opacity="0.25"/>
+
+  <!-- Outer wave arcs -->
+  <path d="M 280 512 A 232 232 0 0 1 744 512" fill="none" stroke="url(#cyan)" stroke-width="28" stroke-linecap="round" opacity="0.35"/>
+  <path d="M 360 512 A 152 152 0 0 1 664 512" fill="none" stroke="url(#cyan)" stroke-width="36" stroke-linecap="round" opacity="0.55"/>
+
+  <!-- Sound wave bars / equalizer -->
+  <rect x="472" y="340" width="28" height="120" rx="14" fill="url(#cyan)" opacity="0.9"/>
+  <rect x="524" y="280" width="28" height="240" rx="14" fill="url(#cyan)" opacity="0.95"/>
+  <rect x="576" y="380" width="28" height="80" rx="14" fill="url(#cyan)" opacity="0.75"/>
+  <rect x="420" y="400" width="28" height="60" rx="14" fill="url(#cyan)" opacity="0.7"/>
+
+  <!-- Center disc / vinyl dot -->
+  <circle cx="512" cy="512" r="56" fill="#00d4ff" opacity="0.15"/>
+  <circle cx="512" cy="512" r="32" fill="#00d4ff" opacity="0.9"/>
+  <circle cx="512" cy="512" r="14" fill="#0b0f14"/>
+</svg>

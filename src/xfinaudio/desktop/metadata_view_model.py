@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from PySide6.QtCore import QCoreApplication
+
 from xfinaudio.desktop.app_state import AppState
 
 _MISSING_FIELD_MAP = {
@@ -37,11 +39,17 @@ class MetadataViewModel:
         - With tracks: "{N} tracks scanned — {M} complete, {K} incomplete"
         """
         if not state.scanned_records:
-            return "Scan your library first to see metadata status"
+            return QCoreApplication.translate(
+                "MetadataViewModel",
+                "Scan your library first to see metadata status",
+            )
         total = len(state.scanned_records)
         complete = sum(1 for r in state.scanned_records if r.metadata_status == "complete")
         incomplete = total - complete
-        return f"{total} tracks scanned — {complete} complete, {incomplete} incomplete"
+        return QCoreApplication.translate(
+            "MetadataViewModel",
+            "{0} tracks scanned — {1} complete, {2} incomplete",
+        ).format(total, complete, incomplete)
 
     def worklist_rows(
         self,
@@ -56,13 +64,24 @@ class MetadataViewModel:
 
         # Normalise status filter
         norm_status: str | None = None
-        if status_filter and status_filter.casefold() not in ("all", ""):
-            norm_status = status_filter.casefold()
+        all_label = QCoreApplication.translate("MetadataViewModel", "All")
+        if status_filter and status_filter.casefold() not in (all_label.casefold(), ""):
+            complete_label = QCoreApplication.translate("MetadataViewModel", "Complete")
+            incomplete_label = QCoreApplication.translate("MetadataViewModel", "Incomplete")
+            if status_filter.casefold() == complete_label.casefold():
+                norm_status = "complete"
+            elif status_filter.casefold() == incomplete_label.casefold():
+                norm_status = "incomplete"
+            else:
+                norm_status = status_filter.casefold()
 
         # Resolve missing-field filter label → internal field name
         missing_field: str | None = None
-        if missing_filter and missing_filter not in ("All", "", None):
-            missing_field = _MISSING_FIELD_MAP.get(missing_filter, missing_filter)
+        if missing_filter and missing_filter.casefold() not in (all_label.casefold(), ""):
+            translated_map = {
+                QCoreApplication.translate("MetadataViewModel", k): v for k, v in _MISSING_FIELD_MAP.items()
+            }
+            missing_field = translated_map.get(missing_filter, missing_filter)
 
         rows: list[WorklistRow] = []
         for record in records:
@@ -95,12 +114,21 @@ class MetadataViewModel:
     @staticmethod
     def status_filter_options() -> list[str]:
         """["All", "Complete", "Incomplete"]"""
-        return ["All", "Complete", "Incomplete"]
+        return [
+            QCoreApplication.translate("MetadataViewModel", "All"),
+            QCoreApplication.translate("MetadataViewModel", "Complete"),
+            QCoreApplication.translate("MetadataViewModel", "Incomplete"),
+        ]
 
     @staticmethod
     def missing_filter_options() -> list[str]:
         """["All", "Missing BPM", "Missing Key", "Missing Energy"]"""
-        return ["All", "Missing BPM", "Missing Key", "Missing Energy"]
+        return [
+            QCoreApplication.translate("MetadataViewModel", "All"),
+            QCoreApplication.translate("MetadataViewModel", "Missing BPM"),
+            QCoreApplication.translate("MetadataViewModel", "Missing Key"),
+            QCoreApplication.translate("MetadataViewModel", "Missing Energy"),
+        ]
 
     def export_enabled(self, state: AppState) -> bool:
         """True when there are incomplete tracks to export."""
@@ -108,15 +136,22 @@ class MetadataViewModel:
 
     def worklist_guidance_text(self) -> str:
         """Explain the purpose of the metadata worklist."""
-        return (
+        return QCoreApplication.translate(
+            "MetadataViewModel",
             "The worklist shows tracks missing BPM, Key, or Energy. "
-            "These fields are required for harmonic mixing recommendations."
+            "These fields are required for harmonic mixing recommendations.",
         )
 
     def fix_metadata_guidance_text(self) -> str:
         """Explain how to fix missing metadata."""
-        return "Fix missing tags in an external tag editor, then return to XfinAudio."
+        return QCoreApplication.translate(
+            "MetadataViewModel",
+            "Fix missing tags in an external tag editor, then return to XfinAudio.",
+        )
 
     def refresh_guidance_text(self) -> str:
         """Explain how to refresh after fixing metadata."""
-        return "Refresh the library scan to pick up corrected metadata."
+        return QCoreApplication.translate(
+            "MetadataViewModel",
+            "Refresh the library scan to pick up corrected metadata.",
+        )

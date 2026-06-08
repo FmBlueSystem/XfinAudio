@@ -114,7 +114,7 @@ def score_camelot_transition(
     if move.number_delta == 0 and not move.same_letter:
         return 0.85
     if move.number_delta == 1 and not move.same_letter:
-        return 0.7
+        return 0.9
 
     normalized_rule = (left.normalized(), right.normalized())
     if boost_rules is not None and normalized_rule in _normalized_boost_rules(boost_rules):

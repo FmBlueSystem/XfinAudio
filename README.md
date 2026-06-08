@@ -4,6 +4,8 @@ XfinAudio is a GPL-3.0-only desktop DJ playlist assistant for DJs who already or
 
 It is not a mixer, not an audio analyzer, and not a replacement for DJ judgment. It is a local desktop decision-support tool: it reads metadata, persists a searchable library, recommends musically coherent track sequences, explains every transition, and exports safe Serato crate worklists that help the DJ prepare, validate, and improve the library.
 
+Developed by **Freddy Molina** at **[BlueSystem.io](https://bluesystem.io)** — Audio Division.
+
 ---
 
 ## Table of contents
@@ -76,6 +78,9 @@ Current scope:
 - DJ Prep Copilot planning with Safe, Balanced, and Adventurous variants from one set intent.
 - Explainable transition scoring.
 - Serato crate export and metadata-cleanup worklists.
+- **Full internationalization (i18n) in English and Spanish** with runtime language switching.
+- **Duration column** read from audio file metadata.
+- **Custom app icon** for macOS dock and PyInstaller bundles.
 - Manual desktop QA required before any release claim.
 
 For harmonic scoring concepts, Camelot movement, strategy intent, and current non-goals, see [HARMONIC_MIXING.md](HARMONIC_MIXING.md).
@@ -95,6 +100,7 @@ Important metadata fields:
 - Energy level
 - Genre
 - Tags / subgenre / mood / DJ zone-style metadata
+- **Duration** (read automatically from file headers)
 
 XfinAudio does not detect BPM or key from waveforms. It reads the metadata that is already present.
 
@@ -128,11 +134,13 @@ The app loads the saved library on launch. If a previous scan folder exists, it 
 Library browsing includes:
 
 - Song search.
-- Column sorting.
+- Column sorting (double-click header).
+- Column reordering (drag header).
 - Complete/incomplete status filter.
 - Missing-field filter for BPM, Key, and Energy.
 - Visible Missing column.
 - Genre and Tags/Subgenre columns.
+- **Duration column** (formatted as `M:SS`).
 - Path-safe row selection after sorting/filtering.
 
 ### 4. Select one or more anchor tracks
@@ -228,6 +236,7 @@ It reads:
 - Energy from Mixed In Key-style energy fields, grouping, publisher/comment patterns, or title fallback.
 - Genre from standard genre tags.
 - Tags from genre, mood, subgenre, DJ zone, and genre category-style fields.
+- **Duration from audio file headers** (mutagen `info.length`), formatted as `M:SS`.
 
 ### Mixed In Key parsing contract
 
@@ -240,6 +249,7 @@ TrackRecord
 ├── bpm
 ├── camelot_key
 ├── energy_level
+├── duration
 ├── genre
 ├── tags
 ├── metadata_status
@@ -248,7 +258,7 @@ TrackRecord
 └── raw_metadata
 ```
 
-A track is complete only when BPM, Camelot key, and energy are present.
+A track is complete only when BPM, Camelot key, and energy are present. Duration is displayed but not required for completeness.
 
 ### Deterministic transition scoring
 
@@ -321,8 +331,18 @@ App settings store workflow preferences such as:
 
 - Safe export folder.
 - Last scan folder.
+- **UI language** (Auto / English / Español).
 
 Persisting the last scan folder turns a later scan into a real refresh workflow.
+
+### Internationalization (i18n)
+
+XfinAudio uses Qt's `QTranslator` system for full runtime translation:
+
+- All UI strings are marked with `self.tr()` / `QCoreApplication.translate()`.
+- Source language is English; Spanish translations ship as compiled `.qm` files.
+- Language can be changed in **Settings → Language** (requires app restart).
+- Translation workflow: mark strings → run `scripts/update_translations.py` → edit `.ts` source or run `scripts/fill_spanish_translations.py` → `.qm` files compiled automatically.
 
 ### Serato crate generation
 
@@ -361,8 +381,9 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 - Filter by metadata status.
 - Filter by missing required field.
 - Search by song title.
-- Sort columns.
-- Display title, artist, BPM, key, energy, missing fields, genre, tags/subgenre, status, and path.
+- Sort columns (double-click header).
+- Reorder columns (drag header).
+- Display title, artist, BPM, key, energy, **duration**, missing fields, genre, tags/subgenre, status, and path.
 
 ### Recommendation workflow
 
@@ -413,6 +434,13 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 - Keeps export history visible in the app.
 - Avoids overwriting generated crates by timestamp and uniqueness suffix.
 
+### Settings and localization
+
+- **Settings dialog** with language selector (Auto / English / Español).
+- **Safe export folder** configuration.
+- **Library info** showing scan folder and track counts.
+- Language change requires app restart and prompts accordingly.
+
 ### Safety and release workflow
 
 - Read-only audio scanning.
@@ -459,9 +487,10 @@ Metadata worklist crates are also timestamped and grouped by purpose.
 
 ## Project status
 
+- **Author and maintainer:** [Freddy Molina](https://github.com/FmBlueSystem) — [BlueSystem.io](https://bluesystem.io), Audio Division.
 - License posture: full open source under GPL-3.0-only. See `LICENSE` and `docs/open-source-license.md`.
 - Distribution model: XfinAudio ships as an installable Python package (source/wheel). Users install it with `pip`, `pipx`, or `uv tool` and the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses.
-- Packaging posture: no signed macOS `.app`/DMG is distributed. A self-contained binary bundle would require Developer ID signing, notarization, and separate legal review for binary redistribution, and is out of scope for this distribution model.
+- **macOS .app bundle**: A PyInstaller spec is included under `packaging/pyinstaller/` for building a local `.app` bundle. This is useful for personal use or CI builds, but signed/notarized distribution requires Apple Developer ID and separate legal review.
 - Platform posture: validated on macOS with Python 3.11. The dependencies are cross-platform, but Linux and Windows are not yet validated.
 - Publication checklist: follow `docs/repository-publication-checklist.md` before turning a local tree into a public source repository.
 
@@ -501,6 +530,25 @@ Then launch the desktop app:
 xfinaudio
 ```
 
+### Building a macOS .app bundle (optional)
+
+For personal use or testing, you can build a local `.app` bundle with PyInstaller:
+
+```bash
+uv run python -m PyInstaller packaging/pyinstaller/xfinaudio.spec \
+  --clean --noconfirm \
+  --distpath packaging/pyinstaller/dist \
+  --workpath packaging/pyinstaller/build
+```
+
+The resulting `packaging/pyinstaller/dist/XfinAudio.app` can be launched with:
+
+```bash
+open packaging/pyinstaller/dist/XfinAudio.app
+```
+
+> **Note:** Unsigned `.app` bundles may show a security warning on first launch. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
+
 Publishing the package to PyPI (so users can run `pipx install xfinaudio`) is an optional later step that requires a PyPI account and API token; it does not require code changes.
 
 ## Quick start for development
@@ -520,6 +568,13 @@ Launch the local desktop app for manual QA:
 uv run xfinaudio
 ```
 
+Update translations after adding new translatable strings:
+
+```bash
+uv run python scripts/update_translations.py
+uv run python scripts/fill_spanish_translations.py
+```
+
 ## Release gates
 
 Before any release claim, run the automated gates and record the manual gates described in `docs/release-readiness-smoke.md`:
@@ -529,7 +584,18 @@ uv run python scripts/release_gate_check.py --run
 uv run python scripts/smoke_release_readiness.py
 ```
 
-Manual desktop QA is still required for real user workflows. Signed macOS `.app`/DMG redistribution is out of scope for this distribution model; GPLv3 and dependency-license compliance for package distribution still warrant legal review.
+Manual desktop QA is still required for real user workflows. Signed macOS `.app`/DMG redistribution requires Apple Developer ID, notarization, and separate legal review for binary redistribution.
+
+## Trademarks
+
+XfinAudio is an independent project and is not affiliated with, endorsed by, or sponsored by any third-party companies whose products or trademarks are referenced.
+
+- **Mixed In Key** is a trademark of Mixed In Key LLC.
+- **Serato**, **Serato DJ Pro**, and related marks are trademarks or registered trademarks of Serato Limited.
+- **Camelot**, **Camelot Wheel**, and **Camelot System** are trademarks of Mixed In Key LLC.
+- **Open Key Notation** is an open standard.
+
+All other trademarks, service marks, and brand identifiers referenced are the property of their respective owners.
 
 ## License and dependency caveats
 
@@ -559,6 +625,8 @@ Dolores comunes del flujo DJ:
 
 La idea es simple: XfinAudio reduce fricción en la preparación sin quitarle control musical al DJ. El humano dirige. La app ayuda a inspeccionar, ordenar, explicar y mejorar la biblioteca.
 
+Desarrollado por **Freddy Molina** en **[BlueSystem.io](https://bluesystem.io)** — División de Audio.
+
 ## Qué hace XfinAudio
 
 XfinAudio escanea metadata existente, guarda records normalizados, genera recomendaciones determinísticas de playlists, explica la calidad de las transiciones y exporta artefactos de playlist.
@@ -577,6 +645,9 @@ Alcance actual:
 - Recomendación por estrategias.
 - Scoring explicable por transición.
 - Exportación a Serato crate y worklists para completar metadata.
+- **Internacionalización completa (i18n) en inglés y español** con cambio de idioma en tiempo de ejecución.
+- **Columna de duración** leída desde los headers de los archivos de audio.
+- **Ícono personalizado** para dock de macOS y bundles PyInstaller.
 - Manual desktop QA obligatorio antes de cualquier claim de release.
 
 Para conceptos de harmonic scoring, movimientos Camelot, intención de estrategias y no-objetivos actuales, ver [HARMONIC_MIXING.md](HARMONIC_MIXING.md).
@@ -596,6 +667,7 @@ Campos importantes:
 - Nivel de energía
 - Género
 - Tags / subgénero / mood / metadata tipo DJ zone
+- **Duración** (leída automáticamente desde los headers del archivo)
 
 XfinAudio no detecta BPM ni key desde la forma de onda. Lee metadata que ya existe.
 
@@ -629,11 +701,13 @@ La app carga la biblioteca guardada al iniciar. Si existe una carpeta escaneada 
 La navegación incluye:
 
 - Búsqueda por canción.
-- Ordenamiento por columnas.
+- Ordenamiento por columnas (doble-click en header).
+- Reordenamiento de columnas (drag en header).
 - Filtro por estado completo/incompleto.
 - Filtro por campo faltante: BPM, Key y Energy.
 - Columna visible de Missing.
 - Columnas de Genre y Tags/Subgenre.
+- **Columna de Duration** (formateada como `M:SS`).
 - Selección segura por path aunque haya sorting/filtering.
 
 ### 4. Seleccionar una o varias canciones ancla
@@ -729,6 +803,7 @@ Lee:
 - Energy desde campos tipo Mixed In Key, grouping, publisher/comment o fallback en el título.
 - Genre desde tags estándar.
 - Tags desde genre, mood, subgenre, DJ zone y genre category.
+- **Duración desde headers de audio** (`info.length` de mutagen), formateada como `M:SS`.
 
 ### Contrato de parsing Mixed In Key
 
@@ -741,6 +816,7 @@ TrackRecord
 ├── bpm
 ├── camelot_key
 ├── energy_level
+├── duration
 ├── genre
 ├── tags
 ├── metadata_status
@@ -749,7 +825,7 @@ TrackRecord
 └── raw_metadata
 ```
 
-Un track es completo solamente cuando tiene BPM, Camelot key y energy.
+Un track es completo solamente cuando tiene BPM, Camelot key y energy. La duración se muestra pero no es requerida para completitud.
 
 ### Scoring determinístico por transición
 
@@ -822,8 +898,18 @@ La app guarda preferencias como:
 
 - Carpeta segura de exportación.
 - Última carpeta escaneada.
+- **Idioma de UI** (Auto / English / Español).
 
 Guardar la última carpeta escaneada convierte el siguiente scan en un refresh real.
+
+### Internacionalización (i18n)
+
+XfinAudio usa el sistema `QTranslator` de Qt para traducción completa en tiempo de ejecución:
+
+- Todas las cadenas de UI están marcadas con `self.tr()` / `QCoreApplication.translate()`.
+- El idioma fuente es inglés; las traducciones al español se distribuyen como archivos `.qm` compilados.
+- El idioma se puede cambiar en **Ajustes → Idioma** (requiere reiniciar la app).
+- Flujo de traducción: marcar cadenas → ejecutar `scripts/update_translations.py` → editar fuente `.ts` o ejecutar `scripts/fill_spanish_translations.py` → archivos `.qm` compilados automáticamente.
 
 ### Generación de Serato crates
 
@@ -862,8 +948,9 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 - Filtrar por estado de metadata.
 - Filtrar por campo obligatorio faltante.
 - Buscar por título de canción.
-- Ordenar columnas.
-- Mostrar title, artist, BPM, key, energy, missing fields, genre, tags/subgenre, status y path.
+- Ordenar columnas (doble-click en header).
+- Reordenar columnas (drag en header).
+- Mostrar title, artist, BPM, key, energy, **duration**, missing fields, genre, tags/subgenre, status y path.
 
 ### Flujo de recomendación
 
@@ -914,6 +1001,13 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 - Muestra historial de exportaciones dentro de la app.
 - Evita sobrescribir crates generados mediante timestamp y sufijo único.
 
+### Ajustes y localización
+
+- **Diálogo de Ajustes** con selector de idioma (Auto / English / Español).
+- **Carpeta segura de exportación** configurable.
+- **Información de biblioteca** mostrando carpeta escaneada y conteos de tracks.
+- El cambio de idioma requiere reiniciar la app y muestra el prompt correspondiente.
+
 ### Seguridad y release
 
 - Scan de audio read-only.
@@ -960,9 +1054,10 @@ Los crates de worklist de metadata también se agrupan por propósito y timestam
 
 ## Estado del proyecto
 
+- **Autor y mantenedor:** [Freddy Molina](https://github.com/FmBlueSystem) — [BlueSystem.io](https://bluesystem.io), División de Audio.
 - Licencia: open source bajo GPL-3.0-only. Ver `LICENSE` y `docs/open-source-license.md`.
 - Modelo de distribución: XfinAudio se distribuye como paquete Python instalable (source/wheel). El usuario instala con `pip`, `pipx` o `uv tool`; el resolver descarga PySide6 y mutagen desde PyPI bajo sus propias licencias.
-- Packaging: no se distribuye `.app`/DMG firmado para macOS. Un bundle binario autocontenido requiere Developer ID signing, notarization y revisión legal separada para redistribución binaria; eso está fuera del alcance actual.
+- **Bundle .app para macOS**: Se incluye un spec de PyInstaller bajo `packaging/pyinstaller/` para construir un bundle `.app` local. Es útil para uso personal o builds de CI, pero la distribución firmada/notarizada requiere Apple Developer ID y revisión legal separada.
 - Plataforma: validado en macOS con Python 3.11. Las dependencias son cross-platform, pero Linux y Windows todavía no están validados.
 - Checklist de publicación: seguir `docs/repository-publication-checklist.md` antes de convertir un árbol local en repo público.
 
@@ -970,11 +1065,11 @@ Los crates de worklist de metadata también se agrupan por propósito y timestam
 
 XfinAudio es intencionalmente no destructivo:
 
-- It does not mutate audio files.
+- No modifica archivos de audio.
 - No renderiza, mezcla, time-stretchea, pitch-shiftea ni analiza waveforms.
 - No hace key detection, BPM detection, beat tracking ni cue/phrase detection.
-- It does not mutate live Serato database V2 files.
-- La app solo escribe en su app-owned database, settings, and export files.
+- No modifica live Serato database V2 files.
+- La app solo escribe en su base, settings y archivos de export propios.
 - Los Serato crate writes pasan únicamente por el explicit safe export/backup/validation flow documentado.
 
 No-objetivos:
@@ -992,7 +1087,7 @@ XfinAudio se distribuye como paquete Python, no como binario firmado. Se puede i
 
 ```bash
 uv tool install git+https://github.com/FmBlueSystem/XfinAudio.git
-# or
+# o
 pipx install git+https://github.com/FmBlueSystem/XfinAudio.git
 ```
 
@@ -1001,6 +1096,25 @@ Luego lanzar la app:
 ```bash
 xfinaudio
 ```
+
+### Construir un bundle .app para macOS (opcional)
+
+Para uso personal o pruebas, puedes construir un bundle `.app` local con PyInstaller:
+
+```bash
+uv run python -m PyInstaller packaging/pyinstaller/xfinaudio.spec \
+  --clean --noconfirm \
+  --distpath packaging/pyinstaller/dist \
+  --workpath packaging/pyinstaller/build
+```
+
+El resultado en `packaging/pyinstaller/dist/XfinAudio.app` se puede lanzar con:
+
+```bash
+open packaging/pyinstaller/dist/XfinAudio.app
+```
+
+> **Nota:** Los bundles `.app` no firmados pueden mostrar una advertencia de seguridad al primer lanzamiento. Ve a **Ajustes del Sistema → Privacidad y Seguridad** y haz click en **Abrir de todas formas**.
 
 Publicar el paquete en PyPI para permitir `pipx install xfinaudio` es un paso posterior opcional que requiere cuenta y API token de PyPI; no requiere cambios de código.
 
@@ -1021,6 +1135,13 @@ Lanzar la app local para QA manual:
 uv run xfinaudio
 ```
 
+Actualizar traducciones después de agregar nuevas cadenas traducibles:
+
+```bash
+uv run python scripts/update_translations.py
+uv run python scripts/fill_spanish_translations.py
+```
+
 ## Compuertas de release
 
 Antes de afirmar cualquier release, ejecutar gates automáticos y registrar gates manuales según `docs/release-readiness-smoke.md`:
@@ -1030,7 +1151,18 @@ uv run python scripts/release_gate_check.py --run
 uv run python scripts/smoke_release_readiness.py
 ```
 
-Manual desktop QA sigue siendo obligatorio para flujos reales de usuario. La redistribución como `.app`/DMG firmado para macOS está fuera del modelo actual; GPLv3 y cumplimiento de licencias de dependencias para distribución de paquete todavía requieren revisión legal.
+Manual desktop QA sigue siendo obligatorio para flujos reales de usuario. La redistribución como `.app`/DMG firmado para macOS requiere Apple Developer ID, notarization y revisión legal separada.
+
+## Marcas registradas
+
+XfinAudio es un proyecto independiente y no está afiliado, respaldado ni patrocinado por ninguna empresa de terceros cuyos productos o marcas se mencionan.
+
+- **Mixed In Key** es una marca de Mixed In Key LLC.
+- **Serato**, **Serato DJ Pro** y marcas relacionadas son marcas comerciales o marcas registradas de Serato Limited.
+- **Camelot**, **Camelot Wheel** y **Camelot System** son marcas de Mixed In Key LLC.
+- **Open Key Notation** es un estándar abierto.
+
+Todas las demás marcas comerciales, nombres comerciales y logotipos mencionados son propiedad de sus respectivos dueños.
 
 ## Licencia y dependencias
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from PySide6.QtCore import QCoreApplication
+
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.library.models import TrackRecord
 
@@ -24,6 +26,7 @@ class TrackDisplayRow:
     bpm: str  # "128" or "—"
     musical_key: str  # "8A" or "—"
     energy: str  # "7" or "—"
+    duration: str  # "3:42" or "—"
     missing_fields: str  # comma-separated or "—"
     genre: str  # value or "—"
     metadata_status: str  # "complete" | "incomplete"
@@ -55,6 +58,14 @@ def _fmt_energy(energy: int | None) -> str:
     return str(int(energy))
 
 
+def _fmt_duration(seconds: float | None) -> str:
+    if seconds is None or seconds <= 0:
+        return _DASH
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    return f"{minutes}:{secs:02d}"
+
+
 def _fmt_missing(fields: list[str]) -> str:
     if not fields:
         return _DASH
@@ -82,6 +93,7 @@ def _to_display_row(track: TrackRecord) -> TrackDisplayRow:
         bpm=_fmt_bpm(track.bpm),
         musical_key=_fmt_key(track.camelot_key),
         energy=_fmt_energy(track.energy_level),
+        duration=_fmt_duration(track.duration),
         missing_fields=_fmt_missing(track.missing_required_fields),
         genre=_fmt_genre(track.genre),
         metadata_status=track.metadata_status,
@@ -140,20 +152,29 @@ class LibraryViewModel:
         if state.is_scanning:
             count = state.scan_progress_count
             if count > 0:
-                return f"Scanning… {count:,} tracks"
-            return "Scanning…"
+                return QCoreApplication.translate("LibraryViewModel", "Scanning… {0:,} tracks").format(count)
+            return QCoreApplication.translate("LibraryViewModel", "Scanning…")
 
         tracks = state.scanned_records
         if tracks:
             total = len(tracks)
             complete = sum(1 for t in tracks if t.metadata_status == "complete")
-            folder_name = state.selected_folder.name if state.selected_folder else "saved library"
-            return f"{total} tracks · {complete}/{total} complete · {folder_name}"
+            folder_name = (
+                state.selected_folder.name
+                if state.selected_folder
+                else QCoreApplication.translate("LibraryViewModel", "saved library")
+            )
+            return QCoreApplication.translate(
+                "LibraryViewModel",
+                "{0} tracks · {1}/{0} complete · {2}",
+            ).format(total, complete, folder_name)
 
         if state.selected_folder is None:
-            return "Choose a folder to begin"
+            return QCoreApplication.translate("LibraryViewModel", "Choose a folder to begin")
 
-        return f"Ready to scan · {state.selected_folder.name}"
+        return QCoreApplication.translate("LibraryViewModel", "Ready to scan · {0}").format(
+            state.selected_folder.name
+        )
 
     def can_proceed(self, state: AppState) -> bool:
         """True when at least one track has been scanned."""
@@ -164,4 +185,6 @@ class LibraryViewModel:
         count = len(selected_paths)
         if count == 0:
             return ""
-        return f"{count} track{'s' if count != 1 else ''} selected"
+        if count == 1:
+            return QCoreApplication.translate("LibraryViewModel", "{0} track selected").format(count)
+        return QCoreApplication.translate("LibraryViewModel", "{0} tracks selected").format(count)

@@ -110,6 +110,12 @@ def test_desktop_main_exits_before_event_loop_in_package_smoke_mode(
         def __init__(self, argv: list[str]) -> None:
             events.append("app")
 
+        def setApplicationName(self, name: str) -> None:
+            pass
+
+        def setApplicationDisplayName(self, name: str) -> None:
+            pass
+
         def exec(self) -> int:
             events.append("exec")
             return 1
@@ -134,7 +140,7 @@ def test_desktop_main_exits_before_event_loop_in_package_smoke_mode(
     monkeypatch.setattr(desktop_app.MainWindow, "with_defaults", fake_with_defaults)
 
     assert desktop_app.main() == 0
-    assert events == ["app", f"with_defaults:{db_path}:{settings_path}", "resize:1000x600"]
+    assert events == ["app", f"with_defaults:{db_path}:{settings_path}"]
 
 
 def test_validate_launch_requires_temp_build() -> None:

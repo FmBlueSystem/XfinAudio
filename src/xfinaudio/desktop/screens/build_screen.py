@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -56,38 +57,44 @@ class BuildScreen(QWidget):
         # Strategy row
         strategy_row = QHBoxLayout()
         self.strategy_combo = QComboBox()
-        self.recommend_button = QPushButton("Recommend Playlist")
+        self.recommend_button = QPushButton(self.tr("Recommend Playlist"))
         self.recommend_button.setEnabled(False)
         strategy_row.addWidget(self.strategy_combo)
         strategy_row.addWidget(self.recommend_button)
         strategy_row.addStretch()
         layout.addLayout(strategy_row)
 
+        # Guidance labels — keep compact so the table gets vertical space.
         self.anchor_label = QLabel()
         self.anchor_label.setWordWrap(True)
+        self.anchor_label.setMaximumHeight(40)
         layout.addWidget(self.anchor_label)
 
         self.strategy_explanation_label = QLabel()
         self.strategy_explanation_label.setWordWrap(True)
+        self.strategy_explanation_label.setMaximumHeight(36)
         layout.addWidget(self.strategy_explanation_label)
 
         self.recommendation_vs_copilot_label = QLabel()
         self.recommendation_vs_copilot_label.setWordWrap(True)
+        self.recommendation_vs_copilot_label.setMaximumHeight(36)
         layout.addWidget(self.recommendation_vs_copilot_label)
 
         self.constraint_explanation_label = QLabel()
         self.constraint_explanation_label.setWordWrap(True)
+        self.constraint_explanation_label.setMaximumHeight(36)
         layout.addWidget(self.constraint_explanation_label)
 
         self.recommendation_summary_label = QLabel()
         self.recommendation_summary_label.setWordWrap(True)
+        self.recommendation_summary_label.setMaximumHeight(36)
         layout.addWidget(self.recommendation_summary_label)
 
         # Constraints row
         constraints_row = QHBoxLayout()
-        self.exclude_button = QPushButton("Exclude Selected")
-        self.lock_button = QPushButton("Lock Selected")
-        self.clear_constraints_button = QPushButton("Clear Constraints")
+        self.exclude_button = QPushButton(self.tr("Exclude Selected"))
+        self.lock_button = QPushButton(self.tr("Lock Selected"))
+        self.clear_constraints_button = QPushButton(self.tr("Clear Constraints"))
         self.clear_constraints_button.setEnabled(False)
         self.constraints_label = QLabel("")
         constraints_row.addWidget(self.exclude_button)
@@ -103,10 +110,10 @@ class BuildScreen(QWidget):
         self.target_count_input.setRange(2, 100)
         self.target_count_input.setValue(25)
         self.genre_focus_input = QLineEdit()
-        self.genre_focus_input.setPlaceholderText("Genre focus")
-        self.copilot_button = QPushButton("Generate Prep Copilot")
+        self.genre_focus_input.setPlaceholderText(self.tr("Genre focus"))
+        self.copilot_button = QPushButton(self.tr("Generate Prep Copilot"))
         self.variant_label = QLabel()
-        copilot_row.addWidget(QLabel("Set Tracks"))
+        copilot_row.addWidget(QLabel(self.tr("Set Tracks")))
         copilot_row.addWidget(self.target_count_input)
         copilot_row.addWidget(self.genre_focus_input)
         copilot_row.addWidget(self.copilot_button)
@@ -114,28 +121,32 @@ class BuildScreen(QWidget):
         copilot_row.addStretch()
         layout.addLayout(copilot_row)
 
-        # Copilot variants table
+        # Copilot variants table — expanding so it absorbs spare vertical space.
         self.copilot_table = QTableWidget(0, len(_COPILOT_COLUMNS))
-        self.copilot_table.setHorizontalHeaderLabels(_COPILOT_COLUMNS)
+        self.copilot_table.setHorizontalHeaderLabels([self.tr(c) for c in _COPILOT_COLUMNS])
         self.copilot_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.copilot_table.setAlternatingRowColors(True)
         self.copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        layout.addWidget(self.copilot_table)
+        self.copilot_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.copilot_table, 1)
 
         # Applied variant badge (set imperatively by main_window)
-        self.applied_copilot_variant_label = QLabel("Applied Variant: none")
-        self.applied_copilot_variant_label.setToolTip("No Prep Copilot variant is currently applied.")
+        self.applied_copilot_variant_label = QLabel(self.tr("Applied Variant: none"))
+        self.applied_copilot_variant_label.setToolTip(self.tr("No Prep Copilot variant is currently applied."))
         layout.addWidget(self.applied_copilot_variant_label)
 
         # Apply variant button
-        self.apply_variant_button = QPushButton("Apply Selected Variant")
+        self.apply_variant_button = QPushButton(self.tr("Apply Selected Variant"))
         layout.addWidget(self.apply_variant_button)
+
+        # Push nav to bottom; spare space goes to the copilot table.
+        layout.addStretch(1)
 
         # Bottom navigation
         nav = QHBoxLayout()
-        self.back_button = QPushButton("← Library")
-        self.proceed_button = QPushButton("Review →")
+        self.back_button = QPushButton(self.tr("← Library"))
+        self.proceed_button = QPushButton(self.tr("Review →"))
         nav.addWidget(self.back_button)
         nav.addStretch()
         nav.addWidget(self.proceed_button)
@@ -172,7 +183,7 @@ class BuildScreen(QWidget):
         self.applied_copilot_variant_label.setHidden(state.applied_variant_name is None)
 
         anchor = vm.anchor_summary(state)
-        self.anchor_label.setText(f"Anchor: {anchor}" if anchor else "Select a track in the Library to set the anchor.")
+        self.anchor_label.setText(self.tr("Anchor: {0}").format(anchor) if anchor else self.tr("Select a track in the Library to set the anchor."))
         self.anchor_label.setVisible(bool(state.scanned_records))
 
         current_strategy = self.strategy_combo.currentData() or self.strategy_combo.currentText()
@@ -189,9 +200,9 @@ class BuildScreen(QWidget):
         locked = len(state.locked_paths)
         parts = []
         if excluded:
-            parts.append(f"{excluded} excluded")
+            parts.append(self.tr("{0} excluded").format(excluded))
         if locked:
-            parts.append(f"{locked} locked")
+            parts.append(self.tr("{0} locked").format(locked))
         self.constraints_label.setText(", ".join(parts) if parts else "")
         self.clear_constraints_button.setEnabled(bool(excluded or locked))
 
@@ -201,7 +212,7 @@ class BuildScreen(QWidget):
             row = self.copilot_table.rowCount()
             self.copilot_table.insertRow(row)
             status = row_data.readiness_status
-            readiness_label = _READINESS_STATUS_LABELS.get(status, status)
+            readiness_label = self.tr(_READINESS_STATUS_LABELS.get(status, status))
             values = [
                 row_data.name,
                 row_data.description,

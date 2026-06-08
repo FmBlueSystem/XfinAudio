@@ -1,4 +1,4 @@
-"""Modal settings dialog for XfinAudio export and library preferences."""
+"""Modal settings dialog for XfinAudio export, library, and UI preferences."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -17,11 +18,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from xfinaudio.config.settings import AppSettings, ExportSettings
+from xfinaudio.config.settings import AppSettings, ExportSettings, UiSettings
 
 
 class SettingsDialog(QDialog):
-    """Modal settings dialog for export and library preferences."""
+    """Modal settings dialog for export, library, and UI preferences."""
 
     settings_changed = Signal(AppSettings)
 
@@ -29,7 +30,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self._settings = settings.model_copy()
         self._pending_safe_export_folder: Path | None = settings.export.safe_export_folder
-        self.setWindowTitle("Settings")
+        self.setWindowTitle(self.tr("Settings"))
         self.setModal(True)
         self._build_ui()
 
@@ -41,24 +42,39 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
 
+        # UI Language group
+        language_group = QGroupBox(self.tr("UI Language"))
+        language_layout = QHBoxLayout(language_group)
+        language_layout.addWidget(QLabel(self.tr("Language:")))
+        self._language_combo = QComboBox()
+        self._language_combo.addItem(self.tr("Auto (system default)"), "")
+        self._language_combo.addItem("English", "en")
+        self._language_combo.addItem("Español", "es")
+        current_lang = self._settings.ui.language
+        index = self._language_combo.findData(current_lang)
+        if index >= 0:
+            self._language_combo.setCurrentIndex(index)
+        language_layout.addWidget(self._language_combo, 1)
+        layout.addWidget(language_group)
+
         # Export Settings group
-        export_group = QGroupBox("Export Settings")
+        export_group = QGroupBox(self.tr("Export Settings"))
         export_layout = QHBoxLayout(export_group)
-        export_layout.addWidget(QLabel("Safe export folder:"))
+        export_layout.addWidget(QLabel(self.tr("Safe export folder:")))
         self._safe_export_folder_label = QLabel(self._format_folder_label(self._pending_safe_export_folder))
         self._safe_export_folder_label.setMinimumWidth(220)
         export_layout.addWidget(self._safe_export_folder_label, 1)
-        choose_button = QPushButton("Choose…")
+        choose_button = QPushButton(self.tr("Choose…"))
         choose_button.clicked.connect(self._choose_safe_export_folder)
         export_layout.addWidget(choose_button)
         layout.addWidget(export_group)
 
         # Library Settings group (informational)
-        library_group = QGroupBox("Library Settings")
+        library_group = QGroupBox(self.tr("Library Settings"))
         library_layout = QHBoxLayout(library_group)
-        library_layout.addWidget(QLabel("Last scan folder:"))
+        library_layout.addWidget(QLabel(self.tr("Last scan folder:")))
         last_scan = self._settings.library.last_scan_folder
-        self._last_scan_folder_label = QLabel(str(last_scan) if last_scan is not None else "None")
+        self._last_scan_folder_label = QLabel(str(last_scan) if last_scan is not None else self.tr("None"))
         self._last_scan_folder_label.setEnabled(False)
         library_layout.addWidget(self._last_scan_folder_label, 1)
         layout.addWidget(library_group)
@@ -74,7 +90,7 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _choose_safe_export_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Choose safe export folder")
+        folder = QFileDialog.getExistingDirectory(self, self.tr("Choose safe export folder"))
         if folder:
             self._pending_safe_export_folder = Path(folder)
             self._safe_export_folder_label.setText(self._format_folder_label(self._pending_safe_export_folder))
@@ -84,8 +100,12 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------------------
 
     def accept(self) -> None:
+        selected_lang = self._language_combo.currentData()
         new_settings = self._settings.model_copy(
-            update={"export": ExportSettings(safe_export_folder=self._pending_safe_export_folder)}
+            update={
+                "export": ExportSettings(safe_export_folder=self._pending_safe_export_folder),
+                "ui": UiSettings(language=selected_lang),
+            }
         )
         self.settings_changed.emit(new_settings)
         super().accept()

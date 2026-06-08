@@ -108,6 +108,7 @@ def scan_folder(
         if raw_metadata is None:
             _emit_progress(on_progress, processed_index, total_count, path)
             continue
+        duration = raw_metadata.pop("__duration__", None) if raw_metadata else None
         metadata = parse_mixedinkey_tags(raw_metadata)
         records.append(
             TrackRecord(
@@ -117,6 +118,7 @@ def scan_folder(
                 bpm=metadata.bpm,
                 camelot_key=metadata.camelot_key,
                 energy_level=metadata.energy_level,
+                duration=duration,
                 genre=metadata.genre,
                 tags=metadata.tags,
                 metadata_status="complete" if metadata.is_complete else "incomplete",
@@ -148,11 +150,14 @@ def _emit_progress(
 
 
 def read_mutagen_tags(path: Path) -> dict[str, Any] | None:
-    """Read tags from an audio file with mutagen without saving or modifying it."""
+    """Read tags and duration from an audio file with mutagen without saving or modifying it."""
     audio = MutagenFile(path, easy=False)
     if audio is None or audio.tags is None:
         return None
-    return {str(key): _coerce_tag_value(value) for key, value in audio.tags.items()}
+    tags = {str(key): _coerce_tag_value(value) for key, value in audio.tags.items()}
+    if audio.info is not None and hasattr(audio.info, "length"):
+        tags["__duration__"] = audio.info.length
+    return tags
 
 
 def _recursive_paths(folder: Path) -> Iterable[Path]:

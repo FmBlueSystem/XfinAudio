@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
@@ -134,6 +135,76 @@ def populate_dj_readiness_table(
             table.setItem(row_index, column_index, item)
 
 
+def _score_color_and_tooltip(
+    column_index: int,
+    raw_score: float | None,
+    transition: Any,
+) -> tuple[QColor | None, QColor | None, str]:
+    """Return (background_color, foreground_color, tooltip) for a score cell."""
+    if raw_score is None:
+        return None, None, ""
+
+    if raw_score >= 0.9:
+        bg = QColor("#1a3a2a")
+        fg = QColor("#1fd16a")
+    elif raw_score >= 0.7:
+        bg = QColor("#3a3010")
+        fg = QColor("#ffb000")
+    else:
+        bg = QColor("#4a1a1a")
+        fg = QColor("#ff4d4f")
+
+    tips: list[str] = []
+    if column_index == 3:  # Key Score
+        if raw_score >= 0.95:
+            tips.append(QCoreApplication.translate("TablePopulators", "Same Camelot key — perfectly compatible"))
+        elif raw_score >= 0.88:
+            tips.append(QCoreApplication.translate("TablePopulators", "Adjacent or diagonal number — harmonically compatible"))
+        elif raw_score >= 0.82:
+            tips.append(QCoreApplication.translate("TablePopulators", "Relative major/minor (A↔B same number) — compatible"))
+        elif raw_score >= 0.75:
+            tips.append(QCoreApplication.translate("TablePopulators", "DJ boost rule — marked as compatible"))
+        else:
+            tips.append(QCoreApplication.translate("TablePopulators", "Low harmonic compatibility — may clash"))
+        for exp in transition.explanations:
+            lower = exp.lower()
+            if "harmonic" in lower or "key" in lower or "pitch" in lower or "shift" in lower:
+                tips.append(exp)
+    elif column_index == 4:  # BPM Score
+        if raw_score >= 0.95:
+            tips.append(QCoreApplication.translate("TablePopulators", "BPMs are nearly identical"))
+        elif raw_score >= 0.7:
+            tips.append(QCoreApplication.translate("TablePopulators", "BPM difference is moderate"))
+        else:
+            tips.append(QCoreApplication.translate("TablePopulators", "Large BPM gap — mix carefully"))
+        for exp in transition.explanations:
+            if "bpm" in exp.lower():
+                tips.append(exp)
+    elif column_index == 5:  # Energy Score
+        if raw_score >= 0.95:
+            tips.append(QCoreApplication.translate("TablePopulators", "Same energy level"))
+        elif raw_score >= 0.7:
+            tips.append(QCoreApplication.translate("TablePopulators", "Slight energy difference"))
+        else:
+            tips.append(QCoreApplication.translate("TablePopulators", "Energy jump — may feel abrupt"))
+        for exp in transition.explanations:
+            if "energy" in exp.lower():
+                tips.append(exp)
+    elif column_index == 6:  # Tag Score
+        if raw_score >= 0.7:
+            tips.append(QCoreApplication.translate("TablePopulators", "Tracks share many tags/genres"))
+        elif raw_score >= 0.4:
+            tips.append(QCoreApplication.translate("TablePopulators", "Some tag/genre overlap"))
+        else:
+            tips.append(QCoreApplication.translate("TablePopulators", "Different genres/tags — musical contrast"))
+    elif column_index == 7:  # Final Score
+        tips.append(QCoreApplication.translate("TablePopulators", "Weighted average of all components"))
+        tips.append(QCoreApplication.translate("TablePopulators", "60% Key + 20% BPM + 15% Energy + 5% Tags"))
+        tips.extend(transition.explanations)
+
+    return bg, fg, "\n".join(tips)
+
+
 def populate_transition_review_table(
     table: QTableWidget,
     explanation: PlaylistExplanation,
@@ -147,35 +218,54 @@ def populate_transition_review_table(
 ) -> None:
     """Populate the transition review table with component scores and warnings."""
     table.setRowCount(len(explanation.transitions))
+    _SCORE_COLUMNS = {3, 4, 5, 6, 7}
     for row_index, transition in enumerate(explanation.transitions):
+        raw_scores = [
+            None,
+            None,
+            None,
+            component_score(transition, "key_score", "harmonic"),
+            component_score(transition, "bpm_score", "bpm"),
+            component_score(transition, "energy_score", "energy"),
+            component_score(transition, "tag_score", "tags"),
+            transition.final_score,
+            None,
+        ]
         values = [
             str(transition.order),
             track_review_name(transition.left),
             track_review_name(transition.right),
-            format_review_score(component_score(transition, "key_score", "harmonic")),
-            format_review_score(component_score(transition, "bpm_score", "bpm")),
-            format_review_score(component_score(transition, "energy_score", "energy")),
-            format_review_score(component_score(transition, "tag_score", "tags")),
-            format_review_score(transition.final_score),
+            format_review_score(raw_scores[3]),
+            format_review_score(raw_scores[4]),
+            format_review_score(raw_scores[5]),
+            format_review_score(raw_scores[6]),
+            format_review_score(raw_scores[7]),
             "; ".join(format_warning(warning) for warning in transition.warnings),
         ]
         sort_values: list[object] = [
             transition.order,
             values[1].casefold(),
             values[2].casefold(),
-            score_sort_value(component_score(transition, "key_score", "harmonic")),
-            score_sort_value(component_score(transition, "bpm_score", "bpm")),
-            score_sort_value(component_score(transition, "energy_score", "energy")),
-            score_sort_value(component_score(transition, "tag_score", "tags")),
-            score_sort_value(transition.final_score),
+            score_sort_value(raw_scores[3]),
+            score_sort_value(raw_scores[4]),
+            score_sort_value(raw_scores[5]),
+            score_sort_value(raw_scores[6]),
+            score_sort_value(raw_scores[7]),
             values[8].casefold(),
         ]
         for column_index, value in enumerate(values):
-            table.setItem(
-                row_index,
-                column_index,
-                item_factory(value, sort_values[column_index]),
-            )
+            item = item_factory(value, sort_values[column_index])
+            if column_index in _SCORE_COLUMNS and raw_scores[column_index] is not None:
+                bg, fg, tip = _score_color_and_tooltip(column_index, raw_scores[column_index], transition)
+                if bg is not None:
+                    item.setBackground(bg)
+                if fg is not None:
+                    item.setForeground(fg)
+                if tip:
+                    item.setToolTip(tip)
+            if column_index == 8 and transition.warnings:
+                item.setToolTip("\n".join(format_warning(w) for w in transition.warnings))
+            table.setItem(row_index, column_index, item)
 
 
 def populate_prep_copilot_table(
