@@ -1,0 +1,25 @@
+schema: gentle-ai.sdd-state.v1
+change: performance-bottleneck-fixes
+artifact_store: openspec
+status: verify-complete
+created: 2026-06-08
+updated: 2026-06-14
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: delivery
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: single-pr
+  review_budget_changed_lines: 400
+notes:
+  - Seven targeted performance and quality fixes across recommendation engine and desktop UI.
+  - Session-scoped transition score cache eliminates redundant scoring CPU.
+  - Debounced search filter, lazy tab rendering, and thread guards improve UI responsiveness.
