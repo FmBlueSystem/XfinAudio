@@ -37,6 +37,12 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked
 
+      - name: Run type checker
+        run: uv run pyright src tests
+
+      - name: Run tests with coverage
+        run: uv run pytest --cov --cov-fail-under=70 -q
+
       - name: Prepare release evidence directory
         run: mkdir -p .release-evidence
 

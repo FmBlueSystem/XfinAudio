@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
 
@@ -24,14 +26,14 @@ class SortAwareTestItem(QTableWidgetItem):
 
     def __lt__(self, other: QTableWidgetItem) -> bool:
         other_value = getattr(other, "sort_value", other.text().casefold())
-        return self.sort_value < other_value
+        return cast(Any, self.sort_value) < cast(Any, other_value)
 
 
 def ensure_app() -> QApplication:
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
-    return app
+    return cast(QApplication, app)
 
 
 def item_factory(display_value: str, sort_value: object | None = None) -> QTableWidgetItem:

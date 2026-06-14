@@ -144,7 +144,9 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
     assert window.library_guidance_label.text() == "Choose a folder to scan metadata."
     assert window.recommendation_guidance_label.text() == "Scan metadata before recommending a playlist."
     assert window._export_screen.export_guidance_label.text() == (
-        "Review recommendations before exporting; desktop export setup is intentionally out of scope."
+        "Review recommendations before exporting. "
+        "Live Serato writes are not part of the verified release candidate; "
+        "back up your library and verify any manual copy."
     )
     assert window.status_label.text() == "Ready"
     assert window._export_screen.safe_export_folder_label.text() == "No safe export folder selected"

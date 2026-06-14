@@ -25,7 +25,13 @@ dependencies = [
 xfinaudio = "xfinaudio.desktop.app:main"
 
 [dependency-groups]
-dev = ["pyinstaller==6.20.0", "pytest>=8.0", "ruff>=0.11"]
+dev = [
+    "pyinstaller==6.20.0",
+    "pyright>=1.1.410",
+    "pytest>=8.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.11",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -34,6 +40,30 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+include = ["src", "tests"]
+exclude = [".venv", "build", "dist", "node_modules", ".ruff_cache", ".pytest_cache"]
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+reportUnknownParameterType = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportPrivateImportUsage = false
+reportOptionalMemberAccess = false
+reportCallIssue = false
+reportAttributeAccessIssue = false
+
+[tool.coverage.run]
+source = ["src/xfinaudio"]
+branch = false
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_empty = true
+omit = ["*/tests/*"]
 
 [tool.ruff]
 target-version = "py311"

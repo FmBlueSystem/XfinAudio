@@ -27,8 +27,14 @@ class CommandGate(NamedTuple):
 
 NON_AUDIO_COMMAND_GATES = [
     CommandGate("tests", ["uv", "run", "pytest", "-q"]),
+    CommandGate("type-check", ["uv", "run", "pyright", "src", "tests"]),
+    CommandGate("coverage", ["uv", "run", "pytest", "--cov", "--cov-fail-under=70", "-q"]),
     CommandGate("lint", ["uv", "run", "ruff", "check", "."]),
     CommandGate("format", ["uv", "run", "ruff", "format", "--check", "."]),
+    CommandGate(
+        "release readiness smoke",
+        ["uv", "run", "python", "scripts/smoke_release_readiness.py"],
+    ),
     CommandGate(
         "open-source publication docs",
         [
@@ -70,9 +76,24 @@ PACKAGING_BUILD_GATE = CommandGate(
 MANUAL_GATE_NAMES = [
     "real Mixed In Key audio QA",
 ]
-MANUAL_GATES = [f"{gate}: PENDING MANUAL" for gate in MANUAL_GATE_NAMES]
+MIK_QA_EVIDENCE_PATH = PROJECT_ROOT / "docs" / "qa-manual-mik-evidence.md"
+MIK_QA_COMPLETED_MARKER = "<!-- MIK-QA-STATUS: completed -->"
+
+
+def _mik_qa_evidence_status() -> str:
+    """Return 'completed' if the manual MIK QA evidence file is marked complete."""
+    if not MIK_QA_EVIDENCE_PATH.exists():
+        return "pending_manual"
+    content = MIK_QA_EVIDENCE_PATH.read_text(encoding="utf-8")
+    return "completed" if MIK_QA_COMPLETED_MARKER in content else "pending_manual"
+
+
+MANUAL_GATES = [
+    f"{gate}: {'COMPLETED' if _mik_qa_evidence_status() == 'completed' else 'PENDING MANUAL'}"
+    for gate in MANUAL_GATE_NAMES
+]
 LIMITATIONS = [
-    "Does not prove real Mixed In Key audio QA",
+    "Automated tests and fixtures do not prove real Mixed In Key audio QA; see docs/qa-manual-mik-evidence.md.",
 ]
 
 
@@ -105,8 +126,8 @@ def gate_evidence(
 
 
 def manual_gate_evidence() -> list[dict[str, str]]:
-    """Build pending manual release gate evidence."""
-    return [{"name": gate_name, "status": "pending_manual"} for gate_name in MANUAL_GATE_NAMES]
+    """Build manual release gate evidence with current status."""
+    return [{"name": gate_name, "status": _mik_qa_evidence_status()} for gate_name in MANUAL_GATE_NAMES]
 
 
 def build_report(mode: str, gates: list[dict[str, Any]], overall_status: str) -> dict[str, Any]:

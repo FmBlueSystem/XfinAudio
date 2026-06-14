@@ -26,7 +26,7 @@ uv run python scripts/release_gate_check.py --include-packaging-build
 
 The CI workflow exposes that heavy temp packaging build only as the manual `include_packaging_build` dispatch input, with a default of `false`. Pull request and push runs stay on the non-heavy `--run --report-json` gate.
 
-The runner covers every automated gate that does not require audio files. It runs or documents tests, lint, format, open-source publication docs, publication artifact hygiene, source package hygiene, PyInstaller check-only metadata, root artifact hygiene, and optional PyInstaller temp build + launch/warning triage without creating project-root `build/` or `dist/` artifacts.
+The runner covers every automated gate that does not require audio files. It runs or documents tests, lint, format, release readiness smoke, open-source publication docs, publication artifact hygiene, source package hygiene, PyInstaller check-only metadata, root artifact hygiene, and optional PyInstaller temp build + launch/warning triage without creating project-root `build/` or `dist/` artifacts.
 
 XfinAudio source is full open source under GPL-3.0-only and is distributed as a Python package. Redistribution must comply with GPLv3 and third-party dependency obligations. Signed macOS `.app`/DMG redistribution is out of scope; GPLv3 and dependency-license compliance for package distribution still warrant legal review. No legal clearance is implied by this runbook.
 
@@ -40,6 +40,7 @@ Individual automated gate commands used by the runner are:
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
+uv run python scripts/smoke_release_readiness.py
 uv run pytest -q tests/test_open_source_license_docs.py tests/test_public_open_source_docs.py tests/test_github_community_templates.py tests/test_repository_publication_checklist.py tests/test_harmonic_mixing_doc.py
 uv run pytest -q tests/test_publication_artifact_hygiene.py
 uv run python scripts/source_package_hygiene_check.py
@@ -66,6 +67,7 @@ PASS track repository saved and listed fixtures
 PASS playlist workflow recommendation built
 PASS playlist exporters produced JSON/CSV/M3U strings
 PASS quality report JSON built
+PASS DJ readiness: Ready — 0 blocker(s), 0 review item(s); max BPM jump 0.80%
 PASS Serato crate dry-run plan built without writing
 PASS release readiness smoke completed
 ```
@@ -75,7 +77,7 @@ PASS release readiness smoke completed
 | Gate | What it verifies |
 |------|------------------|
 | `scripts/release_gate_check.py --check-only` | Lists automated and manual gates without running subprocess checks. |
-| `scripts/release_gate_check.py --run` | Runs pytest, Ruff lint, Ruff format check, open-source publication docs, publication artifact hygiene, source package hygiene, PyInstaller check-only, and root artifact hygiene. |
+| `scripts/release_gate_check.py --run` | Runs pytest, Ruff lint, Ruff format check, release readiness smoke, open-source publication docs, publication artifact hygiene, source package hygiene, PyInstaller check-only, and root artifact hygiene. |
 | `scripts/release_gate_check.py --include-packaging-build` | Runs the non-audio gates plus temp-only PyInstaller build, package-smoke launch, and warning triage. |
 | `scripts/release_gate_check.py --run --report-json PATH` | Writes JSON evidence with schema version, mode, project root, automated gate status/return codes, pending manual gates, overall status, and limitations. |
 | `scripts/render_release_gate_evidence.py REPORT_JSON` | Renders the JSON evidence as Markdown for manual copy/paste into `docs/release-candidate-evidence.md`; stdout is the default and `--output PATH` is explicit. |
@@ -94,6 +96,7 @@ The JSON report can support CI/release evidence, including failed runs because i
 | Recommendation workflow | Runs `PlaylistWorkflowService.recommend(...)` against persisted records. |
 | Playlist export | Builds JSON, CSV, and M3U export strings in memory. |
 | Quality report | Builds deterministic quality report JSON. |
+| DJ readiness | Builds a DJ readiness report from recommendation and quality data. |
 | Serato crate export | Builds a dry-run crate export plan and confirms no crate file is written. |
 
 The automated smoke script does not create, read, render, mix, mutate, or analyze audio files.

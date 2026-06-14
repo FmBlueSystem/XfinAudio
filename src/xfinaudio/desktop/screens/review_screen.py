@@ -176,11 +176,34 @@ class ReviewScreen(QWidget):
         nav.addWidget(self.export_button)
         layout.addLayout(nav)
 
+        self._setup_accessibility()
+        self._setup_tab_order()
+
+    def _setup_accessibility(self) -> None:
+        """Set accessible names for screen readers."""
+        self.readiness_badge.setAccessibleName(self.tr("DJ readiness badge"))
+        self.dj_readiness_label.setAccessibleName(self.tr("DJ readiness summary"))
+        self.recommendation_table.setAccessibleName(self.tr("Recommended playlist"))
+        self.remove_track_button.setAccessibleName(self.tr("Remove selected track from playlist"))
+        self.transition_table.setAccessibleName(self.tr("Transition analysis"))
+        self.readiness_table.setAccessibleName(self.tr("Readiness checks"))
+        self.back_button.setAccessibleName(self.tr("Back to build"))
+        self.export_button.setAccessibleName(self.tr("Proceed to export"))
+
+    def _setup_tab_order(self) -> None:
+        """Define a logical keyboard tab order across primary controls."""
+        self.setTabOrder(self.readiness_badge, self.recommendation_table)
+        self.setTabOrder(self.recommendation_table, self.remove_track_button)
+        self.setTabOrder(self.remove_track_button, self.transition_table)
+        self.setTabOrder(self.transition_table, self.readiness_table)
+        self.setTabOrder(self.readiness_table, self.back_button)
+        self.setTabOrder(self.back_button, self.export_button)
+
     def _apply_header_tooltips(self, table: QTableWidget, tooltips: dict[int, str]) -> None:
         for column_index, text in tooltips.items():
             header_item = table.horizontalHeaderItem(column_index)
             if header_item is None:
-                header_item = QTableWidgetItem(table.horizontalHeaderItem(column_index))
+                header_item = QTableWidgetItem()
             if header_item is not None:
                 header_item.setToolTip(self.tr(text))
                 table.setHorizontalHeaderItem(column_index, header_item)

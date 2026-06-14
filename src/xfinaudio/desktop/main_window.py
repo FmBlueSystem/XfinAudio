@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from PySide6.QtCore import QCoreApplication, Qt, QTimer, Slot
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -151,7 +152,7 @@ class MainWindow(QMainWindow):
         self._connect_widget_signals()
         self._apply_visual_design()
         self._build_layout()
-        self._menu_builder = MenuBuilder(self)
+        self._menu_builder = MenuBuilder(self)  # type: ignore[reportArgumentType]
         self._menu_builder.build(self.menuBar())
         self._sync_state()
 
@@ -250,12 +251,12 @@ class MainWindow(QMainWindow):
         self._search_debounce.setSingleShot(True)
         self._search_debounce.setInterval(150)
         self._current_tab_index: int = 0
-        self._export_coordinator = ExportCoordinator(host=self)
-        self._scan_coordinator = ScanCoordinator(host=self)
-        self._recommendation_coordinator = RecommendationCoordinator(host=self)
-        self._live_assistant_coordinator = LiveAssistantCoordinator(host=self)
-        self._playlist_coordinator = PlaylistCoordinator(host=self)
-        self._settings_controller = SettingsController(self)
+        self._export_coordinator = ExportCoordinator(host=self)  # type: ignore[reportArgumentType]
+        self._scan_coordinator = ScanCoordinator(host=self)  # type: ignore[reportArgumentType]
+        self._recommendation_coordinator = RecommendationCoordinator(host=self)  # type: ignore[reportArgumentType]
+        self._live_assistant_coordinator = LiveAssistantCoordinator(host=self)  # type: ignore[reportArgumentType]
+        self._playlist_coordinator = PlaylistCoordinator(host=self)  # type: ignore[reportArgumentType]
+        self._settings_controller = SettingsController(self)  # type: ignore[reportArgumentType]
 
     def _render_tab(self, index: int, lightweight: bool = False) -> None:
         """Render only the screen mapped to the given tab index.
@@ -493,6 +494,7 @@ class MainWindow(QMainWindow):
 
     def _connect_widget_signals(self) -> None:
         """Connect constructor-created widgets to their existing slots and sorting handlers."""
+        self._connect_keyboard_shortcuts()
         self._build_screen.copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
         self.tracks_table.itemSelectionChanged.connect(self._refresh_idle_action_state)
         self._library_screen.search_input.textChanged.connect(self._search_debounce.start)
@@ -556,6 +558,26 @@ class MainWindow(QMainWindow):
             self._export_screen.history_table,
         ):
             self._connect_table_sorting(table)
+
+    def _connect_keyboard_shortcuts(self) -> None:
+        """Bind global keyboard shortcuts for the main workflow actions.
+
+        Shortcuts are kept alive in self._keyboard_shortcuts so tests and
+        introspection can reference them without relying on focus-dependent
+        key events.
+        """
+        shortcuts = [
+            ("open_folder", QKeySequence.StandardKey.Open, self.choose_folder),
+            ("scan_metadata", QKeySequence("Ctrl+S"), self.scan_selected_folder),
+            ("recommend_playlist", QKeySequence("Ctrl+R"), self._build_screen.recommend_button.click),
+            ("export_recommendation", QKeySequence("Ctrl+E"), self._export_screen.export_button.click),
+            ("cancel_scan", QKeySequence("Esc"), self.cancel_scan),
+        ]
+        self._keyboard_shortcuts: dict[str, QShortcut] = {}
+        for name, sequence, slot in shortcuts:
+            shortcut = QShortcut(sequence, self)
+            shortcut.activated.connect(slot)
+            self._keyboard_shortcuts[name] = shortcut
 
     def _apply_compact_mac_layout(
         self,
@@ -1270,7 +1292,7 @@ class MainWindow(QMainWindow):
             self.workflow_tabs.setCurrentIndex(3)
 
     def _on_track_remove_requested(self, path: str) -> None:
-        """Remove a track from the current session's playlist without affecting future recommendations."""
+        """Remove a track from the current session playlist without affecting future recommendations."""
         self._state.playlist_removed_paths = self._state.playlist_removed_paths | {path}
         self._sync_state()
 

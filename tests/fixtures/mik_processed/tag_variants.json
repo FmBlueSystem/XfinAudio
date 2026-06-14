@@ -1,0 +1,68 @@
+{
+  "complete": {
+    "title": ["Complete Track - 8A - Energy 7"],
+    "artist": ["Test Artist"],
+    "bpm": ["120.000000"],
+    "initialkey": ["Am"],
+    "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiI4QSIsInNvdXJjZSI6Im1peGVkaW5rZXkifQ=="],
+    "energy": ["eyJhbGdvcml0aG0iOjEzLCJlbmVyZ3lMZXZlbCI6Nywic291cmNlIjoibWl4ZWRpbmtleSJ9"],
+    "energylevel": ["7"],
+    "genre": ["House"]
+  },
+  "incomplete_missing_key": {
+    "title": ["Missing Key - Energy 7"],
+    "artist": ["Test Artist"],
+    "bpm": ["120.000000"],
+    "energylevel": ["7"],
+    "genre": ["House"]
+  },
+  "incomplete_missing_energy": {
+    "title": ["Missing Energy - 8A"],
+    "artist": ["Test Artist"],
+    "bpm": ["120.000000"],
+    "initialkey": ["Am"],
+    "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiI4QSIsInNvdXJjZSI6Im1peGVkaW5rZXkifQ=="],
+    "genre": ["House"]
+  },
+  "incomplete_missing_bpm": {
+    "title": ["Missing BPM - 8A - Energy 7"],
+    "artist": ["Test Artist"],
+    "initialkey": ["Am"],
+    "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiI4QSIsInNvdXJjZSI6Im1peGVkaW5rZXkifQ=="],
+    "energylevel": ["7"],
+    "genre": ["House"]
+  },
+  "conflicting_energy_json_vs_text": {
+    "title": ["Conflicting Energy - 8A"],
+    "artist": ["Test Artist"],
+    "bpm": ["120.000000"],
+    "initialkey": ["Am"],
+    "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiI4QSIsInNvdXJjZSI6Im1peGVkaW5rZXkifQ=="],
+    "energy": ["eyJhbGdvcml0aG0iOjEzLCJlbmVyZ3lMZXZlbCI6Nywic291cmNlIjoibWl4ZWRpbmtleSJ9"],
+    "energylevel": ["6"],
+    "genre": ["House"]
+  },
+  "bpm_fallback_tbpm": {
+    "title": ["BPM Fallback - 8A - Energy 7"],
+    "artist": ["Test Artist"],
+    "bpm": ["not-a-number"],
+    "tbpm": ["125.500000"],
+    "initialkey": ["Am"],
+    "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiI4QSIsInNvdXJjZSI6Im1peGVkaW5rZXkifQ=="],
+    "energylevel": ["7"],
+    "genre": ["House"]
+  },
+  "lowercase_variant": {
+    "title": ["Lowercase Tags - 9A - Energy 5"],
+    "artist": ["Test Artist"],
+    "bpm": ["110.000000"],
+    "tbpm": ["110"],
+    "ibpm": ["109"],
+    "tkey": ["9A"],
+    "initialkey": ["9A"],
+    "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiI5QSIsInNvdXJjZSI6Im1peGVkaW5rZXkifQ=="],
+    "energy": ["eyJhbGdvcml0aG0iOjEzLCJlbmVyZ3lMZXZlbCI6NSwic291cmNlIjoibWl4ZWRpbmtleSJ9"],
+    "energylevel": ["5"],
+    "genre": ["Techno"]
+  }
+}

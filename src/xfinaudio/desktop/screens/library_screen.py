@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import (
@@ -27,7 +29,7 @@ _ROW_COLOR_SELECTED = QColor("#0078b4")
 _COLUMNS = ["Title", "Artist", "BPM", "Key", "Energy", "Duration", "Missing", "Genre", "Status", "Preview", "Path"]
 
 
-def _sort_key_for_column(row: TrackDisplayRow, column: int) -> object:
+def _sort_key_for_column(row: TrackDisplayRow, column: int) -> Any:
     """Return a sortable value for *row* according to *column*."""
     if column == 0:
         return row.title.casefold()
@@ -104,6 +106,11 @@ class LibraryScreen(QWidget):
         controls.addStretch()
         layout.addLayout(controls)
 
+        # Scan settings review
+        self.scan_settings_label = QLabel()
+        self.scan_settings_label.setWordWrap(True)
+        layout.addWidget(self.scan_settings_label)
+
         # Status
         self.status_label = QLabel()
         layout.addWidget(self.status_label)
@@ -160,6 +167,31 @@ class LibraryScreen(QWidget):
         bottom.addWidget(self.proceed_button)
         layout.addLayout(bottom)
 
+        self._setup_accessibility()
+        self._setup_tab_order()
+
+    def _setup_accessibility(self) -> None:
+        """Set accessible names for screen readers."""
+        self.folder_button.setAccessibleName(self.tr("Choose music folder"))
+        self.scan_button.setAccessibleName(self.tr("Scan metadata"))
+        self.cancel_button.setAccessibleName(self.tr("Cancel scan"))
+        self.search_input.setAccessibleName(self.tr("Search songs"))
+        self.search_input.setAccessibleDescription(
+            self.tr("Type to filter the track library by title, artist, BPM, key, or genre.")
+        )
+        self.tracks_table.setAccessibleName(self.tr("Library track list"))
+        self.settings_button.setAccessibleName(self.tr("Open settings"))
+        self.proceed_button.setAccessibleName(self.tr("Build playlist"))
+
+    def _setup_tab_order(self) -> None:
+        """Define a logical keyboard tab order across primary controls."""
+        self.setTabOrder(self.folder_button, self.scan_button)
+        self.setTabOrder(self.scan_button, self.cancel_button)
+        self.setTabOrder(self.cancel_button, self.search_input)
+        self.setTabOrder(self.search_input, self.tracks_table)
+        self.setTabOrder(self.tracks_table, self.settings_button)
+        self.setTabOrder(self.settings_button, self.proceed_button)
+
     def _connect_signals(self) -> None:
         self.folder_button.clicked.connect(self.folder_change_requested)
         self.scan_button.clicked.connect(self.scan_requested)
@@ -186,15 +218,17 @@ class LibraryScreen(QWidget):
         self._last_state = state
         self.scan_button.setEnabled(vm.scan_button_enabled(state))
         self.cancel_button.setVisible(vm.cancel_button_visible(state))
+        self.scan_settings_label.setText(vm.scan_settings_review_text(state))
         self.status_label.setText(vm.status_text(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
         if lightweight:
             return
         rows = vm.tracks_for_display(state)
-        if self._sort_column is not None:
+        sort_column = self._sort_column
+        if sort_column is not None:
             rows = sorted(
                 rows,
-                key=lambda r: _sort_key_for_column(r, self._sort_column),
+                key=lambda r: _sort_key_for_column(r, sort_column),
                 reverse=not self._sort_ascending,
             )
         self._populate_table(rows)

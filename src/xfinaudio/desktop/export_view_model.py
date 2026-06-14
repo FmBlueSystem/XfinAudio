@@ -117,9 +117,10 @@ class ExportViewModel:
         return QCoreApplication.translate(
             "ExportViewModel",
             "Build a playlist first to see export options. "
-            "Exports are written to _Serato_/Subcrates/*.crate. "
+            "Live Serato writes are not part of the verified release candidate; "
+            "back up your library before copying any crate to a live _Serato_ folder. "
             "Preview shows crate contents without writing files. "
-            "Open Serato after export to verify the crate appears in Subcrates.",
+            "Exports are written to the configured safe export folder, not directly to a live Serato library.",
         )
 
     def preview_explanation_text(self) -> str:
@@ -133,5 +134,6 @@ class ExportViewModel:
         """Explain the destination format."""
         return QCoreApplication.translate(
             "ExportViewModel",
-            "Exports are written to the _Serato_/Subcrates folder as *.crate files.",
+            "Exports are written to the configured safe export folder; "
+            "copy files to a live _Serato_/Subcrates folder only after backup and manual verification.",
         )

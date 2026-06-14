@@ -1,0 +1,23 @@
+schema: gentle-ai.sdd-state.v1
+change: compatibility-matrix
+artifact_store: openspec
+status: active
+created: 2026-06-14
+updated: 2026-06-14
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  delivery: complete
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  review_budget_changed_lines: 150
+notes:
+  - Keep the matrix honest about fixture-only validation.

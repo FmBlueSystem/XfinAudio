@@ -62,7 +62,11 @@ class ExportScreen(QWidget):
 
         # Export guidance label (set imperatively by main_window)
         self.export_guidance_label = QLabel(
-            self.tr("Review recommendations before exporting; desktop export setup is intentionally out of scope.")
+            self.tr(
+                "Review recommendations before exporting. "
+                "Live Serato writes are not part of the verified release candidate; "
+                "back up your library and verify any manual copy."
+            )
         )
         self.export_guidance_label.setWordWrap(True)
         self.export_guidance_label.setMaximumHeight(32)
@@ -114,6 +118,31 @@ class ExportScreen(QWidget):
         nav.addWidget(self.back_button)
         nav.addStretch()
         layout.addLayout(nav)
+
+        self._setup_accessibility()
+        self._setup_tab_order()
+
+    def _setup_accessibility(self) -> None:
+        """Set accessible names for screen readers."""
+        self.variant_label.setAccessibleName(self.tr("Applied variant"))
+        self.software_selector.setAccessibleName(self.tr("DJ software selector"))
+        self.safe_folder_label.setAccessibleName(self.tr("Safe export folder"))
+        self.safe_folder_button.setAccessibleName(self.tr("Choose safe export folder"))
+        self.export_guidance_label.setAccessibleName(self.tr("Export guidance"))
+        self.preview_button.setAccessibleName(self.tr("Preview export"))
+        self.export_button.setAccessibleName(self.tr("Export recommendation"))
+        self.export_readiness_button.setAccessibleName(self.tr("Export readiness report"))
+        self.history_table.setAccessibleName(self.tr("Export history"))
+        self.back_button.setAccessibleName(self.tr("Back to review"))
+
+    def _setup_tab_order(self) -> None:
+        """Define a logical keyboard tab order across primary controls."""
+        self.setTabOrder(self.software_selector, self.safe_folder_button)
+        self.setTabOrder(self.safe_folder_button, self.preview_button)
+        self.setTabOrder(self.preview_button, self.export_button)
+        self.setTabOrder(self.export_button, self.export_readiness_button)
+        self.setTabOrder(self.export_readiness_button, self.history_table)
+        self.setTabOrder(self.history_table, self.back_button)
 
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)

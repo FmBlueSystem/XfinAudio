@@ -21,6 +21,7 @@ from xfinaudio.exporting.playlist_exporters import (  # noqa: E402
 from xfinaudio.exporting.serato_crate import plan_serato_crate_export  # noqa: E402
 from xfinaudio.library.models import TrackRecord  # noqa: E402
 from xfinaudio.library.track_repository import TrackRepository  # noqa: E402
+from xfinaudio.quality.dj_readiness import build_dj_readiness_report  # noqa: E402
 
 
 class StaticScanService:
@@ -71,6 +72,13 @@ def main() -> int:
         quality_json = export_quality_report_json(recommendation_result.quality_report)
         _require(json.loads(quality_json)["track_count"] == len(records), "quality JSON track count mismatch")
         print("PASS quality report JSON built")
+
+        readiness_report = build_dj_readiness_report(
+            recommendation_result.recommendation,
+            recommendation_result.quality_report,
+        )
+        _require(readiness_report.status != "blocked", f"DJ readiness blocked: {readiness_report.summary}")
+        print(f"PASS DJ readiness: {readiness_report.summary}")
 
         serato_relative_paths = [
             f"Music/Release Smoke/{Path(track.path).name}"

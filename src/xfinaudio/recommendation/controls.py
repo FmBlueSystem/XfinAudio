@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Set as AbstractSet
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from xfinaudio.library.models import TrackRecord
@@ -12,8 +14,8 @@ class DJControls(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    locked_paths: set[str] = Field(default_factory=set)
-    excluded_paths: set[str] = Field(default_factory=set)
+    locked_paths: AbstractSet[str] = Field(default_factory=set)
+    excluded_paths: AbstractSet[str] = Field(default_factory=set)
     start_path: str | None = None
     end_path: str | None = None
     manual_order_paths: list[str] = Field(default_factory=list)

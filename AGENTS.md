@@ -56,6 +56,8 @@ Run these commands in order and ensure they pass:
 
 ```bash
 uv run pytest -q
+uv run pyright src tests
+uv run pytest --cov --cov-fail-under=70 -q
 uv run ruff check .
 uv run ruff format --check .
 uv run python scripts/release_gate_check.py --run

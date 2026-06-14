@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from xfinaudio.desktop.app_state import AppState
@@ -15,6 +17,7 @@ from xfinaudio.desktop.review_view_model import (
 from xfinaudio.exporting.explainability import PlaylistExplanation, TrackExplanation, TransitionExplanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessCheck, DjReadinessReport
+from xfinaudio.quality.dj_readiness import ReadinessStatus as DjReadinessStatus
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.scoring import ScoringWeights
@@ -68,7 +71,7 @@ def _make_readiness(status: str, checks: list[DjReadinessCheck] | None = None) -
     blocker_count = sum(1 for c in checks if c.status == "blocked")
     review_count = sum(1 for c in checks if c.status == "needs_review")
     return DjReadinessReport(
-        status=status,
+        status=cast(DjReadinessStatus, status),
         summary=f"Status: {status}",
         checks=checks,
         blocker_count=blocker_count,

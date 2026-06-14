@@ -8,11 +8,12 @@ No PySide6 dependency — pure Python data transformation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from PySide6.QtCore import QCoreApplication
 
 from xfinaudio.desktop.app_state import AppState
-from xfinaudio.recommendation.strategies import _STRATEGIES
+from xfinaudio.recommendation.strategies import _STRATEGIES, StrategyName
 
 
 @dataclass(frozen=True)
@@ -110,7 +111,7 @@ class BuildViewModel:
 
     def strategy_explanation(self, strategy_name: str) -> str:
         """Return the description for a given strategy name."""
-        strategy = _STRATEGIES.get(strategy_name)
+        strategy = _STRATEGIES.get(cast("StrategyName", strategy_name))
         if strategy is None:
             return ""
         return strategy.description

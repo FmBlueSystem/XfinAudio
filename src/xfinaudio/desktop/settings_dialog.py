@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -80,10 +81,17 @@ class SettingsDialog(QDialog):
         layout.addWidget(library_group)
 
         # Buttons
+        button_layout = QHBoxLayout()
+        self._reset_button = QPushButton(self.tr("Reset to Defaults"))
+        self._reset_button.setObjectName("reset_to_defaults_button")
+        self._reset_button.clicked.connect(self._reset_to_defaults)
+        button_layout.addWidget(self._reset_button)
+        button_layout.addStretch()
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        button_layout.addWidget(buttons)
+        layout.addLayout(button_layout)
 
     # ------------------------------------------------------------------
     # Slots
@@ -94,6 +102,19 @@ class SettingsDialog(QDialog):
         if folder:
             self._pending_safe_export_folder = Path(folder)
             self._safe_export_folder_label.setText(self._format_folder_label(self._pending_safe_export_folder))
+
+    def _reset_to_defaults(self) -> None:
+        """Ask for confirmation and reset all settings to release defaults."""
+        reply = QMessageBox.question(
+            self,
+            self.tr("Reset Settings"),
+            self.tr("Restore all settings to their default values?"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.settings_changed.emit(AppSettings())
+            super().accept()
 
     # ------------------------------------------------------------------
     # Dialog accept/reject

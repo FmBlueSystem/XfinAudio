@@ -18,7 +18,7 @@ This backlog captures post-MVP work needed to turn XfinAudio release readiness i
 |----------|------|---------------------|
 | P1 | Empty-state guidance | Completed 2026-06-03: desktop `MainWindow` labels explain choosing a Mixed In Key processed folder, scanning before recommending, and reviewing before safe export. Evidence: `docs/ui-empty-states-warning-clarity.md`. |
 | P1 | Warning clarity | Completed 2026-06-03: recommendation warning cells use human-readable review text via a pure UI helper while raw domain warnings remain in explanations. Evidence: `docs/ui-empty-states-warning-clarity.md`. |
-| P2 | Export naming polish | Default export filenames include strategy and timestamp while remaining filesystem-safe. |
+| P2 | Export naming polish | Completed 2026-06-14: default export filenames include strategy and timestamp while remaining filesystem-safe. Evidence: `src/xfinaudio/exporting/export_naming.py`, `tests/test_export_naming.py`. |
 
 ## Serato compatibility
 
@@ -26,15 +26,15 @@ This backlog captures post-MVP work needed to turn XfinAudio release readiness i
 |----------|------|---------------------|
 | P1 | Fixture-based crate validation | Completed 2026-06-03: deterministic crate fixtures are validated against documented Serato crate expectations; live Serato import remains unverified. |
 | P1 | User-approved write flow | Any future crate write requires explicit confirmation, backup, validation, and rollback guidance. |
-| P2 | Compatibility matrix | Supported Serato versions and known limitations are documented. |
+| P2 | Compatibility matrix | Completed 2026-06-14: supported Serato versions and known limitations are documented. Evidence: `docs/serato-compatibility-matrix.md`, `tests/test_serato_compatibility_matrix.py`. |
 
 ## Settings and persistence
 
 | Priority | Item | Acceptance criteria |
 |----------|------|---------------------|
 | P1 | Remember safe export folder | Completed 2026-06-03: the app persists a user-selected safe export folder in app-owned JSON settings and never infers it from the audio scan folder. Caveat: desktop export UI/workflow remains future work. Evidence: `docs/safe-export-folder-settings.md`. |
-| P1 | Scan settings review | Metadata field mappings and scan options are visible before long scans. |
-| P2 | Reset settings | Users can restore defaults without deleting the application database. |
+| P1 | Scan settings review | Completed 2026-06-14: metadata field mappings and scan options are visible before long scans. Evidence: `src/xfinaudio/desktop/screens/library_screen.py`, `docs/help-4-desktop-metadata-walking-skeleton.md`. |
+| P2 | Reset settings | Completed 2026-06-14: users can restore defaults from the Settings dialog without deleting the application database. Evidence: `src/xfinaudio/desktop/settings_dialog.py`, `tests/test_settings_dialog.py`. |
 
 ## Desktop UX
 
@@ -42,15 +42,15 @@ This backlog captures post-MVP work needed to turn XfinAudio release readiness i
 |----------|------|---------------------|
 | P1 | Scan progress feedback | Completed 2026-06-03: scans expose supported-file progress updates and a cooperative cancel token; desktop shows progress/cancel state and canceled workflow results do not persist partial records. Caveat: still synchronous, so cancellation is checked between files rather than interrupting an active metadata read. Evidence: `docs/scan-progress-cancel.md`. |
 | P1 | Recommendation review view | Completed 2026-06-04: desktop recommendation review shows quality summary counts, transition component scores, and human-readable warnings before export guidance. Evidence: `docs/recommendation-review-view.md`. |
-| P2 | Keyboard and accessibility pass | Main workflow can be completed with keyboard navigation and readable labels. |
+| P2 | Keyboard and accessibility pass | Completed 2026-06-14: main workflow exposes global shortcuts, logical tab order, and accessible names. Evidence: `src/xfinaudio/desktop/main_window.py`, `src/xfinaudio/desktop/screens/*.py`, `tests/test_keyboard_accessibility.py`. |
 
 ## QA and fixtures
 
 | Priority | Item | Acceptance criteria |
 |----------|------|---------------------|
-| P1 | Mixed In Key fixture pack | A small open fixture library or metadata-only fixture set covers complete and incomplete cases. |
-| P1 | Regression checklist | Manual QA checklist covers scan, recommend, explainability, export, and dry-run Serato planning. |
-| P2 | Performance baseline | Scan and recommendation timings are recorded for a representative local library size. |
+| P1 | Mixed In Key fixture pack | Completed 2026-06-14: a small open fixture library covers complete and incomplete metadata cases. Evidence: `tests/fixtures/mik_processed/`, `tests/fixtures/mixedinkey_tag_variants.json`. |
+| P1 | Regression checklist | Completed 2026-06-14: manual QA checklist covers scan, recommend, explainability, export, and dry-run Serato planning. Evidence: `docs/qa-manual-mik-evidence.md`, `scripts/manual_mik_qa_harness.py`. |
+| P2 | Performance baseline | Completed 2026-06-14: scan and recommendation timings are recorded for a representative local library size. Evidence: `tests/test_performance_baseline.py`, `scripts/performance_baseline_report.py`. |
 
 ## Packaging and distribution
 
@@ -67,4 +67,4 @@ This backlog captures post-MVP work needed to turn XfinAudio release readiness i
 | P1 | Python package distribution model | XfinAudio is distributed as a Python package installed via `pip`, `pipx`, or `uv tool`; the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses. Signed macOS `.app`/DMG redistribution is out of scope and not pursued. Evidence: `README.md`. |
 | P1 | PyPI publication | Optional: publishing the package to PyPI requires a PyPI account and API token and no code changes; until then, install from the Git repository. |
 | P1 | Distribution license review | Pending: GPLv3 compliance and third-party dependency obligations (especially PySide6/Qt and mutagen) for package distribution still warrant legal review. No legal clearance is implied. |
-| P2 | Update path | A documented update approach preserves the app database and user settings. |
+| P2 | Update path | Completed 2026-06-14: documented update approach preserves the app database and user settings. Evidence: `docs/update-path.md`, `tests/test_update_path.py`. |

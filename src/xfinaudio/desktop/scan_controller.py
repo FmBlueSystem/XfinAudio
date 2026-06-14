@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
+from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.desktop._workers import ScanWorker
 from xfinaudio.library.scan_service import ScanCancellationToken
 
@@ -18,7 +19,7 @@ class ScanController(QObject):
     scan_failed = Signal(object)  # Exception | str
     worker_cleared = Signal()  # thread teardown done
 
-    def __init__(self, workflow_service: object, *, parent: QObject | None = None) -> None:
+    def __init__(self, workflow_service: PlaylistWorkflowService, *, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.workflow_service = workflow_service
         self._scan_thread: QThread | None = None

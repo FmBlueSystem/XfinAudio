@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
+
+from PySide6.QtWidgets import QWidget
 
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop.settings_dialog import SettingsDialog
@@ -40,7 +42,7 @@ class SettingsController:
 
     def open_dialog(self) -> None:
         """Open the settings dialog and apply changes if confirmed."""
-        dialog = SettingsDialog(self._host.settings, parent=self._host)
+        dialog = SettingsDialog(self._host.settings, parent=cast(QWidget, self._host))
         dialog.settings_changed.connect(self._host._apply_settings)
         dialog.exec()
 
@@ -56,7 +58,11 @@ class SettingsController:
             from PySide6.QtWidgets import QMessageBox
 
             QMessageBox.information(
-                self._host,
+                cast(QWidget, self._host),
                 self._host.tr("Language Changed"),
                 self._host.tr("Please restart XfinAudio for the language change to take effect."),
             )
+
+    def reset_to_defaults(self) -> None:
+        """Reset settings to release defaults and persist them."""
+        self.apply(AppSettings())

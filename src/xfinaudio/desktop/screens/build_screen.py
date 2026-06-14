@@ -152,6 +152,38 @@ class BuildScreen(QWidget):
         nav.addWidget(self.proceed_button)
         layout.addLayout(nav)
 
+        self._setup_accessibility()
+        self._setup_tab_order()
+
+    def _setup_accessibility(self) -> None:
+        """Set accessible names for screen readers."""
+        self.strategy_combo.setAccessibleName(self.tr("Recommendation strategy"))
+        self.recommend_button.setAccessibleName(self.tr("Recommend playlist"))
+        self.exclude_button.setAccessibleName(self.tr("Exclude selected tracks"))
+        self.lock_button.setAccessibleName(self.tr("Lock selected tracks"))
+        self.clear_constraints_button.setAccessibleName(self.tr("Clear constraints"))
+        self.target_count_input.setAccessibleName(self.tr("Target track count"))
+        self.genre_focus_input.setAccessibleName(self.tr("Genre focus"))
+        self.copilot_button.setAccessibleName(self.tr("Generate Prep Copilot variants"))
+        self.copilot_table.setAccessibleName(self.tr("Prep Copilot variants"))
+        self.apply_variant_button.setAccessibleName(self.tr("Apply selected Prep Copilot variant"))
+        self.back_button.setAccessibleName(self.tr("Back to library"))
+        self.proceed_button.setAccessibleName(self.tr("Proceed to review"))
+
+    def _setup_tab_order(self) -> None:
+        """Define a logical keyboard tab order across primary controls."""
+        self.setTabOrder(self.strategy_combo, self.recommend_button)
+        self.setTabOrder(self.recommend_button, self.exclude_button)
+        self.setTabOrder(self.exclude_button, self.lock_button)
+        self.setTabOrder(self.lock_button, self.clear_constraints_button)
+        self.setTabOrder(self.clear_constraints_button, self.target_count_input)
+        self.setTabOrder(self.target_count_input, self.genre_focus_input)
+        self.setTabOrder(self.genre_focus_input, self.copilot_button)
+        self.setTabOrder(self.copilot_button, self.copilot_table)
+        self.setTabOrder(self.copilot_table, self.apply_variant_button)
+        self.setTabOrder(self.apply_variant_button, self.back_button)
+        self.setTabOrder(self.back_button, self.proceed_button)
+
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
         self.copilot_button.clicked.connect(self.copilot_generate_requested)

@@ -26,6 +26,8 @@ stack:
     - pydantic >=2.0,<3.0
   dev_dependencies:
     - pytest >=8.0
+    - pytest-cov >=7.1.0
+    - pyright >=1.1.410
     - ruff >=0.11
     - pyinstaller ==6.20.0
 
@@ -55,13 +57,19 @@ testing:
     unit: { available: true, tool: pytest }
     integration: { available: true, tool: pytest }
     ui: { available: true, tool: pytest + PySide6 offscreen }
-    e2e: { available: false, tool: null }
+    e2e: { available: true, tool: pytest }
   coverage:
-    available: false
-    tool: null
-    command: null
+    available: true
+    tool: pytest-cov
+    command: uv run pytest --cov --cov-fail-under=70 -q
+  type_checker:
+    available: true
+    tool: pyright
+    command: uv run pyright src tests
   validation_commands:
     - uv run pytest -q
+    - uv run pyright src tests
+    - uv run pytest --cov --cov-fail-under=70 -q
     - uv run ruff check .
     - uv run ruff format --check .
   pytest:
@@ -69,10 +77,6 @@ testing:
       - tests
     pythonpath:
       - src
-  type_checker:
-    available: false
-    tool: null
-    command: null
   linting:
     ruff:
       available: true

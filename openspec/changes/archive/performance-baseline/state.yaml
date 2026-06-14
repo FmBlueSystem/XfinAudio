@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: performance-baseline
+artifact_store: openspec
+status: active
+created: 2026-06-14
+updated: 2026-06-14
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  delivery: complete
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  review_budget_changed_lines: 250
+notes:
+  - Keep fixtures deterministic and avoid file I/O.
+  - Use generous thresholds to avoid CI flakiness.

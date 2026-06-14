@@ -99,6 +99,8 @@ Run these in order before declaring any task or change complete:
 
 ```bash
 uv run pytest -q
+uv run pyright src tests
+uv run pytest --cov --cov-fail-under=70 -q
 uv run ruff check .
 uv run ruff format --check .
 uv run python scripts/release_gate_check.py --run

@@ -39,6 +39,10 @@ This proves that XfinAudio-generated fixture bytes match the documented TLV assu
 
 This does not prove live Serato import compatibility. It does not parse or mutate Serato database V2 files, it does not write to a live Serato library, and it does not read or write audio files.
 
+## Compatibility matrix
+
+See `docs/serato-compatibility-matrix.md` for the supported Serato version ranges and known limitations.
+
 ## Safety posture
 
 Write safety is unchanged. Planning remains dry-run by default. Confirmed crate writes still require `confirm=True`, create a backup when replacing an existing crate, validate the written bytes against the planned artifact, and expose rollback guidance.

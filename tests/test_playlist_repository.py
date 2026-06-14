@@ -45,6 +45,7 @@ class TestListSummaries:
 class TestGetById:
     def test_get_existing(self, repo: PlaylistRepository) -> None:
         created = repo.create("Set A", ["/a.flac"])
+        assert created.id is not None
         fetched = repo.get_by_id(created.id)
         assert fetched is not None
         assert fetched.name == "Set A"
@@ -57,6 +58,7 @@ class TestGetById:
 class TestUpdateName:
     def test_update_name(self, repo: PlaylistRepository) -> None:
         p = repo.create("Old", ["/a.flac"])
+        assert p.id is not None
         repo.update_name(p.id, "New")
         fetched = repo.get_by_id(p.id)
         assert fetched is not None
@@ -66,6 +68,7 @@ class TestUpdateName:
 class TestUpdateTracks:
     def test_update_tracks(self, repo: PlaylistRepository) -> None:
         p = repo.create("Set", ["/a.flac", "/b.flac"])
+        assert p.id is not None
         repo.update_tracks(p.id, ["/c.flac"])
         fetched = repo.get_by_id(p.id)
         assert fetched is not None
@@ -75,6 +78,7 @@ class TestUpdateTracks:
 class TestDuplicate:
     def test_duplicate_creates_copy(self, repo: PlaylistRepository) -> None:
         p = repo.create("Original", ["/a.flac"])
+        assert p.id is not None
         dup = repo.duplicate(p.id)
         assert dup.id is not None
         assert dup.id != p.id
@@ -85,11 +89,13 @@ class TestDuplicate:
 class TestDelete:
     def test_delete_removes_playlist(self, repo: PlaylistRepository) -> None:
         p = repo.create("ToDelete", ["/a.flac"])
+        assert p.id is not None
         repo.delete(p.id)
         assert repo.get_by_id(p.id) is None
 
     def test_delete_cascades_tracks(self, repo: PlaylistRepository) -> None:
         p = repo.create("ToDelete", ["/a.flac", "/b.flac"])
+        assert p.id is not None
         repo.delete(p.id)
         # Re-create repo to verify from fresh connection
         summaries = repo.list_summaries()

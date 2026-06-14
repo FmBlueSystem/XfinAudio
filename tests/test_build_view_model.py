@@ -270,8 +270,11 @@ def test_anchor_summary_shows_track_details(vm: BuildViewModel, tracks: list[Tra
     )
     result = vm.anchor_summary(state)
     assert result is not None
+    assert tracks[0].bpm is not None
     assert str(int(tracks[0].bpm)) in result
+    assert tracks[0].camelot_key is not None
     assert tracks[0].camelot_key in result
+    assert tracks[0].energy_level is not None
     assert str(tracks[0].energy_level) in result
 
 

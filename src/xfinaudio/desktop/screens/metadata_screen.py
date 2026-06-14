@@ -92,6 +92,26 @@ class MetadataScreen(QWidget):
         nav.addStretch()
         layout.addLayout(nav)
 
+        self._setup_accessibility()
+        self._setup_tab_order()
+
+    def _setup_accessibility(self) -> None:
+        """Set accessible names for screen readers."""
+        self.status_label.setAccessibleName(self.tr("Metadata status summary"))
+        self.guidance_label.setAccessibleName(self.tr("Metadata worklist guidance"))
+        self.status_combo.setAccessibleName(self.tr("Status filter"))
+        self.missing_combo.setAccessibleName(self.tr("Missing metadata filter"))
+        self.export_button.setAccessibleName(self.tr("Export metadata worklist"))
+        self.worklist_table.setAccessibleName(self.tr("Metadata worklist"))
+        self.back_button.setAccessibleName(self.tr("Back to library"))
+
+    def _setup_tab_order(self) -> None:
+        """Define a logical keyboard tab order across primary controls."""
+        self.setTabOrder(self.status_combo, self.missing_combo)
+        self.setTabOrder(self.missing_combo, self.export_button)
+        self.setTabOrder(self.export_button, self.worklist_table)
+        self.setTabOrder(self.worklist_table, self.back_button)
+
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
         self.status_combo.currentTextChanged.connect(lambda _: self.filter_changed.emit())

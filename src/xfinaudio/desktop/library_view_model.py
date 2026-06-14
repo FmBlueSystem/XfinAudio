@@ -178,6 +178,15 @@ class LibraryViewModel:
         """True when at least one track has been scanned."""
         return len(state.scanned_records) > 0
 
+    def scan_settings_review_text(self, state: AppState) -> str:
+        """Concise scan settings and metadata field mapping summary."""
+        extensions = sorted(state.settings.scan.supported_extensions)
+        extension_text = " ".join(extensions)
+        return QCoreApplication.translate(
+            "LibraryViewModel",
+            "Scan: {0} · BPM (TBPM), key (TKEY), energy (COMM:Songs-DB_Custom1/comments)",
+        ).format(extension_text)
+
     def selected_count_text(self, selected_paths: list[str]) -> str:
         """Label for the current selection. Empty string when nothing is selected."""
         count = len(selected_paths)

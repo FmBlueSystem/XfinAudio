@@ -11,6 +11,7 @@ EXPECTED_PASS_LINES = [
     "PASS playlist workflow recommendation built",
     "PASS playlist exporters produced JSON/CSV/M3U strings",
     "PASS quality report JSON built",
+    "PASS DJ readiness:",
     "PASS Serato crate dry-run plan built without writing",
     "PASS release readiness smoke completed",
 ]

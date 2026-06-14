@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
+from PySide6.QtCore import QObject
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMessageBox
 
@@ -28,7 +29,7 @@ class MenuBuilder:
     def build(self, menu_bar: QMenuBar) -> None:
         """Create the XfinAudio and Help menus on the provided menu bar."""
         host = self._host
-        parent = host  # type: ignore[assignment]  # host is a QWidget at runtime
+        parent = cast(QObject, host)  # host is a QWidget at runtime
         app_menu = menu_bar.addMenu(host.tr("XfinAudio"))
 
         about_action = QAction(host.tr("About XfinAudio"), parent)

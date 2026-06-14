@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: quality-tooling-baseline
+artifact_store: openspec
+status: active
+created: 2026-06-14
+updated: 2026-06-14
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  delivery: complete
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  review_budget_changed_lines: 400
+notes:
+  - Infrastructure/tooling change; product behavior must remain unchanged.
+  - Real-audio smoke test must only write to temporary directories.

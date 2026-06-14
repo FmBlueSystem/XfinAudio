@@ -47,6 +47,7 @@ Date: <YYYY-MM-DD>
 ## Known limitations
 
 - Serato fixture validation is not live Serato compatibility.
+- Live Serato library writes are not verified as part of this release candidate; any Serato crate export must be treated as experimental and requires a manual backup and verification step.
 - Manual desktop QA with a real Mixed In Key processed folder is required before release claims.
 - Binary redistribution legal review remains pending for PySide6/Qt, mutagen, and third-party dependencies.
 - <Release-specific limitation.>

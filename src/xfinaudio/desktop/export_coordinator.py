@@ -16,6 +16,7 @@ from typing import Any, Protocol, cast
 from xfinaudio.desktop.rendering import _missing_worklist_display_name, _table_item
 from xfinaudio.desktop.table_populators import populate_serato_export_history_table
 from xfinaudio.desktop.theme import _READINESS_STATUS_LABELS
+from xfinaudio.exporting.export_naming import default_export_filename
 from xfinaudio.exporting.rekordbox_xml import write_rekordbox_playlist_xml
 from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
@@ -193,7 +194,15 @@ class ExportCoordinator:
             )
             return
 
-        target_name = crate_name or host.applied_prep_copilot_variant_name or "XfinAudio Export"
+        target_name = (
+            crate_name
+            or host.applied_prep_copilot_variant_name
+            or default_export_filename(
+                host.last_recommendation,
+                generated_at=generated_at,
+                suffix=software.lower(),
+            )
+        )
         if software == "Rekordbox":
             target_path = safe_folder / f"{target_name}.xml"
         elif software == "Traktor":
@@ -239,7 +248,15 @@ class ExportCoordinator:
             host.status_label.setText(host.tr("Choose a safe export folder before exporting to {0}").format(software))
             return
 
-        target_name = crate_name or host.applied_prep_copilot_variant_name or "XfinAudio Export"
+        target_name = (
+            crate_name
+            or host.applied_prep_copilot_variant_name
+            or default_export_filename(
+                host.last_recommendation,
+                generated_at=generated_at,
+                suffix=software.lower(),
+            )
+        )
         try:
             if software == "Rekordbox":
                 written = write_rekordbox_playlist_xml(

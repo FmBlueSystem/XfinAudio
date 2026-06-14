@@ -116,6 +116,8 @@ def test_run_mode_propagates_subprocess_failure_and_stops(
 
     assert calls == [
         ["uv", "run", "pytest", "-q"],
+        ["uv", "run", "pyright", "src", "tests"],
+        ["uv", "run", "pytest", "--cov", "--cov-fail-under=70", "-q"],
         ["uv", "run", "ruff", "check", "."],
     ]
     output = capsys.readouterr().out
@@ -174,8 +176,11 @@ def test_check_only_report_json_lists_gates_and_pending_manual_gates(
     assert report["overall_status"] == "listed"
     assert {gate["name"]: gate["status"] for gate in report["gates"]} == {
         "tests": "listed",
+        "type-check": "listed",
+        "coverage": "listed",
         "lint": "listed",
         "format": "listed",
+        "release readiness smoke": "listed",
         "open-source publication docs": "listed",
         "publication artifact hygiene": "listed",
         "source package hygiene": "listed",
@@ -199,7 +204,10 @@ def test_check_only_report_json_lists_gates_and_pending_manual_gates(
     assert report["manual_gates"] == [
         {"name": "real Mixed In Key audio QA", "status": "pending_manual"},
     ]
-    assert "Does not prove real Mixed In Key audio QA" in report["limitations"]
+    assert any(
+        "Automated tests and fixtures do not prove real Mixed In Key audio QA" in limitation
+        for limitation in report["limitations"]
+    )
 
 
 def test_successful_run_report_json_records_passed_gates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -220,8 +228,11 @@ def test_successful_run_report_json_records_passed_gates(tmp_path: Path, monkeyp
     assert report["overall_status"] == "passed"
     assert {gate["name"]: (gate["status"], gate["return_code"]) for gate in report["gates"]} == {
         "tests": ("passed", 0),
+        "type-check": ("passed", 0),
+        "coverage": ("passed", 0),
         "lint": ("passed", 0),
         "format": ("passed", 0),
+        "release readiness smoke": ("passed", 0),
         "open-source publication docs": ("passed", 0),
         "publication artifact hygiene": ("passed", 0),
         "source package hygiene": ("passed", 0),
@@ -245,6 +256,8 @@ def test_failure_report_json_is_written_before_nonzero_return(tmp_path: Path, mo
     assert report["overall_status"] == "failed"
     assert [(gate["name"], gate["status"], gate["return_code"]) for gate in report["gates"]] == [
         ("tests", "passed", 0),
+        ("type-check", "passed", 0),
+        ("coverage", "passed", 0),
         ("lint", "failed", 17),
     ]
     assert report["manual_gates"][0] == {"name": "real Mixed In Key audio QA", "status": "pending_manual"}

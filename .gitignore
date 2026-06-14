@@ -21,6 +21,8 @@ context.md
 .ruff_cache/
 __pycache__/
 *.py[cod]
+.coverage
+.coverage.*
 
 # Build/release evidence artifacts
 build/

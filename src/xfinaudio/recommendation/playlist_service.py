@@ -220,8 +220,11 @@ def _apply_energy_tolerance(
     anchor_energy: int,
     preserve_paths: set[str],
 ) -> tuple[list[TrackRecord], list[str]]:
-    min_energy = anchor_energy - strategy.energy_tolerance
-    max_energy = anchor_energy + strategy.energy_tolerance
+    tolerance = strategy.energy_tolerance
+    if tolerance is None:
+        return candidate_tracks, []
+    min_energy = anchor_energy - tolerance
+    max_energy = anchor_energy + tolerance
     filtered = [
         track
         for track in candidate_tracks

@@ -76,8 +76,8 @@ def _append_traktor_entry(parent: Element, track: TrackRecord) -> None:
 
     loc = SubElement(entry, "LOCATION")
     file_name = Path(track.path).name
-    parent = str(Path(track.path).parent)
-    dir_path = "/" + parent.replace("/", ":") + ":"
+    parent_path = str(Path(track.path).parent)
+    dir_path = "/" + parent_path.replace("/", ":") + ":"
     if not dir_path.endswith(":/:") and not dir_path.endswith("/:"):
         dir_path = dir_path.rstrip(":") + "/:"
     loc.set("FILE", file_name)

@@ -28,6 +28,7 @@ class PlaylistRepository:
                 (name, now.isoformat(), now.isoformat()),
             )
             playlist_id = cursor.lastrowid
+            assert playlist_id is not None
             self._insert_tracks(connection, playlist_id, track_paths)
         return self.get_by_id(playlist_id)  # type: ignore[return-value]
 
