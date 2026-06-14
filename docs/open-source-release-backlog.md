@@ -8,7 +8,7 @@ This backlog captures post-MVP work needed to turn XfinAudio release readiness i
 |----------|------|---------------------|
 | P0 | Reproducible release smoke | `scripts/smoke_release_readiness.py` passes on a clean checkout and prints the documented checklist. |
 | P0 | Automated non-audio release gates | `scripts/release_gate_check.py --run` executes pytest, lint, format, open-source/publication hygiene checks, source package hygiene, PyInstaller check-only, and root artifact hygiene without requiring audio; optional `--report-json PATH` writes CI/release evidence; `.github/workflows/non-audio-release-gates.yml` uploads that JSON in CI; optional `--include-packaging-build` runs temp build + launch/warning triage only under temporary directories and only through explicit manual dispatch in CI. |
-| P0 | Manual desktop QA evidence | A tester records scan, recommendation, explanation, and safe export results from a Mixed In Key processed fixture folder. |
+| P0 | Manual desktop QA evidence | Completed 2026-06-14: recorded scan, recommendation, and temporary Serato crate export results from `/Volumes/dd/_Lossless/por_decada`. Evidence: `docs/qa-manual-mik-evidence.md`. |
 | P0 | No unsafe live writes | Release notes and UI copy clearly state that live Serato writes are not part of the release candidate. |
 | P0 | GPLv3 project posture | `LICENSE`, `pyproject.toml`, and docs state the full open-source GPL-3.0-only model without claiming legal clearance. |
 

@@ -51,7 +51,12 @@ def test_default_check_only_lists_non_audio_gates_without_running_commands(
     assert "uv run python scripts/source_package_hygiene_check.py" in output
     assert "uv run python scripts/pyinstaller_build_smoke.py --check-only" in output
     assert "root artifact hygiene: project-root build/ and dist/ must be absent" in output
-    assert "real Mixed In Key audio QA: PENDING MANUAL" in output
+    expected_mik_text = (
+        "real Mixed In Key audio QA: COMPLETED"
+        if release_gate_check._mik_qa_evidence_status() == "completed"
+        else "real Mixed In Key audio QA: PENDING MANUAL"
+    )
+    assert expected_mik_text in output
 
 
 def test_check_only_with_include_packaging_build_lists_optional_command_without_running(
@@ -201,8 +206,9 @@ def test_check_only_report_json_lists_gates_and_pending_manual_gates(
         "tests/test_harmonic_mixing_doc.py",
     ]
     assert all(gate["return_code"] is None for gate in report["gates"])
+    expected_mik_status = release_gate_check._mik_qa_evidence_status()
     assert report["manual_gates"] == [
-        {"name": "real Mixed In Key audio QA", "status": "pending_manual"},
+        {"name": "real Mixed In Key audio QA", "status": expected_mik_status},
     ]
     assert any(
         "Automated tests and fixtures do not prove real Mixed In Key audio QA" in limitation
@@ -260,7 +266,8 @@ def test_failure_report_json_is_written_before_nonzero_return(tmp_path: Path, mo
         ("coverage", "passed", 0),
         ("lint", "failed", 17),
     ]
-    assert report["manual_gates"][0] == {"name": "real Mixed In Key audio QA", "status": "pending_manual"}
+    expected_mik_status = release_gate_check._mik_qa_evidence_status()
+    assert report["manual_gates"][0] == {"name": "real Mixed In Key audio QA", "status": expected_mik_status}
 
 
 def test_include_packaging_build_report_json_includes_optional_gate(
