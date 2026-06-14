@@ -158,6 +158,12 @@ class LibraryViewModel:
                 return QCoreApplication.translate("LibraryViewModel", "Scanning… {0:,} tracks").format(count)
             return QCoreApplication.translate("LibraryViewModel", "Scanning…")
 
+        if state.is_completing_spectral:
+            return QCoreApplication.translate(
+                "LibraryViewModel",
+                "Analyzing spectral colors {0}/{1}",
+            ).format(state.spectral_progress_count, state.spectral_total_count)
+
         tracks = state.scanned_records
         if tracks:
             total = len(tracks)

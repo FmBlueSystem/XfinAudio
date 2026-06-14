@@ -681,6 +681,34 @@ def test_main_window_scan_progress_controls_start_disabled() -> None:
     assert window.scan_progress_label.text() == "Scan: idle"
 
 
+def test_main_window_spectral_progress_update_replaces_app_state_immutably() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    previous_state = window._state
+
+    window._on_spectral_progress_updated(2, 5)
+
+    assert window._state is not previous_state
+    assert window._state.is_completing_spectral is True
+    assert window._state.spectral_progress_count == 2
+    assert window._state.spectral_total_count == 5
+    assert window._library_screen.status_label.text() == "Analyzing spectral colors 2/5"
+
+
+def test_main_window_spectral_completion_finished_clears_progress_state() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window._on_spectral_progress_updated(4, 4)
+    active_state = window._state
+
+    window._on_spectral_completion_finished()
+
+    assert window._state is not active_state
+    assert window._state.is_completing_spectral is False
+    assert window._state.spectral_progress_count == 0
+    assert window._state.spectral_total_count == 0
+
+
 def test_main_window_scan_enables_cancel_and_updates_progress_then_disables_on_success(tmp_path) -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())

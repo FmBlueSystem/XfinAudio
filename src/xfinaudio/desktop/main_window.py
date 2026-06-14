@@ -845,9 +845,19 @@ class MainWindow(QMainWindow):
         missing = [record for record in records if record.spectral_profile is None]
         if not missing:
             return
+        total_count = len(missing)
         self._cancel_spectral_completion_worker()
+        self._state = self._state.model_copy(
+            update={
+                "is_completing_spectral": True,
+                "spectral_progress_count": 0,
+                "spectral_total_count": total_count,
+            }
+        )
+        self._sync_state()
         worker = SpectralCompletionWorker(parent=self)
         worker.progress.connect(self._on_spectral_profile_ready)
+        worker.progress_updated.connect(self._on_spectral_progress_updated)
         worker.finished.connect(self._on_spectral_completion_finished)
         worker.failed.connect(lambda error: LOGGER.error("Spectral completion failed: %s", error))
         self._spectral_completion_worker = worker
@@ -859,6 +869,27 @@ class MainWindow(QMainWindow):
         if self._spectral_completion_worker is not None:
             self._spectral_completion_worker.cancel()
             self._spectral_completion_worker = None
+        if self._state.is_completing_spectral:
+            self._state = self._state.model_copy(
+                update={
+                    "is_completing_spectral": False,
+                    "spectral_progress_count": 0,
+                    "spectral_total_count": 0,
+                }
+            )
+            self._sync_state()
+
+    @Slot(int, int)
+    def _on_spectral_progress_updated(self, processed_count: int, total_count: int) -> None:
+        """Update library status while background spectral completion runs."""
+        self._state = self._state.model_copy(
+            update={
+                "is_completing_spectral": True,
+                "spectral_progress_count": processed_count,
+                "spectral_total_count": total_count,
+            }
+        )
+        self._sync_state()
 
     @Slot(str, object)
     def _on_spectral_profile_ready(self, path: str, profile: object) -> None:
@@ -883,6 +914,14 @@ class MainWindow(QMainWindow):
     def _on_spectral_completion_finished(self) -> None:
         """Clear the worker reference when the background worker finishes."""
         self._spectral_completion_worker = None
+        self._state = self._state.model_copy(
+            update={
+                "is_completing_spectral": False,
+                "spectral_progress_count": 0,
+                "spectral_total_count": 0,
+            }
+        )
+        self._sync_state()
 
     def _clear_scan_dependent_state(self) -> None:
         """Clear scan and recommendation results that belong to a previous folder."""

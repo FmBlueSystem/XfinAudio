@@ -35,6 +35,7 @@ class _SpectralCompletionRunner(QObject):
     """Internal runner that lives on a background QThread."""
 
     progress = Signal(str, object)  # path, SpectralProfile | None
+    progress_updated = Signal(int, int)  # processed_count, total_count
     finished = Signal()
     failed = Signal(object)
 
@@ -65,6 +66,8 @@ class _SpectralCompletionRunner(QObject):
         paths = [record.path for record in self._records if record.spectral_profile is None]
         if not paths or _is_cancelled(self._cancellation_token):
             return
+        total_count = len(paths)
+        processed_count = 0
 
         # Reuse any persistent cache entries first.
         cached_profiles: dict[str, SpectralProfile] = {}
@@ -75,6 +78,8 @@ class _SpectralCompletionRunner(QObject):
                 if entry is not None:
                     cached_profiles[path] = entry[2]
                     self.progress.emit(path, entry[2])
+                    processed_count += 1
+                    self.progress_updated.emit(processed_count, total_count)
 
         pending_paths = [Path(path) for path in paths if path not in cached_profiles]
         if not pending_paths:
@@ -103,6 +108,8 @@ class _SpectralCompletionRunner(QObject):
                     except Exception:
                         LOGGER.exception("Failed to persist spectral profile for %s", path)
                 self.progress.emit(str(path), profile)
+                processed_count += 1
+                self.progress_updated.emit(processed_count, total_count)
 
 
 class SpectralCompletionWorker(QObject):
@@ -116,6 +123,7 @@ class SpectralCompletionWorker(QObject):
     """
 
     progress = Signal(str, object)  # path, SpectralProfile | None
+    progress_updated = Signal(int, int)  # processed_count, total_count
     finished = Signal()
     failed = Signal(object)
 
@@ -140,10 +148,10 @@ class SpectralCompletionWorker(QObject):
         runner.moveToThread(thread)
         thread.started.connect(runner.run)
         runner.progress.connect(self.progress)
+        runner.progress_updated.connect(self._on_progress_updated)
         runner.finished.connect(self._on_finished)
         runner.failed.connect(self.failed)
         runner.finished.connect(thread.quit)
-        runner.finished.connect(runner.deleteLater)
         thread.finished.connect(thread.deleteLater)
         self._thread = thread
         self._runner = runner
@@ -169,4 +177,10 @@ class SpectralCompletionWorker(QObject):
     @Slot()
     def _on_finished(self) -> None:
         self.finished.emit()
+        if self._runner is not None:
+            self._runner.deleteLater()
         self._runner = None
+
+    @Slot(int, int)
+    def _on_progress_updated(self, processed_count: int, total_count: int) -> None:
+        self.progress_updated.emit(processed_count, total_count)
