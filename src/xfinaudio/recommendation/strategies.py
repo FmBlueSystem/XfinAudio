@@ -18,6 +18,7 @@ StrategyName = Literal[
     "same_energy",
     "same_vibe",
     "same_color",
+    "same_genre",
 ]
 SortHint = Literal["path", "energy_ascending", "energy_descending", "bpm_ascending"]
 EnergyDirection = Literal["ascending", "stable"]
@@ -103,6 +104,13 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
         display_name="Same Color",
         description="Prioritize tracks with similar spectral color profiles for a cohesive timbre.",
         weights=ScoringWeights(harmonic=0.30, bpm=0.20, energy=0.20, tags=0.10, spectral=0.20),
+    ),
+    "same_genre": PlaylistStrategy(
+        name="same_genre",
+        display_name="Same Genre",
+        description="Constrain the playlist to the dominant primary genre of the anchor tracks.",
+        weights=ScoringWeights(harmonic=0.30, bpm=0.20, energy=0.20, tags=0.30),
+        sort_hint="path",
     ),
 }
 
