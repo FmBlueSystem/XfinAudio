@@ -1,0 +1,25 @@
+schema: gentle-ai.sdd-state.v1
+change: mainwindow-slice4-coordinators
+artifact_store: openspec
+status: verify-complete
+created: 2026-06-09
+updated: 2026-06-14
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: delivery
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: single-pr
+  review_budget_changed_lines: 380
+notes:
+  - Behavior-preserving extraction of ScanCoordinator and RecommendationCoordinator.
+  - ScanHost and RecommendationHost Protocols formalize the coordinator boundaries.
+  - MainWindow keeps thin delegations and signal wiring.
