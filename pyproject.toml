@@ -1,6 +1,6 @@
 [project]
 name = "xfinaudio"
-version = "1.0.0"
+version = "1.0.1"
 description = "Metadata-driven DJ playlist assistant discovery prototype."
 readme = "README.md"
 license = "GPL-3.0-only"
