@@ -58,6 +58,17 @@ class AppState:
     is_scanning: bool = False
     is_recommending: bool = False
     scan_progress_count: int = 0
+    is_completing_spectral: bool = False
+    spectral_progress_count: int = 0
+    spectral_total_count: int = 0
+
+    def model_copy(self, *, update: dict[str, object] | None = None) -> AppState:
+        """Return a shallow copy with selected fields replaced."""
+        state = copy.copy(self)
+        if update is not None:
+            for key, value in update.items():
+                setattr(state, key, value)
+        return state
 
     def with_screen(self, screen: ScreenName) -> AppState:
         s = copy.copy(self)

@@ -92,6 +92,41 @@ def test_worker_skips_cached_profiles(monkeypatch) -> None:
     assert repo.updated == {}
 
 
+def test_worker_emits_progress_updated_counts_cached_and_analyzed(monkeypatch) -> None:
+    ensure_app()
+    cached_profile = SpectralProfile(red_ratio=0.1, green_ratio=0.8, blue_ratio=0.1, dominant_color="GREEN")
+    analyzed_profile = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    repo = _FakeRepository(profiles={"/music/cached.flac": cached_profile})
+    monkeypatch.setattr(
+        "xfinaudio.desktop.spectral_completion_worker.analyze_spectral_profile",
+        lambda path: analyzed_profile,
+    )
+
+    records = [
+        TrackRecord(path="/music/cached.flac", title="Cached", metadata_status="complete"),
+        TrackRecord(path="/music/analyzed.flac", title="Analyzed", metadata_status="complete"),
+        TrackRecord(
+            path="/music/complete.flac",
+            title="Complete",
+            metadata_status="complete",
+            spectral_profile=SpectralProfile(
+                red_ratio=0.2,
+                green_ratio=0.2,
+                blue_ratio=0.6,
+                dominant_color="BLUE",
+            ),
+        ),
+    ]
+    worker = SpectralCompletionWorker()
+    progress_updates: list[tuple[int, int]] = []
+    worker.progress_updated.connect(lambda processed, total: progress_updates.append((processed, total)))
+
+    worker.start(records, repo, max_workers=1)
+    _wait_for_worker(worker)
+
+    assert progress_updates == [(1, 2), (2, 2)]
+
+
 def test_worker_respects_cancellation(monkeypatch) -> None:
     ensure_app()
     monkeypatch.setattr(

@@ -31,3 +31,18 @@ def test_scan_settings_review_text_includes_field_mappings() -> None:
     assert "TBPM" in text
     assert "TKEY" in text
     assert "COMM:Songs-DB_Custom1" in text or "comments" in text.lower()
+
+
+def test_status_text_shows_active_spectral_completion_progress() -> None:
+    """Spectral completion progress takes priority over the normal library summary."""
+    vm = LibraryViewModel()
+    state = AppState(
+        selected_folder=Path("/music"),
+        is_completing_spectral=True,
+        spectral_progress_count=3,
+        spectral_total_count=10,
+    )
+
+    text = vm.status_text(state)
+
+    assert text == "Analyzing spectral colors 3/10"
