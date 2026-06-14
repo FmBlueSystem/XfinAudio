@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings, ScoringSettings
+from xfinaudio.config.settings import (
+    AppSettings,
+    AudioSettings,
+    ExportSettings,
+    LibrarySettings,
+    ScoringSettings,
+)
 from xfinaudio.library.scan_service import SUPPORTED_AUDIO_EXTENSIONS
 from xfinaudio.recommendation.scoring import DEFAULT_WEIGHTS, ScoringWeights
 
@@ -13,7 +19,7 @@ def test_app_settings_defaults_are_versioned_and_match_current_behavior() -> Non
 
     assert settings.settings_version == 1
     assert settings.scan.supported_extensions == SUPPORTED_AUDIO_EXTENSIONS
-    assert settings.optimizer.exact_limit == 20
+    assert settings.optimizer.exact_limit == 15
     assert settings.scoring.weights == DEFAULT_WEIGHTS
     assert settings.library.last_scan_folder is None
     assert settings.export.safe_export_folder is None
@@ -49,3 +55,23 @@ def test_app_settings_rejects_unknown_future_version() -> None:
 def test_app_settings_preserves_non_negative_scoring_validation() -> None:
     with pytest.raises(ValidationError, match="component weights cannot be negative"):
         AppSettings(scoring=ScoringSettings(weights=ScoringWeights(harmonic=-1.0)))
+
+
+def test_app_settings_default_preview_volume() -> None:
+    settings = AppSettings()
+    assert settings.audio.preview_volume == pytest.approx(0.7, abs=0.01)
+
+
+def test_app_settings_rejects_preview_volume_below_zero() -> None:
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        AppSettings(audio=AudioSettings(preview_volume=-0.1))
+
+
+def test_app_settings_rejects_preview_volume_above_one() -> None:
+    with pytest.raises(ValidationError, match="less than or equal to 1"):
+        AppSettings(audio=AudioSettings(preview_volume=1.5))
+
+
+def test_app_settings_stores_custom_preview_volume() -> None:
+    settings = AppSettings(audio=AudioSettings(preview_volume=0.3))
+    assert settings.audio.preview_volume == pytest.approx(0.3, abs=0.01)

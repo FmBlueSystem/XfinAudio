@@ -17,14 +17,29 @@ For focused work, run the smallest relevant pytest target first, then run the fu
 
 Before source repository publication work, follow `docs/repository-publication-checklist.md` so publication stays source-only and does not imply binary readiness or legal clearance.
 
-## TDD expectation
+## Methodology: gentle-ai SDD/TDD
+
+This project follows **gentle-ai Spec-Driven Development / Test-Driven Development** for every behavior change, feature, non-trivial refactor, and bug fix.
+
+- **SDD** means every change produces durable artifacts under `openspec/`: `proposal.md`, `spec.md`, `design.md`, `tasks.md`, `apply-progress.md`, and `verify-report.md`.
+- **TDD** means every behavior-changing task follows RED → GREEN → REFACTOR → VERIFY.
+- **gentle-ai** means changes are executed incrementally through explicit phase gates, not as one large patch.
+
+For the detailed lifecycle, rules, and state artifact template, see the project skill:
+
+- `.atl/skills/gentle-ai-sdd-tdd/SKILL.md`
+
+## SDD/TDD expectation
 
 Use test first development for behavior changes and bug fixes:
 
 1. Add or update a failing test for the intended behavior.
 2. Verify the test fails for the expected reason.
 3. Implement the smallest change that makes it pass.
-4. Run focused tests, then the full verification commands above.
+4. Refactor while keeping tests green.
+5. Run focused tests, then the full verification commands above.
+
+For changes that touch product behavior, also create or update the required `openspec/` artifacts and keep each review slice within the 400-line budget. If the change exceeds that budget, plan chained PRs.
 
 ## Safety constraints
 

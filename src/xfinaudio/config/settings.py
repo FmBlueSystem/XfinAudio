@@ -25,7 +25,7 @@ class OptimizerSettings(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    exact_limit: int = Field(default=20, ge=0)
+    exact_limit: int = Field(default=15, ge=0)
 
 
 class ScoringSettings(BaseModel):
@@ -60,6 +60,14 @@ class UiSettings(BaseModel):
     language: str = ""  # Empty string = auto (system locale); "en" or "es"
 
 
+class AudioSettings(BaseModel):
+    """Configuration for audio preview playback."""
+
+    model_config = ConfigDict(frozen=True)
+
+    preview_volume: float = Field(default=0.7, ge=0.0, le=1.0)
+
+
 class AppSettings(BaseModel):
     """Versioned root settings model for XfinAudio."""
 
@@ -72,6 +80,7 @@ class AppSettings(BaseModel):
     library: LibrarySettings = Field(default_factory=LibrarySettings)
     export: ExportSettings = Field(default_factory=ExportSettings)
     ui: UiSettings = Field(default_factory=UiSettings)
+    audio: AudioSettings = Field(default_factory=AudioSettings)
 
     @field_validator("settings_version")
     @classmethod
@@ -84,6 +93,7 @@ class AppSettings(BaseModel):
 
 __all__ = [
     "AppSettings",
+    "AudioSettings",
     "CURRENT_SETTINGS_VERSION",
     "ExportSettings",
     "LibrarySettings",

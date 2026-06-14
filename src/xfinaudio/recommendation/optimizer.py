@@ -26,17 +26,22 @@ def recommend_sequence(
     tracks: list[TrackRecord],
     start_path: str | None = None,
     end_path: str | None = None,
-    exact_limit: int = 20,
+    exact_limit: int = 15,
     boost_rules: Collection[BoostRule] | None = None,
     weights: ScoringWeights = DEFAULT_WEIGHTS,
+    cache: dict[tuple, TransitionScore] | None = None,
 ) -> SequenceRecommendation:
-    """Recommend a deterministic track ordering that maximizes adjacent transition scores."""
+    """Recommend a deterministic track ordering that maximizes adjacent transition scores.
+
+    An optional session-scoped ``cache`` is threaded into every ``score_transition``
+    call so the score matrix and the final transition scores share memoized results.
+    """
     if not tracks:
         return SequenceRecommendation(ordered_tracks=[], transition_scores=[], total_score=0.0, optimizer="empty")
     _validate_constraints(tracks, start_path, end_path)
 
     ordered = sorted(tracks, key=lambda track: track.path)
-    score_matrix = _score_matrix(ordered, boost_rules, weights)
+    score_matrix = _score_matrix(ordered, boost_rules, weights, cache)
     if len(ordered) <= exact_limit:
         path_indexes = _exact_path(ordered, score_matrix, start_path, end_path)
         optimizer = "exact"
@@ -46,7 +51,7 @@ def recommend_sequence(
 
     ordered_tracks = [ordered[index] for index in path_indexes]
     transition_scores = [
-        score_transition(left, right, weights=weights, boost_rules=boost_rules)
+        score_transition(left, right, weights=weights, boost_rules=boost_rules, cache=cache)
         for left, right in zip(ordered_tracks, ordered_tracks[1:], strict=False)
     ]
     return SequenceRecommendation(
@@ -68,13 +73,16 @@ def _validate_constraints(tracks: list[TrackRecord], start_path: str | None, end
 
 
 def _score_matrix(
-    tracks: list[TrackRecord], boost_rules: Collection[BoostRule] | None, weights: ScoringWeights
+    tracks: list[TrackRecord],
+    boost_rules: Collection[BoostRule] | None,
+    weights: ScoringWeights,
+    cache: dict[tuple, TransitionScore] | None = None,
 ) -> list[list[float]]:
     return [
         [
             0.0
             if left == right
-            else score_transition(left, right, weights=weights, boost_rules=boost_rules).total_score
+            else score_transition(left, right, weights=weights, boost_rules=boost_rules, cache=cache).total_score
             for right in tracks
         ]
         for left in tracks

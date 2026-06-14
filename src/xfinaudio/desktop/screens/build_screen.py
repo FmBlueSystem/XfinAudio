@@ -165,8 +165,13 @@ class BuildScreen(QWidget):
     # Render
     # ------------------------------------------------------------------
 
-    def render(self, vm: BuildViewModel, state: AppState) -> None:
-        """Update all widgets from ViewModel data."""
+    def render(self, vm: BuildViewModel, state: AppState, lightweight: bool = False) -> None:
+        """Update all widgets from ViewModel data.
+
+        Args:
+            lightweight: If True, skip expensive copilot table population
+                        (used for non-visible tabs during state sync).
+        """
         # Populate strategy combo (only if empty to avoid clearing user selection)
         if self.strategy_combo.count() == 0:
             for option in vm.available_strategies():
@@ -177,13 +182,20 @@ class BuildScreen(QWidget):
         self.variant_label.setText(vm.applied_variant_label(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
         rows = vm.copilot_variants_for_display(state)
-        self._populate_copilot_table(rows)
-        self.copilot_table.setHidden(len(rows) == 0)
-        self.apply_variant_button.setHidden(len(rows) == 0)
+        if lightweight:
+            self.copilot_table.setHidden(len(rows) == 0)
+            self.apply_variant_button.setHidden(len(rows) == 0)
+        else:
+            self._populate_copilot_table(rows)
         self.applied_copilot_variant_label.setHidden(state.applied_variant_name is None)
 
         anchor = vm.anchor_summary(state)
-        self.anchor_label.setText(self.tr("Anchor: {0}").format(anchor) if anchor else self.tr("Select a track in the Library to set the anchor."))
+        text = (
+            self.tr("Anchor: {0}").format(anchor)
+            if anchor
+            else self.tr("Select a track in the Library to set the anchor.")
+        )
+        self.anchor_label.setText(text)
         self.anchor_label.setVisible(bool(state.scanned_records))
 
         current_strategy = self.strategy_combo.currentData() or self.strategy_combo.currentText()

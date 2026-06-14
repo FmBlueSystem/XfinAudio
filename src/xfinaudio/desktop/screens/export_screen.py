@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -28,6 +29,7 @@ class ExportScreen(QWidget):
     readiness_export_requested = Signal()
     safe_folder_change_requested = Signal()
     back_requested = Signal()
+    software_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -46,9 +48,13 @@ class ExportScreen(QWidget):
         # Variant / safe folder row
         info_row = QHBoxLayout()
         self.variant_label = QLabel()
+        self.software_selector = QComboBox()
+        for name in ["Serato", "Rekordbox", "Traktor", "VirtualDJ"]:
+            self.software_selector.addItem(name)
         self.safe_folder_label = QLabel()
         self.safe_folder_button = QPushButton(self.tr("Choose Folder"))
         info_row.addWidget(self.variant_label)
+        info_row.addWidget(self.software_selector)
         info_row.addStretch()
         info_row.addWidget(self.safe_folder_label)
         info_row.addWidget(self.safe_folder_button)
@@ -115,13 +121,25 @@ class ExportScreen(QWidget):
         self.export_button.clicked.connect(self.export_requested)
         self.export_readiness_button.clicked.connect(self.readiness_export_requested)
         self.safe_folder_button.clicked.connect(self.safe_folder_change_requested)
+        self.software_selector.currentTextChanged.connect(self._on_software_changed)
+
+    def _on_software_changed(self, name: str) -> None:
+        """Update button labels and emit software selection change."""
+        self.preview_button.setText(self.tr(f"Preview {name} Export"))
+        self.export_button.setText(self.tr(f"Export to {name}"))
+        self.software_changed.emit(name)
 
     # ------------------------------------------------------------------
     # Render
     # ------------------------------------------------------------------
 
-    def render(self, vm: ExportViewModel, state: AppState) -> None:
-        """Update all widgets from ViewModel data."""
+    def render(self, vm: ExportViewModel, state: AppState, lightweight: bool = False) -> None:
+        """Update all widgets from ViewModel data.
+
+        Args:
+            lightweight: Unused for ExportScreen (render is already lightweight
+                        - no table population). Kept for API consistency.
+        """
         self.variant_label.setText(vm.applied_variant_label(state))
         self.safe_folder_label.setText(vm.safe_folder_label(state))
         self.playlist_info_label.setText(vm.preview_text(state) or "—")

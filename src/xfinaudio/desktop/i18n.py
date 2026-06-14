@@ -9,7 +9,6 @@ To update translations after marking new strings:
 
 from __future__ import annotations
 
-import locale
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QLocale, QTranslator

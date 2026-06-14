@@ -1,0 +1,48 @@
+"""Tests for MyPlaylistsScreen."""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from PySide6.QtWidgets import QApplication
+
+from xfinaudio.desktop.screens.my_playlists_screen import MyPlaylistsScreen
+from xfinaudio.library.playlist_models import PlaylistSummary
+
+
+class TestConstruction:
+    def test_can_construct(self, qapp: QApplication) -> None:
+        screen = MyPlaylistsScreen()
+        assert screen is not None
+
+
+class TestPopulateList:
+    def test_populate_list_shows_playlists(self, qapp: QApplication) -> None:
+        screen = MyPlaylistsScreen()
+        summaries = [
+            PlaylistSummary(id=1, name="Set A", track_count=5, updated_at=datetime(2026, 6, 8)),
+        ]
+        screen.populate_list(summaries)
+        assert screen.list_widget.count() == 1
+
+    def test_populate_list_empty(self, qapp: QApplication) -> None:
+        screen = MyPlaylistsScreen()
+        screen.populate_list([])
+        assert screen.list_widget.count() == 0
+
+
+class TestSignals:
+    def test_double_click_emits_open_requested(self, qapp: QApplication) -> None:
+        screen = MyPlaylistsScreen()
+        ids: list[int] = []
+        screen.open_requested.connect(ids.append)
+        screen.populate_list([PlaylistSummary(id=1, name="Set A", track_count=5, updated_at=datetime(2026, 6, 8))])
+        screen._on_item_activated(screen.list_widget.item(0))
+        assert ids == [1]
+
+    def test_create_button_emits_create_requested(self, qapp: QApplication) -> None:
+        screen = MyPlaylistsScreen()
+        calls: list[None] = []
+        screen.create_requested.connect(lambda: calls.append(None))
+        screen._on_create_clicked()
+        assert len(calls) == 1

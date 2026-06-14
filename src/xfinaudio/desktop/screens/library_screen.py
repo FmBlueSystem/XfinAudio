@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -24,7 +24,7 @@ _ROW_COLOR_EVEN = QColor("#101820")
 _ROW_COLOR_ODD = QColor("#14202a")
 _ROW_COLOR_SELECTED = QColor("#0078b4")
 
-_COLUMNS = ["Title", "Artist", "BPM", "Key", "Energy", "Duration", "Missing", "Genre", "Status", "Path"]
+_COLUMNS = ["Title", "Artist", "BPM", "Key", "Energy", "Duration", "Missing", "Genre", "Status", "Preview", "Path"]
 
 
 def _sort_key_for_column(row: TrackDisplayRow, column: int) -> object:
@@ -52,6 +52,8 @@ def _sort_key_for_column(row: TrackDisplayRow, column: int) -> object:
     if column == 8:
         return row.metadata_status.casefold()
     if column == 9:
+        return ""  # Preview column — not sortable
+    if column == 10:
         return row.path.casefold()
     return ""
 
@@ -66,6 +68,8 @@ class LibraryScreen(QWidget):
     metadata_screen_requested = Signal()
     settings_requested = Signal()
     track_play_requested = Signal(str)  # emits full path
+    play_requested = Signal(str)
+    pause_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -73,6 +77,7 @@ class LibraryScreen(QWidget):
         self._sort_ascending: bool = True
         self._last_vm: LibraryViewModel | None = None
         self._last_state: AppState | None = None
+        self._playing_path: str | None = None
         self._build_ui()
         self._connect_signals()
 
@@ -125,6 +130,7 @@ class LibraryScreen(QWidget):
             "Metadata fields still missing for this track",
             "Primary genre detected by Mixed In Key",
             "Metadata completeness: complete or incomplete",
+            "Click to preview the track",
             "Full file path on disk",
         ]
         for col, tip in enumerate(_HEADER_TOOLTIPS):
@@ -136,7 +142,7 @@ class LibraryScreen(QWidget):
         # Stretch all columns by default so the table fills available width.
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         # Narrow data columns only take the space they need.
-        for col in (2, 3, 4, 5, 6, 8):  # BPM, Key, Energy, Duration, Missing, Status
+        for col in (2, 3, 4, 5, 6, 8, 9):  # BPM, Key, Energy, Duration, Missing, Status, Preview
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.tracks_table.setAlternatingRowColors(True)
         self.tracks_table.setSelectionBehavior(self.tracks_table.SelectionBehavior.SelectRows)
@@ -160,6 +166,7 @@ class LibraryScreen(QWidget):
         self.cancel_button.clicked.connect(self.cancel_scan_requested)
         self.tracks_table.itemSelectionChanged.connect(self._on_selection_changed)
         self.tracks_table.itemDoubleClicked.connect(self._on_track_double_clicked)
+        self.tracks_table.cellClicked.connect(self._on_cell_clicked)
         self.search_input.textChanged.connect(self._on_search_changed)
         self.settings_button.clicked.connect(self.settings_requested)
         self.tracks_table.horizontalHeader().sectionDoubleClicked.connect(self._on_header_double_clicked)
@@ -168,20 +175,32 @@ class LibraryScreen(QWidget):
     # Render
     # ------------------------------------------------------------------
 
-    def render(self, vm: LibraryViewModel, state: AppState) -> None:
-        """Update all widgets from ViewModel data."""
+    def render(self, vm: LibraryViewModel, state: AppState, lightweight: bool = False) -> None:
+        """Update all widgets from ViewModel data.
+
+        Args:
+            lightweight: If True, skip expensive table population and filtering
+                        (used for non-visible tabs during state sync).
+        """
         self._last_vm = vm
         self._last_state = state
         self.scan_button.setEnabled(vm.scan_button_enabled(state))
         self.cancel_button.setVisible(vm.cancel_button_visible(state))
         self.status_label.setText(vm.status_text(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
+        if lightweight:
+            return
         rows = vm.tracks_for_display(state)
         if self._sort_column is not None:
-            rows = sorted(rows, key=lambda r: _sort_key_for_column(r, self._sort_column), reverse=not self._sort_ascending)
+            rows = sorted(
+                rows,
+                key=lambda r: _sort_key_for_column(r, self._sort_column),
+                reverse=not self._sort_ascending,
+            )
         self._populate_table(rows)
         self._apply_filter()
         self._apply_constraint_colors(state.excluded_paths, state.locked_paths)
+        self._apply_playing_highlight()
 
     def _populate_table(self, rows: list[TrackDisplayRow]) -> None:
         # Preserve selected paths so sorting does not lose selection.
@@ -198,6 +217,7 @@ class LibraryScreen(QWidget):
             for row_data in rows:
                 row = self.tracks_table.rowCount()
                 self.tracks_table.insertRow(row)
+                preview_text = "⏸" if row_data.path == self._playing_path else "▶"
                 values = [
                     row_data.title,
                     row_data.artist,
@@ -208,6 +228,7 @@ class LibraryScreen(QWidget):
                     row_data.missing_fields,
                     row_data.genre,
                     row_data.metadata_status,
+                    preview_text,
                     row_data.path,  # full path for lookup; display_path only for UI labels
                 ]
                 for col, value in enumerate(values):
@@ -235,7 +256,11 @@ class LibraryScreen(QWidget):
             self._sort_ascending = True
         header = self.tracks_table.horizontalHeader()
         from PySide6.QtCore import Qt
-        header.setSortIndicator(column, Qt.SortOrder.AscendingOrder if self._sort_ascending else Qt.SortOrder.DescendingOrder)
+
+        header.setSortIndicator(
+            column,
+            Qt.SortOrder.AscendingOrder if self._sort_ascending else Qt.SortOrder.DescendingOrder,
+        )
         if self._last_vm is not None and self._last_state is not None:
             self.render(self._last_vm, self._last_state)
 
@@ -284,6 +309,44 @@ class LibraryScreen(QWidget):
         if path_item is not None:
             self.track_play_requested.emit(path_item.text())
 
+    def _on_cell_clicked(self, row: int, column: int) -> None:
+        preview_col = _COLUMNS.index("Preview")
+        if column != preview_col:
+            return
+        path_col = len(_COLUMNS) - 1
+        path_item = self.tracks_table.item(row, path_col)
+        if path_item is None:
+            return
+        path = path_item.text()
+        if self._playing_path == path:
+            self.pause_requested.emit()
+        else:
+            self.play_requested.emit(path)
+
+    def set_playing_row(self, path: str | None) -> None:
+        """Highlight *path* as the currently playing track, or None to clear."""
+        self._playing_path = path
+        if self._last_vm is not None and self._last_state is not None:
+            self.render(self._last_vm, self._last_state)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Space toggles play/pause for the selected track."""
+        if event.key() == Qt.Key.Key_Space and self.tracks_table.hasFocus():
+            selected = self.tracks_table.selectedIndexes()
+            if selected:
+                row = selected[0].row()
+                path_col = len(_COLUMNS) - 1
+                path_item = self.tracks_table.item(row, path_col)
+                if path_item is not None:
+                    path = path_item.text()
+                    if self._playing_path == path:
+                        self.pause_requested.emit()
+                    else:
+                        self.play_requested.emit(path)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def _on_selection_changed(self) -> None:
         selected_rows = {idx.row() for idx in self.tracks_table.selectedIndexes()}
         self._paint_row_selection(selected_rows)
@@ -294,10 +357,34 @@ class LibraryScreen(QWidget):
                 paths.append(path_item.text())
         self.selection_changed.emit(paths)
 
+    def _find_row_by_path(self, path: str) -> int | None:
+        path_col = len(_COLUMNS) - 1
+        for row in range(self.tracks_table.rowCount()):
+            item = self.tracks_table.item(row, path_col)
+            if item is not None and item.text() == path:
+                return row
+        return None
+
+    def _apply_playing_highlight(self) -> None:
+        if self._playing_path is None:
+            return
+        row = self._find_row_by_path(self._playing_path)
+        if row is None:
+            return
+        col_count = self.tracks_table.columnCount()
+        for col in range(col_count):
+            item = self.tracks_table.item(row, col)
+            if item is not None:
+                item.setBackground(_ROW_COLOR_SELECTED)
+
     def _paint_row_selection(self, selected_rows: set[int]) -> None:
+        playing_row = self._find_row_by_path(self._playing_path) if self._playing_path else None
         col_count = self.tracks_table.columnCount()
         for row in range(self.tracks_table.rowCount()):
-            color = _ROW_COLOR_SELECTED if row in selected_rows else (_ROW_COLOR_ODD if row % 2 else _ROW_COLOR_EVEN)
+            if row == playing_row or row in selected_rows:
+                color = _ROW_COLOR_SELECTED
+            else:
+                color = _ROW_COLOR_ODD if row % 2 else _ROW_COLOR_EVEN
             for col in range(col_count):
                 item = self.tracks_table.item(row, col)
                 if item is not None:

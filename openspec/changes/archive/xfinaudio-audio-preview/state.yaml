@@ -10,8 +10,12 @@ phases:
   specs: complete
   design: complete
   tasks: complete
-  apply: pending
-  verify: pending
+  apply: complete
+  verify: complete
+  sync: complete
+  archive: complete
+next_recommended: done
+completed_at: 2026-06-08
 next_recommended: apply
 blocked_reasons: []
 delivery:

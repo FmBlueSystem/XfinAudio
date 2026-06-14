@@ -123,10 +123,10 @@ def test_main_window_constructs_desktop_scanning_skeleton() -> None:
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
     assert window.windowTitle() == "XfinAudio"
-    assert window.folder_button.text() == "Choose Folder"
-    assert window.scan_button.text() == "Scan Metadata"
-    assert window.strategy_combo.count() == 7
-    assert window.recommend_button.text() == "Recommend Playlist"
+    assert window._library_screen.folder_button.text() == "Choose Folder"
+    assert window._library_screen.scan_button.text() == "Scan Metadata"
+    assert window._build_screen.strategy_combo.count() == 7
+    assert window._build_screen.recommend_button.text() == "Recommend Playlist"
     assert window.tracks_table.columnCount() >= 7
     assert window._review_screen.recommendation_table.columnCount() >= 6
     assert app is not None
@@ -137,21 +137,21 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
     assert window.windowTitle() == "XfinAudio"
-    assert window.folder_button.text() == "Choose Folder"
-    assert window.scan_button.text() == "Scan Metadata"
-    assert window.cancel_scan_button.text() == "Cancel Scan"
+    assert window._library_screen.folder_button.text() == "Choose Folder"
+    assert window._library_screen.scan_button.text() == "Scan Metadata"
+    assert window._library_screen.cancel_button.text() == "Cancel Scan"
     assert window.folder_label.text() == "Library: none"
     assert window.library_guidance_label.text() == "Choose a folder to scan metadata."
     assert window.recommendation_guidance_label.text() == "Scan metadata before recommending a playlist."
-    assert window.export_guidance_label.text() == (
+    assert window._export_screen.export_guidance_label.text() == (
         "Review recommendations before exporting; desktop export setup is intentionally out of scope."
     )
     assert window.status_label.text() == "Ready"
-    assert window.safe_export_folder_label.text() == "No safe export folder selected"
-    assert window.applied_copilot_variant_label.text() == "Applied Variant: none"
-    assert window.song_search_input.placeholderText() == "Search songs"
-    assert window.prep_copilot_genre_focus_input.placeholderText() == "Genre focus"
-    assert window.prep_copilot_target_count_input.value() == 25
+    assert window._export_screen.safe_export_folder_label.text() == "No safe export folder selected"
+    assert window._build_screen.applied_copilot_variant_label.text() == "Applied Variant: none"
+    assert window._library_screen.search_input.placeholderText() == "Search songs"
+    assert window._build_screen.genre_focus_input.placeholderText() == "Genre focus"
+    assert window._build_screen.target_count_input.value() == 25
 
     assert _table_headers(window.tracks_table) == [
         "Title",
@@ -165,9 +165,16 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "Status",
         "Path",
     ]
-    assert _table_headers(window.recommendation_table) == ["#", "Title", "Artist", "BPM", "Key", "Energy"]
-    assert _table_headers(window.prep_copilot_table) == ["Variant", "Description", "Tracks", "Readiness"]
-    assert _table_headers(window.transition_review_table) == [
+    assert _table_headers(window._review_screen.recommendation_table) == [
+        "#",
+        "Title",
+        "Artist",
+        "BPM",
+        "Key",
+        "Energy",
+    ]
+    assert _table_headers(window._build_screen.copilot_table) == ["Variant", "Description", "Tracks", "Readiness"]
+    assert _table_headers(window._review_screen.transition_table) == [
         "Order",
         "From",
         "To",
@@ -178,7 +185,7 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "Final Score",
         "Warnings",
     ]
-    assert _table_headers(window.serato_export_history_table) == [
+    assert _table_headers(window._export_screen.history_table) == [
         "Time",
         "Strategy",
         "Tracks",
@@ -186,31 +193,33 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "Readiness JSON",
         "Readiness CSV",
     ]
-    assert _table_headers(window.dj_readiness_table) == ["Check", "Status", "Detail"]
+    assert _table_headers(window._review_screen.readiness_table) == ["Check", "Status", "Detail"]
 
     assert [window.workflow_tabs.tabText(index) for index in range(window.workflow_tabs.count())] == [
         "Library",
         "Build Playlist",
         "Review Mix",
         "Export to Serato",
+        "My Playlists",
         "Metadata Worklist",
+        "Live Assistant",
     ]
     assert window.workflow_tabs.tabPosition() == main_window.QTabWidget.TabPosition.West
 
-    assert window.scan_button.isEnabled() is False
-    assert window.cancel_scan_button.isEnabled() is False
-    assert window.recommend_button.isEnabled() is False
-    assert window.serato_preview_button.isEnabled() is False
-    assert window.serato_export_button.isEnabled() is False
-    assert window.dj_readiness_export_button.isEnabled() is False
-    assert window.metadata_status_export_button.isEnabled() is False
-    assert window.prep_copilot_button.isEnabled() is False
-    assert window.prep_copilot_apply_button.isEnabled() is False
-    assert window.serato_export_history_table.isHidden() is True
-    assert window.prep_copilot_table.isHidden() is True
-    assert window.recommendation_table.isHidden() is True
-    assert window.transition_review_table.isHidden() is True
-    assert window.dj_readiness_table.isHidden() is True
+    assert window._library_screen.scan_button.isEnabled() is False
+    assert window._library_screen.cancel_button.isEnabled() is False
+    assert window._build_screen.recommend_button.isEnabled() is False
+    assert window._export_screen.preview_button.isEnabled() is False
+    assert window._export_screen.export_button.isEnabled() is False
+    assert window._export_screen.export_readiness_button.isEnabled() is False
+    assert window._metadata_screen.export_button.isEnabled() is False
+    assert window._build_screen.copilot_button.isEnabled() is False
+    assert window._build_screen.apply_variant_button.isEnabled() is False
+    assert window._export_screen.history_table.isHidden() is True
+    assert window._build_screen.copilot_table.isHidden() is True
+    assert window._review_screen.recommendation_table.isHidden() is True
+    assert window._review_screen.transition_table.isHidden() is True
+    assert window._review_screen.readiness_table.isHidden() is True
 
 
 def test_main_window_table_selection_configuration() -> None:
@@ -219,8 +228,8 @@ def test_main_window_table_selection_configuration() -> None:
 
     assert window.tracks_table.selectionBehavior() == QAbstractItemView.SelectionBehavior.SelectRows
     assert window.tracks_table.selectionMode() == QAbstractItemView.SelectionMode.ExtendedSelection
-    assert window.prep_copilot_table.selectionBehavior() == QAbstractItemView.SelectionBehavior.SelectRows
-    assert window.prep_copilot_table.selectionMode() == QAbstractItemView.SelectionMode.SingleSelection
+    assert window._build_screen.copilot_table.selectionBehavior() == QAbstractItemView.SelectionBehavior.SelectRows
+    assert window._build_screen.copilot_table.selectionMode() == QAbstractItemView.SelectionMode.SingleSelection
 
 
 def test_main_window_displays_initial_empty_state_guidance() -> None:
@@ -229,19 +238,19 @@ def test_main_window_displays_initial_empty_state_guidance() -> None:
 
     assert window.library_guidance_label.text() == "Choose a folder to scan metadata."
     assert "Scan metadata before recommending" in window.recommendation_guidance_label.text()
-    assert "Review recommendations before exporting" in window.export_guidance_label.text()
-    assert window.review_summary_label.text() == "No recommendation is ready for review."
-    assert window.transition_review_table.rowCount() == 0
-    assert window.safe_export_folder_label.text() == "No safe export folder selected"
+    assert "Review recommendations before exporting" in window._export_screen.export_guidance_label.text()
+    assert window._review_screen.review_summary_label.text() == "No recommendation is ready for review."
+    assert window._review_screen.transition_table.rowCount() == 0
+    assert window._export_screen.safe_export_folder_label.text() == "No safe export folder selected"
 
 
 def test_main_window_initial_flow_disables_invalid_next_actions() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert window.scan_button.isEnabled() is False
-    assert window.recommend_button.isEnabled() is False
-    assert window.cancel_scan_button.isEnabled() is False
+    assert window._library_screen.scan_button.isEnabled() is False
+    assert window._build_screen.recommend_button.isEnabled() is False
+    assert window._library_screen.cancel_button.isEnabled() is False
 
 
 def test_main_window_selecting_folder_enables_scan_but_not_recommendation(tmp_path) -> None:
@@ -250,8 +259,8 @@ def test_main_window_selecting_folder_enables_scan_but_not_recommendation(tmp_pa
 
     window.set_selected_folder(tmp_path)
 
-    assert window.scan_button.isEnabled() is True
-    assert window.recommend_button.isEnabled() is False
+    assert window._library_screen.scan_button.isEnabled() is True
+    assert window._build_screen.recommend_button.isEnabled() is False
 
 
 def test_main_window_changing_folder_clears_stale_scan_and_recommendation_state(tmp_path) -> None:
@@ -264,16 +273,16 @@ def test_main_window_changing_folder_clears_stale_scan_and_recommendation_state(
     window.scan_selected_folder()
     _process_events_until(lambda: window.current_scan_cancellation_token is None)
     window.tracks_table.selectRow(0)
-    window.strategy_combo.setCurrentText("warmup")
+    window._build_screen.strategy_combo.setCurrentText("warmup")
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
     window.set_selected_folder(second_folder)
 
     assert window.scanned_records == []
     assert window.tracks_table.rowCount() == 0
-    assert window.recommendation_table.rowCount() == 0
-    assert window.recommend_button.isEnabled() is False
+    assert window._review_screen.recommendation_table.rowCount() == 0
+    assert window._build_screen.recommend_button.isEnabled() is False
     assert window.recommendation_guidance_label.text() == "Scan metadata before recommending a playlist."
 
 
@@ -285,11 +294,11 @@ def test_main_window_recommendation_becomes_available_only_after_successful_scan
     window.scan_selected_folder()
     _process_events_until(lambda: window.current_scan_cancellation_token is None)
 
-    assert window.recommend_button.isEnabled() is False
+    assert window._build_screen.recommend_button.isEnabled() is False
 
     window.tracks_table.selectRow(0)
 
-    assert window.recommend_button.isEnabled() is True
+    assert window._build_screen.recommend_button.isEnabled() is True
 
 
 def test_format_quality_summary_lists_review_counts() -> None:
@@ -317,7 +326,7 @@ def test_main_window_displays_existing_safe_export_folder(tmp_path) -> None:
         settings_repository=FakeSettingsRepository(),
     )
 
-    assert window.safe_export_folder_label.text() == f"Safe export folder: {export_folder}"
+    assert window._export_screen.safe_export_folder_label.text() == f"Safe export folder: {export_folder}"
 
 
 def test_main_window_restores_last_scan_folder_without_clearing_saved_library(tmp_path) -> None:
@@ -340,7 +349,7 @@ def test_main_window_restores_last_scan_folder_without_clearing_saved_library(tm
 
     assert window.selected_folder == library_folder
     assert window.tracks_table.rowCount() == 1
-    assert window.scan_button.isEnabled() is True
+    assert window._library_screen.scan_button.isEnabled() is True
     assert "refresh metadata" in window.library_guidance_label.toolTip()
 
 
@@ -356,7 +365,7 @@ def test_main_window_setting_safe_export_folder_persists_and_updates_label(tmp_p
 
     window.set_safe_export_folder(export_folder)
 
-    assert window.safe_export_folder_label.text() == f"Safe export folder: {export_folder}"
+    assert window._export_screen.safe_export_folder_label.text() == f"Safe export folder: {export_folder}"
     assert settings_repository.saved_settings is not None
     assert settings_repository.saved_settings.export.safe_export_folder == export_folder
 
@@ -392,7 +401,7 @@ def test_main_window_rejects_safe_export_folder_equal_to_audio_scan_folder(tmp_p
     assert settings_repository.saved_settings == saved_after_folder
     assert settings_repository.saved_settings is not None
     assert settings_repository.saved_settings.export.safe_export_folder is None
-    assert window.safe_export_folder_label.text() == "No safe export folder selected"
+    assert window._export_screen.safe_export_folder_label.text() == "No safe export folder selected"
     assert "must be outside the selected audio folder" in window.status_label.text()
 
 
@@ -473,9 +482,39 @@ def test_main_window_filters_library_by_song_title(tmp_path) -> None:
         ]
     )
 
-    window.song_search_input.setText("love")
+    window._library_screen.search_input.setText("love")
+    window._search_debounce.timeout.emit()
 
     assert _visible_track_titles(window) == ["Love Song", "Another Love"]
+
+
+def test_search_filter_debounce_fires_once_for_rapid_input(tmp_path, monkeypatch) -> None:
+    """Rapid keystrokes coalesce into a single filter call via the single-shot debounce timer."""
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.show_tracks(
+        [
+            TrackRecord(path=str(tmp_path / "a.flac"), title="Alpha", metadata_status="complete"),
+            TrackRecord(path=str(tmp_path / "b.flac"), title="Beta", metadata_status="complete"),
+            TrackRecord(path=str(tmp_path / "c.flac"), title="Gamma", metadata_status="complete"),
+        ]
+    )
+
+    call_count = 0
+
+    def count_filter(*, clear_selection: bool = False) -> None:
+        nonlocal call_count
+        call_count += 1
+
+    monkeypatch.setattr(window, "_apply_song_filter", count_filter)
+
+    # Simulate rapid typing: multiple text changes followed by a single debounce fire
+    window._library_screen.search_input.setText("a")
+    window._library_screen.search_input.setText("al")
+    window._library_screen.search_input.setText("alp")
+    window._search_debounce.timeout.emit()
+
+    assert call_count == 1
 
 
 def test_main_window_filters_library_by_metadata_status_and_shows_missing_fields(tmp_path) -> None:
@@ -503,12 +542,12 @@ def test_main_window_filters_library_by_metadata_status_and_shows_missing_fields
     window.show_tracks(window.scanned_records)
 
     missing_column = _track_table_headers(window).index("Missing")
-    window.metadata_status_filter_combo.setCurrentText("Incomplete")
+    window._metadata_screen.status_combo.setCurrentText("Incomplete")
 
     assert _visible_track_titles(window) == ["Needs Tags"]
     assert _table_item_text(window.tracks_table, 1, missing_column) == "Camelot key, energy level"
 
-    window.metadata_status_filter_combo.setCurrentText("Complete")
+    window._metadata_screen.status_combo.setCurrentText("Complete")
 
     assert _visible_track_titles(window) == ["Ready Track"]
 
@@ -540,7 +579,7 @@ def test_main_window_filters_library_by_specific_missing_metadata_field(tmp_path
     ]
     window.show_tracks(window.scanned_records)
 
-    window.missing_metadata_filter_combo.setCurrentText("Missing Key")
+    window._metadata_screen.missing_combo.setCurrentText("Missing Key")
 
     assert _visible_track_titles(window) == ["Needs Key"]
 
@@ -573,7 +612,7 @@ def test_main_window_filter_uses_path_index_instead_of_rescanning_records(tmp_pa
     window.scanned_records = IterationFails(records)
     monkeypatch.setattr(window, "_refresh_idle_action_state", lambda: None)
 
-    window.missing_metadata_filter_combo.setCurrentText("Missing Key")
+    window._metadata_screen.missing_combo.setCurrentText("Missing Key")
 
     assert _visible_track_titles(window) == ["Needs Key"]
 
@@ -633,8 +672,8 @@ def test_main_window_scan_progress_controls_start_disabled() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert window.cancel_scan_button.text() == "Cancel Scan"
-    assert window.cancel_scan_button.isEnabled() is False
+    assert window._library_screen.cancel_button.text() == "Cancel Scan"
+    assert window._library_screen.cancel_button.isEnabled() is False
     assert window.scan_progress_label.text() == "Scan: idle"
 
 
@@ -646,7 +685,7 @@ def test_main_window_scan_enables_cancel_and_updates_progress_then_disables_on_s
     window.scan_selected_folder()
     _process_events_until(lambda: window.current_scan_cancellation_token is None)
 
-    assert window.cancel_scan_button.isEnabled() is False
+    assert window._library_screen.cancel_button.isEnabled() is False
     assert window.scan_progress_label.text() == f"Scan progress: 1/2 - {tmp_path / 'track.flac'}"
     assert window.current_scan_cancellation_token is None
 
@@ -656,14 +695,15 @@ def test_main_window_cancel_scan_updates_status_and_token(tmp_path) -> None:
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
     window.set_selected_folder(tmp_path)
     window._begin_scan_state()
+
     token = window.current_scan_cancellation_token
+    assert token is not None
 
     window.cancel_scan()
 
-    assert token is not None
     assert token.is_cancelled is True
     assert window.status_label.text() == "Cancel requested; waiting for current file to finish"
-    assert window.cancel_scan_button.isEnabled() is False
+    assert window._library_screen.cancel_button.isEnabled() is False
 
 
 class CanceledFakeScanService:
@@ -690,7 +730,33 @@ def test_main_window_cancelled_scan_status_and_no_partial_persistence(tmp_path) 
     assert window.scanned_records == []
     assert window.tracks_table.rowCount() == 0
     assert window.status_label.text() == "Scan canceled; no partial results were saved"
-    assert window.cancel_scan_button.isEnabled() is False
+    assert window._library_screen.cancel_button.isEnabled() is False
+
+
+def test_main_window_second_scan_cancels_first_scan(tmp_path) -> None:
+    ensure_app()
+    scan_service = SlowFakeScanService()
+    window = MainWindow(scan_service=scan_service, repository=FakeRepository())
+    window.set_selected_folder(tmp_path)
+
+    window.scan_selected_folder()
+    assert scan_service.started.wait(timeout=1)
+
+    first_token = window.current_scan_cancellation_token
+    assert first_token is not None
+
+    # Start a second scan — this must cancel the first
+    window.scan_selected_folder()
+
+    # First scan's token must be cancelled
+    assert first_token.is_cancelled is True
+
+    # Let the second scan complete
+    scan_service.release.set()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
+
+    assert window.tracks_table.rowCount() == 2
+    assert window.status_label.text() == "Scan complete: 1 complete, 1 incomplete"
 
 
 def test_main_window_updates_guidance_after_scan_and_recommend(tmp_path) -> None:
@@ -705,12 +771,12 @@ def test_main_window_updates_guidance_after_scan_and_recommend(tmp_path) -> None
     assert "Recommend Playlist" in window.recommendation_guidance_label.text()
 
     window.tracks_table.selectRow(0)
-    window.strategy_combo.setCurrentText("warmup")
+    window._build_screen.strategy_combo.setCurrentText("warmup")
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    assert "Review scores and warnings" in window.export_guidance_label.text()
-    assert "safe export" in window.export_guidance_label.text()
+    assert "Review scores and warnings" in window._export_screen.export_guidance_label.text()
+    assert "safe export" in window._export_screen.export_guidance_label.text()
 
 
 def test_main_window_recommend_action_populates_playlist_table_and_status(tmp_path) -> None:
@@ -721,11 +787,11 @@ def test_main_window_recommend_action_populates_playlist_table_and_status(tmp_pa
     window.scan_selected_folder()
     _process_events_until(lambda: window.current_scan_cancellation_token is None)
     window.tracks_table.selectRow(0)
-    window.strategy_combo.setCurrentText("warmup")
+    window._build_screen.strategy_combo.setCurrentText("warmup")
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    assert window.recommendation_table.rowCount() == 1
+    assert window._review_screen.recommendation_table.rowCount() == 1
     assert window.last_recommendation is not None
     assert window.last_recommendation.ordered_tracks[0].path == str(tmp_path / "track.flac")
     assert window.status_label.text() == "Recommended 1 track(s) using warmup"
@@ -757,7 +823,7 @@ def test_main_window_recommendation_uses_single_selected_track_as_start(tmp_path
     window.tracks_table.selectRow(1)
 
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
     assert window.last_recommendation is not None
     assert window.last_recommendation.ordered_tracks[0].path == str(tmp_path / "b.flac")
@@ -807,7 +873,7 @@ def test_main_window_recommendation_uses_multiple_selected_tracks_as_manual_pref
     )
 
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
     assert window.last_recommendation is not None
     assert [track.path for track in window.last_recommendation.ordered_tracks[:2]] == [
@@ -845,7 +911,7 @@ def test_main_window_shows_genre_and_tags_subgenre_columns(tmp_path) -> None:
     assert _table_item_text(window.tracks_table, 0, track_headers.index("Genre")) == "Disco, Funk & Soul"
     assert _table_item_text(window.tracks_table, 0, track_headers.index("Tags/Subgenre")) == "Boogie, Peak Mid"
     # Genre and Tags/Subgenre are not shown in the ReviewScreen recommendation table (7 core columns only)
-    recommendation_headers = _table_headers(window.recommendation_table)
+    recommendation_headers = _table_headers(window._review_screen.recommendation_table)
     assert "Genre" not in recommendation_headers
     assert "Tags/Subgenre" not in recommendation_headers
 
@@ -874,16 +940,16 @@ def test_main_window_recommend_action_exposes_transition_explanation_table_data(
 
     window.show_tracks(window.scanned_records)
     window.tracks_table.selectRow(0)
-    window.strategy_combo.setCurrentText("harmonic_journey")
+    window._build_screen.strategy_combo.setCurrentText("harmonic_journey")
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
     # Transition scores and warnings are now in the transition_review_table, not recommendation_table
-    assert window.recommendation_table.rowCount() == 2
-    assert window.transition_review_table.rowCount() >= 1
-    transition_headers = _table_headers(window.transition_review_table)
-    score_item = window.transition_review_table.item(0, transition_headers.index("Final Score"))
-    warnings_item = window.transition_review_table.item(0, transition_headers.index("Warnings"))
+    assert window._review_screen.recommendation_table.rowCount() == 2
+    assert window._review_screen.transition_table.rowCount() >= 1
+    transition_headers = _table_headers(window._review_screen.transition_table)
+    score_item = window._review_screen.transition_table.item(0, transition_headers.index("Final Score"))
+    warnings_item = window._review_screen.transition_table.item(0, transition_headers.index("Warnings"))
     assert score_item is not None
     assert score_item.text() != ""
     assert warnings_item is not None
@@ -913,11 +979,11 @@ def test_main_window_recommend_action_populates_review_summary(tmp_path) -> None
 
     window.show_tracks(window.scanned_records)
     window.tracks_table.selectRow(0)
-    window.strategy_combo.setCurrentText("harmonic_journey")
+    window._build_screen.strategy_combo.setCurrentText("harmonic_journey")
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    summary = window.review_summary_label.text()
+    summary = window._review_screen.review_summary_label.text()
     assert "Tracks: 2" in summary
     assert "Transitions: 1" in summary
     assert "Average transition score:" in summary
@@ -950,11 +1016,11 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
 
     window.show_tracks(window.scanned_records)
     window.tracks_table.selectRow(0)
-    window.strategy_combo.setCurrentText("harmonic_journey")
+    window._build_screen.strategy_combo.setCurrentText("harmonic_journey")
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    headers = _table_headers(window.transition_review_table)
+    headers = _table_headers(window._review_screen.transition_table)
     assert headers == [
         "Order",
         "From",
@@ -966,8 +1032,8 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
         "Final Score",
         "Warnings",
     ]
-    assert window.transition_review_table.rowCount() == 1
-    row_values = [_table_item_text(window.transition_review_table, 0, column) for column in range(9)]
+    assert window._review_screen.transition_table.rowCount() == 1
+    row_values = [_table_item_text(window._review_screen.transition_table, 0, column) for column in range(9)]
     assert row_values[0] == "1"
     assert row_values[1] == "A"
     assert row_values[2] == "B"
@@ -1005,11 +1071,11 @@ def test_main_window_recommend_action_guides_review_table_before_export(tmp_path
 
     window.show_tracks(window.scanned_records)
     window.tracks_table.selectRow(0)
-    window.strategy_combo.setCurrentText("harmonic_journey")
+    window._build_screen.strategy_combo.setCurrentText("harmonic_journey")
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    guidance = window.export_guidance_label.text()
+    guidance = window._export_screen.export_guidance_label.text()
     assert "Inspect the review table" in guidance
     assert "before exporting" in guidance
 
@@ -1017,13 +1083,13 @@ def test_main_window_recommend_action_guides_review_table_before_export(tmp_path
 def test_main_window_recommend_with_no_scanned_records_clears_review_state() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
-    window.review_summary_label.setText("stale summary")
-    window.transition_review_table.setRowCount(1)
+    window._review_screen.review_summary_label.setText("stale summary")
+    window._review_screen.transition_table.setRowCount(1)
 
     window.recommend_playlist()
 
-    assert window.review_summary_label.text() == "No recommendation is ready for review."
-    assert window.transition_review_table.rowCount() == 0
+    assert window._review_screen.review_summary_label.text() == "No recommendation is ready for review."
+    assert window._review_screen.transition_table.rowCount() == 0
 
 
 def test_format_recommendation_warning_makes_known_warnings_readable() -> None:
@@ -1076,11 +1142,11 @@ def test_recommendation_table_formats_warning_cells_without_mutating_raw_explana
     window.show_transition_review(explanation)
 
     # Transition score and warnings are now in transition_review_table, not recommendation_table
-    assert window.recommendation_table.isHidden() is False
-    assert window.recommendation_table.rowCount() == 2
-    transition_headers = _table_headers(window.transition_review_table)
-    score_item = window.transition_review_table.item(0, transition_headers.index("Final Score"))
-    warnings_item = window.transition_review_table.item(0, transition_headers.index("Warnings"))
+    assert window._review_screen.recommendation_table.isHidden() is False
+    assert window._review_screen.recommendation_table.rowCount() == 2
+    transition_headers = _table_headers(window._review_screen.transition_table)
+    score_item = window._review_screen.transition_table.item(0, transition_headers.index("Final Score"))
+    warnings_item = window._review_screen.transition_table.item(0, transition_headers.index("Warnings"))
     assert score_item is not None
     assert warnings_item is not None
     assert score_item.text() == "0.000"
@@ -1119,8 +1185,8 @@ def test_main_window_scan_runs_in_background_without_blocking_ui(tmp_path) -> No
     window.scan_selected_folder()
 
     assert scan_service.started.wait(timeout=1)
-    assert window.scan_button.isEnabled() is False
-    assert window.cancel_scan_button.isEnabled() is True
+    assert window._library_screen.scan_button.isEnabled() is False
+    assert window._library_screen.cancel_button.isEnabled() is True
     assert window.status_label.text() == "Scanning metadata"
 
     scan_service.release.set()
@@ -1128,7 +1194,7 @@ def test_main_window_scan_runs_in_background_without_blocking_ui(tmp_path) -> No
 
     assert window.tracks_table.rowCount() == 2
     assert window.status_label.text() == "Scan complete: 1 complete, 1 incomplete"
-    assert window.scan_button.isEnabled() is True
+    assert window._library_screen.scan_button.isEnabled() is True
 
 
 class SlowFakeRecommendationWorkflow:
@@ -1158,7 +1224,7 @@ def test_main_window_recommendation_runs_in_background_without_blocking_ui(tmp_p
     ]
     window.show_tracks(window.scanned_records)
     window.tracks_table.selectRow(0)
-    window.strategy_combo.setCurrentText("warmup")
+    window._build_screen.strategy_combo.setCurrentText("warmup")
     expected_result = window.workflow_service.recommend(window.scanned_records, "warmup")
     slow_workflow = SlowFakeRecommendationWorkflow(expected_result)
     window.workflow_service = slow_workflow
@@ -1166,13 +1232,13 @@ def test_main_window_recommendation_runs_in_background_without_blocking_ui(tmp_p
     window.recommend_playlist()
 
     assert slow_workflow.started.wait(timeout=1)
-    assert window.recommend_button.isEnabled() is False
+    assert window._build_screen.recommend_button.isEnabled() is False
     assert window.status_label.text() == "Generating recommendation from 1 candidate track(s)"
 
     slow_workflow.release.set()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    assert window.recommendation_table.rowCount() == 1
+    assert window._review_screen.recommendation_table.rowCount() == 1
     assert window.status_label.text() == "Recommended 1 track(s) using warmup"
 
 
@@ -1206,9 +1272,9 @@ def test_main_window_with_defaults_restores_persisted_tracks_on_startup(tmp_path
     assert window.library_guidance_label.toolTip() == (
         "Showing saved library from the app database. Choose a folder to re-scan or update metadata."
     )
-    assert window.recommend_button.isEnabled() is False
+    assert window._build_screen.recommend_button.isEnabled() is False
     window.tracks_table.selectRow(0)
-    assert window.recommend_button.isEnabled() is True
+    assert window._build_screen.recommend_button.isEnabled() is True
     assert window.status_label.text() == "Loaded saved library: 1 complete, 0 incomplete"
 
 
@@ -1303,12 +1369,12 @@ def test_main_window_requires_selected_complete_track_before_recommending(tmp_pa
     window.show_tracks(window.scanned_records)
     window._refresh_idle_action_state()
 
-    assert window.recommend_button.isEnabled() is False
+    assert window._build_screen.recommend_button.isEnabled() is False
 
     window.tracks_table.selectRow(0)
     window._refresh_idle_action_state()
 
-    assert window.recommend_button.isEnabled() is True
+    assert window._build_screen.recommend_button.isEnabled() is True
 
 
 def test_main_window_rejects_recommendation_without_selected_track(tmp_path) -> None:
@@ -1329,7 +1395,7 @@ def test_main_window_rejects_recommendation_without_selected_track(tmp_path) -> 
     window.recommend_playlist()
 
     assert window.status_label.text() == "Select at least one complete track before recommending"
-    assert window.recommendation_table.rowCount() == 0
+    assert window._review_screen.recommendation_table.rowCount() == 0
 
 
 def test_main_window_exports_last_recommendation_to_serato_crate(tmp_path) -> None:
@@ -1396,8 +1462,8 @@ def test_main_window_exports_incomplete_metadata_worklist_to_serato_crate(tmp_pa
     assert len(exported) == 1
     parsed = parse_serato_crate_bytes(exported[0].read_bytes())
     assert parsed.paths == ("_Lossless/Needs Metadata.flac",)
-    assert str(exported[0]) in window.export_guidance_label.text()
-    assert "Scan Metadata" in window.export_guidance_label.text()
+    assert str(exported[0]) in window._export_screen.export_guidance_label.text()
+    assert "Scan Metadata" in window._export_screen.export_guidance_label.text()
 
 
 def test_main_window_exports_specific_missing_key_worklist_to_serato_crate(tmp_path) -> None:
@@ -1463,11 +1529,11 @@ def test_main_window_serato_export_records_receipt_and_history(tmp_path) -> None
     window.export_recommendation_to_serato(serato_folder=serato_folder, crate_name="XfinAudio Receipt")
 
     target = serato_folder / "Subcrates" / "XfinAudio Receipt.crate"
-    assert str(target) in window.export_guidance_label.text()
-    assert window.serato_export_history_table.rowCount() == 1
-    assert _table_item_text(window.serato_export_history_table, 0, 1) == "build"
-    assert _table_item_text(window.serato_export_history_table, 0, 2) == "2"
-    assert _table_item_text(window.serato_export_history_table, 0, 3) == str(target)
+    assert str(target) in window._export_screen.export_guidance_label.text()
+    assert window._export_screen.history_table.rowCount() == 1
+    assert _table_item_text(window._export_screen.history_table, 0, 1) == "build"
+    assert _table_item_text(window._export_screen.history_table, 0, 2) == "2"
+    assert _table_item_text(window._export_screen.history_table, 0, 3) == str(target)
 
 
 def test_main_window_serato_export_history_keeps_five_recent_rows(tmp_path) -> None:
@@ -1491,8 +1557,8 @@ def test_main_window_serato_export_history_keeps_five_recent_rows(tmp_path) -> N
     for index in range(6):
         window.export_recommendation_to_serato(serato_folder=serato_folder, crate_name=f"Receipt {index}")
 
-    assert window.serato_export_history_table.rowCount() == 5
-    rendered_paths = [_table_item_text(window.serato_export_history_table, row, 3) for row in range(5)]
+    assert window._export_screen.history_table.rowCount() == 5
+    rendered_paths = [_table_item_text(window._export_screen.history_table, row, 3) for row in range(5)]
     assert rendered_paths[0].endswith("Receipt 5.crate")
     assert rendered_paths[-1].endswith("Receipt 1.crate")
     assert all(not path.endswith("Receipt 0.crate") for path in rendered_paths)
@@ -1529,7 +1595,7 @@ def test_main_window_auto_serato_export_preserves_detected_library_volume_root(t
     ensure_app()
     serato_folder = tmp_path / "Users" / "freddy" / "Music" / "_Serato_"
     (serato_folder / "Subcrates").mkdir(parents=True)
-    library = main_window.SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path)
+    library = export_coordinator.SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path)
     monkeypatch.setattr(export_coordinator, "discover_serato_libraries", lambda: [library])
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
     window.last_recommendation = make_recommendation(
@@ -1555,7 +1621,7 @@ def test_main_window_default_serato_export_uses_strategy_grouped_generated_crate
     ensure_app()
     serato_folder = tmp_path / "dd" / "_Serato_"
     (serato_folder / "Subcrates").mkdir(parents=True)
-    library = main_window.SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd")
+    library = export_coordinator.SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd")
     monkeypatch.setattr(export_coordinator, "discover_serato_libraries", lambda: [library])
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
     window.last_recommendation = make_recommendation(
@@ -1638,8 +1704,8 @@ def test_main_window_applies_dj_visual_style() -> None:
 
     assert "#00d4ff" in window.styleSheet()
     assert "#ffb000" in window.styleSheet()
-    assert window.serato_export_button.objectName() == "seratoExportButton"
-    assert window.recommend_button.objectName() == "primaryAction"
+    assert window._export_screen.export_button.objectName() == "seratoExportButton"
+    assert window._build_screen.recommend_button.objectName() == "primaryAction"
 
 
 def test_main_window_uses_compact_macbook_layout_for_library_section() -> None:
@@ -1661,19 +1727,19 @@ def test_main_window_collapses_empty_recommendation_sections_to_prioritize_brows
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert window.recommendation_table.maximumHeight() <= 80
-    assert window.transition_review_table.maximumHeight() <= 80
-    assert window.song_search_input.placeholderText() == "Search songs"
+    assert window._review_screen.recommendation_table.maximumHeight() <= 80
+    assert window._review_screen.transition_table.maximumHeight() <= 80
+    assert window._library_screen.search_input.placeholderText() == "Search songs"
 
 
 def test_main_window_uses_two_row_responsive_command_bars_for_mac_resolution() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert window.song_search_input.maximumWidth() <= 220
-    assert window.prep_copilot_genre_focus_input.maximumWidth() <= 360
-    assert window.recommend_button.minimumWidth() <= 260
-    assert window.prep_copilot_button.minimumWidth() <= 220
+    assert window._library_screen.search_input.maximumWidth() <= 220
+    assert window._build_screen.genre_focus_input.maximumWidth() <= 360
+    assert window._build_screen.recommend_button.minimumWidth() <= 260
+    assert window._build_screen.copilot_button.minimumWidth() <= 220
     assert window.folder_label.maximumWidth() <= 260
     assert window.library_guidance_label.maximumWidth() <= 720
 
@@ -1682,12 +1748,12 @@ def test_main_window_empty_review_hides_empty_result_tables() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert window.prep_copilot_table.isHidden() is True
-    assert window.recommendation_table.isHidden() is True
-    assert window.dj_readiness_table.isHidden() is True
-    assert window.transition_review_table.isHidden() is True
-    assert window.review_summary_label.isHidden() is False
-    assert window.dj_readiness_label.isHidden() is False
+    assert window._build_screen.copilot_table.isHidden() is True
+    assert window._review_screen.recommendation_table.isHidden() is True
+    assert window._review_screen.readiness_table.isHidden() is True
+    assert window._review_screen.transition_table.isHidden() is True
+    assert window._review_screen.review_summary_label.isHidden() is False
+    assert window._review_screen.dj_readiness_label.isHidden() is False
 
 
 def test_main_window_exposes_dj_workflow_modules_with_decision_points() -> None:
@@ -1701,7 +1767,9 @@ def test_main_window_exposes_dj_workflow_modules_with_decision_points() -> None:
         "Build Playlist",
         "Review Mix",
         "Export to Serato",
+        "My Playlists",
         "Metadata Worklist",
+        "Live Assistant",
     ]
     assert window.workflow_tabs.tabPosition() == main_window.QTabWidget.TabPosition.West
     assert window.library_decision_label.text() == "DJ Decision Point: choose source, filters, and the track anchor."
@@ -1765,19 +1833,19 @@ def test_main_window_shows_dj_readiness_after_recommendation(tmp_path) -> None:
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    assert "DJ Readiness: Ready" in window.dj_readiness_label.text()
+    assert "DJ Readiness: Ready" in window._review_screen.dj_readiness_label.text()
 
 
 def test_main_window_resets_dj_readiness_when_recommendation_is_cleared() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    window.dj_readiness_label.setText("DJ Readiness: Ready — previous result")
+    window._review_screen.dj_readiness_label.setText("DJ Readiness: Ready — previous result")
     window.clear_recommendation_review()
 
-    assert window.dj_readiness_label.text() == "DJ Readiness: No recommendation ready."
+    assert window._review_screen.dj_readiness_label.text() == "DJ Readiness: No recommendation ready."
 
 
 def _table_texts(table: QTableWidget) -> list[list[str]]:
@@ -1817,10 +1885,10 @@ def test_main_window_renders_dj_readiness_check_table_after_recommendation(tmp_p
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    headers = _table_headers(window.dj_readiness_table)
-    rows = _table_texts(window.dj_readiness_table)
+    headers = _table_headers(window._review_screen.readiness_table)
+    rows = _table_texts(window._review_screen.readiness_table)
 
     assert headers == ["Check", "Status", "Detail"]
     assert len(rows) >= 5
@@ -1855,11 +1923,11 @@ def test_main_window_adds_serato_round_trip_check_after_export(tmp_path) -> None
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
     window.export_recommendation_to_serato(serato_folder=serato_folder)
 
-    rows = _table_texts(window.dj_readiness_table)
+    rows = _table_texts(window._review_screen.readiness_table)
     serato_rows = [row for row in rows if row[0] == "Serato round-trip"]
     assert serato_rows == [["Serato round-trip", "Ready", "Serato crate validates and 2 track(s) resolve on disk"]]
 
@@ -1867,11 +1935,11 @@ def test_main_window_adds_serato_round_trip_check_after_export(tmp_path) -> None
 def test_main_window_clears_dj_readiness_check_table() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
-    window.dj_readiness_table.setRowCount(1)
+    window._review_screen.readiness_table.setRowCount(1)
 
     window.clear_recommendation_review()
 
-    assert window.dj_readiness_table.rowCount() == 0
+    assert window._review_screen.readiness_table.rowCount() == 0
 
 
 def test_main_window_colors_dj_readiness_status_cells() -> None:
@@ -1891,9 +1959,10 @@ def test_main_window_colors_dj_readiness_status_cells() -> None:
 
     window._populate_dj_readiness_table(report)
 
+    readiness_table = window._review_screen.readiness_table
     status_by_check = {
-        _table_item_text(window.dj_readiness_table, row, 0): _table_item(window.dj_readiness_table, row, 1)
-        for row in range(window.dj_readiness_table.rowCount())
+        _table_item_text(readiness_table, row, 0): _table_item(readiness_table, row, 1)
+        for row in range(readiness_table.rowCount())
     }
 
     assert status_by_check["BPM continuity"].text() == "Blocked"
@@ -1942,7 +2011,7 @@ def test_main_window_exports_dj_readiness_report_files_to_safe_folder(tmp_path) 
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
     window.export_dj_readiness_report(generated_at=datetime(2026, 6, 6, 9, 30, 0))
 
@@ -1975,13 +2044,13 @@ def test_main_window_constructs_prep_copilot_controls() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert window.prep_copilot_button.text() == "Generate Prep Copilot"
-    assert window.prep_copilot_target_count_input.value() == 25
-    assert window.prep_copilot_genre_focus_input.placeholderText() == "Genre focus"
-    assert _header_text(window.prep_copilot_table, 0) == "Variant"
-    assert _header_text(window.prep_copilot_table, 1) == "Description"
-    assert _header_text(window.prep_copilot_table, 2) == "Tracks"
-    assert _header_text(window.prep_copilot_table, 3) == "Readiness"
+    assert window._build_screen.copilot_button.text() == "Generate Prep Copilot"
+    assert window._build_screen.target_count_input.value() == 25
+    assert window._build_screen.genre_focus_input.placeholderText() == "Genre focus"
+    assert _header_text(window._build_screen.copilot_table, 0) == "Variant"
+    assert _header_text(window._build_screen.copilot_table, 1) == "Description"
+    assert _header_text(window._build_screen.copilot_table, 2) == "Tracks"
+    assert _header_text(window._build_screen.copilot_table, 3) == "Readiness"
 
 
 def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_path) -> None:
@@ -2022,18 +2091,18 @@ def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_pat
     window.scanned_records = records
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
-    window.prep_copilot_target_count_input.setValue(3)
-    window.prep_copilot_genre_focus_input.setText("House")
+    window._build_screen.target_count_input.setValue(3)
+    window._build_screen.genre_focus_input.setText("House")
 
     window.generate_prep_copilot()
 
-    assert window.prep_copilot_table.rowCount() == 3
-    assert [_table_item_text(window.prep_copilot_table, row, 0) for row in range(3)] == [
+    assert window._build_screen.copilot_table.rowCount() == 3
+    assert [_table_item_text(window._build_screen.copilot_table, row, 0) for row in range(3)] == [
         "safe",
         "balanced",
         "adventurous",
     ]
-    assert {_table_item_text(window.prep_copilot_table, row, 3) for row in range(3)} == {"Ready"}
+    assert {_table_item_text(window._build_screen.copilot_table, row, 3) for row in range(3)} == {"Ready"}
     assert window.last_prep_copilot_plan is not None
     assert all(
         variant.recommendation.ordered_tracks[0].path == str(tmp_path / "start.flac")
@@ -2048,7 +2117,7 @@ def test_main_window_rejects_prep_copilot_without_complete_selection() -> None:
 
     window.generate_prep_copilot()
 
-    assert window.prep_copilot_table.rowCount() == 0
+    assert window._build_screen.copilot_table.rowCount() == 0
     assert window.status_label.text() == "Select at least one complete track before generating Prep Copilot"
 
 
@@ -2090,19 +2159,19 @@ def test_main_window_applies_selected_prep_copilot_variant_to_review_flow(tmp_pa
     window.scanned_records = records
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
-    window.prep_copilot_target_count_input.setValue(3)
-    window.prep_copilot_genre_focus_input.setText("House")
+    window._build_screen.target_count_input.setValue(3)
+    window._build_screen.genre_focus_input.setText("House")
     window.generate_prep_copilot()
-    window.prep_copilot_table.selectRow(1)
+    window._build_screen.copilot_table.selectRow(1)
 
     window.apply_selected_prep_copilot_variant()
 
     assert window.last_recommendation is not None
     assert window.last_prep_copilot_plan is not None
     assert window.last_recommendation == window.last_prep_copilot_plan.variants[1].recommendation
-    assert window.recommendation_table.rowCount() == 3
-    assert window.transition_review_table.rowCount() == 2
-    assert window.dj_readiness_table.rowCount() > 0
+    assert window._review_screen.recommendation_table.rowCount() == 3
+    assert window._review_screen.transition_table.rowCount() == 2
+    assert window._review_screen.readiness_table.rowCount() > 0
     assert window._export_screen.export_button.isEnabled() is True
     assert window.status_label.text() == "Applied Prep Copilot variant: balanced"
 
@@ -2114,7 +2183,7 @@ def test_main_window_rejects_apply_prep_copilot_without_variant_selection(tmp_pa
     window.apply_selected_prep_copilot_variant()
 
     assert window.status_label.text() == "Generate and select a Prep Copilot variant before applying"
-    assert window.recommendation_table.rowCount() == 0
+    assert window._review_screen.recommendation_table.rowCount() == 0
 
 
 def test_main_window_exports_applied_prep_copilot_variant_with_variant_crate_name(tmp_path) -> None:
@@ -2148,10 +2217,10 @@ def test_main_window_exports_applied_prep_copilot_variant_with_variant_crate_nam
     window.scanned_records = records
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
-    window.prep_copilot_target_count_input.setValue(2)
-    window.prep_copilot_genre_focus_input.setText("House")
+    window._build_screen.target_count_input.setValue(2)
+    window._build_screen.genre_focus_input.setText("House")
     window.generate_prep_copilot()
-    window.prep_copilot_table.selectRow(1)
+    window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
     window.export_recommendation_to_serato(
@@ -2172,8 +2241,8 @@ def test_main_window_constructs_serato_export_preview_action() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert window.serato_preview_button.text() == "Preview Serato Export"
-    assert window.serato_preview_button.isEnabled() is False
+    assert window._export_screen.preview_button.text() == "Preview Serato Export"
+    assert window._export_screen.preview_button.isEnabled() is False
 
 
 def test_main_window_previews_applied_copilot_serato_export_without_writing(tmp_path) -> None:
@@ -2207,10 +2276,10 @@ def test_main_window_previews_applied_copilot_serato_export_without_writing(tmp_
     window.scanned_records = records
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
-    window.prep_copilot_target_count_input.setValue(2)
-    window.prep_copilot_genre_focus_input.setText("House")
+    window._build_screen.target_count_input.setValue(2)
+    window._build_screen.genre_focus_input.setText("House")
     window.generate_prep_copilot()
-    window.prep_copilot_table.selectRow(1)
+    window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
     window.preview_serato_export(
@@ -2225,10 +2294,10 @@ def test_main_window_previews_applied_copilot_serato_export_without_writing(tmp_
     expected = serato_folder / "Subcrates" / expected_name
     assert not expected.exists()
     assert window.status_label.text() == f"Serato export preview: {expected}"
-    assert "Variant: balanced" in window.export_guidance_label.text()
-    assert "Tracks: 2" in window.export_guidance_label.text()
-    assert "Will write: yes" in window.export_guidance_label.text()
-    assert "Readiness: Ready" in window.export_guidance_label.text()
+    assert "Variant: balanced" in window._export_screen.export_guidance_label.text()
+    assert "Tracks: 2" in window._export_screen.export_guidance_label.text()
+    assert "Will write: yes" in window._export_screen.export_guidance_label.text()
+    assert "Readiness: Ready" in window._export_screen.export_guidance_label.text()
 
 
 def test_main_window_previews_collision_suffix_without_overwriting(tmp_path) -> None:
@@ -2304,10 +2373,10 @@ def test_main_window_exports_dj_readiness_sidecar_reports_with_serato_crate(tmp_
     window.scanned_records = records
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
-    window.prep_copilot_target_count_input.setValue(2)
-    window.prep_copilot_genre_focus_input.setText("House")
+    window._build_screen.target_count_input.setValue(2)
+    window._build_screen.genre_focus_input.setText("House")
     window.generate_prep_copilot()
-    window.prep_copilot_table.selectRow(1)
+    window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
     window.export_recommendation_to_serato(
@@ -2327,7 +2396,7 @@ def test_main_window_exports_dj_readiness_sidecar_reports_with_serato_crate(tmp_
     assert csv_path.exists()
     assert '"status": "ready"' in json_path.read_text(encoding="utf-8")
     assert csv_path.read_text(encoding="utf-8").splitlines()[0] == "check,status,detail"
-    assert f"Readiness reports: {json_path} and {csv_path}" in window.export_guidance_label.text()
+    assert f"Readiness reports: {json_path} and {csv_path}" in window._export_screen.export_guidance_label.text()
 
 
 def test_main_window_colors_prep_copilot_readiness_cells(tmp_path) -> None:
@@ -2358,10 +2427,10 @@ def test_main_window_colors_prep_copilot_readiness_cells(tmp_path) -> None:
     window.scanned_records = records
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
-    window.prep_copilot_target_count_input.setValue(2)
+    window._build_screen.target_count_input.setValue(2)
     window.generate_prep_copilot()
 
-    readiness_item = _table_item(window.prep_copilot_table, 0, 3)
+    readiness_item = _table_item(window._build_screen.copilot_table, 0, 3)
 
     assert readiness_item.text() == "Ready"
     assert readiness_item.background().color().name() == "#1fd16a"
@@ -2396,11 +2465,11 @@ def test_main_window_double_click_applies_prep_copilot_variant(tmp_path) -> None
     window.scanned_records = records
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
-    window.prep_copilot_target_count_input.setValue(2)
+    window._build_screen.target_count_input.setValue(2)
     window.generate_prep_copilot()
 
-    item = _table_item(window.prep_copilot_table, 2, 0)
-    window.prep_copilot_table.itemDoubleClicked.emit(item)
+    item = _table_item(window._build_screen.copilot_table, 2, 0)
+    window._build_screen.copilot_table.itemDoubleClicked.emit(item)
 
     assert window.last_prep_copilot_plan is not None
     assert window.last_recommendation == window.last_prep_copilot_plan.variants[2].recommendation
@@ -2411,7 +2480,7 @@ def test_main_window_shows_empty_applied_copilot_variant_badge_initially() -> No
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert window.applied_copilot_variant_label.text() == "Applied Variant: none"
+    assert window._build_screen.applied_copilot_variant_label.text() == "Applied Variant: none"
 
 
 def test_main_window_updates_applied_copilot_variant_badge_after_apply(tmp_path) -> None:
@@ -2442,14 +2511,15 @@ def test_main_window_updates_applied_copilot_variant_badge_after_apply(tmp_path)
     window.scanned_records = records
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
-    window.prep_copilot_target_count_input.setValue(2)
+    window._build_screen.target_count_input.setValue(2)
     window.generate_prep_copilot()
-    window.prep_copilot_table.selectRow(1)
+    window._build_screen.copilot_table.selectRow(1)
 
     window.apply_selected_prep_copilot_variant()
 
-    assert window.applied_copilot_variant_label.text() == "Applied Variant: balanced"
-    assert window.applied_copilot_variant_label.toolTip() == "This variant will be used for Serato preview/export."
+    applied_variant_label = window._build_screen.applied_copilot_variant_label
+    assert applied_variant_label.text() == "Applied Variant: balanced"
+    assert applied_variant_label.toolTip() == "This variant will be used for Serato preview/export."
 
 
 def test_main_window_clears_applied_copilot_variant_badge_for_normal_recommendation(tmp_path) -> None:
@@ -2480,15 +2550,15 @@ def test_main_window_clears_applied_copilot_variant_badge_for_normal_recommendat
     window.scanned_records = records
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
-    window.prep_copilot_target_count_input.setValue(2)
+    window._build_screen.target_count_input.setValue(2)
     window.generate_prep_copilot()
-    window.prep_copilot_table.selectRow(1)
+    window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
     window.recommend_playlist()
-    _process_events_until(lambda: window.recommend_button.isEnabled())
+    _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    assert window.applied_copilot_variant_label.text() == "Applied Variant: none"
+    assert window._build_screen.applied_copilot_variant_label.text() == "Applied Variant: none"
 
 
 def test_main_window_serato_export_history_includes_readiness_sidecar_paths(tmp_path) -> None:
@@ -2522,9 +2592,9 @@ def test_main_window_serato_export_history_includes_readiness_sidecar_paths(tmp_
     window.scanned_records = records
     window.show_tracks(records)
     window.tracks_table.selectRow(0)
-    window.prep_copilot_target_count_input.setValue(2)
+    window._build_screen.target_count_input.setValue(2)
     window.generate_prep_copilot()
-    window.prep_copilot_table.selectRow(1)
+    window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
     window.export_recommendation_to_serato(
@@ -2533,13 +2603,13 @@ def test_main_window_serato_export_history_includes_readiness_sidecar_paths(tmp_
     )
 
     crate_path = Path(window.serato_export_history[0]["path"])
-    assert window.serato_export_history_table.columnCount() == 6
-    assert _header_text(window.serato_export_history_table, 4) == "Readiness JSON"
-    assert _header_text(window.serato_export_history_table, 5) == "Readiness CSV"
-    assert _table_item_text(window.serato_export_history_table, 0, 4) == str(
+    assert window._export_screen.history_table.columnCount() == 6
+    assert _header_text(window._export_screen.history_table, 4) == "Readiness JSON"
+    assert _header_text(window._export_screen.history_table, 5) == "Readiness CSV"
+    assert _table_item_text(window._export_screen.history_table, 0, 4) == str(
         crate_path.with_suffix(".dj-readiness.json")
     )
-    assert _table_item_text(window.serato_export_history_table, 0, 5) == str(
+    assert _table_item_text(window._export_screen.history_table, 0, 5) == str(
         crate_path.with_suffix(".dj-readiness.csv")
     )
 

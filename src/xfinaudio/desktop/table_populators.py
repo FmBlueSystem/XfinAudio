@@ -159,9 +159,19 @@ def _score_color_and_tooltip(
         if raw_score >= 0.95:
             tips.append(QCoreApplication.translate("TablePopulators", "Same Camelot key — perfectly compatible"))
         elif raw_score >= 0.88:
-            tips.append(QCoreApplication.translate("TablePopulators", "Adjacent or diagonal number — harmonically compatible"))
+            tips.append(
+                QCoreApplication.translate(
+                    "TablePopulators",
+                    "Adjacent or diagonal number — harmonically compatible",
+                )
+            )
         elif raw_score >= 0.82:
-            tips.append(QCoreApplication.translate("TablePopulators", "Relative major/minor (A↔B same number) — compatible"))
+            tips.append(
+                QCoreApplication.translate(
+                    "TablePopulators",
+                    "Relative major/minor (A↔B same number) — compatible",
+                )
+            )
         elif raw_score >= 0.75:
             tips.append(QCoreApplication.translate("TablePopulators", "DJ boost rule — marked as compatible"))
         else:

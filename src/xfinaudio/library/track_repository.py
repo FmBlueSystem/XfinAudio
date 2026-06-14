@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from collections.abc import Iterable
@@ -125,10 +126,8 @@ class TrackRepository:
             """
         )
         # Gracefully add duration column to existing databases
-        try:
+        with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN duration REAL")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
         connection.execute("CREATE INDEX IF NOT EXISTS idx_tracks_metadata_status ON tracks (metadata_status)")
 
     def _connect(self) -> sqlite3.Connection:

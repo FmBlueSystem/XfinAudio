@@ -172,9 +172,7 @@ class LibraryViewModel:
         if state.selected_folder is None:
             return QCoreApplication.translate("LibraryViewModel", "Choose a folder to begin")
 
-        return QCoreApplication.translate("LibraryViewModel", "Ready to scan · {0}").format(
-            state.selected_folder.name
-        )
+        return QCoreApplication.translate("LibraryViewModel", "Ready to scan · {0}").format(state.selected_folder.name)
 
     def can_proceed(self, state: AppState) -> bool:
         """True when at least one track has been scanned."""

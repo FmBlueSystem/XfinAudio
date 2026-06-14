@@ -1,0 +1,30 @@
+schema: gentle-ai.sdd-state.v1
+change: xfinaudio-live-assistant
+artifact_store: openspec
+status: archive
+created: 2026-06-08
+updated: 2026-06-08
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  sync: complete
+  archive: complete
+next_recommended: none
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Live Assistant is the capstone feature; depends on Audio Preview and Playlist Persistence.
+  - Background re-scoring uses QThreadPool + QRunnable pattern.
+  - Session history is in-memory only (not persisted).
+  - Alert logic is purely visual; DJ retains full control.
+  - 711 tests pass, 0 regressions.
+  - All new files pass ruff check and ruff format.

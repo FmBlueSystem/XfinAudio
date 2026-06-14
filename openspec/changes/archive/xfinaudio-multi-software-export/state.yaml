@@ -1,0 +1,29 @@
+schema: gentle-ai.sdd-state.v1
+change: xfinaudio-multi-software-export
+artifact_store: openspec
+status: archive
+created: 2026-06-08
+updated: 2026-06-08
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  sync: complete
+  archive: complete
+next_recommended: none
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Multi-software export adds Rekordbox XML, Traktor NML, and VirtualDJ list XML.
+  - No new runtime dependencies; uses stdlib xml.etree.ElementTree.
+  - Serato export path remains unchanged for backward compatibility.
+  - 734 tests pass, 0 regressions.
+  - All new files pass ruff check and ruff format.

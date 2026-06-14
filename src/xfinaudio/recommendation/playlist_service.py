@@ -47,6 +47,10 @@ def recommend_playlist(
     """Recommend a playlist using a strategy profile and optional DJ controls."""
     strategy = (strategy_registry or default_strategy_registry()).get(str(strategy_name))
     controls = controls or DJControls()
+    # Session-scoped transition score cache: created fresh per call, threaded into
+    # the optimizer and final scoring so repeated (left, right, weights) pairs are
+    # computed once. Never persists between recommend_playlist calls.
+    _score_cache: dict[tuple, TransitionScore] = {}
     warnings: list[str] = []
     complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
     incomplete_count = len(tracks) - len(complete_tracks)
@@ -89,26 +93,34 @@ def recommend_playlist(
 
     if _uses_strategy_order(strategy):
         sequenced_tracks = _apply_terminal_constraints(remaining_tracks, start_path, applied.end_path)
+        sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(sequenced_tracks)
+        if dropped_bpm_jump_count:
+            warnings.append(
+                "Dropped "
+                f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
+                f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
+            )
         optimizer = "strategy-order"
     else:
+        remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(remaining_tracks)
+        if dropped_bpm_jump_count:
+            warnings.append(
+                "Dropped "
+                f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
+                f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
+            )
         sequenced = recommend_sequence(
             remaining_tracks,
             start_path=start_path,
             end_path=applied.end_path,
             weights=weights,
+            cache=_score_cache,
         )
         sequenced_tracks = sequenced.ordered_tracks
         optimizer = sequenced.optimizer
 
     ordered_tracks = [*manual_prefix, *sequenced_tracks]
-    ordered_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(ordered_tracks)
-    if dropped_bpm_jump_count:
-        warnings.append(
-            "Dropped "
-            f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
-            f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
-        )
-    transition_scores = _score_ordered_tracks(ordered_tracks, weights)
+    transition_scores = _score_ordered_tracks(ordered_tracks, weights, cache=_score_cache)
 
     return PlaylistRecommendation(
         ordered_tracks=ordered_tracks,
@@ -276,8 +288,15 @@ def _vibe_metadata_unavailable(strategy: PlaylistStrategy, tracks: list[TrackRec
     return all(not track.genre and not track.tags for track in tracks)
 
 
-def _score_ordered_tracks(tracks: list[TrackRecord], weights: ScoringWeights) -> list[TransitionScore]:
-    return [score_transition(left, right, weights=weights) for left, right in zip(tracks, tracks[1:], strict=False)]
+def _score_ordered_tracks(
+    tracks: list[TrackRecord],
+    weights: ScoringWeights,
+    cache: dict[tuple, TransitionScore] | None = None,
+) -> list[TransitionScore]:
+    return [
+        score_transition(left, right, weights=weights, cache=cache)
+        for left, right in zip(tracks, tracks[1:], strict=False)
+    ]
 
 
 __all__ = ["PlaylistRecommendation", "recommend_playlist"]

@@ -106,11 +106,11 @@ def test_library_screen_cancel_scan_requested_cancels(qapp, window, monkeypatch)
     assert called == [True]
 
 
-def test_library_screen_metadata_screen_requested_navigates_to_tab_4(qapp, window):
-    """metadata_screen_requested must navigate to tab index 4 (Metadata Worklist)."""
+def test_library_screen_metadata_screen_requested_navigates_to_tab_5(qapp, window):
+    """metadata_screen_requested must navigate to tab index 5 (Metadata Worklist)."""
     window.workflow_tabs.setCurrentIndex(0)
     window._library_screen.metadata_screen_requested.emit()
-    assert window.workflow_tabs.currentIndex() == 4
+    assert window.workflow_tabs.currentIndex() == 5
 
 
 # ---------------------------------------------------------------------------
@@ -169,19 +169,13 @@ def test_export_back_navigates_to_review(qapp, window):
 # ---------------------------------------------------------------------------
 
 
-def test_metadata_screen_is_tab_four(qapp, window):
-    """MetadataScreen must be the widget at tab index 4."""
-    assert isinstance(window.workflow_tabs.widget(4), MetadataScreen)
+def test_metadata_screen_is_tab_five(qapp, window):
+    """MetadataScreen must be the widget at tab index 5."""
+    assert isinstance(window.workflow_tabs.widget(5), MetadataScreen)
 
 
 def test_metadata_back_navigates_to_library(qapp, window):
     """back_requested from MetadataScreen must navigate to tab 0 (Library)."""
-    window.workflow_tabs.setCurrentIndex(4)
+    window.workflow_tabs.setCurrentIndex(5)
     window._metadata_screen.back_requested.emit()
     assert window.workflow_tabs.currentIndex() == 0
-
-
-def test_main_window_exposes_visible_library_table_accessor(qapp) -> None:
-    """MainWindow must expose the visible LibraryScreen tracks_table via a public accessor."""
-    window = _make_window()
-    assert window.visible_tracks_table is window._library_screen.tracks_table

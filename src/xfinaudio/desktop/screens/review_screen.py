@@ -42,7 +42,10 @@ _TRANSITION_HEADER_TOOLTIPS = {
     0: "Position of this transition in the playlist",
     1: "First track in the transition",
     2: "Second track in the transition",
-    3: "Tonal compatibility (Camelot). 1.0 = same key, 0.9 = adjacent or diagonal, 0.85 = relative A/B, 0.0 = incompatible",
+    3: (
+        "Tonal compatibility (Camelot). 1.0 = same key, 0.9 = adjacent or diagonal, "
+        "0.85 = relative A/B, 0.0 = incompatible"
+    ),
     4: "BPM similarity. 1.0 = ≤2% difference, drops as the gap grows",
     5: "Energy level similarity. 1.0 = same energy, drops as levels diverge",
     6: "Genre/tag overlap. Higher = more shared tags or genres",
@@ -129,9 +132,11 @@ class ReviewScreen(QWidget):
 
         # 4. Transition table help label
         self.transition_help_label = QLabel(
-            self.tr("💡 Each row shows how two consecutive tracks blend. "
-                    "Green = excellent, Yellow = acceptable, Red = risky. "
-                    "Hover over any score for details.")
+            self.tr(
+                "💡 Each row shows how two consecutive tracks blend. "
+                "Green = excellent, Yellow = acceptable, Red = risky. "
+                "Hover over any score for details."
+            )
         )
         self.transition_help_label.setWordWrap(True)
         self.transition_help_label.setMaximumHeight(40)
@@ -172,7 +177,6 @@ class ReviewScreen(QWidget):
         layout.addLayout(nav)
 
     def _apply_header_tooltips(self, table: QTableWidget, tooltips: dict[int, str]) -> None:
-        header = table.horizontalHeader()
         for column_index, text in tooltips.items():
             header_item = table.horizontalHeaderItem(column_index)
             if header_item is None:
@@ -192,12 +196,18 @@ class ReviewScreen(QWidget):
     # Render
     # ------------------------------------------------------------------
 
-    def render(self, vm: ReviewViewModel, state: AppState) -> None:
-        """Update all widgets from ViewModel data."""
+    def render(self, vm: ReviewViewModel, state: AppState, lightweight: bool = False) -> None:
+        """Update all widgets from ViewModel data.
+
+        Args:
+            lightweight: If True, skip expensive recommendation table population
+                        (used for non-visible tabs during state sync).
+        """
         self.readiness_badge.setText(vm.readiness_badge_text(state))
         self.quality_label.setText(vm.quality_summary(state))
         self.export_button.setEnabled(vm.can_export(state))
-        self._populate_recommendation_table(vm.recommendation_rows(state))
+        if not lightweight:
+            self._populate_recommendation_table(vm.recommendation_rows(state))
         # readiness_table and transition_table are populated imperatively by
         # _populate_dj_readiness_table / show_transition_review / clear_recommendation_review
 
@@ -237,7 +247,7 @@ class ReviewScreen(QWidget):
                 self.tr("Camelot key: {0}").format(row_data.camelot_key),
                 self.tr("Energy level: {0}").format(row_data.energy),
             ]
-            for col, (value, tip) in enumerate(zip(values, tooltips)):
+            for col, (value, tip) in enumerate(zip(values, tooltips, strict=True)):
                 item = QTableWidgetItem(value)
                 item.setToolTip(tip)
                 self.recommendation_table.setItem(row, col, item)

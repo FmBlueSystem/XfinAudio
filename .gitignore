@@ -28,3 +28,6 @@ dist/
 release-dist/
 .release-evidence/
 .worktrees/
+
+# App-generated runtime state
+playlists.db

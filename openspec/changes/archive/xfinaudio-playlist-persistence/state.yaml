@@ -1,0 +1,31 @@
+schema: gentle-ai.sdd-state.v1
+change: xfinaudio-playlist-persistence
+artifact_store: openspec
+status: archive
+created: 2026-06-08
+updated: 2026-06-08
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  sync: complete
+  archive: complete
+next_recommended: none
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Playlist persistence uses SQLite schema extension; no new dependencies.
+  - Playlists reference tracks by path (same foreign key strategy as existing).
+  - Must handle orphaned track references gracefully (track moved/renamed/deleted).
+  - Drag-and-drop reorder uses Qt's built-in table support.
+  - 683 tests pass, 0 regressions.
+  - All new files pass ruff check and ruff format.
+  - Archived to openspec/changes/archive/xfinaudio-playlist-persistence/

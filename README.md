@@ -17,7 +17,7 @@ Developed by **Freddy Molina** at **[BlueSystem.io](https://bluesystem.io)** —
   - [Technical techniques used](#technical-techniques-used)
   - [Application features](#application-features)
   - [Recommendation strategies](#recommendation-strategies)
-  - [Serato export model](#serato-export-model)
+  - [DJ software export model](#dj-software-export-model)
   - [Safety posture and non-goals](#safety-posture-and-non-goals)
   - [Install](#install)
   - [Quick start for development](#quick-start-for-development)
@@ -30,7 +30,7 @@ Developed by **Freddy Molina** at **[BlueSystem.io](https://bluesystem.io)** —
   - [Técnicas usadas](#técnicas-usadas)
   - [Características de la app](#características-de-la-app)
   - [Estrategias de recomendación](#estrategias-de-recomendación)
-  - [Modelo de exportación a Serato](#modelo-de-exportación-a-serato)
+  - [Modelo de exportación a software DJ](#modelo-de-exportación-a-software-dj)
   - [Postura de seguridad y no-objetivos](#postura-de-seguridad-y-no-objetivos)
   - [Instalación](#instalación)
   - [Inicio rápido para desarrollo](#inicio-rápido-para-desarrollo)
@@ -81,6 +81,10 @@ Current scope:
 - **Full internationalization (i18n) in English and Spanish** with runtime language switching.
 - **Duration column** read from audio file metadata.
 - **Custom app icon** for macOS dock and PyInstaller bundles.
+- **Integrated audio preview** — listen to tracks directly from the library table without leaving the app.
+- **Playlist persistence** — save, edit, rename, and re-export playlists via the "My Playlists" screen.
+- **Multi-software export** — export playlists to Rekordbox XML, Traktor NML, and VirtualDJ list XML in addition to Serato crates.
+- **Live Assistant mode** — performance view with real-time suggestions, risk alerts, and set history.
 - Manual desktop QA required before any release claim.
 
 For harmonic scoring concepts, Camelot movement, strategy intent, and current non-goals, see [HARMONIC_MIXING.md](HARMONIC_MIXING.md).
@@ -177,17 +181,26 @@ After recommendation, the app shows:
 
 The DJ should inspect this before exporting. This is not a blind automation tool.
 
-### 7. Export to Serato
+### 7. Preview tracks before exporting (optional)
 
-XfinAudio can write Serato crate artifacts into the detected Serato library.
+Use the integrated audio player to listen to tracks directly from the library table. Click the play button on any row to preview. The player coordinates so only one track plays at a time, and volume is persisted across sessions.
 
-Generated crates are:
+### 8. Save the playlist (optional)
 
-- Strategy grouped.
-- Timestamped.
-- Non-overwriting.
-- Written under `_Serato_/Subcrates`.
-- Encoded with `%%` hierarchy so Serato displays nested crate structure.
+If the playlist should be kept for later, use the **My Playlists** screen to save it with a custom name. Saved playlists can be reopened, edited via drag-and-drop, renamed, or deleted. They can also be re-exported to any supported DJ software without regenerating.
+
+### 9. Export to DJ software
+
+XfinAudio exports to **Serato**, **Rekordbox**, **Traktor**, and **VirtualDJ**.
+
+Choose the target software from the export screen. Each exporter produces the native format expected by the target platform:
+
+- **Serato**: crate files under `_Serato_/Subcrates` with `%%` hierarchy.
+- **Rekordbox**: `DJ_PLAYLISTS` 1.0.0 XML.
+- **Traktor**: NML v19 with collection and playlist nodes.
+- **VirtualDJ**: `VirtualFolder` XML with artist-title entries.
+
+All exports are strategy-grouped, timestamped, and non-overwriting.
 
 Example logical Serato grouping:
 
@@ -197,13 +210,13 @@ XfinAudio
     └── 20260606-030500 - build - Stayin Alive - 2 tracks
 ```
 
-Actual crate filename under `Subcrates` uses Serato-compatible encoded hierarchy:
+Actual crate filename under `Subcrates`:
 
 ```text
 XfinAudio%%Build%%20260606-030500 - build - Stayin Alive - 2 tracks.crate
 ```
 
-### 8. Improve metadata and refresh
+### 10. Improve metadata and refresh
 
 XfinAudio also exports metadata worklists:
 
@@ -422,17 +435,49 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 - Serato round-trip validation after export: crate bytes must match the plan and referenced files must resolve on disk.
 - Export guidance that tells the DJ to inspect results before Serato export.
 
-### Serato workflow
+### DJ software export workflow
 
 - Detects usable Serato libraries from home and mounted volumes.
 - Chooses the Serato library that best matches the playlist track paths.
 - Prefers the correct volume root for external-drive libraries.
 - Converts absolute macOS paths into Serato crate-relative paths.
-- Exports generated recommendations into strategy-grouped crates.
-- Exports complete/incomplete metadata worklists.
-- Exports Missing BPM, Missing Key, and Missing Energy worklists.
+- Exports generated recommendations into strategy-grouped crates for Serato.
+- Exports complete/incomplete metadata worklists for Serato.
+- Exports Missing BPM, Missing Key, and Missing Energy worklists for Serato.
+- Exports to **Rekordbox XML**, **Traktor NML**, and **VirtualDJ list XML**.
 - Keeps export history visible in the app.
 - Avoids overwriting generated crates by timestamp and uniqueness suffix.
+
+### Audio preview
+
+- Built-in audio player using Qt Multimedia.
+- Play/pause per track directly from the library table.
+- Single-player coordination: starting a new preview stops the current one.
+- Volume control persisted in settings.
+- Automatic cleanup on track change or app close.
+
+### Playlist persistence
+
+- Save generated playlists to an app-owned SQLite database.
+- Browse, rename, and delete saved playlists via the **My Playlists** screen.
+- Drag-and-drop playlist editor: reorder tracks, add from library, remove by selection.
+- Re-export saved playlists to any supported DJ software.
+
+### Multi-software export
+
+- Export playlists to **Serato**, **Rekordbox**, **Traktor**, and **VirtualDJ**.
+- Software selector in the export screen with dynamic button labels.
+- Rekordbox: `DJ_PLAYLISTS` 1.0.0 XML with track metadata.
+- Traktor: NML v19 with collection entries and playlist nodes.
+- VirtualDJ: `VirtualFolder` XML with artist-title entries.
+- Backward-compatible: Serato remains the default path.
+
+### Live Assistant mode
+
+- Performance view for booth use: **Now Playing**, **Next Suggestions**, **Set History**.
+- Real-time risk alerts for BPM jumps, key clashes, and energy drops.
+- One-click loading of next track into the suggestion pipeline.
+- Keyboard shortcuts: `Esc` to clear, `Space` to load next, `1`/`2`/`3` to accept suggestions.
 
 ### Settings and localization
 
@@ -465,7 +510,11 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 | `same_energy` | Stable intensity band. | Heavily weights energy and keeps a stable energy profile. |
 | `same_vibe` | Shared genre/tag feel. | Heavily weights genre/tag overlap and falls back when vibe metadata is unavailable. |
 
-## Serato export model
+## DJ software export model
+
+XfinAudio supports exporting to **Serato**, **Rekordbox**, **Traktor**, and **VirtualDJ**.
+
+### Serato crates
 
 XfinAudio does not mutate live Serato database V2 files. It writes Serato crate files under `_Serato_/Subcrates`.
 
@@ -485,12 +534,23 @@ Generated playlist crates are not overwritten every time. They are timestamped a
 
 Metadata worklist crates are also timestamped and grouped by purpose.
 
+### Rekordbox, Traktor, and VirtualDJ
+
+For non-Serato targets, XfinAudio writes standard XML files in the format expected by each platform:
+
+- **Rekordbox**: `DJ_PLAYLISTS` 1.0.0 XML with track metadata (Title, Artist, BPM, Key, Energy, Genre).
+- **Traktor**: NML v19 XML with collection entries and playlist nodes.
+- **VirtualDJ**: `VirtualFolder` XML with `song` entries using `artist - title` format.
+
+These exports follow the same strategy-grouped, timestamped, non-overwriting convention as Serato crates. The DJ selects the target software from a dropdown in the export screen.
+
 ## Project status
 
 - **Author and maintainer:** [Freddy Molina](https://github.com/FmBlueSystem) — [BlueSystem.io](https://bluesystem.io), Audio Division.
 - License posture: full open source under GPL-3.0-only. See `LICENSE` and `docs/open-source-license.md`.
 - Distribution model: XfinAudio ships as an installable Python package (source/wheel). Users install it with `pip`, `pipx`, or `uv tool` and the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses.
-- **macOS .app bundle**: A PyInstaller spec is included under `packaging/pyinstaller/` for building a local `.app` bundle. This is useful for personal use or CI builds, but signed/notarized distribution requires Apple Developer ID and separate legal review.
+- **macOS .app bundle**: A PyInstaller spec is included under `packaging/pyinstaller/` for building a local `.app` bundle. The bundle includes Qt Multimedia plugins and FFmpeg libraries for audio preview. Unsigned bundles work for personal use; signed/notarized distribution requires Apple Developer ID and separate legal review.
+- **Test suite**: 734 tests, all passing. Strict TDD is enforced for all changes.
 - Platform posture: validated on macOS with Python 3.11. The dependencies are cross-platform, but Linux and Windows are not yet validated.
 - Publication checklist: follow `docs/repository-publication-checklist.md` before turning a local tree into a public source repository.
 
@@ -648,6 +708,10 @@ Alcance actual:
 - **Internacionalización completa (i18n) en inglés y español** con cambio de idioma en tiempo de ejecución.
 - **Columna de duración** leída desde los headers de los archivos de audio.
 - **Ícono personalizado** para dock de macOS y bundles PyInstaller.
+- **Audio preview integrado** — reproducir tracks directamente desde la tabla de librería sin salir de la app.
+- **Persistencia de playlists** — guardar, editar, renombrar y re-exportar playlists desde la pantalla "My Playlists".
+- **Exportación multi-software** — exportar playlists a Rekordbox XML, Traktor NML y VirtualDJ list XML además de Serato crates.
+- **Modo Live Assistant** — vista de performance con sugerencias en tiempo real, alertas de riesgo e historial de set.
 - Manual desktop QA obligatorio antes de cualquier claim de release.
 
 Para conceptos de harmonic scoring, movimientos Camelot, intención de estrategias y no-objetivos actuales, ver [HARMONIC_MIXING.md](HARMONIC_MIXING.md).
@@ -744,17 +808,26 @@ Después de recomendar, la app muestra:
 
 El DJ debe revisar esto antes de exportar. No es automatización ciega.
 
-### 7. Exportar a Serato
+### 7. Previsualizar tracks antes de exportar (opcional)
 
-XfinAudio puede escribir crates en la biblioteca Serato detectada.
+Usar el reproductor integrado para escuchar tracks directamente desde la tabla de librería. Click en el botón de play de cualquier fila para previsualizar. El reproductor coordina para que solo suene un track a la vez, y el volumen se persiste entre sesiones.
 
-Los crates generados son:
+### 8. Guardar la playlist (opcional)
 
-- Agrupados por estrategia.
-- Con timestamp.
-- No destructivos/no reemplazan cada generación.
-- Escritos bajo `_Serato_/Subcrates`.
-- Codificados con jerarquía `%%` para que Serato muestre estructura anidada.
+Si la playlist debe conservarse para más tarde, usar la pantalla **My Playlists** para guardarla con un nombre personalizado. Las playlists guardadas se pueden reabrir, editar vía drag-and-drop, renombrar o eliminar. También se pueden re-exportar a cualquier software DJ soportado sin regenerar.
+
+### 9. Exportar a software DJ
+
+XfinAudio exporta a **Serato**, **Rekordbox**, **Traktor** y **VirtualDJ**.
+
+Elegir el software objetivo desde la pantalla de export. Cada exporter produce el formato nativo esperado por la plataforma objetivo:
+
+- **Serato**: crate files bajo `_Serato_/Subcrates` con jerarquía `%%`.
+- **Rekordbox**: XML `DJ_PLAYLISTS` 1.0.0.
+- **Traktor**: NML v19 con collection y playlist nodes.
+- **VirtualDJ**: XML `VirtualFolder` con entradas artist-title.
+
+Todas las exportaciones son agrupadas por estrategia, con timestamp y no destructivas.
 
 Ejemplo lógico en Serato:
 
@@ -770,7 +843,7 @@ Archivo real bajo `Subcrates`:
 XfinAudio%%Build%%20260606-030500 - build - Stayin Alive - 2 tracks.crate
 ```
 
-### 8. Mejorar metadata y refrescar
+### 10. Mejorar metadata y refrescar
 
 XfinAudio también exporta worklists de metadata:
 
@@ -989,17 +1062,49 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 - Validación Serato round-trip después de exportar: los bytes del crate deben coincidir con el plan y los archivos referenciados deben existir en disco.
 - Guía de exportación para revisar antes de mandar a Serato.
 
-### Flujo Serato
+### Flujo de exportación a software DJ
 
 - Detecta bibliotecas Serato utilizables en home y volúmenes montados.
 - Selecciona la biblioteca Serato que mejor coincide con los paths de tracks.
 - Prefiere el root correcto del volumen externo.
 - Convierte paths absolutos de macOS a paths relativos de crate Serato.
-- Exporta recomendaciones agrupadas por estrategia.
-- Exporta worklists complete/incomplete.
-- Exporta worklists Missing BPM, Missing Key y Missing Energy.
+- Exporta recomendaciones agrupadas por estrategia a Serato.
+- Exporta worklists complete/incomplete a Serato.
+- Exporta worklists Missing BPM, Missing Key y Missing Energy a Serato.
+- Exporta a **Rekordbox XML**, **Traktor NML** y **VirtualDJ list XML**.
 - Muestra historial de exportaciones dentro de la app.
 - Evita sobrescribir crates generados mediante timestamp y sufijo único.
+
+### Vista previa de audio
+
+- Reproductor integrado con Qt Multimedia.
+- Play/pause por track directamente desde la tabla de librería.
+- Coordinación de reproductor único: iniciar una preview nueva detiene la actual.
+- Control de volumen persistido en settings.
+- Limpieza automática al cambiar de track o cerrar la app.
+
+### Persistencia de playlists
+
+- Guardar playlists generadas en base SQLite propia de la app.
+- Navegar, renombrar y eliminar playlists guardadas desde la pantalla **My Playlists**.
+- Editor drag-and-drop: reordenar tracks, agregar desde librería, eliminar por selección.
+- Re-exportar playlists guardadas a cualquier software DJ soportado.
+
+### Exportación multi-software
+
+- Exportar playlists a **Serato**, **Rekordbox**, **Traktor** y **VirtualDJ**.
+- Selector de software en la pantalla de export con labels dinámicos.
+- Rekordbox: XML `DJ_PLAYLISTS` 1.0.0 con metadata de tracks.
+- Traktor: NML v19 con entradas de colección y nodos de playlist.
+- VirtualDJ: XML `VirtualFolder` con entradas artist-title.
+- Retrocompatible: Serato sigue siendo el path por defecto.
+
+### Modo Live Assistant
+
+- Vista de performance para uso en cabina: **Now Playing**, **Next Suggestions**, **Set History**.
+- Alertas de riesgo en tiempo real por saltos de BPM, choques de key y caídas de energía.
+- Carga con un click del siguiente track al pipeline de sugerencias.
+- Atajos de teclado: `Esc` para limpiar, `Space` para cargar siguiente, `1`/`2`/`3` para aceptar sugerencias.
 
 ### Ajustes y localización
 
@@ -1032,7 +1137,11 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 | `same_energy` | Intensidad estable. | Pesa fuerte la energía y mantiene una banda estable. |
 | `same_vibe` | Género/tag compartido. | Pesa fuerte el overlap de género/tags y hace fallback si falta metadata de vibe. |
 
-## Modelo de exportación a Serato
+## Modelo de exportación a software DJ
+
+XfinAudio soporta exportación a **Serato**, **Rekordbox**, **Traktor** y **VirtualDJ**.
+
+### Crates Serato
 
 XfinAudio no modifica live Serato database V2 files. Escribe archivos Serato crate bajo `_Serato_/Subcrates`.
 
@@ -1052,12 +1161,23 @@ Los crates generados de playlist no se reemplazan cada vez. Se agrupan por estra
 
 Los crates de worklist de metadata también se agrupan por propósito y timestamp.
 
+### Rekordbox, Traktor y VirtualDJ
+
+Para targets que no son Serato, XfinAudio escribe archivos XML estándar en el formato esperado por cada plataforma:
+
+- **Rekordbox**: XML `DJ_PLAYLISTS` 1.0.0 con metadata de tracks (Título, Artista, BPM, Key, Energía, Género).
+- **Traktor**: NML v19 XML con entradas de colección y nodos de playlist.
+- **VirtualDJ**: XML `VirtualFolder` con entradas `song` usando formato `artist - title`.
+
+Estas exportaciones siguen la misma convención de agrupación por estrategia, timestamp y no destructiva que los crates Serato. El DJ selecciona el software objetivo desde un dropdown en la pantalla de export.
+
 ## Estado del proyecto
 
 - **Autor y mantenedor:** [Freddy Molina](https://github.com/FmBlueSystem) — [BlueSystem.io](https://bluesystem.io), División de Audio.
 - Licencia: open source bajo GPL-3.0-only. Ver `LICENSE` y `docs/open-source-license.md`.
 - Modelo de distribución: XfinAudio se distribuye como paquete Python instalable (source/wheel). El usuario instala con `pip`, `pipx` o `uv tool`; el resolver descarga PySide6 y mutagen desde PyPI bajo sus propias licencias.
-- **Bundle .app para macOS**: Se incluye un spec de PyInstaller bajo `packaging/pyinstaller/` para construir un bundle `.app` local. Es útil para uso personal o builds de CI, pero la distribución firmada/notarizada requiere Apple Developer ID y revisión legal separada.
+- **Bundle .app para macOS**: Se incluye un spec de PyInstaller bajo `packaging/pyinstaller/` para construir un bundle `.app` local. El bundle incluye plugins de Qt Multimedia y librerías FFmpeg para audio preview. Los bundles no firmados sirven para uso personal; la distribución firmada/notarizada requiere Apple Developer ID y revisión legal separada.
+- **Suite de tests**: 734 tests, todos pasando. Se aplica TDD estricto para todos los cambios.
 - Plataforma: validado en macOS con Python 3.11. Las dependencias son cross-platform, pero Linux y Windows todavía no están validados.
 - Checklist de publicación: seguir `docs/repository-publication-checklist.md` antes de convertir un árbol local en repo público.
 

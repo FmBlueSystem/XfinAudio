@@ -30,6 +30,7 @@ stack:
     - pyinstaller ==6.20.0
 
 sdd:
+  methodology: gentle-ai.sdd-tdd.v1
   artifact_store: openspec
   execution_mode: auto
   strict_tdd: true
@@ -38,6 +39,7 @@ sdd:
     - Use proposal, spec, design, tasks, apply, and verify phases for feature/refactor work.
     - In strict TDD, write or update failing tests before implementation during apply.
     - Keep OpenSpec artifacts in this repository's openspec/ tree.
+    - Follow the project skill .atl/skills/gentle-ai-sdd-tdd/SKILL.md for the full lifecycle.
   current_intent:
     requested_change: Continue Change B of the main_window refactor.
     status: Not started by this initialization step.
@@ -46,7 +48,18 @@ sdd:
 
 testing:
   runner: pytest
+  framework: pytest 9.0.3
   primary_command: uv run pytest -q
+  strict_tdd: true
+  test_layers:
+    unit: { available: true, tool: pytest }
+    integration: { available: true, tool: pytest }
+    ui: { available: true, tool: pytest + PySide6 offscreen }
+    e2e: { available: false, tool: null }
+  coverage:
+    available: false
+    tool: null
+    command: null
   validation_commands:
     - uv run pytest -q
     - uv run ruff check .
@@ -56,8 +69,13 @@ testing:
       - tests
     pythonpath:
       - src
+  type_checker:
+    available: false
+    tool: null
+    command: null
   linting:
     ruff:
+      available: true
       target_version: py311
       line_length: 120
       lint_select:
@@ -72,6 +90,10 @@ testing:
       format:
         quote_style: double
         indent_style: space
+  formatter:
+    tool: ruff
+    available: true
+    command: uv run ruff format .
 
 conventions:
   planning_history: .planning/codebase/AGENT-DISPATCH.md

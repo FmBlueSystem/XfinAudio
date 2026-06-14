@@ -5,6 +5,7 @@ from xfinaudio.recommendation.scoring import (
     KeyShiftConfig,
     ScoringWeights,
     ThresholdScore,
+    TransitionScore,
     TransitionScoringConfig,
     score_transition,
 )
@@ -172,3 +173,35 @@ def test_score_transition_warns_when_genre_and_tags_do_not_overlap() -> None:
 
     assert result.component_scores["tags"] == 0.0
     assert "Genre/tag mismatch: no shared genre, subgenre, mood, or tag metadata" in result.warnings
+
+
+def test_score_transition_returns_cached_result_on_second_call() -> None:
+    """Second call with same args returns the exact same object (identity, not just equality)."""
+    left = track("left", bpm=120.0, camelot_key="8A", energy_level=5, genre="House", tags=["Peak"])
+    right = track("right", bpm=121.0, camelot_key="8A", energy_level=6, genre="House", tags=["Peak"])
+    cache: dict[tuple, TransitionScore] = {}
+
+    first = score_transition(left, right, cache=cache)
+    second = score_transition(left, right, cache=cache)
+
+    # Identity check: same object returned from cache
+    assert first is second
+    # Cache has exactly 1 entry (memoized)
+    assert len(cache) == 1
+
+
+def test_score_cache_is_isolated_per_session() -> None:
+    """Each session-scoped cache memoizes independently; caches do not share state."""
+    left = track("left", bpm=120.0, camelot_key="8A", energy_level=5, genre="House", tags=["Peak"])
+    right = track("right", bpm=121.0, camelot_key="8A", energy_level=6, genre="House", tags=["Peak"])
+    cache_a: dict[tuple, TransitionScore] = {}
+    cache_b: dict[tuple, TransitionScore] = {}
+
+    score_transition(left, right, cache=cache_a)
+    score_transition(left, right, cache=cache_b)
+
+    # Each cache populated exactly one entry, independently
+    assert len(cache_a) == 1
+    assert len(cache_b) == 1
+    # The caches are distinct objects (no shared session state)
+    assert cache_a is not cache_b

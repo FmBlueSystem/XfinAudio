@@ -102,8 +102,13 @@ class MetadataScreen(QWidget):
     # Render
     # ------------------------------------------------------------------
 
-    def render(self, state: AppState, vm: MetadataViewModel | None = None) -> None:
-        """Update widgets from AppState via MetadataViewModel."""
+    def render(self, state: AppState, vm: MetadataViewModel | None = None, lightweight: bool = False) -> None:
+        """Update widgets from AppState via MetadataViewModel.
+
+        Args:
+            lightweight: If True, skip expensive table population
+                        (used for non-visible tabs during state sync).
+        """
         if vm is None:
             vm = MetadataViewModel()
 
@@ -127,8 +132,9 @@ class MetadataScreen(QWidget):
         status_filter = self.status_combo.currentText() or None
         missing_filter = self.missing_combo.currentText() or None
 
-        rows = vm.worklist_rows(state, status_filter, missing_filter)
-        self._populate_table(rows)
+        if not lightweight:
+            rows = vm.worklist_rows(state, status_filter, missing_filter)
+            self._populate_table(rows)
 
         self.export_button.setEnabled(vm.export_enabled(state))
 

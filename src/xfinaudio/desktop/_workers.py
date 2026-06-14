@@ -18,9 +18,10 @@ class BackgroundWorker(QObject):
     finished = Signal(object)
     failed = Signal(object)
 
-    def __init__(self, operation: Callable[[], object]) -> None:
+    def __init__(self, operation: Callable[[], object], request_id: int = 0) -> None:
         super().__init__()
         self._operation = operation
+        self._request_id = request_id
 
     @Slot()
     def run(self) -> None:
@@ -41,9 +42,10 @@ class ScanWorker(QObject):
     finished = Signal(object)
     failed = Signal(object)
 
-    def __init__(self, operation: Callable[[Callable[[ScanProgress], None]], object]) -> None:
+    def __init__(self, operation: Callable[[Callable[[ScanProgress], None]], object], request_id: int = 0) -> None:
         super().__init__()
         self._operation = operation
+        self._request_id = request_id
 
     @Slot()
     def run(self) -> None:

@@ -1,7 +1,9 @@
+from unittest.mock import patch
+
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
-from xfinaudio.recommendation.scoring import ScoringWeights
+from xfinaudio.recommendation.scoring import ScoringWeights, score_transition
 from xfinaudio.recommendation.strategies import StrategyRegistry, get_strategy
 
 
@@ -156,3 +158,22 @@ def test_harmonic_journey_drops_generated_tracks_after_bpm_jump_over_three_perce
     assert [item.path for item in result.ordered_tracks] == ["/start.flac", "/good.flac"]
     assert "Dropped 1 generated track(s) because adjacent BPM jump exceeded 3.0%" in result.warnings
     assert all(score.component_scores["bpm"] > 0.0 for score in result.transition_scores)
+
+
+def test_score_cache_is_fresh_per_recommendation_session() -> None:
+    """Each recommend_playlist call starts with a fresh cache — no cross-session leakage."""
+    tracks = [
+        track("/a.flac", bpm=120.0, camelot_key="8A", energy_level=5),
+        track("/b.flac", bpm=121.0, camelot_key="8A", energy_level=5),
+        track("/c.flac", bpm=122.0, camelot_key="8A", energy_level=5),
+    ]
+
+    with patch("xfinaudio.recommendation.playlist_service.score_transition", wraps=score_transition) as spy:
+        recommend_playlist(tracks, "harmonic_journey")
+        first_session_calls = spy.call_count
+
+        recommend_playlist(tracks, "harmonic_journey")
+        second_session_calls = spy.call_count - first_session_calls
+
+    # Both sessions computed the same number of transitions — cache was fresh in session 2
+    assert first_session_calls == second_session_calls

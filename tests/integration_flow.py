@@ -154,8 +154,8 @@ def run_tests():
     )
 
     # Initial state: scan disabled until folder chosen
-    check("scan_button disabled initially", not window.scan_button.isEnabled())
-    check("recommend_button disabled initially", not window.recommend_button.isEnabled())
+    check("scan_button disabled initially", not window._library_screen.scan_button.isEnabled())
+    check("recommend_button disabled initially", not window._build_screen.recommend_button.isEnabled())
 
     # ------------------------------------------------------------------ #
     section("8. NAVIGATION CONTROLLER — tab enable/disable state")
@@ -175,7 +175,7 @@ def run_tests():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         window.set_selected_folder(tmp_path)
-        check("scan_button enabled after folder selected", window.scan_button.isEnabled())
+        check("scan_button enabled after folder selected", window._library_screen.scan_button.isEnabled())
         check(
             "LibraryScreen.search_input has placeholder",
             window._library_screen.search_input.placeholderText() == "Search songs",
@@ -201,14 +201,14 @@ def run_tests():
         check("8.2 Metadata Worklist tab enabled after scan", window.workflow_tabs.isTabEnabled(4))
 
         # Filter test
-        window.song_search_input.setText("One")
+        window._library_screen.search_input.setText("One")
         visible = _visible_row_count(window.tracks_table)
         check("Filter reduces visible rows to 1", visible == 1, f"got {visible}")
-        window.song_search_input.clear()
+        window._library_screen.search_input.clear()
 
         # Select first track (start_path controls harmonic_journey to build 2-track result)
         window.tracks_table.selectRow(0)
-        check("recommend_button enabled after selection", window.recommend_button.isEnabled())
+        check("recommend_button enabled after selection", window._build_screen.recommend_button.isEnabled())
 
         # ------------------------------------------------------------------ #
         section("2. BUILD PLAYLIST — navigate and recommend")
@@ -232,9 +232,9 @@ def run_tests():
         check("BuildScreen.recommend_button enabled with track selected", build_recommend_enabled)
 
         # Trigger recommendation via BuildScreen — use harmonic_journey to get 2-track result
-        window.strategy_combo.setCurrentText("harmonic_journey")
+        window._build_screen.strategy_combo.setCurrentText("harmonic_journey")
         window.recommend_playlist()
-        reached = _process_events_until(lambda: window.recommend_button.isEnabled())
+        reached = _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
         check("Recommendation completed within timeout", reached)
 
         # Moment 3: after recommendation — Library, Build, Review, Export, and Metadata enabled
@@ -247,9 +247,9 @@ def run_tests():
         check("8.3 Metadata Worklist tab enabled after recommendation", window.workflow_tabs.isTabEnabled(4))
 
         # Check recommendation table
-        rec_row_count = window.recommendation_table.rowCount()
+        rec_row_count = window._review_screen.recommendation_table.rowCount()
         check("recommendation_table populated (>0 rows)", rec_row_count > 0, f"got {rec_row_count}")
-        check("recommendation_table hidden=False", not window.recommendation_table.isHidden())
+        check("recommendation_table hidden=False", not window._review_screen.recommendation_table.isHidden())
 
         # Verify no extra top-level visible windows (excluding our window)
         top_level = [w for w in app.topLevelWidgets() if w.isVisible() and w is not window]

@@ -94,19 +94,37 @@ def score_transition(
     weights: ScoringWeights = DEFAULT_WEIGHTS,
     boost_rules: Collection[BoostRule] | None = None,
     config: TransitionScoringConfig | None = None,
+    cache: dict[tuple, TransitionScore] | None = None,
 ) -> TransitionScore:
-    """Score the musical compatibility from one track to the next."""
+    """Score the musical compatibility from one track to the next.
+
+    When ``cache`` is provided, results are memoized by an identity-based key
+    ``(left.path, right.path, id(weights), id(config), id(boost_rules))``. The
+    cache is owned by the caller (session-scoped per ``recommend_playlist``
+    call); ``score_transition`` itself stays pure and stateless.
+    """
+    cache_key = (left.path, right.path, id(weights), id(config), id(boost_rules)) if cache is not None else None
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
+
+    def _store(result: TransitionScore) -> TransitionScore:
+        if cache is not None and cache_key is not None:
+            cache[cache_key] = result
+        return result
+
     scoring_config = config or DEFAULT_SCORING_CONFIG
     effective_weights = scoring_config.weights if config is not None and weights == DEFAULT_WEIGHTS else weights
     warnings = _metadata_warnings(left, right, scoring_config.required_fields)
     if warnings:
-        return TransitionScore(
-            left_path=left.path,
-            right_path=right.path,
-            total_score=0.0,
-            component_scores={},
-            explanations=[],
-            warnings=warnings,
+        return _store(
+            TransitionScore(
+                left_path=left.path,
+                right_path=right.path,
+                total_score=0.0,
+                component_scores={},
+                explanations=[],
+                warnings=warnings,
+            )
         )
 
     try:
@@ -114,13 +132,15 @@ def score_transition(
         right_key = _shifted_key(right.camelot_key or "", scoring_config.key_shift.right_semitones)
         harmonic_score = score_camelot_transition(left_key, right_key, boost_rules)
     except ValueError:
-        return TransitionScore(
-            left_path=left.path,
-            right_path=right.path,
-            total_score=0.0,
-            component_scores={},
-            explanations=[],
-            warnings=_invalid_camelot_warnings(left, right),
+        return _store(
+            TransitionScore(
+                left_path=left.path,
+                right_path=right.path,
+                total_score=0.0,
+                component_scores={},
+                explanations=[],
+                warnings=_invalid_camelot_warnings(left, right),
+            )
         )
 
     component_scores = {
@@ -153,13 +173,15 @@ def score_transition(
             warnings.append("Genre/tag mismatch: no shared genre, subgenre, mood, or tag metadata")
 
     total_score = _weighted_total(component_scores, effective_weights)
-    return TransitionScore(
-        left_path=left.path,
-        right_path=right.path,
-        total_score=round(total_score, 6),
-        component_scores=component_scores,
-        explanations=explanations,
-        warnings=warnings,
+    return _store(
+        TransitionScore(
+            left_path=left.path,
+            right_path=right.path,
+            total_score=round(total_score, 6),
+            component_scores=component_scores,
+            explanations=explanations,
+            warnings=warnings,
+        )
     )
 
 

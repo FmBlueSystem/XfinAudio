@@ -1,0 +1,147 @@
+"""Tests for LiveAssistantScreen — Qt widget tests."""
+
+import pytest
+from PySide6.QtWidgets import QApplication
+
+from xfinaudio.desktop.screens.live_assistant_screen import LiveAssistantScreen
+from xfinaudio.library.models import TrackRecord
+
+
+@pytest.fixture()
+def track_a() -> TrackRecord:
+    return TrackRecord(
+        path="/a.flac",
+        title="Track A",
+        artist="Artist A",
+        bpm=128.0,
+        camelot_key="11B",
+        energy_level=7,
+        metadata_status="complete",
+    )
+
+
+@pytest.fixture()
+def track_b() -> TrackRecord:
+    return TrackRecord(
+        path="/b.flac",
+        title="Track B",
+        artist="Artist B",
+        bpm=129.0,
+        camelot_key="12B",
+        energy_level=7,
+        metadata_status="complete",
+    )
+
+
+@pytest.fixture()
+def track_c() -> TrackRecord:
+    return TrackRecord(
+        path="/c.flac",
+        title="Track C",
+        artist="Artist C",
+        bpm=135.0,
+        camelot_key="3A",
+        energy_level=8,
+        metadata_status="complete",
+    )
+
+
+def test_live_assistant_screen_constructs(qapp: QApplication) -> None:
+    screen = LiveAssistantScreen()
+    assert screen is not None
+    assert screen.windowTitle() == "Live Assistant"
+
+
+def test_set_current_track_updates_now_playing(qapp: QApplication, track_a: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    screen.set_current_track(track_a)
+
+    assert screen._now_playing_title.text() == "Track A"
+    assert screen._now_playing_artist.text() == "Artist A"
+    assert "128" in screen._now_playing_bpm.text()
+    assert "11B" in screen._now_playing_key.text()
+    assert "7" in screen._now_playing_energy.text()
+
+
+def test_set_candidates_populates_suggestions(qapp: QApplication, track_a: TrackRecord, track_b: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    screen.set_current_track(track_a)
+    screen.set_candidates([track_b])
+
+    assert screen._suggestion_rows[0]._title_label.text() == "Track B"
+
+
+def test_suggestion_row_hidden_when_no_candidate(qapp: QApplication, track_a: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    screen.set_current_track(track_a)
+    screen.set_candidates([])
+
+    assert screen._suggestion_rows[0].isVisible() is False
+    assert screen._suggestion_rows[1].isVisible() is False
+    assert screen._suggestion_rows[2].isVisible() is False
+
+
+def test_load_next_emits_signal(qapp: QApplication, track_a: TrackRecord, track_b: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    received: list[str] = []
+    screen.load_next_requested.connect(lambda path: received.append(path))
+
+    screen.set_current_track(track_a)
+    screen.set_candidates([track_b])
+    screen._suggestion_rows[0]._load_button.click()
+
+    assert received == [track_b.path]
+
+
+def test_preview_requested_emits_signal(qapp: QApplication, track_a: TrackRecord, track_b: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    received: list[str] = []
+    screen.preview_requested.connect(lambda path: received.append(path))
+
+    screen.set_current_track(track_a)
+    screen.set_candidates([track_b])
+    screen._suggestion_rows[0]._preview_button.click()
+
+    assert received == [track_b.path]
+
+
+def test_exit_requested_emits_signal(qapp: QApplication) -> None:
+    screen = LiveAssistantScreen()
+    received: list[bool] = []
+    screen.exit_requested.connect(lambda: received.append(True))
+
+    screen._exit_button.click()
+
+    assert received == [True]
+
+
+def test_history_appends_on_load_next(qapp: QApplication, track_a: TrackRecord, track_b: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    screen.set_current_track(track_a)
+    screen.set_candidates([track_b])
+    screen._suggestion_rows[0]._load_button.click()
+
+    assert screen._history_table.rowCount() == 1
+    assert screen._history_table.item(0, 1).text() == "Track A"
+
+
+def test_empty_state_shows_when_no_current_track(qapp: QApplication) -> None:
+    screen = LiveAssistantScreen()
+    assert screen._empty_state_widget is not None
+    assert screen._content_widget is not None
+
+
+def test_content_shows_when_current_track_set(qapp: QApplication, track_a: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    screen.set_current_track(track_a)
+    assert screen._current_track == track_a
+
+
+def test_keyboard_shortcut_esc_emits_exit(qapp: QApplication) -> None:
+    screen = LiveAssistantScreen()
+    received: list[bool] = []
+    screen.exit_requested.connect(lambda: received.append(True))
+
+    screen._shortcut_esc.activated.emit()
+
+    assert received == [True]
