@@ -67,6 +67,11 @@ def recommend_playlist(
         complete_tracks, strategy, preserve_paths=_preserved_control_paths(controls)
     )
     warnings.extend(filter_warnings)
+    if strategy.name == "same_genre":
+        filtered_tracks, genre_warnings = _apply_genre_filter(
+            filtered_tracks, controls, preserve_paths=_preserved_control_paths(controls)
+        )
+        warnings.extend(genre_warnings)
     applied = apply_controls(filtered_tracks, controls)
 
     anchor_energy = _resolve_anchor_energy(applied)
@@ -195,6 +200,64 @@ def _apply_strategy_filters(
         if removed:
             warnings.append(f"Filtered {removed} track(s) outside {strategy.name} BPM range")
     return _sort_by_hint(filtered, strategy), warnings
+
+
+def _apply_genre_filter(
+    tracks: list[TrackRecord], controls: DJControls, preserve_paths: set[str]
+) -> tuple[list[TrackRecord], list[str]]:
+    anchor_genre = _resolve_anchor_genre(tracks, controls)
+    if anchor_genre is None:
+        return tracks, []
+
+    warnings = [f"same_genre filter applied: {anchor_genre}"]
+    filtered = [track for track in tracks if track.path in preserve_paths or _normalized_genre(track) == anchor_genre]
+    eligible = [track for track in filtered if track.path not in preserve_paths]
+    if not eligible:
+        warnings.append(
+            f"same_genre: no candidates match anchor genre '{anchor_genre}'; falling back to unfiltered scoring"
+        )
+        return tracks, warnings
+    return filtered, warnings
+
+
+def _resolve_anchor_genre(tracks: list[TrackRecord], controls: DJControls) -> str | None:
+    by_path = {track.path: track for track in tracks}
+    if (
+        controls.start_path is not None
+        and (start_track := by_path.get(controls.start_path)) is not None
+        and (start_genre := _normalized_genre(start_track))
+    ):
+        return start_genre
+
+    manual_genres = [
+        genre
+        for path in controls.manual_order_paths
+        if path not in controls.excluded_paths and (track := by_path.get(path)) is not None
+        if (genre := _normalized_genre(track)) is not None
+    ]
+    if manual_genres:
+        return _dominant_genre(manual_genres)
+
+    for track in tracks:
+        if genre := _normalized_genre(track):
+            return genre
+    return None
+
+
+def _dominant_genre(genres: list[str]) -> str:
+    first_seen: dict[str, int] = {}
+    counts: dict[str, int] = {}
+    for index, genre in enumerate(genres):
+        first_seen.setdefault(genre, index)
+        counts[genre] = counts.get(genre, 0) + 1
+    return min(counts, key=lambda genre: (-counts[genre], first_seen[genre]))
+
+
+def _normalized_genre(track: TrackRecord) -> str | None:
+    if track.genre is None:
+        return None
+    genre = track.genre.casefold().strip()
+    return genre or None
 
 
 def _preserved_control_paths(controls: DJControls) -> set[str]:

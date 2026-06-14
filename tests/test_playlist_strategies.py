@@ -21,6 +21,7 @@ EXPECTED_STRATEGIES = {
     "same_energy",
     "same_vibe",
     "same_color",
+    "same_genre",
 }
 
 
@@ -79,6 +80,18 @@ def test_same_vibe_requires_tags_or_genre_and_can_degrade() -> None:
     assert strategy.requires_vibe_metadata is True
     assert strategy.degrade_without_vibe_metadata is True
     assert strategy.weights.tags > strategy.weights.harmonic
+
+
+def test_same_genre_constrains_to_anchor_primary_genre() -> None:
+    strategy = get_strategy("same_genre")
+
+    assert strategy.display_name == "Same Genre"
+    assert strategy.description == "Constrain the playlist to the dominant primary genre of the anchor tracks."
+    assert strategy.weights == ScoringWeights(harmonic=0.30, bpm=0.20, energy=0.20, tags=0.30)
+    assert strategy.sort_hint == "path"
+    assert strategy.energy_range is None
+    assert strategy.bpm_range is None
+    assert strategy.requires_vibe_metadata is False
 
 
 def test_harmonic_journey_emphasizes_harmonic_weight() -> None:

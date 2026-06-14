@@ -119,6 +119,71 @@ def test_recommend_playlist_same_vibe_degrades_gracefully_when_tags_are_unavaila
     assert "same_vibe metadata unavailable; falling back to harmonic sequencing" in result.warnings
 
 
+def test_same_genre_filters_candidates_to_selected_start_genre() -> None:
+    tracks = [
+        track("/anchor.flac", genre=" World & Latin ", tags=["World & Latin"]),
+        track("/latin-a.flac", genre="world & latin", tags=["World & Latin"]),
+        track("/rock.flac", genre="Rock", tags=["Rock"]),
+        track("/latin-b.flac", genre="WORLD & LATIN", tags=["World & Latin"]),
+    ]
+
+    result = recommend_playlist(tracks, "same_genre", controls=DJControls(start_path="/anchor.flac"))
+
+    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/latin-a.flac", "/latin-b.flac"}
+    assert "same_genre filter applied: world & latin" in result.warnings
+
+
+def test_same_genre_uses_manual_prefix_genre_when_start_path_is_absent() -> None:
+    tracks = [
+        track("/manual.flac", genre="Disco", tags=["Disco"]),
+        track("/disco.flac", genre="disco", tags=["Disco"]),
+        track("/house.flac", genre="House", tags=["House"]),
+    ]
+
+    result = recommend_playlist(tracks, "same_genre", controls=DJControls(manual_order_paths=["/manual.flac"]))
+
+    assert [item.path for item in result.ordered_tracks[:1]] == ["/manual.flac"]
+    assert {item.path for item in result.ordered_tracks} == {"/manual.flac", "/disco.flac"}
+    assert "same_genre filter applied: disco" in result.warnings
+
+
+def test_same_genre_preserves_controlled_paths_even_when_genre_differs() -> None:
+    tracks = [
+        track("/anchor.flac", genre="House", tags=["House"]),
+        track("/house.flac", genre="House", tags=["House"]),
+        track("/locked-rock.flac", genre="Rock", tags=["Rock"]),
+        track("/end-pop.flac", genre="Pop", tags=["Pop"]),
+    ]
+    controls = DJControls(start_path="/anchor.flac", end_path="/end-pop.flac", locked_paths={"/locked-rock.flac"})
+
+    result = recommend_playlist(tracks, "same_genre", controls=controls)
+
+    assert {item.path for item in result.ordered_tracks} == {
+        "/anchor.flac",
+        "/house.flac",
+        "/locked-rock.flac",
+        "/end-pop.flac",
+    }
+    assert "same_genre filter applied: house" in result.warnings
+
+
+def test_same_genre_falls_back_when_no_eligible_candidate_matches_anchor_genre() -> None:
+    tracks = [
+        track("/anchor.flac", genre="World & Latin", tags=["World & Latin"]),
+        track("/rock.flac", genre="Rock", tags=["Rock"]),
+        track("/house.flac", genre="House", tags=["House"]),
+    ]
+
+    result = recommend_playlist(tracks, "same_genre", controls=DJControls(start_path="/anchor.flac"))
+
+    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/rock.flac", "/house.flac"}
+    assert "same_genre filter applied: world & latin" in result.warnings
+    assert (
+        "same_genre: no candidates match anchor genre 'world & latin'; falling back to unfiltered scoring"
+        in result.warnings
+    )
+
+
 def test_recommend_playlist_uses_injected_strategy_registry() -> None:
     peak_as_custom = get_strategy("peak_time").model_copy(update={"name": "custom_peak"})
     registry = StrategyRegistry([peak_as_custom])
