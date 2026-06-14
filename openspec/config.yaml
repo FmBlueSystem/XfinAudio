@@ -24,6 +24,8 @@ stack:
   core_dependencies:
     - mutagen >=1.47,<2.0
     - pydantic >=2.0,<3.0
+    - librosa >=0.10,<0.12
+    - numpy >=1.24,<3.0
   dev_dependencies:
     - pytest >=8.0
     - pytest-cov >=7.1.0
@@ -43,10 +45,10 @@ sdd:
     - Keep OpenSpec artifacts in this repository's openspec/ tree.
     - Follow the project skill .atl/skills/gentle-ai-sdd-tdd/SKILL.md for the full lifecycle.
   current_intent:
-    requested_change: Continue Change B of the main_window refactor.
-    status: Not started by this initialization step.
+    requested_change: Implement offline read-only spectral color features for transition scoring.
+    status: In progress — apply phase.
     reference_history:
-      - .planning/codebase/AGENT-DISPATCH.md
+      - openspec/changes/spectral-color-features/design.md
 
 testing:
   runner: pytest

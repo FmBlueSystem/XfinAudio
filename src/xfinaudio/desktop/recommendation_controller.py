@@ -29,6 +29,7 @@ class RecommendationController(QObject):
         records: list[TrackRecord],
         strategy_name: str,
         controls: DJControls | None = None,
+        spectral_cohesion: float = 0.0,
     ) -> None:
         """Start a background recommendation in a worker thread."""
         if self._recommendation_thread is not None and self._recommendation_thread.isRunning():
@@ -36,7 +37,7 @@ class RecommendationController(QObject):
             self._recommendation_thread.wait(500)
         self._current_request_id += 1
         rid = self._current_request_id
-        self._start_recommendation_worker(records, strategy_name, controls, rid)
+        self._start_recommendation_worker(records, strategy_name, controls, spectral_cohesion, rid)
 
     def cancel(self) -> None:
         """Request thread interruption if a recommendation is running."""
@@ -51,12 +52,15 @@ class RecommendationController(QObject):
         records: list[TrackRecord],
         strategy_name: str,
         controls: DJControls | None,
+        spectral_cohesion: float,
         request_id: int,
     ) -> None:
         """Construct and start the QThread/BackgroundWorker pair."""
         thread = QThread(self)
         worker = BackgroundWorker(
-            lambda: self.workflow_service.recommend(records, strategy_name, controls=controls),
+            lambda: self.workflow_service.recommend(
+                records, strategy_name, controls=controls, spectral_cohesion=spectral_cohesion
+            ),
             request_id=request_id,
         )
         worker.moveToThread(thread)

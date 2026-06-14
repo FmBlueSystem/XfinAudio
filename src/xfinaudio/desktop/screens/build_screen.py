@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QSlider,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -33,6 +34,7 @@ class BuildScreen(QWidget):
     """Displays strategy selection and Prep Copilot controls."""
 
     recommend_requested = Signal(str, list)
+    spectral_cohesion_changed = Signal(int)
     copilot_generate_requested = Signal()
     copilot_variant_applied = Signal(int)
     back_requested = Signal()
@@ -74,6 +76,23 @@ class BuildScreen(QWidget):
         self.strategy_explanation_label.setWordWrap(True)
         self.strategy_explanation_label.setMaximumHeight(36)
         layout.addWidget(self.strategy_explanation_label)
+
+        # Spectral cohesion slider
+        cohesion_row = QHBoxLayout()
+        cohesion_row.addWidget(QLabel(self.tr("Spectral Cohesion")))
+        self.spectral_cohesion_slider = QSlider()
+        self.spectral_cohesion_slider.setOrientation(Qt.Orientation.Horizontal)
+        self.spectral_cohesion_slider.setRange(0, 100)
+        self.spectral_cohesion_slider.setValue(50)
+        self.spectral_cohesion_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.spectral_cohesion_slider.setTickInterval(25)
+        self.spectral_cohesion_slider.setAccessibleName(self.tr("Spectral cohesion"))
+        self.spectral_cohesion_value_label = QLabel("50%")
+        self.spectral_cohesion_value_label.setMinimumWidth(40)
+        cohesion_row.addWidget(self.spectral_cohesion_slider, 1)
+        cohesion_row.addWidget(self.spectral_cohesion_value_label)
+        cohesion_row.addStretch()
+        layout.addLayout(cohesion_row)
 
         self.recommendation_vs_copilot_label = QLabel()
         self.recommendation_vs_copilot_label.setWordWrap(True)
@@ -159,6 +178,7 @@ class BuildScreen(QWidget):
         """Set accessible names for screen readers."""
         self.strategy_combo.setAccessibleName(self.tr("Recommendation strategy"))
         self.recommend_button.setAccessibleName(self.tr("Recommend playlist"))
+        self.spectral_cohesion_slider.setAccessibleName(self.tr("Spectral cohesion"))
         self.exclude_button.setAccessibleName(self.tr("Exclude selected tracks"))
         self.lock_button.setAccessibleName(self.tr("Lock selected tracks"))
         self.clear_constraints_button.setAccessibleName(self.tr("Clear constraints"))
@@ -173,7 +193,8 @@ class BuildScreen(QWidget):
     def _setup_tab_order(self) -> None:
         """Define a logical keyboard tab order across primary controls."""
         self.setTabOrder(self.strategy_combo, self.recommend_button)
-        self.setTabOrder(self.recommend_button, self.exclude_button)
+        self.setTabOrder(self.recommend_button, self.spectral_cohesion_slider)
+        self.setTabOrder(self.spectral_cohesion_slider, self.exclude_button)
         self.setTabOrder(self.exclude_button, self.lock_button)
         self.setTabOrder(self.lock_button, self.clear_constraints_button)
         self.setTabOrder(self.clear_constraints_button, self.target_count_input)
@@ -192,6 +213,15 @@ class BuildScreen(QWidget):
         self.exclude_button.clicked.connect(self.exclude_requested)
         self.lock_button.clicked.connect(self.lock_requested)
         self.clear_constraints_button.clicked.connect(self.clear_constraints_requested)
+        self.spectral_cohesion_slider.valueChanged.connect(self._on_spectral_cohesion_changed)
+
+    def _on_spectral_cohesion_changed(self, value: int) -> None:
+        self.spectral_cohesion_value_label.setText(f"{value}%")
+        self.spectral_cohesion_changed.emit(value)
+
+    def spectral_cohesion_value(self) -> int:
+        """Return the current spectral cohesion slider value (0-100)."""
+        return self.spectral_cohesion_slider.value()
 
     # ------------------------------------------------------------------
     # Render

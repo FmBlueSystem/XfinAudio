@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from xfinaudio.audio.spectral_profile import score_spectral_similarity
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.camelot import BoostRule, score_camelot_transition, shift_camelot_key
 
@@ -20,13 +21,14 @@ class ScoringWeights(BaseModel):
     bpm: float = 0.25
     energy: float = 0.25
     tags: float = 0.10
+    spectral: float = 0.10
 
     @model_validator(mode="after")
     def validate_weights(self) -> ScoringWeights:
         """Ensure weights are non-negative and at least one component is enabled."""
-        if any(weight < 0 for weight in (self.harmonic, self.bpm, self.energy, self.tags)):
+        if any(weight < 0 for weight in (self.harmonic, self.bpm, self.energy, self.tags, self.spectral)):
             raise ValueError("component weights cannot be negative")
-        if self.harmonic + self.bpm + self.energy + self.tags <= 0:
+        if self.harmonic + self.bpm + self.energy + self.tags + self.spectral <= 0:
             raise ValueError("total weight must be greater than zero")
         return self
 
@@ -81,10 +83,11 @@ class TransitionScoringConfig(BaseModel):
     required_fields: tuple[str, ...] = ("camelot_key", "bpm", "energy_level")
     score_curve: Literal["threshold", "fuzzy"] = "threshold"
     key_shift: KeyShiftConfig = Field(default_factory=KeyShiftConfig)
+    spectral_cohesion: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 DEFAULT_WEIGHTS = ScoringWeights()
-DEFAULT_SCORING_CONFIG = TransitionScoringConfig(weights=DEFAULT_WEIGHTS, score_curve="fuzzy")
+DEFAULT_SCORING_CONFIG = TransitionScoringConfig(weights=DEFAULT_WEIGHTS, score_curve="fuzzy", spectral_cohesion=0.0)
 REQUIRED_FIELDS = DEFAULT_SCORING_CONFIG.required_fields
 
 
@@ -113,7 +116,7 @@ def score_transition(
         return result
 
     scoring_config = config or DEFAULT_SCORING_CONFIG
-    effective_weights = scoring_config.weights if config is not None and weights == DEFAULT_WEIGHTS else weights
+    effective_weights = _effective_weights(weights, scoring_config)
     warnings = _metadata_warnings(left, right, scoring_config.required_fields)
     if warnings:
         return _store(
@@ -172,7 +175,20 @@ def score_transition(
         if tag_score[1] == 0:
             warnings.append("Genre/tag mismatch: no shared genre, subgenre, mood, or tag metadata")
 
+    spectral_score = _score_spectral(left, right)
+    if spectral_score is not None:
+        component_scores["spectral"] = spectral_score
+        explanations.append(f"Spectral similarity is {spectral_score:.2f}")
+
+    spectral_penalty = _spectral_color_penalty(left, right, scoring_config.spectral_cohesion)
+    if spectral_penalty:
+        warnings.append(
+            f"Spectral color penalty applied: {spectral_penalty:.2f} "
+            f"({left.spectral_profile.dominant_color} → {right.spectral_profile.dominant_color})"
+        )
+
     total_score = _weighted_total(component_scores, effective_weights)
+    total_score = max(0.0, min(1.0, total_score - spectral_penalty))
     return _store(
         TransitionScore(
             left_path=left.path,
@@ -275,6 +291,31 @@ def _normalized_tags(track: TrackRecord) -> set[str]:
     if track.genre:
         values.append(track.genre)
     return {value.strip().casefold() for value in values if value.strip()}
+
+
+def _score_spectral(left: TrackRecord, right: TrackRecord) -> float | None:
+    if left.spectral_profile is None or right.spectral_profile is None:
+        return None
+    return score_spectral_similarity(left.spectral_profile, right.spectral_profile)
+
+
+def _effective_weights(weights: ScoringWeights, config: TransitionScoringConfig) -> ScoringWeights:
+    """Return weights with spectral weight scaled by spectral cohesion."""
+    base = config.weights if weights == DEFAULT_WEIGHTS else weights
+    return base.model_copy(update={"spectral": base.spectral * (1.0 + config.spectral_cohesion)})
+
+
+def _spectral_color_penalty(left: TrackRecord, right: TrackRecord, cohesion: float) -> float:
+    """Penalty when adjacent tracks have different dominant spectral colors."""
+    if cohesion <= 0:
+        return 0.0
+    left_profile = left.spectral_profile
+    right_profile = right.spectral_profile
+    if left_profile is None or right_profile is None:
+        return 0.0
+    if left_profile.dominant_color == right_profile.dominant_color:
+        return 0.0
+    return cohesion * 0.25
 
 
 def _weighted_total(component_scores: dict[str, float], weights: ScoringWeights) -> float:

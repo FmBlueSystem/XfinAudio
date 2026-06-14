@@ -125,7 +125,7 @@ def test_main_window_constructs_desktop_scanning_skeleton() -> None:
     assert window.windowTitle() == "XfinAudio"
     assert window._library_screen.folder_button.text() == "Choose Folder"
     assert window._library_screen.scan_button.text() == "Scan Metadata"
-    assert window._build_screen.strategy_combo.count() == 7
+    assert window._build_screen.strategy_combo.count() == 8
     assert window._build_screen.recommend_button.text() == "Recommend Playlist"
     assert window.tracks_table.columnCount() >= 7
     assert window._review_screen.recommendation_table.columnCount() >= 6
@@ -161,6 +161,7 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "BPM",
         "Key",
         "Energy",
+        "Color",
         "Missing",
         "Genre",
         "Tags/Subgenre",
@@ -174,6 +175,7 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "BPM",
         "Key",
         "Energy",
+        "Color",
     ]
     assert _table_headers(window._build_screen.copilot_table) == ["Variant", "Description", "Tracks", "Readiness"]
     assert _table_headers(window._review_screen.transition_table) == [

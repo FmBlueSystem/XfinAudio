@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 
+from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.track_repository import (
     SCHEMA_VERSION,
@@ -140,3 +141,118 @@ def test_track_repository_creates_index_on_metadata_status(tmp_path) -> None:
         ).fetchone()
 
     assert row is not None, "idx_tracks_metadata_status index should be created on initialization"
+
+
+def test_track_repository_round_trips_spectral_profile(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    repository = TrackRepository(db_path)
+    profile = SpectralProfile(
+        red_ratio=0.1,
+        green_ratio=0.8,
+        blue_ratio=0.1,
+        centroid_hz=500.0,
+        rolloff_hz=1200.0,
+        rms=0.05,
+        dominant_color="GREEN",
+    )
+    original = TrackRecord(
+        path="/music/track.flac",
+        title="Track One",
+        metadata_status="complete",
+        spectral_profile=profile,
+    )
+
+    repository.save_scan_results([original])
+
+    assert repository.list_tracks() == [original]
+
+
+def test_track_repository_migrates_v1_database_to_v3(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE tracks (
+                path TEXT PRIMARY KEY,
+                title TEXT,
+                artist TEXT,
+                bpm REAL,
+                camelot_key TEXT,
+                energy_level INTEGER,
+                duration REAL,
+                genre TEXT,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                metadata_status TEXT NOT NULL CHECK(metadata_status IN ('complete', 'incomplete')),
+                missing_required_fields_json TEXT NOT NULL DEFAULT '[]',
+                source_fields_json TEXT NOT NULL DEFAULT '{}',
+                raw_metadata_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        connection.execute("PRAGMA user_version = 1")
+
+    repository = TrackRepository(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert repository.list_tracks() == []
+
+
+def test_track_repository_list_display_tracks_includes_spectral_profile(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    repository = TrackRepository(db_path)
+    profile = SpectralProfile(
+        red_ratio=0.9,
+        green_ratio=0.05,
+        blue_ratio=0.05,
+        dominant_color="RED",
+    )
+    original = TrackRecord(
+        path="/music/track.flac",
+        title="Track One",
+        metadata_status="complete",
+        spectral_profile=profile,
+        raw_metadata={"huge": ["payload"]},
+    )
+
+    repository.save_scan_results([original])
+
+    display_records = repository.list_display_tracks()
+
+    assert len(display_records) == 1
+    assert display_records[0].spectral_profile == profile
+    assert display_records[0].raw_metadata == {}
+
+
+def test_track_repository_load_spectral_profile_cache_returns_profiles_with_identity(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    repository = TrackRepository(db_path)
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("dummy audio content")
+    profile = SpectralProfile(
+        red_ratio=0.9,
+        green_ratio=0.05,
+        blue_ratio=0.05,
+        dominant_color="RED",
+    )
+    record = TrackRecord(
+        path=str(audio_file),
+        title="Track One",
+        metadata_status="complete",
+        spectral_profile=profile,
+    )
+
+    repository.save_scan_results([record])
+    cache = repository.load_spectral_profile_cache([str(audio_file)])
+
+    stat = audio_file.stat()
+    assert cache == {str(audio_file): (stat.st_mtime_ns, stat.st_size, profile)}
+
+
+def test_track_repository_load_spectral_profile_cache_returns_empty_for_missing_file(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    repository = TrackRepository(db_path)
+
+    cache = repository.load_spectral_profile_cache(["/nonexistent/track.flac"])
+
+    assert cache == {}

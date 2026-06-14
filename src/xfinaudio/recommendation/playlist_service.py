@@ -10,6 +10,7 @@ from xfinaudio.recommendation.optimizer import recommend_sequence
 from xfinaudio.recommendation.scoring import (
     ScoringWeights,
     TransitionScore,
+    TransitionScoringConfig,
     _bpm_difference_percent,
     score_transition,
 )
@@ -43,6 +44,7 @@ def recommend_playlist(
     controls: DJControls | None = None,
     weights_override: ScoringWeights | None = None,
     strategy_registry: StrategyRegistry | None = None,
+    spectral_cohesion: float = 0.0,
 ) -> PlaylistRecommendation:
     """Recommend a playlist using a strategy profile and optional DJ controls."""
     strategy = (strategy_registry or default_strategy_registry()).get(str(strategy_name))
@@ -52,6 +54,10 @@ def recommend_playlist(
     # computed once. Never persists between recommend_playlist calls.
     _score_cache: dict[tuple, TransitionScore] = {}
     warnings: list[str] = []
+    scoring_config = TransitionScoringConfig(
+        weights=weights_override or strategy.weights,
+        spectral_cohesion=spectral_cohesion,
+    )
     complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
     incomplete_count = len(tracks) - len(complete_tracks)
     if incomplete_count:
@@ -78,8 +84,6 @@ def recommend_playlist(
             start_path=applied.start_path,
             end_path=applied.end_path,
         )
-
-    weights = weights_override or strategy.weights
 
     manual_prefix = _manual_prefix_without_terminal_end(applied.manual_prefix, applied.end_path)
     manual_paths = {track.path for track in manual_prefix}
@@ -113,14 +117,16 @@ def recommend_playlist(
             remaining_tracks,
             start_path=start_path,
             end_path=applied.end_path,
-            weights=weights,
+            weights=scoring_config.weights,
             cache=_score_cache,
+            config=scoring_config,
         )
         sequenced_tracks = sequenced.ordered_tracks
         optimizer = sequenced.optimizer
 
     ordered_tracks = [*manual_prefix, *sequenced_tracks]
-    transition_scores = _score_ordered_tracks(ordered_tracks, weights, cache=_score_cache)
+    transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config, cache=_score_cache)
+    warnings.extend(_spectral_jump_warnings(ordered_tracks))
 
     return PlaylistRecommendation(
         ordered_tracks=ordered_tracks,
@@ -293,13 +299,28 @@ def _vibe_metadata_unavailable(strategy: PlaylistStrategy, tracks: list[TrackRec
 
 def _score_ordered_tracks(
     tracks: list[TrackRecord],
-    weights: ScoringWeights,
+    config: TransitionScoringConfig,
     cache: dict[tuple, TransitionScore] | None = None,
 ) -> list[TransitionScore]:
     return [
-        score_transition(left, right, weights=weights, cache=cache)
+        score_transition(left, right, weights=config.weights, cache=cache, config=config)
         for left, right in zip(tracks, tracks[1:], strict=False)
     ]
+
+
+def _spectral_jump_warnings(tracks: list[TrackRecord]) -> list[str]:
+    """Warn when adjacent tracks have different dominant spectral colors."""
+    warnings: list[str] = []
+    for left, right in zip(tracks, tracks[1:], strict=False):
+        left_profile = left.spectral_profile
+        right_profile = right.spectral_profile
+        if left_profile is None or right_profile is None:
+            continue
+        left_color = left_profile.dominant_color
+        right_color = right_profile.dominant_color
+        if left_color != right_color:
+            warnings.append(f"Spectral shift: {left_color} → {right_color}")
+    return warnings
 
 
 __all__ = ["PlaylistRecommendation", "recommend_playlist"]

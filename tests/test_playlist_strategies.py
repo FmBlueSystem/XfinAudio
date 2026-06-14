@@ -20,6 +20,7 @@ EXPECTED_STRATEGIES = {
     "chill",
     "same_energy",
     "same_vibe",
+    "same_color",
 }
 
 

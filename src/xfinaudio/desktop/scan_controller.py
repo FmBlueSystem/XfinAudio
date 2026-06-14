@@ -59,6 +59,7 @@ class ScanController(QObject):
                 folder,
                 on_progress=progress_callback,
                 cancellation_token=token,
+                resolve_spectral_profiles=False,
             ),
             request_id=request_id,
         )

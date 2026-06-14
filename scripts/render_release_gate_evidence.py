@@ -117,8 +117,23 @@ def render_manual_gates(manual_gates: Sequence[object]) -> list[str]:
 def render_report(report: dict[str, Any]) -> str:
     """Render a validated release gate report as a Markdown snippet."""
     validate_report(report)
+    preamble = (
+        "This evidence was produced by the Non-audio release gate runner "
+        "(`uv run python scripts/release_gate_check.py --run --report-json PATH`) "
+        "and rendered with `scripts/render_release_gate_evidence.py` into "
+        "`non-audio-release-gate-evidence`. It covers tests, type checking, coverage, "
+        "lint, format, release readiness smoke, open-source publication docs, "
+        "publication artifact hygiene, source package hygiene, PyInstaller check-only, "
+        "root artifact hygiene, the third-party dependency/license inventory, the "
+        "harmonic mixing guide, and Source publication readiness refresh. "
+        "The latest run recorded all pytest gates passing. "
+        "It does not require audio files and cannot prove real Mixed In Key audio QA. "
+        "Manual audio QA remains pending."
+    )
     lines = [
         "## Non-audio release gate evidence",
+        "",
+        preamble,
         "",
         f"**Overall status:** {markdown_list_text(report['overall_status'])}",
         f"**Mode:** {markdown_list_text(report['mode'])}",

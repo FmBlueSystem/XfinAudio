@@ -24,7 +24,7 @@ from xfinaudio.desktop.review_view_model import (
 )
 
 _READINESS_COLUMNS = ["Check", "Status", "Detail"]
-_RECOMMENDATION_COLUMNS = ["#", "Title", "Artist", "BPM", "Key", "Energy"]
+_RECOMMENDATION_COLUMNS = ["#", "Title", "Artist", "BPM", "Key", "Energy", "Color"]
 _TRANSITION_COLUMNS = [
     "Order",
     "From",
@@ -261,6 +261,7 @@ class ReviewScreen(QWidget):
                 row_data.bpm,
                 row_data.camelot_key,
                 row_data.energy,
+                row_data.spectral_color,
             ]
             tooltips = [
                 self.tr("Track #{0} in playlist").format(row_data.position),
@@ -269,6 +270,7 @@ class ReviewScreen(QWidget):
                 self.tr("BPM: {0}").format(row_data.bpm),
                 self.tr("Camelot key: {0}").format(row_data.camelot_key),
                 self.tr("Energy level: {0}").format(row_data.energy),
+                self.tr("Spectral color: {0}").format(row_data.spectral_color),
             ]
             for col, (value, tip) in enumerate(zip(values, tooltips, strict=True)):
                 item = QTableWidgetItem(value)

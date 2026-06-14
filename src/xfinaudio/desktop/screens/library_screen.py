@@ -26,7 +26,20 @@ _ROW_COLOR_EVEN = QColor("#101820")
 _ROW_COLOR_ODD = QColor("#14202a")
 _ROW_COLOR_SELECTED = QColor("#0078b4")
 
-_COLUMNS = ["Title", "Artist", "BPM", "Key", "Energy", "Duration", "Missing", "Genre", "Status", "Preview", "Path"]
+_COLUMNS = [
+    "Title",
+    "Artist",
+    "BPM",
+    "Key",
+    "Energy",
+    "Duration",
+    "Color",
+    "Missing",
+    "Genre",
+    "Status",
+    "Preview",
+    "Path",
+]
 
 
 def _sort_key_for_column(row: TrackDisplayRow, column: int) -> Any:
@@ -48,14 +61,16 @@ def _sort_key_for_column(row: TrackDisplayRow, column: int) -> Any:
         parts = row.duration.split(":")
         return int(parts[0]) * 60 + int(parts[1])
     if column == 6:
-        return row.missing_fields.casefold()
+        return row.spectral_color.casefold()
     if column == 7:
-        return row.genre.casefold()
+        return row.missing_fields.casefold()
     if column == 8:
-        return row.metadata_status.casefold()
+        return row.genre.casefold()
     if column == 9:
-        return ""  # Preview column — not sortable
+        return row.metadata_status.casefold()
     if column == 10:
+        return ""  # Preview column — not sortable
+    if column == 11:
         return row.path.casefold()
     return ""
 
@@ -134,6 +149,7 @@ class LibraryScreen(QWidget):
             "Musical key in Camelot notation (e.g. 8A, 11B)",
             "Energy level from 1 (calm) to 10 (intense)",
             "Track duration in minutes and seconds",
+            "Spectral color profile (RED = bass, GREEN = mids, BLUE = highs)",
             "Metadata fields still missing for this track",
             "Primary genre detected by Mixed In Key",
             "Metadata completeness: complete or incomplete",
@@ -149,7 +165,7 @@ class LibraryScreen(QWidget):
         # Stretch all columns by default so the table fills available width.
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         # Narrow data columns only take the space they need.
-        for col in (2, 3, 4, 5, 6, 8, 9):  # BPM, Key, Energy, Duration, Missing, Status, Preview
+        for col in (2, 3, 4, 5, 6, 9, 10):  # BPM, Key, Energy, Duration, Color, Status, Preview
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.tracks_table.setAlternatingRowColors(True)
         self.tracks_table.setSelectionBehavior(self.tracks_table.SelectionBehavior.SelectRows)
@@ -259,6 +275,7 @@ class LibraryScreen(QWidget):
                     row_data.musical_key,
                     row_data.energy,
                     row_data.duration,
+                    row_data.spectral_color,
                     row_data.missing_fields,
                     row_data.genre,
                     row_data.metadata_status,
@@ -304,8 +321,8 @@ class LibraryScreen(QWidget):
 
     def _apply_filter(self) -> None:
         query = self._filter_query
-        # Search across Title, Artist, BPM, Key, Genre (cols 0-3, 6). Exclude path (col 8).
-        _SEARCH_COLS = (0, 1, 2, 3, 6)
+        # Search across Title, Artist, BPM, Key, Genre (cols 0-3, 8). Exclude path (col 11).
+        _SEARCH_COLS = (0, 1, 2, 3, 8)
         for row in range(self.tracks_table.rowCount()):
             if not query:
                 self.tracks_table.setRowHidden(row, False)

@@ -49,6 +49,10 @@ def format_track_tags(record: TrackRecord) -> str:
     return ", ".join(record.tags)
 
 
+def format_spectral_color(record: TrackRecord) -> str:
+    return "🔴 RED" if record.title == "High" else ""
+
+
 def format_warning(raw_warning: str) -> str:
     return f"formatted:{raw_warning}"
 
@@ -56,7 +60,7 @@ def format_warning(raw_warning: str) -> str:
 def test_populate_library_table_writes_columns_mapping_and_numeric_bpm_sort(tmp_path) -> None:
     ensure_app()
     table = QTableWidget()
-    table.setColumnCount(10)
+    table.setColumnCount(11)
     records = [
         TrackRecord(
             path=str(tmp_path / "high.flac"),
@@ -90,27 +94,30 @@ def test_populate_library_table_writes_columns_mapping_and_numeric_bpm_sort(tmp_
         item_factory=item_factory,
         format_missing_metadata=format_missing_metadata,
         format_track_tags=format_track_tags,
+        format_spectral_color=format_spectral_color,
     )
 
     assert table.rowCount() == 3
-    assert [table.item(0, column).text() for column in range(10)] == [
+    assert [table.item(0, column).text() for column in range(11)] == [
         "High",
         "Artist A",
         "128",
         "8A",
         "7",
+        "🔴 RED",
         "",
         "Disco",
         "Peak, Vocal",
         "complete",
         str(tmp_path / "high.flac"),
     ]
-    assert [table.item(1, column).text() for column in range(10)] == [
+    assert [table.item(1, column).text() for column in range(11)] == [
         "Low",
         "Artist B",
         "95",
         "9A",
         "3",
+        "",
         "Camelot key, energy level",
         "House",
         "Warmup",

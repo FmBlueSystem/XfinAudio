@@ -15,6 +15,19 @@ def qapp():
     return QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def _disable_spectral_completion_worker(monkeypatch):
+    """Prevent background spectral workers from leaking QThreads in widget tests."""
+    from xfinaudio.desktop import main_window as mw_module
+
+    if hasattr(mw_module, "MainWindow"):
+        monkeypatch.setattr(
+            mw_module.MainWindow,
+            "_start_spectral_completion_worker",
+            lambda self, records: None,
+        )
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _no_root_build_artifacts():
     """Prevent accidental test runs from a dirty checkout with build/ or dist/ present."""

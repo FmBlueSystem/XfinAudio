@@ -54,6 +54,7 @@ class ScanHost(Protocol):
     ) -> None: ...
     def _clear_scan_dependent_state(self) -> None: ...
     def _refresh_idle_action_state(self) -> None: ...
+    def _cancel_spectral_completion_worker(self) -> None: ...
 
 
 class ScanCoordinator:
@@ -75,6 +76,7 @@ class ScanCoordinator:
                 host.tr("Choose a Mixed In Key processed folder before scanning metadata.")
             )
             return
+        host._cancel_spectral_completion_worker()
         host._pre_scan_records_by_path = {record.path: record for record in host.scanned_records}
         self.begin_scan_state()
         token = host.current_scan_cancellation_token

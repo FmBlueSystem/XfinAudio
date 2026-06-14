@@ -11,6 +11,7 @@ from enum import StrEnum
 
 from PySide6.QtCore import QCoreApplication
 
+from xfinaudio.audio.spectral_profile import format_spectral_color
 from xfinaudio.desktop.app_state import AppState
 
 
@@ -44,6 +45,7 @@ class RecommendationRow:
     bpm: str  # "128" or "—"
     camelot_key: str  # "8A" or "—"
     energy: str  # "7" or "—"
+    spectral_color: str  # "🔴 RED" or ""
     overall_score: str  # "0.92" or "—"
     path: str = ""
 
@@ -164,6 +166,7 @@ class ReviewViewModel:
                     bpm=bpm_str,
                     camelot_key=key_str,
                     energy=energy_str,
+                    spectral_color=format_spectral_color(track.spectral_profile),
                     overall_score="—",  # score not available at track level
                     path=track.path,
                 )

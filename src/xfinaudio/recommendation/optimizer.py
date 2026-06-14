@@ -8,7 +8,14 @@ from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.camelot import BoostRule
-from xfinaudio.recommendation.scoring import DEFAULT_WEIGHTS, ScoringWeights, TransitionScore, score_transition
+from xfinaudio.recommendation.scoring import (
+    DEFAULT_SCORING_CONFIG,
+    DEFAULT_WEIGHTS,
+    ScoringWeights,
+    TransitionScore,
+    TransitionScoringConfig,
+    score_transition,
+)
 
 
 class SequenceRecommendation(BaseModel):
@@ -30,6 +37,7 @@ def recommend_sequence(
     boost_rules: Collection[BoostRule] | None = None,
     weights: ScoringWeights = DEFAULT_WEIGHTS,
     cache: dict[tuple, TransitionScore] | None = None,
+    config: TransitionScoringConfig | None = None,
 ) -> SequenceRecommendation:
     """Recommend a deterministic track ordering that maximizes adjacent transition scores.
 
@@ -40,8 +48,9 @@ def recommend_sequence(
         return SequenceRecommendation(ordered_tracks=[], transition_scores=[], total_score=0.0, optimizer="empty")
     _validate_constraints(tracks, start_path, end_path)
 
+    scoring_config = config or DEFAULT_SCORING_CONFIG
     ordered = sorted(tracks, key=lambda track: track.path)
-    score_matrix = _score_matrix(ordered, boost_rules, weights, cache)
+    score_matrix = _score_matrix(ordered, boost_rules, weights, scoring_config, cache)
     if len(ordered) <= exact_limit:
         path_indexes = _exact_path(ordered, score_matrix, start_path, end_path)
         optimizer = "exact"
@@ -51,7 +60,7 @@ def recommend_sequence(
 
     ordered_tracks = [ordered[index] for index in path_indexes]
     transition_scores = [
-        score_transition(left, right, weights=weights, boost_rules=boost_rules, cache=cache)
+        score_transition(left, right, weights=weights, boost_rules=boost_rules, cache=cache, config=scoring_config)
         for left, right in zip(ordered_tracks, ordered_tracks[1:], strict=False)
     ]
     return SequenceRecommendation(
@@ -76,13 +85,16 @@ def _score_matrix(
     tracks: list[TrackRecord],
     boost_rules: Collection[BoostRule] | None,
     weights: ScoringWeights,
+    config: TransitionScoringConfig,
     cache: dict[tuple, TransitionScore] | None = None,
 ) -> list[list[float]]:
     return [
         [
             0.0
             if left == right
-            else score_transition(left, right, weights=weights, boost_rules=boost_rules, cache=cache).total_score
+            else score_transition(
+                left, right, weights=weights, boost_rules=boost_rules, cache=cache, config=config
+            ).total_score
             for right in tracks
         ]
         for left in tracks

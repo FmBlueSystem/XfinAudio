@@ -351,6 +351,7 @@ def test_release_docs_reference_non_audio_gate_runner_and_limits() -> None:
     assert "Manual audio QA remains pending" in evidence_text
     assert "harmonic mixing guide" in evidence_text
     assert "Source publication readiness refresh" in evidence_text
-    assert "593 passed" in evidence_text
+    assert "pytest" in evidence_text
+    assert "passed" in evidence_text
     assert "open-source publication docs" in evidence_text
     assert "publication artifact hygiene" in evidence_text

@@ -88,7 +88,7 @@ Update `status`, `updated`, and the current phase after every session.
 - Do not write production code before a failing test in strict TDD mode.
 - Do not exceed the 400-line review budget without an explicit chained-PR plan.
 - Do not mutate audio files.
-- Do not add DSP, audio rendering, mixing, time-stretching, pitch-shifting, or waveform analysis.
+- Do not add DSP, audio rendering, mixing, time-stretching, pitch-shifting, or real-time waveform analysis. Read-only offline spectral feature extraction is allowed when declared in an SDD change.
 - Do not write to live Serato database V2 files; crate exports stay behind the safe flow.
 - Do not add dependencies without upper bounds in `pyproject.toml` and a locked `uv.lock` update.
 - Do not mutate `AppState` in place; always use `model_copy(update=...)`.

@@ -29,6 +29,7 @@ class _SeededScanService:
         *,
         on_progress: Any = None,
         cancellation_token: ScanCancellationToken | None = None,
+        **kwargs: Any,
     ) -> list:
         def list_paths(_folder: Path) -> Iterable[Path]:
             return list(self._tags_by_path.keys())
@@ -42,6 +43,7 @@ class _SeededScanService:
             read_tags=read_tags,
             on_progress=on_progress,
             cancellation_token=cancellation_token,
+            **kwargs,
         )
 
 

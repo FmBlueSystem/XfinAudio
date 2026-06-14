@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication
 
+from xfinaudio.audio.spectral_profile import format_spectral_color
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.library.models import TrackRecord
 
@@ -30,6 +31,7 @@ class TrackDisplayRow:
     missing_fields: str  # comma-separated or "—"
     genre: str  # value or "—"
     metadata_status: str  # "complete" | "incomplete"
+    spectral_color: str  # "🔴 RED" or ""
     display_path: str  # filename only
 
 
@@ -97,6 +99,7 @@ def _to_display_row(track: TrackRecord) -> TrackDisplayRow:
         missing_fields=_fmt_missing(track.missing_required_fields),
         genre=_fmt_genre(track.genre),
         metadata_status=track.metadata_status,
+        spectral_color=format_spectral_color(track.spectral_profile),
         display_path=Path(track.path).name,
     )
 

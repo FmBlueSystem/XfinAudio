@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
@@ -9,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.library.scan_service import ProgressCallback, ScanCancellationToken, ScanCancelledError
+from xfinaudio.library.scan_service import ProfileCache, ProgressCallback, ScanCancellationToken, ScanCancelledError
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
@@ -25,6 +26,11 @@ class ScanService(Protocol):
         *,
         on_progress: ProgressCallback | None = None,
         cancellation_token: ScanCancellationToken | None = None,
+        parallel_spectral_analysis: bool = True,
+        spectral_max_workers: int | None = None,
+        previous_profile_cache: ProfileCache | None = None,
+        profile_cache_loader: Callable[[list[Path]], ProfileCache] | None = None,
+        resolve_spectral_profiles: bool = True,
     ) -> list[TrackRecord]:
         """Scan folder and return track records."""
         ...
@@ -72,13 +78,26 @@ class PlaylistWorkflowService:
         *,
         on_progress: ProgressCallback | None = None,
         cancellation_token: ScanCancellationToken | None = None,
+        resolve_spectral_profiles: bool = True,
     ) -> ScanWorkflowResult:
         """Scan a folder, persist complete scan records, and return display-ready counts."""
+        cache_loader: Callable[[list[Path]], ProfileCache] | None = None
+        if hasattr(self.repository, "load_spectral_profile_cache"):
+            repo = self.repository
+
+            def _load_cache(paths: list[Path]) -> ProfileCache:
+                return repo.load_spectral_profile_cache([str(path) for path in paths])
+
+            cache_loader = _load_cache
+
         try:
             records = self.scan_service.scan(
                 folder,
                 on_progress=on_progress,
                 cancellation_token=cancellation_token,
+                parallel_spectral_analysis=True,
+                profile_cache_loader=cache_loader,
+                resolve_spectral_profiles=resolve_spectral_profiles,
             )
         except ScanCancelledError as exc:
             return ScanWorkflowResult(
@@ -101,9 +120,12 @@ class PlaylistWorkflowService:
         records: list[TrackRecord],
         strategy_name: StrategyName | str,
         controls: DJControls | None = None,
+        spectral_cohesion: float = 0.0,
     ) -> RecommendationWorkflowResult:
         """Build a recommendation plus explanation and quality report for UI rendering."""
-        recommendation = recommend_playlist(records, strategy_name, controls=controls)
+        recommendation = recommend_playlist(
+            records, strategy_name, controls=controls, spectral_cohesion=spectral_cohesion
+        )
         explanation = build_playlist_explanation(recommendation)
         quality_report = build_quality_report(recommendation)
         return RecommendationWorkflowResult(

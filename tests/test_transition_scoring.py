@@ -1,5 +1,6 @@
 import pytest
 
+from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.scoring import (
     KeyShiftConfig,
@@ -20,6 +21,7 @@ def track(
     genre: str | None = "House",
     tags: list[str] | None = None,
     missing_required_fields: list[str] | None = None,
+    spectral_profile: SpectralProfile | None = None,
 ) -> TrackRecord:
     return TrackRecord(
         path=path,
@@ -30,6 +32,7 @@ def track(
         tags=["Peak", "Vocal"] if tags is None else tags,
         metadata_status="complete" if missing_required_fields is None else "incomplete",
         missing_required_fields=missing_required_fields or [],
+        spectral_profile=spectral_profile,
     )
 
 
@@ -110,7 +113,7 @@ def test_score_transition_accepts_controlled_boost_rules() -> None:
 
 def test_scoring_weights_reject_non_positive_total_weight() -> None:
     with pytest.raises(ValueError, match="total weight must be greater than zero"):
-        ScoringWeights(harmonic=0.0, bpm=0.0, energy=0.0, tags=0.0)
+        ScoringWeights(harmonic=0.0, bpm=0.0, energy=0.0, tags=0.0, spectral=0.0)
 
 
 def test_scoring_weights_reject_negative_component_weights() -> None:
@@ -205,3 +208,66 @@ def test_score_cache_is_isolated_per_session() -> None:
     assert len(cache_b) == 1
     # The caches are distinct objects (no shared session state)
     assert cache_a is not cache_b
+
+
+def test_score_transition_includes_high_spectral_score_for_same_color() -> None:
+    profile = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    left = track("left", spectral_profile=profile)
+    right = track("right", spectral_profile=profile)
+
+    result = score_transition(left, right)
+
+    assert result.component_scores["spectral"] > 0.7
+    assert "Spectral similarity" in " ".join(result.explanations)
+
+
+def test_score_transition_includes_low_spectral_score_for_different_colors() -> None:
+    red = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    green = SpectralProfile(red_ratio=0.05, green_ratio=0.9, blue_ratio=0.05, dominant_color="GREEN")
+    left = track("left", spectral_profile=red)
+    right = track("right", spectral_profile=green)
+
+    result = score_transition(left, right)
+
+    assert result.component_scores["spectral"] < 0.5
+
+
+def test_score_transition_ignores_spectral_component_when_profiles_are_missing() -> None:
+    left = track("left", spectral_profile=None)
+    right = track("right", spectral_profile=None)
+
+    result = score_transition(left, right)
+
+    assert "spectral" not in result.component_scores
+
+
+def test_spectral_cohesion_penalizes_different_dominant_colors() -> None:
+    red = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    green = SpectralProfile(red_ratio=0.05, green_ratio=0.9, blue_ratio=0.05, dominant_color="GREEN")
+    left = track("left", spectral_profile=red)
+    right = track("right", spectral_profile=green)
+
+    no_cohesion = score_transition(left, right, config=TransitionScoringConfig(spectral_cohesion=0.0))
+    high_cohesion = score_transition(left, right, config=TransitionScoringConfig(spectral_cohesion=1.0))
+
+    assert high_cohesion.total_score < no_cohesion.total_score
+    assert "Spectral color penalty applied" in " ".join(high_cohesion.warnings)
+
+
+def test_spectral_cohesion_boosts_weight_for_same_color() -> None:
+    profile = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    left = track("left", spectral_profile=profile)
+    right = track("right", spectral_profile=profile)
+
+    no_cohesion = score_transition(left, right, config=TransitionScoringConfig(spectral_cohesion=0.0))
+    high_cohesion = score_transition(left, right, config=TransitionScoringConfig(spectral_cohesion=1.0))
+
+    assert high_cohesion.total_score >= no_cohesion.total_score
+
+
+def test_spectral_cohesion_out_of_range_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        TransitionScoringConfig(spectral_cohesion=1.5)
+
+    with pytest.raises(ValueError):
+        TransitionScoringConfig(spectral_cohesion=-0.1)

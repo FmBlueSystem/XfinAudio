@@ -9,9 +9,10 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.library.models import TrackRecord
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 
 class DatabaseSchemaError(RuntimeError):
@@ -36,8 +37,9 @@ class TrackRepository:
                 """
                 INSERT INTO tracks (
                     path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
-                    metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
+                    spectral_profile_json, file_mtime_ns, file_size_bytes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     title = excluded.title,
                     artist = excluded.artist,
@@ -50,7 +52,10 @@ class TrackRepository:
                     metadata_status = excluded.metadata_status,
                     missing_required_fields_json = excluded.missing_required_fields_json,
                     source_fields_json = excluded.source_fields_json,
-                    raw_metadata_json = excluded.raw_metadata_json
+                    raw_metadata_json = excluded.raw_metadata_json,
+                    spectral_profile_json = excluded.spectral_profile_json,
+                    file_mtime_ns = excluded.file_mtime_ns,
+                    file_size_bytes = excluded.file_size_bytes
                 """,
                 [self._record_to_row(record) for record in records],
             )
@@ -61,7 +66,8 @@ class TrackRepository:
             rows = connection.execute(
                 """
                 SELECT path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
-                       metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json
+                       metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
+                       spectral_profile_json
                 FROM tracks
                 ORDER BY path
                 """
@@ -74,12 +80,72 @@ class TrackRepository:
             rows = connection.execute(
                 """
                 SELECT path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
-                       metadata_status, missing_required_fields_json
+                       metadata_status, missing_required_fields_json, spectral_profile_json
                 FROM tracks
                 ORDER BY path
                 """
             ).fetchall()
         return [self._display_row_to_record(row) for row in rows]
+
+    def update_spectral_profile(
+        self,
+        path: str,
+        profile: SpectralProfile,
+    ) -> bool:
+        """Persist a spectral profile for a single track, updating file identity fields.
+
+        Returns ``True`` if the track existed and was updated.
+        """
+        mtime_ns: int | None = None
+        size_bytes: int | None = None
+        try:
+            stat = Path(path).stat()
+            mtime_ns = stat.st_mtime_ns
+            size_bytes = stat.st_size
+        except OSError:
+            pass
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE tracks
+                SET spectral_profile_json = ?,
+                    file_mtime_ns = ?,
+                    file_size_bytes = ?
+                WHERE path = ?
+                """,
+                (_serialize_profile(profile), mtime_ns, size_bytes, path),
+            )
+            return cursor.rowcount > 0
+
+    def load_spectral_profile_cache(
+        self,
+        paths: Iterable[str],
+    ) -> dict[str, tuple[int, int, SpectralProfile]]:
+        """Return cached spectral profiles whose file identity fields are present.
+
+        The returned mapping is ``path -> (mtime_ns, size_bytes, profile)`` and is
+        suitable for passing to the batch analyzer's cache.
+        """
+        path_list = list(paths)
+        if not path_list:
+            return {}
+        placeholders = ",".join("?" * len(path_list))
+        query = f"""
+            SELECT path, file_mtime_ns, file_size_bytes, spectral_profile_json
+            FROM tracks
+            WHERE path IN ({placeholders})
+              AND file_mtime_ns IS NOT NULL
+              AND file_size_bytes IS NOT NULL
+              AND spectral_profile_json IS NOT NULL
+        """
+        cache: dict[str, tuple[int, int, SpectralProfile]] = {}
+        with self._connect() as connection:
+            rows = connection.execute(query, path_list).fetchall()
+        for row in rows:
+            profile = _deserialize_profile(row["spectral_profile_json"])
+            if profile is not None:
+                cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
+        return cache
 
     def _initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +162,7 @@ class TrackRepository:
                     "refusing to mark it as schema v1 without an explicit migration"
                 )
             self._ensure_schema(connection)
-            if schema_version == 0:
+            if schema_version < SCHEMA_VERSION:
                 connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     @staticmethod
@@ -121,13 +187,22 @@ class TrackRepository:
                 metadata_status TEXT NOT NULL CHECK(metadata_status IN ('complete', 'incomplete')),
                 missing_required_fields_json TEXT NOT NULL DEFAULT '[]',
                 source_fields_json TEXT NOT NULL DEFAULT '{}',
-                raw_metadata_json TEXT NOT NULL DEFAULT '{}'
+                raw_metadata_json TEXT NOT NULL DEFAULT '{}',
+                spectral_profile_json TEXT,
+                file_mtime_ns INTEGER,
+                file_size_bytes INTEGER
             )
             """
         )
-        # Gracefully add duration column to existing databases
+        # Gracefully add columns introduced after the initial schema
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN duration REAL")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN spectral_profile_json TEXT")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN file_mtime_ns INTEGER")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN file_size_bytes INTEGER")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_tracks_metadata_status ON tracks (metadata_status)")
 
     def _connect(self) -> sqlite3.Connection:
@@ -137,6 +212,14 @@ class TrackRepository:
 
     @staticmethod
     def _record_to_row(record: TrackRecord) -> tuple[Any, ...]:
+        mtime_ns: int | None = None
+        size_bytes: int | None = None
+        try:
+            stat = Path(record.path).stat()
+            mtime_ns = stat.st_mtime_ns
+            size_bytes = stat.st_size
+        except OSError:
+            pass
         return (
             record.path,
             record.title,
@@ -151,6 +234,9 @@ class TrackRepository:
             json.dumps(record.missing_required_fields, sort_keys=True),
             json.dumps(record.source_fields, sort_keys=True),
             json.dumps(record.raw_metadata, sort_keys=True),
+            _serialize_profile(record.spectral_profile),
+            mtime_ns,
+            size_bytes,
         )
 
     @staticmethod
@@ -169,6 +255,7 @@ class TrackRepository:
             missing_required_fields=json.loads(row["missing_required_fields_json"]),
             source_fields=json.loads(row["source_fields_json"]),
             raw_metadata=json.loads(row["raw_metadata_json"]),
+            spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
         )
 
     @staticmethod
@@ -185,4 +272,20 @@ class TrackRepository:
             tags=json.loads(row["tags_json"]),
             metadata_status=row["metadata_status"],
             missing_required_fields=json.loads(row["missing_required_fields_json"]),
+            spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
         )
+
+
+def _serialize_profile(profile: SpectralProfile | None) -> str | None:
+    if profile is None:
+        return None
+    return profile.model_dump_json()
+
+
+def _deserialize_profile(value: str | None) -> SpectralProfile | None:
+    if value is None:
+        return None
+    try:
+        return SpectralProfile.model_validate_json(value)
+    except Exception:
+        return None

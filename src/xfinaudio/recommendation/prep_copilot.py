@@ -7,16 +7,18 @@ algorithm only proposes auditable options.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.quality.dj_readiness import DjReadinessCheck, DjReadinessReport, build_dj_readiness_report
-from xfinaudio.quality.recommendation_quality import build_quality_report
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
 from xfinaudio.recommendation.strategies import StrategyName
+
+if TYPE_CHECKING:
+    from xfinaudio.quality.dj_readiness import DjReadinessCheck, DjReadinessReport  # noqa: F401
+    from xfinaudio.quality.recommendation_quality import RecommendationQualityReport  # noqa: F401
 
 PrepVariantName = Literal["safe", "balanced", "adventurous"]
 
@@ -60,6 +62,9 @@ class PrepCopilotPlan(BaseModel):
 
 def build_prep_copilot_plan(tracks: list[TrackRecord], intent: DJSetIntent) -> PrepCopilotPlan:
     """Build safe, balanced, and adventurous playlist variants for one DJ set intent."""
+    from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
+
+    PrepCopilotVariant.model_rebuild()
     variants = [
         _build_variant("safe", tracks, intent),
         _build_variant("balanced", tracks, intent),
@@ -69,6 +74,9 @@ def build_prep_copilot_plan(tracks: list[TrackRecord], intent: DJSetIntent) -> P
 
 
 def _build_variant(name: PrepVariantName, tracks: list[TrackRecord], intent: DJSetIntent) -> PrepCopilotVariant:
+    from xfinaudio.quality.dj_readiness import build_dj_readiness_report
+    from xfinaudio.quality.recommendation_quality import build_quality_report
+
     variant_tracks, variant_warnings = _filter_tracks_for_variant(name, tracks, intent)
     controls = DJControls(
         start_path=intent.start_path,
@@ -148,6 +156,8 @@ def _limit_recommendation(recommendation: PlaylistRecommendation, target_track_c
 def _add_required_track_gate(
     readiness: DjReadinessReport, recommendation: PlaylistRecommendation, intent: DJSetIntent
 ) -> DjReadinessReport:
+    from xfinaudio.quality.dj_readiness import DjReadinessCheck, DjReadinessReport
+
     required_paths = set(intent.required_paths)
     if not required_paths:
         return readiness
@@ -207,3 +217,19 @@ __all__ = [
     "PrepVariantName",
     "build_prep_copilot_plan",
 ]
+
+
+def _ensure_prep_copilot_variant_model() -> None:
+    """Resolve the forward reference for PrepCopilotVariant.readiness at import time.
+
+    This is kept at module end to avoid a circular import while still letting
+    downstream code construct PrepCopilotVariant directly.
+    """
+    if PrepCopilotVariant.__pydantic_complete__:
+        return
+    from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
+
+    PrepCopilotVariant.model_rebuild()
+
+
+_ensure_prep_copilot_variant_model()

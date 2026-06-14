@@ -24,6 +24,7 @@ def populate_library_table(
     item_factory: TableItemFactory,
     format_missing_metadata: Callable[[TrackRecord], str],
     format_track_tags: Callable[[TrackRecord], str],
+    format_spectral_color: Callable[[TrackRecord], str],
 ) -> dict[str, TrackRecord]:
     """Populate library track rows and return the path-to-record lookup."""
     table.setRowCount(len(records))
@@ -35,6 +36,7 @@ def populate_library_table(
             "" if record.bpm is None else f"{record.bpm:g}",
             record.camelot_key or "",
             "" if record.energy_level is None else str(record.energy_level),
+            format_spectral_color(record),
             format_missing_metadata(record),
             record.genre or "",
             format_track_tags(record),
@@ -54,6 +56,7 @@ def populate_library_table(
             values[7].casefold(),
             values[8].casefold(),
             values[9].casefold(),
+            values[10].casefold(),
         ]
         for column_index, value in enumerate(values):
             table.setItem(row_index, column_index, item_factory(value, sort_values[column_index]))

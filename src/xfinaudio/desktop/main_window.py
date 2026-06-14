@@ -45,6 +45,7 @@ from xfinaudio.desktop.rendering import (
     _component_score,
     _format_missing_metadata,
     _format_review_score,
+    _format_spectral_color,
     _format_track_tags,
     _score_sort_value,
     _table_item,
@@ -66,6 +67,7 @@ from xfinaudio.desktop.screens import (
     ReviewScreen,
 )
 from xfinaudio.desktop.settings_controller import SettingsController
+from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
 from xfinaudio.desktop.table_populators import (
     populate_dj_readiness_table,
     populate_library_table,
@@ -122,9 +124,10 @@ _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
 _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
 _SCREEN_NAMES = ["library", "build", "review", "export", "playlists", "metadata", "live"]
 _TRACK_TITLE_COLUMN = 0
-_TRACK_MISSING_COLUMN = 5
-_TRACK_STATUS_COLUMN = 8
-_TRACK_PATH_COLUMN = 9
+_TRACK_COLOR_COLUMN = 5
+_TRACK_MISSING_COLUMN = 6
+_TRACK_STATUS_COLUMN = 9
+_TRACK_PATH_COLUMN = 10
 
 _MISSING_METADATA_FILTERS = {
     QCoreApplication.translate("MainWindow", "Missing BPM"): "bpm",
@@ -160,6 +163,10 @@ class MainWindow(QMainWindow):
         """Stop all background threads and audio player before the window is destroyed."""
         self._audio_player.stop()
         self._scan_controller.cancel()
+        if self._spectral_completion_worker is not None:
+            self._spectral_completion_worker.cancel()
+            self._spectral_completion_worker.wait()
+            self._spectral_completion_worker = None
         self._recommendation_controller.cancel()
         super().closeEvent(event)  # type: ignore[arg-type]
 
@@ -241,6 +248,7 @@ class MainWindow(QMainWindow):
         self._metadata_vm = MetadataViewModel()
         self._library_screen = LibraryScreen()
         self._build_screen = BuildScreen()
+        self._build_screen.spectral_cohesion_slider.setValue(int(round(self.settings.scoring.spectral_cohesion * 100)))
         self._review_screen = ReviewScreen()
         self._export_screen = ExportScreen()
         self._playlists_screen = MyPlaylistsScreen()
@@ -253,6 +261,7 @@ class MainWindow(QMainWindow):
         self._current_tab_index: int = 0
         self._export_coordinator = ExportCoordinator(host=self)  # type: ignore[reportArgumentType]
         self._scan_coordinator = ScanCoordinator(host=self)  # type: ignore[reportArgumentType]
+        self._spectral_completion_worker: SpectralCompletionWorker | None = None
         self._recommendation_coordinator = RecommendationCoordinator(host=self)  # type: ignore[reportArgumentType]
         self._live_assistant_coordinator = LiveAssistantCoordinator(host=self)  # type: ignore[reportArgumentType]
         self._playlist_coordinator = PlaylistCoordinator(host=self)  # type: ignore[reportArgumentType]
@@ -463,7 +472,7 @@ class MainWindow(QMainWindow):
         self.metadata_decision_label = QLabel(
             self.tr("DJ Decision Point: complete missing metadata, then refresh the library.")
         )
-        self.tracks_table = QTableWidget(0, 10)
+        self.tracks_table = QTableWidget(0, 11)
         self.tracks_table.setHorizontalHeaderLabels(
             [
                 self.tr("Title"),
@@ -471,6 +480,7 @@ class MainWindow(QMainWindow):
                 self.tr("BPM"),
                 self.tr("Key"),
                 self.tr("Energy"),
+                self.tr("Color"),
                 self.tr("Missing"),
                 self.tr("Genre"),
                 self.tr("Tags/Subgenre"),
@@ -517,6 +527,7 @@ class MainWindow(QMainWindow):
         self._library_screen.settings_requested.connect(self._open_settings_dialog)
         # BuildScreen signals
         self._build_screen.recommend_requested.connect(self._on_recommend_requested)
+        self._build_screen.spectral_cohesion_changed.connect(self._on_spectral_cohesion_changed)
         self._build_screen.copilot_generate_requested.connect(self.generate_prep_copilot)
         self._build_screen.copilot_variant_applied.connect(self._on_copilot_variant_applied)
         self._build_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(0))
@@ -753,6 +764,7 @@ class MainWindow(QMainWindow):
             item_factory=_table_item,
             format_missing_metadata=_format_missing_metadata,
             format_track_tags=_format_track_tags,
+            format_spectral_color=_format_spectral_color,
         )
         self._apply_song_filter(clear_selection=False)
 
@@ -826,6 +838,51 @@ class MainWindow(QMainWindow):
         )
         self._refresh_idle_action_state()
         self._sync_state()
+        self._start_spectral_completion_worker(records)
+
+    def _start_spectral_completion_worker(self, records: list[TrackRecord]) -> None:
+        """Start background spectral color completion for records missing a profile."""
+        missing = [record for record in records if record.spectral_profile is None]
+        if not missing:
+            return
+        self._cancel_spectral_completion_worker()
+        worker = SpectralCompletionWorker(parent=self)
+        worker.progress.connect(self._on_spectral_profile_ready)
+        worker.finished.connect(self._on_spectral_completion_finished)
+        worker.failed.connect(lambda error: LOGGER.error("Spectral completion failed: %s", error))
+        self._spectral_completion_worker = worker
+        repository = self.workflow_service.repository
+        worker.start(missing, repository)
+
+    def _cancel_spectral_completion_worker(self) -> None:
+        """Cancel any running spectral completion worker."""
+        if self._spectral_completion_worker is not None:
+            self._spectral_completion_worker.cancel()
+            self._spectral_completion_worker = None
+
+    @Slot(str, object)
+    def _on_spectral_profile_ready(self, path: str, profile: object) -> None:
+        """Update a single track's color cell when its spectral profile is ready."""
+        for index, record in enumerate(self.scanned_records):
+            if record.path == path:
+                self.scanned_records[index] = record.model_copy(update={"spectral_profile": profile})
+                break
+        if path in self._records_by_path:
+            existing = self._records_by_path[path]
+            self._records_by_path[path] = existing.model_copy(update={"spectral_profile": profile})
+        for row_index in range(self.tracks_table.rowCount()):
+            path_item = self.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
+            if path_item is not None and path_item.text() == path:
+                record = self._records_by_path.get(path)
+                color_text = _format_spectral_color(record) if record is not None else ""
+                self.tracks_table.item(row_index, _TRACK_COLOR_COLUMN).setText(color_text)
+                break
+        self._sync_state()
+
+    @Slot()
+    def _on_spectral_completion_finished(self) -> None:
+        """Clear the worker reference when the background worker finishes."""
+        self._spectral_completion_worker = None
 
     def _clear_scan_dependent_state(self) -> None:
         """Clear scan and recommendation results that belong to a previous folder."""
@@ -872,6 +929,16 @@ class MainWindow(QMainWindow):
     def _open_settings_dialog(self) -> None:
         """Open the settings dialog and apply changes if confirmed."""
         self._settings_controller.open_dialog()
+
+    def _on_spectral_cohesion_changed(self, value: int) -> None:
+        """Persist spectral cohesion when the Build Playlist slider moves."""
+        cohesion = value / 100.0
+        self.settings = self.settings.model_copy(
+            update={"scoring": self.settings.scoring.model_copy(update={"spectral_cohesion": cohesion})}
+        )
+        if self.settings_repository is not None:
+            self.settings_repository.save(self.settings)
+        self._sync_state()
 
     def _apply_settings(self, new_settings: AppSettings) -> None:
         """Apply and persist settings from the settings dialog."""
@@ -1003,6 +1070,7 @@ class MainWindow(QMainWindow):
             self.tr("Scan complete: {0} complete, {1} incomplete").format(complete_count, incomplete_count)
         )
         self._sync_state()
+        self._start_spectral_completion_worker(records)
 
     def generate_prep_copilot(self) -> None:
         """Generate comparable DJ Prep Copilot variants from current selection and intent controls."""

@@ -80,6 +80,10 @@ Current scope:
 - Serato crate export and metadata-cleanup worklists.
 - **Full internationalization (i18n) in English and Spanish** with runtime language switching.
 - **Duration column** read from audio file metadata.
+- **Spectral color badges** (RED/GREEN/BLUE/MIXED) computed from audio frequency bands and shown in the library table.
+- **Lazy spectral completion** — metadata scan returns tracks immediately; colors are filled in the background.
+- **Spectral Cohesion control** — a Build Playlist slider that makes adjacent tracks prefer similar spectral colors.
+- **Same Color strategy** — maximizes spectral similarity for a cohesive timbre.
 - **Custom app icon** for macOS dock and PyInstaller bundles.
 - **Integrated audio preview** — listen to tracks directly from the library table without leaving the app.
 - **Playlist persistence** — save, edit, rename, and re-export playlists via the "My Playlists" screen.
@@ -160,7 +164,7 @@ This is important: XfinAudio should not invent a set without respecting the DJ's
 
 ### 5. Choose a strategy
 
-The DJ selects a strategy such as `harmonic_journey`, `warmup`, `build`, `peak_time`, `chill`, `same_energy`, or `same_vibe`.
+The DJ selects a strategy such as `harmonic_journey`, `warmup`, `build`, `peak_time`, `chill`, `same_energy`, `same_vibe`, or `same_color`.
 
 Each strategy changes the scoring weights, filters, or sorting intent.
 
@@ -509,6 +513,7 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 | `chill` | Lower-intensity sequence. | Prefers lower energy and BPM up to 118. |
 | `same_energy` | Stable intensity band. | Heavily weights energy and keeps a stable energy profile. |
 | `same_vibe` | Shared genre/tag feel. | Heavily weights genre/tag overlap and falls back when vibe metadata is unavailable. |
+| `same_color` | Cohesive timbre. | Maximizes spectral color similarity while retaining harmonic, BPM, energy, and tag components. |
 
 ## DJ software export model
 
@@ -550,7 +555,7 @@ These exports follow the same strategy-grouped, timestamped, non-overwriting con
 - License posture: full open source under GPL-3.0-only. See `LICENSE` and `docs/open-source-license.md`.
 - Distribution model: XfinAudio ships as an installable Python package (source/wheel). Users install it with `pip`, `pipx`, or `uv tool` and the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses.
 - **macOS .app bundle**: A PyInstaller spec is included under `packaging/pyinstaller/` for building a local `.app` bundle. The bundle includes Qt Multimedia plugins and FFmpeg libraries for audio preview. Unsigned bundles work for personal use; signed/notarized distribution requires Apple Developer ID and separate legal review.
-- **Test suite**: 734 tests, all passing. Strict TDD is enforced for all changes.
+- **Test suite**: 778 tests, all passing. Strict TDD is enforced for all changes.
 - Platform posture: validated on macOS with Python 3.11. The dependencies are cross-platform, but Linux and Windows are not yet validated.
 - Publication checklist: follow `docs/repository-publication-checklist.md` before turning a local tree into a public source repository.
 
@@ -707,6 +712,10 @@ Alcance actual:
 - Exportación a Serato crate y worklists para completar metadata.
 - **Internacionalización completa (i18n) en inglés y español** con cambio de idioma en tiempo de ejecución.
 - **Columna de duración** leída desde los headers de los archivos de audio.
+- **Badges de color espectral** (RED/GREEN/BLUE/MIXED) computados desde bandas de frecuencia de audio y mostrados en la tabla de librería.
+- **Completado lazy de color espectral** — el scan de metadata devuelve tracks inmediatamente; los colores se completan en segundo plano.
+- **Control de Spectral Cohesion** — un slider en Build Playlist que hace que tracks adyacentes prefieran colores espectrales similares.
+- **Estrategia Same Color** — maximiza la similitud de color espectral para un timbre cohesionado.
 - **Ícono personalizado** para dock de macOS y bundles PyInstaller.
 - **Audio preview integrado** — reproducir tracks directamente desde la tabla de librería sin salir de la app.
 - **Persistencia de playlists** — guardar, editar, renombrar y re-exportar playlists desde la pantalla "My Playlists".
@@ -787,7 +796,7 @@ Esto es clave: XfinAudio no debería inventar un set ignorando el punto de parti
 
 ### 5. Elegir una estrategia
 
-El DJ elige una estrategia como `harmonic_journey`, `warmup`, `build`, `peak_time`, `chill`, `same_energy` o `same_vibe`.
+El DJ elige una estrategia como `harmonic_journey`, `warmup`, `build`, `peak_time`, `chill`, `same_energy`, `same_vibe` o `same_color`.
 
 Cada estrategia cambia pesos, filtros o intención de ordenamiento.
 
@@ -1136,6 +1145,7 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 | `chill` | Secuencia más baja/introspectiva. | Prefiere menor energía y BPM hasta 118. |
 | `same_energy` | Intensidad estable. | Pesa fuerte la energía y mantiene una banda estable. |
 | `same_vibe` | Género/tag compartido. | Pesa fuerte el overlap de género/tags y hace fallback si falta metadata de vibe. |
+| `same_color` | Timbre cohesionado. | Maximiza la similitud de color espectral manteniendo componentes armónicos, BPM, energía y tags. |
 
 ## Modelo de exportación a software DJ
 

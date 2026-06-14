@@ -28,7 +28,7 @@ The CI workflow exposes that heavy temp packaging build only as the manual `incl
 
 The runner covers every automated gate that does not require audio files. It runs or documents tests, lint, format, release readiness smoke, open-source publication docs, publication artifact hygiene, source package hygiene, PyInstaller check-only metadata, root artifact hygiene, and optional PyInstaller temp build + launch/warning triage without creating project-root `build/` or `dist/` artifacts.
 
-XfinAudio source is full open source under GPL-3.0-only and is distributed as a Python package. Redistribution must comply with GPLv3 and third-party dependency obligations. Signed macOS `.app`/DMG redistribution is out of scope; GPLv3 and dependency-license compliance for package distribution still warrant legal review. No legal clearance is implied by this runbook.
+XfinAudio source is full open source under GPL-3.0-only and is distributed as a Python package. The project is personal, non-commercial, and community-gifted. Source/wheel redistribution must comply with GPLv3 and third-party dependency obligations; this model is believed to present low legal risk but does not constitute legal clearance. Signed macOS `.app`/DMG redistribution is out of scope and remains pending legal review.
 
 Use `--report-json PATH` to persist structured CI/release evidence for check-only listing, `--run`, or `--include-packaging-build`. The report parent directories may be created, but the runner refuses to create project-root `build/` or `dist/` as report directories. Prefer a temporary path or a project-ignored local path for evidence that should not be committed.
 
@@ -126,7 +126,7 @@ The automated smoke script does not create, read, render, mix, mutate, or analyz
 ## Known limitations
 
 - This is release readiness verification, not an installer or packaging workflow.
-- GPL-3.0-only source licensing does not clear PySide6/Qt, mutagen, or third-party dependency obligations for package distribution.
+- GPL-3.0-only source licensing and wheel distribution do not clear PySide6/Qt, mutagen, or third-party dependency obligations for binary/app bundle distribution.
 - The automated smoke uses deterministic metadata fixtures, not real audio files.
 - The non-audio gate runner cannot prove real Mixed In Key audio QA.
 - Signed macOS `.app`/DMG redistribution is out of scope for this distribution model.

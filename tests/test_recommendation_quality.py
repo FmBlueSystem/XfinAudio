@@ -1,9 +1,16 @@
+from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.recommendation_quality import build_quality_report
 from xfinaudio.recommendation.playlist_service import recommend_playlist
 
 
-def complete_track(path: str, bpm: float, energy: int, key: str = "8A") -> TrackRecord:
+def complete_track(
+    path: str,
+    bpm: float,
+    energy: int,
+    key: str = "8A",
+    spectral_profile: SpectralProfile | None = None,
+) -> TrackRecord:
     return TrackRecord(
         path=path,
         title=path,
@@ -11,6 +18,7 @@ def complete_track(path: str, bpm: float, energy: int, key: str = "8A") -> Track
         camelot_key=key,
         energy_level=energy,
         metadata_status="complete",
+        spectral_profile=spectral_profile,
     )
 
 
@@ -49,3 +57,42 @@ def test_build_quality_report_compares_manual_path_sequence() -> None:
 
     assert report.manual_overlap_ratio == round(2 / 3, 6)
     assert report.manual_order_match_prefix_count == 1
+
+
+def test_recommend_playlist_warns_on_red_to_green_spectral_shift() -> None:
+    red = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    green = SpectralProfile(red_ratio=0.05, green_ratio=0.9, blue_ratio=0.05, dominant_color="GREEN")
+    recommendation = recommend_playlist(
+        [
+            complete_track("/music/red.flac", 120.0, 5, "8A", spectral_profile=red),
+            complete_track("/music/green.flac", 120.0, 5, "8A", spectral_profile=green),
+        ],
+        "harmonic_journey",
+    )
+
+    assert any("Spectral shift" in warning for warning in recommendation.warnings)
+
+
+def test_recommend_playlist_does_not_warn_when_adjacent_colors_match() -> None:
+    green = SpectralProfile(red_ratio=0.05, green_ratio=0.9, blue_ratio=0.05, dominant_color="GREEN")
+    recommendation = recommend_playlist(
+        [
+            complete_track("/music/green1.flac", 120.0, 5, "8A", spectral_profile=green),
+            complete_track("/music/green2.flac", 120.0, 5, "8A", spectral_profile=green),
+        ],
+        "harmonic_journey",
+    )
+
+    assert not any("Spectral shift" in warning for warning in recommendation.warnings)
+
+
+def test_recommend_playlist_does_not_warn_when_spectral_profile_is_missing() -> None:
+    recommendation = recommend_playlist(
+        [
+            complete_track("/music/a.flac", 120.0, 5, "8A", spectral_profile=None),
+            complete_track("/music/b.flac", 120.0, 5, "8A", spectral_profile=None),
+        ],
+        "harmonic_journey",
+    )
+
+    assert not any("Spectral shift" in warning for warning in recommendation.warnings)

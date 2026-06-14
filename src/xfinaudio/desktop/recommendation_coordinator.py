@@ -88,8 +88,9 @@ class RecommendationCoordinator:
             host.status_label.setText(host.tr("Select at least one complete track before recommending"))
             return
         records = host._desktop_recommendation_records(controls)
+        spectral_cohesion = host._build_screen.spectral_cohesion_value() / 100.0
         self._begin_recommendation_state(len(records))
-        self._start_recommendation_worker(records, strategy_name, controls)
+        self._start_recommendation_worker(records, strategy_name, controls, spectral_cohesion)
 
     def _begin_recommendation_state(self, candidate_count: int) -> None:
         """Disable recommendation controls while the optimizer runs."""
@@ -110,13 +111,19 @@ class RecommendationCoordinator:
         host._sync_state()
 
     def _start_recommendation_worker(
-        self, records: list[TrackRecord], strategy_name: str, controls: DJControls | None = None
+        self,
+        records: list[TrackRecord],
+        strategy_name: str,
+        controls: DJControls | None = None,
+        spectral_cohesion: float = 0.0,
     ) -> None:
         """Delegate recommendation thread lifecycle to RecommendationController."""
         # Re-sync the controller's workflow_service from the host so a workflow
         # swapped in after construction (e.g. tests, runtime reconfiguration) is used.
         self._host._recommendation_controller.workflow_service = self._host.workflow_service
-        self._host._recommendation_controller.start_recommendation(records, strategy_name, controls)
+        self._host._recommendation_controller.start_recommendation(
+            records, strategy_name, controls, spectral_cohesion=spectral_cohesion
+        )
 
     @Slot(object)
     def on_completed(self, result: Any) -> None:
