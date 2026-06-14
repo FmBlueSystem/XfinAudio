@@ -29,6 +29,11 @@ def _analyze_one(path_str: str) -> tuple[str, SpectralProfile | None]:
     return path_str, analyze_spectral_profile(Path(path_str))
 
 
+def _default_max_workers_for_analysis(cpu_count: int | None = None) -> int:
+    """Return the default analysis pool size while reserving one CPU core."""
+    return max(1, (cpu_count or os.cpu_count() or 4) - 1)
+
+
 def _try_cached_profile(
     path: Path,
     cache: SpectralProfileCache | None,
@@ -76,7 +81,7 @@ def analyze_paths(
     Args:
         paths: Audio files to analyze. Order is not significant.
         max_workers: Upper bound for the executor pool. ``None`` picks a
-            reasonable default based on CPU count (capped at 8).
+            reasonable default that reserves one CPU core for the UI/OS.
         executor: ``"thread"`` uses ``ThreadPoolExecutor`` (low spawn overhead,
             good for librosa/numpy CPU-bound work). ``"process"`` uses
             ``ProcessPoolExecutor`` (higher overhead, sometimes better for very
@@ -92,7 +97,7 @@ def analyze_paths(
         cancellation was requested.
     """
     if max_workers is None:
-        max_workers = min(os.cpu_count() or 4, 8)
+        max_workers = _default_max_workers_for_analysis()
 
     results: dict[str, SpectralProfile | None] = {}
     paths_to_analyze: list[Path] = []

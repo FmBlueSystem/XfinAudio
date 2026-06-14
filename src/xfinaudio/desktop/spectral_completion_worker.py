@@ -31,6 +31,11 @@ def _is_cancelled(token: ScanCancellationToken | None) -> bool:
     return thread is not None and thread.isInterruptionRequested()
 
 
+def _default_max_workers_for_analysis(cpu_count: int | None = None) -> int:
+    """Return the default analysis pool size while reserving one CPU core."""
+    return max(1, (cpu_count or os.cpu_count() or 4) - 1)
+
+
 class _SpectralCompletionRunner(QObject):
     """Internal runner that lives on a background QThread."""
 
@@ -49,7 +54,7 @@ class _SpectralCompletionRunner(QObject):
         self._records = records
         self._repository = repository
         self._cancellation_token = cancellation_token
-        self._max_workers = max_workers or min(os.cpu_count() or 4, 8)
+        self._max_workers = max_workers if max_workers is not None else _default_max_workers_for_analysis()
 
     @Slot()
     def run(self) -> None:

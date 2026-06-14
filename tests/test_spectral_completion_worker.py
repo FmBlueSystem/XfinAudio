@@ -9,17 +9,22 @@ from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
 from xfinaudio.audio.spectral_profile import SpectralProfile
-from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
+from xfinaudio.desktop import spectral_completion_worker
+from xfinaudio.desktop.spectral_completion_worker import (
+    SpectralCompletionWorker,
+    _default_max_workers_for_analysis,
+    _SpectralCompletionRunner,
+)
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken
 from xfinaudio.library.track_repository import TrackRepository
 
+_EXISTING_APP = QApplication.instance()
+_APP: QApplication = _EXISTING_APP if isinstance(_EXISTING_APP, QApplication) else QApplication([])
+
 
 def ensure_app() -> None:
-    existing_app = QApplication.instance()
-    if isinstance(existing_app, QApplication):
-        return
-    QApplication([])
+    _ = _APP
 
 
 class _FakeRepository:
@@ -40,11 +45,20 @@ class _FakeRepository:
         return True
 
 
+def test_default_max_workers_for_analysis_reserves_one_cpu() -> None:
+    ensure_app()
+
+    assert _default_max_workers_for_analysis(cpu_count=8) == 7
+    assert _default_max_workers_for_analysis(cpu_count=1) == 1
+
+
 def _wait_for_worker(worker: SpectralCompletionWorker, timeout_ms: int = 5000) -> None:
     loop = QEventLoop()
     worker.finished.connect(loop.quit)
     QTimer.singleShot(timeout_ms, loop.quit)
     loop.exec()
+    worker.wait(timeout_ms)
+    QApplication.processEvents()
 
 
 def test_worker_emits_progress_for_missing_profiles(monkeypatch) -> None:
@@ -152,3 +166,21 @@ def test_scan_folder_leaves_profiles_none_when_resolve_is_false(monkeypatch) -> 
 
     assert len(records) == 1
     assert records[0].spectral_profile is None
+
+
+def test_runner_uses_cpu_reservation_default(monkeypatch) -> None:
+    ensure_app()
+    monkeypatch.setattr(spectral_completion_worker.os, "cpu_count", lambda: 8)
+
+    runner = _SpectralCompletionRunner([], _FakeRepository())
+
+    assert runner._max_workers == 7
+
+
+def test_runner_respects_explicit_max_workers(monkeypatch) -> None:
+    ensure_app()
+    monkeypatch.setattr(spectral_completion_worker.os, "cpu_count", lambda: 8)
+
+    runner = _SpectralCompletionRunner([], _FakeRepository(), max_workers=3)
+
+    assert runner._max_workers == 3
