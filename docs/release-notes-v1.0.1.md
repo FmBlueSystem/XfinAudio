@@ -43,7 +43,7 @@ XfinAudio 1.0.1 is a polish and hardening release following the initial open-sou
 - Release smoke: `uv run python scripts/smoke_release_readiness.py` — pass.
 - Release gates: `uv run python scripts/release_gate_check.py --run` — pass.
 - PyPI publication: https://pypi.org/project/xfinaudio/1.0.1/
-- Manual desktop QA: pending (requires real Mixed In Key processed audio folder).
+- Manual desktop QA: completed 2026-06-14 against `/Volumes/dd/_Lossless/por_decada` — evidence: `docs/qa-manual-mik-evidence.md`.
 
 ## Known limitations
 
