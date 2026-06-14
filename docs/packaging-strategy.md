@@ -61,6 +61,26 @@ A release candidate is not ready until all gates are recorded in evidence:
 - Confirmation that no live Serato writes are part of the candidate.
 - Confirmation that GPL-3.0-only source license metadata and third-party binary redistribution review notes are current.
 
+## PyPI publication workflow
+
+Publishing to PyPI is automated via GitHub Actions. To release a new version:
+
+1. Update `version` in `pyproject.toml`.
+2. Commit and push the version bump.
+3. Create and push a tag:
+   ```bash
+   git tag v1.0.1
+   git push origin v1.0.1
+   ```
+4. The `.github/workflows/publish-to-pypi.yml` workflow will run tests, build the package, and publish to PyPI.
+
+### Required repository secret
+
+The workflow expects a PyPI API token stored as `PYPI_API_TOKEN` in:
+**Settings → Secrets and variables → Actions → New repository secret**.
+
+Do not commit the token to the repository. `tokenpypi.txt` is already ignored in `.gitignore`.
+
 ## Open decisions and risks
 
 - PyInstaller is pinned in project dev dependencies for optional local builds, but reproducible release confidence still needs clean-machine evidence when that path is used.
