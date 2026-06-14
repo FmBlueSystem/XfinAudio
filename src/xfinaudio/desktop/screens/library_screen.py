@@ -40,6 +40,7 @@ _COLUMNS = [
     "Preview",
     "Path",
 ]
+_MISSING_COLUMN = _COLUMNS.index("Missing")
 
 
 def _sort_key_for_column(row: TrackDisplayRow, column: int) -> Any:
@@ -104,6 +105,7 @@ class LibraryScreen(QWidget):
 
     def _build_ui(self) -> None:
         self._filter_query: str = ""
+        self._missing_column_visible = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -114,10 +116,12 @@ class LibraryScreen(QWidget):
         self.folder_button = QPushButton(self.tr("Choose Folder"))
         self.scan_button = QPushButton(self.tr("Scan Metadata"))
         self.cancel_button = QPushButton(self.tr("Cancel Scan"))
+        self.missing_column_button = QPushButton(self.tr("Show Missing"))
         self.cancel_button.setEnabled(False)
         controls.addWidget(self.folder_button)
         controls.addWidget(self.scan_button)
         controls.addWidget(self.cancel_button)
+        controls.addWidget(self.missing_column_button)
         controls.addStretch()
         layout.addLayout(controls)
 
@@ -172,6 +176,8 @@ class LibraryScreen(QWidget):
         self.tracks_table.verticalHeader().setVisible(False)
         # Hide Path column by default — full paths are rarely useful at a glance.
         self.tracks_table.setColumnHidden(len(_COLUMNS) - 1, True)
+        # Hide Missing column by default — useful on demand, but cramped during browsing.
+        self.tracks_table.setColumnHidden(_MISSING_COLUMN, True)
         layout.addWidget(self.tracks_table)
 
         # Bottom row
@@ -191,6 +197,7 @@ class LibraryScreen(QWidget):
         self.folder_button.setAccessibleName(self.tr("Choose music folder"))
         self.scan_button.setAccessibleName(self.tr("Scan metadata"))
         self.cancel_button.setAccessibleName(self.tr("Cancel scan"))
+        self.missing_column_button.setAccessibleName(self.tr("Show or hide missing metadata column"))
         self.search_input.setAccessibleName(self.tr("Search songs"))
         self.search_input.setAccessibleDescription(
             self.tr("Type to filter the track library by title, artist, BPM, key, or genre.")
@@ -203,7 +210,8 @@ class LibraryScreen(QWidget):
         """Define a logical keyboard tab order across primary controls."""
         self.setTabOrder(self.folder_button, self.scan_button)
         self.setTabOrder(self.scan_button, self.cancel_button)
-        self.setTabOrder(self.cancel_button, self.search_input)
+        self.setTabOrder(self.cancel_button, self.missing_column_button)
+        self.setTabOrder(self.missing_column_button, self.search_input)
         self.setTabOrder(self.search_input, self.tracks_table)
         self.setTabOrder(self.tracks_table, self.settings_button)
         self.setTabOrder(self.settings_button, self.proceed_button)
@@ -212,6 +220,7 @@ class LibraryScreen(QWidget):
         self.folder_button.clicked.connect(self.folder_change_requested)
         self.scan_button.clicked.connect(self.scan_requested)
         self.cancel_button.clicked.connect(self.cancel_scan_requested)
+        self.missing_column_button.clicked.connect(self._toggle_missing_column)
         self.tracks_table.itemSelectionChanged.connect(self._on_selection_changed)
         self.tracks_table.itemDoubleClicked.connect(self._on_track_double_clicked)
         self.tracks_table.cellClicked.connect(self._on_cell_clicked)
@@ -314,6 +323,12 @@ class LibraryScreen(QWidget):
         )
         if self._last_vm is not None and self._last_state is not None:
             self.render(self._last_vm, self._last_state)
+
+    def _toggle_missing_column(self) -> None:
+        self._missing_column_visible = not self._missing_column_visible
+        self.tracks_table.setColumnHidden(_MISSING_COLUMN, not self._missing_column_visible)
+        button_text = "Hide Missing" if self._missing_column_visible else "Show Missing"
+        self.missing_column_button.setText(self.tr(button_text))
 
     def _on_search_changed(self, text: str) -> None:
         self._filter_query = text.strip().casefold()
