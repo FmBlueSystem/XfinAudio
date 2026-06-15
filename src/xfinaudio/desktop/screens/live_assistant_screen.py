@@ -129,6 +129,19 @@ class LiveAssistantScreen(QWidget):
         header.addWidget(self._exit_button)
         layout.addLayout(header)
 
+        self._guidance_label = QLabel(
+            self.tr(
+                "1. Pick a track to start the session (or use the candidate list). "
+                "2. Preview candidates with the play button; alerts flag risky transitions. "
+                "3. Press Load Next to commit the chosen track as the new current track. "
+                "Shortcuts: Space plays or pauses preview; L loads the selected next track. "
+                "Scan a library first to populate candidates."
+            )
+        )
+        self._guidance_label.setObjectName("guidanceLabel")
+        self._guidance_label.setWordWrap(True)
+        layout.addWidget(self._guidance_label)
+
         # Empty state
         self._empty_state_widget = QWidget()
         empty_layout = QVBoxLayout(self._empty_state_widget)
@@ -231,6 +244,7 @@ class LiveAssistantScreen(QWidget):
 
         self._empty_state_widget.setVisible(False)
         self._content_widget.setVisible(True)
+        self._guidance_label.setVisible(False)
 
     def set_candidates(self, candidates: list[TrackRecord]) -> None:
         self._candidates = candidates

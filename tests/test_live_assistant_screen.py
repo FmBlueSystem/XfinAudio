@@ -1,7 +1,7 @@
 """Tests for LiveAssistantScreen — Qt widget tests."""
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from xfinaudio.desktop.screens.live_assistant_screen import LiveAssistantScreen
 from xfinaudio.library.models import TrackRecord
@@ -131,10 +131,38 @@ def test_empty_state_shows_when_no_current_track(qapp: QApplication) -> None:
     assert screen._content_widget is not None
 
 
+def test_guidance_banner_visible_without_current_track(qapp: QApplication) -> None:
+    screen = LiveAssistantScreen()
+    screen.show()
+    qapp.processEvents()
+
+    guidance_labels = screen.findChildren(QLabel, "guidanceLabel")
+
+    assert len(guidance_labels) == 1
+    guidance_text = guidance_labels[0].text()
+    assert "Pick a track to start the session" in guidance_text
+    assert "Preview candidates with the play button" in guidance_text
+    assert "Load Next" in guidance_text
+    assert "Space" in guidance_text
+    assert "L" in guidance_text
+    assert guidance_labels[0].wordWrap() is True
+    assert guidance_labels[0].isVisible() is True
+
+
 def test_content_shows_when_current_track_set(qapp: QApplication, track_a: TrackRecord) -> None:
     screen = LiveAssistantScreen()
     screen.set_current_track(track_a)
     assert screen._current_track == track_a
+
+
+def test_guidance_banner_hides_when_current_track_set(qapp: QApplication, track_a: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    screen.set_current_track(track_a)
+
+    guidance_labels = screen.findChildren(QLabel, "guidanceLabel")
+
+    assert len(guidance_labels) == 1
+    assert guidance_labels[0].isVisible() is False
 
 
 def test_keyboard_shortcut_esc_emits_exit(qapp: QApplication) -> None:

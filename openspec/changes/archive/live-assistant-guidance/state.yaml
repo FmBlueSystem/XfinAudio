@@ -1,0 +1,26 @@
+schema: gentle-ai.sdd-state.v1
+change: live-assistant-guidance
+artifact_store: openspec
+status: completed
+state: completed
+step: archive
+review_status: completed
+created: 2026-06-14
+updated: 2026-06-14
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: in_progress
+  verify: pending
+  review: pending
+next_recommended: apply
+blocked_reasons: []
+delivery:
+  strategy: direct
+  chained_prs_recommended: false
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 60
+notes: Adds visible onboarding guidance to the Live Assistant screen.
