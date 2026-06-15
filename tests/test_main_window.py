@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelectionModel
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
 )
 
-from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings
+from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings, WindowSettings
 from xfinaudio.desktop import export_coordinator, main_window
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.exporting.explainability import PlaylistExplanation, TrackExplanation, TransitionExplanation
@@ -2810,3 +2810,110 @@ def test_main_window_blocks_serato_export_when_dj_readiness_is_blocked(tmp_path)
     target = serato_folder / "Subcrates" / "Blocked Test.crate"
     assert not target.exists()
     assert "Resolve blocked readiness checks before exporting" in window.status_label.text()
+
+
+# ----------------------------------------------------------------------
+# Phase 5: Responsive layout, full screen, geometry persistence
+# ----------------------------------------------------------------------
+
+
+def test_responsive_sidebar_width_is_wide_at_or_above_breakpoint() -> None:
+    breakpoint = main_window._NARROW_BREAKPOINT
+
+    assert main_window.responsive_sidebar_width(breakpoint) == main_window._SIDEBAR_WIDTH_WIDE
+    assert main_window.responsive_sidebar_width(breakpoint + 400) == main_window._SIDEBAR_WIDTH_WIDE
+
+
+def test_responsive_sidebar_width_is_narrow_below_breakpoint() -> None:
+    breakpoint = main_window._NARROW_BREAKPOINT
+
+    assert main_window.responsive_sidebar_width(breakpoint - 1) == main_window._SIDEBAR_WIDTH_NARROW
+    assert main_window.responsive_sidebar_width(320) == main_window._SIDEBAR_WIDTH_NARROW
+
+
+def test_responsive_sidebar_widths_differ() -> None:
+    assert main_window._SIDEBAR_WIDTH_WIDE == 180
+    assert main_window._SIDEBAR_WIDTH_NARROW == 120
+
+
+def test_main_window_narrow_resize_collapses_sidebar_to_icons() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    window._apply_responsive_layout(main_window._NARROW_BREAKPOINT - 1)
+
+    assert window._sidebar_panel.width() == main_window._SIDEBAR_WIDTH_NARROW
+    visible_labels = [window.workflow_sidebar.item(i).text() for i in range(window.workflow_sidebar.count())]
+    assert visible_labels == ["" for _ in visible_labels]
+
+
+def test_main_window_wide_resize_restores_sidebar_labels() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window._apply_responsive_layout(main_window._NARROW_BREAKPOINT - 1)
+
+    window._apply_responsive_layout(main_window._NARROW_BREAKPOINT + 100)
+
+    assert window._sidebar_panel.width() == main_window._SIDEBAR_WIDTH_WIDE
+    visible_labels = [window.workflow_sidebar.item(i).text() for i in range(window.workflow_sidebar.count())]
+    assert visible_labels == [
+        "Library",
+        "Build Playlist",
+        "Review Mix",
+        "Export to Serato",
+        "My Playlists",
+        "Metadata Worklist",
+        "Live Assistant",
+    ]
+
+
+def test_main_window_full_screen_hides_sidebar_and_status_controls() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.show()
+
+    window.set_full_screen(True)
+
+    assert window._sidebar_panel.isHidden() is True
+    assert window.status_bar_toggle.isHidden() is True
+
+
+def test_main_window_exit_full_screen_restores_sidebar_and_status_controls() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.show()
+    window.set_full_screen(True)
+
+    window.set_full_screen(False)
+
+    assert window._sidebar_panel.isHidden() is False
+    assert window.status_bar_toggle.isHidden() is False
+
+
+def test_main_window_restores_persisted_window_geometry() -> None:
+    ensure_app()
+    window = MainWindow(
+        scan_service=FakeScanService(),
+        repository=FakeRepository(),
+        settings=AppSettings(window=WindowSettings(width=1100, height=720, x=20, y=30)),
+    )
+
+    assert window.width() == 1100
+    assert window.height() == 720
+
+
+def test_main_window_persists_window_geometry_on_close() -> None:
+    ensure_app()
+    settings_repository = FakeSettingsRepository()
+    window = MainWindow(
+        scan_service=FakeScanService(),
+        repository=FakeRepository(),
+        settings_repository=settings_repository,
+    )
+    window.resize(1024, 680)
+
+    window.closeEvent(QCloseEvent())
+
+    assert settings_repository.saved_settings is not None
+    assert settings_repository.saved_settings.window.width == 1024
+    assert settings_repository.saved_settings.window.height == 680

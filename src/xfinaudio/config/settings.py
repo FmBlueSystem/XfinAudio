@@ -69,6 +69,17 @@ class AudioSettings(BaseModel):
     preview_volume: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
+class WindowSettings(BaseModel):
+    """Persisted main-window geometry, restored on launch."""
+
+    model_config = ConfigDict(frozen=True)
+
+    width: int | None = None
+    height: int | None = None
+    x: int | None = None
+    y: int | None = None
+
+
 class AppSettings(BaseModel):
     """Versioned root settings model for XfinAudio."""
 
@@ -82,6 +93,7 @@ class AppSettings(BaseModel):
     export: ExportSettings = Field(default_factory=ExportSettings)
     ui: UiSettings = Field(default_factory=UiSettings)
     audio: AudioSettings = Field(default_factory=AudioSettings)
+    window: WindowSettings = Field(default_factory=WindowSettings)
 
     @field_validator("settings_version")
     @classmethod
@@ -102,4 +114,5 @@ __all__ = [
     "ScanSettings",
     "ScoringSettings",
     "UiSettings",
+    "WindowSettings",
 ]
