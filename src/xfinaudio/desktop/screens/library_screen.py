@@ -92,6 +92,7 @@ class LibraryScreen(QWidget):
     track_play_requested = Signal(str)  # emits full path
     play_requested = Signal(str)
     pause_requested = Signal()
+    filters_cleared = Signal(list)  # emits labels of filters that were active before clearing
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -497,8 +498,22 @@ class LibraryScreen(QWidget):
         self._refresh_filter_state()
 
     def _clear_quick_filters(self) -> None:
+        self.clear_quick_filters(emit_signal=True)
+
+    def clear_quick_filters(self, *, emit_signal: bool) -> None:
+        """Clear quick filters, optionally emitting undoable-action metadata."""
+        active_labels = [button.text() for button in self.quick_filter_buttons if button.isChecked()]
         for button in self.quick_filter_buttons:
             button.setChecked(False)
+        self._refresh_filter_state()
+        if emit_signal and active_labels:
+            self.filters_cleared.emit(active_labels)
+
+    def restore_quick_filters(self, labels: list[str]) -> None:
+        """Re-check the quick-filter buttons named in *labels* (undo support)."""
+        wanted = set(labels)
+        for button in self.quick_filter_buttons:
+            button.setChecked(button.text() in wanted)
         self._refresh_filter_state()
 
     def _refresh_filter_state(self) -> None:

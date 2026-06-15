@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from xfinaudio.desktop.undo_manager import Command, UndoManager
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_repository import PlaylistRepository
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -37,11 +38,13 @@ class PlaylistHost(Protocol):
     _playlists_screen: Any
     _playlist_editor: Any
     _export_coordinator: Any
+    _undo_manager: UndoManager
     workflow_tabs: Any
     last_recommendation: PlaylistRecommendation | None
     scanned_records: list[TrackRecord]
 
     def tr(self, text: str) -> str: ...
+    def _refresh_undo_state(self) -> None: ...
     def _sync_state(self) -> None: ...
 
 
@@ -175,6 +178,23 @@ class PlaylistCoordinator:
         playlist_id = editor._playlist_id
         if playlist_id is None:
             return
+        previous_paths = list(editor._track_paths)
+        new_paths = list(track_paths)
+        self._apply_track_order(playlist_id, new_paths)
+        self._host._undo_manager.push(
+            Command(
+                label=self._host.tr("Reorder playlist"),
+                execute=lambda: self._apply_track_order(playlist_id, new_paths),
+                undo=lambda: self._apply_track_order(playlist_id, previous_paths),
+            )
+        )
+        self._host._refresh_undo_state()
+
+    def _apply_track_order(self, playlist_id: int, track_paths: list[str]) -> None:
+        """Persist and render an editor track order without recording a new command."""
+        editor = self._host._playlist_editor
+        editor._track_paths = list(track_paths)
+        editor._populate_table()
         self._host._playlist_repository.update_tracks(playlist_id, track_paths)
         self.refresh_list()
         self._host._sync_state()
