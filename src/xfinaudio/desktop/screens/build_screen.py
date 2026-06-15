@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSlider,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.build_view_model import BuildViewModel, CopilotVariantRow
+from xfinaudio.desktop.scan_controller import progress_percent, progress_status_text
 
 _READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "blocked": "Blocked"}
 _READINESS_STATUS_COLORS = {"ready": "#1fd16a", "needs_review": "#ffb000", "blocked": "#ff4d4f"}
@@ -61,8 +63,16 @@ class BuildScreen(QWidget):
         self.strategy_combo = QComboBox()
         self.recommend_button = QPushButton(self.tr("Recommend Playlist"))
         self.recommend_button.setEnabled(False)
+        self.recommend_progress_bar = QProgressBar()
+        self.recommend_progress_bar.setRange(0, 100)
+        self.recommend_progress_bar.setTextVisible(False)
+        self.recommend_progress_bar.setVisible(False)
+        self.recommend_progress_label = QLabel("")
+        self.recommend_progress_label.setVisible(False)
         strategy_row.addWidget(self.strategy_combo)
         strategy_row.addWidget(self.recommend_button)
+        strategy_row.addWidget(self.recommend_progress_bar)
+        strategy_row.addWidget(self.recommend_progress_label)
         strategy_row.addStretch()
         layout.addLayout(strategy_row)
 
@@ -241,6 +251,7 @@ class BuildScreen(QWidget):
 
         # recommend_button enabled state is managed by MainWindow._refresh_idle_action_state
         self.copilot_button.setEnabled(vm.copilot_button_enabled(state))
+        self._render_recommend_progress(state)
         self.variant_label.setText(vm.applied_variant_label(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
         rows = vm.copilot_variants_for_display(state)
@@ -279,6 +290,25 @@ class BuildScreen(QWidget):
             parts.append(self.tr("{0} locked").format(locked))
         self.constraints_label.setText(", ".join(parts) if parts else "")
         self.clear_constraints_button.setEnabled(bool(excluded or locked))
+
+    def _render_recommend_progress(self, state: AppState) -> None:
+        if not state.is_recommending:
+            self.recommend_progress_bar.setVisible(False)
+            self.recommend_progress_label.setVisible(False)
+            self.recommend_progress_label.setText("")
+            return
+        self.recommend_progress_bar.setValue(
+            progress_percent(state.recommend_progress_count, state.recommend_progress_total)
+        )
+        self.recommend_progress_label.setText(
+            progress_status_text(
+                state.recommend_progress_count,
+                state.recommend_progress_total,
+                state.recommend_elapsed_seconds,
+            )
+        )
+        self.recommend_progress_bar.setVisible(True)
+        self.recommend_progress_label.setVisible(True)
 
     def _populate_copilot_table(self, rows: list[CopilotVariantRow]) -> None:
         self.copilot_table.setRowCount(0)

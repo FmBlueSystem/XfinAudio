@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_view_model import LibraryFilters, LibraryViewModel, TrackDisplayRow
+from xfinaudio.desktop.scan_controller import progress_percent, progress_status_text
 
 _EMPTY = QTableWidgetItem("")
 _ROW_COLOR_EVEN = QColor("#101820")
@@ -120,6 +122,14 @@ class LibraryScreen(QWidget):
         self.cancel_button.setEnabled(False)
         controls.addWidget(self.folder_button)
         controls.addWidget(self.scan_button)
+        self.scan_progress_bar = QProgressBar()
+        self.scan_progress_bar.setRange(0, 100)
+        self.scan_progress_bar.setTextVisible(False)
+        self.scan_progress_bar.setVisible(False)
+        self.scan_progress_label = QLabel("")
+        self.scan_progress_label.setVisible(False)
+        controls.addWidget(self.scan_progress_bar)
+        controls.addWidget(self.scan_progress_label)
         controls.addWidget(self.cancel_button)
         controls.addWidget(self.missing_column_button)
         controls.addStretch()
@@ -277,6 +287,7 @@ class LibraryScreen(QWidget):
         self.cancel_button.setVisible(vm.cancel_button_visible(state))
         self.scan_settings_label.setText(vm.scan_settings_review_text(state))
         self.status_label.setText(vm.status_text(state))
+        self._render_scan_progress(state)
         self.proceed_button.setEnabled(vm.can_proceed(state))
         if lightweight:
             return
@@ -292,6 +303,19 @@ class LibraryScreen(QWidget):
         self._apply_filter()
         self._apply_constraint_colors(state.excluded_paths, state.locked_paths)
         self._apply_playing_highlight()
+
+    def _render_scan_progress(self, state: AppState) -> None:
+        if not state.is_scanning:
+            self.scan_progress_bar.setVisible(False)
+            self.scan_progress_label.setVisible(False)
+            self.scan_progress_label.setText("")
+            return
+        self.scan_progress_bar.setValue(progress_percent(state.scan_progress_count, state.scan_progress_total))
+        self.scan_progress_label.setText(
+            progress_status_text(state.scan_progress_count, state.scan_progress_total, state.scan_elapsed_seconds)
+        )
+        self.scan_progress_bar.setVisible(True)
+        self.scan_progress_label.setVisible(True)
 
     def _populate_table(self, rows: list[TrackDisplayRow]) -> None:
         # Preserve selected paths so sorting does not lose selection.

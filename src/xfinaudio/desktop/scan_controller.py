@@ -11,6 +11,25 @@ from xfinaudio.desktop._workers import ScanWorker
 from xfinaudio.library.scan_service import ScanCancellationToken
 
 
+def progress_percent(processed_count: int, total_count: int) -> int:
+    """Return clamped integer progress percentage for completed units."""
+    if total_count <= 0:
+        return 0
+    processed = max(0, min(processed_count, total_count))
+    return round((processed / total_count) * 100)
+
+
+def progress_status_text(processed_count: int, total_count: int, elapsed_seconds: float) -> str:
+    """Return progress percentage plus estimated time remaining."""
+    percent = progress_percent(processed_count, total_count)
+    if processed_count <= 0 or total_count <= 0 or elapsed_seconds <= 0:
+        return f"{percent}% · estimating remaining"
+    remaining_units = max(total_count - processed_count, 0)
+    remaining_seconds = round((elapsed_seconds / processed_count) * remaining_units)
+    minutes, seconds = divmod(remaining_seconds, 60)
+    return f"{percent}% · {minutes}:{seconds:02d} remaining"
+
+
 class ScanController(QObject):
     """Manage the QThread/ScanWorker lifecycle and re-emit worker signals."""
 
