@@ -1776,7 +1776,7 @@ def test_main_window_uses_compact_macbook_layout_for_library_section() -> None:
     layout = window.centralWidget().layout()
     assert layout is not None
     assert layout.spacing() <= 6
-    assert _library_tracks_table(window).maximumHeight() <= 190
+    assert _library_tracks_table(window).minimumHeight() >= 400
     assert _library_tracks_table(window).verticalHeader().defaultSectionSize() <= 24
     headers = _track_table_headers(window)
     assert _library_tracks_table(window).columnWidth(headers.index("Genre")) >= 140
