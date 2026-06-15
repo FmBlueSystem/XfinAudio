@@ -260,12 +260,15 @@ class MainWindow(QMainWindow):
         self._search_debounce.setSingleShot(True)
         self._search_debounce.setInterval(150)
         self._current_tab_index: int = 0
-        self._export_coordinator = ExportCoordinator(host=self)  # type: ignore[reportArgumentType]
+        self._playlist_coordinator = PlaylistCoordinator(host=self)  # type: ignore[reportArgumentType]
+        self._export_coordinator = ExportCoordinator(
+            host=self,  # type: ignore[reportArgumentType]
+            on_export_success=self._playlist_coordinator.save_recommendation,
+        )
         self._scan_coordinator = ScanCoordinator(host=self)  # type: ignore[reportArgumentType]
         self._spectral_completion_worker: SpectralCompletionWorker | None = None
         self._recommendation_coordinator = RecommendationCoordinator(host=self)  # type: ignore[reportArgumentType]
         self._live_assistant_coordinator = LiveAssistantCoordinator(host=self)  # type: ignore[reportArgumentType]
-        self._playlist_coordinator = PlaylistCoordinator(host=self)  # type: ignore[reportArgumentType]
         self._settings_controller = SettingsController(self)  # type: ignore[reportArgumentType]
 
     def _render_tab(self, index: int, lightweight: bool = False) -> None:

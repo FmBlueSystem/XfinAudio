@@ -181,5 +181,5 @@ class PlaylistCoordinator:
 
     @staticmethod
     def _default_recommendation_name(recommendation: PlaylistRecommendation) -> str:
-        date_text = datetime.now().strftime("%Y-%m-%d")
+        date_text = datetime.now().strftime("%Y%m%d-%H%M%S")
         return f"{recommendation.strategy.name} - {date_text}"
