@@ -64,11 +64,31 @@ QPushButton#primaryAction {
     background: #00d4ff;
     color: #061018;
     border-color: #00d4ff;
+    padding: 8px 18px;
+    font-size: 14px;
+}
+QPushButton#secondaryAction {
+    background: transparent;
+    color: #9fb3c8;
+    border: 1px solid #2d3744;
+    padding: 3px 8px;
+    font-weight: 600;
+}
+QPushButton#secondaryAction:hover {
+    background: #17212c;
+    border-color: #344456;
+}
+QFrame#sectionDivider {
+    background: #1e2d3a;
+    border: 0;
+    max-height: 1px;
 }
 QPushButton#seratoExportButton {
     background: #ffb000;
     color: #121212;
     border-color: #ffcf5c;
+    padding: 8px 18px;
+    font-size: 14px;
 }
 QPushButton#primaryAction:disabled,
 QPushButton#seratoExportButton:disabled {

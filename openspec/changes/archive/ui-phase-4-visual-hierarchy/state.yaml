@@ -1,0 +1,26 @@
+schema: gentle-ai.sdd-state.v1
+change: ui-phase-4-visual-hierarchy
+artifact_store: openspec
+status: completed
+state: completed
+step: archive
+review_status: completed
+created: 2026-06-14
+updated: 2026-06-14
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  review: complete
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: direct
+  chained_prs_recommended: false
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 120
+notes: Phase 4 of UI improvement roadmap - visual hierarchy with primary/secondary buttons.

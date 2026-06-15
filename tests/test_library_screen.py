@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFrame
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_view_model import LibraryViewModel
@@ -101,3 +101,36 @@ def test_scan_progress_bar_shows_eta_and_hides_when_complete(qapp: QApplication)
     screen.render(vm, AppState(selected_folder=Path("/music")), lightweight=True)
     assert screen.scan_progress_bar.isHidden() is True
     assert screen.scan_progress_label.text() == ""
+
+
+def test_primary_and_secondary_action_buttons_have_visual_hierarchy(qapp: QApplication) -> None:
+    """Scan is a larger primary action; Settings is a smaller muted secondary action."""
+    screen = LibraryScreen()
+
+    assert screen.scan_button.objectName() == "primaryAction"
+    assert screen.settings_button.objectName() == "secondaryAction"
+    assert screen.scan_button.minimumHeight() > screen.settings_button.maximumHeight()
+
+
+def test_section_divider_separates_controls_from_table(qapp: QApplication) -> None:
+    """A horizontal QFrame divider sits between the controls and the table."""
+    screen = LibraryScreen()
+
+    assert screen.section_divider.frameShape() == QFrame.Shape.HLine
+
+
+def test_empty_state_shows_no_library_then_no_tracks(qapp: QApplication) -> None:
+    """Empty-state label guides the user when there is no library, then no tracks."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+
+    screen.render(vm, AppState(), lightweight=True)
+    assert screen.empty_state_label.isHidden() is False
+    assert "folder" in screen.empty_state_label.text().casefold()
+
+    screen.render(vm, AppState(selected_folder=Path("/music")), lightweight=True)
+    assert screen.empty_state_label.isHidden() is False
+    assert "scan" in screen.empty_state_label.text().casefold()
+
+    screen.render(vm, _state_with_tracks())
+    assert screen.empty_state_label.isHidden() is True

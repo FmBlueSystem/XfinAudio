@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -62,6 +63,8 @@ class BuildScreen(QWidget):
         strategy_row = QHBoxLayout()
         self.strategy_combo = QComboBox()
         self.recommend_button = QPushButton(self.tr("Recommend Playlist"))
+        self.recommend_button.setObjectName("primaryAction")
+        self.recommend_button.setMinimumHeight(36)
         self.recommend_button.setEnabled(False)
         self.recommend_progress_bar = QProgressBar()
         self.recommend_progress_bar.setRange(0, 100)
@@ -150,6 +153,18 @@ class BuildScreen(QWidget):
         copilot_row.addStretch()
         layout.addLayout(copilot_row)
 
+        # Section divider between controls and copilot table
+        self.section_divider = QFrame()
+        self.section_divider.setObjectName("sectionDivider")
+        self.section_divider.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(self.section_divider)
+
+        # Empty-state guidance (no recommendation yet)
+        self.empty_state_label = QLabel()
+        self.empty_state_label.setObjectName("guidanceLabel")
+        self.empty_state_label.setWordWrap(True)
+        layout.addWidget(self.empty_state_label)
+
         # Copilot variants table — expanding so it absorbs spare vertical space.
         self.copilot_table = QTableWidget(0, len(_COPILOT_COLUMNS))
         self.copilot_table.setHorizontalHeaderLabels([self.tr(c) for c in _COPILOT_COLUMNS])
@@ -175,6 +190,8 @@ class BuildScreen(QWidget):
         # Bottom navigation
         nav = QHBoxLayout()
         self.back_button = QPushButton(self.tr("← Library"))
+        self.back_button.setObjectName("secondaryAction")
+        self.back_button.setMaximumHeight(26)
         self.proceed_button = QPushButton(self.tr("Review →"))
         nav.addWidget(self.back_button)
         nav.addStretch()
@@ -252,6 +269,13 @@ class BuildScreen(QWidget):
         # recommend_button enabled state is managed by MainWindow._refresh_idle_action_state
         self.copilot_button.setEnabled(vm.copilot_button_enabled(state))
         self._render_recommend_progress(state)
+        no_recommendation = state.last_recommendation is None
+        self.empty_state_label.setText(
+            self.tr("🎚 No recommendation yet — pick a strategy and click Recommend Playlist.")
+            if no_recommendation
+            else ""
+        )
+        self.empty_state_label.setVisible(no_recommendation)
         self.variant_label.setText(vm.applied_variant_label(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
         rows = vm.copilot_variants_for_display(state)

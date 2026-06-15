@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -93,8 +94,11 @@ class ExportScreen(QWidget):
         # Action buttons
         actions = QHBoxLayout()
         self.preview_button = QPushButton(self.tr("Preview Serato Export"))
+        self.preview_button.setObjectName("secondaryAction")
+        self.preview_button.setMaximumHeight(26)
         self.export_button = QPushButton(self.tr("Export to Serato"))
         self.export_button.setObjectName("seratoExportButton")
+        self.export_button.setMinimumHeight(36)
         self.export_button.setEnabled(False)
         self.export_progress_bar = QProgressBar()
         self.export_progress_bar.setRange(0, 100)
@@ -112,6 +116,12 @@ class ExportScreen(QWidget):
         actions.addStretch()
         layout.addLayout(actions)
 
+        # Section divider between controls and history table
+        self.section_divider = QFrame()
+        self.section_divider.setObjectName("sectionDivider")
+        self.section_divider.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(self.section_divider)
+
         # Export history table (hidden until first export) — absorbs all spare vertical space.
         self.history_table = QTableWidget(0, len(_HISTORY_COLUMNS))
         self.history_table.setHorizontalHeaderLabels([self.tr(c) for c in _HISTORY_COLUMNS])
@@ -125,6 +135,8 @@ class ExportScreen(QWidget):
         # Navigation
         nav = QHBoxLayout()
         self.back_button = QPushButton(self.tr("← Review"))
+        self.back_button.setObjectName("secondaryAction")
+        self.back_button.setMaximumHeight(26)
         nav.addWidget(self.back_button)
         nav.addStretch()
         layout.addLayout(nav)
