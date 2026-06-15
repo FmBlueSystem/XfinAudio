@@ -196,8 +196,11 @@ def _bpm_continuity_check(recommendation: PlaylistRecommendation) -> DjReadiness
     if max_jump > MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:
         return DjReadinessCheck(
             label="BPM continuity",
-            status="blocked",
-            detail=(f"Max adjacent BPM jump is {max_jump:.2f}%, above {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"),
+            status="needs_review",
+            detail=(
+                f"Max adjacent BPM jump is {max_jump:.2f}%, above {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}% — "
+                "export allowed, but review the transition before playing live"
+            ),
         )
     return DjReadinessCheck(
         label="BPM continuity",
