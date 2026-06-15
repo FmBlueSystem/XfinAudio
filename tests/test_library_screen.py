@@ -134,3 +134,33 @@ def test_empty_state_shows_no_library_then_no_tracks(qapp: QApplication) -> None
 
     screen.render(vm, _state_with_tracks())
     assert screen.empty_state_label.isHidden() is True
+
+
+def test_all_buttons_have_tooltips(qapp: QApplication) -> None:
+    """Every QPushButton on the screen exposes a non-empty tooltip (R1)."""
+    from PySide6.QtWidgets import QPushButton
+
+    screen = LibraryScreen()
+
+    buttons = screen.findChildren(QPushButton)
+    assert buttons
+    assert all(button.toolTip().strip() for button in buttons)
+
+
+def test_help_button_opens_help_dialog(qapp: QApplication) -> None:
+    """The 'What's this?' help button builds a dialog with explanatory text (R3)."""
+    screen = LibraryScreen()
+
+    assert "what" in screen.help_button.text().casefold()
+    dialog = screen.build_help_dialog()
+    assert "scan" in dialog.text().casefold()
+
+
+def test_tour_button_provides_walkthrough_steps(qapp: QApplication) -> None:
+    """The 'Tour' button exposes an ordered, non-empty walkthrough (R4)."""
+    screen = LibraryScreen()
+
+    assert "tour" in screen.tour_button.text().casefold()
+    steps = screen.tour_steps()
+    assert len(steps) >= 3
+    assert all(step.strip() for step in steps)

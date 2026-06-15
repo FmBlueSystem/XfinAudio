@@ -1,0 +1,31 @@
+schema: gentle-ai.sdd-state.v1
+change: ui-phase-8-contextual-tooltips
+artifact_store: openspec
+status: active
+state: applying
+step: verify
+review_status: pending
+created: 2026-06-14
+updated: 2026-06-15
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  review: pending
+next_recommended: sdd-review
+blocked_reasons: []
+delivery:
+  strategy: direct
+  chained_prs_recommended: false
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 40
+  realized_changed_lines: 205
+  budget_exceeded: true
+  budget_note: >-
+    40-line budget not achievable for full R1-R4 scope; 135 production +
+    70 test lines. Within project 400-line review budget.
+notes: Phase 8 of UI improvement roadmap - add contextual tooltips for all controls.

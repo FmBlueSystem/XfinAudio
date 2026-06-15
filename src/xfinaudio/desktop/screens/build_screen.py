@@ -31,6 +31,12 @@ _READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "b
 _READINESS_STATUS_COLORS = {"ready": "#1fd16a", "needs_review": "#ffb000", "blocked": "#ff4d4f"}
 
 _COPILOT_COLUMNS = ["Variant", "Description", "Tracks", "Readiness"]
+_COPILOT_HEADER_TOOLTIPS = [
+    "Name of this Prep Copilot playlist variant",
+    "How this variant was assembled and what it emphasizes",
+    "Number of tracks in this variant",
+    "DJ readiness: Ready, Needs Review, or Blocked",
+]
 
 
 class BuildScreen(QWidget):
@@ -168,6 +174,10 @@ class BuildScreen(QWidget):
         # Copilot variants table — expanding so it absorbs spare vertical space.
         self.copilot_table = QTableWidget(0, len(_COPILOT_COLUMNS))
         self.copilot_table.setHorizontalHeaderLabels([self.tr(c) for c in _COPILOT_COLUMNS])
+        for col, tip in enumerate(_COPILOT_HEADER_TOOLTIPS):
+            header_item = self.copilot_table.horizontalHeaderItem(col)
+            if header_item is not None:
+                header_item.setToolTip(self.tr(tip))
         self.copilot_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.copilot_table.setAlternatingRowColors(True)
         self.copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -198,8 +208,24 @@ class BuildScreen(QWidget):
         nav.addWidget(self.proceed_button)
         layout.addLayout(nav)
 
+        self._setup_button_tooltips()
         self._setup_accessibility()
         self._setup_tab_order()
+
+    def _setup_button_tooltips(self) -> None:
+        """Explain every button so users understand each control (R1)."""
+        tips = {
+            self.recommend_button: "Generate a playlist using the selected strategy",
+            self.exclude_button: "Exclude the selected tracks from recommendations",
+            self.lock_button: "Lock the selected tracks so they always appear",
+            self.clear_constraints_button: "Remove all exclude and lock constraints",
+            self.copilot_button: "Generate several Prep Copilot playlist variants",
+            self.apply_variant_button: "Apply the selected Prep Copilot variant",
+            self.back_button: "Return to the Library screen",
+            self.proceed_button: "Move on to review the recommended playlist",
+        }
+        for button, tip in tips.items():
+            button.setToolTip(self.tr(tip))
 
     def _setup_accessibility(self) -> None:
         """Set accessible names for screen readers."""
