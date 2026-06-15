@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, ScanService, TrackPersistence
-from xfinaudio.config.settings import AppSettings, ExportSettings
+from xfinaudio.config.settings import AppSettings, ExportSettings, WindowSettings
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.audio_player import AudioPlayer
 from xfinaudio.desktop.build_view_model import BuildViewModel
@@ -126,6 +126,16 @@ _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
 )
 _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
 _SCREEN_NAMES = ["library", "build", "review", "export", "playlists", "metadata", "live"]
+_SIDEBAR_WIDTH_WIDE = 180
+_SIDEBAR_WIDTH_NARROW = 120
+_NARROW_BREAKPOINT = 900
+
+
+def responsive_sidebar_width(window_width: int) -> int:
+    """Map a window width to the sidebar width: wide above the breakpoint, narrow below."""
+    return _SIDEBAR_WIDTH_WIDE if window_width >= _NARROW_BREAKPOINT else _SIDEBAR_WIDTH_NARROW
+
+
 _TRACK_TITLE_COLUMN = 0
 _TRACK_COLOR_COLUMN = 6
 _TRACK_MISSING_COLUMN = 7
@@ -189,6 +199,7 @@ class MainWindow(QMainWindow):
         self._build_layout()
         self._menu_builder = MenuBuilder(self)  # type: ignore[reportArgumentType]
         self._menu_builder.build(self.menuBar())
+        self._restore_window_geometry()
         self._sync_state()
 
     def closeEvent(self, event: object) -> None:
@@ -200,6 +211,7 @@ class MainWindow(QMainWindow):
             self._spectral_completion_worker.wait()
             self._spectral_completion_worker = None
         self._recommendation_controller.cancel()
+        self._persist_window_geometry()
         super().closeEvent(event)  # type: ignore[arg-type]
 
     def _build_layout(self) -> None:
@@ -213,10 +225,11 @@ class MainWindow(QMainWindow):
             self.tr("Metadata Worklist"),
             self.tr("Live Assistant"),
         ]
+        self._workflow_labels = workflow_labels
         self.workflow_sidebar = QListWidget()
         self.workflow_sidebar.setObjectName("workflowSidebar")
         self.workflow_sidebar.setAccessibleName(self.tr("Workflow navigation"))
-        self.workflow_sidebar.setFixedWidth(180)
+        self.workflow_sidebar.setFixedWidth(_SIDEBAR_WIDTH_WIDE)
         self.workflow_sidebar.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         for label in workflow_labels:
             item = QListWidgetItem(label)
@@ -243,13 +256,14 @@ class MainWindow(QMainWindow):
         workflow_layout.setSpacing(10)
         sidebar_panel = QWidget()
         sidebar_panel.setObjectName("workflowSidebarPanel")
-        sidebar_panel.setFixedWidth(180)
+        sidebar_panel.setFixedWidth(_SIDEBAR_WIDTH_WIDE)
         sidebar_layout = QVBoxLayout()
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
         sidebar_layout.addWidget(self.workflow_sidebar, 0)
         sidebar_layout.addStretch(1)
         sidebar_panel.setLayout(sidebar_layout)
+        self._sidebar_panel = sidebar_panel
         workflow_layout.addWidget(sidebar_panel)
         workflow_layout.addWidget(self.workflow_tabs, 1)
 
@@ -260,6 +274,7 @@ class MainWindow(QMainWindow):
         status_controls.addWidget(self.status_bar_toggle)
         status_controls.addWidget(self.status_bar, 1)
         layout.addLayout(status_controls)
+        self._status_controls_widgets = (self.status_bar_toggle, self.status_bar)
         self._apply_compact_mac_layout(
             layout,
             status_controls,
@@ -278,6 +293,57 @@ class MainWindow(QMainWindow):
         self.workflow_tabs.setCurrentIndex(index)
         if self.workflow_tabs.currentIndex() != index:
             self.workflow_sidebar.setCurrentRow(previous_index)
+
+    def resizeEvent(self, event: object) -> None:
+        """Adjust the sidebar width and label visibility for the new window width."""
+        super().resizeEvent(event)  # type: ignore[arg-type]
+        self._apply_responsive_layout(self.width())
+
+    def _apply_responsive_layout(self, window_width: int) -> None:
+        """Resize the sidebar and collapse it to icons on narrow windows (R1, R2)."""
+        sidebar_width = responsive_sidebar_width(window_width)
+        self._sidebar_panel.setFixedWidth(sidebar_width)
+        self.workflow_sidebar.setFixedWidth(sidebar_width)
+        collapsed = sidebar_width == _SIDEBAR_WIDTH_NARROW
+        for index in range(self.workflow_sidebar.count()):
+            item = self.workflow_sidebar.item(index)
+            if item is not None:
+                item.setText("" if collapsed else self._workflow_labels[index])
+
+    def set_full_screen(self, enabled: bool) -> None:
+        """Toggle a distraction-free mode that hides the sidebar and status controls (R3)."""
+        self._sidebar_panel.setHidden(enabled)
+        for widget in self._status_controls_widgets:
+            widget.setHidden(enabled)
+        if enabled:
+            self.showFullScreen()
+        else:
+            self.showNormal()
+
+    def _restore_window_geometry(self) -> None:
+        """Apply persisted window size and position from settings (R4)."""
+        window = self.settings.window
+        if window.width is not None and window.height is not None:
+            self.resize(window.width, window.height)
+        if window.x is not None and window.y is not None:
+            self.move(window.x, window.y)
+
+    def _persist_window_geometry(self) -> None:
+        """Store the current window geometry so the next launch restores it (R4)."""
+        if self.settings_repository is None:
+            return
+        geometry = self.geometry()
+        self.settings = self.settings.model_copy(
+            update={
+                "window": WindowSettings(
+                    width=geometry.width(),
+                    height=geometry.height(),
+                    x=geometry.x(),
+                    y=geometry.y(),
+                ),
+            }
+        )
+        self.settings_repository.save(self.settings)
 
     def _initialize_window_state(
         self,

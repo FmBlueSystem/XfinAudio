@@ -9,6 +9,7 @@ from xfinaudio.config.settings import (
     ExportSettings,
     LibrarySettings,
     ScoringSettings,
+    WindowSettings,
 )
 from xfinaudio.library.scan_service import SUPPORTED_AUDIO_EXTENSIONS
 from xfinaudio.recommendation.scoring import DEFAULT_WEIGHTS, ScoringWeights
@@ -75,3 +76,23 @@ def test_app_settings_rejects_preview_volume_above_one() -> None:
 def test_app_settings_stores_custom_preview_volume() -> None:
     settings = AppSettings(audio=AudioSettings(preview_volume=0.3))
     assert settings.audio.preview_volume == pytest.approx(0.3, abs=0.01)
+
+
+def test_app_settings_window_geometry_defaults_to_unset() -> None:
+    settings = AppSettings()
+
+    assert settings.window.width is None
+    assert settings.window.height is None
+    assert settings.window.x is None
+    assert settings.window.y is None
+
+
+def test_app_settings_window_geometry_round_trips_through_json() -> None:
+    settings = AppSettings(window=WindowSettings(width=1280, height=800, x=40, y=60))
+
+    restored = AppSettings.model_validate(settings.model_dump(mode="json"))
+
+    assert restored.window.width == 1280
+    assert restored.window.height == 800
+    assert restored.window.x == 40
+    assert restored.window.y == 60
