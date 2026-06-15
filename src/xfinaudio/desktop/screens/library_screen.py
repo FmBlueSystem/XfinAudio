@@ -7,6 +7,7 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -117,7 +118,11 @@ class LibraryScreen(QWidget):
         controls = QHBoxLayout()
         self.folder_button = QPushButton(self.tr("Choose Folder"))
         self.scan_button = QPushButton(self.tr("Scan Metadata"))
+        self.scan_button.setObjectName("primaryAction")
+        self.scan_button.setMinimumHeight(36)
         self.cancel_button = QPushButton(self.tr("Cancel Scan"))
+        self.cancel_button.setObjectName("secondaryAction")
+        self.cancel_button.setMaximumHeight(26)
         self.missing_column_button = QPushButton(self.tr("Show Missing"))
         self.cancel_button.setEnabled(False)
         controls.addWidget(self.folder_button)
@@ -180,6 +185,18 @@ class LibraryScreen(QWidget):
         self.quick_filter_layout.addStretch()
         layout.addLayout(self.quick_filter_layout)
 
+        # Section divider between controls and table
+        self.section_divider = QFrame()
+        self.section_divider.setObjectName("sectionDivider")
+        self.section_divider.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(self.section_divider)
+
+        # Empty-state guidance (no library / no tracks)
+        self.empty_state_label = QLabel()
+        self.empty_state_label.setObjectName("guidanceLabel")
+        self.empty_state_label.setWordWrap(True)
+        layout.addWidget(self.empty_state_label)
+
         # Table
         self.tracks_table = QTableWidget(0, len(_COLUMNS))
         self.tracks_table.setHorizontalHeaderLabels([self.tr(c) for c in _COLUMNS])
@@ -222,6 +239,8 @@ class LibraryScreen(QWidget):
         # Bottom row
         bottom = QHBoxLayout()
         self.settings_button = QPushButton(self.tr("⚙ Settings"))
+        self.settings_button.setObjectName("secondaryAction")
+        self.settings_button.setMaximumHeight(26)
         self.proceed_button = QPushButton(self.tr("Build Playlist →"))
         bottom.addWidget(self.settings_button)
         bottom.addStretch()
@@ -289,6 +308,7 @@ class LibraryScreen(QWidget):
         self.status_label.setText(vm.status_text(state))
         self._render_scan_progress(state)
         self.proceed_button.setEnabled(vm.can_proceed(state))
+        self._render_empty_state(state)
         if lightweight:
             return
         rows = vm.tracks_for_display(state, self._current_library_filters())
@@ -303,6 +323,16 @@ class LibraryScreen(QWidget):
         self._apply_filter()
         self._apply_constraint_colors(state.excluded_paths, state.locked_paths)
         self._apply_playing_highlight()
+
+    def _render_empty_state(self, state: AppState) -> None:
+        if state.selected_folder is None:
+            text = self.tr("🎵 No library yet — choose a music folder to get started.")
+        elif not state.scanned_records:
+            text = self.tr("📂 Folder selected — scan metadata to load your tracks.")
+        else:
+            text = ""
+        self.empty_state_label.setText(text)
+        self.empty_state_label.setVisible(bool(text))
 
     def _render_scan_progress(self, state: AppState) -> None:
         if not state.is_scanning:
