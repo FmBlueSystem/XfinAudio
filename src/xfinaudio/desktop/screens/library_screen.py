@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QTableWidget,
@@ -241,14 +242,72 @@ class LibraryScreen(QWidget):
         self.settings_button = QPushButton(self.tr("⚙ Settings"))
         self.settings_button.setObjectName("secondaryAction")
         self.settings_button.setMaximumHeight(26)
+        self.help_button = QPushButton(self.tr("What's this?"))
+        self.help_button.setObjectName("secondaryAction")
+        self.help_button.setMaximumHeight(26)
+        self.tour_button = QPushButton(self.tr("Tour"))
+        self.tour_button.setObjectName("secondaryAction")
+        self.tour_button.setMaximumHeight(26)
         self.proceed_button = QPushButton(self.tr("Build Playlist →"))
         bottom.addWidget(self.settings_button)
+        bottom.addWidget(self.help_button)
+        bottom.addWidget(self.tour_button)
         bottom.addStretch()
         bottom.addWidget(self.proceed_button)
         layout.addLayout(bottom)
 
+        self._setup_button_tooltips()
         self._setup_accessibility()
         self._setup_tab_order()
+
+    def _setup_button_tooltips(self) -> None:
+        """Explain every button so novice DJs understand each control (R1)."""
+        tips = {
+            self.folder_button: "Choose the music folder XfinAudio should scan",
+            self.scan_button: "Read metadata (BPM, key, energy) from your tracks",
+            self.cancel_button: "Stop the metadata scan currently in progress",
+            self.missing_column_button: "Show or hide the column listing missing metadata",
+            self.clear_filters_button: "Clear all active quick filters",
+            self.settings_button: "Open scan and application settings",
+            self.help_button: "Show a quick explanation of this screen",
+            self.tour_button: "Walk through the full workflow step by step",
+            self.proceed_button: "Move on to building a playlist from this library",
+            self.complete_filter_button: "Show only tracks with complete metadata",
+            self.incomplete_filter_button: "Show only tracks with missing metadata",
+            self.missing_bpm_filter_button: "Show only tracks missing a BPM value",
+            self.missing_key_filter_button: "Show only tracks missing a musical key",
+            self.missing_energy_filter_button: "Show only tracks missing an energy level",
+        }
+        for button, tip in tips.items():
+            button.setToolTip(self.tr(tip))
+
+    def build_help_dialog(self) -> QMessageBox:
+        """Return a 'What's this?' dialog describing the Library workflow (R3)."""
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(self.tr("Library — What's this?"))
+        dialog.setText(
+            self.tr(
+                "Choose a music folder, then scan metadata to load your tracks. "
+                "Use search and quick filters to find songs, then click "
+                "Build Playlist to continue."
+            )
+        )
+        return dialog
+
+    def tour_steps(self) -> list[str]:
+        """Return the ordered workflow walkthrough shown by the Tour button (R4)."""
+        return [
+            self.tr("1. Choose a music folder with your tracks."),
+            self.tr("2. Scan metadata to read BPM, key, and energy."),
+            self.tr("3. Search or filter to find the songs you want."),
+            self.tr("4. Click Build Playlist to start a recommendation."),
+        ]
+
+    def _show_tour(self) -> None:
+        QMessageBox.information(self, self.tr("Workflow Tour"), "\n".join(self.tour_steps()))
+
+    def _show_help(self) -> None:
+        self.build_help_dialog().exec()
 
     def _setup_accessibility(self) -> None:
         """Set accessible names for screen readers."""
@@ -287,6 +346,8 @@ class LibraryScreen(QWidget):
             button.clicked.connect(self._on_quick_filter_changed)
         self.clear_filters_button.clicked.connect(self._clear_quick_filters)
         self.settings_button.clicked.connect(self.settings_requested)
+        self.help_button.clicked.connect(self._show_help)
+        self.tour_button.clicked.connect(self._show_tour)
         self.tracks_table.horizontalHeader().sectionDoubleClicked.connect(self._on_header_double_clicked)
 
     # ------------------------------------------------------------------

@@ -44,3 +44,23 @@ def test_section_divider_separates_controls_from_table(qapp: QApplication) -> No
     screen = ExportScreen()
 
     assert screen.section_divider.frameShape() == QFrame.Shape.HLine
+
+
+def test_all_buttons_have_tooltips(qapp: QApplication) -> None:
+    """Every QPushButton on the screen exposes a non-empty tooltip (R1)."""
+    from PySide6.QtWidgets import QPushButton
+
+    screen = ExportScreen()
+
+    buttons = screen.findChildren(QPushButton)
+    assert buttons
+    assert all(button.toolTip().strip() for button in buttons)
+
+
+def test_history_table_headers_have_tooltips(qapp: QApplication) -> None:
+    """Every export-history column header carries an explanatory tooltip (R2)."""
+    screen = ExportScreen()
+
+    table = screen.history_table
+    tooltips = [table.horizontalHeaderItem(col).toolTip() for col in range(table.columnCount())]
+    assert all(tip.strip() for tip in tooltips)

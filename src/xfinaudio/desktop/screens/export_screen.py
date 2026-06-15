@@ -22,6 +22,14 @@ from xfinaudio.desktop.export_view_model import ExportViewModel
 from xfinaudio.desktop.scan_controller import progress_percent, progress_status_text
 
 _HISTORY_COLUMNS = ["Time", "Strategy", "Tracks", "Serato Crate", "Readiness JSON", "Readiness CSV"]
+_HISTORY_HEADER_TOOLTIPS = [
+    "When this export was created",
+    "Recommendation strategy used for this export",
+    "Number of tracks in the exported playlist",
+    "Path to the generated Serato crate file",
+    "Path to the readiness report in JSON format",
+    "Path to the readiness report in CSV format",
+]
 
 
 class ExportScreen(QWidget):
@@ -125,6 +133,10 @@ class ExportScreen(QWidget):
         # Export history table (hidden until first export) — absorbs all spare vertical space.
         self.history_table = QTableWidget(0, len(_HISTORY_COLUMNS))
         self.history_table.setHorizontalHeaderLabels([self.tr(c) for c in _HISTORY_COLUMNS])
+        for col, tip in enumerate(_HISTORY_HEADER_TOOLTIPS):
+            header_item = self.history_table.horizontalHeaderItem(col)
+            if header_item is not None:
+                header_item.setToolTip(self.tr(tip))
         self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.history_table.setAlternatingRowColors(True)
         self.history_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -141,8 +153,21 @@ class ExportScreen(QWidget):
         nav.addStretch()
         layout.addLayout(nav)
 
+        self._setup_button_tooltips()
         self._setup_accessibility()
         self._setup_tab_order()
+
+    def _setup_button_tooltips(self) -> None:
+        """Explain every button so users understand each control (R1)."""
+        tips = {
+            self.safe_folder_button: "Choose the safe folder where exports are written",
+            self.preview_button: "Preview the export without writing any files",
+            self.export_button: "Write the playlist to your DJ software's crate",
+            self.export_readiness_button: "Export the readiness report as JSON and CSV",
+            self.back_button: "Return to the Review screen",
+        }
+        for button, tip in tips.items():
+            button.setToolTip(self.tr(tip))
 
     def _setup_accessibility(self) -> None:
         """Set accessible names for screen readers."""

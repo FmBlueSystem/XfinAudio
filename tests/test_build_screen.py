@@ -55,3 +55,23 @@ def test_empty_state_shows_no_recommendation(qapp: QApplication) -> None:
 
     assert screen.empty_state_label.isHidden() is False
     assert "recommend" in screen.empty_state_label.text().casefold()
+
+
+def test_all_buttons_have_tooltips(qapp: QApplication) -> None:
+    """Every QPushButton on the screen exposes a non-empty tooltip (R1)."""
+    from PySide6.QtWidgets import QPushButton
+
+    screen = BuildScreen()
+
+    buttons = screen.findChildren(QPushButton)
+    assert buttons
+    assert all(button.toolTip().strip() for button in buttons)
+
+
+def test_copilot_table_headers_have_tooltips(qapp: QApplication) -> None:
+    """Every copilot table column header carries an explanatory tooltip (R2)."""
+    screen = BuildScreen()
+
+    table = screen.copilot_table
+    tooltips = [table.horizontalHeaderItem(col).toolTip() for col in range(table.columnCount())]
+    assert all(tip.strip() for tip in tooltips)

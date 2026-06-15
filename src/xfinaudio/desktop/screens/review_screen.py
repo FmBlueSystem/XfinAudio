@@ -59,6 +59,16 @@ _READINESS_HEADER_TOOLTIPS = {
     2: "Specific explanation for this check",
 }
 
+_RECOMMENDATION_HEADER_TOOLTIPS = {
+    0: "Track position in the recommended playlist",
+    1: "Track title",
+    2: "Artist or performer name",
+    3: "Beats per minute — tempo of the track",
+    4: "Musical key in Camelot notation",
+    5: "Energy level from 1 (calm) to 10 (intense)",
+    6: "Spectral color profile (RED/GREEN/BLUE)",
+}
+
 # Color coding for score cells
 _SCORE_COLOR_EXCELLENT = QColor("#1a3a2a")
 _SCORE_COLOR_GOOD = QColor("#3a3010")
@@ -121,6 +131,7 @@ class ReviewScreen(QWidget):
         self.recommendation_table.setAlternatingRowColors(True)
         self.recommendation_table.verticalHeader().setVisible(False)
         self.recommendation_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._apply_header_tooltips(self.recommendation_table, _RECOMMENDATION_HEADER_TOOLTIPS)
         layout.addWidget(self.recommendation_table, 1)
 
         # Action row for the recommendation table
@@ -180,8 +191,20 @@ class ReviewScreen(QWidget):
         nav.addWidget(self.export_button)
         layout.addLayout(nav)
 
+        self._setup_button_tooltips()
         self._setup_accessibility()
         self._setup_tab_order()
+
+    def _setup_button_tooltips(self) -> None:
+        """Explain every button so users understand each control (R1)."""
+        tips = {
+            self.remove_track_button: "Remove the selected track from the playlist",
+            self.save_to_playlists_button: "Save this recommendation to My Playlists",
+            self.back_button: "Return to the Build screen",
+            self.export_button: "Move on to export this playlist",
+        }
+        for button, tip in tips.items():
+            button.setToolTip(self.tr(tip))
 
     def _setup_accessibility(self) -> None:
         """Set accessible names for screen readers."""
