@@ -147,6 +147,7 @@ def write_readiness_sidecars(
 ) -> tuple[Path, Path]:
     """Write DJ Readiness JSON/CSV sidecars to safe_folder (or next to the crate as fallback)."""
     base = safe_folder if safe_folder is not None else crate_path.parent
+    base.mkdir(parents=True, exist_ok=True)
     stem = crate_path.stem
     json_path = base / f"{stem}.dj-readiness.json"
     csv_path = base / f"{stem}.dj-readiness.csv"
@@ -381,11 +382,16 @@ class ExportCoordinator:
             )
         if host.last_dj_readiness_report is not None:
             safe_folder = host.settings.export.safe_export_folder
-            json_path, csv_path = write_readiness_sidecars(
-                host.last_dj_readiness_report, result.written_path, safe_folder=safe_folder
-            )
-            readiness_paths = (json_path, csv_path)
-            readiness_note = host.tr(" Readiness reports: {0} and {1}.").format(json_path, csv_path)
+            try:
+                json_path, csv_path = write_readiness_sidecars(
+                    host.last_dj_readiness_report, result.written_path, safe_folder=safe_folder
+                )
+            except OSError as exc:
+                LOGGER.exception("Serato readiness sidecar export failed")
+                readiness_note = host.tr(" Readiness report failed: {0}.").format(exc)
+            else:
+                readiness_paths = (json_path, csv_path)
+                readiness_note = host.tr(" Readiness reports: {0} and {1}.").format(json_path, csv_path)
         host._export_screen.export_guidance_label.setText(
             host.tr("Serato crate exported: {0}. Open Serato DJ Pro and check the crate under Subcrates.").format(
                 result.written_path
@@ -393,7 +399,10 @@ class ExportCoordinator:
             + backup_note
             + readiness_note
         )
-        host.status_label.setText(host.tr("Exported Serato crate: {0}").format(result.written_path))
+        status_text = host.tr("Exported Serato crate: {0}").format(result.written_path)
+        if readiness_paths == (None, None) and host.last_dj_readiness_report is not None and readiness_note:
+            status_text = f"{status_text};{readiness_note}"
+        host.status_label.setText(status_text)
         self._record_serato_export(
             result.written_path, readiness_json_path=readiness_paths[0], readiness_csv_path=readiness_paths[1]
         )

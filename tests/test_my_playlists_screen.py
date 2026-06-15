@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLineEdit
 
 from xfinaudio.desktop.screens.my_playlists_screen import MyPlaylistsScreen
 from xfinaudio.library.playlist_models import PlaylistSummary
@@ -46,3 +47,34 @@ class TestSignals:
         screen.create_requested.connect(lambda: calls.append(None))
         screen._on_create_clicked()
         assert len(calls) == 1
+
+    def test_rename_click_prompts_and_emits_confirmed_non_empty_name(self, qapp: QApplication) -> None:
+        screen = MyPlaylistsScreen()
+        emitted: list[tuple[int, str]] = []
+        screen.rename_requested.connect(lambda playlist_id, name: emitted.append((playlist_id, name)))
+        screen.populate_list([PlaylistSummary(id=7, name="Old", track_count=3, updated_at=datetime(2026, 6, 8))])
+        screen.list_widget.setCurrentRow(0)
+
+        with patch(
+            "xfinaudio.desktop.screens.my_playlists_screen.QInputDialog.getText",
+            return_value=("New Name", True),
+        ) as get_text:
+            screen._on_rename_clicked()
+
+        get_text.assert_called_once()
+        assert get_text.call_args.args[3] == QLineEdit.EchoMode.Normal
+        assert emitted == [(7, "New Name")]
+
+    def test_rename_click_ignores_cancelled_or_blank_names(self, qapp: QApplication) -> None:
+        screen = MyPlaylistsScreen()
+        emitted: list[tuple[int, str]] = []
+        screen.rename_requested.connect(lambda playlist_id, name: emitted.append((playlist_id, name)))
+        screen.populate_list([PlaylistSummary(id=7, name="Old", track_count=3, updated_at=datetime(2026, 6, 8))])
+        screen.list_widget.setCurrentRow(0)
+
+        with patch("xfinaudio.desktop.screens.my_playlists_screen.QInputDialog.getText", return_value=("", True)):
+            screen._on_rename_clicked()
+        with patch("xfinaudio.desktop.screens.my_playlists_screen.QInputDialog.getText", return_value=("New", False)):
+            screen._on_rename_clicked()
+
+        assert emitted == []

@@ -15,7 +15,7 @@ class NavigationController:
 
     def can_go_to(self, screen: str, state: AppState) -> bool:
         """Return True if the transition to *screen* is valid given *state*."""
-        if screen in ("library", "metadata"):
+        if screen in ("library", "playlists", "metadata"):
             return True
 
         if screen == "build":

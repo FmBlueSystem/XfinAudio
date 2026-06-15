@@ -187,8 +187,8 @@ def run_tests():
         check("Scan completed within timeout", reached)
         check(
             "tracks_table populated (2 rows)",
-            window.tracks_table.rowCount() == 2,
-            f"got {window.tracks_table.rowCount()}",
+            window._library_screen.tracks_table.rowCount() == 2,
+            f"got {window._library_screen.tracks_table.rowCount()}",
         )
         check("scanned_records has 2 entries", len(window.scanned_records) == 2)
 
@@ -202,12 +202,12 @@ def run_tests():
 
         # Filter test
         window._library_screen.search_input.setText("One")
-        visible = _visible_row_count(window.tracks_table)
+        visible = _visible_row_count(window._library_screen.tracks_table)
         check("Filter reduces visible rows to 1", visible == 1, f"got {visible}")
         window._library_screen.search_input.clear()
 
         # Select first track (start_path controls harmonic_journey to build 2-track result)
-        window.tracks_table.selectRow(0)
+        window._library_screen.tracks_table.selectRow(0)
         check("recommend_button enabled after selection", window._build_screen.recommend_button.isEnabled())
 
         # ------------------------------------------------------------------ #

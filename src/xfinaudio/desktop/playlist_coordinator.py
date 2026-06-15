@@ -13,9 +13,14 @@ coordinator is the wiring home (see ``connect_signals``), not ``MainWindow``.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Protocol
 
+from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_repository import PlaylistRepository
+from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+from xfinaudio.recommendation.strategies import default_strategy_registry
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,9 +33,13 @@ class PlaylistHost(Protocol):
     """
 
     _playlist_repository: PlaylistRepository
+    _review_screen: Any
     _playlists_screen: Any
     _playlist_editor: Any
+    _export_coordinator: Any
     workflow_tabs: Any
+    last_recommendation: PlaylistRecommendation | None
+    scanned_records: list[TrackRecord]
 
     def tr(self, text: str) -> str: ...
     def _sync_state(self) -> None: ...
@@ -61,6 +70,7 @@ class PlaylistCoordinator:
         editor.tracks_reordered.connect(self._on_tracks_reordered)
         editor.export_requested.connect(self.export_playlist)
         editor.save_requested.connect(self.save_playlist)
+        host._review_screen.save_to_playlists_requested.connect(self.save_recommendation)
 
     def open_playlist(self, playlist_id: int) -> None:
         """Load a saved playlist into the editor."""
@@ -107,13 +117,42 @@ class PlaylistCoordinator:
         self.refresh_list()
         host._sync_state()
 
+    def save_recommendation(self, name: str | None = None) -> None:
+        """Persist the current generated recommendation as a saved playlist."""
+        host = self._host
+        recommendation = host.last_recommendation
+        if recommendation is None:
+            return
+        playlist_name = name or self._default_recommendation_name(recommendation)
+        track_paths = [track.path for track in recommendation.ordered_tracks]
+        host._playlist_repository.create(playlist_name, track_paths)
+        self.refresh_list()
+        host.workflow_tabs.setCurrentIndex(4)
+        host._sync_state()
+
     def export_playlist(self, playlist_id: int) -> None:
-        """Load the requested playlist into the editor for export review."""
-        playlist = self._host._playlist_repository.get_by_id(playlist_id)
+        """Load the requested playlist and run the normal Serato export flow."""
+        host = self._host
+        playlist = host._playlist_repository.get_by_id(playlist_id)
         if playlist is None:
             LOGGER.warning("Playlist %s not found on export", playlist_id)
             return
-        self._host._playlist_editor.set_playlist(playlist)
+        host._playlist_editor.set_playlist(playlist)
+        tracks_by_path = {track.path: track for track in host.scanned_records}
+        tracks = [
+            tracks_by_path.get(path) or TrackRecord(path=path, title=Path(path).stem, metadata_status="complete")
+            for path in playlist.track_paths
+        ]
+        host.last_recommendation = PlaylistRecommendation(
+            ordered_tracks=tracks,
+            transition_scores=[],
+            strategy=default_strategy_registry().get("build"),
+            warnings=[],
+            applied_controls={},
+            optimizer="saved-playlist",
+            total_score=0.0,
+        )
+        host._export_coordinator.export_recommendation_to_serato(crate_name=playlist.name)
 
     def remove_track(self, path: str) -> None:
         """Persist a track removal performed in the editor."""
@@ -139,3 +178,8 @@ class PlaylistCoordinator:
         self._host._playlist_repository.update_tracks(playlist_id, track_paths)
         self.refresh_list()
         self._host._sync_state()
+
+    @staticmethod
+    def _default_recommendation_name(recommendation: PlaylistRecommendation) -> str:
+        date_text = datetime.now().strftime("%Y-%m-%d")
+        return f"{recommendation.strategy.name} - {date_text}"

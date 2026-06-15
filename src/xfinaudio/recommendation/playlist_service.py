@@ -372,8 +372,8 @@ def _score_ordered_tracks(
 
 
 def _spectral_jump_warnings(tracks: list[TrackRecord]) -> list[str]:
-    """Warn when adjacent tracks have different dominant spectral colors."""
-    warnings: list[str] = []
+    """Summarize adjacent tracks with different dominant spectral colors."""
+    shift_counts: dict[tuple[str, str], int] = {}
     for left, right in zip(tracks, tracks[1:], strict=False):
         left_profile = left.spectral_profile
         right_profile = right.spectral_profile
@@ -382,8 +382,14 @@ def _spectral_jump_warnings(tracks: list[TrackRecord]) -> list[str]:
         left_color = left_profile.dominant_color
         right_color = right_profile.dominant_color
         if left_color != right_color:
-            warnings.append(f"Spectral shift: {left_color} → {right_color}")
-    return warnings
+            key = (left_color, right_color)
+            shift_counts[key] = shift_counts.get(key, 0) + 1
+    if not shift_counts:
+        return []
+    summary = ", ".join(
+        f"{left}→{right} ({count} {'time' if count == 1 else 'times'})" for (left, right), count in shift_counts.items()
+    )
+    return [f"Spectral shifts: {summary}"]
 
 
 __all__ = ["PlaylistRecommendation", "recommend_playlist"]

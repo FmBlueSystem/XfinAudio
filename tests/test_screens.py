@@ -14,6 +14,23 @@ from xfinaudio.desktop.screens import (
     MetadataScreen,
     ReviewScreen,
 )
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+from xfinaudio.recommendation.strategies import default_strategy_registry
+
+
+def _recommendation() -> PlaylistRecommendation:
+    track = TrackRecord(path="/music/a.flac", title="A", metadata_status="complete")
+    return PlaylistRecommendation(
+        ordered_tracks=[track],
+        transition_scores=[],
+        strategy=default_strategy_registry().get("build"),
+        warnings=[],
+        applied_controls={},
+        optimizer="test",
+        total_score=0.0,
+    )
+
 
 # ---------------------------------------------------------------------------
 # LibraryScreen
@@ -104,6 +121,7 @@ class TestReviewScreen:
         assert hasattr(screen, "readiness_table")
         assert hasattr(screen, "recommendation_table")
         assert hasattr(screen, "export_button")
+        assert hasattr(screen, "save_to_playlists_button")
 
     def test_render_empty_state_does_not_raise(self, qapp) -> None:
         screen = ReviewScreen()
@@ -124,6 +142,26 @@ class TestReviewScreen:
         state = AppState()  # no recommendation → BLOCKED → can_export=False
         screen.render(vm, state)
         assert not screen.export_button.isEnabled()
+
+    def test_save_to_playlists_button_tracks_recommendation_availability(self, qapp) -> None:
+        screen = ReviewScreen()
+        vm = ReviewViewModel()
+
+        screen.render(vm, AppState())
+        assert not screen.save_to_playlists_button.isEnabled()
+
+        screen.render(vm, AppState(last_recommendation=_recommendation()))
+        assert screen.save_to_playlists_button.isEnabled()
+
+    def test_save_to_playlists_button_emits_signal(self, qapp) -> None:
+        screen = ReviewScreen()
+        calls: list[None] = []
+        screen.save_to_playlists_requested.connect(lambda: calls.append(None))
+
+        screen.save_to_playlists_button.setEnabled(True)
+        screen.save_to_playlists_button.click()
+
+        assert calls == [None]
 
 
 # ---------------------------------------------------------------------------
@@ -173,3 +211,12 @@ class TestMetadataScreen:
         screen = MetadataScreen()
         state = AppState()
         screen.render(state)  # must not raise
+
+    def test_render_empty_state_shows_guidance_in_worklist_area(self, qapp) -> None:
+        screen = MetadataScreen()
+
+        screen.render(AppState())
+
+        assert not screen.worklist_empty_label.isHidden()
+        assert "No library scanned yet" in screen.worklist_empty_label.text()
+        assert screen.worklist_table.isHidden()
