@@ -19,11 +19,13 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -92,6 +94,7 @@ from xfinaudio.desktop.theme import (
     _SERATO_EXPORT_HISTORY_COLUMN_WIDTHS,
     _TRACK_TABLE_COLUMN_WIDTHS,
 )
+from xfinaudio.desktop.undo_manager import Command, UndoManager
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_repository import PlaylistRepository
@@ -369,6 +372,7 @@ class MainWindow(QMainWindow):
         self._library_selected_paths: list[str] = []
         self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
         self._nav = NavigationController()
+        self._undo_manager = UndoManager()
         self._audio_player = AudioPlayer(parent=self)
         self._audio_player.set_volume(self.settings.audio.preview_volume)
         # Playlist DB lives alongside the track DB when possible.
@@ -642,6 +646,7 @@ class MainWindow(QMainWindow):
             label.setMaximumHeight(24)
         # Initialize screen labels that depend on settings (not driven by ViewModel)
         self._export_screen.safe_export_folder_label.setText(self._format_safe_export_folder_label())
+        self._build_undo_toolbar()
 
     def _connect_widget_signals(self) -> None:
         """Connect constructor-created widgets to their existing slots and sorting handlers."""
@@ -667,6 +672,7 @@ class MainWindow(QMainWindow):
         self._library_screen.metadata_screen_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(5))
         self._library_screen.proceed_button.clicked.connect(lambda: self.workflow_tabs.setCurrentIndex(1))
         self._library_screen.settings_requested.connect(self._open_settings_dialog)
+        self._library_screen.filters_cleared.connect(self._on_library_filters_cleared)
         # BuildScreen signals
         self._build_screen.recommend_requested.connect(self._on_recommend_requested)
         self._build_screen.spectral_cohesion_changed.connect(self._on_spectral_cohesion_changed)
@@ -729,12 +735,51 @@ class MainWindow(QMainWindow):
             ("open_selected_track", QKeySequence("Return"), self._open_selected_library_track),
             ("remove_selected_track", QKeySequence("Del"), self._remove_selected_review_track),
             ("cancel_scan", QKeySequence("Esc"), self.cancel_scan),
+            ("undo", QKeySequence("Ctrl+Z"), self.undo),
+            ("redo", QKeySequence("Ctrl+Shift+Z"), self.redo),
         ]
         self._keyboard_shortcuts: dict[str, QShortcut] = {}
         for name, sequence, slot in shortcuts:
             shortcut = QShortcut(sequence, self)
             shortcut.activated.connect(slot)
             self._keyboard_shortcuts[name] = shortcut
+
+    def _build_undo_toolbar(self) -> None:
+        """Add a toolbar with undo/redo buttons and an undo-history dropdown (R5, R6)."""
+        toolbar = QToolBar(self.tr("Undo/Redo"))
+        toolbar.setObjectName("undoRedoToolbar")
+        self.addToolBar(toolbar)
+        self.undo_button = QPushButton(self.tr("Undo"))
+        self.undo_button.setObjectName("undoButton")
+        self.undo_button.setToolTip(self.tr("Undo last action (Ctrl+Z)"))
+        self.undo_button.clicked.connect(self.undo)
+        self.undo_history_menu = QMenu(self.undo_button)
+        self.undo_button.setMenu(self.undo_history_menu)
+        self.redo_button = QPushButton(self.tr("Redo"))
+        self.redo_button.setObjectName("redoButton")
+        self.redo_button.setToolTip(self.tr("Redo last undone action (Ctrl+Shift+Z)"))
+        self.redo_button.clicked.connect(self.redo)
+        toolbar.addWidget(self.undo_button)
+        toolbar.addWidget(self.redo_button)
+        self._refresh_undo_state()
+
+    def undo(self) -> None:
+        """Undo the most recent reversible action."""
+        self._undo_manager.undo()
+        self._refresh_undo_state()
+
+    def redo(self) -> None:
+        """Redo the most recently undone action."""
+        self._undo_manager.redo()
+        self._refresh_undo_state()
+
+    def _refresh_undo_state(self) -> None:
+        """Sync toolbar button enablement and the history dropdown with the undo stack."""
+        self.undo_button.setEnabled(self._undo_manager.can_undo)
+        self.redo_button.setEnabled(self._undo_manager.can_redo)
+        self.undo_history_menu.clear()
+        for label in self._undo_manager.history():
+            self.undo_history_menu.addAction(label)
 
     def _open_selected_library_track(self) -> None:
         """Open the first selected library track in the system default player."""
@@ -1566,6 +1611,18 @@ class MainWindow(QMainWindow):
         self.locked_paths = frozenset()
         self._sync_state()
 
+    def _on_library_filters_cleared(self, active_labels: list[str]) -> None:
+        """Record a cleared-filters action so it can be undone (R1, spec scope: clear filters)."""
+        labels = list(active_labels)
+        self._undo_manager.push(
+            Command(
+                label=self.tr("Clear filters"),
+                execute=lambda: self._library_screen.clear_quick_filters(emit_signal=False),
+                undo=lambda: self._library_screen.restore_quick_filters(labels),
+            )
+        )
+        self._refresh_undo_state()
+
     def _on_proceed_to_export(self) -> None:
         """Navigate to export only if readiness allows it."""
         vm = ReviewViewModel()
@@ -1573,8 +1630,27 @@ class MainWindow(QMainWindow):
             self.workflow_tabs.setCurrentIndex(3)
 
     def _on_track_remove_requested(self, path: str) -> None:
-        """Remove a track from the current session playlist without affecting future recommendations."""
+        """Remove a track from the session playlist, recording it as an undoable action."""
+        if path in self._state.playlist_removed_paths:
+            return
+        self._apply_track_removed(path)
+        self._undo_manager.push(
+            Command(
+                label=self.tr("Remove {0}").format(Path(path).name),
+                execute=lambda: self._apply_track_removed(path),
+                undo=lambda: self._apply_track_restored(path),
+            )
+        )
+        self._refresh_undo_state()
+
+    def _apply_track_removed(self, path: str) -> None:
+        """Add *path* to the removed set and re-render the session playlist."""
         self._state.playlist_removed_paths = self._state.playlist_removed_paths | {path}
+        self._sync_state()
+
+    def _apply_track_restored(self, path: str) -> None:
+        """Remove *path* from the removed set and re-render the session playlist."""
+        self._state.playlist_removed_paths = self._state.playlist_removed_paths - {path}
         self._sync_state()
 
     def _on_track_play_requested(self, path: str) -> None:

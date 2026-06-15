@@ -315,6 +315,8 @@ def test_main_window_registers_keyboard_shortcuts_and_tooltips() -> None:
         "open_selected_track": "Return",
         "remove_selected_track": "Del",
         "cancel_scan": "Esc",
+        "undo": "Ctrl+Z",
+        "redo": "Ctrl+Shift+Z",
     }
     assert window._library_screen.scan_button.toolTip() == "Scan Metadata (Ctrl+Shift+S)"
     assert window._build_screen.recommend_button.toolTip() == "Recommend Playlist (Ctrl+R)"
@@ -2917,3 +2919,63 @@ def test_main_window_persists_window_geometry_on_close() -> None:
     assert settings_repository.saved_settings is not None
     assert settings_repository.saved_settings.window.width == 1024
     assert settings_repository.saved_settings.window.height == 680
+
+
+def test_track_removal_is_undoable_and_redoable(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    path = str(tmp_path / "track.flac")
+
+    window._on_track_remove_requested(path)
+    assert path in window.playlist_removed_paths
+
+    window.undo()
+    assert path not in window.playlist_removed_paths
+
+    window.redo()
+    assert path in window.playlist_removed_paths
+
+    window._on_track_remove_requested(str(tmp_path / "a.flac"))
+    window._on_track_remove_requested(str(tmp_path / "b.flac"))
+    assert window.undo_history_menu.actions()[0].text() == "Remove b.flac"
+
+
+def test_clearing_library_filters_is_undoable() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    library = window._library_screen
+    library.complete_filter_button.setChecked(True)
+
+    library.clear_filters_button.click()
+    assert library.complete_filter_button.isChecked() is False
+    assert window.undo_history_menu.actions()[0].text() == "Clear filters"
+
+    window.undo()
+    assert library.complete_filter_button.isChecked() is True
+
+    window.redo()
+    assert library.complete_filter_button.isChecked() is False
+    assert [action.text() for action in window.undo_history_menu.actions()] == ["Clear filters"]
+
+
+def test_playlist_reorder_is_undoable_and_redoable(monkeypatch) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    editor = window._playlist_editor
+    editor._playlist_id = 7
+    original = ["/music/a.flac", "/music/b.flac"]
+    reordered = list(reversed(original))
+    editor._track_paths = original
+    monkeypatch.setattr(window._playlist_repository, "update_tracks", lambda playlist_id, paths: None)
+    monkeypatch.setattr(window._playlist_coordinator, "refresh_list", lambda: None)
+
+    window._playlist_coordinator._on_tracks_reordered(reordered)
+
+    assert editor._track_paths == reordered
+    assert window.undo_history_menu.actions()[0].text() == "Reorder playlist"
+
+    window.undo()
+    assert editor._track_paths == original
+
+    window.redo()
+    assert editor._track_paths == reordered
