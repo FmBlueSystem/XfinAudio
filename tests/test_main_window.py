@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelectionModel
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -125,6 +126,10 @@ def _library_tracks_table(window: MainWindow) -> QTableWidget:
     return window._library_screen.tracks_table
 
 
+def _shortcut_text(window: MainWindow, name: str) -> str:
+    return window._keyboard_shortcuts[name].key().toString(QKeySequence.SequenceFormat.PortableText)
+
+
 def _track_table_headers(window: MainWindow) -> list[str]:
     return _table_headers(_library_tracks_table(window))
 
@@ -173,7 +178,6 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
     assert window._library_screen.search_input.placeholderText() == "Search songs"
     assert window._build_screen.genre_focus_input.placeholderText() == "Genre focus"
     assert window._build_screen.target_count_input.value() == 25
-
     assert _table_headers(_library_tracks_table(window)) == [
         "Title",
         "Artist",
@@ -253,6 +257,65 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
     assert window._review_screen.recommendation_table.isHidden() is True
     assert window._review_screen.transition_table.isHidden() is True
     assert window._review_screen.readiness_table.isHidden() is True
+
+
+def test_main_window_registers_keyboard_shortcuts_and_tooltips() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert {name: _shortcut_text(window, name) for name in window._keyboard_shortcuts} == {
+        "open_folder": "Ctrl+O",
+        "focus_search": "Ctrl+F",
+        "scan_metadata": "Ctrl+Shift+S",
+        "recommend_playlist": "Ctrl+R",
+        "export_recommendation": "Ctrl+E",
+        "toggle_missing_column": "Ctrl+M",
+        "open_selected_track": "Return",
+        "remove_selected_track": "Del",
+        "cancel_scan": "Esc",
+    }
+    assert window._library_screen.scan_button.toolTip() == "Scan Metadata (Ctrl+Shift+S)"
+    assert window._build_screen.recommend_button.toolTip() == "Recommend Playlist (Ctrl+R)"
+    assert window._export_screen.export_button.toolTip() == "Export to Serato (Ctrl+E)"
+
+
+def test_keyboard_shortcuts_trigger_common_actions(tmp_path, monkeypatch) -> None:
+    app = ensure_app()
+    scan_service = FakeScanService()
+    window = MainWindow(scan_service=scan_service, repository=FakeRepository())
+    window.show()
+    recommend_calls: list[bool] = []
+    export_calls: list[bool] = []
+    opened: list[list[str]] = []
+    window._build_screen.recommend_button.clicked.connect(lambda: recommend_calls.append(True))
+    window._export_screen.export_button.clicked.connect(lambda: export_calls.append(True))
+    monkeypatch.setattr(main_window.subprocess, "Popen", lambda args: opened.append(args))
+    window.set_selected_folder(tmp_path)
+
+    window._keyboard_shortcuts["focus_search"].activated.emit()
+    app.processEvents()
+    window._keyboard_shortcuts["scan_metadata"].activated.emit()
+    _process_events_until(lambda: window.current_scan_cancellation_token is None)
+    _library_tracks_table(window).selectRow(0)
+    window._build_screen.recommend_button.setEnabled(True)
+    window._keyboard_shortcuts["recommend_playlist"].activated.emit()
+    window.workflow_tabs.setTabEnabled(3, True)
+    window._export_screen.export_button.setEnabled(True)
+    window._keyboard_shortcuts["export_recommendation"].activated.emit()
+    window._keyboard_shortcuts["toggle_missing_column"].activated.emit()
+    window._keyboard_shortcuts["open_selected_track"].activated.emit()
+    window.last_recommendation = make_recommendation([window.scanned_records[0]])
+    window.show_recommendation([window.scanned_records[0]], "build")
+    window._review_screen.recommendation_table.selectRow(0)
+    window._keyboard_shortcuts["remove_selected_track"].activated.emit()
+
+    assert window._library_screen.search_input.hasFocus()
+    assert scan_service.scanned_folder == tmp_path
+    assert recommend_calls == [True]
+    assert export_calls == [True]
+    assert _library_tracks_table(window).isColumnHidden(_track_table_headers(window).index("Missing")) is False
+    assert opened == [["open", str(tmp_path / "track.flac")]]
+    assert str(tmp_path / "track.flac") in window.playlist_removed_paths
 
 
 def test_main_window_table_selection_configuration() -> None:
