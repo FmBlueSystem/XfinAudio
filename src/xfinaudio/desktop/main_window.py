@@ -564,6 +564,11 @@ class MainWindow(QMainWindow):
         )
         self._library_screen.tracks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._library_screen.tracks_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._library_screen.scan_button.setToolTip(self.tr("Scan Metadata (Ctrl+Shift+S)"))
+        self._library_screen.missing_column_button.setToolTip(self.tr("Toggle Missing column (Ctrl+M)"))
+        self._build_screen.recommend_button.setToolTip(self.tr("Recommend Playlist (Ctrl+R)"))
+        self._review_screen.remove_track_button.setToolTip(self.tr("Remove from Playlist (Delete)"))
+        self._export_screen.export_button.setToolTip(self.tr("Export to Serato (Ctrl+E)"))
         self.folder_label.setWordWrap(False)
         self.folder_label.setMaximumWidth(220)
         self.library_guidance_label.setWordWrap(False)
@@ -653,9 +658,13 @@ class MainWindow(QMainWindow):
         """
         shortcuts = [
             ("open_folder", QKeySequence.StandardKey.Open, self.choose_folder),
-            ("scan_metadata", QKeySequence("Ctrl+S"), self.scan_selected_folder),
+            ("focus_search", QKeySequence("Ctrl+F"), self._library_screen.search_input.setFocus),
+            ("scan_metadata", QKeySequence("Ctrl+Shift+S"), self.scan_selected_folder),
             ("recommend_playlist", QKeySequence("Ctrl+R"), self._build_screen.recommend_button.click),
             ("export_recommendation", QKeySequence("Ctrl+E"), self._export_screen.export_button.click),
+            ("toggle_missing_column", QKeySequence("Ctrl+M"), self._library_screen.missing_column_button.click),
+            ("open_selected_track", QKeySequence("Return"), self._open_selected_library_track),
+            ("remove_selected_track", QKeySequence("Del"), self._remove_selected_review_track),
             ("cancel_scan", QKeySequence("Esc"), self.cancel_scan),
         ]
         self._keyboard_shortcuts: dict[str, QShortcut] = {}
@@ -663,6 +672,22 @@ class MainWindow(QMainWindow):
             shortcut = QShortcut(sequence, self)
             shortcut.activated.connect(slot)
             self._keyboard_shortcuts[name] = shortcut
+
+    def _open_selected_library_track(self) -> None:
+        """Open the first selected library track in the system default player."""
+        selected_rows = sorted({index.row() for index in self._library_screen.tracks_table.selectedIndexes()})
+        if not selected_rows:
+            return
+        path_item = self._library_screen.tracks_table.item(selected_rows[0], _TRACK_PATH_COLUMN)
+        if path_item is not None:
+            self._on_track_play_requested(path_item.text())
+
+    def _remove_selected_review_track(self) -> None:
+        """Remove the selected review track from the session playlist."""
+        row = self._review_screen.recommendation_table.currentRow()
+        path_item = self._review_screen.recommendation_table.item(row, 0)
+        if path_item is not None and (path := path_item.data(Qt.ItemDataRole.UserRole)):
+            self._on_track_remove_requested(path)
 
     def _apply_compact_mac_layout(
         self,
