@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QPushButton,
     QSizePolicy,
     QStackedWidget,
     QTableWidget,
@@ -71,6 +72,7 @@ from xfinaudio.desktop.screens import (
 )
 from xfinaudio.desktop.settings_controller import SettingsController
 from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
+from xfinaudio.desktop.status_bar import StatusBar
 from xfinaudio.desktop.table_populators import (
     populate_dj_readiness_table,
     populate_library_table,
@@ -202,11 +204,6 @@ class MainWindow(QMainWindow):
 
     def _build_layout(self) -> None:
         """Assemble widget layout hierarchy, tab pages, and central window container."""
-        library_status_controls = QHBoxLayout()
-        library_status_controls.addWidget(self.folder_label)
-        library_status_controls.addWidget(self.library_guidance_label, 1)
-        library_status_controls.addWidget(self.scan_progress_label)
-
         workflow_labels = [
             self.tr("Library"),
             self.tr("Build Playlist"),
@@ -259,21 +256,16 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.addLayout(workflow_layout, 1)
         layout.addWidget(self.status_label)
+        status_controls = QHBoxLayout()
+        status_controls.addWidget(self.status_bar_toggle)
+        status_controls.addWidget(self.status_bar, 1)
+        layout.addLayout(status_controls)
         self._apply_compact_mac_layout(
             layout,
-            library_status_controls,
+            status_controls,
         )
 
         container = QWidget()
-        # Reparent legacy test-hook widgets that have no visible parent.
-        # Without a parent, Qt promotes them to top-level windows on show().
-        for widget in (
-            self.folder_label,
-            self.library_guidance_label,
-            self.scan_progress_label,
-        ):
-            widget.setParent(container)
-            widget.hide()
         container.setLayout(layout)
         self.setCentralWidget(container)
 
@@ -555,6 +547,10 @@ class MainWindow(QMainWindow):
         self.library_guidance_label = QLabel(self.tr("Choose a folder to scan metadata."))
         self.recommendation_guidance_label = QLabel(self.tr("Scan metadata before recommending a playlist."))
         self.scan_progress_label = QLabel(self.tr("Scan: idle"))
+        self.status_bar = StatusBar(self.folder_label, self.library_guidance_label, self.scan_progress_label)
+        self.status_bar.hide()
+        self.status_bar_toggle = QPushButton(self.tr("Status"))
+        self.status_bar_toggle.setCheckable(True)
         self.status_label = QLabel(self.tr("Ready"))
         self.library_decision_label = QLabel(
             self.tr("DJ Decision Point: choose source, filters, and the track anchor.")
@@ -600,6 +596,7 @@ class MainWindow(QMainWindow):
         self._library_screen.folder_change_requested.connect(self.choose_folder)
         self._library_screen.scan_requested.connect(self.scan_selected_folder)
         self._library_screen.cancel_scan_requested.connect(self.cancel_scan)
+        self.status_bar_toggle.toggled.connect(self._set_status_bar_visible)
         self._library_screen.selection_changed.connect(self._on_library_selection_changed)
         self._library_screen.metadata_screen_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(5))
         self._library_screen.proceed_button.clicked.connect(lambda: self.workflow_tabs.setCurrentIndex(1))
@@ -692,12 +689,12 @@ class MainWindow(QMainWindow):
     def _apply_compact_mac_layout(
         self,
         layout: QVBoxLayout,
-        library_status_controls: QHBoxLayout,
+        status_controls: QHBoxLayout,
     ) -> None:
         """Use dense desktop spacing so the library browser does not dominate MacBook screens."""
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(6)
-        library_status_controls.setSpacing(8)
+        status_controls.setSpacing(8)
 
         self._build_screen.recommend_button.setMinimumWidth(220)
         self._build_screen.recommend_button.setMaximumWidth(260)
@@ -720,6 +717,15 @@ class MainWindow(QMainWindow):
         self._export_screen.history_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._apply_compact_table_columns()
         self._set_recommendation_sections_expanded(False)
+
+    def _set_status_bar_visible(self, visible: bool) -> None:
+        """Show or hide the compact status bar from the toggle button."""
+        self.status_bar.setVisible(visible)
+        self.status_bar_toggle.setChecked(visible)
+
+    def show_status_bar(self) -> None:
+        """Reveal the compact status bar for scan activity."""
+        self._set_status_bar_visible(True)
 
     def _apply_compact_table_columns(self) -> None:
         """Allocate readable column widths while letting path/warning columns absorb spare space."""
