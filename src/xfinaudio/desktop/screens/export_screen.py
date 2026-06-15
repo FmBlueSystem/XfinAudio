@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QTableWidget,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.export_view_model import ExportViewModel
+from xfinaudio.desktop.scan_controller import progress_percent, progress_status_text
 
 _HISTORY_COLUMNS = ["Time", "Strategy", "Tracks", "Serato Crate", "Readiness JSON", "Readiness CSV"]
 
@@ -94,10 +96,18 @@ class ExportScreen(QWidget):
         self.export_button = QPushButton(self.tr("Export to Serato"))
         self.export_button.setObjectName("seratoExportButton")
         self.export_button.setEnabled(False)
+        self.export_progress_bar = QProgressBar()
+        self.export_progress_bar.setRange(0, 100)
+        self.export_progress_bar.setTextVisible(False)
+        self.export_progress_bar.setVisible(False)
+        self.export_progress_label = QLabel("")
+        self.export_progress_label.setVisible(False)
         self.export_readiness_button = QPushButton(self.tr("Export Readiness Report"))
         self.export_readiness_button.setEnabled(False)
         actions.addWidget(self.preview_button)
         actions.addWidget(self.export_button)
+        actions.addWidget(self.export_progress_bar)
+        actions.addWidget(self.export_progress_label)
         actions.addWidget(self.export_readiness_button)
         actions.addStretch()
         layout.addLayout(actions)
@@ -172,6 +182,7 @@ class ExportScreen(QWidget):
         self.variant_label.setText(vm.applied_variant_label(state))
         self.safe_folder_label.setText(vm.safe_folder_label(state))
         self.playlist_info_label.setText(vm.preview_text(state) or "—")
+        self._render_export_progress(state)
         self.export_button.setEnabled(vm.export_enabled(state))
         self.export_readiness_button.setEnabled(vm.export_readiness_enabled(state))
         # history_table is populated imperatively by _render_serato_export_history
@@ -182,3 +193,16 @@ class ExportScreen(QWidget):
         else:
             self.empty_state_label.setText(f"{vm.preview_explanation_text()} {vm.destination_text()}")
             self.empty_state_label.setVisible(True)
+
+    def _render_export_progress(self, state: AppState) -> None:
+        if not state.is_exporting:
+            self.export_progress_bar.setVisible(False)
+            self.export_progress_label.setVisible(False)
+            self.export_progress_label.setText("")
+            return
+        self.export_progress_bar.setValue(progress_percent(state.export_progress_count, state.export_progress_total))
+        self.export_progress_label.setText(
+            progress_status_text(state.export_progress_count, state.export_progress_total, state.export_elapsed_seconds)
+        )
+        self.export_progress_bar.setVisible(True)
+        self.export_progress_label.setVisible(True)

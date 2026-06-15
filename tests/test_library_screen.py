@@ -81,3 +81,23 @@ def test_quick_filter_buttons_filter_rows_and_clear(qapp: QApplication) -> None:
     assert screen.missing_bpm_filter_button.isChecked() is False
     assert screen.active_filter_count_label.text() == "0 active"
     assert screen.tracks_table.rowCount() == 3
+
+
+def test_scan_progress_bar_shows_eta_and_hides_when_complete(qapp: QApplication) -> None:
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+
+    screen.render(
+        vm,
+        AppState(
+            Path("/music"), is_scanning=True, scan_progress_count=1, scan_progress_total=4, scan_elapsed_seconds=30
+        ),
+        lightweight=True,
+    )
+
+    assert screen.scan_progress_bar.isHidden() is False
+    assert screen.scan_progress_bar.value() == 25
+    assert screen.scan_progress_label.text() == "25% · 1:30 remaining"
+    screen.render(vm, AppState(selected_folder=Path("/music")), lightweight=True)
+    assert screen.scan_progress_bar.isHidden() is True
+    assert screen.scan_progress_label.text() == ""

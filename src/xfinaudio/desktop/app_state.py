@@ -58,6 +58,15 @@ class AppState:
     is_scanning: bool = False
     is_recommending: bool = False
     scan_progress_count: int = 0
+    scan_progress_total: int = 0
+    scan_elapsed_seconds: float = 0.0
+    recommend_progress_count: int = 0
+    recommend_progress_total: int = 0
+    recommend_elapsed_seconds: float = 0.0
+    is_exporting: bool = False
+    export_progress_count: int = 0
+    export_progress_total: int = 0
+    export_elapsed_seconds: float = 0.0
     is_completing_spectral: bool = False
     spectral_progress_count: int = 0
     spectral_total_count: int = 0
