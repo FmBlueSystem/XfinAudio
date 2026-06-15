@@ -1,8 +1,13 @@
 from unittest.mock import patch
 
+from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
-from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
+from xfinaudio.recommendation.playlist_service import (
+    PlaylistRecommendation,
+    _spectral_jump_warnings,
+    recommend_playlist,
+)
 from xfinaudio.recommendation.scoring import ScoringWeights, score_transition
 from xfinaudio.recommendation.strategies import StrategyRegistry, get_strategy
 
@@ -26,6 +31,19 @@ def track(
         genre=genre,
         tags=["Peak"] if tags is None else tags,
         metadata_status=status,  # type: ignore[arg-type]
+    )
+
+
+def spectral_track(path: str, color: ColorName) -> TrackRecord:
+    return track(path).model_copy(
+        update={
+            "spectral_profile": SpectralProfile(
+                red_ratio=1.0 if color == "RED" else 0.0,
+                green_ratio=1.0 if color == "GREEN" else 0.0,
+                blue_ratio=1.0 if color == "BLUE" else 0.0,
+                dominant_color=color,
+            )
+        }
     )
 
 
@@ -242,3 +260,31 @@ def test_score_cache_is_fresh_per_recommendation_session() -> None:
 
     # Both sessions computed the same number of transitions — cache was fresh in session 2
     assert first_session_calls == second_session_calls
+
+
+def test_spectral_jump_warnings_aggregate_consecutive_same_direction_shifts() -> None:
+    tracks = [
+        spectral_track("/red-1.flac", "RED"),
+        spectral_track("/green-1.flac", "GREEN"),
+        spectral_track("/red-2.flac", "RED"),
+        spectral_track("/green-2.flac", "GREEN"),
+        spectral_track("/blue.flac", "BLUE"),
+        spectral_track("/red-3.flac", "RED"),
+    ]
+
+    warnings = _spectral_jump_warnings(tracks)
+
+    assert warnings == [
+        "Spectral shifts: RED→GREEN (2 times), GREEN→RED (1 time), GREEN→BLUE (1 time), BLUE→RED (1 time)"
+    ]
+
+
+def test_spectral_jump_warnings_ignore_same_color_and_missing_profiles() -> None:
+    tracks = [
+        spectral_track("/red-1.flac", "RED"),
+        spectral_track("/red-2.flac", "RED"),
+        track("/missing.flac"),
+        spectral_track("/blue.flac", "BLUE"),
+    ]
+
+    assert _spectral_jump_warnings(tracks) == []

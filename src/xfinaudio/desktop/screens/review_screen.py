@@ -73,6 +73,7 @@ class ReviewScreen(QWidget):
 
     back_requested = Signal()
     proceed_to_export_requested = Signal()
+    save_to_playlists_requested = Signal()
     track_remove_requested = Signal(str)  # emits the track path
     track_play_requested = Signal(str)  # emits the track path
 
@@ -127,6 +128,9 @@ class ReviewScreen(QWidget):
         self.remove_track_button = QPushButton(self.tr("Remove from Playlist"))
         self.remove_track_button.setEnabled(False)
         actions.addWidget(self.remove_track_button)
+        self.save_to_playlists_button = QPushButton(self.tr("Save to My Playlists"))
+        self.save_to_playlists_button.setEnabled(False)
+        actions.addWidget(self.save_to_playlists_button)
         actions.addStretch()
         layout.addLayout(actions)
 
@@ -185,6 +189,7 @@ class ReviewScreen(QWidget):
         self.dj_readiness_label.setAccessibleName(self.tr("DJ readiness summary"))
         self.recommendation_table.setAccessibleName(self.tr("Recommended playlist"))
         self.remove_track_button.setAccessibleName(self.tr("Remove selected track from playlist"))
+        self.save_to_playlists_button.setAccessibleName(self.tr("Save recommendation to My Playlists"))
         self.transition_table.setAccessibleName(self.tr("Transition analysis"))
         self.readiness_table.setAccessibleName(self.tr("Readiness checks"))
         self.back_button.setAccessibleName(self.tr("Back to build"))
@@ -194,7 +199,8 @@ class ReviewScreen(QWidget):
         """Define a logical keyboard tab order across primary controls."""
         self.setTabOrder(self.readiness_badge, self.recommendation_table)
         self.setTabOrder(self.recommendation_table, self.remove_track_button)
-        self.setTabOrder(self.remove_track_button, self.transition_table)
+        self.setTabOrder(self.remove_track_button, self.save_to_playlists_button)
+        self.setTabOrder(self.save_to_playlists_button, self.transition_table)
         self.setTabOrder(self.transition_table, self.readiness_table)
         self.setTabOrder(self.readiness_table, self.back_button)
         self.setTabOrder(self.back_button, self.export_button)
@@ -211,6 +217,7 @@ class ReviewScreen(QWidget):
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
         self.export_button.clicked.connect(self.proceed_to_export_requested)
+        self.save_to_playlists_button.clicked.connect(self.save_to_playlists_requested)
         self.recommendation_table.itemSelectionChanged.connect(self._on_recommendation_selection_changed)
         self.remove_track_button.clicked.connect(self._on_remove_clicked)
         self.recommendation_table.itemDoubleClicked.connect(self._on_rec_double_clicked)
@@ -229,6 +236,7 @@ class ReviewScreen(QWidget):
         self.readiness_badge.setText(vm.readiness_badge_text(state))
         self.quality_label.setText(vm.quality_summary(state))
         self.export_button.setEnabled(vm.can_export(state))
+        self.save_to_playlists_button.setEnabled(state.last_recommendation is not None)
         if not lightweight:
             self._populate_recommendation_table(vm.recommendation_rows(state))
         # readiness_table and transition_table are populated imperatively by

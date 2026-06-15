@@ -5,7 +5,9 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -92,9 +94,20 @@ class MyPlaylistsScreen(QWidget):
 
     def _on_rename_clicked(self) -> None:
         playlist_id = self.selected_playlist_id()
-        if playlist_id is not None:
-            # Simple inline rename via dialog would go here
-            self.rename_requested.emit(playlist_id, "")
+        if playlist_id is None:
+            return
+        item = self.list_widget.currentItem()
+        current_name = "" if item is None else item.text().split("  (", maxsplit=1)[0]
+        name, accepted = QInputDialog.getText(
+            self,
+            self.tr("Rename Playlist"),
+            self.tr("Playlist name:"),
+            QLineEdit.EchoMode.Normal,
+            current_name,
+        )
+        new_name = name.strip()
+        if accepted and new_name:
+            self.rename_requested.emit(playlist_id, new_name)
 
     def _on_duplicate_clicked(self) -> None:
         playlist_id = self.selected_playlist_id()

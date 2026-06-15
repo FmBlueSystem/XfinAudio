@@ -82,6 +82,13 @@ class MetadataScreen(QWidget):
         self.worklist_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.worklist_table, 1)
 
+        self.worklist_empty_label = QLabel(
+            self.tr("No library scanned yet. Choose a folder on the Library tab to scan metadata.")
+        )
+        self.worklist_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.worklist_empty_label.setWordWrap(True)
+        layout.addWidget(self.worklist_empty_label, 1)
+
         # Push nav to bottom; spare space goes to the worklist table.
         layout.addStretch(1)
 
@@ -103,6 +110,7 @@ class MetadataScreen(QWidget):
         self.missing_combo.setAccessibleName(self.tr("Missing metadata filter"))
         self.export_button.setAccessibleName(self.tr("Export metadata worklist"))
         self.worklist_table.setAccessibleName(self.tr("Metadata worklist"))
+        self.worklist_empty_label.setAccessibleName(self.tr("Metadata worklist empty state"))
         self.back_button.setAccessibleName(self.tr("Back to library"))
 
     def _setup_tab_order(self) -> None:
@@ -139,8 +147,12 @@ class MetadataScreen(QWidget):
                 f"{vm.worklist_guidance_text()} {vm.fix_metadata_guidance_text()} {vm.refresh_guidance_text()}"
             )
             self.guidance_label.setVisible(True)
+            self.worklist_table.setVisible(True)
+            self.worklist_empty_label.setVisible(False)
         else:
             self.guidance_label.setVisible(False)
+            self.worklist_table.setVisible(False)
+            self.worklist_empty_label.setVisible(True)
 
         # Populate combos once (idempotent — skip if already populated)
         if self.status_combo.count() == 0:
