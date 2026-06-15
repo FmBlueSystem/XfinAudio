@@ -63,7 +63,7 @@ def test_dj_readiness_marks_clean_recommendation_ready() -> None:
     assert "Ready" in report.summary
 
 
-def test_dj_readiness_blocks_impossible_bpm_jump() -> None:
+def test_dj_readiness_flags_bpm_jump_for_review_not_blocked() -> None:
     recommendation = manual_recommendation(
         [
             track("/music/a.flac", bpm=100, key="8A", energy=5),
@@ -73,9 +73,9 @@ def test_dj_readiness_blocks_impossible_bpm_jump() -> None:
 
     report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
 
-    assert report.status == "blocked"
-    assert report.blocker_count == 1
-    assert any(check.label == "BPM continuity" and check.status == "blocked" for check in report.checks)
+    assert report.status == "needs_review"
+    assert report.blocker_count == 0
+    assert any(check.label == "BPM continuity" and check.status == "needs_review" for check in report.checks)
     assert "10.00%" in report.summary
 
 
@@ -158,8 +158,8 @@ def test_export_dj_readiness_json_is_deterministic() -> None:
 
     exported = export_dj_readiness_json(report)
 
-    assert '"status": "blocked"' in exported
-    assert '"blocker_count": 1' in exported
+    assert '"status": "needs_review"' in exported
+    assert '"blocker_count": 0' in exported
     assert '"label": "BPM continuity"' in exported
     assert exported.endswith("\n")
 
@@ -180,3 +180,29 @@ def test_export_dj_readiness_csv_has_stable_columns() -> None:
     assert exported.splitlines()[0] == "check,status,detail"
     assert "BPM continuity,ready," in exported
     assert exported.endswith("\n")
+
+
+def test_dj_readiness_blocks_on_missing_metadata() -> None:
+    """Missing required metadata is a hard blocker, not a soft review item."""
+    incomplete = TrackRecord(
+        path="/music/x.flac",
+        title="X",
+        artist="Artist",
+        bpm=None,
+        camelot_key="8A",
+        energy_level=5,
+        metadata_status="incomplete",
+        missing_required_fields=["bpm"],
+    )
+    recommendation = manual_recommendation(
+        [
+            incomplete,
+            track("/music/y.flac", bpm=121, key="8A", energy=5),
+        ]
+    )
+
+    report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
+
+    assert report.status == "blocked"
+    assert report.blocker_count >= 1
+    assert any(check.label == "Required metadata" and check.status == "blocked" for check in report.checks)

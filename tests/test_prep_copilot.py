@@ -74,7 +74,7 @@ def test_safe_variant_keeps_focused_genre_while_adventurous_can_bridge_outside_i
     assert any("genre focus" in warning for warning in by_name["adventurous"].warnings)
 
 
-def test_prep_copilot_surfaces_blocked_variant_when_required_track_breaks_bpm_gate() -> None:
+def test_prep_copilot_surfaces_review_variant_when_required_track_breaks_bpm_gate() -> None:
     tracks = [
         track("/music/start.flac", bpm=100, key="8A", energy=4, genre="House"),
         track("/music/required.flac", bpm=110, key="8A", energy=5, genre="House"),
@@ -90,5 +90,9 @@ def test_prep_copilot_surfaces_blocked_variant_when_required_track_breaks_bpm_ga
 
     plan = build_prep_copilot_plan(tracks, intent)
 
-    assert any(variant.readiness.status == "blocked" for variant in plan.variants)
-    assert any("BPM continuity" in blocker for variant in plan.variants for blocker in variant.blockers)
+    assert any(variant.readiness.status == "needs_review" for variant in plan.variants)
+    assert any(
+        check.label == "BPM continuity" and check.status == "needs_review"
+        for variant in plan.variants
+        for check in variant.readiness.checks
+    )
