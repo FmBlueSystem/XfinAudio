@@ -95,6 +95,29 @@ QLineEdit {
 QLineEdit:focus {
     border-color: #00d4ff;
 }
+QWidget#workflowSidebarPanel {
+    background: #111923;
+    border: 1px solid #263544;
+    border-radius: 8px;
+}
+QListWidget#workflowSidebar {
+    background: #111923;
+    color: #edf5ff;
+    border: 0;
+    font-size: 13px;
+    outline: 0;
+}
+QListWidget#workflowSidebar::item {
+    padding: 8px;
+    border-radius: 6px;
+}
+QListWidget#workflowSidebar::item:selected {
+    background: #005b86;
+    color: #edf5ff;
+}
+QListWidget#workflowSidebar::item:disabled {
+    color: #66717d;
+}
 QTableWidget {
     background: #101820;
     alternate-background-color: #14202a;

@@ -2,7 +2,14 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelectionModel
-from PySide6.QtWidgets import QAbstractItemView, QApplication, QTableWidget, QTableWidgetItem
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QListWidget,
+    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
+)
 
 from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings
 from xfinaudio.desktop import export_coordinator, main_window
@@ -212,7 +219,12 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
     ]
     assert _table_headers(window._review_screen.readiness_table) == ["Check", "Status", "Detail"]
 
-    assert [window.workflow_tabs.tabText(index) for index in range(window.workflow_tabs.count())] == [
+    sidebar_labels = [window.workflow_sidebar.item(index).text() for index in range(window.workflow_sidebar.count())]
+
+    assert isinstance(window.workflow_sidebar, QListWidget)
+    assert isinstance(window.workflow_tabs, QStackedWidget)
+    assert window.workflow_tabs.count() == 7
+    assert sidebar_labels == [
         "Library",
         "Build Playlist",
         "Review Mix",
@@ -221,7 +233,11 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "Metadata Worklist",
         "Live Assistant",
     ]
-    assert window.workflow_tabs.tabPosition() == main_window.QTabWidget.TabPosition.West
+    assert [
+        window.workflow_sidebar.item(index).data(main_window.Qt.ItemDataRole.AccessibleTextRole)
+        for index in range(window.workflow_sidebar.count())
+    ] == sidebar_labels
+    assert window.workflow_sidebar.currentRow() == 0
 
     assert window._library_screen.scan_button.isEnabled() is False
     assert window._library_screen.cancel_button.isEnabled() is False
@@ -1805,7 +1821,7 @@ def test_main_window_exposes_dj_workflow_modules_with_decision_points() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    tab_names = [window.workflow_tabs.tabText(index) for index in range(window.workflow_tabs.count())]
+    tab_names = [window.workflow_sidebar.item(index).text() for index in range(window.workflow_sidebar.count())]
 
     assert tab_names == [
         "Library",
@@ -1816,7 +1832,7 @@ def test_main_window_exposes_dj_workflow_modules_with_decision_points() -> None:
         "Metadata Worklist",
         "Live Assistant",
     ]
-    assert window.workflow_tabs.tabPosition() == main_window.QTabWidget.TabPosition.West
+    assert window.workflow_tabs.count() == 7
     assert window.library_decision_label.text() == "DJ Decision Point: choose source, filters, and the track anchor."
     assert (
         window.metadata_decision_label.text()

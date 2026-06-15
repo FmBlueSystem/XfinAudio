@@ -16,11 +16,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QSizePolicy,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -137,6 +139,35 @@ _MISSING_METADATA_FILTERS = {
 }
 
 
+class WorkflowStack(QStackedWidget):
+    """QStackedWidget with the tab-like compatibility API used by coordinators/tests."""
+
+    def __init__(self, labels: list[str]) -> None:
+        super().__init__()
+        self._labels = labels
+        self._enabled = [True for _ in labels]
+
+    def tabText(self, index: int) -> str:
+        """Return the navigation label for compatibility with the previous QTabWidget."""
+        return self._labels[index]
+
+    def setTabEnabled(self, index: int, enabled: bool) -> None:
+        """Store per-screen navigation enablement for the sidebar-backed stack."""
+        if 0 <= index < len(self._enabled):
+            self._enabled[index] = enabled
+            screen = self.widget(index)
+            if screen is not None:
+                screen.setEnabled(enabled)
+
+    def isTabEnabled(self, index: int) -> bool:
+        """Return whether a screen can be selected."""
+        return 0 <= index < len(self._enabled) and self._enabled[index]
+
+    def setCurrentIndex(self, index: int) -> None:
+        """Keep programmatic navigation compatible with the previous workflow_tabs alias."""
+        super().setCurrentIndex(index)
+
+
 class MainWindow(QMainWindow):
     """Main desktop window for the HELP-4 metadata scanning skeleton."""
 
@@ -178,20 +209,57 @@ class MainWindow(QMainWindow):
         library_status_controls.addWidget(self.library_guidance_label, 1)
         library_status_controls.addWidget(self.scan_progress_label)
 
-        self.workflow_tabs = QTabWidget()
-        self.workflow_tabs.setTabPosition(QTabWidget.TabPosition.West)
-        self.workflow_tabs.addTab(self._library_screen, self.tr("Library"))
-        self.workflow_tabs.addTab(self._build_screen, self.tr("Build Playlist"))
-        self.workflow_tabs.addTab(self._review_screen, self.tr("Review Mix"))
-        self.workflow_tabs.addTab(self._export_screen, self.tr("Export to Serato"))
-        self.workflow_tabs.addTab(self._playlists_screen, self.tr("My Playlists"))
-        self.workflow_tabs.addTab(self._metadata_screen, self.tr("Metadata Worklist"))
-        self.workflow_tabs.addTab(self._live_assistant_screen, self.tr("Live Assistant"))
+        workflow_labels = [
+            self.tr("Library"),
+            self.tr("Build Playlist"),
+            self.tr("Review Mix"),
+            self.tr("Export to Serato"),
+            self.tr("My Playlists"),
+            self.tr("Metadata Worklist"),
+            self.tr("Live Assistant"),
+        ]
+        self.workflow_sidebar = QListWidget()
+        self.workflow_sidebar.setObjectName("workflowSidebar")
+        self.workflow_sidebar.setAccessibleName(self.tr("Workflow navigation"))
+        self.workflow_sidebar.setFixedWidth(180)
+        self.workflow_sidebar.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        for label in workflow_labels:
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
+            item.setToolTip(label)
+            self.workflow_sidebar.addItem(item)
+
+        self.workflow_tabs = WorkflowStack(workflow_labels)
+        self.workflow_tabs.addWidget(self._library_screen)
+        self.workflow_tabs.addWidget(self._build_screen)
+        self.workflow_tabs.addWidget(self._review_screen)
+        self.workflow_tabs.addWidget(self._export_screen)
+        self.workflow_tabs.addWidget(self._playlists_screen)
+        self.workflow_tabs.addWidget(self._metadata_screen)
+        self.workflow_tabs.addWidget(self._live_assistant_screen)
         self._current_tab_index = self.workflow_tabs.currentIndex()
         self.workflow_tabs.currentChanged.connect(self._on_tab_changed)
+        self.workflow_tabs.currentChanged.connect(self.workflow_sidebar.setCurrentRow)
+        self.workflow_sidebar.currentRowChanged.connect(self._on_sidebar_row_changed)
+        self.workflow_sidebar.setCurrentRow(0)
+
+        workflow_layout = QHBoxLayout()
+        workflow_layout.setContentsMargins(0, 0, 0, 0)
+        workflow_layout.setSpacing(10)
+        sidebar_panel = QWidget()
+        sidebar_panel.setObjectName("workflowSidebarPanel")
+        sidebar_panel.setFixedWidth(180)
+        sidebar_layout = QVBoxLayout()
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+        sidebar_layout.addWidget(self.workflow_sidebar, 0)
+        sidebar_layout.addStretch(1)
+        sidebar_panel.setLayout(sidebar_layout)
+        workflow_layout.addWidget(sidebar_panel)
+        workflow_layout.addWidget(self.workflow_tabs, 1)
 
         layout = QVBoxLayout()
-        layout.addWidget(self.workflow_tabs, 1)
+        layout.addLayout(workflow_layout, 1)
         layout.addWidget(self.status_label)
         self._apply_compact_mac_layout(
             layout,
@@ -210,6 +278,16 @@ class MainWindow(QMainWindow):
             widget.hide()
         container.setLayout(layout)
         self.setCentralWidget(container)
+
+    def _on_sidebar_row_changed(self, index: int) -> None:
+        """Navigate from the sidebar while keeping disabled destinations guarded."""
+        previous_index = self.workflow_tabs.currentIndex()
+        if not self.workflow_tabs.isTabEnabled(index):
+            self.workflow_sidebar.setCurrentRow(previous_index)
+            return
+        self.workflow_tabs.setCurrentIndex(index)
+        if self.workflow_tabs.currentIndex() != index:
+            self.workflow_sidebar.setCurrentRow(previous_index)
 
     def _initialize_window_state(
         self,
@@ -460,7 +538,17 @@ class MainWindow(QMainWindow):
     def _update_tab_states(self) -> None:
         """Enable/disable tabs based on NavigationController rules."""
         for index, screen_name in enumerate(_SCREEN_NAMES):
-            self.workflow_tabs.setTabEnabled(index, self._nav.can_go_to(screen_name, self._state))
+            enabled = self._nav.can_go_to(screen_name, self._state)
+            self.workflow_tabs.setTabEnabled(index, enabled)
+            screen = self.workflow_tabs.widget(index)
+            if screen is not None:
+                screen.setEnabled(enabled)
+            item = self.workflow_sidebar.item(index)
+            if item is not None:
+                flags = item.flags() | Qt.ItemFlag.ItemIsEnabled
+                if not enabled:
+                    flags &= ~Qt.ItemFlag.ItemIsEnabled
+                item.setFlags(flags)
 
     def _build_widgets(self) -> None:
         """Build constructor widgets and intrinsic widget configuration."""
