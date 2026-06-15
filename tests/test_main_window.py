@@ -259,6 +259,48 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
     assert window._review_screen.readiness_table.isHidden() is True
 
 
+def test_main_window_adds_compact_status_bar_hidden_by_default() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    assert window.status_bar.isHidden() is True
+    assert window.status_bar.folder_label is window.folder_label
+    assert window.status_bar.guidance_label is window.library_guidance_label
+    assert window.status_bar.scan_progress_label is window.scan_progress_label
+    assert window.status_bar.layout().count() == 3
+
+
+def test_main_window_places_status_bar_below_workflow_tabs() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    layout = window.centralWidget().layout()
+    bottom_row = layout.itemAt(layout.count() - 1).layout()
+
+    assert bottom_row is not None
+    assert bottom_row.indexOf(window.status_bar) >= 0
+
+
+def test_main_window_status_bar_toggle_controls_visibility() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    window.status_bar_toggle.click()
+    assert window.status_bar.isHidden() is False
+
+    window.status_bar_toggle.click()
+    assert window.status_bar.isHidden() is True
+
+
+def test_main_window_shows_status_bar_automatically_during_scan(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.set_selected_folder(tmp_path)
+
+    window._begin_scan_state()
+
+    assert window.status_bar.isHidden() is False
+
+
 def test_main_window_registers_keyboard_shortcuts_and_tooltips() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())

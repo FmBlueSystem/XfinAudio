@@ -55,6 +55,7 @@ class ScanHost(Protocol):
     def _clear_scan_dependent_state(self) -> None: ...
     def _refresh_idle_action_state(self) -> None: ...
     def _cancel_spectral_completion_worker(self) -> None: ...
+    def show_status_bar(self) -> None: ...
 
 
 class ScanCoordinator:
@@ -94,6 +95,7 @@ class ScanCoordinator:
         host._library_screen.cancel_button.setEnabled(True)
         host.scan_progress_label.setText(host.tr("Scan progress: starting"))
         host.status_label.setText(host.tr("Scanning metadata"))
+        host.show_status_bar()
         host._sync_state()
 
     def _end_scan_state(self) -> None:
