@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from xfinaudio.desktop.playlist_coordinator import PlaylistCoordinator
 from xfinaudio.library.models import TrackRecord
@@ -59,10 +59,12 @@ def _host(recommendation: PlaylistRecommendation | None = None):
 def test_save_recommendation_persists_tracks_with_default_strategy_date_name() -> None:
     host = _host(_recommendation())
 
-    PlaylistCoordinator(host).save_recommendation()  # type: ignore[arg-type]
+    with patch("xfinaudio.desktop.playlist_coordinator.datetime") as datetime_mock:
+        datetime_mock.now.return_value = datetime(2026, 6, 15, 9, 8, 7)
+        PlaylistCoordinator(host).save_recommendation()  # type: ignore[arg-type]
 
     name, paths = host._playlist_repository.create.call_args.args
-    assert name.startswith("warmup - ")
+    assert name == "warmup - 20260615-090807"
     assert paths == ["/music/a.flac", "/music/b.flac"]
     host._playlists_screen.populate_list.assert_called_once()
     host.workflow_tabs.setCurrentIndex.assert_called_once_with(4)

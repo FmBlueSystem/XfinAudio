@@ -9,6 +9,7 @@ free functions internally.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -161,8 +162,9 @@ class ExportCoordinator:
     planning is delegated to the module-level free functions.
     """
 
-    def __init__(self, host: ExportHost) -> None:
+    def __init__(self, host: ExportHost, on_export_success: Callable[[], None] | None = None) -> None:
         self._host = host
+        self._on_export_success = on_export_success
 
     def selected_software(self) -> str:
         """Return the currently selected DJ software from the Export screen."""
@@ -406,6 +408,10 @@ class ExportCoordinator:
         self._record_serato_export(
             result.written_path, readiness_json_path=readiness_paths[0], readiness_csv_path=readiness_paths[1]
         )
+        if self._on_export_success is not None and not (
+            host.last_dj_readiness_report is not None and readiness_paths == (None, None) and readiness_note
+        ):
+            self._on_export_success()
 
     def _plan_current_serato_export(
         self,
