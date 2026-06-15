@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.desktop.app_state import AppState
-from xfinaudio.desktop.library_view_model import LibraryViewModel, TrackDisplayRow
+from xfinaudio.desktop.library_view_model import LibraryFilters, LibraryViewModel, TrackDisplayRow
 
 _EMPTY = QTableWidgetItem("")
 _ROW_COLOR_EVEN = QColor("#101820")
@@ -141,6 +141,35 @@ class LibraryScreen(QWidget):
         self.search_input.setMaximumWidth(220)
         layout.addWidget(self.search_input)
 
+        self.quick_filter_layout = QHBoxLayout()
+        (
+            self.complete_filter_button,
+            self.incomplete_filter_button,
+            self.missing_bpm_filter_button,
+            self.missing_key_filter_button,
+            self.missing_energy_filter_button,
+        ) = (
+            QPushButton(self.tr(label))
+            for label in ("Complete", "Incomplete", "Missing BPM", "Missing Key", "Missing Energy")
+        )
+        self.quick_filter_buttons = (
+            self.complete_filter_button,
+            self.incomplete_filter_button,
+            self.missing_bpm_filter_button,
+            self.missing_key_filter_button,
+            self.missing_energy_filter_button,
+        )
+        self.clear_filters_button = QPushButton(self.tr("Clear Filters"))
+        self.active_filter_count_label = QLabel(self.tr("0 active"))
+        for button in self.quick_filter_buttons:
+            button.setCheckable(True)
+            button.setStyleSheet("QPushButton:checked { background: #00d4ff; color: #061018; border-color: #00d4ff; }")
+            self.quick_filter_layout.addWidget(button)
+        self.quick_filter_layout.addWidget(self.clear_filters_button)
+        self.quick_filter_layout.addWidget(self.active_filter_count_label)
+        self.quick_filter_layout.addStretch()
+        layout.addLayout(self.quick_filter_layout)
+
         # Table
         self.tracks_table = QTableWidget(0, len(_COLUMNS))
         self.tracks_table.setHorizontalHeaderLabels([self.tr(c) for c in _COLUMNS])
@@ -225,6 +254,9 @@ class LibraryScreen(QWidget):
         self.tracks_table.itemDoubleClicked.connect(self._on_track_double_clicked)
         self.tracks_table.cellClicked.connect(self._on_cell_clicked)
         self.search_input.textChanged.connect(self._on_search_changed)
+        for button in self.quick_filter_buttons:
+            button.clicked.connect(self._on_quick_filter_changed)
+        self.clear_filters_button.clicked.connect(self._clear_quick_filters)
         self.settings_button.clicked.connect(self.settings_requested)
         self.tracks_table.horizontalHeader().sectionDoubleClicked.connect(self._on_header_double_clicked)
 
@@ -248,7 +280,7 @@ class LibraryScreen(QWidget):
         self.proceed_button.setEnabled(vm.can_proceed(state))
         if lightweight:
             return
-        rows = vm.tracks_for_display(state)
+        rows = vm.tracks_for_display(state, self._current_library_filters())
         sort_column = self._sort_column
         if sort_column is not None:
             rows = sorted(
@@ -333,6 +365,50 @@ class LibraryScreen(QWidget):
     def _on_search_changed(self, text: str) -> None:
         self._filter_query = text.strip().casefold()
         self._apply_filter()
+
+    def _on_quick_filter_changed(self) -> None:
+        sender = self.sender()
+        status_buttons = (self.complete_filter_button, self.incomplete_filter_button)
+        missing_buttons = (
+            self.missing_bpm_filter_button,
+            self.missing_key_filter_button,
+            self.missing_energy_filter_button,
+        )
+        active_group = status_buttons if sender in status_buttons else missing_buttons
+        if sender.isChecked():
+            for button in active_group:
+                if button is not sender:
+                    button.setChecked(False)
+        self._refresh_filter_state()
+
+    def _clear_quick_filters(self) -> None:
+        for button in self.quick_filter_buttons:
+            button.setChecked(False)
+        self._refresh_filter_state()
+
+    def _refresh_filter_state(self) -> None:
+        active_count = sum(1 for button in self.quick_filter_buttons if button.isChecked())
+        self.active_filter_count_label.setText(self.tr("{0} active").format(active_count))
+        if self._last_vm is not None and self._last_state is not None:
+            self.render(self._last_vm, self._last_state)
+
+    def _current_library_filters(self) -> LibraryFilters:
+        status_filter = "complete" if self.complete_filter_button.isChecked() else None
+        if self.incomplete_filter_button.isChecked():
+            status_filter = "incomplete"
+        missing_filter = next(
+            (
+                field_name
+                for button, field_name in (
+                    (self.missing_bpm_filter_button, "bpm"),
+                    (self.missing_key_filter_button, "camelot_key"),
+                    (self.missing_energy_filter_button, "energy_level"),
+                )
+                if button.isChecked()
+            ),
+            None,
+        )
+        return LibraryFilters(status_filter=status_filter, missing_field_filter=missing_filter)
 
     def _apply_filter(self) -> None:
         query = self._filter_query
