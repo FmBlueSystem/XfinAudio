@@ -17,6 +17,14 @@ from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
 TableItemFactory = Callable[[str, object | None], QTableWidgetItem]
 
 
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None or seconds <= 0:
+        return "—"
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    return f"{minutes}:{secs:02d}"
+
+
 def populate_library_table(
     table: QTableWidget,
     records: Sequence[TrackRecord],
@@ -36,11 +44,12 @@ def populate_library_table(
             "" if record.bpm is None else f"{record.bpm:g}",
             record.camelot_key or "",
             "" if record.energy_level is None else str(record.energy_level),
+            _format_duration(record.duration),
             format_spectral_color(record),
             format_missing_metadata(record),
             record.genre or "",
-            format_track_tags(record),
             record.metadata_status,
+            "▶",
             record.path,
         ]
         sort_values: list[object] = [
@@ -48,15 +57,14 @@ def populate_library_table(
             values[1].casefold(),
             record.bpm if record.bpm is not None else float("inf"),
             values[3].casefold(),
-            values[4].casefold(),
-            values[5].casefold(),
             record.energy_level if record.energy_level is not None else 999,
-            values[5].casefold(),
+            record.duration if record.duration is not None else float("inf"),
             values[6].casefold(),
             values[7].casefold(),
             values[8].casefold(),
             values[9].casefold(),
-            values[10].casefold(),
+            "",
+            values[11].casefold(),
         ]
         for column_index, value in enumerate(values):
             table.setItem(row_index, column_index, item_factory(value, sort_values[column_index]))

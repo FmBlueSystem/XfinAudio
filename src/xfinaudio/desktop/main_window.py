@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMainWindow,
     QSizePolicy,
@@ -124,10 +125,10 @@ _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
 _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
 _SCREEN_NAMES = ["library", "build", "review", "export", "playlists", "metadata", "live"]
 _TRACK_TITLE_COLUMN = 0
-_TRACK_COLOR_COLUMN = 5
-_TRACK_MISSING_COLUMN = 6
+_TRACK_COLOR_COLUMN = 6
+_TRACK_MISSING_COLUMN = 7
 _TRACK_STATUS_COLUMN = 9
-_TRACK_PATH_COLUMN = 10
+_TRACK_PATH_COLUMN = 11
 
 _MISSING_METADATA_FILTERS = {
     QCoreApplication.translate("MainWindow", "Missing BPM"): "bpm",
@@ -279,7 +280,7 @@ class MainWindow(QMainWindow):
             lightweight: If True, skip expensive table population on hidden tabs.
         """
         renderers = {
-            0: lambda: self._library_screen.render(self._library_vm, self._state, lightweight=lightweight),
+            0: lambda: self._library_screen.render(self._library_vm, self._state, lightweight=True),
             1: lambda: self._build_screen.render(self._build_vm, self._state, lightweight=lightweight),
             2: lambda: self._review_screen.render(self._review_vm, self._state, lightweight=lightweight),
             3: lambda: self._export_screen.render(self._export_vm, self._state),
@@ -472,24 +473,8 @@ class MainWindow(QMainWindow):
         self.metadata_decision_label = QLabel(
             self.tr("DJ Decision Point: complete missing metadata, then refresh the library.")
         )
-        self.tracks_table = QTableWidget(0, 11)
-        self.tracks_table.setHorizontalHeaderLabels(
-            [
-                self.tr("Title"),
-                self.tr("Artist"),
-                self.tr("BPM"),
-                self.tr("Key"),
-                self.tr("Energy"),
-                self.tr("Color"),
-                self.tr("Missing"),
-                self.tr("Genre"),
-                self.tr("Tags/Subgenre"),
-                self.tr("Status"),
-                self.tr("Path"),
-            ]
-        )
-        self.tracks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tracks_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._library_screen.tracks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._library_screen.tracks_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.folder_label.setWordWrap(False)
         self.folder_label.setMaximumWidth(220)
         self.library_guidance_label.setWordWrap(False)
@@ -506,7 +491,7 @@ class MainWindow(QMainWindow):
         """Connect constructor-created widgets to their existing slots and sorting handlers."""
         self._connect_keyboard_shortcuts()
         self._build_screen.copilot_table.itemDoubleClicked.connect(self._apply_prep_copilot_item)
-        self.tracks_table.itemSelectionChanged.connect(self._refresh_idle_action_state)
+        self._library_screen.tracks_table.itemSelectionChanged.connect(self._refresh_idle_action_state)
         self._library_screen.search_input.textChanged.connect(self._search_debounce.start)
         self._search_debounce.timeout.connect(lambda: self._apply_song_filter(clear_selection=True))
         self._metadata_screen.status_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
@@ -563,7 +548,7 @@ class MainWindow(QMainWindow):
         self._playlist_coordinator.connect_signals()
         self._playlist_coordinator.refresh_list()
         for table in (
-            self.tracks_table,
+            self._library_screen.tracks_table,
             self._review_screen.transition_table,
             self._review_screen.readiness_table,
             self._export_screen.history_table,
@@ -611,9 +596,9 @@ class MainWindow(QMainWindow):
         self._metadata_screen.missing_combo.setMaximumWidth(220)
         self._metadata_screen.export_button.setMaximumWidth(220)
 
-        self.tracks_table.setMinimumHeight(_COMPACT_LIBRARY_TABLE_MIN_HEIGHT)
-        self.tracks_table.setMaximumHeight(_COMPACT_LIBRARY_TABLE_MAX_HEIGHT)
-        self.tracks_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._library_screen.tracks_table.setMinimumHeight(_COMPACT_LIBRARY_TABLE_MIN_HEIGHT)
+        self._library_screen.tracks_table.setMaximumHeight(_COMPACT_LIBRARY_TABLE_MAX_HEIGHT)
+        self._library_screen.tracks_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._review_screen.transition_table.setMinimumHeight(_COMPACT_REVIEW_TABLE_MIN_HEIGHT)
         self._review_screen.transition_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._review_screen.readiness_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
@@ -626,13 +611,14 @@ class MainWindow(QMainWindow):
     def _apply_compact_table_columns(self) -> None:
         """Allocate readable column widths while letting path/warning columns absorb spare space."""
         table_widths = (
-            (self.tracks_table, _TRACK_TABLE_COLUMN_WIDTHS),
+            (self._library_screen.tracks_table, _TRACK_TABLE_COLUMN_WIDTHS),
             (self._review_screen.transition_table, _REVIEW_TABLE_COLUMN_WIDTHS),
             (self._review_screen.readiness_table, _DJ_READINESS_TABLE_COLUMN_WIDTHS),
             (self._export_screen.history_table, _SERATO_EXPORT_HISTORY_COLUMN_WIDTHS),
         )
         for table, widths in table_widths:
             for column_index, width in enumerate(widths):
+                table.horizontalHeader().setSectionResizeMode(column_index, QHeaderView.ResizeMode.Interactive)
                 table.setColumnWidth(column_index, width)
             table.horizontalHeader().setStretchLastSection(True)
 
@@ -653,7 +639,7 @@ class MainWindow(QMainWindow):
         ):
             label.setObjectName("guidanceLabel")
         for table in (
-            self.tracks_table,
+            self._library_screen.tracks_table,
             self._review_screen.transition_table,
             self._review_screen.readiness_table,
             self._export_screen.history_table,
@@ -699,7 +685,7 @@ class MainWindow(QMainWindow):
         self._table_sort_orders[sort_key] = order
         table.sortItems(column, order)
         table.horizontalHeader().setSortIndicator(column, order)
-        if table is self.tracks_table:
+        if table is self._library_screen.tracks_table:
             self._apply_song_filter(clear_selection=False)
 
     @classmethod
@@ -759,7 +745,7 @@ class MainWindow(QMainWindow):
     def _populate_track_table(self, records: list[TrackRecord]) -> None:
         """Populate the library table in source order, then re-apply the active filter."""
         self._records_by_path = populate_library_table(
-            self.tracks_table,
+            self._library_screen.tracks_table,
             records,
             item_factory=_table_item,
             format_missing_metadata=_format_missing_metadata,
@@ -772,16 +758,16 @@ class MainWindow(QMainWindow):
         """Hide library rows whose song title/status does not match active browse filters."""
         search_query = (self._library_screen.search_input.text() if query is None else query).strip().casefold()
         if clear_selection and search_query != self._active_song_search_query:
-            self.tracks_table.clearSelection()
+            self._library_screen.tracks_table.clearSelection()
         self._active_song_search_query = search_query
         status_filter = self._selected_metadata_status_filter()
         missing_filter = self._selected_missing_metadata_filter()
-        for row_index in range(self.tracks_table.rowCount()):
-            title_item = self.tracks_table.item(row_index, _TRACK_TITLE_COLUMN)
+        for row_index in range(self._library_screen.tracks_table.rowCount()):
+            title_item = self._library_screen.tracks_table.item(row_index, _TRACK_TITLE_COLUMN)
             title = "" if title_item is None else title_item.text().casefold()
-            status_item = self.tracks_table.item(row_index, _TRACK_STATUS_COLUMN)
+            status_item = self._library_screen.tracks_table.item(row_index, _TRACK_STATUS_COLUMN)
             status = "" if status_item is None else status_item.text()
-            path_item = self.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
+            path_item = self._library_screen.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
             path = "" if path_item is None else path_item.text()
             record = self._records_by_path.get(path)
             title_mismatch = bool(search_query) and search_query not in title
@@ -789,7 +775,10 @@ class MainWindow(QMainWindow):
             missing_mismatch = missing_filter is not None and (
                 record is None or missing_filter not in record.missing_required_fields
             )
-            self.tracks_table.setRowHidden(row_index, title_mismatch or status_mismatch or missing_mismatch)
+            self._library_screen.tracks_table.setRowHidden(
+                row_index,
+                title_mismatch or status_mismatch or missing_mismatch,
+            )
         self._refresh_idle_action_state()
 
     def _selected_metadata_status_filter(self) -> str | None:
@@ -901,12 +890,12 @@ class MainWindow(QMainWindow):
         if path in self._records_by_path:
             existing = self._records_by_path[path]
             self._records_by_path[path] = existing.model_copy(update={"spectral_profile": profile})
-        for row_index in range(self.tracks_table.rowCount()):
-            path_item = self.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
+        for row_index in range(self._library_screen.tracks_table.rowCount()):
+            path_item = self._library_screen.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
             if path_item is not None and path_item.text() == path:
                 record = self._records_by_path.get(path)
                 color_text = _format_spectral_color(record) if record is not None else ""
-                self.tracks_table.item(row_index, _TRACK_COLOR_COLUMN).setText(color_text)
+                self._library_screen.tracks_table.item(row_index, _TRACK_COLOR_COLUMN).setText(color_text)
                 break
         self._sync_state()
 
@@ -933,7 +922,7 @@ class MainWindow(QMainWindow):
         self.last_dj_readiness_report = None
         self.last_prep_copilot_plan = None
         self._set_applied_copilot_variant(None)
-        self.tracks_table.setRowCount(0)
+        self._library_screen.tracks_table.setRowCount(0)
         self._library_screen.search_input.clear()
         self._review_screen.recommendation_table.setRowCount(0)
         self._set_recommendation_sections_expanded(False)
@@ -1230,13 +1219,13 @@ class MainWindow(QMainWindow):
                 )
 
         # Fallback: legacy widget used by automated tests
-        selected_rows = sorted({index.row() for index in self.tracks_table.selectedIndexes()})
+        selected_rows = sorted({index.row() for index in self._library_screen.tracks_table.selectedIndexes()})
         selected_records = []
         seen_paths = set()
         for row in selected_rows:
-            if self.tracks_table.isRowHidden(row):
+            if self._library_screen.tracks_table.isRowHidden(row):
                 continue
-            path_item = self.tracks_table.item(row, _TRACK_PATH_COLUMN)
+            path_item = self._library_screen.tracks_table.item(row, _TRACK_PATH_COLUMN)
             if path_item is None:
                 continue
             record = records_by_path.get(path_item.text())
