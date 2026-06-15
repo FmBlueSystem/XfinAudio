@@ -44,7 +44,7 @@ QLabel#guidanceLabel {
     color: #9fb3c8;
 }
 QPushButton {
-    background: #1c2733;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #243140, stop: 1 #1c2733);
     color: #edf5ff;
     border: 1px solid #344456;
     border-radius: 8px;
@@ -52,8 +52,12 @@ QPushButton {
     font-weight: 700;
 }
 QPushButton:hover {
-    background: #253445;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #2d3e51, stop: 1 #253445);
     border-color: #00d4ff;
+}
+QPushButton:focus {
+    outline: 2px solid #00d4ff;
+    border: 1px solid #00d4ff;
 }
 QPushButton:disabled {
     background: #141a21;
@@ -61,22 +65,26 @@ QPushButton:disabled {
     border-color: #202832;
 }
 QPushButton#primaryAction {
-    background: #00d4ff;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #39e4ff, stop: 1 #00b8df);
     color: #061018;
     border-color: #00d4ff;
     padding: 8px 18px;
     font-size: 14px;
 }
 QPushButton#secondaryAction {
-    background: transparent;
-    color: #9fb3c8;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #17212c, stop: 1 #111923);
+    color: #d7e4f2;
     border: 1px solid #2d3744;
     padding: 3px 8px;
     font-weight: 600;
 }
+QPushButton#primaryAction:hover {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #63ecff, stop: 1 #00c8f2);
+    border-color: #63ecff;
+}
 QPushButton#secondaryAction:hover {
-    background: #17212c;
-    border-color: #344456;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #1d2b39, stop: 1 #17212c);
+    border-color: #00d4ff;
 }
 QFrame#sectionDivider {
     background: #1e2d3a;
@@ -84,11 +92,15 @@ QFrame#sectionDivider {
     max-height: 1px;
 }
 QPushButton#seratoExportButton {
-    background: #ffb000;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #ffd36a, stop: 1 #ffb000);
     color: #121212;
     border-color: #ffcf5c;
     padding: 8px 18px;
     font-size: 14px;
+}
+QPushButton#seratoExportButton:hover {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #ffe08a, stop: 1 #ffc13d);
+    border-color: #ffe08a;
 }
 QPushButton#primaryAction:disabled,
 QPushButton#seratoExportButton:disabled {
@@ -103,6 +115,13 @@ QComboBox {
     border-radius: 8px;
     padding: 5px 8px;
 }
+QComboBox:hover {
+    border-color: #00d4ff;
+}
+QComboBox:focus {
+    outline: 2px solid #00d4ff;
+    border: 1px solid #00d4ff;
+}
 QLineEdit {
     background: #111923;
     color: #edf5ff;
@@ -110,8 +129,12 @@ QLineEdit {
     border-radius: 8px;
     padding: 5px 8px;
 }
+QLineEdit:hover {
+    border-color: #445971;
+}
 QLineEdit:focus {
-    border-color: #00d4ff;
+    outline: 2px solid #00d4ff;
+    border: 1px solid #00d4ff;
 }
 QWidget#workflowSidebarPanel {
     background: #111923;
@@ -128,6 +151,9 @@ QListWidget#workflowSidebar {
 QListWidget#workflowSidebar::item {
     padding: 8px;
     border-radius: 6px;
+}
+QListWidget#workflowSidebar::item:hover {
+    background: #17212c;
 }
 QListWidget#workflowSidebar::item:selected {
     background: #005b86;

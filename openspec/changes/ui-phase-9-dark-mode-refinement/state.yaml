@@ -1,0 +1,26 @@
+schema: gentle-ai.sdd-state.v1
+change: ui-phase-9-dark-mode-refinement
+artifact_store: openspec
+status: active
+state: verifying
+step: verify
+review_status: pending
+created: 2026-06-14
+updated: 2026-06-15
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  review: pending
+next_recommended: review
+blocked_reasons: []
+delivery:
+  strategy: direct
+  chained_prs_recommended: false
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 50
+notes: Phase 9 of UI improvement roadmap - polish dark theme with better contrast and consistency.
