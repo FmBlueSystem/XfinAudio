@@ -79,8 +79,6 @@ from xfinaudio.desktop.table_populators import (
 from xfinaudio.desktop.theme import (
     _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT,
     _COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT,
-    _COMPACT_LIBRARY_TABLE_MAX_HEIGHT,
-    _COMPACT_LIBRARY_TABLE_MIN_HEIGHT,
     _COMPACT_REVIEW_TABLE_MIN_HEIGHT,
     _COMPACT_TABLE_ROW_HEIGHT,
     _DJ_READINESS_TABLE_COLUMN_WIDTHS,
@@ -687,9 +685,8 @@ class MainWindow(QMainWindow):
         self._metadata_screen.missing_combo.setMaximumWidth(220)
         self._metadata_screen.export_button.setMaximumWidth(220)
 
-        self._library_screen.tracks_table.setMinimumHeight(_COMPACT_LIBRARY_TABLE_MIN_HEIGHT)
-        self._library_screen.tracks_table.setMaximumHeight(_COMPACT_LIBRARY_TABLE_MAX_HEIGHT)
-        self._library_screen.tracks_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._library_screen.tracks_table.setMinimumHeight(400)
+        self._library_screen.tracks_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._review_screen.transition_table.setMinimumHeight(_COMPACT_REVIEW_TABLE_MIN_HEIGHT)
         self._review_screen.transition_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._review_screen.readiness_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
