@@ -77,6 +77,10 @@ def _build_variant(name: PrepVariantName, tracks: list[TrackRecord], intent: DJS
     from xfinaudio.quality.dj_readiness import build_dj_readiness_report
     from xfinaudio.quality.recommendation_quality import build_quality_report
 
+    # Guarantee the forward-ref model is rebuilt at the real construction site, regardless of the
+    # import order that first loaded this module.
+    _ensure_prep_copilot_variant_model()
+
     variant_tracks, variant_warnings = _filter_tracks_for_variant(name, tracks, intent)
     controls = DJControls(
         start_path=intent.start_path,
@@ -220,14 +224,21 @@ __all__ = [
 
 
 def _ensure_prep_copilot_variant_model() -> None:
-    """Resolve the forward reference for PrepCopilotVariant.readiness at import time.
+    """Resolve the forward reference for PrepCopilotVariant.readiness.
 
-    This is kept at module end to avoid a circular import while still letting
-    downstream code construct PrepCopilotVariant directly.
+    Called eagerly at import time AND lazily before construction. The eager call tolerates the
+    import-order cycle: if ``quality.dj_readiness`` is still being initialized (which happens when
+    the ``quality`` package is imported before ``recommendation``), the rebuild is skipped and
+    completed later by the lazy call at the construction site.
     """
     if PrepCopilotVariant.__pydantic_complete__:
         return
-    from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
+    try:
+        from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
+    except ImportError:
+        # quality.dj_readiness is mid-initialization; defer the rebuild to a later call once both
+        # packages are fully loaded (see _build_variant).
+        return
 
     PrepCopilotVariant.model_rebuild()
 

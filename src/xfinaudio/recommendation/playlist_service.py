@@ -100,9 +100,12 @@ def recommend_playlist(
     if _vibe_metadata_unavailable(strategy, applied.candidate_tracks):
         warnings.append("same_vibe metadata unavailable; falling back to harmonic sequencing")
 
+    terminal_preserve = {path for path in (start_path, applied.end_path) if path is not None}
     if _uses_strategy_order(strategy):
         sequenced_tracks = _apply_terminal_constraints(remaining_tracks, start_path, applied.end_path)
-        sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(sequenced_tracks)
+        sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+            sequenced_tracks, preserve_paths=terminal_preserve
+        )
         if dropped_bpm_jump_count:
             warnings.append(
                 "Dropped "
@@ -111,7 +114,9 @@ def recommend_playlist(
             )
         optimizer = "strategy-order"
     else:
-        remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(remaining_tracks)
+        remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+            remaining_tracks, preserve_paths=terminal_preserve
+        )
         if dropped_bpm_jump_count:
             warnings.append(
                 "Dropped "
@@ -336,14 +341,23 @@ def _sort_by_hint(tracks: list[TrackRecord], strategy: PlaylistStrategy) -> list
 
 
 def _drop_generated_tracks_after_impossible_bpm_jumps(
-    tracks: list[TrackRecord], *, max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT
+    tracks: list[TrackRecord],
+    *,
+    max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
+    preserve_paths: set[str] | None = None,
 ) -> tuple[list[TrackRecord], int]:
     if len(tracks) < 2:
         return tracks, 0
 
+    preserved = preserve_paths or set()
     kept = [tracks[0]]
     dropped_count = 0
     for candidate in tracks[1:]:
+        # Never drop user-mandated terminal/anchor tracks; the optimizer requires them to remain
+        # present, and dropping a start_path/end_path here crashes constraint validation.
+        if candidate.path in preserved:
+            kept.append(candidate)
+            continue
         if candidate.bpm is None or kept[-1].bpm is None:
             kept.append(candidate)
             continue

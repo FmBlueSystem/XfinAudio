@@ -288,3 +288,32 @@ def test_spectral_jump_warnings_ignore_same_color_and_missing_profiles() -> None
     ]
 
     assert _spectral_jump_warnings(tracks) == []
+
+
+def test_start_path_survives_bpm_guard_without_crash() -> None:
+    # The anchor (start_path) sorts last by path and has a large BPM gap from its predecessor,
+    # so the adjacent-BPM-jump guard would drop it and crash the optimizer with "Unknown start_path".
+    a = track("/aaa.flac", bpm=120.0)
+    b = track("/bbb.flac", bpm=121.0)
+    start = track("/zzz.flac", bpm=160.0)
+    controls = DJControls(start_path="/zzz.flac")
+
+    result = recommend_playlist([a, b, start], "harmonic_journey", controls=controls)
+
+    assert "/zzz.flac" in {item.path for item in result.ordered_tracks}
+    assert result.ordered_tracks[0].path == "/zzz.flac"
+
+
+def test_chill_is_optimizer_backed_for_harmonic_coherence() -> None:
+    # chill must sequence harmonically (via the optimizer), not by raw ascending BPM, so a filled
+    # chill set keeps Camelot-compatible adjacencies instead of clashing keys.
+    tracks = [
+        track("/a.flac", bpm=100.0, camelot_key="8A", energy_level=3),
+        track("/b.flac", bpm=102.0, camelot_key="3B", energy_level=3),
+        track("/c.flac", bpm=101.0, camelot_key="9A", energy_level=3),
+    ]
+
+    result = recommend_playlist(tracks, "chill")
+
+    assert result.optimizer != "strategy-order"
+    assert len(result.ordered_tracks) == 3

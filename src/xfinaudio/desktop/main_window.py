@@ -110,6 +110,7 @@ from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, PrepCopilotPlan, build_prep_copilot_plan
+from xfinaudio.recommendation.strategies import get_strategy
 
 LOGGER = logging.getLogger(__name__)
 
@@ -1339,11 +1340,12 @@ class MainWindow(QMainWindow):
             self._build_screen.apply_variant_button.setEnabled(False)
             self.status_label.setText(self.tr("Select at least one complete track before generating Prep Copilot"))
             return
-        records = self._desktop_recommendation_records(controls)
+        strategy_name = self._build_screen.strategy_combo.currentText()
+        records = self._desktop_recommendation_records(controls, strategy_name)
         genre_focus = self._build_screen.genre_focus_input.text().strip() or None
         intent = DJSetIntent(
             name="Desktop Prep Copilot",
-            strategy=self._build_screen.strategy_combo.currentText(),
+            strategy=strategy_name,
             target_track_count=self._build_screen.target_count_input.value(),
             start_path=controls.start_path,
             required_paths=controls.manual_order_paths,
@@ -1477,9 +1479,19 @@ class MainWindow(QMainWindow):
             locked_paths=self._state.locked_paths,
         )
 
-    def _desktop_recommendation_records(self, controls: DJControls | None) -> list[TrackRecord]:
+    def _desktop_recommendation_records(
+        self, controls: DJControls | None, strategy_name: str | None = None
+    ) -> list[TrackRecord]:
         """Return an interactive-size recommendation pool while preserving selected control tracks."""
-        return build_recommendation_pool(self.scanned_records, controls, _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT)
+        strategy = None
+        if strategy_name:
+            try:
+                strategy = get_strategy(strategy_name)
+            except ValueError:
+                strategy = None
+        return build_recommendation_pool(
+            self.scanned_records, controls, _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT, strategy=strategy
+        )
 
     def _begin_recommendation_state(self, candidate_count: int) -> None:
         self._recommendation_coordinator._begin_recommendation_state(candidate_count)
