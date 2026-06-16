@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -121,7 +122,17 @@ class ReviewScreen(QWidget):
         self.quality_label.setMaximumHeight(28)
         layout.addWidget(self.quality_label)
 
-        # 3. Recommendation table
+        # Tables live in a user-resizable vertical splitter so they no longer fight over equal
+        # thirds of the vertical space. Each section is a small container widget.
+        self.tables_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.tables_splitter.setObjectName("reviewTablesSplitter")
+        self.tables_splitter.setChildrenCollapsible(False)
+
+        # Section 1: recommendation table + its action row.
+        recommendation_section = QWidget()
+        recommendation_layout = QVBoxLayout(recommendation_section)
+        recommendation_layout.setContentsMargins(0, 0, 0, 0)
+        recommendation_layout.setSpacing(6)
         self.recommendation_table = QTableWidget(0, len(_RECOMMENDATION_COLUMNS))
         self.recommendation_table.setHorizontalHeaderLabels([self.tr(c) for c in _RECOMMENDATION_COLUMNS])
         header = self.recommendation_table.horizontalHeader()
@@ -132,9 +143,7 @@ class ReviewScreen(QWidget):
         self.recommendation_table.verticalHeader().setVisible(False)
         self.recommendation_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._apply_header_tooltips(self.recommendation_table, _RECOMMENDATION_HEADER_TOOLTIPS)
-        layout.addWidget(self.recommendation_table, 1)
-
-        # Action row for the recommendation table
+        recommendation_layout.addWidget(self.recommendation_table, 1)
         actions = QHBoxLayout()
         self.remove_track_button = QPushButton(self.tr("Remove from Playlist"))
         self.remove_track_button.setEnabled(False)
@@ -143,9 +152,14 @@ class ReviewScreen(QWidget):
         self.save_to_playlists_button.setEnabled(False)
         actions.addWidget(self.save_to_playlists_button)
         actions.addStretch()
-        layout.addLayout(actions)
+        recommendation_layout.addLayout(actions)
+        self.tables_splitter.addWidget(recommendation_section)
 
-        # 4. Transition table help label
+        # Section 2: transition help label + transition table.
+        transition_section = QWidget()
+        transition_layout = QVBoxLayout(transition_section)
+        transition_layout.setContentsMargins(0, 0, 0, 0)
+        transition_layout.setSpacing(6)
         self.transition_help_label = QLabel(
             self.tr(
                 "💡 Each row shows how two consecutive tracks blend. "
@@ -156,9 +170,7 @@ class ReviewScreen(QWidget):
         self.transition_help_label.setWordWrap(True)
         self.transition_help_label.setMaximumHeight(40)
         self.transition_help_label.setStyleSheet("color: #9fb3c8; font-size: 12px; padding: 4px 0;")
-        layout.addWidget(self.transition_help_label)
-
-        # 5. Transition table
+        transition_layout.addWidget(self.transition_help_label)
         self.transition_table = QTableWidget(0, len(_TRANSITION_COLUMNS))
         self.transition_table.setHorizontalHeaderLabels([self.tr(c) for c in _TRANSITION_COLUMNS])
         self.transition_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -166,9 +178,10 @@ class ReviewScreen(QWidget):
         self.transition_table.verticalHeader().setVisible(False)
         self.transition_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._apply_header_tooltips(self.transition_table, _TRANSITION_HEADER_TOOLTIPS)
-        layout.addWidget(self.transition_table, 1)
+        transition_layout.addWidget(self.transition_table, 1)
+        self.tables_splitter.addWidget(transition_section)
 
-        # 6. Readiness checks table (secondary)
+        # Section 3: readiness checks table (secondary).
         self.readiness_table = QTableWidget(0, len(_READINESS_COLUMNS))
         self.readiness_table.setHorizontalHeaderLabels([self.tr(c) for c in _READINESS_COLUMNS])
         self.readiness_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -176,10 +189,13 @@ class ReviewScreen(QWidget):
         self.readiness_table.verticalHeader().setVisible(False)
         self.readiness_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._apply_header_tooltips(self.readiness_table, _READINESS_HEADER_TOOLTIPS)
-        layout.addWidget(self.readiness_table, 1)
+        self.tables_splitter.addWidget(self.readiness_table)
 
-        # Push nav to bottom; spare space goes to tables above.
-        layout.addStretch(1)
+        # Recommendation section gets the largest share; secondary tables get less.
+        self.tables_splitter.setStretchFactor(0, 3)
+        self.tables_splitter.setStretchFactor(1, 2)
+        self.tables_splitter.setStretchFactor(2, 2)
+        layout.addWidget(self.tables_splitter, 1)
 
         # Navigation
         nav = QHBoxLayout()

@@ -2979,3 +2979,10 @@ def test_playlist_reorder_is_undoable_and_redoable(monkeypatch) -> None:
 
     window.redo()
     assert editor._track_paths == reordered
+
+
+def test_export_history_table_has_consistent_height_constraints() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    table = window._export_screen.history_table
+    assert table.minimumHeight() <= table.maximumHeight()

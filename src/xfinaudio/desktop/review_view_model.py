@@ -131,17 +131,14 @@ class ReviewViewModel:
         ).format(report.average_transition_score, report.transition_count, report.warning_count)
 
     def can_export(self, state: AppState) -> bool:
-        """Export is allowed for READY and NEEDS_REVIEW; BLOCKED gates it.
+        """Export is allowed for READY and NEEDS_REVIEW; BLOCKED or all-removed gates it.
 
-        Also returns False when all tracks have been removed from the playlist.
+        Delegates to the shared `export_allowed` predicate so the Review button, the sidebar, and
+        the Export screen never disagree.
         """
-        if state.last_recommendation is not None:
-            remaining = [
-                t for t in state.last_recommendation.ordered_tracks if t.path not in state.playlist_removed_paths
-            ]
-            if not remaining:
-                return False
-        return self.readiness_status(state) != ReadinessStatus.BLOCKED
+        from xfinaudio.desktop.navigation_controller import export_allowed
+
+        return export_allowed(state)
 
     def recommendation_rows(self, state: AppState) -> list[RecommendationRow]:
         """Track rows for the recommendation table. Empty if no recommendation.

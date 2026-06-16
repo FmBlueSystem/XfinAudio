@@ -21,8 +21,10 @@ def _make_track(path: str = "/music/track.mp3") -> TrackRecord:
 
 
 def _make_recommendation() -> PlaylistRecommendation:
+    # Include a track so the recommendation is realistically exportable; an empty playlist is never
+    # a valid export target under the unified export gate.
     return PlaylistRecommendation(
-        ordered_tracks=[],
+        ordered_tracks=[_make_track("/music/track.mp3")],
         transition_scores=[],
         strategy=default_strategy_registry().get("build"),
         warnings=[],
@@ -163,8 +165,10 @@ def test_can_go_to_review_while_recommending_returns_false(ctrl, state_recommend
 # ---------------------------------------------------------------------------
 
 
-def test_can_go_to_export_without_readiness_returns_false(ctrl, state_with_recommendation):
-    assert ctrl.can_go_to("export", state_with_recommendation) is False
+def test_can_go_to_export_without_readiness_returns_true(ctrl, state_with_recommendation):
+    # Unified export gate: a recommendation with no readiness report is exportable (no info → no
+    # block), matching the Review and Export view models. This removes the sidebar dead-end.
+    assert ctrl.can_go_to("export", state_with_recommendation) is True
 
 
 def test_can_go_to_export_without_recommendation_returns_false(ctrl, empty_state):
@@ -294,3 +298,52 @@ def test_can_go_to_unknown_screen_returns_false():
     ctrl = NavigationController()
     state = AppState()
     assert ctrl.can_go_to("nonexistent", state) is False
+
+
+# ---------------------------------------------------------------------------
+# R3 — unified export gate parity across nav + view models
+# ---------------------------------------------------------------------------
+
+
+def _recommendation_with_tracks() -> PlaylistRecommendation:
+    return _make_recommendation().model_copy(update={"ordered_tracks": [_make_track("/music/a.mp3")]})
+
+
+def _export_gate_triplet(state):
+    from xfinaudio.desktop.export_view_model import ExportViewModel
+    from xfinaudio.desktop.review_view_model import ReviewViewModel
+
+    nav = NavigationController().can_go_to("export", state)
+    review = ReviewViewModel().can_export(state)
+    export = ExportViewModel().export_enabled(state)
+    return nav, review, export
+
+
+def test_export_gate_agrees_when_recommendation_but_no_report() -> None:
+    # The dead-end: nav used to require a report while the view models allowed export.
+    state = AppState(last_recommendation=_recommendation_with_tracks())
+    nav, review, export = _export_gate_triplet(state)
+    assert nav == review == export is True
+
+
+def test_export_gate_agrees_when_ready() -> None:
+    state = AppState(last_recommendation=_recommendation_with_tracks(), last_dj_readiness_report=_ready_readiness())
+    nav, review, export = _export_gate_triplet(state)
+    assert nav == review == export is True
+
+
+def test_export_gate_agrees_when_blocked() -> None:
+    state = AppState(last_recommendation=_recommendation_with_tracks(), last_dj_readiness_report=_blocked_readiness())
+    nav, review, export = _export_gate_triplet(state)
+    assert nav == review == export is False
+
+
+def test_export_gate_agrees_when_all_tracks_removed() -> None:
+    rec = _recommendation_with_tracks()
+    state = AppState(
+        last_recommendation=rec,
+        last_dj_readiness_report=_ready_readiness(),
+        playlist_removed_paths=frozenset({"/music/a.mp3"}),
+    )
+    nav, review, export = _export_gate_triplet(state)
+    assert nav == review == export is False

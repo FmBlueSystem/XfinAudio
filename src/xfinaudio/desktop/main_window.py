@@ -825,6 +825,12 @@ class MainWindow(QMainWindow):
         self._review_screen.transition_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._review_screen.readiness_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
         self._review_screen.readiness_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Lower the minimum too: the screen sets a 200px minimum for the spacious layout, but the
+        # compact cap is 92px. Without this, min > max is a contradictory constraint Qt resolves
+        # unpredictably.
+        self._export_screen.history_table.setMinimumHeight(
+            min(self._export_screen.history_table.minimumHeight(), _COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
+        )
         self._export_screen.history_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
         self._export_screen.history_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._apply_compact_table_columns()

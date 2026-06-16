@@ -10,6 +10,27 @@ SCREEN_ORDER: list[str] = ["library", "build", "review", "export"]
 # "metadata" is always accessible but lives outside the linear flow.
 
 
+def export_allowed(state: AppState) -> bool:
+    """Single source of truth for whether export is permitted.
+
+    Used by the navigation controller and both the Review and Export view models so the sidebar,
+    the Review "Export →" button, and the Export screen never disagree. Rules: not while
+    recommending, a recommendation must exist with at least one non-removed track, and any present
+    readiness report must not be blocked (a missing report means "no info → no block").
+    """
+    if state.is_recommending:
+        return False
+    if state.last_recommendation is None:
+        return False
+    remaining = [
+        track for track in state.last_recommendation.ordered_tracks if track.path not in state.playlist_removed_paths
+    ]
+    if not remaining:
+        return False
+    report = state.last_dj_readiness_report
+    return not (report is not None and report.status == "blocked")
+
+
 class NavigationController:
     """Encapsulates the navigation rules of the DJ flow."""
 
@@ -25,13 +46,7 @@ class NavigationController:
             return state.last_recommendation is not None and not state.is_recommending
 
         if screen == "export":
-            if state.is_recommending:
-                return False
-            if state.last_recommendation is None:
-                return False
-            if state.last_dj_readiness_report is None:
-                return False
-            return state.last_dj_readiness_report.status != "blocked"
+            return export_allowed(state)
 
         # Unknown screen — deny by default.
         return False
@@ -77,4 +92,4 @@ class NavigationController:
         return SCREEN_ORDER[idx - 1]
 
 
-__all__ = ["SCREEN_ORDER", "NavigationController"]
+__all__ = ["SCREEN_ORDER", "NavigationController", "export_allowed"]
