@@ -110,3 +110,14 @@ def test_recommend_sequence_uses_heuristic_for_n_16() -> None:
 
     assert len(result.ordered_tracks) == 16
     assert result.optimizer == "greedy-2opt"
+
+
+def test_heuristic_honors_end_path_when_end_is_smallest_path_and_no_start() -> None:
+    # >15 tracks -> heuristic branch. end_path is the lexicographically smallest path and there is
+    # no start_path, so the naive default start index (0) used to collide with the end track.
+    tracks = [track(f"/{i:02d}.flac", "8A", 120.0 + (i % 3), 5) for i in range(17)]
+    end = "/00.flac"
+
+    result = recommend_sequence(tracks, end_path=end)
+
+    assert result.ordered_tracks[-1].path == end

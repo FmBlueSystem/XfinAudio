@@ -382,3 +382,21 @@ def test_dj_controls_rejects_equal_start_and_end() -> None:
 
     with pytest.raises(ValueError):
         DJControls(start_path="/a.flac", end_path="/a.flac")
+
+
+def test_same_genre_matches_shared_genre_token() -> None:
+    # Multi-valued genre fields should match on shared tokens, mirroring the pool's comma split,
+    # instead of requiring full-string equality (which discarded valid same-genre candidates).
+    tracks = [
+        track("/anchor.flac", genre="Deep House, Tech House", tags=["x"]),
+        track("/deep.flac", genre="Deep House", tags=["x"]),
+        track("/tech.flac", genre="Tech House", tags=["x"]),
+        track("/rock.flac", genre="Rock", tags=["x"]),
+    ]
+
+    result = recommend_playlist(tracks, "same_genre", controls=DJControls(start_path="/anchor.flac"))
+    paths = {item.path for item in result.ordered_tracks}
+
+    assert "/deep.flac" in paths
+    assert "/tech.flac" in paths
+    assert "/rock.flac" not in paths

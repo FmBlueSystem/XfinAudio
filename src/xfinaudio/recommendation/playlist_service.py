@@ -223,7 +223,10 @@ def _apply_genre_filter(
         return tracks, []
 
     warnings = [f"same_genre filter applied: {anchor_genre}"]
-    filtered = [track for track in tracks if track.path in preserve_paths or _normalized_genre(track) == anchor_genre]
+    anchor_tokens = _genre_tokens(anchor_genre)
+    filtered = [
+        track for track in tracks if track.path in preserve_paths or bool(_genre_tokens(track.genre) & anchor_tokens)
+    ]
     eligible = [track for track in filtered if track.path not in preserve_paths]
     if not eligible:
         warnings.append(
@@ -271,6 +274,13 @@ def _normalized_genre(track: TrackRecord) -> str | None:
         return None
     genre = track.genre.casefold().strip()
     return genre or None
+
+
+def _genre_tokens(genre: str | None) -> set[str]:
+    """Split a genre field into normalized comma-separated tokens, mirroring pool vibe terms."""
+    if genre is None:
+        return set()
+    return {token.strip().casefold() for token in genre.split(",") if token.strip()}
 
 
 def _preserved_control_paths(controls: DJControls) -> set[str]:
