@@ -1,0 +1,13 @@
+schema: gentle-ai.sdd-state.v1
+change: spectral-color-rebalance
+artifact_store: openspec
+status: verify
+created: 2026-06-15
+updated: 2026-06-15
+strict_tdd: true
+phases: {proposal: complete, specs: complete, design: complete, tasks: complete, apply: complete, verify: complete}
+next_recommended: apply
+delivery: {strategy: single-pr, review_budget_changed_lines: 400}
+notes:
+  - DSP spectral feature change (declared/allowed). Existing profiles need a re-scan to repopulate.
+  - Method B (energy x frequency) + 0.45 threshold chosen empirically on a real sample.

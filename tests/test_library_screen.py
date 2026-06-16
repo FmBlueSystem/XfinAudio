@@ -164,3 +164,18 @@ def test_tour_button_provides_walkthrough_steps(qapp: QApplication) -> None:
     steps = screen.tour_steps()
     assert len(steps) >= 3
     assert all(step.strip() for step in steps)
+
+
+def test_empty_state_hidden_when_persisted_library_loaded_without_folder(qapp: QApplication) -> None:
+    """Saved-library load: tracks present but no scan folder must NOT show the 'No library yet' label."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    state = AppState(
+        selected_folder=None,
+        scanned_records=[TrackRecord(path="/music/a.flac", title="A", metadata_status="complete")],
+    )
+
+    screen.render(vm, state)
+
+    assert screen.empty_state_label.text() == ""
+    assert screen.empty_state_label.isVisible() is False

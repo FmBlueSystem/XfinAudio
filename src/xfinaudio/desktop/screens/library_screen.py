@@ -387,12 +387,13 @@ class LibraryScreen(QWidget):
         self._apply_playing_highlight()
 
     def _render_empty_state(self, state: AppState) -> None:
-        if state.selected_folder is None:
-            text = self.tr("🎵 No library yet — choose a music folder to get started.")
-        elif not state.scanned_records:
-            text = self.tr("📂 Folder selected — scan metadata to load your tracks.")
-        else:
+        if state.scanned_records:
+            # Tracks are loaded (fresh scan or a restored saved library) — no empty state.
             text = ""
+        elif state.selected_folder is None:
+            text = self.tr("🎵 No library yet — choose a music folder to get started.")
+        else:
+            text = self.tr("📂 Folder selected — scan metadata to load your tracks.")
         self.empty_state_label.setText(text)
         self.empty_state_label.setVisible(bool(text))
 

@@ -1,0 +1,36 @@
+schema: gentle-ai.sdd-state.v1
+change: recommendation-quality-harness
+artifact_store: openspec
+status: verify
+created: 2026-06-15
+updated: 2026-06-15
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: commit-and-archive
+slice_status:
+  pr1_harness: complete
+  pr2_collapse_fix: complete
+  chill_optimizer_backed: complete
+verification:
+  pytest: 882 passed
+  pyright: 0 errors
+  coverage: 89.68%
+  ruff: clean
+  release_gate: pass
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Two-slice chained delivery: PR1 read-only eval harness, PR2 pool-collapse fix.
+  - Metric must be scorer-independent (hard DJ rules), never the recommender's own total_score.
+  - Arbor runtime deferred until the harness metric is trusted.
+  - No external ground-truth playlist corpus exists; all saved playlists are 1-2 tracks.

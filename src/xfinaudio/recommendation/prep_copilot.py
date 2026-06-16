@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
+from xfinaudio.recommendation.scoring import score_transition
 from xfinaudio.recommendation.strategies import StrategyName
 
 if TYPE_CHECKING:
@@ -77,6 +78,10 @@ def _build_variant(name: PrepVariantName, tracks: list[TrackRecord], intent: DJS
     from xfinaudio.quality.dj_readiness import build_dj_readiness_report
     from xfinaudio.quality.recommendation_quality import build_quality_report
 
+    # Guarantee the forward-ref model is rebuilt at the real construction site, regardless of the
+    # import order that first loaded this module.
+    _ensure_prep_copilot_variant_model()
+
     variant_tracks, variant_warnings = _filter_tracks_for_variant(name, tracks, intent)
     controls = DJControls(
         start_path=intent.start_path,
@@ -85,7 +90,7 @@ def _build_variant(name: PrepVariantName, tracks: list[TrackRecord], intent: DJS
         excluded_paths=intent.excluded_paths,
     )
     recommendation = recommend_playlist(variant_tracks, intent.strategy, controls=controls)
-    recommendation = _limit_recommendation(recommendation, intent.target_track_count)
+    recommendation = _limit_recommendation(recommendation, intent.target_track_count, end_path=intent.end_path)
     readiness = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
     readiness = _add_required_track_gate(readiness, recommendation, intent)
     blockers = [check.label for check in readiness.checks if check.status == "blocked"]
@@ -139,11 +144,28 @@ def _protected_paths(intent: DJSetIntent) -> set[str]:
     return protected
 
 
-def _limit_recommendation(recommendation: PlaylistRecommendation, target_track_count: int) -> PlaylistRecommendation:
-    if len(recommendation.ordered_tracks) <= target_track_count:
+def _limit_recommendation(
+    recommendation: PlaylistRecommendation, target_track_count: int, end_path: str | None = None
+) -> PlaylistRecommendation:
+    ordered = recommendation.ordered_tracks
+    if len(ordered) <= target_track_count:
         return recommendation
-    ordered_tracks = recommendation.ordered_tracks[:target_track_count]
-    transition_scores = recommendation.transition_scores[: max(target_track_count - 1, 0)]
+
+    if target_track_count <= 0:
+        ordered_tracks: list[TrackRecord] = []
+    elif end_path is not None and any(t.path == end_path for t in ordered):
+        # Keep the user-mandated terminal track as the last entry instead of truncating it away.
+        end_track = next(t for t in ordered if t.path == end_path)
+        head = [t for t in ordered if t.path != end_path][: target_track_count - 1]
+        ordered_tracks = [*head, end_track]
+    else:
+        ordered_tracks = list(ordered[:target_track_count])
+
+    weights = recommendation.strategy.weights
+    transition_scores = [
+        score_transition(left, right, weights=weights)
+        for left, right in zip(ordered_tracks, ordered_tracks[1:], strict=False)
+    ]
     return recommendation.model_copy(
         update={
             "ordered_tracks": ordered_tracks,
@@ -220,14 +242,21 @@ __all__ = [
 
 
 def _ensure_prep_copilot_variant_model() -> None:
-    """Resolve the forward reference for PrepCopilotVariant.readiness at import time.
+    """Resolve the forward reference for PrepCopilotVariant.readiness.
 
-    This is kept at module end to avoid a circular import while still letting
-    downstream code construct PrepCopilotVariant directly.
+    Called eagerly at import time AND lazily before construction. The eager call tolerates the
+    import-order cycle: if ``quality.dj_readiness`` is still being initialized (which happens when
+    the ``quality`` package is imported before ``recommendation``), the rebuild is skipped and
+    completed later by the lazy call at the construction site.
     """
     if PrepCopilotVariant.__pydantic_complete__:
         return
-    from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
+    try:
+        from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
+    except ImportError:
+        # quality.dj_readiness is mid-initialization; defer the rebuild to a later call once both
+        # packages are fully loaded (see _build_variant).
+        return
 
     PrepCopilotVariant.model_rebuild()
 

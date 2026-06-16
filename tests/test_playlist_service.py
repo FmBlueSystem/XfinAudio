@@ -288,3 +288,129 @@ def test_spectral_jump_warnings_ignore_same_color_and_missing_profiles() -> None
     ]
 
     assert _spectral_jump_warnings(tracks) == []
+
+
+def test_start_path_survives_bpm_guard_without_crash() -> None:
+    # The anchor (start_path) sorts last by path and has a large BPM gap from its predecessor,
+    # so the adjacent-BPM-jump guard would drop it and crash the optimizer with "Unknown start_path".
+    a = track("/aaa.flac", bpm=120.0)
+    b = track("/bbb.flac", bpm=121.0)
+    start = track("/zzz.flac", bpm=160.0)
+    controls = DJControls(start_path="/zzz.flac")
+
+    result = recommend_playlist([a, b, start], "harmonic_journey", controls=controls)
+
+    assert "/zzz.flac" in {item.path for item in result.ordered_tracks}
+    assert result.ordered_tracks[0].path == "/zzz.flac"
+
+
+def test_chill_is_optimizer_backed_for_harmonic_coherence() -> None:
+    # chill must sequence harmonically (via the optimizer), not by raw ascending BPM, so a filled
+    # chill set keeps Camelot-compatible adjacencies instead of clashing keys.
+    tracks = [
+        track("/a.flac", bpm=100.0, camelot_key="8A", energy_level=3),
+        track("/b.flac", bpm=102.0, camelot_key="3B", energy_level=3),
+        track("/c.flac", bpm=101.0, camelot_key="9A", energy_level=3),
+    ]
+
+    result = recommend_playlist(tracks, "chill")
+
+    assert result.optimizer != "strategy-order"
+    assert len(result.ordered_tracks) == 3
+
+
+def test_peak_time_is_optimizer_backed_for_harmonic_coherence() -> None:
+    # peak_time only constrains energy (7-10); ordering should be harmonic, not raw energy sort.
+    tracks = [
+        track("/a.flac", bpm=128.0, camelot_key="8A", energy_level=9),
+        track("/b.flac", bpm=129.0, camelot_key="3B", energy_level=8),
+        track("/c.flac", bpm=128.5, camelot_key="9A", energy_level=10),
+    ]
+
+    result = recommend_playlist(tracks, "peak_time")
+
+    assert result.optimizer != "strategy-order"
+    assert len(result.ordered_tracks) == 3
+
+
+def test_warmup_keeps_energy_non_decreasing() -> None:
+    # Energy-constrained harmonic sequencing must preserve the ascending energy curve.
+    tracks = [
+        track("/a.flac", bpm=120.0, camelot_key="8A", energy_level=5),
+        track("/b.flac", bpm=120.0, camelot_key="9A", energy_level=2),
+        track("/c.flac", bpm=120.0, camelot_key="8B", energy_level=4),
+        track("/d.flac", bpm=120.0, camelot_key="10A", energy_level=3),
+    ]
+
+    result = recommend_playlist(tracks, "warmup")
+
+    energies = [t.energy_level for t in result.ordered_tracks]
+    assert energies == [2, 3, 4, 5]  # non-decreasing energy curve preserved
+
+
+def test_warmup_prefers_harmonic_adjacency_within_energy_tier() -> None:
+    # All same energy: ordering should chain Camelot-compatible keys instead of raw path order.
+    # 8A is compatible with 9A and 8B, but not with 3B.
+    tracks = [
+        track("/x.flac", bpm=120.0, camelot_key="8A", energy_level=3),
+        track("/y.flac", bpm=120.0, camelot_key="3B", energy_level=3),
+        track("/z.flac", bpm=120.0, camelot_key="9A", energy_level=3),
+    ]
+
+    result = recommend_playlist(tracks, "warmup")
+
+    paths = [t.path for t in result.ordered_tracks]
+    # Deterministic start at lowest path (/x, 8A); harmonic greedy picks /z (9A) before /y (3B).
+    assert paths == ["/x.flac", "/z.flac", "/y.flac"]
+
+
+def test_warmup_sequencing_is_deterministic() -> None:
+    tracks = [
+        track("/a.flac", camelot_key="8A", energy_level=2),
+        track("/b.flac", camelot_key="9A", energy_level=3),
+        track("/c.flac", camelot_key="10A", energy_level=4),
+    ]
+    first = recommend_playlist(tracks, "warmup").ordered_tracks
+    second = recommend_playlist(tracks, "warmup").ordered_tracks
+    assert [t.path for t in first] == [t.path for t in second]
+
+
+def test_dj_controls_rejects_equal_start_and_end() -> None:
+    import pytest
+
+    from xfinaudio.recommendation.controls import DJControls
+
+    with pytest.raises(ValueError):
+        DJControls(start_path="/a.flac", end_path="/a.flac")
+
+
+def test_same_genre_matches_shared_genre_token() -> None:
+    # Multi-valued genre fields should match on shared tokens, mirroring the pool's comma split,
+    # instead of requiring full-string equality (which discarded valid same-genre candidates).
+    tracks = [
+        track("/anchor.flac", genre="Deep House, Tech House", tags=["x"]),
+        track("/deep.flac", genre="Deep House", tags=["x"]),
+        track("/tech.flac", genre="Tech House", tags=["x"]),
+        track("/rock.flac", genre="Rock", tags=["x"]),
+    ]
+
+    result = recommend_playlist(tracks, "same_genre", controls=DJControls(start_path="/anchor.flac"))
+    paths = {item.path for item in result.ordered_tracks}
+
+    assert "/deep.flac" in paths
+    assert "/tech.flac" in paths
+    assert "/rock.flac" not in paths
+
+
+def test_incomplete_anchor_warns_instead_of_crashing() -> None:
+    # A control path pointing at an incomplete track must degrade with a warning, not crash.
+    tracks = [
+        track("/anchor.flac", status="incomplete"),
+        track("/a.flac", camelot_key="8A"),
+        track("/b.flac", camelot_key="9A"),
+    ]
+
+    result = recommend_playlist(tracks, "harmonic_journey", controls=DJControls(start_path="/anchor.flac"))
+
+    assert "/anchor.flac" not in {item.path for item in result.ordered_tracks}
+    assert any("start_path" in w and "incomplete" in w for w in result.warnings)

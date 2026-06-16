@@ -29,6 +29,8 @@ class DJControls(BaseModel):
             raise ValueError("excluded paths cannot contain start_path")
         if self.end_path is not None and self.end_path in self.excluded_paths:
             raise ValueError("excluded paths cannot contain end_path")
+        if self.start_path is not None and self.start_path == self.end_path:
+            raise ValueError("start_path and end_path must differ")
         if len(self.manual_order_paths) != len(set(self.manual_order_paths)):
             raise ValueError("manual order paths cannot contain duplicates")
         return self

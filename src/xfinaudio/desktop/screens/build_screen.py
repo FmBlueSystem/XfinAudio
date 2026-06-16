@@ -113,20 +113,31 @@ class BuildScreen(QWidget):
         cohesion_row.addStretch()
         layout.addLayout(cohesion_row)
 
+        # Group the recommendation/constraint/summary guidance into one bordered panel so the
+        # stacked text reads as a single block instead of competing full-width rows.
+        self.build_guidance_panel = QFrame()
+        self.build_guidance_panel.setObjectName("buildGuidancePanel")
+        self.build_guidance_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        guidance_layout = QVBoxLayout(self.build_guidance_panel)
+        guidance_layout.setContentsMargins(8, 6, 8, 6)
+        guidance_layout.setSpacing(4)
+
         self.recommendation_vs_copilot_label = QLabel()
         self.recommendation_vs_copilot_label.setWordWrap(True)
         self.recommendation_vs_copilot_label.setMaximumHeight(36)
-        layout.addWidget(self.recommendation_vs_copilot_label)
+        guidance_layout.addWidget(self.recommendation_vs_copilot_label)
 
         self.constraint_explanation_label = QLabel()
         self.constraint_explanation_label.setWordWrap(True)
         self.constraint_explanation_label.setMaximumHeight(36)
-        layout.addWidget(self.constraint_explanation_label)
+        guidance_layout.addWidget(self.constraint_explanation_label)
 
         self.recommendation_summary_label = QLabel()
         self.recommendation_summary_label.setWordWrap(True)
         self.recommendation_summary_label.setMaximumHeight(36)
-        layout.addWidget(self.recommendation_summary_label)
+        guidance_layout.addWidget(self.recommendation_summary_label)
+
+        layout.addWidget(self.build_guidance_panel)
 
         # Constraints row
         constraints_row = QHBoxLayout()

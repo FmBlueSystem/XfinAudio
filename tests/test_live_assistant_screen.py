@@ -173,3 +173,11 @@ def test_keyboard_shortcut_esc_emits_exit(qapp: QApplication) -> None:
     screen._shortcut_esc.activated.emit()
 
     assert received == [True]
+
+
+def test_root_layout_has_consistent_margins(qapp: QApplication) -> None:
+    """LiveAssistant aligns to the 12/8 margins used by every other screen."""
+    screen = LiveAssistantScreen()
+    margins = screen.layout().contentsMargins()
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 12, 12, 12)
+    assert screen.layout().spacing() == 8

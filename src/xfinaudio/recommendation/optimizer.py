@@ -152,7 +152,12 @@ def _heuristic_path(
 ) -> tuple[int, ...]:
     path_by_index = {track.path: index for index, track in enumerate(tracks)}
     end_index = path_by_index[end_path] if end_path is not None else None
-    current = path_by_index[start_path] if start_path is not None else 0
+    if start_path is not None:
+        current = path_by_index[start_path]
+    else:
+        # No fixed start: pick the smallest index that is not the end track, so the default start
+        # never collides with end_path (which would leave the end track stranded at position 0).
+        current = next(index for index in range(len(tracks)) if index != end_index)
     remaining = set(range(len(tracks)))
     remaining.remove(current)
     if end_index is not None and end_index in remaining:

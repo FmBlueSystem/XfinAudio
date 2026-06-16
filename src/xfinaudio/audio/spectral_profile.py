@@ -89,9 +89,15 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
             mel_energies = mel_spec.sum(axis=1)
             mel_freqs = librosa.mel_frequencies(n_mels=_N_MELS, fmin=0.0, fmax=sr / 2.0)
 
-            red_energy = mel_energies[mel_freqs <= _RED_MAX_HZ].sum()
-            green_energy = mel_energies[(mel_freqs > _RED_MAX_HZ) & (mel_freqs <= _GREEN_MAX_HZ)].sum()
-            blue_energy = mel_energies[mel_freqs > _GREEN_MAX_HZ].sum()
+            # Weight each band's energy by the square root of its center frequency to counteract
+            # music's natural low-frequency energy concentration. Linear mel energy makes bass
+            # dominate almost every track (measured 81% RED, 0% BLUE across the real library);
+            # full-blown frequency weighting over-corrects to GREEN, while sqrt(f) balances RED/GREEN
+            # discrimination on real audio and keeps BLUE reachable for genuinely bright tracks.
+            weighted_energies = mel_energies * (mel_freqs**0.5)
+            red_energy = weighted_energies[mel_freqs <= _RED_MAX_HZ].sum()
+            green_energy = weighted_energies[(mel_freqs > _RED_MAX_HZ) & (mel_freqs <= _GREEN_MAX_HZ)].sum()
+            blue_energy = weighted_energies[mel_freqs > _GREEN_MAX_HZ].sum()
             total_energy = red_energy + green_energy + blue_energy
             if total_energy <= 0:
                 return None
@@ -117,15 +123,20 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
         return None
 
 
-def _dominant_color(red_ratio: float, green_ratio: float, blue_ratio: float) -> ColorName:
-    """Classify the dominant color using a simple threshold.
+_DOMINANT_COLOR_THRESHOLD = 0.45
 
-    A color is dominant when its ratio is at least 0.55; otherwise the profile
-    is classified as MIXED.
+
+def _dominant_color(red_ratio: float, green_ratio: float, blue_ratio: float) -> ColorName:
+    """Classify the dominant color when one band holds a clear plurality.
+
+    A color is dominant when its (frequency-weighted) ratio is at least 0.45; otherwise the
+    profile is classified as MIXED. 0.45 is a clear plurality across three bands and, combined with
+    the frequency-weighted energies, yields meaningful RED/GREEN/BLUE/MIXED discrimination instead
+    of the previous bass-biased all-RED output.
     """
     ratios = {"RED": red_ratio, "GREEN": green_ratio, "BLUE": blue_ratio}
     dominant_name, dominant_value = max(ratios.items(), key=lambda item: item[1])
-    if dominant_value >= 0.55:
+    if dominant_value >= _DOMINANT_COLOR_THRESHOLD:
         return dominant_name  # type: ignore[return-value]
     return "MIXED"
 

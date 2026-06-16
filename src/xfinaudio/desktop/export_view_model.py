@@ -32,14 +32,14 @@ class ExportViewModel:
         return state.last_dj_readiness_report is not None and state.settings.export.safe_export_folder is not None
 
     def export_enabled(self, state: AppState) -> bool:
-        """True if a recommendation exists and readiness is not blocked.
+        """True if export is permitted, via the shared `export_allowed` predicate.
 
-        If no readiness report is present, export is allowed (no info → no block).
+        A recommendation must exist with at least one non-removed track, and any present readiness
+        report must not be blocked (missing report → allowed).
         """
-        if state.last_recommendation is None:
-            return False
-        report = state.last_dj_readiness_report
-        return not (report is not None and report.status == "blocked")
+        from xfinaudio.desktop.navigation_controller import export_allowed
+
+        return export_allowed(state)
 
     def preview_text(self, state: AppState) -> str | None:
         """Human-readable description of what will be exported.

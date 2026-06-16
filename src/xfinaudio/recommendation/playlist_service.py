@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import groupby
+
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.library.models import TrackRecord
@@ -63,6 +65,11 @@ def recommend_playlist(
     if incomplete_count:
         warnings.append(f"Excluded {incomplete_count} incomplete track(s)")
 
+    controls, control_warnings = _sanitize_controls_for_candidates(
+        controls, available_paths={track.path for track in complete_tracks}
+    )
+    warnings.extend(control_warnings)
+
     filtered_tracks, filter_warnings = _apply_strategy_filters(
         complete_tracks, strategy, preserve_paths=_preserved_control_paths(controls)
     )
@@ -100,24 +107,25 @@ def recommend_playlist(
     if _vibe_metadata_unavailable(strategy, applied.candidate_tracks):
         warnings.append("same_vibe metadata unavailable; falling back to harmonic sequencing")
 
+    terminal_preserve = {path for path in (start_path, applied.end_path) if path is not None}
     if _uses_strategy_order(strategy):
-        sequenced_tracks = _apply_terminal_constraints(remaining_tracks, start_path, applied.end_path)
-        sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(sequenced_tracks)
+        if strategy.sort_hint == "energy_ascending":
+            base_order = _sequence_energy_ascending_harmonic(remaining_tracks, scoring_config, _score_cache)
+            optimizer = "energy-ascending-harmonic"
+        else:
+            base_order = remaining_tracks
+            optimizer = "strategy-order"
+        sequenced_tracks = _apply_terminal_constraints(base_order, start_path, applied.end_path)
+        sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+            sequenced_tracks, preserve_paths=terminal_preserve
+        )
         if dropped_bpm_jump_count:
             warnings.append(
                 "Dropped "
                 f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
                 f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
             )
-        optimizer = "strategy-order"
     else:
-        remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(remaining_tracks)
-        if dropped_bpm_jump_count:
-            warnings.append(
-                "Dropped "
-                f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
-                f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
-            )
         sequenced = recommend_sequence(
             remaining_tracks,
             start_path=start_path,
@@ -126,7 +134,17 @@ def recommend_playlist(
             cache=_score_cache,
             config=scoring_config,
         )
-        sequenced_tracks = sequenced.ordered_tracks
+        # Apply the BPM-jump guard to the optimizer's FINAL ordering, not the discarded pool order,
+        # so the emitted sequence actually honors the adjacent-BPM bound. Terminals stay preserved.
+        sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+            sequenced.ordered_tracks, preserve_paths=terminal_preserve
+        )
+        if dropped_bpm_jump_count:
+            warnings.append(
+                "Dropped "
+                f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
+                f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
+            )
         optimizer = sequenced.optimizer
 
     ordered_tracks = [*manual_prefix, *sequenced_tracks]
@@ -210,7 +228,10 @@ def _apply_genre_filter(
         return tracks, []
 
     warnings = [f"same_genre filter applied: {anchor_genre}"]
-    filtered = [track for track in tracks if track.path in preserve_paths or _normalized_genre(track) == anchor_genre]
+    anchor_tokens = _genre_tokens(anchor_genre)
+    filtered = [
+        track for track in tracks if track.path in preserve_paths or bool(_genre_tokens(track.genre) & anchor_tokens)
+    ]
     eligible = [track for track in filtered if track.path not in preserve_paths]
     if not eligible:
         warnings.append(
@@ -258,6 +279,43 @@ def _normalized_genre(track: TrackRecord) -> str | None:
         return None
     genre = track.genre.casefold().strip()
     return genre or None
+
+
+def _genre_tokens(genre: str | None) -> set[str]:
+    """Split a genre field into normalized comma-separated tokens, mirroring pool vibe terms."""
+    if genre is None:
+        return set()
+    return {token.strip().casefold() for token in genre.split(",") if token.strip()}
+
+
+def _sanitize_controls_for_candidates(controls: DJControls, available_paths: set[str]) -> tuple[DJControls, list[str]]:
+    """Drop control references to unavailable (e.g. incomplete) tracks, degrading with warnings.
+
+    Without this, a start/end/manual/locked path pointing at a track excluded for incomplete
+    metadata would raise deep in constraint validation instead of producing a usable playlist.
+    """
+    warnings: list[str] = []
+    updates: dict[str, object] = {}
+
+    for label in ("start_path", "end_path"):
+        path = getattr(controls, label)
+        if path is not None and path not in available_paths:
+            updates[label] = None
+            warnings.append(f"Ignored {label} '{path}' because the track has incomplete metadata")
+
+    kept_manual = [path for path in controls.manual_order_paths if path in available_paths]
+    if len(kept_manual) != len(controls.manual_order_paths):
+        updates["manual_order_paths"] = kept_manual
+        warnings.append("Ignored manual order track(s) with incomplete metadata")
+
+    kept_locked = {path for path in controls.locked_paths if path in available_paths}
+    if len(kept_locked) != len(controls.locked_paths):
+        updates["locked_paths"] = kept_locked
+        warnings.append("Ignored locked track(s) with incomplete metadata")
+
+    if not updates:
+        return controls, warnings
+    return controls.model_copy(update=updates), warnings
 
 
 def _preserved_control_paths(controls: DJControls) -> set[str]:
@@ -336,14 +394,23 @@ def _sort_by_hint(tracks: list[TrackRecord], strategy: PlaylistStrategy) -> list
 
 
 def _drop_generated_tracks_after_impossible_bpm_jumps(
-    tracks: list[TrackRecord], *, max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT
+    tracks: list[TrackRecord],
+    *,
+    max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
+    preserve_paths: set[str] | None = None,
 ) -> tuple[list[TrackRecord], int]:
     if len(tracks) < 2:
         return tracks, 0
 
+    preserved = preserve_paths or set()
     kept = [tracks[0]]
     dropped_count = 0
     for candidate in tracks[1:]:
+        # Never drop user-mandated terminal/anchor tracks; the optimizer requires them to remain
+        # present, and dropping a start_path/end_path here crashes constraint validation.
+        if candidate.path in preserved:
+            kept.append(candidate)
+            continue
         if candidate.bpm is None or kept[-1].bpm is None:
             kept.append(candidate)
             continue
@@ -352,6 +419,43 @@ def _drop_generated_tracks_after_impossible_bpm_jumps(
             continue
         kept.append(candidate)
     return kept, dropped_count
+
+
+def _sequence_energy_ascending_harmonic(
+    tracks: list[TrackRecord],
+    config: TransitionScoringConfig,
+    cache: dict[tuple, TransitionScore] | None,
+) -> list[TrackRecord]:
+    """Order tracks with non-decreasing energy while greedily maximizing harmonic transitions.
+
+    Energy tiers are visited in ascending order so the warmup/build energy curve is preserved by
+    construction. Within and across tiers, the next track is the one with the best transition score
+    from the last placed track, so adjacencies are as harmonically compatible as the curve allows.
+    """
+    if len(tracks) < 2:
+        return list(tracks)
+
+    def _tier(track: TrackRecord) -> int:
+        return track.energy_level if track.energy_level is not None else 0
+
+    ordered_by_tier = sorted(tracks, key=lambda t: (_tier(t), t.path))
+    result: list[TrackRecord] = []
+    for _, group in groupby(ordered_by_tier, key=_tier):
+        tier_tracks = list(group)  # already path-sorted for deterministic tie-breaking
+        while tier_tracks:
+            if not result:
+                chosen = tier_tracks[0]
+            else:
+                last = result[-1]
+                chosen = max(
+                    tier_tracks,
+                    key=lambda t: (
+                        score_transition(last, t, weights=config.weights, cache=cache, config=config).total_score
+                    ),
+                )
+            result.append(chosen)
+            tier_tracks.remove(chosen)
+    return result
 
 
 def _vibe_metadata_unavailable(strategy: PlaylistStrategy, tracks: list[TrackRecord]) -> bool:

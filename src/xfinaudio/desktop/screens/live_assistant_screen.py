@@ -119,6 +119,8 @@ class LiveAssistantScreen(QWidget):
         self._session_start = datetime.now()
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
 
         # Header
         header = QHBoxLayout()

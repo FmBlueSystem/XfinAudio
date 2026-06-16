@@ -21,7 +21,6 @@ StrategyName = Literal[
     "same_genre",
 ]
 SortHint = Literal["path", "energy_ascending", "energy_descending", "bpm_ascending"]
-EnergyDirection = Literal["ascending", "stable"]
 
 
 class PlaylistStrategy(BaseModel):
@@ -37,7 +36,6 @@ class PlaylistStrategy(BaseModel):
     bpm_range: tuple[float, float] | None = None
     energy_tolerance: int | None = None
     sort_hint: SortHint = "path"
-    prefer_energy_direction: EnergyDirection | None = None
     requires_vibe_metadata: bool = False
     degrade_without_vibe_metadata: bool = False
 
@@ -56,7 +54,6 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
         weights=ScoringWeights(harmonic=0.35, bpm=0.25, energy=0.30, tags=0.10),
         energy_range=(1, 6),
         sort_hint="energy_ascending",
-        prefer_energy_direction="ascending",
     ),
     "build": PlaylistStrategy(
         name="build",
@@ -64,24 +61,21 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
         description="Prefer a gradually rising energy curve.",
         weights=ScoringWeights(harmonic=0.35, bpm=0.20, energy=0.35, tags=0.10),
         sort_hint="energy_ascending",
-        prefer_energy_direction="ascending",
     ),
     "peak_time": PlaylistStrategy(
         name="peak_time",
         display_name="Peak Time",
-        description="Focus the recommendation on high-energy records.",
-        weights=ScoringWeights(harmonic=0.35, bpm=0.20, energy=0.35, tags=0.10),
+        description="Focus the recommendation on high-energy records, sequenced for harmonic coherence.",
+        weights=ScoringWeights(harmonic=0.40, bpm=0.25, energy=0.25, tags=0.10),
         energy_range=(7, 10),
-        sort_hint="energy_descending",
     ),
     "chill": PlaylistStrategy(
         name="chill",
         display_name="Chill",
-        description="Prefer lower energy and lower BPM selections.",
-        weights=ScoringWeights(harmonic=0.30, bpm=0.35, energy=0.25, tags=0.10),
+        description="Prefer lower energy and lower BPM selections, sequenced for harmonic coherence.",
+        weights=ScoringWeights(harmonic=0.35, bpm=0.45, energy=0.15, tags=0.05),
         energy_range=(1, 5),
         bpm_range=(0.0, 118.0),
-        sort_hint="bpm_ascending",
     ),
     "same_energy": PlaylistStrategy(
         name="same_energy",
@@ -89,7 +83,6 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
         description="Keep the playlist close to a stable energy band.",
         weights=ScoringWeights(harmonic=0.20, bpm=0.20, energy=0.50, tags=0.10),
         energy_tolerance=1,
-        prefer_energy_direction="stable",
     ),
     "same_vibe": PlaylistStrategy(
         name="same_vibe",
