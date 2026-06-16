@@ -373,3 +373,12 @@ def test_warmup_sequencing_is_deterministic() -> None:
     first = recommend_playlist(tracks, "warmup").ordered_tracks
     second = recommend_playlist(tracks, "warmup").ordered_tracks
     assert [t.path for t in first] == [t.path for t in second]
+
+
+def test_dj_controls_rejects_equal_start_and_end() -> None:
+    import pytest
+
+    from xfinaudio.recommendation.controls import DJControls
+
+    with pytest.raises(ValueError):
+        DJControls(start_path="/a.flac", end_path="/a.flac")

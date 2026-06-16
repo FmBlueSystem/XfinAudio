@@ -69,3 +69,20 @@ def test_pool_strategy_prevents_collapse_when_out_of_range_dominates() -> None:
     )
     in_range_in_pool = [r for r in pool if r.path.startswith("in")]
     assert len(in_range_in_pool) == 8  # all in-range candidates survive instead of being starved
+
+
+def test_camelot_compatible_handles_malformed_keys_without_crashing() -> None:
+    from xfinaudio.recommendation.pool import _camelot_compatible
+
+    # Free-form / malformed Camelot strings must not raise.
+    assert _camelot_compatible("A", "8A") is False
+    assert _camelot_compatible("unknown", "8A") is False
+    assert _camelot_compatible("", "8A") is False
+    assert _camelot_compatible("8A", None) is False
+
+
+def test_camelot_compatible_wraps_12_to_1() -> None:
+    from xfinaudio.recommendation.pool import _camelot_compatible
+
+    assert _camelot_compatible("12A", "1A") is True  # adjacent across the wheel boundary
+    assert _camelot_compatible("8a", "8A") is True  # case-insensitive same key

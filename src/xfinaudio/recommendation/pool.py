@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.camelot import parse_camelot_key
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.strategies import PlaylistStrategy
 
@@ -33,15 +34,18 @@ def _track_vibe_terms(track: TrackRecord) -> set[str]:
 def _camelot_compatible(track_key: str | None, anchor_key: str | None) -> bool:
     if track_key is None or anchor_key is None:
         return False
-    if track_key == anchor_key:
-        return True
-    track_num = int(track_key[:-1])
-    track_letter = track_key[-1]
-    anchor_num = int(anchor_key[:-1])
-    anchor_letter = anchor_key[-1]
-    return (track_letter == anchor_letter and abs(track_num - anchor_num) <= 1) or (
-        track_num == anchor_num and track_letter != anchor_letter
-    )
+    try:
+        track = parse_camelot_key(track_key)
+        anchor = parse_camelot_key(anchor_key)
+    except ValueError:
+        # Malformed/free-form key strings are treated as incompatible rather than crashing.
+        return False
+    if track.letter == anchor.letter:
+        # Same letter: adjacent on the wheel including the 12<->1 wrap.
+        delta = abs(track.number - anchor.number)
+        return min(delta, 12 - delta) <= 1
+    # Different letter: only the relative major/minor (same number) is compatible.
+    return track.number == anchor.number
 
 
 def _track_similarity_key(
