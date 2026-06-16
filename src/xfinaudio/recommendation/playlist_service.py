@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import groupby
+
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.library.models import TrackRecord
@@ -102,7 +104,13 @@ def recommend_playlist(
 
     terminal_preserve = {path for path in (start_path, applied.end_path) if path is not None}
     if _uses_strategy_order(strategy):
-        sequenced_tracks = _apply_terminal_constraints(remaining_tracks, start_path, applied.end_path)
+        if strategy.sort_hint == "energy_ascending":
+            base_order = _sequence_energy_ascending_harmonic(remaining_tracks, scoring_config, _score_cache)
+            optimizer = "energy-ascending-harmonic"
+        else:
+            base_order = remaining_tracks
+            optimizer = "strategy-order"
+        sequenced_tracks = _apply_terminal_constraints(base_order, start_path, applied.end_path)
         sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
             sequenced_tracks, preserve_paths=terminal_preserve
         )
@@ -112,7 +120,6 @@ def recommend_playlist(
                 f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
                 f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
             )
-        optimizer = "strategy-order"
     else:
         remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
             remaining_tracks, preserve_paths=terminal_preserve
@@ -366,6 +373,43 @@ def _drop_generated_tracks_after_impossible_bpm_jumps(
             continue
         kept.append(candidate)
     return kept, dropped_count
+
+
+def _sequence_energy_ascending_harmonic(
+    tracks: list[TrackRecord],
+    config: TransitionScoringConfig,
+    cache: dict[tuple, TransitionScore] | None,
+) -> list[TrackRecord]:
+    """Order tracks with non-decreasing energy while greedily maximizing harmonic transitions.
+
+    Energy tiers are visited in ascending order so the warmup/build energy curve is preserved by
+    construction. Within and across tiers, the next track is the one with the best transition score
+    from the last placed track, so adjacencies are as harmonically compatible as the curve allows.
+    """
+    if len(tracks) < 2:
+        return list(tracks)
+
+    def _tier(track: TrackRecord) -> int:
+        return track.energy_level if track.energy_level is not None else 0
+
+    ordered_by_tier = sorted(tracks, key=lambda t: (_tier(t), t.path))
+    result: list[TrackRecord] = []
+    for _, group in groupby(ordered_by_tier, key=_tier):
+        tier_tracks = list(group)  # already path-sorted for deterministic tie-breaking
+        while tier_tracks:
+            if not result:
+                chosen = tier_tracks[0]
+            else:
+                last = result[-1]
+                chosen = max(
+                    tier_tracks,
+                    key=lambda t: (
+                        score_transition(last, t, weights=config.weights, cache=cache, config=config).total_score
+                    ),
+                )
+            result.append(chosen)
+            tier_tracks.remove(chosen)
+    return result
 
 
 def _vibe_metadata_unavailable(strategy: PlaylistStrategy, tracks: list[TrackRecord]) -> bool:

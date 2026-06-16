@@ -331,3 +331,45 @@ def test_peak_time_is_optimizer_backed_for_harmonic_coherence() -> None:
 
     assert result.optimizer != "strategy-order"
     assert len(result.ordered_tracks) == 3
+
+
+def test_warmup_keeps_energy_non_decreasing() -> None:
+    # Energy-constrained harmonic sequencing must preserve the ascending energy curve.
+    tracks = [
+        track("/a.flac", bpm=120.0, camelot_key="8A", energy_level=5),
+        track("/b.flac", bpm=120.0, camelot_key="9A", energy_level=2),
+        track("/c.flac", bpm=120.0, camelot_key="8B", energy_level=4),
+        track("/d.flac", bpm=120.0, camelot_key="10A", energy_level=3),
+    ]
+
+    result = recommend_playlist(tracks, "warmup")
+
+    energies = [t.energy_level for t in result.ordered_tracks]
+    assert energies == [2, 3, 4, 5]  # non-decreasing energy curve preserved
+
+
+def test_warmup_prefers_harmonic_adjacency_within_energy_tier() -> None:
+    # All same energy: ordering should chain Camelot-compatible keys instead of raw path order.
+    # 8A is compatible with 9A and 8B, but not with 3B.
+    tracks = [
+        track("/x.flac", bpm=120.0, camelot_key="8A", energy_level=3),
+        track("/y.flac", bpm=120.0, camelot_key="3B", energy_level=3),
+        track("/z.flac", bpm=120.0, camelot_key="9A", energy_level=3),
+    ]
+
+    result = recommend_playlist(tracks, "warmup")
+
+    paths = [t.path for t in result.ordered_tracks]
+    # Deterministic start at lowest path (/x, 8A); harmonic greedy picks /z (9A) before /y (3B).
+    assert paths == ["/x.flac", "/z.flac", "/y.flac"]
+
+
+def test_warmup_sequencing_is_deterministic() -> None:
+    tracks = [
+        track("/a.flac", camelot_key="8A", energy_level=2),
+        track("/b.flac", camelot_key="9A", energy_level=3),
+        track("/c.flac", camelot_key="10A", energy_level=4),
+    ]
+    first = recommend_playlist(tracks, "warmup").ordered_tracks
+    second = recommend_playlist(tracks, "warmup").ordered_tracks
+    assert [t.path for t in first] == [t.path for t in second]
