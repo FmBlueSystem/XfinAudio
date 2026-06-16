@@ -2986,3 +2986,34 @@ def test_export_history_table_has_consistent_height_constraints() -> None:
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
     table = window._export_screen.history_table
     assert table.minimumHeight() <= table.maximumHeight()
+
+
+def test_sidebar_items_have_icons() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    sidebar = window.workflow_sidebar
+    assert sidebar.count() > 0
+    for index in range(sidebar.count()):
+        item = sidebar.item(index)
+        assert item is not None
+        assert not item.icon().isNull()
+
+
+def test_error_banner_shows_and_clears() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    assert window.error_banner.isHidden()
+    window.show_error_banner("Boom")
+    assert window.error_banner.isHidden() is False
+    assert window.error_banner.text() == "Boom"
+    window.clear_error_banner()
+    assert window.error_banner.isHidden()
+
+
+def test_scan_complete_guides_to_build() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    complete = TrackRecord(path="/m/a.flac", bpm=120.0, camelot_key="8A", energy_level=5, metadata_status="complete")
+    window.show_tracks([complete], complete_count=1, incomplete_count=0)
+    assert "Build" in window.library_guidance_label.text()
+    assert window._library_screen.proceed_button.objectName() == "primaryAction"

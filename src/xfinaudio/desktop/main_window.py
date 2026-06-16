@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStackedWidget,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
@@ -235,10 +236,24 @@ class MainWindow(QMainWindow):
         self.workflow_sidebar.setAccessibleName(self.tr("Workflow navigation"))
         self.workflow_sidebar.setFixedWidth(_SIDEBAR_WIDTH_WIDE)
         self.workflow_sidebar.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        for label in workflow_labels:
+        # Standard icons per workflow step so the sidebar stays legible (icon-only) on narrow
+        # windows where labels are hidden, instead of collapsing to blank rows.
+        _sidebar_icons = [
+            QStyle.StandardPixmap.SP_DirIcon,
+            QStyle.StandardPixmap.SP_FileDialogDetailedView,
+            QStyle.StandardPixmap.SP_FileDialogContentsView,
+            QStyle.StandardPixmap.SP_DialogSaveButton,
+            QStyle.StandardPixmap.SP_FileDialogListView,
+            QStyle.StandardPixmap.SP_FileDialogInfoView,
+            QStyle.StandardPixmap.SP_MediaPlay,
+        ]
+        style = self.style()
+        for index, label in enumerate(workflow_labels):
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
             item.setToolTip(label)
+            pixmap = _sidebar_icons[index] if index < len(_sidebar_icons) else QStyle.StandardPixmap.SP_FileIcon
+            item.setIcon(style.standardIcon(pixmap))
             self.workflow_sidebar.addItem(item)
 
         self.workflow_tabs = WorkflowStack(workflow_labels)
@@ -273,6 +288,7 @@ class MainWindow(QMainWindow):
 
         layout = QVBoxLayout()
         layout.addLayout(workflow_layout, 1)
+        layout.addWidget(self.error_banner)
         layout.addWidget(self.status_label)
         status_controls = QHBoxLayout()
         status_controls.addWidget(self.status_bar_toggle)
@@ -622,6 +638,11 @@ class MainWindow(QMainWindow):
         self.status_bar.hide()
         self.status_bar_toggle = QPushButton(self.tr("Status"))
         self.status_bar_toggle.setCheckable(True)
+        # Persistent error banner: stays visible until cleared, unlike the transient status label.
+        self.error_banner = QLabel("")
+        self.error_banner.setObjectName("errorBanner")
+        self.error_banner.setWordWrap(True)
+        self.error_banner.setVisible(False)
         self.status_label = QLabel(self.tr("Ready"))
         self.library_decision_label = QLabel(
             self.tr("DJ Decision Point: choose source, filters, and the track anchor.")
@@ -671,6 +692,7 @@ class MainWindow(QMainWindow):
         self.status_bar_toggle.toggled.connect(self._set_status_bar_visible)
         self._library_screen.selection_changed.connect(self._on_library_selection_changed)
         self._library_screen.metadata_screen_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(5))
+        self._library_screen.proceed_button.setObjectName("primaryAction")
         self._library_screen.proceed_button.clicked.connect(lambda: self.workflow_tabs.setCurrentIndex(1))
         self._library_screen.settings_requested.connect(self._open_settings_dialog)
         self._library_screen.filters_cleared.connect(self._on_library_filters_cleared)
@@ -1334,6 +1356,10 @@ class MainWindow(QMainWindow):
         self.status_label.setText(
             self.tr("Scan complete: {0} complete, {1} incomplete").format(complete_count, incomplete_count)
         )
+        self.clear_error_banner()
+        if complete_count:
+            # Next-step cue: point the DJ to the Build step instead of leaving them to discover it.
+            self.library_guidance_label.setText(self.tr("Scan complete — select tracks, then go to Build Playlist →"))
         self._sync_state()
         self._start_spectral_completion_worker(records)
 
@@ -1514,11 +1540,23 @@ class MainWindow(QMainWindow):
     def _finish_recommendation(self, result: Any) -> None:
         """Render a completed background recommendation."""
         self._recommendation_coordinator.on_completed(result)
+        self.clear_error_banner()
 
     @Slot(object)
     def _fail_recommendation(self, error: object) -> None:
         """Recover the UI if background recommendation generation fails."""
         self._recommendation_coordinator.on_failed(error)
+        self.show_error_banner(self.tr("Recommendation failed: {0}").format(error))
+
+    def show_error_banner(self, message: str) -> None:
+        """Show a persistent error banner that survives until explicitly cleared."""
+        self.error_banner.setText(message)
+        self.error_banner.setVisible(bool(message))
+
+    def clear_error_banner(self) -> None:
+        """Hide and clear the persistent error banner."""
+        self.error_banner.clear()
+        self.error_banner.setVisible(False)
 
     def show_recommendation(
         self,

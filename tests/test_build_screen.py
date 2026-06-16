@@ -75,3 +75,16 @@ def test_copilot_table_headers_have_tooltips(qapp: QApplication) -> None:
     table = screen.copilot_table
     tooltips = [table.horizontalHeaderItem(col).toolTip() for col in range(table.columnCount())]
     assert all(tip.strip() for tip in tooltips)
+
+
+def test_guidance_labels_are_grouped_in_a_panel(qapp: QApplication) -> None:
+    """The recommendation/constraint/summary guidance labels share one panel container."""
+    screen = BuildScreen()
+    panel = screen.build_guidance_panel
+    assert isinstance(panel, QFrame)
+    for label in (
+        screen.recommendation_vs_copilot_label,
+        screen.constraint_explanation_label,
+        screen.recommendation_summary_label,
+    ):
+        assert panel.isAncestorOf(label)
