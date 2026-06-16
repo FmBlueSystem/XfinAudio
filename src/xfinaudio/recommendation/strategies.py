@@ -73,7 +73,7 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
         name="chill",
         display_name="Chill",
         description="Prefer lower energy and lower BPM selections, sequenced for harmonic coherence.",
-        weights=ScoringWeights(harmonic=0.40, bpm=0.30, energy=0.20, tags=0.10),
+        weights=ScoringWeights(harmonic=0.35, bpm=0.45, energy=0.15, tags=0.05),
         energy_range=(1, 5),
         bpm_range=(0.0, 118.0),
     ),

@@ -121,15 +121,6 @@ def recommend_playlist(
                 f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
             )
     else:
-        remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
-            remaining_tracks, preserve_paths=terminal_preserve
-        )
-        if dropped_bpm_jump_count:
-            warnings.append(
-                "Dropped "
-                f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
-                f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
-            )
         sequenced = recommend_sequence(
             remaining_tracks,
             start_path=start_path,
@@ -138,7 +129,17 @@ def recommend_playlist(
             cache=_score_cache,
             config=scoring_config,
         )
-        sequenced_tracks = sequenced.ordered_tracks
+        # Apply the BPM-jump guard to the optimizer's FINAL ordering, not the discarded pool order,
+        # so the emitted sequence actually honors the adjacent-BPM bound. Terminals stay preserved.
+        sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+            sequenced.ordered_tracks, preserve_paths=terminal_preserve
+        )
+        if dropped_bpm_jump_count:
+            warnings.append(
+                "Dropped "
+                f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
+                f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
+            )
         optimizer = sequenced.optimizer
 
     ordered_tracks = [*manual_prefix, *sequenced_tracks]
