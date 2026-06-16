@@ -317,3 +317,17 @@ def test_chill_is_optimizer_backed_for_harmonic_coherence() -> None:
 
     assert result.optimizer != "strategy-order"
     assert len(result.ordered_tracks) == 3
+
+
+def test_peak_time_is_optimizer_backed_for_harmonic_coherence() -> None:
+    # peak_time only constrains energy (7-10); ordering should be harmonic, not raw energy sort.
+    tracks = [
+        track("/a.flac", bpm=128.0, camelot_key="8A", energy_level=9),
+        track("/b.flac", bpm=129.0, camelot_key="3B", energy_level=8),
+        track("/c.flac", bpm=128.5, camelot_key="9A", energy_level=10),
+    ]
+
+    result = recommend_playlist(tracks, "peak_time")
+
+    assert result.optimizer != "strategy-order"
+    assert len(result.ordered_tracks) == 3

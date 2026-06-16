@@ -65,10 +65,9 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
     "peak_time": PlaylistStrategy(
         name="peak_time",
         display_name="Peak Time",
-        description="Focus the recommendation on high-energy records.",
-        weights=ScoringWeights(harmonic=0.35, bpm=0.20, energy=0.35, tags=0.10),
+        description="Focus the recommendation on high-energy records, sequenced for harmonic coherence.",
+        weights=ScoringWeights(harmonic=0.40, bpm=0.25, energy=0.25, tags=0.10),
         energy_range=(7, 10),
-        sort_hint="energy_descending",
     ),
     "chill": PlaylistStrategy(
         name="chill",
