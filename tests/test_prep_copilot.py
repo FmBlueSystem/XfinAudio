@@ -96,3 +96,25 @@ def test_prep_copilot_surfaces_review_variant_when_required_track_breaks_bpm_gat
         for variant in plan.variants
         for check in variant.readiness.checks
     )
+
+
+def test_limit_recommendation_preserves_end_path() -> None:
+    from xfinaudio.recommendation.controls import DJControls
+    from xfinaudio.recommendation.playlist_service import recommend_playlist
+    from xfinaudio.recommendation.prep_copilot import _limit_recommendation
+
+    tracks = [
+        track("/a.flac", bpm=120, key="8A"),
+        track("/b.flac", bpm=121, key="9A"),
+        track("/c.flac", bpm=120, key="8B"),
+        track("/d.flac", bpm=121, key="8A"),
+        track("/e.flac", bpm=120, key="9A"),
+    ]
+    rec = recommend_playlist(tracks, "harmonic_journey", controls=DJControls(end_path="/e.flac"))
+    assert rec.ordered_tracks[-1].path == "/e.flac"
+
+    limited = _limit_recommendation(rec, 3, end_path="/e.flac")
+
+    assert len(limited.ordered_tracks) == 3
+    assert limited.ordered_tracks[-1].path == "/e.flac"  # terminal preserved through truncation
+    assert len(limited.transition_scores) == 2

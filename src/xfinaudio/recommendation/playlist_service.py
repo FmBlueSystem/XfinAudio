@@ -65,6 +65,11 @@ def recommend_playlist(
     if incomplete_count:
         warnings.append(f"Excluded {incomplete_count} incomplete track(s)")
 
+    controls, control_warnings = _sanitize_controls_for_candidates(
+        controls, available_paths={track.path for track in complete_tracks}
+    )
+    warnings.extend(control_warnings)
+
     filtered_tracks, filter_warnings = _apply_strategy_filters(
         complete_tracks, strategy, preserve_paths=_preserved_control_paths(controls)
     )
@@ -281,6 +286,36 @@ def _genre_tokens(genre: str | None) -> set[str]:
     if genre is None:
         return set()
     return {token.strip().casefold() for token in genre.split(",") if token.strip()}
+
+
+def _sanitize_controls_for_candidates(controls: DJControls, available_paths: set[str]) -> tuple[DJControls, list[str]]:
+    """Drop control references to unavailable (e.g. incomplete) tracks, degrading with warnings.
+
+    Without this, a start/end/manual/locked path pointing at a track excluded for incomplete
+    metadata would raise deep in constraint validation instead of producing a usable playlist.
+    """
+    warnings: list[str] = []
+    updates: dict[str, object] = {}
+
+    for label in ("start_path", "end_path"):
+        path = getattr(controls, label)
+        if path is not None and path not in available_paths:
+            updates[label] = None
+            warnings.append(f"Ignored {label} '{path}' because the track has incomplete metadata")
+
+    kept_manual = [path for path in controls.manual_order_paths if path in available_paths]
+    if len(kept_manual) != len(controls.manual_order_paths):
+        updates["manual_order_paths"] = kept_manual
+        warnings.append("Ignored manual order track(s) with incomplete metadata")
+
+    kept_locked = {path for path in controls.locked_paths if path in available_paths}
+    if len(kept_locked) != len(controls.locked_paths):
+        updates["locked_paths"] = kept_locked
+        warnings.append("Ignored locked track(s) with incomplete metadata")
+
+    if not updates:
+        return controls, warnings
+    return controls.model_copy(update=updates), warnings
 
 
 def _preserved_control_paths(controls: DJControls) -> set[str]:

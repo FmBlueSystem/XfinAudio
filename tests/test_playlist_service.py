@@ -400,3 +400,17 @@ def test_same_genre_matches_shared_genre_token() -> None:
     assert "/deep.flac" in paths
     assert "/tech.flac" in paths
     assert "/rock.flac" not in paths
+
+
+def test_incomplete_anchor_warns_instead_of_crashing() -> None:
+    # A control path pointing at an incomplete track must degrade with a warning, not crash.
+    tracks = [
+        track("/anchor.flac", status="incomplete"),
+        track("/a.flac", camelot_key="8A"),
+        track("/b.flac", camelot_key="9A"),
+    ]
+
+    result = recommend_playlist(tracks, "harmonic_journey", controls=DJControls(start_path="/anchor.flac"))
+
+    assert "/anchor.flac" not in {item.path for item in result.ordered_tracks}
+    assert any("start_path" in w and "incomplete" in w for w in result.warnings)
