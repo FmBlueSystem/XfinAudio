@@ -60,6 +60,60 @@ def test_score_transition_scores_tag_overlap_with_genre() -> None:
     assert "Tag overlap is 2/4" in result.explanations
 
 
+def test_score_transition_splits_comma_separated_genres_for_overlap() -> None:
+    """Same-family multi-genre tracks must share a genre token (e.g. both 'House')."""
+    left = track("left", genre="House, Disco", tags=[])
+    right = track("right", genre="House, Funk", tags=[])
+
+    result = score_transition(left, right)
+
+    # Tokens: {house, disco} vs {house, funk} -> overlap 1 / union 3.
+    assert result.component_scores["tags"] == pytest.approx(1 / 3)
+
+
+def test_score_transition_unrelated_comma_genres_share_nothing() -> None:
+    left = track("left", genre="Techno", tags=[])
+    right = track("right", genre="Reggae", tags=[])
+
+    result = score_transition(left, right)
+
+    assert result.component_scores["tags"] == 0.0
+
+
+def test_genre_cohesion_zero_applies_no_penalty() -> None:
+    """Default genre_cohesion=0 must leave cross-genre transitions unchanged (current behavior)."""
+    left = track("left", genre="Techno", tags=[])
+    right = track("right", genre="Reggae", tags=[])
+
+    baseline = score_transition(left, right)
+    with_zero = score_transition(left, right, config=TransitionScoringConfig(genre_cohesion=0.0))
+
+    assert with_zero.total_score == baseline.total_score
+
+
+def test_genre_cohesion_penalizes_cross_genre_transition() -> None:
+    """With cohesion > 0 a disjoint-genre transition scores lower than with cohesion 0."""
+    left = track("left", genre="Techno", tags=[])
+    right = track("right", genre="Reggae", tags=[])
+
+    no_cohesion = score_transition(left, right, config=TransitionScoringConfig(genre_cohesion=0.0))
+    high_cohesion = score_transition(left, right, config=TransitionScoringConfig(genre_cohesion=1.0))
+
+    assert high_cohesion.total_score < no_cohesion.total_score
+    assert any("genre" in w.casefold() for w in high_cohesion.warnings)
+
+
+def test_genre_cohesion_does_not_penalize_shared_genre() -> None:
+    """Tracks sharing a genre token are never penalized, regardless of cohesion."""
+    left = track("left", genre="House, Disco", tags=[])
+    right = track("right", genre="House, Funk", tags=[])
+
+    no_cohesion = score_transition(left, right, config=TransitionScoringConfig(genre_cohesion=0.0))
+    high_cohesion = score_transition(left, right, config=TransitionScoringConfig(genre_cohesion=1.0))
+
+    assert high_cohesion.total_score == no_cohesion.total_score
+
+
 def test_score_transition_redistributes_weight_when_tags_are_missing() -> None:
     left = track("left", genre=None, tags=[])
     right = track("right", genre=None, tags=[])

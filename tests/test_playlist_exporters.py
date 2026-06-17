@@ -50,6 +50,8 @@ def test_export_playlist_json_is_deterministic_with_ordered_tracks_and_explanati
     payload = json.loads(first)
     assert [track["path"] for track in payload["tracks"]] == [track.path for track in recommendation.ordered_tracks]
     assert payload["explanation"] == build_playlist_explanation(recommendation).model_dump(mode="json")
+    assert recommendation.build_log is not None
+    assert payload["build_log"] == recommendation.build_log.model_dump(mode="json")
 
 
 def test_export_playlist_csv_uses_stable_columns_and_track_order() -> None:

@@ -1,0 +1,16 @@
+schema: gentle-ai.sdd-state.v1
+change: playlist-build-log-and-genre-cohesion
+artifact_store: openspec
+status: apply
+created: 2026-06-16
+updated: 2026-06-16
+strict_tdd: true
+phases: {proposal: complete, specs: complete, design: complete, tasks: complete, apply: complete, verify: complete}
+next_recommended: archive
+delivery: {strategy: chained-pr, chain: stacked-to-main, review_budget_changed_lines: 400}
+notes:
+  - User-approved full scope (build-log + genre cohesion) over the recommendation engine.
+  - Root cause: genre weight 0.05 in harmonic_journey + un-split multi-genre tokens + no genre gate.
+  - Unit 1 (token fix) DONE. Unit 2 (genre cohesion + slider) CORE DONE; harness cross_genre
+    0.284->0.176 at cohesion 0.5. Unit 3 (build log) PENDING. Task 2.4 (Genre focus text box) deferred.
+  - All verification gates green at this checkpoint (929 passed, pyright 0, cov 89.76%, release gate PASS).

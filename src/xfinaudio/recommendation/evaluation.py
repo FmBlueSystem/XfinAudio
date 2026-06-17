@@ -21,6 +21,7 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import recommend_playlist
 from xfinaudio.recommendation.pool import build_recommendation_pool
+from xfinaudio.recommendation.scoring import normalize_genre_tokens
 from xfinaudio.recommendation.strategies import get_strategy
 
 _BPM_TOLERANCE_PERCENT = 3.0
@@ -37,6 +38,7 @@ class EvalConfig(BaseModel):
     requested_size: int
     candidate_limit: int = 25
     strategies: tuple[str, ...]
+    genre_cohesion: float = 0.0
 
 
 class StrategyMetrics(BaseModel):
@@ -50,6 +52,7 @@ class StrategyMetrics(BaseModel):
     collapse_count: int
     mean_transition_validity: float
     mean_energy_monotonicity: float | None
+    mean_cross_genre_fraction: float
 
 
 class EvalReport(BaseModel):
@@ -71,7 +74,8 @@ class EvalReport(BaseModel):
                 f"fill={metrics.mean_fill_rate:.3f} "
                 f"collapse={metrics.collapse_count} "
                 f"validity={metrics.mean_transition_validity:.3f} "
-                f"energy_monotonicity={monotonicity}"
+                f"energy_monotonicity={monotonicity} "
+                f"cross_genre={metrics.mean_cross_genre_fraction:.3f}"
             )
         return "\n".join(lines)
 
@@ -119,6 +123,28 @@ def _fill_rate(track_count: int, requested_size: int) -> float:
     return min(track_count / requested_size, 1.0)
 
 
+def _cross_genre_fraction(ordered: list[TrackRecord]) -> float:
+    """Fraction of adjacencies whose two tracks have genres that share no token.
+
+    Adjacencies where either track has no genre are ignored (cannot judge). Returns 0.0 when there
+    are no judgeable adjacencies. This is the objective "genre mixing" metric for cohesion tuning.
+    """
+    pairs = list(zip(ordered, ordered[1:], strict=False))
+    judgeable = 0
+    cross = 0
+    for left, right in pairs:
+        left_tokens = normalize_genre_tokens(left.genre)
+        right_tokens = normalize_genre_tokens(right.genre)
+        if not left_tokens or not right_tokens:
+            continue
+        judgeable += 1
+        if not (left_tokens & right_tokens):
+            cross += 1
+    if judgeable == 0:
+        return 0.0
+    return cross / judgeable
+
+
 def _energy_monotonic_fraction(ordered: list[TrackRecord]) -> float:
     pairs = list(zip(ordered, ordered[1:], strict=False))
     if not pairs:
@@ -153,6 +179,7 @@ def evaluate_recommendations(tracks: list[TrackRecord], config: EvalConfig) -> E
         fill_rates: list[float] = []
         validities: list[float] = []
         monotonicities: list[float] = []
+        cross_genre_fractions: list[float] = []
         collapse_count = 0
 
         for anchor in anchors:
@@ -162,11 +189,14 @@ def evaluate_recommendations(tracks: list[TrackRecord], config: EvalConfig) -> E
             # anchor fixed at the front without that terminal-constraint validation.
             controls = DJControls(manual_order_paths=[anchor.path])
             pool = build_recommendation_pool(complete, controls, config.candidate_limit, strategy=strategy)
-            recommendation = recommend_playlist(pool, strategy_name, controls=controls)
+            recommendation = recommend_playlist(
+                pool, strategy_name, controls=controls, genre_cohesion=config.genre_cohesion
+            )
             ordered = recommendation.ordered_tracks
 
             fill_rates.append(_fill_rate(len(ordered), config.requested_size))
             validities.append(_transition_validity_fraction(ordered))
+            cross_genre_fractions.append(_cross_genre_fraction(ordered))
             if len(ordered) < _COLLAPSE_THRESHOLD:
                 collapse_count += 1
             if directional:
@@ -180,6 +210,7 @@ def evaluate_recommendations(tracks: list[TrackRecord], config: EvalConfig) -> E
                 collapse_count=collapse_count,
                 mean_transition_validity=statistics.fmean(validities) if validities else 0.0,
                 mean_energy_monotonicity=(statistics.fmean(monotonicities) if monotonicities else None),
+                mean_cross_genre_fraction=statistics.fmean(cross_genre_fractions) if cross_genre_fractions else 0.0,
             )
         )
 

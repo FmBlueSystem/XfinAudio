@@ -59,6 +59,7 @@ class ExporterRegistry:
 
 def export_playlist_json(recommendation: PlaylistRecommendation) -> str:
     """Return a deterministic JSON export for a playlist recommendation."""
+    build_log = recommendation.build_log.model_dump(mode="json") if recommendation.build_log is not None else None
     payload = {
         "strategy": recommendation.strategy.name,
         "optimizer": recommendation.optimizer,
@@ -66,6 +67,7 @@ def export_playlist_json(recommendation: PlaylistRecommendation) -> str:
         "warnings": list(recommendation.warnings),
         "tracks": [_track_payload(index, track) for index, track in enumerate(recommendation.ordered_tracks, start=1)],
         "explanation": build_playlist_explanation(recommendation).model_dump(mode="json"),
+        "build_log": build_log,
     }
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
