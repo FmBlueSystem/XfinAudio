@@ -1446,6 +1446,27 @@ def test_main_window_with_defaults_restores_persisted_tracks_on_startup(tmp_path
     assert window.status_label.text() == "Loaded saved library: 1 complete, 0 incomplete"
 
 
+def test_main_window_sync_enables_recommend_button_for_restored_anchor(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    track = TrackRecord(
+        path=str(tmp_path / "anchor.flac"),
+        title="Anchor",
+        bpm=124.0,
+        camelot_key="8A",
+        energy_level=5,
+        metadata_status="complete",
+    )
+    window.scanned_records = [track]
+    window._records_by_path = {track.path: track}
+    window._library_selected_paths = [track.path]
+
+    window._sync_state()
+
+    assert window._build_screen.anchor_label.text() == "Anchor: Anchor, 124 BPM, 8A, energy 5"
+    assert window._build_screen.recommend_button.isEnabled() is True
+
+
 def test_main_window_limits_large_recommendation_candidate_pool_for_interactive_use(tmp_path) -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
@@ -2997,6 +3018,15 @@ def test_sidebar_items_have_icons() -> None:
         item = sidebar.item(index)
         assert item is not None
         assert not item.icon().isNull()
+
+
+def test_sidebar_shows_all_items_without_scrolling() -> None:
+    """The sidebar behaves like a vertical tab bar: every step is visible, no scroll arrows."""
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    sidebar = window.workflow_sidebar
+    assert sidebar.verticalScrollBarPolicy() == main_window.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert sidebar.horizontalScrollBarPolicy() == main_window.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
 
 
 def test_error_banner_shows_and_clears() -> None:

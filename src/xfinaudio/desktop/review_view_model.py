@@ -130,6 +130,23 @@ class ReviewViewModel:
             "Avg transition score: {0:.2f} ({1} transition(s), {2} warning(s))",
         ).format(report.average_transition_score, report.transition_count, report.warning_count)
 
+    def build_log_summary(self, state: AppState) -> str | None:
+        """One-line provenance summary of how the playlist was built, or None if unavailable.
+
+        Surfaces the stage funnel (pool → final) and the cross-genre transition count so the DJ can
+        see why the mix spans the genres it does.
+        """
+        recommendation = state.last_recommendation
+        if recommendation is None or recommendation.build_log is None:
+            return None
+        log = recommendation.build_log
+        funnel = " → ".join(f"{stage.output_count}" for stage in log.stages)
+        transitions = len(log.genre_relations)
+        return QCoreApplication.translate(
+            "ReviewViewModel",
+            "Build [{0}/{1}]: {2} tracks · cross-genre {3}/{4} transitions",
+        ).format(log.strategy, log.optimizer, funnel, log.cross_genre_count, transitions)
+
     def can_export(self, state: AppState) -> bool:
         """Export is allowed for READY and NEEDS_REVIEW; BLOCKED or all-removed gates it.
 

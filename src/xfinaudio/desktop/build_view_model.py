@@ -52,8 +52,14 @@ class BuildViewModel:
         ]
 
     def recommend_button_enabled(self, state: AppState) -> bool:
-        """True if there are scanned tracks and no operation is in progress."""
-        return bool(state.scanned_records) and not state.is_scanning and not state.is_recommending
+        """True if a complete anchor is selected and no operation is in progress."""
+        if state.is_scanning or state.is_recommending or not state.scanned_records:
+            return False
+        for path in state.selected_library_paths:
+            record = state.records_by_path.get(path)
+            if record is not None and record.metadata_status == "complete":
+                return True
+        return False
 
     def copilot_button_enabled(self, state: AppState) -> bool:
         """True if there are scanned tracks and neither scanning nor recommending."""

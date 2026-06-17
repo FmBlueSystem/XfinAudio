@@ -108,6 +108,15 @@ def state_with_tracks(tracks: list[TrackRecord]) -> AppState:
 
 
 @pytest.fixture()
+def state_with_selected_anchor(tracks: list[TrackRecord]) -> AppState:
+    return AppState(
+        scanned_records=tracks,
+        records_by_path={track.path: track for track in tracks},
+        selected_library_paths=[tracks[0].path],
+    )
+
+
+@pytest.fixture()
 def state_is_recommending(tracks: list[TrackRecord]) -> AppState:
     s = AppState(scanned_records=tracks)
     s.is_recommending = True
@@ -176,8 +185,14 @@ def test_recommend_button_disabled_without_tracks(vm: BuildViewModel) -> None:
     assert vm.recommend_button_enabled(AppState()) is False
 
 
-def test_recommend_button_enabled_with_tracks(vm: BuildViewModel, state_with_tracks: AppState) -> None:
-    assert vm.recommend_button_enabled(state_with_tracks) is True
+def test_recommend_button_disabled_without_selected_anchor(vm: BuildViewModel, state_with_tracks: AppState) -> None:
+    assert vm.recommend_button_enabled(state_with_tracks) is False
+
+
+def test_recommend_button_enabled_with_selected_anchor(
+    vm: BuildViewModel, state_with_selected_anchor: AppState
+) -> None:
+    assert vm.recommend_button_enabled(state_with_selected_anchor) is True
 
 
 def test_recommend_button_disabled_while_recommending(vm: BuildViewModel, state_is_recommending: AppState) -> None:

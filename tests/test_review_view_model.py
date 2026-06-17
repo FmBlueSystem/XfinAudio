@@ -301,6 +301,28 @@ class TestTransitionRows:
 # ---------------------------------------------------------------------------
 
 
+class TestBuildLogSummary:
+    def test_none_when_no_recommendation(self, vm: ReviewViewModel) -> None:
+        assert vm.build_log_summary(AppState()) is None
+
+    def test_summarizes_stages_and_cross_genre(self, vm: ReviewViewModel) -> None:
+        from xfinaudio.recommendation.playlist_service import recommend_playlist
+
+        tracks = [
+            _make_track("a.mp3", "A", "Artist A"),
+            _make_track("b.mp3", "B", "Artist B"),
+        ]
+        recommendation = recommend_playlist(tracks, "harmonic_journey")
+        state = AppState(last_recommendation=recommendation)
+        assert recommendation.build_log is not None
+
+        summary = vm.build_log_summary(state)
+
+        assert summary is not None
+        assert "harmonic_journey" in summary
+        assert "cross-genre" in summary.casefold()
+
+
 class TestQualitySummary:
     def test_dash_when_no_quality_report(self, vm: ReviewViewModel) -> None:
         assert vm.quality_summary(AppState()) == "—"
