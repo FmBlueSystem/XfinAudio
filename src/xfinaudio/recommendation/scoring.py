@@ -84,6 +84,7 @@ class TransitionScoringConfig(BaseModel):
     score_curve: Literal["threshold", "fuzzy"] = "threshold"
     key_shift: KeyShiftConfig = Field(default_factory=KeyShiftConfig)
     spectral_cohesion: float = Field(default=0.0, ge=0.0, le=1.0)
+    genre_cohesion: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 DEFAULT_WEIGHTS = ScoringWeights()
@@ -187,8 +188,12 @@ def score_transition(
             f"({left.spectral_profile.dominant_color} → {right.spectral_profile.dominant_color})"
         )
 
+    genre_penalty = _genre_cohesion_penalty(left, right, scoring_config.genre_cohesion)
+    if genre_penalty:
+        warnings.append(f"Genre cohesion penalty applied: {genre_penalty:.2f} ({left.genre} → {right.genre})")
+
     total_score = _weighted_total(component_scores, effective_weights)
-    total_score = max(0.0, min(1.0, total_score - spectral_penalty))
+    total_score = max(0.0, min(1.0, total_score - spectral_penalty - genre_penalty))
     return _store(
         TransitionScore(
             left_path=left.path,
@@ -286,11 +291,21 @@ def _score_tags(left: TrackRecord, right: TrackRecord) -> tuple[float, int, int]
     return len(overlap) / len(union), len(overlap), len(union)
 
 
+def normalize_genre_tokens(genre: str | None) -> set[str]:
+    """Split a genre field into normalized comma-separated tokens.
+
+    A genre like ``"House, Disco"`` becomes ``{"house", "disco"}`` so same-family multi-genre
+    tracks share tokens instead of comparing the whole string as one opaque value.
+    """
+    if not genre:
+        return set()
+    return {token.strip().casefold() for token in genre.split(",") if token.strip()}
+
+
 def _normalized_tags(track: TrackRecord) -> set[str]:
-    values = [*track.tags]
-    if track.genre:
-        values.append(track.genre)
-    return {value.strip().casefold() for value in values if value.strip()}
+    tokens = {value.strip().casefold() for value in track.tags if value.strip()}
+    tokens |= normalize_genre_tokens(track.genre)
+    return tokens
 
 
 def _score_spectral(left: TrackRecord, right: TrackRecord) -> float | None:
@@ -314,6 +329,25 @@ def _spectral_color_penalty(left: TrackRecord, right: TrackRecord, cohesion: flo
     if left_profile is None or right_profile is None:
         return 0.0
     if left_profile.dominant_color == right_profile.dominant_color:
+        return 0.0
+    return cohesion * 0.25
+
+
+def _genre_cohesion_penalty(left: TrackRecord, right: TrackRecord, cohesion: float) -> float:
+    """Penalty when adjacent tracks share no genre token.
+
+    Mirrors ``_spectral_color_penalty``: 0 when cohesion is disabled, 0 when either track lacks a
+    genre (cannot judge), 0 when the genre tokens intersect, and ``cohesion * 0.25`` when both
+    tracks have genres that do not overlap at all. Scaled so a fully cross-genre jump at maximum
+    cohesion costs the same as a spectral-color mismatch.
+    """
+    if cohesion <= 0:
+        return 0.0
+    left_tokens = normalize_genre_tokens(left.genre)
+    right_tokens = normalize_genre_tokens(right.genre)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    if left_tokens & right_tokens:
         return 0.0
     return cohesion * 0.25
 

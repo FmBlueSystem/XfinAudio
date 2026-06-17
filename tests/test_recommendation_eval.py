@@ -13,6 +13,7 @@ from xfinaudio.recommendation.evaluation import (
     EvalConfig,
     EvalReport,
     StrategyMetrics,
+    _cross_genre_fraction,
     _energy_monotonic_fraction,
     _fill_rate,
     _sample_anchors,
@@ -60,6 +61,22 @@ def test_transition_valid_wraps_around_wheel() -> None:
 
 def test_transition_valid_relative_major_minor() -> None:
     assert _transition_valid(_track("a", camelot_key="8A"), _track("b", camelot_key="8B"))
+
+
+def test_cross_genre_fraction_counts_disjoint_genre_adjacencies() -> None:
+    ordered = [
+        _track("a", genre="House, Disco"),
+        _track("b", genre="House, Funk"),  # shares 'house' -> not cross
+        _track("c", genre="Techno"),  # disjoint from House,Funk -> cross
+        _track("d", genre="Techno"),  # shares 'techno' -> not cross
+    ]
+    # 3 adjacencies, 1 cross-genre.
+    assert _cross_genre_fraction(ordered) == pytest.approx(1 / 3)
+
+
+def test_cross_genre_fraction_ignores_missing_genre() -> None:
+    ordered = [_track("a", genre=None), _track("b", genre="Techno")]
+    assert _cross_genre_fraction(ordered) == 0.0
 
 
 def test_transition_invalid_distant_key() -> None:

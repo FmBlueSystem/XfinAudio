@@ -7,6 +7,12 @@ from itertools import groupby
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.build_log import (
+    BuildStage,
+    PlaylistBuildLog,
+    build_genre_relations,
+    count_cross_genre,
+)
 from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls
 from xfinaudio.recommendation.optimizer import recommend_sequence
 from xfinaudio.recommendation.scoring import (
@@ -14,6 +20,7 @@ from xfinaudio.recommendation.scoring import (
     TransitionScore,
     TransitionScoringConfig,
     _bpm_difference_percent,
+    normalize_genre_tokens,
     score_transition,
 )
 from xfinaudio.recommendation.strategies import (
@@ -38,6 +45,7 @@ class PlaylistRecommendation(BaseModel):
     applied_controls: dict[str, object]
     optimizer: str
     total_score: float
+    build_log: PlaylistBuildLog | None = None
 
 
 def recommend_playlist(
@@ -47,6 +55,7 @@ def recommend_playlist(
     weights_override: ScoringWeights | None = None,
     strategy_registry: StrategyRegistry | None = None,
     spectral_cohesion: float = 0.0,
+    genre_cohesion: float = 0.0,
 ) -> PlaylistRecommendation:
     """Recommend a playlist using a strategy profile and optional DJ controls."""
     strategy = (strategy_registry or default_strategy_registry()).get(str(strategy_name))
@@ -59,6 +68,7 @@ def recommend_playlist(
     scoring_config = TransitionScoringConfig(
         weights=weights_override or strategy.weights,
         spectral_cohesion=spectral_cohesion,
+        genre_cohesion=genre_cohesion,
     )
     complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
     incomplete_count = len(tracks) - len(complete_tracks)
@@ -151,6 +161,17 @@ def recommend_playlist(
     transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config, cache=_score_cache)
     warnings.extend(_spectral_jump_warnings(ordered_tracks))
 
+    build_log = _build_playlist_build_log(
+        pool=tracks,
+        complete_tracks=complete_tracks,
+        incomplete_count=incomplete_count,
+        filtered_tracks=filtered_tracks,
+        ordered_tracks=ordered_tracks,
+        strategy=strategy,
+        optimizer=optimizer,
+        warnings=warnings,
+    )
+
     return PlaylistRecommendation(
         ordered_tracks=ordered_tracks,
         transition_scores=transition_scores,
@@ -159,6 +180,60 @@ def recommend_playlist(
         applied_controls=applied.summary(),
         optimizer=optimizer,
         total_score=sum(score.total_score for score in transition_scores),
+        build_log=build_log,
+    )
+
+
+def _build_playlist_build_log(
+    *,
+    pool: list[TrackRecord],
+    complete_tracks: list[TrackRecord],
+    incomplete_count: int,
+    filtered_tracks: list[TrackRecord],
+    ordered_tracks: list[TrackRecord],
+    strategy: PlaylistStrategy,
+    optimizer: str,
+    warnings: list[str],
+) -> PlaylistBuildLog:
+    """Assemble a deterministic provenance record from the pipeline's own stage counts.
+
+    Stage output counts reconcile down to the final track count, so a DJ can see exactly how many
+    candidates each stage dropped and why the final genre mix looks the way it does.
+    """
+    stages = [
+        BuildStage(name="input", input_count=len(pool), output_count=len(pool), dropped=0, reason="candidate pool"),
+        BuildStage(
+            name="complete_metadata",
+            input_count=len(pool),
+            output_count=len(complete_tracks),
+            dropped=incomplete_count,
+            reason="dropped tracks missing BPM/key/energy",
+        ),
+        BuildStage(
+            name="strategy_filters",
+            input_count=len(complete_tracks),
+            output_count=len(filtered_tracks),
+            dropped=len(complete_tracks) - len(filtered_tracks),
+            reason=f"{strategy.name} energy/BPM/genre range",
+        ),
+        BuildStage(
+            name="sequenced",
+            input_count=len(filtered_tracks),
+            output_count=len(ordered_tracks),
+            dropped=max(0, len(filtered_tracks) - len(ordered_tracks)),
+            reason=f"controls + {optimizer} sequencing + BPM-jump guard",
+        ),
+    ]
+    genre_relations = build_genre_relations(ordered_tracks)
+    return PlaylistBuildLog(
+        strategy=strategy.name,
+        optimizer=optimizer,
+        pool_size=len(pool),
+        stages=stages,
+        genre_relations=genre_relations,
+        cross_genre_count=count_cross_genre(genre_relations),
+        final_track_count=len(ordered_tracks),
+        warnings=list(warnings),
     )
 
 
@@ -283,9 +358,7 @@ def _normalized_genre(track: TrackRecord) -> str | None:
 
 def _genre_tokens(genre: str | None) -> set[str]:
     """Split a genre field into normalized comma-separated tokens, mirroring pool vibe terms."""
-    if genre is None:
-        return set()
-    return {token.strip().casefold() for token in genre.split(",") if token.strip()}
+    return normalize_genre_tokens(genre)
 
 
 def _sanitize_controls_for_candidates(controls: DJControls, available_paths: set[str]) -> tuple[DJControls, list[str]]:

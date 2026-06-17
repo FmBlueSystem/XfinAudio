@@ -121,10 +121,15 @@ class PlaylistWorkflowService:
         strategy_name: StrategyName | str,
         controls: DJControls | None = None,
         spectral_cohesion: float = 0.0,
+        genre_cohesion: float = 0.0,
     ) -> RecommendationWorkflowResult:
         """Build a recommendation plus explanation and quality report for UI rendering."""
         recommendation = recommend_playlist(
-            records, strategy_name, controls=controls, spectral_cohesion=spectral_cohesion
+            records,
+            strategy_name,
+            controls=controls,
+            spectral_cohesion=spectral_cohesion,
+            genre_cohesion=genre_cohesion,
         )
         explanation = build_playlist_explanation(recommendation)
         quality_report = build_quality_report(recommendation)

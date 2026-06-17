@@ -34,6 +34,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=list(available_strategies()),
         help="Strategy names to evaluate (default: all).",
     )
+    parser.add_argument(
+        "--genre-cohesion",
+        type=float,
+        default=0.0,
+        help="Genre cohesion 0..1; higher penalizes cross-genre transitions (default: 0.0).",
+    )
     return parser.parse_args(argv)
 
 
@@ -46,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         requested_size=args.requested_size,
         candidate_limit=args.candidate_limit,
         strategies=tuple(args.strategies),
+        genre_cohesion=args.genre_cohesion,
     )
     report = evaluate_recommendations(tracks, config)
     print(report.render())

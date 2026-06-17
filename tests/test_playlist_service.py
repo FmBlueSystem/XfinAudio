@@ -53,6 +53,29 @@ def test_recommend_playlist_excludes_incomplete_tracks() -> None:
     result = recommend_playlist(tracks, "harmonic_journey")
 
     assert [item.path for item in result.ordered_tracks] == ["/complete.flac"]
+
+
+def test_recommend_playlist_attaches_build_log_reconciling_final_count() -> None:
+    tracks = [
+        track("/a.flac", camelot_key="8A", genre="House"),
+        track("/b.flac", camelot_key="9A", genre="Techno"),
+        track("/c.flac", camelot_key="8A", genre="House"),
+        track("/d.flac", camelot_key="8A", genre="incomplete-drop", status="incomplete"),
+    ]
+
+    result = recommend_playlist(tracks, "harmonic_journey")
+
+    log = result.build_log
+    assert log is not None
+    assert log.strategy == "harmonic_journey"
+    assert log.pool_size == 4
+    # The final stage output must equal the number of tracks in the recommendation.
+    assert log.stages[-1].output_count == len(result.ordered_tracks)
+    assert log.final_track_count == len(result.ordered_tracks)
+    # The incomplete track is reported as dropped in a stage.
+    assert any(stage.dropped >= 1 for stage in log.stages)
+    # Per-adjacency genre relations are recorded for the final sequence.
+    assert len(log.genre_relations) == max(0, len(result.ordered_tracks) - 1)
     assert "Excluded 1 incomplete track(s)" in result.warnings
 
 
