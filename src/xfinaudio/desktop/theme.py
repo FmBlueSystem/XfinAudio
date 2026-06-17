@@ -43,6 +43,28 @@ QLabel#statusLabel {
 QLabel#guidanceLabel {
     color: #9fb3c8;
 }
+QLabel#readinessBadge {
+    font-size: 15px;
+    font-weight: 800;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid #2d3744;
+}
+QLabel#readinessBadge[status="ready"] {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #2fe27e, stop: 1 #1fb863);
+    border-color: #2fe27e;
+    color: #04130a;
+}
+QLabel#readinessBadge[status="needs_review"] {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #ffc94d, stop: 1 #ffb000);
+    border-color: #ffc94d;
+    color: #1a1304;
+}
+QLabel#readinessBadge[status="blocked"] {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #ff6b6d, stop: 1 #e23a3c);
+    border-color: #ff6b6d;
+    color: #1a0608;
+}
 QPushButton {
     background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #243140, stop: 1 #1c2733);
     color: #edf5ff;
@@ -149,8 +171,10 @@ QListWidget#workflowSidebar {
     outline: 0;
 }
 QListWidget#workflowSidebar::item {
-    padding: 8px;
+    padding: 7px 8px;
     border-radius: 6px;
+    border-left: 3px solid transparent;
+    margin: 1px 0;
 }
 QListWidget#workflowSidebar::item:hover {
     background: #17212c;
@@ -158,6 +182,7 @@ QListWidget#workflowSidebar::item:hover {
 QListWidget#workflowSidebar::item:selected {
     background: #005b86;
     color: #edf5ff;
+    border-left: 3px solid #00d4ff;
 }
 QListWidget#workflowSidebar::item:disabled {
     color: #66717d;

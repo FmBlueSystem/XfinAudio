@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -88,9 +88,12 @@ class ExportScreen(QWidget):
         self.safe_export_folder_label.setMaximumHeight(24)
         layout.addWidget(self.safe_export_folder_label)
 
-        # Playlist summary
+        # Playlist summary — a compact one-line chip. Capped height + centered text so it reads as
+        # a summary badge instead of ballooning into a large empty bordered box on sparse screens.
         self.playlist_info_label = QLabel("—")
         self.playlist_info_label.setObjectName("statusLabel")
+        self.playlist_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.playlist_info_label.setMaximumHeight(48)
         layout.addWidget(self.playlist_info_label)
 
         # Empty-state / guidance label

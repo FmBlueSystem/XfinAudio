@@ -236,6 +236,9 @@ class MainWindow(QMainWindow):
         self.workflow_sidebar.setAccessibleName(self.tr("Workflow navigation"))
         self.workflow_sidebar.setFixedWidth(_SIDEBAR_WIDTH_WIDE)
         self.workflow_sidebar.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Behave like a vertical tab bar: the list fills the panel height (see stretch
+        # below) so every workflow step stays visible without scroll arrows.
+        self.workflow_sidebar.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # Standard icons per workflow step so the sidebar stays legible (icon-only) on narrow
         # windows where labels are hidden, instead of collapsing to blank rows.
         _sidebar_icons = [
@@ -279,8 +282,7 @@ class MainWindow(QMainWindow):
         sidebar_layout = QVBoxLayout()
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
-        sidebar_layout.addWidget(self.workflow_sidebar, 0)
-        sidebar_layout.addStretch(1)
+        sidebar_layout.addWidget(self.workflow_sidebar, 1)
         sidebar_panel.setLayout(sidebar_layout)
         self._sidebar_panel = sidebar_panel
         workflow_layout.addWidget(sidebar_panel)
@@ -405,6 +407,7 @@ class MainWindow(QMainWindow):
         self._library_screen = LibraryScreen()
         self._build_screen = BuildScreen()
         self._build_screen.spectral_cohesion_slider.setValue(int(round(self.settings.scoring.spectral_cohesion * 100)))
+        self._build_screen.genre_cohesion_slider.setValue(int(round(self.settings.scoring.genre_cohesion * 100)))
         self._review_screen = ReviewScreen()
         self._export_screen = ExportScreen()
         self._playlists_screen = MyPlaylistsScreen()
@@ -699,6 +702,7 @@ class MainWindow(QMainWindow):
         # BuildScreen signals
         self._build_screen.recommend_requested.connect(self._on_recommend_requested)
         self._build_screen.spectral_cohesion_changed.connect(self._on_spectral_cohesion_changed)
+        self._build_screen.genre_cohesion_changed.connect(self._on_genre_cohesion_changed)
         self._build_screen.copilot_generate_requested.connect(self.generate_prep_copilot)
         self._build_screen.copilot_variant_applied.connect(self._on_copilot_variant_applied)
         self._build_screen.back_requested.connect(lambda: self.workflow_tabs.setCurrentIndex(0))
@@ -1197,8 +1201,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_idle_action_state(self) -> None:
         """Enable only the actions that are valid for the current idle UI state."""
+        self._refresh_state_fields()
         self._library_screen.scan_button.setEnabled(self.selected_folder is not None)
-        self._build_screen.recommend_button.setEnabled(self._selected_track_controls() is not None)
+        self._build_screen.recommend_button.setEnabled(self._build_vm.recommend_button_enabled(self._state))
         status_filter = self._selected_metadata_status_filter()
         missing_filter = self._selected_missing_metadata_filter()
         self._metadata_screen.export_button.setEnabled(
@@ -1222,6 +1227,16 @@ class MainWindow(QMainWindow):
         cohesion = value / 100.0
         self.settings = self.settings.model_copy(
             update={"scoring": self.settings.scoring.model_copy(update={"spectral_cohesion": cohesion})}
+        )
+        if self.settings_repository is not None:
+            self.settings_repository.save(self.settings)
+        self._sync_state()
+
+    def _on_genre_cohesion_changed(self, value: int) -> None:
+        """Persist genre cohesion when the Build Playlist slider moves."""
+        cohesion = value / 100.0
+        self.settings = self.settings.model_copy(
+            update={"scoring": self.settings.scoring.model_copy(update={"genre_cohesion": cohesion})}
         )
         if self.settings_repository is not None:
             self.settings_repository.save(self.settings)

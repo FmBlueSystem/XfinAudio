@@ -163,6 +163,22 @@ class TestReviewScreen:
 
         assert calls == [None]
 
+    def test_readiness_badge_status_property_drives_color(self, qapp) -> None:
+        """The badge exposes a `status` property so the theme can color it like a semaphore."""
+        screen = ReviewScreen()
+        vm = ReviewViewModel()
+
+        screen.render(vm, AppState())  # no recommendation → blocked
+        assert screen.readiness_badge.property("status") == "blocked"
+
+        screen.render(vm, AppState(last_recommendation=_recommendation()))  # no report → needs_review
+        assert screen.readiness_badge.property("status") == "needs_review"
+
+    def test_duplicate_quality_line_is_not_in_visible_layout(self, qapp) -> None:
+        """The quality line is consolidated into the review summary, not shown as a 4th label."""
+        screen = ReviewScreen()
+        assert screen.quality_label.parent() is None
+
 
 # ---------------------------------------------------------------------------
 # ExportScreen
@@ -190,6 +206,12 @@ class TestExportScreen:
         vm = ExportViewModel()
         state = AppState()
         screen.render(vm, state)  # must not raise
+
+    def test_playlist_info_label_height_is_capped(self, qapp) -> None:
+        """The one-line export summary must not balloon into a giant empty box."""
+        screen = ExportScreen()
+        height = screen.playlist_info_label.maximumHeight()
+        assert 0 < height <= 80
 
 
 # ---------------------------------------------------------------------------

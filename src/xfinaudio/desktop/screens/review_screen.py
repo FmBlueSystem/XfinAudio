@@ -102,9 +102,11 @@ class ReviewScreen(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
-        # 1. Decision banner — primary semaphore, large and prominent
+        # 1. Decision banner — primary semaphore pill, large and prominent. The `status`
+        # property is set in render() so the theme can color it green/amber/red.
         self.readiness_badge = QLabel()
         self.readiness_badge.setObjectName("readinessBadge")
+        self.readiness_badge.setProperty("status", "blocked")
         layout.addWidget(self.readiness_badge)
 
         # 2. Reason summary — keep compact so tables get space
@@ -117,10 +119,20 @@ class ReviewScreen(QWidget):
         self.review_summary_label.setMaximumHeight(28)
         layout.addWidget(self.review_summary_label)
 
-        # VM-driven quality summary
+        # VM-driven quality summary. Kept for API/render compatibility but deliberately NOT added
+        # to the layout: it duplicated the average-transition-score already shown in
+        # review_summary_label, so we consolidate to avoid a redundant 4th header line.
         self.quality_label = QLabel()
         self.quality_label.setMaximumHeight(28)
-        layout.addWidget(self.quality_label)
+
+        # Read-only build-log summary: shows how the playlist was constructed (stage funnel +
+        # cross-genre transition count) so the DJ can see why the mix spans the genres it does.
+        self.build_log_label = QLabel()
+        self.build_log_label.setObjectName("guidanceLabel")
+        self.build_log_label.setWordWrap(True)
+        self.build_log_label.setMaximumHeight(28)
+        self.build_log_label.setVisible(False)
+        layout.addWidget(self.build_log_label)
 
         # Tables live in a user-resizable vertical splitter so they no longer fight over equal
         # thirds of the vertical space. Each section is a small container widget.
@@ -273,7 +285,17 @@ class ReviewScreen(QWidget):
                         (used for non-visible tabs during state sync).
         """
         self.readiness_badge.setText(vm.readiness_badge_text(state))
+        status = vm.readiness_status(state).value
+        if self.readiness_badge.property("status") != status:
+            self.readiness_badge.setProperty("status", status)
+            # Re-polish so the property-based stylesheet selector recolors the pill.
+            style = self.readiness_badge.style()
+            style.unpolish(self.readiness_badge)
+            style.polish(self.readiness_badge)
         self.quality_label.setText(vm.quality_summary(state))
+        build_log_summary = vm.build_log_summary(state)
+        self.build_log_label.setText(build_log_summary or "")
+        self.build_log_label.setVisible(build_log_summary is not None)
         self.export_button.setEnabled(vm.can_export(state))
         self.save_to_playlists_button.setEnabled(state.last_recommendation is not None)
         if not lightweight:

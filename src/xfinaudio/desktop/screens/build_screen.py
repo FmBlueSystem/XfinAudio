@@ -44,6 +44,7 @@ class BuildScreen(QWidget):
 
     recommend_requested = Signal(str, list)
     spectral_cohesion_changed = Signal(int)
+    genre_cohesion_changed = Signal(int)
     copilot_generate_requested = Signal()
     copilot_variant_applied = Signal(int)
     back_requested = Signal()
@@ -112,6 +113,24 @@ class BuildScreen(QWidget):
         cohesion_row.addWidget(self.spectral_cohesion_value_label)
         cohesion_row.addStretch()
         layout.addLayout(cohesion_row)
+
+        # Genre cohesion slider — higher values penalize cross-genre transitions so the
+        # recommended sequence stays within fewer genres. Default 0% preserves prior behavior.
+        genre_row = QHBoxLayout()
+        genre_row.addWidget(QLabel(self.tr("Genre Cohesion")))
+        self.genre_cohesion_slider = QSlider()
+        self.genre_cohesion_slider.setOrientation(Qt.Orientation.Horizontal)
+        self.genre_cohesion_slider.setRange(0, 100)
+        self.genre_cohesion_slider.setValue(0)
+        self.genre_cohesion_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.genre_cohesion_slider.setTickInterval(25)
+        self.genre_cohesion_slider.setAccessibleName(self.tr("Genre cohesion"))
+        self.genre_cohesion_value_label = QLabel("0%")
+        self.genre_cohesion_value_label.setMinimumWidth(40)
+        genre_row.addWidget(self.genre_cohesion_slider, 1)
+        genre_row.addWidget(self.genre_cohesion_value_label)
+        genre_row.addStretch()
+        layout.addLayout(genre_row)
 
         # Group the recommendation/constraint/summary guidance into one bordered panel so the
         # stacked text reads as a single block instead of competing full-width rows.
@@ -189,7 +208,13 @@ class BuildScreen(QWidget):
             header_item = self.copilot_table.horizontalHeaderItem(col)
             if header_item is not None:
                 header_item.setToolTip(self.tr(tip))
-        self.copilot_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        copilot_header = self.copilot_table.horizontalHeader()
+        # Description carries the long text, so it absorbs the flexible width while the
+        # short columns size to their content — this stops the description from being
+        # elided and avoids a horizontal scrollbar pushing Tracks/Readiness off-screen.
+        copilot_header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        copilot_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.copilot_table.setWordWrap(True)
         self.copilot_table.setAlternatingRowColors(True)
         self.copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -278,6 +303,7 @@ class BuildScreen(QWidget):
         self.lock_button.clicked.connect(self.lock_requested)
         self.clear_constraints_button.clicked.connect(self.clear_constraints_requested)
         self.spectral_cohesion_slider.valueChanged.connect(self._on_spectral_cohesion_changed)
+        self.genre_cohesion_slider.valueChanged.connect(self._on_genre_cohesion_changed)
 
     def _on_spectral_cohesion_changed(self, value: int) -> None:
         self.spectral_cohesion_value_label.setText(f"{value}%")
@@ -286,6 +312,14 @@ class BuildScreen(QWidget):
     def spectral_cohesion_value(self) -> int:
         """Return the current spectral cohesion slider value (0-100)."""
         return self.spectral_cohesion_slider.value()
+
+    def _on_genre_cohesion_changed(self, value: int) -> None:
+        self.genre_cohesion_value_label.setText(f"{value}%")
+        self.genre_cohesion_changed.emit(value)
+
+    def genre_cohesion_value(self) -> int:
+        """Return the current genre cohesion slider value (0-100)."""
+        return self.genre_cohesion_slider.value()
 
     # ------------------------------------------------------------------
     # Render
@@ -303,7 +337,7 @@ class BuildScreen(QWidget):
             for option in vm.available_strategies():
                 self.strategy_combo.addItem(option.name)
 
-        # recommend_button enabled state is managed by MainWindow._refresh_idle_action_state
+        self.recommend_button.setEnabled(vm.recommend_button_enabled(state))
         self.copilot_button.setEnabled(vm.copilot_button_enabled(state))
         self._render_recommend_progress(state)
         no_recommendation = state.last_recommendation is None
@@ -386,6 +420,9 @@ class BuildScreen(QWidget):
             ]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
+                if col == 1:
+                    # Full description as tooltip so wrapping/elision never hides detail.
+                    item.setToolTip(row_data.description)
                 if col == 3:
                     color = _READINESS_STATUS_COLORS.get(status)
                     if color:
@@ -393,6 +430,7 @@ class BuildScreen(QWidget):
                         item.setForeground(QColor("#061016"))
                     item.setToolTip(row_data.readiness_summary)
                 self.copilot_table.setItem(row, col, item)
+        self.copilot_table.resizeRowsToContents()
 
     # ------------------------------------------------------------------
     # Internal slots
