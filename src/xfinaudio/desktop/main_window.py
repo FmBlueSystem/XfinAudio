@@ -39,14 +39,12 @@ from xfinaudio.desktop.export_coordinator import ExportCoordinator
 from xfinaudio.desktop.export_view_model import ExportViewModel
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.library_view_model import LibraryViewModel
-from xfinaudio.desktop.live_assistant_coordinator import LiveAssistantCoordinator
-from xfinaudio.desktop.menu_builder import MenuBuilder
+from xfinaudio.desktop.menu import Menu
 from xfinaudio.desktop.metadata_view_model import MetadataViewModel
-from xfinaudio.desktop.navigation_controller import NavigationController
+from xfinaudio.desktop.navigation import Navigation
 from xfinaudio.desktop.playlist_coordinator import PlaylistCoordinator
-from xfinaudio.desktop.recommendation_controller import RecommendationController
-from xfinaudio.desktop.recommendation_coordinator import RecommendationCoordinator
 from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
+from xfinaudio.desktop.recommendation_service import RecommendationService
 from xfinaudio.desktop.rendering import (
     _component_score,
     _format_missing_metadata,
@@ -60,8 +58,7 @@ from xfinaudio.desktop.rendering import (
     format_recommendation_warning,
 )
 from xfinaudio.desktop.review_view_model import ReviewViewModel
-from xfinaudio.desktop.scan_controller import ScanController
-from xfinaudio.desktop.scan_coordinator import ScanCoordinator
+from xfinaudio.desktop.scan_service import ScanService as DesktopScanService
 from xfinaudio.desktop.screens import (
     BuildScreen,
     ExportScreen,
@@ -72,7 +69,7 @@ from xfinaudio.desktop.screens import (
     PlaylistEditor,
     ReviewScreen,
 )
-from xfinaudio.desktop.settings_controller import SettingsController
+from xfinaudio.desktop.settings_dialog import SettingsDialog
 from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
 from xfinaudio.desktop.status_bar import StatusBar
 from xfinaudio.desktop.table_populators import (
@@ -196,24 +193,26 @@ class MainWindow(QMainWindow):
         self._initialize_window_state(scan_service, repository, settings, settings_repository)
 
         self._build_widgets()
+        self._wire_scan_service()
+        self._wire_recommendation_service()
 
         self._connect_widget_signals()
         self._apply_visual_design()
         self._build_layout()
-        self._menu_builder = MenuBuilder(self)  # type: ignore[reportArgumentType]
-        self._menu_builder.build(self.menuBar())
+        self._menu = Menu(self)  # type: ignore[reportArgumentType]
+        self._menu.build(self.menuBar())
         self._restore_window_geometry()
         self._sync_state()
 
     def closeEvent(self, event: object) -> None:
         """Stop all background threads and audio player before the window is destroyed."""
         self._audio_player.stop()
-        self._scan_controller.cancel()
+        self._scan_service.cancel()
         if self._spectral_completion_worker is not None:
             self._spectral_completion_worker.cancel()
             self._spectral_completion_worker.wait()
             self._spectral_completion_worker = None
-        self._recommendation_controller.cancel()
+        self._recommendation_service.cancel()
         self._persist_window_geometry()
         super().closeEvent(event)  # type: ignore[arg-type]
 
@@ -363,15 +362,14 @@ class MainWindow(QMainWindow):
             selected_folder=self.settings.library.last_scan_folder,
             settings=self.settings,
         )
-        self.current_scan_cancellation_token: ScanCancellationToken | None = None
         self._is_recommending: bool = False
-        self._scan_controller = ScanController(self.workflow_service, parent=self)
-        self._recommendation_controller = RecommendationController(self.workflow_service, parent=self)
+        self._scan_service = DesktopScanService(self.workflow_service, parent=self)
+        self._recommendation_service = RecommendationService(self.workflow_service, parent=self)
         self._table_sort_orders: dict[int, Qt.SortOrder] = {}
         self._active_song_search_query = ""
         self._library_selected_paths: list[str] = []
         self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
-        self._nav = NavigationController()
+        self._nav = Navigation()
         self._undo_manager = UndoManager()
         self._audio_player = AudioPlayer(parent=self)
         self._audio_player.set_volume(self.settings.audio.preview_volume)
@@ -403,11 +401,61 @@ class MainWindow(QMainWindow):
             host=self,  # type: ignore[reportArgumentType]
             on_export_success=self._playlist_coordinator.save_recommendation,
         )
-        self._scan_coordinator = ScanCoordinator(host=self)  # type: ignore[reportArgumentType]
         self._spectral_completion_worker: SpectralCompletionWorker | None = None
-        self._recommendation_coordinator = RecommendationCoordinator(host=self)  # type: ignore[reportArgumentType]
-        self._live_assistant_coordinator = LiveAssistantCoordinator(host=self)  # type: ignore[reportArgumentType]
-        self._settings_controller = SettingsController(self)  # type: ignore[reportArgumentType]
+        self._settings_dialog: SettingsDialog | None = None
+
+    def _wire_scan_service(self) -> None:
+        self._scan_service.set_state_accessors(
+            selected_folder=lambda: self.selected_folder,
+            scanned_records=lambda: self.scanned_records,
+            set_scanned_records=lambda records: setattr(self, "scanned_records", records),
+            state=self._state,
+        )
+        self._scan_service.set_ui(
+            library_screen=self._library_screen,
+            build_screen=self._build_screen,
+            status_label=self.status_label,
+            scan_progress_label=self.scan_progress_label,
+            library_guidance_label=self.library_guidance_label,
+            recommendation_guidance_label=self.recommendation_guidance_label,
+            tr=self.tr,
+        )
+        self._scan_service.set_actions(
+            sync_state=self._sync_state,
+            show_tracks=self.show_tracks,
+            clear_scan_dependent_state=self._clear_scan_dependent_state,
+            refresh_idle_action_state=self._refresh_idle_action_state,
+            cancel_spectral_completion_worker=self._cancel_spectral_completion_worker,
+            show_status_bar=self.show_status_bar,
+        )
+
+    def _wire_recommendation_service(self) -> None:
+        self._recommendation_service.set_state_accessors(
+            scanned_records=lambda: self.scanned_records,
+            set_is_recommending=lambda value: setattr(self, "_is_recommending", value),
+            state=self._state,
+        )
+        self._recommendation_service.set_ui(
+            build_screen=self._build_screen,
+            review_screen=self._review_screen,
+            export_screen=self._export_screen,
+            library_screen=self._library_screen,
+            status_label=self.status_label,
+            recommendation_guidance_label=self.recommendation_guidance_label,
+            tr=self.tr,
+        )
+        self._recommendation_service.set_actions(
+            sync_state=self._sync_state,
+            clear_recommendation_review=self.clear_recommendation_review,
+            show_recommendation=self.show_recommendation,
+            show_transition_review=self.show_transition_review,
+            selected_track_controls=self._selected_track_controls,
+            desktop_recommendation_records=self._desktop_recommendation_records,
+            set_recommendation_sections_expanded=self._set_recommendation_sections_expanded,
+            set_applied_copilot_variant=self._set_applied_copilot_variant,
+            show_dj_readiness=self._show_dj_readiness,
+            refresh_idle_action_state=self._refresh_idle_action_state,
+        )
 
     def _render_tab(self, index: int, lightweight: bool = False) -> None:
         """Render only the screen mapped to the given tab index.
@@ -448,6 +496,7 @@ class MainWindow(QMainWindow):
         table, recommendation table) are queried and asserted without a tab switch.
         """
         self._refresh_state_fields()
+        self._live_assistant_screen.set_library_state(self._records_by_path, self.scanned_records)
         self._render_screens()
 
     def _render_screens(self) -> None:
@@ -490,6 +539,26 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # AppState property delegates — single source of truth in self._state
     # ------------------------------------------------------------------
+
+    @property
+    def workflow_service(self) -> PlaylistWorkflowService:
+        return self._workflow_service
+
+    @workflow_service.setter
+    def workflow_service(self, value: PlaylistWorkflowService) -> None:
+        self._workflow_service = value
+        if hasattr(self, "_scan_service"):
+            self._scan_service.workflow_service = value
+        if hasattr(self, "_recommendation_service"):
+            self._recommendation_service.workflow_service = value
+
+    @property
+    def current_scan_cancellation_token(self) -> ScanCancellationToken | None:
+        return self._scan_service.current_scan_cancellation_token
+
+    @current_scan_cancellation_token.setter
+    def current_scan_cancellation_token(self, value: ScanCancellationToken | None) -> None:
+        self._scan_service.current_scan_cancellation_token = value
 
     @property
     def selected_folder(self) -> Path | None:
@@ -596,7 +665,7 @@ class MainWindow(QMainWindow):
         self._state.playlist_removed_paths = value
 
     def _update_tab_states(self) -> None:
-        """Enable/disable tabs based on NavigationController rules."""
+        """Enable/disable tabs based on Navigation rules."""
         for index, screen_name in enumerate(_SCREEN_NAMES):
             enabled = self._nav.can_go_to(screen_name, self._state)
             self.workflow_tabs.setTabEnabled(index, enabled)
@@ -658,11 +727,11 @@ class MainWindow(QMainWindow):
         self._metadata_screen.status_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
         self._metadata_screen.missing_combo.currentTextChanged.connect(lambda _text: self._apply_song_filter())
         self._metadata_screen.export_button.clicked.connect(lambda: self.export_metadata_status_to_serato())
-        self._scan_controller.scan_progress_updated.connect(self._scan_coordinator.on_progress)
-        self._scan_controller.scan_completed.connect(self._scan_coordinator.on_completed)
-        self._scan_controller.scan_failed.connect(self._scan_coordinator.on_failed)
-        self._recommendation_controller.recommendation_completed.connect(self._recommendation_coordinator.on_completed)
-        self._recommendation_controller.recommendation_failed.connect(self._recommendation_coordinator.on_failed)
+        self._scan_service.scan_progress_updated.connect(self._scan_service.on_progress)
+        self._scan_service.scan_completed.connect(self._scan_service.on_completed)
+        self._scan_service.scan_failed.connect(self._scan_service.on_failed)
+        self._recommendation_service.recommendation_completed.connect(self._recommendation_service.on_completed)
+        self._recommendation_service.recommendation_failed.connect(self._recommendation_service.on_failed)
         # LibraryScreen signals
         self._library_screen.folder_change_requested.connect(self.choose_folder)
         self._library_screen.scan_requested.connect(self.scan_selected_folder)
@@ -706,7 +775,7 @@ class MainWindow(QMainWindow):
         self._metadata_screen.filter_changed.connect(self._sync_state)
         self._metadata_screen.export_requested.connect(self._on_metadata_export_requested)
         # LiveAssistantScreen signals
-        self._live_assistant_coordinator.connect_signals()
+        self._live_assistant_screen.connect_signals(lambda: self.workflow_tabs, self._on_preview_play_requested)
         # Playlist signals (MyPlaylistsScreen + PlaylistEditor) — owned by PlaylistCoordinator
         self._playlist_coordinator.connect_signals()
         self._playlist_coordinator.refresh_list()
@@ -1186,7 +1255,9 @@ class MainWindow(QMainWindow):
 
     def _open_settings_dialog(self) -> None:
         """Open the settings dialog and apply changes if confirmed."""
-        self._settings_controller.open_dialog()
+        self._settings_dialog = SettingsDialog(self.settings, parent=self)
+        self._settings_dialog.settings_changed.connect(self._apply_settings)
+        self._settings_dialog.open_dialog()
 
     def _on_spectral_cohesion_changed(self, value: int) -> None:
         """Persist spectral cohesion when the Build Playlist slider moves."""
@@ -1200,7 +1271,20 @@ class MainWindow(QMainWindow):
 
     def _apply_settings(self, new_settings: AppSettings) -> None:
         """Apply and persist settings from the settings dialog."""
-        self._settings_controller.apply(new_settings)
+        old_lang = self.settings.ui.language
+        self.settings = new_settings
+        if self.settings_repository is not None:
+            self.settings_repository.save(new_settings)
+        self._export_screen.safe_export_folder_label.setText(self._format_safe_export_folder_label())
+        self._sync_state()
+        if new_settings.ui.language != old_lang:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(
+                self,
+                self.tr("Language Changed"),
+                self.tr("Please restart XfinAudio for the language change to take effect."),
+            )
 
     def set_safe_export_folder(self, folder: Path) -> None:
         """Persist a safe export folder if it is not the selected audio folder."""
@@ -1294,11 +1378,11 @@ class MainWindow(QMainWindow):
 
     def scan_selected_folder(self) -> None:
         """Scan the selected folder, persist records, and refresh table/status widgets."""
-        self._scan_coordinator.scan_selected_folder()
+        self._scan_service.scan_selected_folder()
 
     def _begin_scan_state(self) -> None:
         """Prepare synchronous scan state and enable cooperative cancellation."""
-        self._scan_coordinator.begin_scan_state()
+        self._scan_service.begin_scan_state()
 
     def _on_library_selection_changed(self, paths: list[str]) -> None:
         """Update state when user selection changes in LibraryScreen."""
@@ -1310,7 +1394,7 @@ class MainWindow(QMainWindow):
 
     def cancel_scan(self) -> None:
         """Request cancellation for the current scan."""
-        self._scan_coordinator.cancel()
+        self._scan_service.cancel()
 
     def show_tracks(
         self,
@@ -1415,7 +1499,7 @@ class MainWindow(QMainWindow):
 
     def recommend_playlist(self) -> None:
         """Generate and display a playlist recommendation from scanned records."""
-        self._recommendation_coordinator.recommend()
+        self._recommendation_service.recommend()
 
     def _selected_track_controls(self) -> DJControls | None:
         """Convert selected track rows into DJ sequencing controls.
@@ -1482,25 +1566,25 @@ class MainWindow(QMainWindow):
         return build_recommendation_pool(self.scanned_records, controls, _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT)
 
     def _begin_recommendation_state(self, candidate_count: int) -> None:
-        self._recommendation_coordinator._begin_recommendation_state(candidate_count)
+        self._recommendation_service._begin_recommendation_state(candidate_count)
 
     def _end_recommendation_state(self) -> None:
-        self._recommendation_coordinator._end_recommendation_state()
+        self._recommendation_service._end_recommendation_state()
 
     def _start_recommendation_worker(
         self, records: list[TrackRecord], strategy_name: str, controls: DJControls | None = None
     ) -> None:
-        self._recommendation_coordinator._start_recommendation_worker(records, strategy_name, controls)
+        self._recommendation_service.start_recommendation(records, strategy_name, controls)
 
     @Slot(object)
     def _finish_recommendation(self, result: Any) -> None:
         """Render a completed background recommendation."""
-        self._recommendation_coordinator.on_completed(result)
+        self._recommendation_service.on_completed(result)
 
     @Slot(object)
     def _fail_recommendation(self, error: object) -> None:
         """Recover the UI if background recommendation generation fails."""
-        self._recommendation_coordinator.on_failed(error)
+        self._recommendation_service.on_failed(error)
 
     def show_recommendation(
         self,
@@ -1575,7 +1659,7 @@ class MainWindow(QMainWindow):
 
     def _on_recommend_requested(self, strategy_name: str, paths: list[str]) -> None:
         """Adapter: BuildScreen emits (strategy_name, paths), recommend_playlist reads from widgets."""
-        self._recommendation_coordinator.on_recommend_requested(strategy_name, paths)
+        self._recommendation_service.on_recommend_requested(strategy_name, paths)
 
     def _on_copilot_variant_applied(self, index: int) -> None:
         """Adapter: BuildScreen emits variant index, apply method reads from table."""
@@ -1667,8 +1751,8 @@ class MainWindow(QMainWindow):
         self._audio_player.load(path)
 
     def _on_live_load_next(self, path: str) -> None:
-        """Delegate Live Assistant load-next to the coordinator."""
-        self._live_assistant_coordinator.load_next(path)
+        """Delegate Live Assistant load-next to the screen."""
+        self._live_assistant_screen.load_next(path)
 
     def _on_player_state_changed(self, state: object) -> None:
         """Update LibraryScreen highlight when player state changes."""

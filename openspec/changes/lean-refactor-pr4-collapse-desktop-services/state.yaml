@@ -1,0 +1,33 @@
+schema: gentle-ai.sdd-state.v1
+change: lean-refactor-pr4-collapse-desktop-services
+artifact_store: openspec
+status: active
+state: verifying
+step: verify
+review_status: pending
+created: 2026-06-18
+updated: 2026-06-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in_progress
+  review: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: chained
+  chained_prs_recommended: true
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 800
+notes: |
+  PR 4 of 5 in the lean-refactor chain.
+  Tracker: tracker/lean-refactor.
+  PR branch: refactor/collapse-desktop-services (from tracker).
+  Largest of the 5 PRs (~700 LOC delta, ~800 lines of churn).
+  Strict TDD: existing test suite is the contract; no new tests, no
+  assertion changes.
+  main_window.py is NOT sliced in this PR; that is PR 5.

@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_view_model import LibraryFilters, LibraryViewModel, TrackDisplayRow
-from xfinaudio.desktop.scan_controller import progress_percent, progress_status_text
+from xfinaudio.desktop.scan_service import progress_percent, progress_status_text
 
 _EMPTY = QTableWidgetItem("")
 _ROW_COLOR_EVEN = QColor("#101820")

@@ -1,4 +1,4 @@
-"""Tests for SettingsController."""
+"""Tests for settings application from MainWindow."""
 
 from __future__ import annotations
 
@@ -8,8 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from xfinaudio.config.settings import AppSettings, ExportSettings
-from xfinaudio.desktop.main_window import SettingsPersistence
-from xfinaudio.desktop.settings_controller import SettingsController
+from xfinaudio.desktop.main_window import MainWindow, SettingsPersistence
 
 
 class _FakeRepository(SettingsPersistence):
@@ -49,9 +48,7 @@ def host() -> _MockHost:
 
 def test_reset_to_defaults_applies_default_settings(host: _MockHost) -> None:
     """reset_to_defaults applies AppSettings defaults and persists them."""
-    controller = SettingsController(host)
-
-    controller.reset_to_defaults()
+    MainWindow._apply_settings(host, AppSettings())  # type: ignore[arg-type]
 
     assert host.settings == AppSettings()
     assert host.settings.export.safe_export_folder is None
@@ -61,10 +58,9 @@ def test_reset_to_defaults_applies_default_settings(host: _MockHost) -> None:
 
 def test_apply_persists_custom_settings(host: _MockHost) -> None:
     """apply persists the provided settings."""
-    controller = SettingsController(host)
     new_settings = AppSettings(export=ExportSettings(safe_export_folder=Path("/another")))
 
-    controller.apply(new_settings)
+    MainWindow._apply_settings(host, new_settings)  # type: ignore[arg-type]
 
     assert host.settings == new_settings
     assert host.settings_repository.saved[-1] == new_settings

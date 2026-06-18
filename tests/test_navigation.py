@@ -1,11 +1,11 @@
-"""Tests for NavigationController DJ flow navigation rules."""
+"""Tests for Navigation DJ flow navigation rules."""
 
 from __future__ import annotations
 
 import pytest
 
 from xfinaudio.desktop.app_state import AppState
-from xfinaudio.desktop.navigation_controller import NavigationController
+from xfinaudio.desktop.navigation import Navigation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -56,8 +56,8 @@ def _blocked_readiness() -> DjReadinessReport:
 
 
 @pytest.fixture
-def ctrl() -> NavigationController:
-    return NavigationController()
+def ctrl() -> Navigation:
+    return Navigation()
 
 
 @pytest.fixture
@@ -291,6 +291,6 @@ def test_back_screen_metadata_returns_none(ctrl, empty_state):
 
 
 def test_can_go_to_unknown_screen_returns_false():
-    ctrl = NavigationController()
+    ctrl = Navigation()
     state = AppState()
     assert ctrl.can_go_to("nonexistent", state) is False

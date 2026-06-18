@@ -116,6 +116,8 @@ class LiveAssistantScreen(QWidget):
 
         self._current_track: TrackRecord | None = None
         self._candidates: list[TrackRecord] = []
+        self._records_by_path: dict[str, TrackRecord] = {}
+        self._scanned_records: list[TrackRecord] = []
         self._session_start = datetime.now()
 
         layout = QVBoxLayout(self)
@@ -267,6 +269,26 @@ class LiveAssistantScreen(QWidget):
         self._history_table.setItem(row, 3, QTableWidgetItem(f"{track.bpm:.1f}" if track.bpm else "—"))
         self._history_table.setItem(row, 4, QTableWidgetItem(track.camelot_key or "—"))
         self._history_table.setItem(row, 5, QTableWidgetItem(datetime.now().strftime("%H:%M:%S")))
+
+    def set_library_state(self, records_by_path: dict[str, TrackRecord], scanned_records: list[TrackRecord]) -> None:
+        """Provide the library state used by load-next suggestions."""
+        self._records_by_path = records_by_path
+        self._scanned_records = scanned_records
+
+    def connect_signals(self, workflow_tabs, preview_handler) -> None:
+        """Wire screen-local signals to the owning window."""
+        self.exit_requested.connect(lambda: workflow_tabs().setCurrentIndex(0))
+        self.preview_requested.connect(preview_handler)
+        self.load_next_requested.connect(self.load_next)
+
+    def load_next(self, path: str) -> None:
+        """Handle load-next: update current track and recalculate suggestions."""
+        record = self._records_by_path.get(path)
+        if record is None:
+            return
+        self.set_current_track(record)
+        candidates = [r for r in self._scanned_records if r.path != path and r.metadata_status == "complete"][:25]
+        self.set_candidates(candidates)
 
     def _on_load_next(self, path: str) -> None:
         if self._current_track:

@@ -10,7 +10,7 @@ SCREEN_ORDER: list[str] = ["library", "build", "review", "export"]
 # "metadata" is always accessible but lives outside the linear flow.
 
 
-class NavigationController:
+class Navigation:
     """Encapsulates the navigation rules of the DJ flow."""
 
     def can_go_to(self, screen: str, state: AppState) -> bool:
@@ -77,4 +77,4 @@ class NavigationController:
         return SCREEN_ORDER[idx - 1]
 
 
-__all__ = ["SCREEN_ORDER", "NavigationController"]
+__all__ = ["SCREEN_ORDER", "Navigation"]
