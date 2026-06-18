@@ -1,0 +1,31 @@
+schema: gentle-ai.sdd-state.v1
+change: lean-refactor-pr1-doc-cleanup
+artifact_store: openspec
+status: active
+state: verifying
+step: verify
+review_status: pending
+created: 2026-06-18
+updated: 2026-06-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in_progress
+  review: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: chained
+  chained_prs_recommended: true
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 50
+notes: |
+  PR 1 of 5 in the lean-refactor chain.
+  Tracker: tracker/lean-refactor.
+  PR branch: chore/delete-stray-root-docs (from tracker).
+  HARMONIC_MIXING.md was moved to docs/harmonic-mixing.md, not deleted.
+  Apply completed in commit 7f73d13e27861ae55ffe56b675b6d3ddb61bbaeb.
