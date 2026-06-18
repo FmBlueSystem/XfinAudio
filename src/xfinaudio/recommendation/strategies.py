@@ -133,12 +133,18 @@ class StrategyRegistry:
         """Return registered strategy names in registration order."""
         return list(self._strategies)
 
+    def resolve_name(self, name: str) -> str:
+        """Return the internal strategy name for an internal name or display label."""
+        if name in self._strategies:
+            return name
+        for strategy in self._strategies.values():
+            if strategy.display_name == name:
+                return strategy.name
+        raise ValueError(f"Unknown playlist strategy: {name}")
+
     def get(self, name: str) -> PlaylistStrategy:
-        """Return a registered strategy profile by name."""
-        try:
-            return self._strategies[name]
-        except KeyError as exc:
-            raise ValueError(f"Unknown playlist strategy: {name}") from exc
+        """Return a registered strategy profile by internal name or display label."""
+        return self._strategies[self.resolve_name(name)]
 
 
 def default_strategy_registry() -> StrategyRegistry:
@@ -151,8 +157,13 @@ def available_strategies() -> list[StrategyName]:
     return list(_STRATEGIES)
 
 
+def resolve_strategy_name(name: str, strategy_registry: StrategyRegistry | None = None) -> str:
+    """Return the internal strategy name for an internal name or display label."""
+    return (strategy_registry or default_strategy_registry()).resolve_name(name)
+
+
 def get_strategy(name: str) -> PlaylistStrategy:
-    """Return a playlist strategy profile by name."""
+    """Return a playlist strategy profile by internal name or display label."""
     return default_strategy_registry().get(name)
 
 
@@ -163,4 +174,5 @@ __all__ = [
     "available_strategies",
     "default_strategy_registry",
     "get_strategy",
+    "resolve_strategy_name",
 ]
