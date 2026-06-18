@@ -194,7 +194,7 @@ def test_track_repository_migrates_v1_database_to_v3(tmp_path) -> None:
     repository = TrackRepository(db_path)
 
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert repository.list_tracks() == []
 
 

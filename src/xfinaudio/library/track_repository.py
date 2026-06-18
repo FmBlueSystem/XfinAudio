@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.genre.models import GenreDecision
 from xfinaudio.library.models import TrackRecord
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class DatabaseSchemaError(RuntimeError):
@@ -38,8 +39,9 @@ class TrackRepository:
                 INSERT INTO tracks (
                     path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
                     metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
-                    spectral_profile_json, file_mtime_ns, file_size_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    spectral_profile_json, genre_decision_json,
+                    file_mtime_ns, file_size_bytes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     title = excluded.title,
                     artist = excluded.artist,
@@ -54,6 +56,7 @@ class TrackRepository:
                     source_fields_json = excluded.source_fields_json,
                     raw_metadata_json = excluded.raw_metadata_json,
                     spectral_profile_json = excluded.spectral_profile_json,
+                    genre_decision_json = excluded.genre_decision_json,
                     file_mtime_ns = excluded.file_mtime_ns,
                     file_size_bytes = excluded.file_size_bytes
                 """,
@@ -67,7 +70,7 @@ class TrackRepository:
                 """
                 SELECT path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
-                       spectral_profile_json
+                       spectral_profile_json, genre_decision_json
                 FROM tracks
                 ORDER BY path
                 """
@@ -203,6 +206,8 @@ class TrackRepository:
             connection.execute("ALTER TABLE tracks ADD COLUMN file_mtime_ns INTEGER")
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN file_size_bytes INTEGER")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN genre_decision_json TEXT")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_tracks_metadata_status ON tracks (metadata_status)")
 
     def _connect(self) -> sqlite3.Connection:
@@ -235,6 +240,7 @@ class TrackRepository:
             json.dumps(record.source_fields, sort_keys=True),
             json.dumps(record.raw_metadata, sort_keys=True),
             _serialize_profile(record.spectral_profile),
+            _serialize_decision(record.genre_decision),
             mtime_ns,
             size_bytes,
         )
@@ -256,6 +262,7 @@ class TrackRepository:
             source_fields=json.loads(row["source_fields_json"]),
             raw_metadata=json.loads(row["raw_metadata_json"]),
             spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
+            genre_decision=_deserialize_decision(row["genre_decision_json"]),
         )
 
     @staticmethod
@@ -287,5 +294,20 @@ def _deserialize_profile(value: str | None) -> SpectralProfile | None:
         return None
     try:
         return SpectralProfile.model_validate_json(value)
+    except Exception:
+        return None
+
+
+def _serialize_decision(decision: GenreDecision | None) -> str | None:
+    if decision is None:
+        return None
+    return decision.model_dump_json()
+
+
+def _deserialize_decision(value: str | None) -> GenreDecision | None:
+    if value is None:
+        return None
+    try:
+        return GenreDecision.model_validate_json(value)
     except Exception:
         return None

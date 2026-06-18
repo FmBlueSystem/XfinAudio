@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from xfinaudio.audio.spectral_profile import score_spectral_similarity
+from xfinaudio.genre.effective_genre import effective_genre
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.camelot import BoostRule, score_camelot_transition, shift_camelot_key
 
@@ -288,8 +289,9 @@ def _score_tags(left: TrackRecord, right: TrackRecord) -> tuple[float, int, int]
 
 def _normalized_tags(track: TrackRecord) -> set[str]:
     values = [*track.tags]
-    if track.genre:
-        values.append(track.genre)
+    genre = effective_genre(track)
+    if genre:
+        values.append(genre)
     return {value.strip().casefold() for value in values if value.strip()}
 
 

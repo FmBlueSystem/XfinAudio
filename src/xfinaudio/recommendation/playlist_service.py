@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from xfinaudio.genre.effective_genre import effective_genre
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls
 from xfinaudio.recommendation.optimizer import recommend_sequence
@@ -254,10 +255,15 @@ def _dominant_genre(genres: list[str]) -> str:
 
 
 def _normalized_genre(track: TrackRecord) -> str | None:
-    if track.genre is None:
+    """Return the normalized (casefolded) effective genre for matching.
+
+    Prefers the canonical (enriched) genre when available, falling back to the
+    raw file-tag genre. This is what the ``same_genre`` strategy compares.
+    """
+    genre = effective_genre(track)
+    if genre is None:
         return None
-    genre = track.genre.casefold().strip()
-    return genre or None
+    return genre.casefold().strip() or None
 
 
 def _preserved_control_paths(controls: DJControls) -> set[str]:

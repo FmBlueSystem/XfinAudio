@@ -12,6 +12,7 @@ from mutagen._file import File as MutagenFile
 
 from xfinaudio.audio.batch_analyzer import analyze_paths
 from xfinaudio.audio.spectral_profile import SpectralProfile, analyze_spectral_profile
+from xfinaudio.genre.enrichment_service import EnrichmentService
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.metadata.mixedinkey_contract import parse_mixedinkey_tags
 
@@ -73,6 +74,7 @@ class MetadataScanService:
         previous_profile_cache: ProfileCache | None = None,
         profile_cache_loader: ProfileCacheLoader | None = None,
         resolve_spectral_profiles: bool = True,
+        enrichment_service: EnrichmentService | None = None,
     ) -> list[TrackRecord]:
         """Recursively scan supported audio files under folder."""
         return scan_folder(
@@ -84,6 +86,7 @@ class MetadataScanService:
             previous_profile_cache=previous_profile_cache,
             profile_cache_loader=profile_cache_loader,
             resolve_spectral_profiles=resolve_spectral_profiles,
+            enrichment_service=enrichment_service,
         )
 
 
@@ -99,6 +102,7 @@ def scan_folder(
     previous_profile_cache: ProfileCache | None = None,
     profile_cache_loader: ProfileCacheLoader | None = None,
     resolve_spectral_profiles: bool = True,
+    enrichment_service: EnrichmentService | None = None,
 ) -> list[TrackRecord]:
     """Return normalized track records for supported audio files below folder.
 
@@ -121,6 +125,10 @@ def scan_folder(
             ``previous_profile_cache`` are attached; missing profiles are left
             as ``None`` so a background worker can compute them later. Default
             True preserves the original synchronous behavior.
+        enrichment_service: Optional genre enrichment service. When supplied and
+            ``enabled``, each scanned track is enriched and a ``GenreDecision``
+            is attached as ``track.genre_decision``. Provider failures are
+            isolated; a track with no decision keeps ``genre_decision=None``.
     """
     path_lister = list_paths or _recursive_paths
     tag_reader = read_tags or read_mutagen_tags
@@ -183,6 +191,8 @@ def scan_folder(
         skipped_paths,
         supported_paths,
     )
+    if enrichment_service is not None and enrichment_service.enabled:
+        records = _enrich_records(records, enrichment_service)
     for processed_index, path in enumerate(supported_paths, start=1):
         if path in skipped_paths:
             _emit_progress(on_progress, processed_index, total_count, path)
@@ -227,6 +237,26 @@ def _build_records(
             )
         )
     return records
+
+
+def _enrich_records(
+    records: list[TrackRecord],
+    enrichment_service: EnrichmentService,
+) -> list[TrackRecord]:
+    """Attach a ``GenreDecision`` to each track via the enrichment service.
+
+    Only records that receive a usable decision (primary or top_n) get the
+    field set. Provider failures are isolated inside the service, so this
+    function itself cannot raise.
+    """
+    enriched: list[TrackRecord] = []
+    for record in records:
+        decision = enrichment_service.enrich(record)
+        if decision.primary is not None or decision.top_n:
+            enriched.append(record.model_copy(update={"genre_decision": decision}))
+        else:
+            enriched.append(record)
+    return enriched
 
 
 def _resolve_spectral_profiles(
