@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DOC = PROJECT_ROOT / "HARMONIC_MIXING.md"
+DOC = PROJECT_ROOT / "docs" / "harmonic-mixing.md"
 
 
 def read_doc() -> str:

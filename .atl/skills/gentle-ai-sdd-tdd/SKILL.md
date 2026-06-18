@@ -120,5 +120,4 @@ For focused work, run the smallest relevant `pytest` target first, then the full
 ## Related project documents
 
 - `openspec/config.yaml` — project-level SDD configuration.
-- `.planning/codebase/ARCHITECTURE.md` — architecture and agent conduct.
 - `CONTRIBUTING.md` — human contributor guide.

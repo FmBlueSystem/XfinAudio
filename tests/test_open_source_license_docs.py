@@ -20,8 +20,8 @@ KEY_DOCS = [
 SOURCE_AND_PLAN_POSTURE_FILES = [
     PROJECT_ROOT / "src" / "xfinaudio" / "config" / "settings.py",
     PROJECT_ROOT / "tests" / "test_playlist_strategies.py",
-    PROJECT_ROOT / "docs" / "plans" / "2026-06-04-packaging-strategy-release-notes.md",
-    PROJECT_ROOT / "docs" / "plans" / "2026-06-04-pyinstaller-packaging-spike.md",
+    PROJECT_ROOT / "docs" / "packaging-strategy.md",
+    PROJECT_ROOT / "docs" / "release-notes-template.md",
 ]
 
 LEGACY_POSTURE_DOCS = [
@@ -29,8 +29,6 @@ LEGACY_POSTURE_DOCS = [
     PROJECT_ROOT / "docs" / "xfinaudio-stack-and-scope-decision.md",
     PROJECT_ROOT / "docs" / "pyinstaller-packaging-spike.md",
     PROJECT_ROOT / "docs" / "help-8-release-hardening.md",
-    PROJECT_ROOT / "docs" / "plans" / "2026-06-03-help-8-release-hardening.md",
-    PROJECT_ROOT / "docs" / "plans" / "2026-06-03-xfinaudio-mvp-sdd-tdd-plan.md",
 ]
 
 
@@ -86,7 +84,7 @@ def test_stale_commercial_filenames_are_not_used() -> None:
     assert not (PROJECT_ROOT / "docs" / "help-8-commercial-hardening.md").exists()
     assert (PROJECT_ROOT / "docs" / "help-8-release-hardening.md").exists()
     assert not (PROJECT_ROOT / "docs" / "plans" / "2026-06-03-help-8-commercial-hardening.md").exists()
-    assert (PROJECT_ROOT / "docs" / "plans" / "2026-06-03-help-8-release-hardening.md").exists()
+    assert not (PROJECT_ROOT / "docs" / "plans" / "2026-06-03-help-8-release-hardening.md").exists()
 
 
 def test_key_docs_keep_binary_dependency_review_pending_without_clearance_claims() -> None:

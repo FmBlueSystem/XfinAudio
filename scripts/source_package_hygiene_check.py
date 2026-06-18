@@ -21,7 +21,7 @@ REQUIRED_SDIST_FILES = [
     "NOTICE.md",
     "SECURITY.md",
     "CONTRIBUTING.md",
-    "HARMONIC_MIXING.md",
+    "docs/harmonic-mixing.md",
     "pyproject.toml",
 ]
 FORBIDDEN_FILE_NAMES = {"apiJira.txt", "context.md", ".DS_Store"}

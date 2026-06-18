@@ -37,7 +37,7 @@ def test_readme_describes_project_scope_workflow_and_release_caveats() -> None:
         "explicit safe export/backup/validation flow",
         "Release gates",
         "docs/repository-publication-checklist.md",
-        "[HARMONIC_MIXING.md](HARMONIC_MIXING.md)",
+        "[docs/harmonic-mixing.md](docs/harmonic-mixing.md)",
         "PySide6/Qt",
         "mutagen",
         "No legal advice or legal clearance is implied",
