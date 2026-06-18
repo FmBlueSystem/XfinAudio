@@ -1,0 +1,34 @@
+schema: gentle-ai.sdd-state.v1
+change: lean-refactor-pr5-slice-mainwindow
+artifact_store: openspec
+status: active
+state: verifying
+step: verify
+review_status: pending
+created: 2026-06-18
+updated: 2026-06-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in_progress
+  review: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: chained
+  chained_prs_recommended: true
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 1500
+notes: |
+  PR 5 of 5 in the lean-refactor chain (final PR).
+  Tracker: tracker/lean-refactor.
+  PR branch: refactor/slice-mainwindow (from tracker).
+  Exceeds 400-line review budget on purpose (~750 LOC extracted across 10 new files,
+  ~50 LOC of shims left on MainWindow).
+  main_window.py after this PR: ~1020 LOC (40% reduction from 1770).
+  Residual: getting main_window under 400 LOC requires splitting MainWindow into
+  a shell + screen-owned controllers, which is a follow-up.

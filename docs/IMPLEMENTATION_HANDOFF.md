@@ -192,6 +192,34 @@ Out of product:
 - `docs/harmonic-mixing.md`
 - `docs/IMPLEMENTATION_HANDOFF.md`
 
+## Recent architecture changes (2026-06-18)
+
+The `lean-refactor` chain (5 PRs, #72–#76 + integration #77, merged to `main`) collapsed
+the desktop services layer into thinner, single-responsibility modules. No behavior
+changed. The five PRs are archived under `openspec/changes/archive/2026-06-18-lean-refactor-pr{1..5}-*/`.
+
+After the chain:
+
+- `main_window.py` is 1096 LOC (down from 1770). It still exceeds the 400-line review
+  budget; further slicing into a `MainWindowShell` + screen-owned controllers is a
+  follow-up (`refactor/slice-mainwindow-residual`).
+- `src/xfinaudio/desktop/` now contains 10 helper modules extracted from
+  `main_window.py` (`layout.py`, `workflow_stack.py`, `undo_toolbar.py`,
+  `shortcuts.py`, `responsive.py`, `visual_design.py`, `table_sorting.py`,
+  `prep_copilot.py`, `recommendation_render.py`, `export_actions.py`).
+- The old controller/coordinator pairs are gone. `ScanService` and
+  `RecommendationService` replace `ScanController`+`ScanCoordinator` and
+  `RecommendationController`+`RecommendationCoordinator`. Both take 3 explicit
+  setters (no `Protocol`-with-one-impl host).
+- `recommendation_worker.py` and `live_assistant_state.py` were dead in production
+  (only their own test files referenced them) and have been deleted along with
+  their tests.
+- `HARMONIC_MIXING.md` moved to `docs/harmonic-mixing.md`; eight call sites
+  (README, two tests, source_package_hygiene_check, AGENTS, openspec/config,
+  the gentle-ai skill, IMPLEMENTATION_HANDOFF) were updated in the same commit.
+- The unused Node toolchain (`package.json`, `pnpm-lock.yaml`, `node_modules/`)
+  and four dead `scripts/` files were removed.
+
 ## Restart prompt
 
 Use this after restarting:
