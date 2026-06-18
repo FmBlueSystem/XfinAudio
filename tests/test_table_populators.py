@@ -57,6 +57,127 @@ def format_warning(raw_warning: str) -> str:
     return f"formatted:{raw_warning}"
 
 
+def test_populate_library_table_uses_format_genre_cell_when_provided(tmp_path) -> None:
+    """When format_genre_cell is provided, the genre column renders the
+    canonical (enriched) genre plus a confidence badge instead of the raw
+    file-tag genre."""
+    from xfinaudio.genre.models import GenreDecision, GenreProvenance
+
+    ensure_app()
+    table = QTableWidget()
+    table.setColumnCount(12)
+
+    decision = GenreDecision(
+        primary="Tech House",
+        top_n=("Tech House",),
+        confidence=0.9,
+        low_confidence=False,
+        provenance=GenreProvenance(),
+    )
+    enriched = TrackRecord(
+        path=str(tmp_path / "enriched.flac"),
+        title="Enriched",
+        genre="Electronica",  # raw tag, misleading
+        genre_decision=decision,
+    )
+    not_enriched = TrackRecord(
+        path=str(tmp_path / "raw.flac"),
+        title="Raw",
+        genre="House",
+    )
+
+    def genre_cell(record: TrackRecord) -> str:
+        if record.genre_decision is not None:
+            return f"CANONICAL: {record.genre_decision.primary}"
+        return f"RAW: {record.genre or ''}"
+
+    populate_library_table(
+        table,
+        [enriched, not_enriched],
+        item_factory=item_factory,
+        format_missing_metadata=format_missing_metadata,
+        format_track_tags=format_track_tags,
+        format_spectral_color=format_spectral_color,
+        format_genre_cell=genre_cell,
+    )
+
+    assert table.item(0, 8).text() == "CANONICAL: Tech House"
+    assert table.item(1, 8).text() == "RAW: House"
+
+
+def test_populate_library_table_sets_genre_tooltip_when_provided(tmp_path) -> None:
+    ensure_app()
+    table = QTableWidget()
+    table.setColumnCount(12)
+
+    enriched = TrackRecord(
+        path=str(tmp_path / "enriched.flac"),
+        title="Enriched",
+        genre="Electronica",
+        genre_decision=__import__(
+            "xfinaudio.genre.models", fromlist=["GenreDecision", "GenreProvenance"]
+        ).GenreDecision(
+            primary="Tech House",
+            top_n=("Tech House",),
+            confidence=0.9,
+            low_confidence=False,
+            provenance=__import__("xfinaudio.genre.models", fromlist=["GenreProvenance"]).GenreProvenance(),
+        ),
+    )
+    no_decision = TrackRecord(
+        path=str(tmp_path / "raw.flac"),
+        title="Raw",
+        genre="House",
+    )
+
+    def genre_tooltip(record: TrackRecord) -> str:
+        if record.genre_decision is None:
+            return ""
+        return f"Canonical: {record.genre_decision.primary}\nConfidence: {record.genre_decision.confidence:.2f}"
+
+    populate_library_table(
+        table,
+        [enriched, no_decision],
+        item_factory=item_factory,
+        format_missing_metadata=format_missing_metadata,
+        format_track_tags=format_track_tags,
+        format_spectral_color=format_spectral_color,
+        format_genre_cell=lambda r: r.genre or "",
+        format_genre_tooltip=genre_tooltip,
+    )
+
+    # The enriched row carries the tooltip; the row without a decision has none.
+    assert table.item(0, 8).toolTip() != ""
+    assert "Tech House" in table.item(0, 8).toolTip()
+    assert "0.90" in table.item(0, 8).toolTip()
+    assert table.item(1, 8).toolTip() == ""
+
+
+def test_populate_library_table_default_genre_cell_matches_raw_genre(tmp_path) -> None:
+    """Without format_genre_cell, the genre column still shows the raw tag
+    (preserves pre-enrichment behavior)."""
+    ensure_app()
+    table = QTableWidget()
+    table.setColumnCount(12)
+    record = TrackRecord(
+        path=str(tmp_path / "x.flac"),
+        title="X",
+        genre="Disco",
+    )
+
+    populate_library_table(
+        table,
+        [record],
+        item_factory=item_factory,
+        format_missing_metadata=format_missing_metadata,
+        format_track_tags=format_track_tags,
+        format_spectral_color=format_spectral_color,
+    )
+
+    assert table.item(0, 8).text() == "Disco"
+    assert table.item(0, 8).toolTip() == ""
+
+
 def test_populate_library_table_writes_columns_mapping_and_numeric_bpm_sort(tmp_path) -> None:
     ensure_app()
     table = QTableWidget()

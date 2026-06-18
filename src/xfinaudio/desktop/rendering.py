@@ -170,3 +170,82 @@ class _SortAwareTableItem(QTableWidgetItem):
 def _table_item(display_value: str, sort_value: object | None = None) -> QTableWidgetItem:
     """Build a table item with a stable display value and optional typed sort value."""
     return _SortAwareTableItem(display_value, sort_value)
+
+
+# ---------------------------------------------------------------------------
+# Genre enrichment presentation helpers
+# ---------------------------------------------------------------------------
+
+# Confidence thresholds for the genre badge (desktop visual indicator).
+_GENRE_BADGE_HIGH_THRESHOLD = 0.7
+_GENRE_BADGE_MEDIUM_THRESHOLD = 0.4
+
+
+def format_genre_decision(track: TrackRecord) -> str:
+    """Return the canonical (enriched) genre, falling back to the file-tag genre.
+
+    Returns an empty string when the track has neither.
+    """
+    from xfinaudio.genre.effective_genre import effective_genre
+
+    return effective_genre(track) or ""
+
+
+def format_genre_badge(track: TrackRecord) -> str:
+    """Return a compact confidence badge for the track's genre decision.
+
+    Empty when the track has no decision. The badge combines an indicator
+    character with a confidence value so the user can scan the table at a
+    glance and still see the exact score.
+    """
+    decision = track.genre_decision
+    if decision is None or decision.primary is None:
+        return ""
+    if decision.low_confidence or decision.confidence < _GENRE_BADGE_MEDIUM_THRESHOLD:
+        return f"❓ low ({decision.confidence:.2f})"
+    if decision.confidence >= _GENRE_BADGE_HIGH_THRESHOLD:
+        return f"🎯 high ({decision.confidence:.2f})"
+    return f"🟡 med ({decision.confidence:.2f})"
+
+
+def format_genre_cell(track: TrackRecord) -> str:
+    """Return the combined genre cell text: canonical genre + badge."""
+    canonical = format_genre_decision(track)
+    if not canonical:
+        return ""
+    badge = format_genre_badge(track)
+    if badge:
+        return f"{canonical}  {badge}"
+    return canonical
+
+
+def format_genre_sources_tooltip(track: TrackRecord) -> str:
+    """Return a multi-line explainability tooltip for the track's genre decision.
+
+    Lists the canonical primary, confidence, low-confidence flag, top-N
+    candidates, and per-source contributions. Empty when no decision exists.
+    """
+    decision = track.genre_decision
+    if decision is None:
+        return ""
+
+    lines: list[str] = []
+    lines.append(f"Canonical: {decision.primary or '(none)'}")
+    lines.append(f"Confidence: {decision.confidence:.2f}")
+    if decision.low_confidence:
+        lines.append("Low confidence: yes")
+    if decision.top_n:
+        top_list = (
+            ", ".join(decision.top_n)
+            if len(decision.top_n) <= 4
+            else (", ".join(decision.top_n[:3]) + f", +{len(decision.top_n) - 3} more")
+        )
+        lines.append(f"Top-N: {top_list}")
+    if decision.provenance.scores:
+        lines.append("Scores:")
+        for genre, score in decision.provenance.scores.items():
+            lines.append(f"  {genre}: {score:.2f}")
+    if decision.provenance.candidates:
+        sources = sorted({c.source for c in decision.provenance.candidates})
+        lines.append(f"Sources: {', '.join(sources)}")
+    return "\n".join(lines)

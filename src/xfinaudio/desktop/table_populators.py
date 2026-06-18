@@ -33,11 +33,21 @@ def populate_library_table(
     format_missing_metadata: Callable[[TrackRecord], str],
     format_track_tags: Callable[[TrackRecord], str],
     format_spectral_color: Callable[[TrackRecord], str],
+    format_genre_cell: Callable[[TrackRecord], str] | None = None,
+    format_genre_tooltip: Callable[[TrackRecord], str] | None = None,
+    genre_column_index: int = 8,
 ) -> dict[str, TrackRecord]:
-    """Populate library track rows and return the path-to-record lookup."""
+    """Populate library track rows and return the path-to-record lookup.
+
+    When ``format_genre_cell`` is provided, the genre column renders the
+    canonical (enriched) genre plus a confidence badge instead of the raw
+    file-tag genre. When ``format_genre_tooltip`` is also provided, the
+    genre cell carries a multi-line explainability tooltip on hover.
+    """
     table.setRowCount(len(records))
     records_by_path = {record.path: record for record in records}
     for row_index, record in enumerate(records):
+        genre_text = format_genre_cell(record) if format_genre_cell is not None else record.genre or ""
         values = [
             record.title or "",
             record.artist or "",
@@ -47,7 +57,7 @@ def populate_library_table(
             _format_duration(record.duration),
             format_spectral_color(record),
             format_missing_metadata(record),
-            record.genre or "",
+            genre_text,
             record.metadata_status,
             "▶",
             record.path,
@@ -67,7 +77,12 @@ def populate_library_table(
             values[11].casefold(),
         ]
         for column_index, value in enumerate(values):
-            table.setItem(row_index, column_index, item_factory(value, sort_values[column_index]))
+            item = item_factory(value, sort_values[column_index])
+            if column_index == genre_column_index and format_genre_tooltip is not None:
+                tooltip = format_genre_tooltip(record)
+                if tooltip:
+                    item.setToolTip(tooltip)
+            table.setItem(row_index, column_index, item)
     return records_by_path
 
 

@@ -56,6 +56,8 @@ from xfinaudio.desktop.rendering import (
     _score_sort_value,
     _table_item,
     _track_review_name,
+    format_genre_cell,
+    format_genre_sources_tooltip,
     format_quality_summary,
     format_recommendation_warning,
 )
@@ -981,6 +983,8 @@ class MainWindow(QMainWindow):
             format_missing_metadata=_format_missing_metadata,
             format_track_tags=_format_track_tags,
             format_spectral_color=_format_spectral_color,
+            format_genre_cell=format_genre_cell,
+            format_genre_tooltip=format_genre_sources_tooltip,
         )
         self._apply_song_filter(clear_selection=False)
 
