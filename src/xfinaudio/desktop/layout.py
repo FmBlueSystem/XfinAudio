@@ -18,6 +18,12 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.responsive import ResponsiveLayout
 from xfinaudio.desktop.status_bar import StatusBar
+from xfinaudio.desktop.theme import (
+    _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT,
+    _COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT,
+)
+from xfinaudio.desktop.undo_toolbar import UndoToolbar
+from xfinaudio.desktop.visual_design import apply_compact_mac_layout
 from xfinaudio.desktop.workflow_stack import WorkflowStack
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
@@ -104,10 +110,7 @@ def build_main_window_layout(self: Any) -> None:
     layout.addLayout(status_controls)
     self._status_controls_widgets = (self.status_bar_toggle, self.status_bar)
     self._responsive_layout.set_full_screen_context(self, self._status_controls_widgets)
-    self._apply_compact_mac_layout(
-        layout,
-        status_controls,
-    )
+    apply_compact_mac_layout(self, layout, status_controls)
 
     container = QWidget()
     container.setLayout(layout)
@@ -145,8 +148,12 @@ def build_main_widgets(self: Any) -> None:
     self.recommendation_guidance_label.setWordWrap(True)
     for label in (self.folder_label, self.library_guidance_label, self.scan_progress_label):
         label.setMaximumHeight(24)
-    self._export_screen.safe_export_folder_label.setText(self._format_safe_export_folder_label())
-    self._build_undo_toolbar()
+    self._export_screen.safe_export_folder_label.setText(self._settings_controller.format_safe_export_folder_label())
+    self._undo_toolbar = UndoToolbar(self._undo_manager, self)
+    self.addToolBar(self._undo_toolbar.toolbar)
+    self.undo_button = self._undo_toolbar.undo_button
+    self.redo_button = self._undo_toolbar.redo_button
+    self.undo_history_menu = self._undo_toolbar.undo_history_menu
 
 
 def wire_main_scan_service(self: Any) -> None:
@@ -171,7 +178,7 @@ def wire_main_scan_service(self: Any) -> None:
         clear_scan_dependent_state=self._clear_scan_dependent_state,
         refresh_idle_action_state=self._refresh_idle_action_state,
         cancel_spectral_completion_worker=self._cancel_spectral_completion_worker,
-        show_status_bar=self.show_status_bar,
+        show_status_bar=lambda: set_main_status_bar_visible(self, True),
     )
 
 
@@ -197,8 +204,8 @@ def wire_main_recommendation_service(self: Any) -> None:
         show_transition_review=self.show_transition_review,
         selected_track_controls=self._selected_track_controls,
         desktop_recommendation_records=self._desktop_recommendation_records,
-        set_recommendation_sections_expanded=self._set_recommendation_sections_expanded,
-        set_applied_copilot_variant=self._set_applied_copilot_variant,
+        set_recommendation_sections_expanded=lambda expanded: set_main_recommendation_sections_expanded(self, expanded),
+        set_applied_copilot_variant=self._prep_copilot.set_applied_variant,
         show_dj_readiness=self._show_dj_readiness,
         refresh_idle_action_state=self._refresh_idle_action_state,
     )
@@ -270,11 +277,11 @@ def clear_main_scan_dependent_state(self: Any) -> None:
     self.last_quality_report = None
     self.last_dj_readiness_report = None
     self.last_prep_copilot_plan = None
-    self._set_applied_copilot_variant(None)
+    self._prep_copilot.set_applied_variant(None)
     self._library_screen.tracks_table.setRowCount(0)
     self._library_screen.search_input.clear()
     self._review_screen.recommendation_table.setRowCount(0)
-    self._set_recommendation_sections_expanded(False)
+    set_main_recommendation_sections_expanded(self, False)
     self.clear_recommendation_review()
     self._export_screen.export_guidance_label.setText(
         self.tr(
@@ -336,6 +343,23 @@ def selected_main_track_controls(self: Any) -> DJControls | None:
         manual_order_paths=[record.path for record in selected_records],
         excluded_paths=self._state.excluded_paths,
         locked_paths=self._state.locked_paths,
+    )
+
+
+def set_main_status_bar_visible(self: Any, visible: bool) -> None:
+    self.status_bar.setVisible(visible)
+    self.status_bar_toggle.setChecked(visible)
+
+
+def set_main_recommendation_sections_expanded(self: Any, expanded: bool) -> None:
+    maximum_height = 16777215 if expanded else _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT
+    self._review_screen.recommendation_table.setHidden(not expanded)
+    self._review_screen.transition_table.setHidden(not expanded)
+    self._review_screen.readiness_table.setHidden(not expanded)
+    self._review_screen.recommendation_table.setMaximumHeight(maximum_height)
+    self._review_screen.transition_table.setMaximumHeight(maximum_height)
+    self._review_screen.readiness_table.setMaximumHeight(
+        _COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT if expanded else _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT
     )
 
 
@@ -584,3 +608,57 @@ def clear_main_scan_dependent_state_via_controller(self: Any) -> None:
 
 def refresh_main_idle_action_state(self: Any) -> None:
     self._library_controller.refresh_idle_action_state()
+
+
+_LAYOUT_METHODS = {
+    "choose_safe_export_folder": choose_safe_export_folder,
+    "_open_settings_dialog": open_main_settings_dialog,
+    "_on_spectral_cohesion_changed": on_main_spectral_cohesion_changed,
+    "set_safe_export_folder": set_safe_export_folder,
+    "export_dj_readiness_report": export_dj_readiness_report,
+    "preview_export": preview_export,
+    "export_recommendation": export_recommendation,
+    "preview_serato_export": preview_serato_export,
+    "export_recommendation_to_serato": export_recommendation_to_serato,
+    "export_metadata_status_to_serato": export_metadata_status_to_serato,
+    "scan_selected_folder": scan_selected_folder,
+    "_begin_scan_state": begin_main_scan_state,
+    "_on_library_selection_changed": on_main_library_selection_changed,
+    "cancel_scan": cancel_scan,
+    "show_tracks": show_tracks,
+    "generate_prep_copilot": generate_prep_copilot,
+    "_apply_prep_copilot_item": apply_prep_copilot_item,
+    "apply_selected_prep_copilot_variant": apply_selected_prep_copilot_variant,
+    "recommend_playlist": recommend_playlist,
+    "_begin_recommendation_state": begin_main_recommendation_state,
+    "_end_recommendation_state": end_main_recommendation_state,
+    "_start_recommendation_worker": start_main_recommendation_worker,
+    "_finish_recommendation": finish_main_recommendation,
+    "_fail_recommendation": fail_main_recommendation,
+    "_populate_dj_readiness_table": populate_main_dj_readiness_table,
+    "_on_recommend_requested": on_main_recommend_requested,
+    "_on_copilot_variant_applied": on_main_copilot_variant_applied,
+    "_format_safe_export_folder_label": format_main_safe_export_folder_label,
+    "choose_folder": choose_folder,
+    "set_selected_folder": set_selected_folder,
+    "_persist_last_scan_folder": persist_main_last_scan_folder,
+    "_populate_track_table": populate_main_track_table,
+    "_apply_song_filter": apply_main_window_song_filter,
+    "_selected_metadata_status_filter": selected_main_metadata_status_filter,
+    "_selected_missing_metadata_filter": selected_main_missing_metadata_filter,
+    "_metadata_status_records": metadata_main_status_records,
+    "_metadata_missing_field_records": metadata_main_missing_field_records,
+    "restore_persisted_tracks": restore_main_tracks,
+    "_start_spectral_completion_worker": start_main_spectral_completion_worker,
+    "_cancel_spectral_completion_worker": cancel_main_spectral_completion_worker,
+    "_on_spectral_progress_updated": on_main_spectral_progress_updated,
+    "_on_spectral_profile_ready": on_main_spectral_profile_ready,
+    "_on_spectral_completion_finished": on_main_spectral_completion_finished,
+    "_clear_scan_dependent_state": clear_main_scan_dependent_state_via_controller,
+    "_refresh_idle_action_state": refresh_main_idle_action_state,
+}
+
+
+def install_layout_methods(target_class: type) -> None:
+    for name, method in _LAYOUT_METHODS.items():
+        setattr(target_class, name, method)

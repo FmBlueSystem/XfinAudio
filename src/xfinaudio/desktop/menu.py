@@ -17,7 +17,8 @@ class MenuHost(Protocol):
 
     def tr(self, text: str) -> str: ...
     def close(self) -> bool: ...
-    def _open_settings_dialog(self) -> None: ...
+
+    _settings_controller: object
 
 
 class Menu:
@@ -40,7 +41,7 @@ class Menu:
 
         settings_action = QAction(host.tr("Settings…"), parent)
         settings_action.setShortcut("Ctrl+,")
-        settings_action.triggered.connect(host._open_settings_dialog)
+        settings_action.triggered.connect(host._settings_controller.open_settings_dialog)  # type: ignore[attr-defined]
         app_menu.addAction(settings_action)
 
         app_menu.addSeparator()

@@ -33,7 +33,9 @@ class ExportActions:
         host.settings = host.settings.model_copy(update={"export": ExportSettings(safe_export_folder=folder)})
         if host.settings_repository is not None:
             host.settings_repository.save(host.settings)
-        host._export_screen.safe_export_folder_label.setText(host._format_safe_export_folder_label())
+        host._export_screen.safe_export_folder_label.setText(
+            host._settings_controller.format_safe_export_folder_label()
+        )
         host.status_label.setText(host.tr("Safe export folder selected"))
         host._sync_state()
 

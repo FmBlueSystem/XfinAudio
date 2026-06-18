@@ -1,0 +1,27 @@
+schema: gentle-ai.sdd-state.v1
+change: lean-refactor-pr8-final
+artifact_store: openspec
+status: active
+state: verifying
+step: apply
+review_status: pending
+created: 2026-06-18
+updated: 2026-06-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in_progress
+  review: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: direct
+  review_budget_changed_lines: 600
+notes: |
+  Final PR of the lean-refactor chain. Target: main_window.py under 400 LOC.
+  7 extractions: factory methods, settings apply, prep copilot variant set,
+  _on_* handlers, _LAYOUT_METHODS dict, 1-line shims.

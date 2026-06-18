@@ -39,12 +39,12 @@ class PlaylistHost(Protocol):
     _playlist_editor: Any
     _export_coordinator: Any
     _undo_manager: UndoManager
+    _undo_toolbar: Any
     workflow_tabs: Any
     last_recommendation: PlaylistRecommendation | None
     scanned_records: list[TrackRecord]
 
     def tr(self, text: str) -> str: ...
-    def _refresh_undo_state(self) -> None: ...
     def _sync_state(self) -> None: ...
 
 
@@ -188,7 +188,7 @@ class PlaylistCoordinator:
                 undo=lambda: self._apply_track_order(playlist_id, previous_paths),
             )
         )
-        self._host._refresh_undo_state()
+        self._host._undo_toolbar.refresh()
 
     def _apply_track_order(self, playlist_id: int, track_paths: list[str]) -> None:
         """Persist and render an editor track order without recording a new command."""

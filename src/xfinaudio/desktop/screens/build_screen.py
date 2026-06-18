@@ -273,14 +273,14 @@ class BuildScreen(QWidget):
     def connect_signals(self, window: Any) -> None:
         self.copilot_table.itemDoubleClicked.connect(window._apply_prep_copilot_item)
         self.recommend_requested.connect(window._on_recommend_requested)
-        self.spectral_cohesion_changed.connect(window._on_spectral_cohesion_changed)
+        self.spectral_cohesion_changed.connect(window._settings_controller.on_spectral_cohesion_changed)
         self.copilot_generate_requested.connect(window.generate_prep_copilot)
         self.copilot_variant_applied.connect(window._on_copilot_variant_applied)
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
         self.proceed_button.clicked.connect(lambda: window.workflow_tabs.setCurrentIndex(2))
-        self.exclude_requested.connect(window._on_exclude_requested)
-        self.lock_requested.connect(window._on_lock_requested)
-        self.clear_constraints_requested.connect(window._on_clear_constraints)
+        self.exclude_requested.connect(window._library_controller.on_exclude_requested)
+        self.lock_requested.connect(window._library_controller.on_lock_requested)
+        self.clear_constraints_requested.connect(window._library_controller.on_clear_constraints)
 
     def _on_spectral_cohesion_changed(self, value: int) -> None:
         self.spectral_cohesion_value_label.setText(f"{value}%")
