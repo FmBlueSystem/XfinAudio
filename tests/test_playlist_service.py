@@ -243,6 +243,63 @@ def test_harmonic_journey_drops_generated_tracks_after_bpm_jump_over_three_perce
     assert all(score.component_scores["bpm"] > 0.0 for score in result.transition_scores)
 
 
+def test_harmonic_journey_keeps_selected_start_before_bpm_pruning() -> None:
+    tracks = [
+        track("/a-fast.flac", bpm=122.0, camelot_key="8A", energy_level=5),
+        track("/anchor-slow.flac", bpm=93.0, camelot_key="12A", energy_level=6),
+        track("/b-fast.flac", bpm=123.0, camelot_key="8A", energy_level=5),
+    ]
+
+    result = recommend_playlist(tracks, "harmonic_journey", controls=DJControls(start_path="/anchor-slow.flac"))
+
+    assert result.ordered_tracks[0].path == "/anchor-slow.flac"
+    assert result.applied_controls["start_path"] == "/anchor-slow.flac"
+    assert "Dropped 2 generated track(s) because adjacent BPM jump exceeded 3.0%" in result.warnings
+
+
+def test_harmonic_journey_preserves_reorderable_tracks_before_bpm_pruning() -> None:
+    tracks = [
+        track("/start.flac", bpm=100.0, camelot_key="8A", energy_level=5),
+        track("/too-soon.flac", bpm=106.0, camelot_key="8A", energy_level=5),
+        track("/bridge.flac", bpm=103.0, camelot_key="8A", energy_level=5),
+    ]
+
+    result = recommend_playlist(tracks, "harmonic_journey", controls=DJControls(start_path="/start.flac"))
+
+    assert [item.path for item in result.ordered_tracks] == ["/start.flac", "/bridge.flac", "/too-soon.flac"]
+    assert not any(warning.startswith("Dropped") for warning in result.warnings)
+
+
+def test_manual_prefix_boundary_bpm_violation_drops_generated_suffix() -> None:
+    tracks = [
+        track("/manual.flac", bpm=100.0, camelot_key="8A", energy_level=5),
+        track("/too-fast.flac", bpm=110.0, camelot_key="8A", energy_level=5),
+    ]
+
+    result = recommend_playlist(tracks, "harmonic_journey", controls=DJControls(manual_order_paths=["/manual.flac"]))
+
+    assert [item.path for item in result.ordered_tracks] == ["/manual.flac"]
+    assert "Dropped 1 generated track(s) because adjacent BPM jump exceeded 3.0%" in result.warnings
+
+
+def test_end_path_is_reported_ignored_when_bpm_pruning_drops_it() -> None:
+    tracks = [
+        track("/start.flac", bpm=100.0, camelot_key="8A", energy_level=5),
+        track("/mid.flac", bpm=102.0, camelot_key="8A", energy_level=5),
+        track("/end.flac", bpm=110.0, camelot_key="8A", energy_level=5),
+    ]
+
+    result = recommend_playlist(
+        tracks,
+        "harmonic_journey",
+        controls=DJControls(start_path="/start.flac", end_path="/end.flac"),
+    )
+
+    assert [item.path for item in result.ordered_tracks] == ["/start.flac", "/mid.flac"]
+    assert result.applied_controls["end_path"] is None
+    assert "end_path ignored because adjacent BPM jump exceeded 3.0%" in result.warnings
+
+
 def test_score_cache_is_fresh_per_recommendation_session() -> None:
     """Each recommend_playlist call starts with a fresh cache — no cross-session leakage."""
     tracks = [

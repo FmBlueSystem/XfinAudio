@@ -46,3 +46,10 @@ def test_status_text_shows_active_spectral_completion_progress() -> None:
     text = vm.status_text(state)
 
     assert text == "Analyzing spectral colors 3/10"
+
+
+def test_scan_button_disabled_while_recommending() -> None:
+    vm = LibraryViewModel()
+    state = AppState(selected_folder=Path("/music"), is_recommending=True)
+
+    assert vm.scan_button_enabled(state) is False

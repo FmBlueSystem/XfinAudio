@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.genre.models import GenreDecision
 
 MetadataStatus = Literal["complete", "incomplete"]
 
@@ -30,3 +31,4 @@ class TrackRecord(BaseModel):
     source_fields: dict[str, str] = Field(default_factory=dict)
     raw_metadata: dict[str, Any] = Field(default_factory=dict)
     spectral_profile: SpectralProfile | None = None
+    genre_decision: GenreDecision | None = None

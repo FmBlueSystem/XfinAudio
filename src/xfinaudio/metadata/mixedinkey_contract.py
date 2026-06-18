@@ -14,6 +14,49 @@ ENERGY_TEXT_RE = re.compile(r"Energy\s+([1-9]|10)\b", re.IGNORECASE)
 COMMENT_ENERGY_RE = re.compile(r"⚡️?\s*([1-9]|10)")
 TAG_FIELDS = ("genre", "mood", "subgenre", "dj_zone", "genre_category")
 
+# Mixed In Key frequently writes the key as a standard musical name (e.g. "Cm", "Bbm", "G")
+# instead of Camelot notation. Map every pitch-class (with enharmonic equivalents) to its Camelot
+# code: minor keys take the "A" column, major keys take the "B" column (Camelot wheel layout).
+_PITCH_TO_CAMELOT_NUMBER = {
+    # minor → A column
+    ("A", True): 8,
+    ("A#", True): 3,
+    ("BB", True): 3,
+    ("B", True): 10,
+    ("C", True): 5,
+    ("C#", True): 12,
+    ("DB", True): 12,
+    ("D", True): 7,
+    ("D#", True): 2,
+    ("EB", True): 2,
+    ("E", True): 9,
+    ("F", True): 4,
+    ("F#", True): 11,
+    ("GB", True): 11,
+    ("G", True): 6,
+    ("G#", True): 1,
+    ("AB", True): 1,
+    # major → B column
+    ("A", False): 11,
+    ("A#", False): 6,
+    ("BB", False): 6,
+    ("B", False): 1,
+    ("C", False): 8,
+    ("C#", False): 3,
+    ("DB", False): 3,
+    ("D", False): 10,
+    ("D#", False): 5,
+    ("EB", False): 5,
+    ("E", False): 12,
+    ("F", False): 7,
+    ("F#", False): 2,
+    ("GB", False): 2,
+    ("G", False): 9,
+    ("G#", False): 4,
+    ("AB", False): 4,
+}
+_MUSICAL_KEY_RE = re.compile(r"^([A-G])([#b♯♭]?)\s*(m|min|minor|maj|major)?$", re.IGNORECASE)
+
 
 class MixedInKeyMetadata(BaseModel):
     """Normalized metadata fields discovered from Mixed In Key tags."""
@@ -197,7 +240,30 @@ def _normalize_camelot(value: Any) -> str | None:
     if value is None:
         return None
     candidate = str(value).strip().upper()
-    return candidate if CAMELot_RE.match(candidate) else None
+    if CAMELot_RE.match(candidate):
+        return candidate
+    return _musical_key_to_camelot(value)
+
+
+def _musical_key_to_camelot(value: Any) -> str | None:
+    """Convert a standard musical key name (e.g. 'Cm', 'Bbm', 'G', 'F#') to Camelot notation.
+
+    Minor keys map to the Camelot "A" column, major keys to the "B" column. Unicode sharp/flat
+    glyphs are accepted; a missing mode defaults to major (matching common tag conventions).
+    """
+    if value is None:
+        return None
+    text = str(value).strip().replace("♯", "#").replace("♭", "b")
+    match = _MUSICAL_KEY_RE.match(text)
+    if match is None:
+        return None
+    letter, accidental, mode = match.group(1).upper(), match.group(2), match.group(3)
+    pitch = letter + ("#" if accidental == "#" else "B" if accidental.lower() == "b" else "")
+    is_minor = bool(mode) and mode.casefold().startswith("min") or mode == "m"
+    number = _PITCH_TO_CAMELOT_NUMBER.get((pitch, is_minor))
+    if number is None:
+        return None
+    return f"{number}{'A' if is_minor else 'B'}"
 
 
 def _find_camelot_in_text(value: str | None) -> str | None:

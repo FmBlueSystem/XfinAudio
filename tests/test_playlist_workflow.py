@@ -2,6 +2,7 @@ from pathlib import Path
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.exporting.explainability import PlaylistExplanation
+from xfinaudio.genre.enrichment_service import EnrichmentService
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken, ScanCancelledError, ScanProgress
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
@@ -9,7 +10,11 @@ from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 
 
 class FakeScanService:
+    def __init__(self) -> None:
+        self.last_kwargs = {}
+
     def scan(self, folder: Path, **kwargs) -> list[TrackRecord]:
+        self.last_kwargs = dict(kwargs)
         return [
             TrackRecord(
                 path=str(folder / "a.flac"),
@@ -40,6 +45,20 @@ def test_playlist_workflow_scan_folder_returns_counts_and_persists_records(tmp_p
     assert result.complete_count == 1
     assert result.incomplete_count == 1
     assert result.cancelled is False
+
+
+def test_playlist_workflow_passes_enrichment_service_to_scan(tmp_path) -> None:
+    enrichment = EnrichmentService()
+    scan_service = FakeScanService()
+    workflow = PlaylistWorkflowService(
+        scan_service=scan_service,
+        repository=FakeRepository(),
+        enrichment_service_factory=lambda: enrichment,
+    )
+
+    workflow.scan_folder(tmp_path)
+
+    assert scan_service.last_kwargs["enrichment_service"] is enrichment
 
 
 class CancellableFakeScanService:

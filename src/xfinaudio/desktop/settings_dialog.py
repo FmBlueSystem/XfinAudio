@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -20,6 +24,11 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.config.settings import AppSettings, ExportSettings, UiSettings
+from xfinaudio.genre.settings import (
+    DEFAULT_LLM_TIEBREAKER_MODEL,
+    DEFAULT_LLM_TIEBREAKER_URL,
+    GenreEnrichmentSettings,
+)
 
 
 class SettingsDialog(QDialog):
@@ -80,6 +89,9 @@ class SettingsDialog(QDialog):
         library_layout.addWidget(self._last_scan_folder_label, 1)
         layout.addWidget(library_group)
 
+        # Genre Enrichment group
+        layout.addWidget(self._build_genre_enrichment_group(self._settings.genre_enrichment))
+
         # Buttons
         button_layout = QHBoxLayout()
         self._reset_button = QPushButton(self.tr("Reset to Defaults"))
@@ -126,10 +138,102 @@ class SettingsDialog(QDialog):
             update={
                 "export": ExportSettings(safe_export_folder=self._pending_safe_export_folder),
                 "ui": UiSettings(language=selected_lang),
+                "genre_enrichment": self._current_genre_settings(),
             }
         )
         self.settings_changed.emit(new_settings)
         super().accept()
+
+    # ------------------------------------------------------------------
+    # Genre enrichment helpers
+    # ------------------------------------------------------------------
+
+    # Provider keys that the dialog exposes, in display order.
+    _PROVIDER_KEYS: tuple[str, ...] = ("lastfm", "spotify", "deezer")
+    _PROVIDER_LABELS: dict[str, str] = {
+        "lastfm": "Last.fm",
+        "spotify": "Spotify",
+        "deezer": "Deezer",
+    }
+
+    def _build_genre_enrichment_group(self, settings: GenreEnrichmentSettings) -> QGroupBox:
+        """Build the 'Genre Enrichment' group: enable, per-provider toggles + keys, LLM block."""
+        group = QGroupBox(self.tr("Genre Enrichment"))
+        outer = QVBoxLayout(group)
+
+        intro = QLabel(
+            self.tr(
+                "Optional: enrich each track's genre with consensus from third-party providers. "
+                "All providers are off by default. Last.fm, Spotify, and Deezer require your own "
+                "API key and store data only in your local cache."
+            )
+        )
+        intro.setWordWrap(True)
+        outer.addWidget(intro)
+
+        # Master enable
+        self._genre_enabled = QCheckBox(self.tr("Enable genre enrichment"))
+        self._genre_enabled.setChecked(settings.enabled)
+        outer.addWidget(self._genre_enabled)
+
+        # Per-provider rows
+        self._provider_toggles: dict[str, QCheckBox] = {}
+        self._api_key_fields: dict[str, QLineEdit] = {}
+        providers_group = QGroupBox(self.tr("Providers"))
+        providers_layout = QFormLayout(providers_group)
+        for key in self._PROVIDER_KEYS:
+            label_text = self._PROVIDER_LABELS[key]
+            toggle = QCheckBox(self.tr(f"Enable {label_text}"))
+            toggle.setChecked(bool(settings.providers.get(key, False)))
+            api_field = QLineEdit()
+            api_field.setEchoMode(QLineEdit.EchoMode.Password)
+            api_field.setPlaceholderText(self.tr("API key (required by this provider)"))
+            api_field.setText(settings.api_keys.get(key, ""))
+            providers_layout.addRow(toggle, api_field)
+            self._provider_toggles[key] = toggle
+            self._api_key_fields[key] = api_field
+        outer.addWidget(providers_group)
+
+        # LLM tie-breaker block
+        llm_group = QGroupBox(self.tr("Local LLM tie-breaker (opt-in)"))
+        llm_layout = QFormLayout(llm_group)
+        self._llm_enabled = QCheckBox(self.tr("Enable local LLM tie-breaker"))
+        self._llm_enabled.setChecked(settings.llm_tiebreaker_enabled)
+        self._llm_url = QLineEdit(settings.llm_tiebreaker_url or DEFAULT_LLM_TIEBREAKER_URL)
+        self._llm_model = QLineEdit(settings.llm_tiebreaker_model or DEFAULT_LLM_TIEBREAKER_MODEL)
+        llm_layout.addRow(self._llm_enabled)
+        llm_layout.addRow(self.tr("Local endpoint URL:"), self._llm_url)
+        llm_layout.addRow(self.tr("Model name:"), self._llm_model)
+        llm_warning = QLabel(
+            self.tr(
+                "Default: local Ollama at http://localhost:11434. The LLM is restricted to picking "
+                "from the already-normalized top candidates. It never invents genres and never "
+                "contacts a cloud endpoint."
+            )
+        )
+        llm_warning.setWordWrap(True)
+        llm_layout.addRow(llm_warning)
+        outer.addWidget(llm_group)
+
+        return group
+
+    def _current_genre_settings(self) -> GenreEnrichmentSettings:
+        """Read the current widget state into a GenreEnrichmentSettings."""
+        providers: dict[str, bool] = {}
+        api_keys: dict[str, str] = {}
+        for key in self._PROVIDER_KEYS:
+            providers[key] = self._provider_toggles[key].isChecked()
+            api_keys[key] = self._api_key_fields[key].text()
+        return self._settings.genre_enrichment.model_copy(
+            update={
+                "enabled": cast(QCheckBox, self._genre_enabled).isChecked(),
+                "providers": providers,
+                "api_keys": api_keys,
+                "llm_tiebreaker_enabled": cast(QCheckBox, self._llm_enabled).isChecked(),
+                "llm_tiebreaker_url": cast(QLineEdit, self._llm_url).text() or DEFAULT_LLM_TIEBREAKER_URL,
+                "llm_tiebreaker_model": cast(QLineEdit, self._llm_model).text() or DEFAULT_LLM_TIEBREAKER_MODEL,
+            }
+        )
 
     # ------------------------------------------------------------------
     # Helpers

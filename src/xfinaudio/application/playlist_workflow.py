@@ -9,6 +9,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
+from xfinaudio.genre.enrichment_service import EnrichmentService
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ProfileCache, ProgressCallback, ScanCancellationToken, ScanCancelledError
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
@@ -31,6 +32,7 @@ class ScanService(Protocol):
         previous_profile_cache: ProfileCache | None = None,
         profile_cache_loader: Callable[[list[Path]], ProfileCache] | None = None,
         resolve_spectral_profiles: bool = True,
+        enrichment_service: EnrichmentService | None = None,
     ) -> list[TrackRecord]:
         """Scan folder and return track records."""
         ...
@@ -68,9 +70,16 @@ class RecommendationWorkflowResult(BaseModel):
 class PlaylistWorkflowService:
     """Application service that sequences library scan and playlist recommendation workflows."""
 
-    def __init__(self, *, scan_service: ScanService, repository: TrackPersistence) -> None:
+    def __init__(
+        self,
+        *,
+        scan_service: ScanService,
+        repository: TrackPersistence,
+        enrichment_service_factory: Callable[[], EnrichmentService | None] | None = None,
+    ) -> None:
         self.scan_service = scan_service
         self.repository = repository
+        self.enrichment_service_factory = enrichment_service_factory
 
     def scan_folder(
         self,
@@ -98,6 +107,9 @@ class PlaylistWorkflowService:
                 parallel_spectral_analysis=True,
                 profile_cache_loader=cache_loader,
                 resolve_spectral_profiles=resolve_spectral_profiles,
+                enrichment_service=(
+                    self.enrichment_service_factory() if self.enrichment_service_factory is not None else None
+                ),
             )
         except ScanCancelledError as exc:
             return ScanWorkflowResult(

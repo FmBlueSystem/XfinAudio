@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from xfinaudio.genre.settings import GenreEnrichmentSettings
 from xfinaudio.library.scan_service import SUPPORTED_AUDIO_EXTENSIONS
 from xfinaudio.recommendation.scoring import DEFAULT_WEIGHTS, ScoringWeights
 
@@ -94,6 +95,7 @@ class AppSettings(BaseModel):
     ui: UiSettings = Field(default_factory=UiSettings)
     audio: AudioSettings = Field(default_factory=AudioSettings)
     window: WindowSettings = Field(default_factory=WindowSettings)
+    genre_enrichment: GenreEnrichmentSettings = Field(default_factory=GenreEnrichmentSettings)
 
     @field_validator("settings_version")
     @classmethod
@@ -109,6 +111,7 @@ __all__ = [
     "AudioSettings",
     "CURRENT_SETTINGS_VERSION",
     "ExportSettings",
+    "GenreEnrichmentSettings",
     "LibrarySettings",
     "OptimizerSettings",
     "ScanSettings",

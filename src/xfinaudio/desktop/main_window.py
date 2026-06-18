@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -56,6 +57,8 @@ from xfinaudio.desktop.rendering import (
     _score_sort_value,
     _table_item,
     _track_review_name,
+    format_genre_cell,
+    format_genre_sources_tooltip,
     format_quality_summary,
     format_recommendation_warning,
 )
@@ -96,6 +99,12 @@ from xfinaudio.desktop.theme import (
 )
 from xfinaudio.desktop.undo_manager import Command, UndoManager
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
+from xfinaudio.genre.enrichment_service import EnrichmentService
+from xfinaudio.genre.providers.deezer import DeezerProvider
+from xfinaudio.genre.providers.discogs import DiscogsProvider
+from xfinaudio.genre.providers.lastfm import LastfmProvider
+from xfinaudio.genre.providers.musicbrainz import MusicBrainzProvider, make_live_fetcher
+from xfinaudio.genre.providers.spotify import SpotifyProvider
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_repository import PlaylistRepository
 from xfinaudio.library.scan_service import MetadataScanService, ScanCancellationToken
@@ -150,6 +159,13 @@ _MISSING_METADATA_FILTERS = {
     QCoreApplication.translate("MainWindow", "Missing Key"): "camelot_key",
     QCoreApplication.translate("MainWindow", "Missing Energy"): "energy_level",
 }
+
+
+def _spotify_credentials(value: str) -> tuple[str, str]:
+    if ":" not in value:
+        return "", ""
+    client_id, client_secret = value.split(":", 1)
+    return client_id.strip(), client_secret.strip()
 
 
 class WorkflowStack(QStackedWidget):
@@ -356,9 +372,14 @@ class MainWindow(QMainWindow):
         settings_repository: SettingsPersistence | None,
     ) -> None:
         """Initialize constructor dependencies and runtime state before widgets are created."""
-        self.workflow_service = PlaylistWorkflowService(scan_service=scan_service, repository=repository)
         self.settings = settings or AppSettings()
         self.settings_repository = settings_repository
+        self._app_data_dir = Path(getattr(repository, "db_path", Path(".")).parent)
+        self.workflow_service = PlaylistWorkflowService(
+            scan_service=scan_service,
+            repository=repository,
+            enrichment_service_factory=self._genre_enrichment_service,
+        )
         self._state = AppState(
             selected_folder=self.settings.library.last_scan_folder,
             settings=self.settings,
@@ -408,6 +429,34 @@ class MainWindow(QMainWindow):
         self._recommendation_coordinator = RecommendationCoordinator(host=self)  # type: ignore[reportArgumentType]
         self._live_assistant_coordinator = LiveAssistantCoordinator(host=self)  # type: ignore[reportArgumentType]
         self._settings_controller = SettingsController(self)  # type: ignore[reportArgumentType]
+
+    def _genre_enrichment_service(self) -> EnrichmentService | None:
+        settings = self.settings.genre_enrichment
+        if not settings.enabled:
+            return None
+        cache_dir = self._app_data_dir / "genre-cache"
+        providers = []
+        providers.append(DiscogsProvider(cache_dir / "discogs_dump.sqlite"))
+        with suppress(ImportError):
+            providers.append(
+                MusicBrainzProvider(
+                    fetcher=make_live_fetcher(),
+                    cache_path=cache_dir / "musicbrainz.sqlite",
+                )
+            )
+        providers.append(DeezerProvider(cache_path=cache_dir / "deezer.sqlite"))
+        if lastfm_key := settings.api_keys.get("lastfm", ""):
+            providers.append(LastfmProvider(api_key=lastfm_key, cache_path=cache_dir / "lastfm.sqlite"))
+        spotify_id, spotify_secret = _spotify_credentials(settings.api_keys.get("spotify", ""))
+        if spotify_id and spotify_secret:
+            providers.append(
+                SpotifyProvider(
+                    client_id=spotify_id,
+                    client_secret=spotify_secret,
+                    cache_path=cache_dir / "spotify.sqlite",
+                )
+            )
+        return EnrichmentService(providers=providers, settings=settings)
 
     def _render_tab(self, index: int, lightweight: bool = False) -> None:
         """Render only the screen mapped to the given tab index.
@@ -981,6 +1030,8 @@ class MainWindow(QMainWindow):
             format_missing_metadata=_format_missing_metadata,
             format_track_tags=_format_track_tags,
             format_spectral_color=_format_spectral_color,
+            format_genre_cell=format_genre_cell,
+            format_genre_tooltip=format_genre_sources_tooltip,
         )
         self._apply_song_filter(clear_selection=False)
 
@@ -1009,7 +1060,25 @@ class MainWindow(QMainWindow):
                 row_index,
                 title_mismatch or status_mismatch or missing_mismatch,
             )
+        self._library_selected_paths = self._visible_selected_library_paths()
         self._refresh_idle_action_state()
+
+    def _visible_selected_library_paths(self) -> list[str]:
+        """Return selected library paths that are still visible after filters/sorts."""
+        paths: list[str] = []
+        seen: set[str] = set()
+        table = self._library_screen.tracks_table
+        for row in sorted({index.row() for index in table.selectedIndexes()}):
+            if table.isRowHidden(row):
+                continue
+            path_item = table.item(row, _TRACK_PATH_COLUMN)
+            if path_item is None:
+                continue
+            path = path_item.text()
+            if path and path not in seen:
+                paths.append(path)
+                seen.add(path)
+        return paths
 
     def _selected_metadata_status_filter(self) -> str | None:
         """Return the active complete/incomplete filter, or None for all statuses."""
@@ -1146,6 +1215,10 @@ class MainWindow(QMainWindow):
         """Clear scan and recommendation results that belong to a previous folder."""
         self.scanned_records = []
         self._records_by_path = {}
+        self._library_selected_paths = []
+        self.excluded_paths = frozenset()
+        self.locked_paths = frozenset()
+        self.playlist_removed_paths = frozenset()
         self.last_recommendation = None
         self.last_playlist_explanation = None
         self.last_quality_report = None
@@ -1168,8 +1241,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_idle_action_state(self) -> None:
         """Enable only the actions that are valid for the current idle UI state."""
-        self._library_screen.scan_button.setEnabled(self.selected_folder is not None)
-        self._build_screen.recommend_button.setEnabled(self._selected_track_controls() is not None)
+        is_busy = self.current_scan_cancellation_token is not None or self._is_recommending
+        self._library_screen.scan_button.setEnabled(self.selected_folder is not None and not is_busy)
+        self._build_screen.recommend_button.setEnabled(not is_busy and self._selected_track_controls() is not None)
         status_filter = self._selected_metadata_status_filter()
         missing_filter = self._selected_missing_metadata_filter()
         self._metadata_screen.export_button.setEnabled(
@@ -1319,6 +1393,7 @@ class MainWindow(QMainWindow):
         incomplete_count: int | None = None,
     ) -> None:
         """Render scanned records in the desktop table."""
+        self.scanned_records = list(records)
         self._populate_track_table(records)
         if complete_count is None:
             complete_count = sum(1 for record in records if record.metadata_status == "complete")

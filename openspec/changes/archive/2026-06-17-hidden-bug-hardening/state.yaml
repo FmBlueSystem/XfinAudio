@@ -1,0 +1,16 @@
+schema: gentle-ai.sdd-state.v1
+change: hidden-bug-hardening
+artifact_store: openspec
+status: verified
+created: 2026-06-17
+updated: 2026-06-17
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: archive
+blocked_reasons: []

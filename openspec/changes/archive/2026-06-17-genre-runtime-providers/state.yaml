@@ -1,0 +1,30 @@
+schema: gentle-ai.sdd-state.v1
+change: genre-runtime-providers
+artifact_store: openspec
+status: verified
+created: 2026-06-16
+updated: 2026-06-17
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: archive
+apply_progress:
+  PR1: complete
+  PR2: complete
+  PR3: complete
+  PR4: complete
+  PR5: complete
+  PR6: complete
+blocked_reasons: []
+notes:
+  - Adds Last.fm, Spotify, Deezer as runtime-only providers with user API keys.
+  - License posture: all providers' data lives in per-user cache, never in repo assets.
+  - LLM tie-breaker is opt-in, default OFF, local Ollama/llama.cpp only.
+  - The whole feature is inert by default; the app works perfectly without any provider or LLM enabled.
+  - Ships as chained PRs (PR1-PR6) due to 400-line review budget.
+  - Behavior-changing tasks require RED -> GREEN -> REFACTOR -> VERIFY.

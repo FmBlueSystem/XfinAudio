@@ -628,6 +628,28 @@ def test_main_window_filters_library_by_song_title(tmp_path) -> None:
     assert _visible_track_titles(window) == ["Love Song", "Another Love"]
 
 
+def test_filter_clears_stale_hidden_selection_from_recommend_controls(tmp_path) -> None:
+    ensure_app()
+    hidden_path = str(tmp_path / "hidden.flac")
+    visible_path = str(tmp_path / "visible.flac")
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    window.show_tracks(
+        [
+            TrackRecord(path=hidden_path, title="Hidden Song", metadata_status="complete"),
+            TrackRecord(path=visible_path, title="Visible Song", metadata_status="complete"),
+        ]
+    )
+    _library_tracks_table(window).selectRow(0)
+    assert window._selected_track_controls() is not None
+
+    window._library_screen.search_input.setText("Visible")
+    window._search_debounce.timeout.emit()
+
+    assert _visible_track_titles(window) == ["Visible Song"]
+    assert window._library_selected_paths == []
+    assert window._selected_track_controls() is None
+
+
 def test_search_filter_debounce_fires_once_for_rapid_input(tmp_path, monkeypatch) -> None:
     """Rapid keystrokes coalesce into a single filter call via the single-shot debounce timer."""
     ensure_app()
@@ -772,6 +794,37 @@ def test_populate_track_table_updates_path_mapping_before_reapplying_filter(tmp_
 
     assert calls == [(False, record)]
     assert window._records_by_path[record.path] is record
+
+
+def test_show_tracks_updates_scanned_records_and_state(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    record = TrackRecord(path=str(tmp_path / "ready.flac"), title="Ready", metadata_status="complete")
+
+    window.show_tracks([record])
+
+    assert window.scanned_records == [record]
+    assert window._state.scanned_records == [record]
+    assert window._state.records_by_path == {record.path: record}
+
+
+def test_set_selected_folder_clears_selection_and_constraints(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    old_path = str(tmp_path / "old.flac")
+    window.show_tracks([TrackRecord(path=old_path, title="Old", metadata_status="complete")])
+    window._library_selected_paths = [old_path]
+    window.excluded_paths = frozenset({old_path})
+    window.locked_paths = frozenset({old_path})
+    window._state.playlist_removed_paths = frozenset({old_path})
+
+    window.set_selected_folder(tmp_path / "new")
+
+    assert window._library_selected_paths == []
+    assert window._state.selected_library_paths == []
+    assert window._state.excluded_paths == frozenset()
+    assert window._state.locked_paths == frozenset()
+    assert window._state.playlist_removed_paths == frozenset()
 
 
 def test_main_window_sorts_library_bpm_column_numerically(tmp_path) -> None:

@@ -144,7 +144,7 @@ class LibraryViewModel:
 
     def scan_button_enabled(self, state: AppState) -> bool:
         """True when a folder is selected and a scan is not already in progress."""
-        return state.selected_folder is not None and not state.is_scanning
+        return state.selected_folder is not None and not state.is_scanning and not state.is_recommending
 
     def cancel_button_visible(self, state: AppState) -> bool:
         """True while a scan is in progress."""
