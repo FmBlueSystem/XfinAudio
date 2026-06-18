@@ -103,22 +103,8 @@ def recommend_playlist(
 
     if _uses_strategy_order(strategy):
         sequenced_tracks = _apply_terminal_constraints(remaining_tracks, start_path, applied.end_path)
-        sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(sequenced_tracks)
-        if dropped_bpm_jump_count:
-            warnings.append(
-                "Dropped "
-                f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
-                f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
-            )
         optimizer = "strategy-order"
     else:
-        remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(remaining_tracks)
-        if dropped_bpm_jump_count:
-            warnings.append(
-                "Dropped "
-                f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
-                f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
-            )
         sequenced = recommend_sequence(
             remaining_tracks,
             start_path=start_path,
@@ -131,6 +117,23 @@ def recommend_playlist(
         optimizer = sequenced.optimizer
 
     ordered_tracks = [*manual_prefix, *sequenced_tracks]
+    before_bpm_paths = {track.path for track in ordered_tracks}
+    ordered_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+        ordered_tracks,
+        protected_prefix_count=len(manual_prefix),
+    )
+    if dropped_bpm_jump_count:
+        warnings.append(
+            "Dropped "
+            f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
+            f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
+        )
+    final_paths = {track.path for track in ordered_tracks}
+    effective_end_path = applied.end_path if applied.end_path in final_paths else None
+    if applied.end_path is not None and applied.end_path in before_bpm_paths and effective_end_path is None:
+        warnings.append(
+            f"end_path ignored because adjacent BPM jump exceeded {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
+        )
     transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config, cache=_score_cache)
     warnings.extend(_spectral_jump_warnings(ordered_tracks))
 
@@ -139,10 +142,16 @@ def recommend_playlist(
         transition_scores=transition_scores,
         strategy=strategy,
         warnings=warnings,
-        applied_controls=applied.summary(),
+        applied_controls=_applied_controls_summary(applied, end_path=effective_end_path),
         optimizer=optimizer,
         total_score=sum(score.total_score for score in transition_scores),
     )
+
+
+def _applied_controls_summary(applied: AppliedControls, *, end_path: str | None) -> dict[str, object]:
+    summary = applied.summary()
+    summary["end_path"] = end_path
+    return summary
 
 
 def _manual_prefix_without_terminal_end(manual_prefix: list[TrackRecord], end_path: str | None) -> list[TrackRecord]:
@@ -342,14 +351,18 @@ def _sort_by_hint(tracks: list[TrackRecord], strategy: PlaylistStrategy) -> list
 
 
 def _drop_generated_tracks_after_impossible_bpm_jumps(
-    tracks: list[TrackRecord], *, max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT
+    tracks: list[TrackRecord],
+    *,
+    max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
+    protected_prefix_count: int = 0,
 ) -> tuple[list[TrackRecord], int]:
     if len(tracks) < 2:
         return tracks, 0
 
-    kept = [tracks[0]]
+    prefix_count = max(1, min(protected_prefix_count, len(tracks)))
+    kept = list(tracks[:prefix_count])
     dropped_count = 0
-    for candidate in tracks[1:]:
+    for candidate in tracks[prefix_count:]:
         if candidate.bpm is None or kept[-1].bpm is None:
             kept.append(candidate)
             continue

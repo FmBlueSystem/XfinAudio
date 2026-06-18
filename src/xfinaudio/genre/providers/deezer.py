@@ -84,19 +84,21 @@ class DeezerProvider:
                 return cached
 
         genres = self._call_fetcher(raw_artist, raw_title)
+        if genres is None:
+            return []
         if self._cache_path is not None:
             self._cache_put(artist_key, title_key, genres)
         return genres
 
-    def _call_fetcher(self, artist: str, title: str) -> list[str]:
+    def _call_fetcher(self, artist: str, title: str) -> list[str] | None:
         if self._fetcher is not None:
             try:
                 return list(self._fetcher(artist, title))
             except Exception:
-                return []
+                return None
         return self._fetch_live(artist, title)
 
-    def _fetch_live(self, artist: str, title: str) -> list[str]:
+    def _fetch_live(self, artist: str, title: str) -> list[str] | None:
         try:
             query = urllib.parse.urlencode({"q": f"{artist} {title}"})
             with urllib.request.urlopen(f"{DEEZER_SEARCH_URL}?{query}", timeout=self._timeout) as resp:
@@ -118,7 +120,7 @@ class DeezerProvider:
                 names.append(str(genre_id))
             return names
         except (urllib.error.URLError, json.JSONDecodeError, KeyError, OSError):
-            return []
+            return None
 
     def _candidates_from_genres(self, raw_genres: list[str]) -> list[GenreCandidate]:
         canonicals: list[str] = []

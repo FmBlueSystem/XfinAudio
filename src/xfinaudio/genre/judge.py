@@ -22,6 +22,13 @@ if TYPE_CHECKING:  # pragma: no cover - import-only, avoids runtime cycle
     from xfinaudio.genre.llm_judge import LocalLlmTieBreaker
 
 
+_ENABLED_RUNTIME_SOURCE_TRUST: dict[str, float] = {
+    "lastfm": 0.6,
+    "spotify": 0.6,
+    "deezer": 0.4,
+}
+
+
 def decide(
     candidates: list[GenreCandidate] | tuple[GenreCandidate, ...],
     settings: GenreEnrichmentSettings,
@@ -53,7 +60,7 @@ def decide(
 
     scores: dict[str, float] = {}
     for c in mappable:
-        trust = settings.source_trust.get(c.source, 0.0)
+        trust = settings.source_trust.get(c.source, _runtime_trust(c.source, settings))
         scores[c.canonical_genre] = scores.get(c.canonical_genre, 0.0) + trust * c.confidence
 
     above_threshold = {g: s for g, s in scores.items() if s >= settings.min_score_threshold}
@@ -88,6 +95,12 @@ def decide(
             scores=scores,
         ),
     )
+
+
+def _runtime_trust(source: str, settings: GenreEnrichmentSettings) -> float:
+    if settings.providers.get(source, False):
+        return _ENABLED_RUNTIME_SOURCE_TRUST.get(source, 0.0)
+    return 0.0
 
 
 def decide_with_llm(

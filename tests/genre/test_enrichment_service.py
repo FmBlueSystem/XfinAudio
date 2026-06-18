@@ -76,6 +76,25 @@ def test_enrichment_service_aggregates_candidates_from_all_providers() -> None:
     assert p2.calls == 1
 
 
+def test_enrichment_service_skips_disabled_providers() -> None:
+    enabled = _FakeProvider("enabled", [_cand("Techno", "enabled", 0.9)])
+    disabled = _FakeProvider("disabled", [_cand("House", "disabled", 1.0)])
+    service = EnrichmentService(
+        providers=[enabled, disabled],
+        settings=GenreEnrichmentSettings(
+            enabled=True,
+            providers={"enabled": True, "disabled": False},
+            source_trust={"enabled": 1.0, "disabled": 1.0},
+        ),
+    )
+
+    decision = service.enrich(_track())
+
+    assert decision.primary == "Techno"
+    assert enabled.calls == 1
+    assert disabled.calls == 0
+
+
 def test_enrichment_service_isolates_failing_provider() -> None:
     good = _FakeProvider("good", [_cand("Techno", "good", 0.9)])
     bad = _FakeProvider("bad", [], raises=True)

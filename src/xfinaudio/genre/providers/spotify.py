@@ -85,22 +85,24 @@ class SpotifyProvider:
                 return cached
 
         genres = self._call_fetcher(raw_artist, raw_title)
+        if genres is None:
+            return []
         if self._cache_path is not None:
             self._cache_put(artist_key, title_key, genres)
         return genres
 
-    def _call_fetcher(self, artist: str, title: str) -> list[str]:
+    def _call_fetcher(self, artist: str, title: str) -> list[str] | None:
         if self._fetcher is not None:
             try:
                 return list(self._fetcher(artist, title))
             except Exception:
-                return []
+                return None
         # Live Spotify fetch via spotipy (import-guarded).
         try:
             import spotipy  # type: ignore[import-not-found]
             from spotipy.oauth2 import SpotifyClientCredentials  # type: ignore[import-not-found]
         except ImportError:
-            return []
+            return None
         try:
             auth = SpotifyClientCredentials(client_id=self._client_id, client_secret=self._client_secret)
             sp = spotipy.Spotify(auth_manager=auth)
@@ -112,7 +114,7 @@ class SpotifyProvider:
             artist_info = sp.artist(artist_id)
             return [str(g) for g in artist_info.get("genres", [])]
         except Exception:
-            return []
+            return None
 
     def _candidates_from_genres(self, raw_genres: list[str]) -> list[GenreCandidate]:
         # Filter out unmapped labels.

@@ -83,7 +83,7 @@ class TrackRepository:
             rows = connection.execute(
                 """
                 SELECT path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
-                       metadata_status, missing_required_fields_json, spectral_profile_json
+                       metadata_status, missing_required_fields_json, spectral_profile_json, genre_decision_json
                 FROM tracks
                 ORDER BY path
                 """
@@ -280,6 +280,7 @@ class TrackRepository:
             metadata_status=row["metadata_status"],
             missing_required_fields=json.loads(row["missing_required_fields_json"]),
             spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
+            genre_decision=_deserialize_decision(row["genre_decision_json"]),
         )
 
 

@@ -111,6 +111,24 @@ def test_deezer_fetcher_exception_is_isolated() -> None:
     assert provider.fetch(_track("A", "B")) == []
 
 
+def test_deezer_transient_failure_is_not_cached(tmp_path: Path) -> None:
+    calls = 0
+
+    def fetcher(artist: str, title: str) -> list[str]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("deezer down")
+        return ["Rock"]
+
+    provider = DeezerProvider(fetcher=fetcher, cache_path=tmp_path / "d.sqlite")
+    track = _track("A", "B")
+
+    assert provider.fetch(track) == []
+    assert {candidate.canonical_genre for candidate in provider.fetch(track)} == {"Rock"}
+    assert calls == 2
+
+
 def test_deezer_empty_artist_or_title_returns_no_candidates() -> None:
     def fetcher(artist: str, title: str) -> list[str]:
         return ["Rock"]

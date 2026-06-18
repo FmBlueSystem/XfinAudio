@@ -127,6 +127,28 @@ def test_settings_dialog_accept_emits_updated_genre_settings(qapp: QApplication)
     assert captured[0].genre_enrichment.providers["lastfm"] is False
 
 
+def test_settings_dialog_preserves_non_ui_genre_settings(qapp: QApplication) -> None:
+    settings = AppSettings(
+        genre_enrichment=GenreEnrichmentSettings(
+            source_trust={"discogs": 0.7, "lastfm": 0.4},
+            min_score_threshold=0.35,
+            margin_threshold=0.25,
+            low_confidence_floor=0.55,
+        )
+    )
+    dialog = SettingsDialog(settings)
+    captured: list[AppSettings] = []
+    dialog.settings_changed.connect(captured.append)
+
+    dialog.accept()
+
+    genre_settings = captured[0].genre_enrichment
+    assert genre_settings.source_trust == {"discogs": 0.7, "lastfm": 0.4}
+    assert genre_settings.min_score_threshold == 0.35
+    assert genre_settings.margin_threshold == 0.25
+    assert genre_settings.low_confidence_floor == 0.55
+
+
 def test_genre_enrichment_panel_defaults_to_inert_state(qapp: QApplication) -> None:
     """Fresh settings must produce a panel that is fully inert (Scenario 1.3)."""
     dialog = SettingsDialog(AppSettings())

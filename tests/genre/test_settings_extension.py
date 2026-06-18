@@ -49,6 +49,13 @@ def test_settings_llm_tiebreaker_block() -> None:
     assert settings.llm_tiebreaker_model == "llama3"
 
 
+def test_settings_default_trust_keeps_runtime_providers_out_of_cc0_defaults() -> None:
+    settings = GenreEnrichmentSettings()
+
+    for source in ("lastfm", "spotify", "deezer"):
+        assert source not in settings.source_trust
+
+
 def test_settings_round_trip_through_pydantic() -> None:
     """Pydantic auto-handles new optional fields; serialization round-trips."""
     settings = GenreEnrichmentSettings(

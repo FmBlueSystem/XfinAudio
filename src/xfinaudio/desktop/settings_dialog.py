@@ -224,13 +224,15 @@ class SettingsDialog(QDialog):
         for key in self._PROVIDER_KEYS:
             providers[key] = self._provider_toggles[key].isChecked()
             api_keys[key] = self._api_key_fields[key].text()
-        return GenreEnrichmentSettings(
-            enabled=cast(QCheckBox, self._genre_enabled).isChecked(),
-            providers=providers,
-            api_keys=api_keys,
-            llm_tiebreaker_enabled=cast(QCheckBox, self._llm_enabled).isChecked(),
-            llm_tiebreaker_url=cast(QLineEdit, self._llm_url).text() or DEFAULT_LLM_TIEBREAKER_URL,
-            llm_tiebreaker_model=cast(QLineEdit, self._llm_model).text() or DEFAULT_LLM_TIEBREAKER_MODEL,
+        return self._settings.genre_enrichment.model_copy(
+            update={
+                "enabled": cast(QCheckBox, self._genre_enabled).isChecked(),
+                "providers": providers,
+                "api_keys": api_keys,
+                "llm_tiebreaker_enabled": cast(QCheckBox, self._llm_enabled).isChecked(),
+                "llm_tiebreaker_url": cast(QLineEdit, self._llm_url).text() or DEFAULT_LLM_TIEBREAKER_URL,
+                "llm_tiebreaker_model": cast(QLineEdit, self._llm_model).text() or DEFAULT_LLM_TIEBREAKER_MODEL,
+            }
         )
 
     # ------------------------------------------------------------------

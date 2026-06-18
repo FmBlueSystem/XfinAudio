@@ -116,27 +116,29 @@ class LastfmProvider:
                 return cached
 
         tags = self._call_fetcher(raw_artist, raw_title)
+        if tags is None:
+            return []
         if self._cache_path is not None:
             self._cache_put(artist_key, title_key, tags)
         return tags
 
-    def _call_fetcher(self, artist: str, title: str) -> list[tuple[str, int]]:
+    def _call_fetcher(self, artist: str, title: str) -> list[tuple[str, int]] | None:
         if self._fetcher is not None:
             try:
                 return list(self._fetcher(artist, title))
             except Exception:
-                return []
+                return None
         # Live Last.fm fetch via pylast (import-guarded).
         try:
             import pylast  # type: ignore[import-not-found]
         except ImportError:
-            return []
+            return None
         try:
             network = pylast.LastFMNetwork(api_key=self._api_key)
             track = network.get_track(artist, title)
             top_tags = track.get_top_tags()
         except Exception:
-            return []
+            return None
         return [(t.item.name, int(t.weight)) for t in top_tags if t.item is not None]
 
     def _candidates_from_tags(self, tags: list[tuple[str, int]]) -> list[GenreCandidate]:

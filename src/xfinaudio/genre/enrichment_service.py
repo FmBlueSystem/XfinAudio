@@ -90,6 +90,8 @@ class EnrichmentService:
 
         candidates: list[GenreCandidate] = []
         for provider in self._providers:
+            if not self._settings.providers.get(provider.name, False):
+                continue
             try:
                 candidates.extend(provider.fetch(track))
             except Exception:

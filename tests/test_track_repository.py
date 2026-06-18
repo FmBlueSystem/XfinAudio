@@ -3,6 +3,7 @@ import sqlite3
 import pytest
 
 from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.genre.models import GenreCandidate, GenreDecision, GenreProvenance
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.track_repository import (
     SCHEMA_VERSION,
@@ -221,6 +222,44 @@ def test_track_repository_list_display_tracks_includes_spectral_profile(tmp_path
 
     assert len(display_records) == 1
     assert display_records[0].spectral_profile == profile
+    assert display_records[0].raw_metadata == {}
+
+
+def test_track_repository_list_display_tracks_includes_genre_decision(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    repository = TrackRepository(db_path)
+    decision = GenreDecision(
+        primary="Tech House",
+        top_n=("Tech House",),
+        confidence=0.9,
+        low_confidence=False,
+        provenance=GenreProvenance(
+            candidates=(
+                GenreCandidate(
+                    canonical_genre="Tech House",
+                    raw_label="tech house",
+                    source="discogs",
+                    confidence=0.9,
+                ),
+            ),
+            source_trust={"discogs": 1.0},
+            scores={"Tech House": 0.9},
+        ),
+    )
+    original = TrackRecord(
+        path="/music/track.flac",
+        title="Track One",
+        metadata_status="complete",
+        genre_decision=decision,
+        raw_metadata={"huge": ["payload"]},
+    )
+
+    repository.save_scan_results([original])
+
+    display_records = repository.list_display_tracks()
+
+    assert len(display_records) == 1
+    assert display_records[0].genre_decision == decision
     assert display_records[0].raw_metadata == {}
 
 
