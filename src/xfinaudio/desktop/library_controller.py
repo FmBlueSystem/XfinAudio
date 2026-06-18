@@ -101,6 +101,11 @@ class LibraryController:
         self._parent = parent
         self._spectral_completion_worker: SpectralCompletionWorker | None = None
         self._active_song_search_query = ""
+        # Ensure the spectral worker is shut down before this controller is
+        # destroyed. Otherwise the QThread inside the worker outlives the
+        # MainWindow and Qt prints "QThread: Destroyed while thread '' is
+        # still running" at interpreter exit.
+        self._parent.destroyed.connect(self.shutdown)
 
     @property
     def spectral_completion_worker(self) -> SpectralCompletionWorker | None:
@@ -360,6 +365,30 @@ class LibraryController:
                 spectral_total_count=0,
             )
             self._sync_state()
+
+    def shutdown(self) -> None:
+        """Cancel and wait for the spectral completion worker.
+
+        Called automatically when the parent MainWindow is destroyed. Without
+        this, the worker's QThread is destroyed while still running (librosa
+        analysis does not cooperatively cancel mid-operation), and Qt prints
+        "QThread: Destroyed while thread '' is still running" and aborts the
+        process at interpreter exit (returncode 134).
+
+        The cooperative ``cancel()`` asks the worker to stop and waits up to
+        200ms. If the thread is still running after that, ``terminate()`` is
+        used as a last resort to prevent the abort.
+        """
+        if self._spectral_completion_worker is not None:
+            self._spectral_completion_worker.cancel()
+            self._spectral_completion_worker.wait(200)
+            if (
+                self._spectral_completion_worker._thread is not None
+                and self._spectral_completion_worker._thread.isRunning()
+            ):
+                self._spectral_completion_worker._thread.terminate()
+                self._spectral_completion_worker._thread.wait(200)
+            self._spectral_completion_worker = None
 
     @Slot(int, int)
     def on_spectral_progress_updated(self, processed_count: int, total_count: int) -> None:
