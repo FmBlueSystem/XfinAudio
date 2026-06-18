@@ -41,7 +41,9 @@ def apply_compact_mac_layout(window: Any, layout: QVBoxLayout, status_controls: 
     window._export_screen.history_table.setMaximumHeight(_COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT)
     window._export_screen.history_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     apply_compact_table_columns(window)
-    window._set_recommendation_sections_expanded(False)
+    from xfinaudio.desktop.layout import set_main_recommendation_sections_expanded
+
+    set_main_recommendation_sections_expanded(window, False)
 
 
 def apply_compact_table_columns(window: Any) -> None:

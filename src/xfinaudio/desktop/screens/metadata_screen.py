@@ -134,7 +134,7 @@ class MetadataScreen(QWidget):
         self.export_button.clicked.connect(lambda: window.export_metadata_status_to_serato())
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
         self.filter_changed.connect(window._sync_state)
-        self.export_requested.connect(window._on_metadata_export_requested)
+        self.export_requested.connect(window._library_controller.on_metadata_export_requested)
 
     # ------------------------------------------------------------------
     # Render

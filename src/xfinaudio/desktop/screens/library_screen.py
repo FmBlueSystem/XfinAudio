@@ -360,10 +360,10 @@ class LibraryScreen(QWidget):
         self.selection_changed.connect(window._on_library_selection_changed)
         self.metadata_screen_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(5))
         self.proceed_button.clicked.connect(lambda: window.workflow_tabs.setCurrentIndex(1))
-        self.settings_requested.connect(window._open_settings_dialog)
-        self.filters_cleared.connect(window._on_library_filters_cleared)
-        self.track_play_requested.connect(window._on_track_play_requested)
-        self.play_requested.connect(window._on_preview_play_requested)
+        self.settings_requested.connect(window._settings_controller.open_settings_dialog)
+        self.filters_cleared.connect(window._library_controller.on_library_filters_cleared)
+        self.track_play_requested.connect(window._library_controller.on_track_play_requested)
+        self.play_requested.connect(window._library_controller.on_preview_play_requested)
         self.pause_requested.connect(window._audio_player.pause)
 
     # ------------------------------------------------------------------

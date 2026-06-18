@@ -249,9 +249,9 @@ class ReviewScreen(QWidget):
 
     def connect_signals(self, window: Any) -> None:
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(1))
-        self.proceed_to_export_requested.connect(window._on_proceed_to_export)
-        self.track_remove_requested.connect(window._on_track_remove_requested)
-        self.track_play_requested.connect(window._on_track_play_requested)
+        self.proceed_to_export_requested.connect(window._library_controller.on_proceed_to_export)
+        self.track_remove_requested.connect(window._library_controller.on_track_remove_requested)
+        self.track_play_requested.connect(window._library_controller.on_track_play_requested)
 
     # ------------------------------------------------------------------
     # Render

@@ -6,8 +6,9 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import QFileDialog, QLabel, QWidget
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
@@ -22,6 +23,7 @@ from xfinaudio.desktop.rendering import (
     _format_track_tags,
     _table_item,
 )
+from xfinaudio.desktop.review_view_model import ReviewViewModel
 from xfinaudio.desktop.screens import BuildScreen, ExportScreen, LibraryScreen, MetadataScreen, ReviewScreen
 from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
 from xfinaudio.desktop.table_populators import populate_library_table
@@ -66,6 +68,12 @@ class LibraryControllerAccess:
     selected_track_controls: Callable[[], object | None]
     apply_song_filter: Callable[..., None]
     state_setter: Callable[[AppState], None]
+    export_metadata_status_to_serato: Callable[..., None]
+    undo_manager: Any
+    refresh_undo_state: Callable[[], None]
+    workflow_tab_setter: Callable[[int], None]
+    open_track: Callable[[str], object]
+    live_load_next: Callable[[str], None]
 
 
 class LibraryController:
@@ -193,6 +201,105 @@ class LibraryController:
         self.refresh_idle_action_state()
         if self._audio_player._source_path is not None and self._audio_player._source_path not in paths:
             self._audio_player.stop()
+
+    def on_metadata_export_requested(self, status_filter: str, missing_filter: str) -> None:
+        missing_field = _MISSING_METADATA_FILTERS.get(missing_filter)
+        norm_status = status_filter.casefold() if status_filter.casefold() in {"complete", "incomplete"} else None
+        self._access.export_metadata_status_to_serato(status=norm_status, missing_field=missing_field)
+
+    def on_exclude_requested(self) -> None:
+        self._state.excluded_paths = self._state.excluded_paths | frozenset(self._access.selected_paths)
+        self._sync_state()
+
+    def on_lock_requested(self) -> None:
+        self._state.locked_paths = self._state.locked_paths | frozenset(self._access.selected_paths)
+        self._sync_state()
+
+    def on_clear_constraints(self) -> None:
+        self._state.excluded_paths = frozenset()
+        self._state.locked_paths = frozenset()
+        self._sync_state()
+
+    def on_library_filters_cleared(self, active_labels: list[str]) -> None:
+        from xfinaudio.desktop.undo_manager import Command
+
+        labels = list(active_labels)
+        self._access.undo_manager.push(
+            Command(
+                label=self._tr("Clear filters"),
+                execute=lambda: self._widgets.library_screen.clear_quick_filters(emit_signal=False),
+                undo=lambda: self._widgets.library_screen.restore_quick_filters(labels),
+            )
+        )
+        self._access.refresh_undo_state()
+
+    def on_proceed_to_export(self) -> None:
+        if ReviewViewModel().can_export(self._state):
+            self._access.workflow_tab_setter(3)
+
+    def on_track_remove_requested(self, path: str) -> None:
+        from xfinaudio.desktop.undo_manager import Command
+
+        if path in self._state.playlist_removed_paths:
+            return
+        self.apply_track_removed(path)
+        self._access.undo_manager.push(
+            Command(
+                label=self._tr("Remove {0}").format(Path(path).name),
+                execute=lambda: self.apply_track_removed(path),
+                undo=lambda: self.apply_track_restored(path),
+            )
+        )
+        self._access.refresh_undo_state()
+
+    def apply_track_removed(self, path: str) -> None:
+        self._state.playlist_removed_paths = self._state.playlist_removed_paths | {path}
+        self._sync_state()
+
+    def apply_track_restored(self, path: str) -> None:
+        self._state.playlist_removed_paths = self._state.playlist_removed_paths - {path}
+        self._sync_state()
+
+    def on_track_play_requested(self, path: str) -> None:
+        try:
+            self._access.open_track(path)
+        except Exception as exc:
+            self._log.warning("Could not open track %s: %s", path, exc)
+            self._widgets.status_label.setText(self._tr("Could not open: {0}").format(Path(path).name))
+
+    def on_preview_play_requested(self, path: str) -> None:
+        self._audio_player.stop()
+        self._audio_player.load(path)
+
+    def on_live_load_next(self, path: str) -> None:
+        self._access.live_load_next(path)
+
+    def on_player_state_changed(self, state: object) -> None:
+        from xfinaudio.desktop.audio_player_state import PlayerState
+
+        if state == PlayerState.PLAYING:
+            self._widgets.library_screen.set_playing_row(self._audio_player._source_path)
+        elif state in (PlayerState.IDLE, PlayerState.ERROR):
+            self._widgets.library_screen.set_playing_row(None)
+
+    def on_player_error(self, message: str) -> None:
+        self._log.warning("Audio preview error: %s", message)
+        self._widgets.library_screen.set_playing_row(None)
+        self._widgets.status_label.setText(self._tr("Preview error: {0}").format(message))
+
+    def open_selected_library_track(self) -> None:
+        selected_rows = sorted({index.row() for index in self._widgets.library_screen.tracks_table.selectedIndexes()})
+        if not selected_rows:
+            return
+        path_item = self._widgets.library_screen.tracks_table.item(selected_rows[0], _TRACK_PATH_COLUMN)
+        if path_item is not None:
+            self.on_track_play_requested(path_item.text())
+
+    def remove_selected_review_track(self) -> None:
+        row = self._widgets.review_screen.recommendation_table.currentRow()
+        path_item = self._widgets.review_screen.recommendation_table.item(row, 0)
+        if path_item is not None and (path := path_item.data(Qt.ItemDataRole.UserRole)):
+            self.on_track_remove_requested(path)
 
     def refresh_idle_action_state(self) -> None:
         self._widgets.library_screen.scan_button.setEnabled(self._state.selected_folder is not None)

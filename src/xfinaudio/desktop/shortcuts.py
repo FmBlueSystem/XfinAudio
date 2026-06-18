@@ -15,11 +15,11 @@ def bind_main_window_shortcuts(window: Any) -> dict[str, QShortcut]:
         ("recommend_playlist", QKeySequence("Ctrl+R"), window._build_screen.recommend_button.click),
         ("export_recommendation", QKeySequence("Ctrl+E"), window._export_screen.export_button.click),
         ("toggle_missing_column", QKeySequence("Ctrl+M"), window._library_screen.missing_column_button.click),
-        ("open_selected_track", QKeySequence("Return"), window._open_selected_library_track),
-        ("remove_selected_track", QKeySequence("Del"), window._remove_selected_review_track),
+        ("open_selected_track", QKeySequence("Return"), window._library_controller.open_selected_library_track),
+        ("remove_selected_track", QKeySequence("Del"), window._library_controller.remove_selected_review_track),
         ("cancel_scan", QKeySequence("Esc"), window.cancel_scan),
-        ("undo", QKeySequence("Ctrl+Z"), window.undo),
-        ("redo", QKeySequence("Ctrl+Shift+Z"), window.redo),
+        ("undo", QKeySequence("Ctrl+Z"), window._undo_toolbar.undo),
+        ("redo", QKeySequence("Ctrl+Shift+Z"), window._undo_toolbar.redo),
     ]
     keyboard_shortcuts: dict[str, QShortcut] = {}
     for name, sequence, slot in shortcuts:

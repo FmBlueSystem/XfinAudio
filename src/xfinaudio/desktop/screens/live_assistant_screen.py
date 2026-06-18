@@ -279,7 +279,7 @@ class LiveAssistantScreen(QWidget):
     def connect_signals(self, window: Any) -> None:
         """Wire screen-local signals to the owning window."""
         self.exit_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
-        self.preview_requested.connect(window._on_preview_play_requested)
+        self.preview_requested.connect(window._library_controller.on_preview_play_requested)
         self.load_next_requested.connect(self.load_next)
 
     def load_next(self, path: str) -> None:

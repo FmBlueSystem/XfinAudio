@@ -84,7 +84,7 @@ class PrepCopilotController:
         self._state.last_dj_readiness_report = variant.readiness
         self._state._state.playlist_removed_paths = frozenset()
         self._on_state_changed()
-        self._state._set_applied_copilot_variant(variant.name)
+        self.set_applied_variant(variant.name)
         self._state.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)
         self._state._review_screen.review_summary_label.setText(format_quality_summary(quality_report))
         self._state._review_screen.dj_readiness_label.setText(format_dj_readiness_summary(variant.readiness))
@@ -99,3 +99,14 @@ class PrepCopilotController:
         if 0 <= index < self._build_screen.copilot_table.rowCount():
             self._build_screen.copilot_table.selectRow(index)
         self.apply_selected_variant()
+
+    def set_applied_variant(self, variant_name: str | None) -> None:
+        self._state.applied_prep_copilot_variant_name = variant_name
+        self._on_state_changed()
+        variant_label = self._build_screen.applied_copilot_variant_label
+        if variant_name is None:
+            variant_label.setText(self._state.tr("Applied Variant: none"))
+            variant_label.setToolTip(self._state.tr("No Prep Copilot variant is currently applied."))
+            return
+        variant_label.setText(self._state.tr("Applied Variant: {0}").format(variant_name))
+        variant_label.setToolTip(self._state.tr("This variant will be used for Serato preview/export."))

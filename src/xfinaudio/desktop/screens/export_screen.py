@@ -205,7 +205,7 @@ class ExportScreen(QWidget):
         self.preview_requested.connect(window.preview_export)
         self.export_requested.connect(window.export_recommendation)
         self.readiness_export_requested.connect(lambda: window.export_dj_readiness_report())
-        self.safe_folder_change_requested.connect(window.choose_safe_export_folder)
+        self.safe_folder_change_requested.connect(window._export_actions.choose_safe_export_folder)
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(2))
 
     def _on_software_changed(self, name: str) -> None:
