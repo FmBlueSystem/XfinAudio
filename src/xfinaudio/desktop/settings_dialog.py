@@ -116,6 +116,19 @@ class SettingsDialog(QDialog):
             self.settings_changed.emit(AppSettings())
             super().accept()
 
+    def open_dialog(self) -> None:
+        """Open the modal dialog."""
+        self.exec()
+
+    def apply(self) -> None:
+        """Apply the current dialog values."""
+        self.accept()
+
+    def reset_to_defaults(self) -> None:
+        """Reset settings to release defaults."""
+        self.settings_changed.emit(AppSettings())
+        super().accept()
+
     # ------------------------------------------------------------------
     # Dialog accept/reject
     # ------------------------------------------------------------------

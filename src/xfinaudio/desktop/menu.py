@@ -13,14 +13,14 @@ if TYPE_CHECKING:
 
 
 class MenuHost(Protocol):
-    """Host boundary the MenuBuilder needs to wire menu actions."""
+    """Host boundary the Menu needs to wire menu actions."""
 
     def tr(self, text: str) -> str: ...
     def close(self) -> bool: ...
     def _open_settings_dialog(self) -> None: ...
 
 
-class MenuBuilder:
+class Menu:
     """Build the application menu bar and own the About dialog."""
 
     def __init__(self, host: MenuHost) -> None:
