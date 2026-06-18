@@ -1750,7 +1750,7 @@ def test_main_window_serato_export_button_requires_recommendation(tmp_path) -> N
             )
         ]
     )
-    # Export tab also requires a readiness report (NavigationController rule).
+    # Export tab also requires a readiness report (Navigation rule).
     window.last_dj_readiness_report = DjReadinessReport(
         status="ready", summary="All good", blocker_count=0, review_count=0, checks=[]
     )

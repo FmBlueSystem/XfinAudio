@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.build_view_model import BuildViewModel, CopilotVariantRow
-from xfinaudio.desktop.scan_controller import progress_percent, progress_status_text
+from xfinaudio.desktop.scan_service import progress_percent, progress_status_text
 
 _READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "blocked": "Blocked"}
 _READINESS_STATUS_COLORS = {"ready": "#1fd16a", "needs_review": "#ffb000", "blocked": "#ff4d4f"}

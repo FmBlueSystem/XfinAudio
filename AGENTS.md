@@ -80,6 +80,5 @@ For focused work, run the smallest relevant `pytest` target first, then the full
 ## Related documents
 
 - `.atl/skills/gentle-ai-sdd-tdd/SKILL.md` — detailed skill instructions.
-- `.planning/codebase/ARCHITECTURE.md` — architecture and agent conduct.
 - `CONTRIBUTING.md` — human contributor guide.
 - `openspec/config.yaml` — SDD configuration.

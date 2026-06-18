@@ -1,0 +1,30 @@
+schema: gentle-ai.sdd-state.v1
+change: lean-refactor-pr3-trim-scripts
+artifact_store: openspec
+status: active
+state: verifying
+step: verify
+review_status: pending
+created: 2026-06-18
+updated: 2026-06-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in_progress
+  review: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: chained
+  chained_prs_recommended: true
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 20
+notes: |
+  PR 3 of 5 in the lean-refactor chain.
+  Tracker: tracker/lean-refactor.
+  PR branch: chore/trim-scripts (from tracker).
+  Pure delete of 4 dead scripts. No call sites, no replacements.

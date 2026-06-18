@@ -153,13 +153,13 @@ def test_shortcut_open_folder_chooses_folder(tmp_path, monkeypatch) -> None:
     assert window.selected_folder == tmp_path
 
 
-def test_shortcut_scan_metadata_invokes_scan_coordinator() -> None:
+def test_shortcut_scan_metadata_invokes_scan_service() -> None:
     ensure_app()
     window = _make_window()
 
     spy = MagicMock()
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(window._scan_coordinator, "scan_selected_folder", spy)
+    monkeypatch.setattr(window._scan_service, "scan_selected_folder", spy)
 
     window._keyboard_shortcuts["scan_metadata"].activated.emit()
 

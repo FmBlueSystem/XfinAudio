@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.export_view_model import ExportViewModel
-from xfinaudio.desktop.scan_controller import progress_percent, progress_status_text
+from xfinaudio.desktop.scan_service import progress_percent, progress_status_text
 
 _HISTORY_COLUMNS = ["Time", "Strategy", "Tracks", "Serato Crate", "Readiness JSON", "Readiness CSV"]
 _HISTORY_HEADER_TOOLTIPS = [
