@@ -54,3 +54,37 @@ def test_parser_uses_energylevel_when_mixedinkey_energy_json_is_invalid() -> Non
 
     assert metadata.energy_level == 6
     assert metadata.source_fields["energy_level"] == "energylevel"
+
+
+def test_parser_converts_musical_key_notation_in_mik_json_to_camelot() -> None:
+    """Mixed In Key often stores the key as a standard musical name (e.g. 'Cm') rather than
+    Camelot. The parser must convert it: C minor → 5A."""
+    import base64
+    import json as _json
+
+    encoded = base64.b64encode(_json.dumps({"key": "Cm", "source": "mixedinkey"}).encode()).decode()
+    metadata = parse_mixedinkey_tags({"key": [encoded]})
+
+    assert metadata.camelot_key == "5A"
+    assert metadata.source_fields["camelot_key"] == "key"
+
+
+def test_parser_converts_musical_key_from_initialkey_field() -> None:
+    metadata = parse_mixedinkey_tags({"initialkey": ["Bbm"]})
+    assert metadata.camelot_key == "3A"  # Bb minor → 3A
+
+
+def test_parser_converts_major_musical_key_to_b_column() -> None:
+    metadata = parse_mixedinkey_tags({"initialkey": ["G"]})
+    assert metadata.camelot_key == "9B"  # G major → 9B
+
+
+def test_parser_handles_enharmonic_and_unicode_sharp_flat() -> None:
+    assert parse_mixedinkey_tags({"initialkey": ["G#m"]}).camelot_key == "1A"
+    assert parse_mixedinkey_tags({"initialkey": ["Abm"]}).camelot_key == "1A"  # enharmonic of G#m
+    assert parse_mixedinkey_tags({"initialkey": ["F#"]}).camelot_key == "2B"
+
+
+def test_parser_still_accepts_native_camelot_notation() -> None:
+    metadata = parse_mixedinkey_tags({"initialkey": ["8A"]})
+    assert metadata.camelot_key == "8A"
