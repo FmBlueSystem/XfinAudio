@@ -15,6 +15,7 @@ from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
+from xfinaudio.desktop.app_state_transitions import apply_spectral_profile
 from xfinaudio.desktop.audio_player import AudioPlayer
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.rendering import (
@@ -401,13 +402,8 @@ class LibraryController:
 
     @Slot(str, object)
     def on_spectral_profile_ready(self, path: str, profile: object) -> None:
-        for index, record in enumerate(self._state.scanned_records):
-            if record.path == path:
-                self._state.scanned_records[index] = record.model_copy(update={"spectral_profile": profile})
-                break
-        if path in self._state.records_by_path:
-            existing = self._state.records_by_path[path]
-            self._state.records_by_path[path] = existing.model_copy(update={"spectral_profile": profile})
+        self._state = apply_spectral_profile(self._state, path=path, profile=profile)  # type: ignore[arg-type]
+        self._access.state_setter(self._state)
         for row_index in range(self._widgets.library_screen.tracks_table.rowCount()):
             path_item = self._widgets.library_screen.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
             if path_item is not None and path_item.text() == path:
