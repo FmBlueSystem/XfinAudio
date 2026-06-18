@@ -17,6 +17,16 @@ from typing import Any
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from xfinaudio.audio.spectral_profile import SpectralProfile, analyze_spectral_profile
+
+# Match the scan-service limit so the post-scan completion worker and the
+# initial scan agree on the audio window to analyze.
+_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS: float | None = 30.0
+
+
+def _analyze_with_limit(path):
+    return analyze_spectral_profile(
+        path, max_duration_seconds=_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS
+    )
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken
 
@@ -92,7 +102,7 @@ class _SpectralCompletionRunner(QObject):
 
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
             future_to_path: dict[Any, Path] = {
-                pool.submit(analyze_spectral_profile, path): path for path in pending_paths
+                pool.submit(_analyze_with_limit, path): path for path in pending_paths
             }
             for future in as_completed(future_to_path):
                 if _is_cancelled(self._cancellation_token):
