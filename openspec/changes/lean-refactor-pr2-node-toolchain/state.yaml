@@ -1,0 +1,30 @@
+schema: gentle-ai.sdd-state.v1
+change: lean-refactor-pr2-node-toolchain
+artifact_store: openspec
+status: active
+state: verifying
+step: verify
+review_status: pending
+created: 2026-06-18
+updated: 2026-06-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in_progress
+  review: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: chained
+  chained_prs_recommended: true
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 30
+notes: |
+  PR 2 of 5 in the lean-refactor chain.
+  Tracker: tracker/lean-refactor.
+  PR branch: chore/drop-node-toolchain (from tracker).
+  Pure delete of inert Node artifacts. No call sites.
