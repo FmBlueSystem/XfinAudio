@@ -1,0 +1,31 @@
+schema: gentle-ai.sdd-state.v1
+change: lean-refactor-pr7-residual
+artifact_store: openspec
+status: active
+state: verifying
+step: verify
+review_status: pending
+created: 2026-06-18
+updated: 2026-06-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in_progress
+  review: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: direct
+  chained_prs_recommended: false
+  chain_strategy: null
+  review_budget_changed_lines: 600
+notes: |
+  Post-chain follow-up: extract the remaining main_window bloat in one PR.
+  Combines 4 extractions: per-screen signal wiring, full build_layout/build_widgets
+  move, _initialize_window_state factory, property accessors via __getattr__.
+  Target: main_window.py under 700 LOC (best case <500).
+  PR target: main (direct PR).

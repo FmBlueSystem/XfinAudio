@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QShortcut
@@ -275,10 +276,10 @@ class LiveAssistantScreen(QWidget):
         self._records_by_path = records_by_path
         self._scanned_records = scanned_records
 
-    def connect_signals(self, workflow_tabs, preview_handler) -> None:
+    def connect_signals(self, window: Any) -> None:
         """Wire screen-local signals to the owning window."""
-        self.exit_requested.connect(lambda: workflow_tabs().setCurrentIndex(0))
-        self.preview_requested.connect(preview_handler)
+        self.exit_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
+        self.preview_requested.connect(window._on_preview_play_requested)
         self.load_next_requested.connect(self.load_next)
 
     def load_next(self, path: str) -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -125,6 +127,14 @@ class MetadataScreen(QWidget):
         self.status_combo.currentTextChanged.connect(lambda _: self.filter_changed.emit())
         self.missing_combo.currentTextChanged.connect(lambda _: self.filter_changed.emit())
         self.export_button.clicked.connect(self._on_export_clicked)
+
+    def connect_signals(self, window: Any) -> None:
+        self.status_combo.currentTextChanged.connect(lambda _text: window._apply_song_filter())
+        self.missing_combo.currentTextChanged.connect(lambda _text: window._apply_song_filter())
+        self.export_button.clicked.connect(lambda: window.export_metadata_status_to_serato())
+        self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
+        self.filter_changed.connect(window._sync_state)
+        self.export_requested.connect(window._on_metadata_export_requested)
 
     # ------------------------------------------------------------------
     # Render
