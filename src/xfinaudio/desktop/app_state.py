@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, get_args
+from typing import Literal, Protocol, get_args
 
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.exporting.explainability import PlaylistExplanation
@@ -18,6 +18,13 @@ from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
 ScreenName = Literal["library", "build", "review", "export", "metadata"]
 
 VALID_SCREENS: frozenset[str] = frozenset(get_args(ScreenName))
+
+
+class SettingsPersistence(Protocol):
+    """Persistence boundary for app settings updates from the desktop UI."""
+
+    def save(self, settings: AppSettings) -> None:
+        """Persist application settings."""
 
 
 @dataclass
