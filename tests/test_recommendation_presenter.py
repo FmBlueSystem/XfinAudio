@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.candidate_pool import build_recommendation_pool
 from xfinaudio.recommendation.controls import DJControls
 
 

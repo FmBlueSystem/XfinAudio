@@ -10,6 +10,7 @@ from xfinaudio.recommendation.strategies import (
     available_strategies,
     default_strategy_registry,
     get_strategy,
+    resolve_strategy_name,
 )
 
 EXPECTED_STRATEGIES = {
@@ -175,3 +176,16 @@ def test_same_energy_filters_candidates_outside_anchor_energy_tolerance() -> Non
     assert "too_low" not in titles
     assert "too_high" not in titles
     assert {"anchor", "near_low", "near_same", "near_high"}.issubset(set(titles))
+
+
+def test_resolve_strategy_name_accepts_internal_name() -> None:
+    assert resolve_strategy_name("harmonic_journey") == "harmonic_journey"
+
+
+def test_resolve_strategy_name_accepts_display_name() -> None:
+    assert resolve_strategy_name("Harmonic Journey") == "harmonic_journey"
+
+
+def test_resolve_strategy_name_rejects_unknown_label() -> None:
+    with pytest.raises(ValueError, match="Unknown playlist strategy"):
+        resolve_strategy_name("Harmonic Journey!!!")
