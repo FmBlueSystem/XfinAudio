@@ -1,0 +1,33 @@
+schema: gentle-ai.sdd-state.v1
+change: lean-refactor-pr6-slice-shell
+artifact_store: openspec
+status: active
+state: applying
+step: apply
+review_status: pending
+created: 2026-06-18
+updated: 2026-06-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: in_progress
+  verify: pending
+  review: pending
+next_recommended: apply
+blocked_reasons:
+  - main_window.py is 1033 LOC after the 4 requested controller extractions; verify requires under 600 LOC.
+delivery:
+  strategy: direct
+  chained_prs_recommended: false
+  chain_strategy: null
+  review_budget_changed_lines: 700
+notes: |
+  Post-chain follow-up: extract 4 controllers (AppController,
+  LibraryController, SettingsController, DjReadinessController) from
+  main_window.py. Target: main_window.py under 600 LOC.
+  PR 7 will follow to move the 15 property accessors to AppState and get
+  main_window.py under 400 LOC.
+  Target branch: main (this is a direct PR, not a chain PR).

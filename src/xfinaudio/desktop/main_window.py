@@ -10,7 +10,6 @@ from typing import Any
 
 from PySide6.QtCore import QCoreApplication, Qt, QTimer, Slot
 from PySide6.QtWidgets import (
-    QFileDialog,
     QHBoxLayout,
     QMainWindow,
     QTableWidget,
@@ -22,13 +21,20 @@ from xfinaudio.application.playlist_workflow import PlaylistWorkflowService, Sca
 from xfinaudio.config.settings import AppSettings, WindowSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop import rendering as _rendering
+from xfinaudio.desktop.app_controller import (
+    AppController,
+    AppControllerScreens,
+    AppControllerStateAccess,
+    AppControllerViewModels,
+)
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.audio_player import AudioPlayer
 from xfinaudio.desktop.build_view_model import BuildViewModel
+from xfinaudio.desktop.dj_readiness_controller import DjReadinessController
 from xfinaudio.desktop.export_actions import ExportActions
 from xfinaudio.desktop.export_coordinator import ExportCoordinator
 from xfinaudio.desktop.export_view_model import ExportViewModel
-from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
+from xfinaudio.desktop.library_controller import LibraryController, LibraryControllerAccess, LibraryControllerWidgets
 from xfinaudio.desktop.library_view_model import LibraryViewModel
 from xfinaudio.desktop.menu import Menu
 from xfinaudio.desktop.metadata_view_model import MetadataViewModel
@@ -40,12 +46,6 @@ from xfinaudio.desktop.recommendation_render import clear_recommendation_review 
 from xfinaudio.desktop.recommendation_render import render_recommendation
 from xfinaudio.desktop.recommendation_render import show_transition_review as render_transition_review
 from xfinaudio.desktop.recommendation_service import RecommendationService
-from xfinaudio.desktop.rendering import (
-    _format_missing_metadata,
-    _format_spectral_color,
-    _format_track_tags,
-    _table_item,
-)
 from xfinaudio.desktop.review_view_model import ReviewViewModel
 from xfinaudio.desktop.scan_service import ScanService as DesktopScanService
 from xfinaudio.desktop.screens import (
@@ -58,20 +58,12 @@ from xfinaudio.desktop.screens import (
     PlaylistEditor,
     ReviewScreen,
 )
-from xfinaudio.desktop.settings_dialog import SettingsDialog
+from xfinaudio.desktop.settings_controller import SettingsController
 from xfinaudio.desktop.shortcuts import bind_main_window_shortcuts
-from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
-from xfinaudio.desktop.table_populators import (
-    populate_dj_readiness_table,
-    populate_library_table,
-)
 from xfinaudio.desktop.table_sorting import connect_table_sorting, sort_table_by_column
 from xfinaudio.desktop.theme import (
     _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT,
     _COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT,
-    _READINESS_STATUS_COLORS,
-    _READINESS_STATUS_LABELS,
-    _READINESS_STATUS_TOOLTIPS,
 )
 from xfinaudio.desktop.undo_manager import Command, UndoManager
 from xfinaudio.desktop.undo_toolbar import UndoToolbar
@@ -81,11 +73,7 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_repository import PlaylistRepository
 from xfinaudio.library.scan_service import MetadataScanService, ScanCancellationToken
 from xfinaudio.library.track_repository import TrackRepository
-from xfinaudio.quality.dj_readiness import (
-    DjReadinessReport,
-    build_dj_readiness_report,
-    format_dj_readiness_summary,
-)
+from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -135,6 +123,7 @@ class MainWindow(QMainWindow):
         self._initialize_window_state(scan_service, repository, settings, settings_repository)
 
         self._build_widgets()
+        self._initialize_library_controller()
         self._prep_copilot = PrepCopilotController(
             build_screen=self._build_screen,
             build_vm=self._build_vm,
@@ -149,6 +138,7 @@ class MainWindow(QMainWindow):
         self._connect_widget_signals()
         self._apply_visual_design()
         self._build_layout()
+        self._initialize_app_controller()
         self._menu = Menu(self)  # type: ignore[reportArgumentType]
         self._menu.build(self.menuBar())
         self._restore_window_geometry()
@@ -157,10 +147,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: object) -> None:
         self._audio_player.stop()
         self._scan_service.cancel()
-        if self._spectral_completion_worker is not None:
-            self._spectral_completion_worker.cancel()
-            self._spectral_completion_worker.wait()
-            self._spectral_completion_worker = None
+        if hasattr(self, "_library_controller"):
+            self._cancel_spectral_completion_worker()
         self._recommendation_service.cancel()
         self._persist_window_geometry()
         super().closeEvent(event)  # type: ignore[arg-type]
@@ -264,50 +252,125 @@ class MainWindow(QMainWindow):
             on_export_success=self._playlist_coordinator.save_recommendation,
         )
         self._export_actions = ExportActions(self._export_coordinator)
-        self._spectral_completion_worker: SpectralCompletionWorker | None = None
-        self._settings_dialog: SettingsDialog | None = None
+        self._settings_dialog: object | None = None
+        self._settings_controller = SettingsController(
+            settings_getter=lambda: self.settings,
+            settings_setter=lambda value: setattr(self, "settings", value),
+            settings_repository=self.settings_repository,
+            export_screen=self._export_screen,
+            sync_state=self._sync_state,
+            tr=self.tr,
+            message_parent=self,
+            dialog_setter=lambda dialog: setattr(self, "_settings_dialog", dialog),
+        )
+        self._dj_readiness_controller = DjReadinessController(
+            state=self._state,
+            review_screen=self._review_screen,
+            sync_state=self._sync_state,
+            last_report_setter=lambda value: setattr(self, "last_dj_readiness_report", value),
+        )
 
     def _wire_scan_service(self) -> None:
         _layout.wire_main_scan_service(self)
+
+    def _initialize_library_controller(self) -> None:
+        self._library_controller = LibraryController(
+            state=self._state,
+            workflow_service=self.workflow_service,
+            widgets=LibraryControllerWidgets(
+                library_screen=self._library_screen,
+                build_screen=self._build_screen,
+                review_screen=self._review_screen,
+                export_screen=self._export_screen,
+                metadata_screen=self._metadata_screen,
+                folder_label=self.folder_label,
+                library_guidance_label=self.library_guidance_label,
+                recommendation_guidance_label=self.recommendation_guidance_label,
+                status_label=self.status_label,
+            ),
+            access=LibraryControllerAccess(
+                settings_getter=lambda: self.settings,
+                settings_setter=lambda value: setattr(self, "settings", value),
+                settings_repository=self.settings_repository,
+                selected_paths=self._library_selected_paths,
+                pre_scan_records_by_path=self._pre_scan_records_by_path,
+                set_applied_copilot_variant=self._set_applied_copilot_variant,
+                set_recommendation_sections_expanded=self._set_recommendation_sections_expanded,
+                clear_recommendation_review=self.clear_recommendation_review,
+                selected_track_controls=self._selected_track_controls,
+                apply_song_filter=lambda *args, **kwargs: self._apply_song_filter(*args, **kwargs),
+                state_setter=self._replace_app_state,
+            ),
+            audio_player=self._audio_player,
+            sync_state=self._sync_state,
+            tr=self.tr,
+            log=LOGGER,
+            parent=self,
+        )
+
+    def _replace_app_state(self, state: AppState) -> None:
+        self._state = state
+        if hasattr(self, "_app_controller"):
+            self._app_controller._state = state
+        if hasattr(self, "_dj_readiness_controller"):
+            self._dj_readiness_controller._state = state
+        if hasattr(self, "_scan_service"):
+            self._scan_service._state = state
+        if hasattr(self, "_recommendation_service"):
+            self._recommendation_service._state = state
+        if hasattr(self, "_prep_copilot"):
+            self._prep_copilot._state = self
+
+    def _initialize_app_controller(self) -> None:
+        self._app_controller = AppController(
+            state=self._state,
+            nav=self._nav,
+            workflow_tabs=self.workflow_tabs,
+            workflow_sidebar=self.workflow_sidebar,
+            screen_names=_SCREEN_NAMES,
+            screens=AppControllerScreens(
+                library=self._library_screen,
+                build=self._build_screen,
+                review=self._review_screen,
+                export=self._export_screen,
+                metadata=self._metadata_screen,
+                live_assistant=self._live_assistant_screen,
+            ),
+            view_models=AppControllerViewModels(
+                library=self._library_vm,
+                build=self._build_vm,
+                review=self._review_vm,
+                export=self._export_vm,
+                metadata=self._metadata_vm,
+            ),
+            access=AppControllerStateAccess(
+                settings=lambda: self.settings,
+                is_scanning=lambda: self.current_scan_cancellation_token is not None,
+                is_recommending=lambda: self._is_recommending,
+                selected_library_paths=lambda: self._library_selected_paths,
+                records_by_path=lambda: self._records_by_path,
+                scanned_records=lambda: self.scanned_records,
+                render_screens=lambda: self._render_screens(),
+            ),
+        )
 
     def _wire_recommendation_service(self) -> None:
         _layout.wire_main_recommendation_service(self)
 
     def _render_tab(self, index: int, lightweight: bool = False) -> None:
-        renderers = {
-            0: lambda: self._library_screen.render(self._library_vm, self._state, lightweight=True),
-            1: lambda: self._build_screen.render(self._build_vm, self._state, lightweight=lightweight),
-            2: lambda: self._review_screen.render(self._review_vm, self._state, lightweight=lightweight),
-            3: lambda: self._export_screen.render(self._export_vm, self._state),
-            5: lambda: self._metadata_screen.render(self._state, self._metadata_vm, lightweight=lightweight),
-        }
-        render = renderers.get(index)
-        if render is not None:
-            render()
+        self._app_controller.render_tab(index, lightweight)
 
     def _refresh_state_fields(self) -> None:
-        _tab_index = self.workflow_tabs.currentIndex()
-        self._state.settings = self.settings
-        self._state.is_scanning = self.current_scan_cancellation_token is not None
-        self._state.is_recommending = self._is_recommending
-        self._state.current_screen = _SCREEN_NAMES[_tab_index] if 0 <= _tab_index < len(_SCREEN_NAMES) else "library"
-        self._state.selected_library_paths = list(self._library_selected_paths)
+        self._app_controller.refresh_state_fields()
 
     def _sync_state(self) -> None:
-        self._refresh_state_fields()
-        self._live_assistant_screen.set_library_state(self._records_by_path, self.scanned_records)
-        self._render_screens()
+        self._app_controller.sync_state()
 
     def _render_screens(self) -> None:
-        current = self._current_tab_index
-        for index in (0, 1, 2, 3, 5):
-            self._render_tab(index, lightweight=index != current)
-        self._update_tab_states()
+        self._app_controller.render_screens()
 
     def _on_tab_changed(self, index: int) -> None:
-        self._current_tab_index = index
-        self._refresh_state_fields()
-        self._render_tab(index)
+        self._app_controller.on_tab_changed(index)
 
     @property
     def workflow_service(self) -> PlaylistWorkflowService:
@@ -434,18 +497,7 @@ class MainWindow(QMainWindow):
         self._state.playlist_removed_paths = value
 
     def _update_tab_states(self) -> None:
-        for index, screen_name in enumerate(_SCREEN_NAMES):
-            enabled = self._nav.can_go_to(screen_name, self._state)
-            self.workflow_tabs.setTabEnabled(index, enabled)
-            screen = self.workflow_tabs.widget(index)
-            if screen is not None:
-                screen.setEnabled(enabled)
-            item = self.workflow_sidebar.item(index)
-            if item is not None:
-                flags = item.flags() | Qt.ItemFlag.ItemIsEnabled
-                if not enabled:
-                    flags &= ~Qt.ItemFlag.ItemIsEnabled
-                item.setFlags(flags)
+        self._app_controller.update_tab_states()
 
     def _build_widgets(self) -> None:
         _layout.build_main_widgets(self)
@@ -603,28 +655,18 @@ class MainWindow(QMainWindow):
         return window
 
     def _format_safe_export_folder_label(self) -> str:
-        folder = self.settings.export.safe_export_folder
-        if folder is None:
-            return self.tr("No safe export folder selected")
-        return self.tr("Safe export folder: {0}").format(folder)
+        if not hasattr(self, "_settings_controller"):
+            folder = self.settings.export.safe_export_folder
+            if folder is None:
+                return self.tr("No safe export folder selected")
+            return self.tr("Safe export folder: {0}").format(folder)
+        return self._settings_controller.format_safe_export_folder_label()
 
     def choose_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, self.tr("Choose music folder"))
-        if folder:
-            self.set_selected_folder(Path(folder))
+        self._library_controller.choose_folder()
 
     def set_selected_folder(self, folder: Path) -> None:
-        self.selected_folder = folder
-        self._persist_last_scan_folder(folder)
-        self._clear_scan_dependent_state()
-        self.folder_label.setText(str(folder))
-        self.library_guidance_label.setText(
-            self.tr("Folder selected. Scan metadata to find complete Mixed In Key tracks.")
-        )
-        self.recommendation_guidance_label.setText(self.tr("Scan metadata before recommending a playlist."))
-        self._refresh_idle_action_state()
-        self.status_label.setText(self.tr("Folder selected"))
-        self._sync_state()
+        self._library_controller.set_selected_folder(folder)
 
     def _persist_last_scan_folder(self, folder: Path) -> None:
         self.settings = self.settings.model_copy(
@@ -636,159 +678,77 @@ class MainWindow(QMainWindow):
             self.settings_repository.save(self.settings)
 
     def _populate_track_table(self, records: list[TrackRecord]) -> None:
-        self._records_by_path = populate_library_table(
-            self._library_screen.tracks_table,
-            records,
-            item_factory=_table_item,
-            format_missing_metadata=_format_missing_metadata,
-            format_track_tags=_format_track_tags,
-            format_spectral_color=_format_spectral_color,
-        )
-        self._apply_song_filter(clear_selection=False)
+        self._library_controller.populate_track_table(records)
 
     def _apply_song_filter(self, query: str | None = None, *, clear_selection: bool = False) -> None:
-        _layout.apply_main_song_filter(self, query, clear_selection=clear_selection)
+        self._library_controller.apply_song_filter(query, clear_selection=clear_selection)
 
     def _selected_metadata_status_filter(self) -> str | None:
-        status_text = self._metadata_screen.status_combo.currentText().casefold()
-        return status_text if status_text in {"complete", "incomplete"} else None
+        return self._library_controller.selected_metadata_status_filter()
 
     def _selected_missing_metadata_filter(self) -> str | None:
-        return _MISSING_METADATA_FILTERS.get(self._metadata_screen.missing_combo.currentText())
+        return self._library_controller.selected_missing_metadata_filter()
 
     def _metadata_status_records(self, status: str) -> list[TrackRecord]:
-        return metadata_status_records(self.scanned_records, status)
+        return self._library_controller.metadata_status_records(status)
 
     def _metadata_missing_field_records(self, missing_field: str) -> list[TrackRecord]:
-        return metadata_missing_field_records(self.scanned_records, missing_field)
+        return self._library_controller.metadata_missing_field_records(missing_field)
 
     def restore_persisted_tracks(self, records: list[TrackRecord]) -> None:
-        _layout.restore_main_persisted_tracks(self, records)
+        self._library_controller.restore_persisted_tracks(records)
 
     def _start_spectral_completion_worker(self, records: list[TrackRecord]) -> None:
-        missing = [record for record in records if record.spectral_profile is None]
-        if not missing:
-            return
-        total_count = len(missing)
-        self._cancel_spectral_completion_worker()
-        self._state = self._state.model_copy(
-            update={
-                "is_completing_spectral": True,
-                "spectral_progress_count": 0,
-                "spectral_total_count": total_count,
-            }
-        )
-        self._sync_state()
-        worker = SpectralCompletionWorker(parent=self)
-        worker.progress.connect(self._on_spectral_profile_ready)
-        worker.progress_updated.connect(self._on_spectral_progress_updated)
-        worker.finished.connect(self._on_spectral_completion_finished)
-        worker.failed.connect(lambda error: LOGGER.error("Spectral completion failed: %s", error))
-        self._spectral_completion_worker = worker
-        repository = self.workflow_service.repository
-        worker.start(missing, repository)
+        self._library_controller.start_spectral_completion_worker(records)
 
     def _cancel_spectral_completion_worker(self) -> None:
-        if self._spectral_completion_worker is not None:
-            self._spectral_completion_worker.cancel()
-            self._spectral_completion_worker = None
-        if self._state.is_completing_spectral:
-            self._state = self._state.model_copy(
-                update={
-                    "is_completing_spectral": False,
-                    "spectral_progress_count": 0,
-                    "spectral_total_count": 0,
-                }
-            )
-            self._sync_state()
+        self._library_controller.cancel_spectral_completion_worker()
 
     @Slot(int, int)
     def _on_spectral_progress_updated(self, processed_count: int, total_count: int) -> None:
-        self._state = self._state.model_copy(
-            update={
-                "is_completing_spectral": True,
-                "spectral_progress_count": processed_count,
-                "spectral_total_count": total_count,
-            }
-        )
-        self._sync_state()
+        self._library_controller.on_spectral_progress_updated(processed_count, total_count)
 
     @Slot(str, object)
     def _on_spectral_profile_ready(self, path: str, profile: object) -> None:
-        for index, record in enumerate(self.scanned_records):
-            if record.path == path:
-                self.scanned_records[index] = record.model_copy(update={"spectral_profile": profile})
-                break
-        if path in self._records_by_path:
-            existing = self._records_by_path[path]
-            self._records_by_path[path] = existing.model_copy(update={"spectral_profile": profile})
-        for row_index in range(self._library_screen.tracks_table.rowCount()):
-            path_item = self._library_screen.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
-            if path_item is not None and path_item.text() == path:
-                record = self._records_by_path.get(path)
-                color_text = _format_spectral_color(record) if record is not None else ""
-                self._library_screen.tracks_table.item(row_index, _TRACK_COLOR_COLUMN).setText(color_text)
-                break
-        self._sync_state()
+        self._library_controller.on_spectral_profile_ready(path, profile)
 
     @Slot()
     def _on_spectral_completion_finished(self) -> None:
-        self._spectral_completion_worker = None
-        self._state = self._state.model_copy(
-            update={
-                "is_completing_spectral": False,
-                "spectral_progress_count": 0,
-                "spectral_total_count": 0,
-            }
-        )
-        self._sync_state()
+        self._library_controller.on_spectral_completion_finished()
 
     def _clear_scan_dependent_state(self) -> None:
-        _layout.clear_main_scan_dependent_state(self)
+        self._library_controller.clear_scan_dependent_state()
 
     def _refresh_idle_action_state(self) -> None:
-        self._library_screen.scan_button.setEnabled(self.selected_folder is not None)
-        self._build_screen.recommend_button.setEnabled(self._selected_track_controls() is not None)
-        status_filter = self._selected_metadata_status_filter()
-        missing_filter = self._selected_missing_metadata_filter()
-        self._metadata_screen.export_button.setEnabled(
-            (missing_filter is not None and bool(self._metadata_missing_field_records(missing_filter)))
-            or (status_filter is not None and bool(self._metadata_status_records(status_filter)))
-        )
-        self._library_screen.cancel_button.setEnabled(False)
+        self._library_controller.refresh_idle_action_state()
 
     def choose_safe_export_folder(self) -> None:
         self._export_actions.choose_safe_export_folder()
 
     def _open_settings_dialog(self) -> None:
-        self._settings_dialog = SettingsDialog(self.settings, parent=self)
-        self._settings_dialog.settings_changed.connect(self._apply_settings)
-        self._settings_dialog.open_dialog()
+        self._settings_controller.open_settings_dialog()
 
     def _on_spectral_cohesion_changed(self, value: int) -> None:
-        cohesion = value / 100.0
-        self.settings = self.settings.model_copy(
-            update={"scoring": self.settings.scoring.model_copy(update={"spectral_cohesion": cohesion})}
-        )
-        if self.settings_repository is not None:
-            self.settings_repository.save(self.settings)
-        self._sync_state()
+        self._settings_controller.on_spectral_cohesion_changed(value)
 
     def _apply_settings(self, new_settings: AppSettings) -> None:
-        old_lang = self.settings.ui.language
-        self.settings = new_settings
-        if self.settings_repository is not None:
-            self.settings_repository.save(new_settings)
-        self._export_screen.safe_export_folder_label.setText(self._format_safe_export_folder_label())
-        self._sync_state()
-        if new_settings.ui.language != old_lang:
-            from PySide6.QtWidgets import QMessageBox
+        if not hasattr(self, "_settings_controller"):
+            old_lang = self.settings.ui.language
+            self.settings = new_settings
+            if self.settings_repository is not None:
+                self.settings_repository.save(new_settings)
+            self._export_screen.safe_export_folder_label.setText(self._format_safe_export_folder_label())
+            self._sync_state()
+            if new_settings.ui.language != old_lang:
+                from PySide6.QtWidgets import QMessageBox
 
-            QMessageBox.information(
-                self,
-                self.tr("Language Changed"),
-                self.tr("Please restart XfinAudio for the language change to take effect."),
-            )
+                QMessageBox.information(
+                    self,
+                    self.tr("Language Changed"),
+                    self.tr("Please restart XfinAudio for the language change to take effect."),
+                )
+            return
+        self._settings_controller.apply_settings(new_settings)
 
     def set_safe_export_folder(self, folder: Path) -> None:
         self._export_actions.set_safe_export_folder(folder)
@@ -868,10 +828,7 @@ class MainWindow(QMainWindow):
         self._scan_service.begin_scan_state()
 
     def _on_library_selection_changed(self, paths: list[str]) -> None:
-        self._library_selected_paths = paths
-        self._refresh_idle_action_state()
-        if self._audio_player._source_path is not None and self._audio_player._source_path not in paths:
-            self._audio_player.stop()
+        self._library_controller.on_library_selection_changed(paths)
 
     def cancel_scan(self) -> None:
         self._scan_service.cancel()
@@ -883,16 +840,7 @@ class MainWindow(QMainWindow):
         incomplete_count: int | None = None,
     ) -> None:
         """Render scanned records in the desktop table."""
-        self._populate_track_table(records)
-        if complete_count is None:
-            complete_count = sum(1 for record in records if record.metadata_status == "complete")
-        if incomplete_count is None:
-            incomplete_count = len(records) - complete_count
-        self.status_label.setText(
-            self.tr("Scan complete: {0} complete, {1} incomplete").format(complete_count, incomplete_count)
-        )
-        self._sync_state()
-        self._start_spectral_completion_worker(records)
+        self._library_controller.show_tracks(records, complete_count, incomplete_count)
 
     def generate_prep_copilot(self) -> None:
         self._prep_copilot.generate()
@@ -979,26 +927,15 @@ class MainWindow(QMainWindow):
         serato_volume_root: Path | None = None,
     ) -> None:
         """Render operational DJ readiness for the current recommendation."""
-        report = build_dj_readiness_report(
+        self._dj_readiness_controller.show(
             recommendation,
             quality_report,
             serato_plan=serato_plan,
             serato_volume_root=serato_volume_root,
         )
-        self.last_dj_readiness_report = report
-        self._sync_state()
-        self._review_screen.dj_readiness_label.setText(format_dj_readiness_summary(report))
-        self._populate_dj_readiness_table(report)
 
     def _populate_dj_readiness_table(self, report: DjReadinessReport) -> None:
-        populate_dj_readiness_table(
-            self._review_screen.readiness_table,
-            report,
-            item_factory=_table_item,
-            readiness_status_labels=_READINESS_STATUS_LABELS,
-            readiness_status_colors=_READINESS_STATUS_COLORS,
-            readiness_status_tooltips=_READINESS_STATUS_TOOLTIPS,
-        )
+        self._dj_readiness_controller.populate_table(report)
 
     def show_transition_review(self, explanation: PlaylistExplanation) -> None:
         render_transition_review(review_screen=self._review_screen, explanation=explanation, tr=self.tr)
