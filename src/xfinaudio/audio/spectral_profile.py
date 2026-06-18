@@ -128,9 +128,7 @@ def analyze_spectral_profile(
             green_ratio = float(green_energy / total_energy)
             blue_ratio = float(blue_energy / total_energy)
 
-            centroid = librosa.feature.spectral_centroid(
-                S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH
-            )
+            centroid = librosa.feature.spectral_centroid(S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
             rolloff = librosa.feature.spectral_rolloff(
                 S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH, roll_percent=0.85
             )
