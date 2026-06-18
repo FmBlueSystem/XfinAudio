@@ -10,7 +10,7 @@ XfinAudio is in a publication-readiness posture for GPLv3 full open-source sourc
 
 ## Latest completed work
 
-- Linked `HARMONIC_MIXING.md` from `README.md` using a real Markdown link and protected it with tests.
+- Linked `docs/harmonic-mixing.md` from `README.md` using a real Markdown link and protected it with tests.
 - Added source package hygiene verification:
   - `scripts/source_package_hygiene_check.py`
   - `tests/test_source_package_hygiene_check.py`

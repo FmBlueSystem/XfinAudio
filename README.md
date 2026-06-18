@@ -91,7 +91,7 @@ Current scope:
 - **Live Assistant mode** — performance view with real-time suggestions, risk alerts, and set history.
 - Manual desktop QA required before any release claim.
 
-For harmonic scoring concepts, Camelot movement, strategy intent, and current non-goals, see [HARMONIC_MIXING.md](HARMONIC_MIXING.md).
+For harmonic scoring concepts, Camelot movement, strategy intent, and current non-goals, see [docs/harmonic-mixing.md](docs/harmonic-mixing.md).
 
 ## Core DJ workflow
 
@@ -723,7 +723,7 @@ Alcance actual:
 - **Modo Live Assistant** — vista de performance con sugerencias en tiempo real, alertas de riesgo e historial de set.
 - Manual desktop QA obligatorio antes de cualquier claim de release.
 
-Para conceptos de harmonic scoring, movimientos Camelot, intención de estrategias y no-objetivos actuales, ver [HARMONIC_MIXING.md](HARMONIC_MIXING.md).
+Para conceptos de harmonic scoring, movimientos Camelot, intención de estrategias y no-objetivos actuales, ver [docs/harmonic-mixing.md](docs/harmonic-mixing.md).
 
 ## Flujo DJ principal
 

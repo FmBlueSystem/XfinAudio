@@ -102,6 +102,5 @@ testing:
     command: uv run ruff format .
 
 conventions:
-  planning_history: .planning/codebase/AGENT-DISPATCH.md
   skill_registry: .atl/skill-registry.md
   review_budget_changed_lines: 400

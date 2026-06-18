@@ -189,8 +189,7 @@ Out of product:
 ## Files already updated
 
 - `docs/xfinaudio-stack-and-scope-decision.md`
-- `docs/plans/2026-06-03-xfinaudio-mvp-sdd-tdd-plan.md`
-- `HARMONIC_MIXING.md`
+- `docs/harmonic-mixing.md`
 - `docs/IMPLEMENTATION_HANDOFF.md`
 
 ## Restart prompt
