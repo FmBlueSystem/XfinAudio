@@ -1,0 +1,35 @@
+schema: gentle-ai.sdd-state.v1
+change: genre-multi-source-enrichment
+artifact_store: openspec
+status: verified
+created: 2026-06-16
+updated: 2026-06-17
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: archive
+apply_progress:
+  PR1: complete
+  PR2: complete
+  PR3: complete
+  PR4: complete
+  PR5: complete
+  PR6: complete
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Multi-source genre enrichment (Discogs CC0 dumps + MusicBrainz CC0) + canonical taxonomy + deterministic consensus judge.
+  - License posture is decisive: only CC0 data may be embedded in shipped assets (GPL-3.0-only project).
+  - Ships as chained PRs (PR1..PR6 core; PR7 local-LLM tie-breaker and PR8 Dawid-Skene calibration optional).
+  - No audio mutation, no DSP, no fingerprinting; original file tags never overwritten.
+  - Implementation must proceed by PR slice, not as one monolithic patch.
+  - Behavior-changing tasks require RED -> GREEN -> REFACTOR -> VERIFY.
