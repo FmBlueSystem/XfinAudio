@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
@@ -198,6 +200,13 @@ class ExportScreen(QWidget):
         self.export_readiness_button.clicked.connect(self.readiness_export_requested)
         self.safe_folder_button.clicked.connect(self.safe_folder_change_requested)
         self.software_selector.currentTextChanged.connect(self._on_software_changed)
+
+    def connect_signals(self, window: Any) -> None:
+        self.preview_requested.connect(window.preview_export)
+        self.export_requested.connect(window.export_recommendation)
+        self.readiness_export_requested.connect(lambda: window.export_dj_readiness_report())
+        self.safe_folder_change_requested.connect(window.choose_safe_export_folder)
+        self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(2))
 
     def _on_software_changed(self, name: str) -> None:
         """Update button labels and emit software selection change."""

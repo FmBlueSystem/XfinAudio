@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -244,6 +246,12 @@ class ReviewScreen(QWidget):
         self.recommendation_table.itemSelectionChanged.connect(self._on_recommendation_selection_changed)
         self.remove_track_button.clicked.connect(self._on_remove_clicked)
         self.recommendation_table.itemDoubleClicked.connect(self._on_rec_double_clicked)
+
+    def connect_signals(self, window: Any) -> None:
+        self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(1))
+        self.proceed_to_export_requested.connect(window._on_proceed_to_export)
+        self.track_remove_requested.connect(window._on_track_remove_requested)
+        self.track_play_requested.connect(window._on_track_play_requested)
 
     # ------------------------------------------------------------------
     # Render

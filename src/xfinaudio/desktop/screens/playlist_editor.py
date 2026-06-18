@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -67,6 +68,9 @@ class PlaylistEditor(QWidget):
     def _connect_signals(self) -> None:
         self.export_button.clicked.connect(self._on_export_clicked)
         self.save_button.clicked.connect(self._on_save_clicked)
+
+    def connect_signals(self, window: Any) -> None:
+        _ = window
 
     def set_playlist(self, playlist: Playlist) -> None:
         """Load a playlist into the editor."""

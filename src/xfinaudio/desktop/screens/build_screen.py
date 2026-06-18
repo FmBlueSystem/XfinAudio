@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -267,6 +269,18 @@ class BuildScreen(QWidget):
         self.lock_button.clicked.connect(self.lock_requested)
         self.clear_constraints_button.clicked.connect(self.clear_constraints_requested)
         self.spectral_cohesion_slider.valueChanged.connect(self._on_spectral_cohesion_changed)
+
+    def connect_signals(self, window: Any) -> None:
+        self.copilot_table.itemDoubleClicked.connect(window._apply_prep_copilot_item)
+        self.recommend_requested.connect(window._on_recommend_requested)
+        self.spectral_cohesion_changed.connect(window._on_spectral_cohesion_changed)
+        self.copilot_generate_requested.connect(window.generate_prep_copilot)
+        self.copilot_variant_applied.connect(window._on_copilot_variant_applied)
+        self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
+        self.proceed_button.clicked.connect(lambda: window.workflow_tabs.setCurrentIndex(2))
+        self.exclude_requested.connect(window._on_exclude_requested)
+        self.lock_requested.connect(window._on_lock_requested)
+        self.clear_constraints_requested.connect(window._on_clear_constraints)
 
     def _on_spectral_cohesion_changed(self, value: int) -> None:
         self.spectral_cohesion_value_label.setText(f"{value}%")

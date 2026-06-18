@@ -7,9 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol, get_args
 
+from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.scan_service import ScanCancellationToken
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -57,6 +59,10 @@ class AppState:
 
     # Selection
     selected_library_paths: list[str] = field(default_factory=list)
+
+    # Runtime services
+    workflow_service: PlaylistWorkflowService | None = None
+    current_scan_cancellation_token: ScanCancellationToken | None = None
 
     # Navigation
     current_screen: ScreenName = "library"

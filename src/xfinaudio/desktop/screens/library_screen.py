@@ -351,6 +351,21 @@ class LibraryScreen(QWidget):
         self.tour_button.clicked.connect(self._show_tour)
         self.tracks_table.horizontalHeader().sectionDoubleClicked.connect(self._on_header_double_clicked)
 
+    def connect_signals(self, window: Any) -> None:
+        self.tracks_table.itemSelectionChanged.connect(window._refresh_idle_action_state)
+        self.search_input.textChanged.connect(window._search_debounce.start)
+        self.folder_change_requested.connect(window.choose_folder)
+        self.scan_requested.connect(window.scan_selected_folder)
+        self.cancel_scan_requested.connect(window.cancel_scan)
+        self.selection_changed.connect(window._on_library_selection_changed)
+        self.metadata_screen_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(5))
+        self.proceed_button.clicked.connect(lambda: window.workflow_tabs.setCurrentIndex(1))
+        self.settings_requested.connect(window._open_settings_dialog)
+        self.filters_cleared.connect(window._on_library_filters_cleared)
+        self.track_play_requested.connect(window._on_track_play_requested)
+        self.play_requested.connect(window._on_preview_play_requested)
+        self.pause_requested.connect(window._audio_player.pause)
+
     # ------------------------------------------------------------------
     # Render
     # ------------------------------------------------------------------

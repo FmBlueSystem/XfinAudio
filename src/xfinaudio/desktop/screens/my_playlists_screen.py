@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -66,6 +68,9 @@ class MyPlaylistsScreen(QWidget):
         self.delete_button.clicked.connect(self._on_delete_clicked)
         self.list_widget.itemActivated.connect(self._on_item_activated)
         self.list_widget.itemDoubleClicked.connect(self._on_item_activated)
+
+    def connect_signals(self, window: Any) -> None:
+        _ = window
 
     def populate_list(self, summaries: list[PlaylistSummary]) -> None:
         """Refresh the playlist list from summaries."""
