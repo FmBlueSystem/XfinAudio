@@ -17,7 +17,7 @@ from typing import Any, Protocol, cast
 from xfinaudio.desktop.rendering import _missing_worklist_display_name, _table_item
 from xfinaudio.desktop.table_populators import populate_serato_export_history_table
 from xfinaudio.desktop.theme import _READINESS_STATUS_LABELS
-from xfinaudio.exporting.export_naming import default_export_filename
+from xfinaudio.exporting.playlist_file_export import plan_playlist_file_export
 from xfinaudio.exporting.rekordbox_xml import write_rekordbox_playlist_xml
 from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
@@ -197,31 +197,25 @@ class ExportCoordinator:
             )
             return
 
-        target_name = (
-            crate_name
-            or host.applied_prep_copilot_variant_name
-            or default_export_filename(
-                host.last_recommendation,
+        try:
+            plan = plan_playlist_file_export(
+                software=software,
+                recommendation=host.last_recommendation,
+                safe_folder=safe_folder,
+                requested_name=crate_name,
+                variant_name=host.applied_prep_copilot_variant_name,
                 generated_at=generated_at,
-                suffix=software.lower(),
             )
-        )
-        if software == "Rekordbox":
-            target_path = safe_folder / f"{target_name}.xml"
-        elif software == "Traktor":
-            target_path = safe_folder / f"{target_name}.nml"
-        elif software == "VirtualDJ":
-            target_path = safe_folder / f"{target_name}.xml"
-        else:
+        except ValueError:
             host.status_label.setText(host.tr("Unknown export software: {0}").format(software))
             return
 
         host._export_screen.export_guidance_label.setText(
             host.tr("{0} export preview: {1} | Tracks: {2}").format(
-                software, target_path, len(host.last_recommendation.ordered_tracks)
+                software, plan.target_path, len(host.last_recommendation.ordered_tracks)
             )
         )
-        host.status_label.setText(host.tr("{0} export preview: {1}").format(software, target_path))
+        host.status_label.setText(host.tr("{0} export preview: {1}").format(software, plan.target_path))
 
     def export_recommendation(
         self,
@@ -251,33 +245,37 @@ class ExportCoordinator:
             host.status_label.setText(host.tr("Choose a safe export folder before exporting to {0}").format(software))
             return
 
-        target_name = (
-            crate_name
-            or host.applied_prep_copilot_variant_name
-            or default_export_filename(
-                host.last_recommendation,
+        try:
+            plan = plan_playlist_file_export(
+                software=software,
+                recommendation=host.last_recommendation,
+                safe_folder=safe_folder,
+                requested_name=crate_name,
+                variant_name=host.applied_prep_copilot_variant_name,
                 generated_at=generated_at,
-                suffix=software.lower(),
             )
-        )
+        except ValueError:
+            host.status_label.setText(host.tr("Unknown export software: {0}").format(software))
+            return
+
         try:
             if software == "Rekordbox":
                 written = write_rekordbox_playlist_xml(
                     host.last_recommendation,
-                    safe_folder / f"{target_name}.xml",
-                    playlist_name=target_name,
+                    plan.target_path,
+                    playlist_name=plan.playlist_name,
                 )
             elif software == "Traktor":
                 written = write_traktor_playlist_nml(
                     host.last_recommendation,
-                    safe_folder / f"{target_name}.nml",
-                    playlist_name=target_name,
+                    plan.target_path,
+                    playlist_name=plan.playlist_name,
                 )
             elif software == "VirtualDJ":
                 written = write_virtualdj_playlist_xml(
                     host.last_recommendation,
-                    safe_folder / f"{target_name}.xml",
-                    playlist_name=target_name,
+                    plan.target_path,
+                    playlist_name=plan.playlist_name,
                 )
             else:
                 host.status_label.setText(host.tr("Unknown export software: {0}").format(software))
