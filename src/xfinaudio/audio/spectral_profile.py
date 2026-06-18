@@ -10,6 +10,7 @@ import warnings
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
 ColorName = Literal["RED", "GREEN", "BLUE", "MIXED"]
@@ -79,8 +80,19 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
             if y.size == 0:
                 return None
 
+            # Compute the STFT once and share it across all four feature
+            # calls. Without sharing, librosa would run the same FFT three
+            # extra times internally (once each for melspectrogram,
+            # spectral_centroid, and spectral_rolloff), which is the dominant
+            # cost of the analyzer on a real DJ library.
+            stft = librosa.stft(y=y, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
+            magnitude = np.abs(stft)
+            # melspectrogram expects a power spectrogram (|STFT|²) by default;
+            # centroid/rolloff/rms take a magnitude spectrogram.
+            power_spec = magnitude ** 2
+
             mel_spec = librosa.feature.melspectrogram(
-                y=y,
+                S=power_spec,
                 sr=sr,
                 n_mels=_N_MELS,
                 n_fft=_N_FFT,
@@ -100,9 +112,13 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
             green_ratio = float(green_energy / total_energy)
             blue_ratio = float(blue_energy / total_energy)
 
-            centroid = librosa.feature.spectral_centroid(y=y, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
-            rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
-            rms = librosa.feature.rms(y=y, frame_length=_N_FFT, hop_length=_HOP_LENGTH)
+            centroid = librosa.feature.spectral_centroid(
+                S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH
+            )
+            rolloff = librosa.feature.spectral_rolloff(
+                S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH, roll_percent=0.85
+            )
+            rms = librosa.feature.rms(S=magnitude, frame_length=_N_FFT, hop_length=_HOP_LENGTH)
 
         return SpectralProfile(
             red_ratio=red_ratio,
