@@ -191,7 +191,7 @@ def test_scan_folder_attaches_spectral_profile_when_analyzer_returns_profile(mon
         dominant_color="GREEN",
     )
 
-    def fake_analyze(path: Path) -> SpectralProfile:
+    def fake_analyze(path: Path, **kwargs) -> SpectralProfile:
         return expected_profile
 
     monkeypatch.setattr("xfinaudio.library.scan_service.analyze_spectral_profile", fake_analyze)
@@ -210,7 +210,7 @@ def test_scan_folder_continues_when_analyzer_returns_none(monkeypatch) -> None:
     root = Path("/library")
     audio_path = root / "track.flac"
 
-    monkeypatch.setattr("xfinaudio.library.scan_service.analyze_spectral_profile", lambda path: None)
+    monkeypatch.setattr("xfinaudio.library.scan_service.analyze_spectral_profile", lambda path, **kwargs: None)
 
     records = scan_folder(
         root,
@@ -232,7 +232,7 @@ def test_scan_folder_uses_previous_profile_cache_when_file_identity_matches() ->
         dominant_color="GREEN",
     )
 
-    def fake_analyze(path: Path) -> SpectralProfile:
+    def fake_analyze(path: Path, **kwargs) -> SpectralProfile:
         pytest.fail("Analyzer should not be called when cache matches")
 
     # The path does not exist, so stat will fail and cache lookup falls through to analysis.

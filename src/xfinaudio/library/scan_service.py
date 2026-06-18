@@ -23,6 +23,12 @@ PathLister = Callable[[Path], Iterable[Path]]
 TagReader = Callable[[Path], dict[str, Any] | None]
 ProgressCallback = Callable[["ScanProgress"], None]
 ProfileCache = dict[str, tuple[int, int, SpectralProfile]]
+
+# First 30 seconds is representative of a DJ track's tonal character and
+# cuts librosa analysis time by ~5x for a typical 3-minute track without
+# affecting color (red/green/blue band) classification. Set to None to
+# analyze the full file.
+_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS: float | None = 30.0
 ProfileCacheLoader = Callable[[list[Path]], ProfileCache]
 
 
@@ -266,7 +272,9 @@ def _resolve_spectral_profiles(
         for path in paths_to_analyze:
             if cancellation_token is not None and cancellation_token.is_cancelled:
                 break
-            profiles[path] = analyze_spectral_profile(path)
+            profiles[path] = analyze_spectral_profile(
+                path, max_duration_seconds=_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS
+            )
 
     return profiles
 

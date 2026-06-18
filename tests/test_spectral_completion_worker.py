@@ -66,7 +66,7 @@ def test_worker_emits_progress_for_missing_profiles(monkeypatch) -> None:
     expected_profile = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
     monkeypatch.setattr(
         "xfinaudio.desktop.spectral_completion_worker.analyze_spectral_profile",
-        lambda path: expected_profile,
+        lambda path, **kwargs: expected_profile,
     )
 
     records = [TrackRecord(path="/music/track.flac", title="Track", metadata_status="complete")]
@@ -90,7 +90,7 @@ def test_worker_skips_cached_profiles(monkeypatch) -> None:
     repo = _FakeRepository(profiles={"/music/track.flac": cached_profile})
     monkeypatch.setattr(
         "xfinaudio.desktop.spectral_completion_worker.analyze_spectral_profile",
-        lambda path: pytest.fail("Should not analyze cached profile"),
+        lambda path, **kwargs: pytest.fail("Should not analyze cached profile"),
     )
 
     records = [TrackRecord(path="/music/track.flac", title="Track", metadata_status="complete")]
@@ -113,7 +113,7 @@ def test_worker_emits_progress_updated_counts_cached_and_analyzed(monkeypatch) -
     repo = _FakeRepository(profiles={"/music/cached.flac": cached_profile})
     monkeypatch.setattr(
         "xfinaudio.desktop.spectral_completion_worker.analyze_spectral_profile",
-        lambda path: analyzed_profile,
+        lambda path, **kwargs: analyzed_profile,
     )
 
     records = [
@@ -145,7 +145,7 @@ def test_worker_respects_cancellation(monkeypatch) -> None:
     ensure_app()
     monkeypatch.setattr(
         "xfinaudio.desktop.spectral_completion_worker.analyze_spectral_profile",
-        lambda path: pytest.fail("Should not analyze when cancelled"),
+        lambda path, **kwargs: pytest.fail("Should not analyze when cancelled"),
     )
 
     records = [TrackRecord(path="/music/track.flac", title="Track", metadata_status="complete")]
