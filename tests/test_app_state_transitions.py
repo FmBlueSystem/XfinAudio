@@ -275,3 +275,17 @@ def test_apply_prep_copilot_plan_cleared_returns_new_state_without_mutating_orig
     assert updated is not state
     assert updated.last_prep_copilot_plan is None
     assert state.last_prep_copilot_plan is plan
+
+
+def test_apply_saved_playlist_export_recommendation_returns_new_state_without_mutating_original() -> None:
+    previous_recommendation = object()
+    replacement = object()
+    state = AppState(last_recommendation=previous_recommendation)  # type: ignore[arg-type]
+
+    transition = getattr(app_state_transitions, "apply_saved_playlist_export_recommendation", None)
+    assert callable(transition)
+    updated = transition(state, replacement)  # type: ignore[arg-type]
+
+    assert updated is not state
+    assert updated.last_recommendation is replacement
+    assert state.last_recommendation is previous_recommendation
