@@ -106,6 +106,39 @@ def try_set_legacy_app_state_attribute(target: Any, name: str, value: object) ->
     return True
 
 
+_MISSING = object()
+
+
+def try_get_legacy_app_state_attribute(target: Any, name: str) -> object:
+    """Return a legacy MainWindow read value, or `_MISSING` when unsupported."""
+    delegated = {
+        "undo": lambda: target._undo_toolbar.undo,
+        "redo": lambda: target._undo_toolbar.redo,
+        "_on_track_remove_requested": lambda: target._library_controller.on_track_remove_requested,
+    }
+    if name in delegated and "_undo_toolbar" in target.__dict__:
+        return delegated[name]()
+    if name.startswith("_") and name != "_records_by_path":
+        raise AttributeError(name)
+
+    state = target.__dict__.get("_state")
+    if state is None or name not in LEGACY_APP_STATE_WRITE_ATTRIBUTES:
+        return _MISSING
+
+    if name == "_records_by_path":
+        return state.records_by_path
+    if name == "applied_prep_copilot_variant_name":
+        return state.applied_variant_name
+    if name == "current_scan_cancellation_token" and hasattr(target, "_scan_service"):
+        state.current_scan_cancellation_token = target._scan_service.current_scan_cancellation_token
+    return getattr(state, name)
+
+
+def is_missing_legacy_attribute(value: object) -> bool:
+    """Return whether a legacy read helper result means unsupported attribute."""
+    return value is _MISSING
+
+
 def install_legacy_layout_methods(target_class: type) -> None:
     """Install legacy layout-backed methods on a MainWindow-compatible class."""
     for name, method in LEGACY_LAYOUT_METHODS.items():

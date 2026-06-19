@@ -56,24 +56,9 @@ _APP_STATE_ATTRIBUTES = _shell_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES
 
 class MainWindow(QMainWindow):
     def __getattr__(self, name: str) -> Any:
-        delegated = {
-            "undo": lambda: self._undo_toolbar.undo,
-            "redo": lambda: self._undo_toolbar.redo,
-            "_on_track_remove_requested": lambda: self._library_controller.on_track_remove_requested,
-        }
-        if name in delegated and "_undo_toolbar" in self.__dict__:
-            return delegated[name]()
-        if name.startswith("_") and name != "_records_by_path":
-            raise AttributeError(name)
-        state = self.__dict__.get("_state")
-        if state is not None and name in _APP_STATE_ATTRIBUTES:
-            if name == "_records_by_path":
-                return state.records_by_path
-            if name == "applied_prep_copilot_variant_name":
-                return state.applied_variant_name
-            if name == "current_scan_cancellation_token" and hasattr(self, "_scan_service"):
-                state.current_scan_cancellation_token = self._scan_service.current_scan_cancellation_token
-            return getattr(state, name)
+        value = _shell_compat.try_get_legacy_app_state_attribute(self, name)
+        if not _shell_compat.is_missing_legacy_attribute(value):
+            return value
         raise AttributeError(name)
 
     def __setattr__(self, name: str, value: object) -> None:
