@@ -142,6 +142,43 @@ def test_apply_scan_context_reset_clears_scan_and_recommendation_state_immutably
     assert state.playlist_removed_paths == frozenset({track.path})
 
 
+def test_apply_library_folder_selected_sets_folder_and_resets_scan_context_immutably() -> None:
+    track = _track()
+    old_folder = Path("/music/old")
+    new_folder = Path("/music/new")
+    state = AppState(
+        selected_folder=old_folder,
+        scanned_records=[track],
+        records_by_path={track.path: track},
+        last_recommendation=object(),  # type: ignore[arg-type]
+        last_playlist_explanation=object(),  # type: ignore[arg-type]
+        last_quality_report=object(),  # type: ignore[arg-type]
+        last_dj_readiness_report=object(),  # type: ignore[arg-type]
+        last_prep_copilot_plan=object(),  # type: ignore[arg-type]
+        applied_variant_name="balanced",
+        playlist_removed_paths=frozenset({track.path}),
+    )
+
+    transition = getattr(app_state_transitions, "apply_library_folder_selected", None)
+    assert callable(transition)
+    updated = transition(state, new_folder)
+
+    assert updated is not state
+    assert updated.selected_folder == new_folder
+    assert updated.scanned_records == []
+    assert updated.records_by_path == {}
+    assert updated.last_recommendation is None
+    assert updated.last_playlist_explanation is None
+    assert updated.last_quality_report is None
+    assert updated.last_dj_readiness_report is None
+    assert updated.last_prep_copilot_plan is None
+    assert updated.applied_variant_name is None
+    assert updated.playlist_removed_paths == frozenset()
+    assert state.selected_folder == old_folder
+    assert state.scanned_records == [track]
+    assert state.records_by_path == {track.path: track}
+
+
 def test_apply_playlist_track_removed_returns_new_state_without_mutating_original() -> None:
     state = AppState(playlist_removed_paths=frozenset({"/music/a.flac"}))
 

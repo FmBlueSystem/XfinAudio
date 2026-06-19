@@ -514,3 +514,23 @@ The system MUST replace the current recommendation for saved-playlist export thr
 - WHEN export is requested
 - THEN the coordinator MUST keep repository lookup, editor rendering, and export invocation responsibilities
 - AND AppState recommendation replacement policy MUST remain delegated to the pure transition helper.
+
+### Requirement: Library Folder Selection State Boundary
+
+The system MUST set the selected library folder and clear scan-dependent state through a pure AppState transition while preserving desktop UI and settings orchestration behavior.
+
+#### Scenario: Folder selection applies immutable state replacement
+
+- GIVEN a previous selected folder and scan-dependent recommendation state exist
+- WHEN a new folder is selected
+- THEN the transition MUST return a new AppState instance
+- AND the selected folder MUST become the new folder
+- AND scan-dependent records and recommendation outputs MUST be cleared
+- AND the original AppState MUST remain unchanged.
+
+#### Scenario: Controller keeps UI and settings orchestration
+
+- GIVEN a user chooses a folder in the desktop UI
+- WHEN the selection is applied
+- THEN settings persistence, labels, guidance copy, table clearing, and review/export UI clearing MUST remain desktop responsibilities
+- AND AppState folder-selection policy MUST remain delegated to the pure transition helper.

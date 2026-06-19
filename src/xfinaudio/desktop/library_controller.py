@@ -16,6 +16,7 @@ from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.app_state_transitions import (
+    apply_library_folder_selected,
     apply_playlist_track_removed,
     apply_playlist_track_restored,
     apply_scan_context_reset,
@@ -126,9 +127,10 @@ class LibraryController:
             self.set_selected_folder(Path(folder))
 
     def set_selected_folder(self, folder: Path) -> None:
-        self._state.selected_folder = folder
+        self._state = apply_library_folder_selected(self._state, folder)
+        self._access.state_setter(self._state)
         self._persist_last_scan_folder(folder)
-        self.clear_scan_dependent_state()
+        self._clear_scan_dependent_ui()
         self._widgets.folder_label.setText(str(folder))
         self._widgets.library_guidance_label.setText(
             self._tr("Folder selected. Scan metadata to find complete Mixed In Key tracks.")
@@ -442,6 +444,10 @@ class LibraryController:
     def clear_scan_dependent_state(self) -> None:
         self._state = apply_scan_context_reset(self._state)
         self._access.state_setter(self._state)
+        self._clear_scan_dependent_ui()
+        self._sync_state()
+
+    def _clear_scan_dependent_ui(self) -> None:
         self._access.set_applied_copilot_variant(None)
         self._widgets.library_screen.tracks_table.setRowCount(0)
         self._widgets.library_screen.search_input.clear()
@@ -454,7 +460,6 @@ class LibraryController:
                 "Serato export is enabled only after a recommendation is ready."
             )
         )
-        self._sync_state()
 
     # Attributes/methods consumed by layout.apply_main_song_filter.
     @property

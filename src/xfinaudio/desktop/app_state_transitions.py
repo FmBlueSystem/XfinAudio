@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from xfinaudio.audio.spectral_profile import SpectralProfile
@@ -85,6 +86,11 @@ def apply_scan_context_reset(state: AppState) -> AppState:
     )
 
 
+def apply_library_folder_selected(state: AppState, folder: Path) -> AppState:
+    """Return a new state for a selected library folder with scan context cleared."""
+    return apply_scan_context_reset(state).model_copy(update={"selected_folder": folder})
+
+
 def apply_playlist_track_removed(state: AppState, path: str) -> AppState:
     """Return a new state with a playlist track marked as removed."""
     return state.model_copy(update={"playlist_removed_paths": state.playlist_removed_paths | {path}})
@@ -152,6 +158,7 @@ __all__ = [
     "apply_track_constraints_cleared",
     "apply_tracks_excluded",
     "apply_tracks_locked",
+    "apply_library_folder_selected",
     "apply_scan_context_reset",
     "apply_spectral_profile",
 ]
