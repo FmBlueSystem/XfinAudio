@@ -70,8 +70,20 @@ def apply_scan_context_reset(state: AppState) -> AppState:
     )
 
 
+def apply_playlist_track_removed(state: AppState, path: str) -> AppState:
+    """Return a new state with a playlist track marked as removed."""
+    return state.model_copy(update={"playlist_removed_paths": state.playlist_removed_paths | {path}})
+
+
+def apply_playlist_track_restored(state: AppState, path: str) -> AppState:
+    """Return a new state with a playlist track restored."""
+    return state.model_copy(update={"playlist_removed_paths": state.playlist_removed_paths - {path}})
+
+
 __all__ = [
     "CompletedRecommendationResult",
+    "apply_playlist_track_removed",
+    "apply_playlist_track_restored",
     "apply_recommendation_completion",
     "apply_scan_context_reset",
     "apply_spectral_profile",

@@ -15,7 +15,12 @@ from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
-from xfinaudio.desktop.app_state_transitions import apply_scan_context_reset, apply_spectral_profile
+from xfinaudio.desktop.app_state_transitions import (
+    apply_playlist_track_removed,
+    apply_playlist_track_restored,
+    apply_scan_context_reset,
+    apply_spectral_profile,
+)
 from xfinaudio.desktop.audio_player import AudioPlayer
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.rendering import (
@@ -259,11 +264,13 @@ class LibraryController:
         self._access.refresh_undo_state()
 
     def apply_track_removed(self, path: str) -> None:
-        self._state.playlist_removed_paths = self._state.playlist_removed_paths | {path}
+        self._state = apply_playlist_track_removed(self._state, path)
+        self._access.state_setter(self._state)
         self._sync_state()
 
     def apply_track_restored(self, path: str) -> None:
-        self._state.playlist_removed_paths = self._state.playlist_removed_paths - {path}
+        self._state = apply_playlist_track_restored(self._state, path)
+        self._access.state_setter(self._state)
         self._sync_state()
 
     def on_track_play_requested(self, path: str) -> None:

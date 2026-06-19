@@ -140,3 +140,27 @@ def test_apply_scan_context_reset_clears_scan_and_recommendation_state_immutably
     assert state.records_by_path == {track.path: track}
     assert state.applied_variant_name == "balanced"
     assert state.playlist_removed_paths == frozenset({track.path})
+
+
+def test_apply_playlist_track_removed_returns_new_state_without_mutating_original() -> None:
+    state = AppState(playlist_removed_paths=frozenset({"/music/a.flac"}))
+
+    transition = getattr(app_state_transitions, "apply_playlist_track_removed", None)
+    assert callable(transition)
+    updated = transition(state, "/music/b.flac")
+
+    assert updated is not state
+    assert updated.playlist_removed_paths == frozenset({"/music/a.flac", "/music/b.flac"})
+    assert state.playlist_removed_paths == frozenset({"/music/a.flac"})
+
+
+def test_apply_playlist_track_restored_returns_new_state_without_mutating_original() -> None:
+    state = AppState(playlist_removed_paths=frozenset({"/music/a.flac", "/music/b.flac"}))
+
+    transition = getattr(app_state_transitions, "apply_playlist_track_restored", None)
+    assert callable(transition)
+    updated = transition(state, "/music/b.flac")
+
+    assert updated is not state
+    assert updated.playlist_removed_paths == frozenset({"/music/a.flac"})
+    assert state.playlist_removed_paths == frozenset({"/music/a.flac", "/music/b.flac"})
