@@ -35,8 +35,6 @@ Out of scope:
 
 ## Risks
 
-- The worktree already contains a blocked `recommendation-scaling-optimizations` change. This slice must stay small and avoid editing unrelated files.
-- Existing UI tests may still fail until the active Prep Copilot bug is fixed.
 
 ## Rollback Plan
 

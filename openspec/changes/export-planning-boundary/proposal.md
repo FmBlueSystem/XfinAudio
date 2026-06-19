@@ -18,7 +18,6 @@ Out of scope:
 ## Risks
 - Filename/path behavior must remain identical for existing multi-software exports.
 - Unknown software handling must stay deterministic and remain surfaced by desktop UI.
-- Existing dirty workspace contains unrelated recommendation-scaling changes, so this slice must stay narrow.
 
 ## Rollback
 Remove `xfinaudio.exporting.playlist_file_export`, revert `desktop/export_coordinator.py` to inline target path/name planning, and remove the new focused tests.
