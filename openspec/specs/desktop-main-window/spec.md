@@ -534,3 +534,23 @@ The system MUST set the selected library folder and clear scan-dependent state t
 - WHEN the selection is applied
 - THEN settings persistence, labels, guidance copy, table clearing, and review/export UI clearing MUST remain desktop responsibilities
 - AND AppState folder-selection policy MUST remain delegated to the pure transition helper.
+
+### Requirement: Library Records Loaded State Boundary
+
+The system MUST store loaded library records and rebuild their lookup map through a pure AppState transition while preserving desktop table rendering and filtering responsibilities.
+
+#### Scenario: Loaded records replace records and lookup immutably
+
+- GIVEN previous scanned records and a lookup map exist in AppState
+- WHEN library records are loaded or displayed
+- THEN the transition MUST return a new AppState instance
+- AND scanned records MUST match the loaded records
+- AND records_by_path MUST be rebuilt from the loaded records
+- AND the original AppState MUST remain unchanged.
+
+#### Scenario: Controller keeps library table orchestration
+
+- GIVEN records are displayed in the desktop library table
+- WHEN the table is populated
+- THEN table row rendering and song filtering MUST remain desktop responsibilities
+- AND loaded-record state policy MUST remain delegated to the pure transition helper.

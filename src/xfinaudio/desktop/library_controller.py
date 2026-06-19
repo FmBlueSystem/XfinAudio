@@ -17,6 +17,7 @@ from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.app_state_transitions import (
     apply_library_folder_selected,
+    apply_library_records_loaded,
     apply_playlist_track_removed,
     apply_playlist_track_restored,
     apply_scan_context_reset,
@@ -150,7 +151,7 @@ class LibraryController:
             self._access.settings_repository.save(settings)
 
     def populate_track_table(self, records: list[TrackRecord]) -> None:
-        self._state.records_by_path = populate_library_table(
+        populate_library_table(
             self._widgets.library_screen.tracks_table,
             records,
             item_factory=_table_item,
@@ -158,6 +159,8 @@ class LibraryController:
             format_track_tags=_format_track_tags,
             format_spectral_color=_format_spectral_color,
         )
+        self._state = apply_library_records_loaded(self._state, records)
+        self._access.state_setter(self._state)
         self._access.apply_song_filter(clear_selection=False)
 
     def apply_song_filter(self, query: str | None = None, *, clear_selection: bool = False) -> None:
@@ -180,7 +183,6 @@ class LibraryController:
         if not records:
             self.refresh_idle_action_state()
             return
-        self._state.scanned_records = records
         complete_count = sum(1 for record in records if record.metadata_status == "complete")
         incomplete_count = len(records) - complete_count
         self.populate_track_table(records)

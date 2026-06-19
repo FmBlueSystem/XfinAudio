@@ -179,6 +179,25 @@ def test_apply_library_folder_selected_sets_folder_and_resets_scan_context_immut
     assert state.records_by_path == {track.path: track}
 
 
+def test_apply_library_records_loaded_replaces_records_and_lookup_immutably() -> None:
+    old_track = _track("/music/old.flac")
+    first = _track("/music/a.flac")
+    second = _track("/music/b.flac")
+    external_records = [first, second]
+    state = AppState(scanned_records=[old_track], records_by_path={old_track.path: old_track})
+
+    transition = getattr(app_state_transitions, "apply_library_records_loaded", None)
+    assert callable(transition)
+    updated = transition(state, external_records)
+
+    assert updated is not state
+    assert updated.scanned_records == [first, second]
+    assert updated.scanned_records is not external_records
+    assert updated.records_by_path == {first.path: first, second.path: second}
+    assert state.scanned_records == [old_track]
+    assert state.records_by_path == {old_track.path: old_track}
+
+
 def test_apply_playlist_track_removed_returns_new_state_without_mutating_original() -> None:
     state = AppState(playlist_removed_paths=frozenset({"/music/a.flac"}))
 
