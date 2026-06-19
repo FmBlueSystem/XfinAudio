@@ -85,7 +85,7 @@ PY
 | `exporting` writers | Export decisions and concrete file/format writers share package space. | Keep pure export planning/readiness separate; introduce writer ports when application use cases own export orchestration. |
 | `audio` analysis | Pure spectral color policy and external audio-library loading live in the same package. | Keep pure spectral models independent; treat analyzer execution as infrastructure. |
 | `config` | Settings schema and settings repository are adjacent. | Define a settings port before moving settings workflows into application use cases. |
-| `desktop/shell_compat.py` and legacy MainWindow compatibility | Layout method grafting plus legacy AppState read/write compatibility now live behind an explicit shell compatibility boundary. | Continue shrinking or splitting the compatibility surface; do not move new product rules into it. |
+| Desktop shell compatibility surfaces | Layout method grafting and legacy AppState read/write compatibility now live behind explicit compatibility surfaces. | Continue shrinking or removing each compatibility surface independently; do not move new product rules into them. |
 | Runtime AppState sync | `AppController` and `ScanService` mutate runtime snapshot/progress fields. | Consider a runtime-state model only if progress/cancellation testing becomes painful. |
 
 ## SDD/TDD slice backlog
@@ -159,10 +159,11 @@ These are deliberately small. Do not batch them into a mega-refactor.
 | Desktop shell compatibility boundary | Moved legacy layout method installation out of `desktop/layout.py` and into `desktop/shell_compat.py`. | PR #134; `openspec/specs/desktop-shell-compat-boundary/spec.md` |
 | MainWindow state write compatibility boundary | Reduced `MainWindow.__setattr__` to a thin delegator and moved legacy AppState write policy into `desktop/shell_compat.py`. | PR #138; `openspec/specs/mainwindow-state-compat-boundary/spec.md` |
 | MainWindow state read compatibility boundary | Reduced `MainWindow.__getattr__` to a thin delegator and moved legacy AppState/delegated read policy into `desktop/shell_compat.py`. | PR #142; `openspec/specs/mainwindow-read-compat-boundary/spec.md` |
+| Shell compatibility surface split | Split `desktop/shell_compat.py` into a facade plus `desktop/shell_layout_compat.py` and `desktop/shell_state_compat.py`. | Issue #147; `openspec/changes/split-shell-compat-surfaces/` |
 
 | Remaining item | Target |
 |---|---|
-| Compatibility surface cleanup | Split or shrink `desktop/shell_compat.py` so layout method compatibility, AppState read/write compatibility, and delegated UI compatibility are easier to remove independently. |
+| Compatibility surface removal | Shrink or remove each compatibility surface independently as direct callers migrate away from legacy aliases. |
 | MainWindow wiring cleanup | Continue moving UI orchestration and controller wiring out of `desktop/main_window.py` only when a small tested boundary is clear. |
 | Tests first | Keep focused shell/controller tests before removing or splitting compatibility paths. |
 | Out of scope | Product behavior changes. |
@@ -182,4 +183,4 @@ Use this rule when deciding where new code belongs:
 
 ## Current recommendation
 
-Do **not** reopen the completed AppState responsibility-separation work. The main Application, Ports, and Infrastructure boundary slices now have explicit seams, and Slice 5 has already moved the worst legacy MainWindow read/write and layout compatibility behind `desktop/shell_compat.py`. The next useful architectural move is to shrink that compatibility surface in another small SDD/TDD slice, not to add more behavior to it.
+Do **not** reopen the completed AppState responsibility-separation work. The main Application, Ports, and Infrastructure boundary slices now have explicit seams, and Slice 5 has already split the worst legacy MainWindow read/write and layout compatibility into explicit shell compatibility surfaces. The next useful architectural move is to remove or shrink those surfaces one at a time, not to add more behavior to them.

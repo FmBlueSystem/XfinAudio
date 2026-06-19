@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from xfinaudio.desktop import layout, shell_compat
+from xfinaudio.desktop import layout, shell_compat, shell_layout_compat, shell_state_compat
 from xfinaudio.desktop.main_window import MainWindow
 
 
@@ -133,3 +133,12 @@ def test_shell_compat_handles_delegated_reads_and_missing_private_attributes() -
         assert exc.args == ("_missing_private",)
     else:
         raise AssertionError("Expected AttributeError for missing private attribute")
+
+
+def test_shell_compat_surfaces_are_split_by_responsibility() -> None:
+    assert shell_compat.LEGACY_LAYOUT_METHODS is shell_layout_compat.LEGACY_LAYOUT_METHODS
+    assert shell_compat.install_legacy_layout_methods is shell_layout_compat.install_legacy_layout_methods
+    assert shell_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES is shell_state_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES
+    assert shell_compat.try_set_legacy_app_state_attribute is shell_state_compat.try_set_legacy_app_state_attribute
+    assert shell_compat.try_get_legacy_app_state_attribute is shell_state_compat.try_get_legacy_app_state_attribute
+    assert shell_compat.is_missing_legacy_attribute is shell_state_compat.is_missing_legacy_attribute
