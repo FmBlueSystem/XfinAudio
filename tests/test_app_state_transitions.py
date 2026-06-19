@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from xfinaudio.audio.spectral_profile import SpectralProfile
@@ -100,3 +101,42 @@ def test_apply_recommendation_completion_returns_new_state_without_mutating_orig
     assert state.last_quality_report is previous_quality_report
     assert state.playlist_removed_paths == frozenset({"/music/removed.flac"})
     assert state.applied_variant_name == "balanced"
+
+
+def test_apply_scan_context_reset_clears_scan_and_recommendation_state_immutably() -> None:
+    track = _track()
+    state = AppState(
+        selected_folder=Path("/music/old"),
+        scanned_records=[track],
+        records_by_path={track.path: track},
+        last_recommendation=object(),  # type: ignore[arg-type]
+        last_playlist_explanation=object(),  # type: ignore[arg-type]
+        last_quality_report=object(),  # type: ignore[arg-type]
+        last_dj_readiness_report=object(),  # type: ignore[arg-type]
+        last_prep_copilot_plan=object(),  # type: ignore[arg-type]
+        applied_variant_name="balanced",
+        playlist_removed_paths=frozenset({track.path}),
+        excluded_paths=frozenset({"/music/excluded.flac"}),
+        locked_paths=frozenset({"/music/locked.flac"}),
+    )
+
+    transition = getattr(app_state_transitions, "apply_scan_context_reset", None)
+    assert callable(transition)
+    updated = transition(state)
+
+    assert updated is not state
+    assert updated.scanned_records == []
+    assert updated.records_by_path == {}
+    assert updated.last_recommendation is None
+    assert updated.last_playlist_explanation is None
+    assert updated.last_quality_report is None
+    assert updated.last_dj_readiness_report is None
+    assert updated.last_prep_copilot_plan is None
+    assert updated.applied_variant_name is None
+    assert updated.playlist_removed_paths == frozenset()
+    assert updated.excluded_paths == state.excluded_paths
+    assert updated.locked_paths == state.locked_paths
+    assert state.scanned_records == [track]
+    assert state.records_by_path == {track.path: track}
+    assert state.applied_variant_name == "balanced"
+    assert state.playlist_removed_paths == frozenset({track.path})

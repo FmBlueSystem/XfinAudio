@@ -15,7 +15,7 @@ from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
-from xfinaudio.desktop.app_state_transitions import apply_spectral_profile
+from xfinaudio.desktop.app_state_transitions import apply_scan_context_reset, apply_spectral_profile
 from xfinaudio.desktop.audio_player import AudioPlayer
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.rendering import (
@@ -428,13 +428,8 @@ class LibraryController:
         self._access.state_setter(self._state)
 
     def clear_scan_dependent_state(self) -> None:
-        self._state.scanned_records = []
-        self._state.records_by_path = {}
-        self._state.last_recommendation = None
-        self._state.last_playlist_explanation = None
-        self._state.last_quality_report = None
-        self._state.last_dj_readiness_report = None
-        self._state.last_prep_copilot_plan = None
+        self._state = apply_scan_context_reset(self._state)
+        self._access.state_setter(self._state)
         self._access.set_applied_copilot_variant(None)
         self._widgets.library_screen.tracks_table.setRowCount(0)
         self._widgets.library_screen.search_input.clear()

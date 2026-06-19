@@ -53,8 +53,26 @@ def apply_recommendation_completion(state: AppState, result: CompletedRecommenda
     )
 
 
+def apply_scan_context_reset(state: AppState) -> AppState:
+    """Return a new state with scan-dependent recommendation context cleared."""
+    return state.model_copy(
+        update={
+            "scanned_records": [],
+            "records_by_path": {},
+            "last_recommendation": None,
+            "last_playlist_explanation": None,
+            "last_quality_report": None,
+            "last_dj_readiness_report": None,
+            "last_prep_copilot_plan": None,
+            "applied_variant_name": None,
+            "playlist_removed_paths": frozenset(),
+        }
+    )
+
+
 __all__ = [
     "CompletedRecommendationResult",
     "apply_recommendation_completion",
+    "apply_scan_context_reset",
     "apply_spectral_profile",
 ]
