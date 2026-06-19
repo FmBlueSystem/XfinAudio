@@ -16,17 +16,14 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
-from xfinaudio.audio.spectral_profile import SpectralProfile, analyze_spectral_profile
+from xfinaudio.audio.analyzer import LibrosaSpectralAnalyzer, SpectralAnalyzer
+from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken
 
 # Match the scan-service limit so the post-scan completion worker and the
 # initial scan agree on the audio window to analyze.
 _SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS: float | None = 30.0
-
-
-def _analyze_with_limit(path):
-    return analyze_spectral_profile(path, max_duration_seconds=_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -59,12 +56,16 @@ class _SpectralCompletionRunner(QObject):
         repository: Any,
         cancellation_token: ScanCancellationToken | None = None,
         max_workers: int | None = None,
+        spectral_analyzer: SpectralAnalyzer | None = None,
     ) -> None:
         super().__init__()
         self._records = records
         self._repository = repository
         self._cancellation_token = cancellation_token
         self._max_workers = max_workers if max_workers is not None else _default_max_workers_for_analysis()
+        self._spectral_analyzer = spectral_analyzer or LibrosaSpectralAnalyzer(
+            max_duration_seconds=_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS
+        )
 
     @Slot()
     def run(self) -> None:
@@ -100,7 +101,9 @@ class _SpectralCompletionRunner(QObject):
             return
 
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            future_to_path: dict[Any, Path] = {pool.submit(_analyze_with_limit, path): path for path in pending_paths}
+            future_to_path: dict[Any, Path] = {
+                pool.submit(self._spectral_analyzer.analyze, path): path for path in pending_paths
+            }
             for future in as_completed(future_to_path):
                 if _is_cancelled(self._cancellation_token):
                     for pending in future_to_path:
@@ -139,11 +142,17 @@ class SpectralCompletionWorker(QObject):
     finished = Signal()
     failed = Signal(object)
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        *,
+        spectral_analyzer: SpectralAnalyzer | None = None,
+    ) -> None:
         super().__init__(parent)
         self._thread: QThread | None = None
         self._runner: _SpectralCompletionRunner | None = None
         self._cancellation_token: ScanCancellationToken | None = None
+        self._spectral_analyzer = spectral_analyzer
 
     def start(
         self,
@@ -156,7 +165,13 @@ class SpectralCompletionWorker(QObject):
         self.cancel()
         self._cancellation_token = cancellation_token
         thread = QThread(self)
-        runner = _SpectralCompletionRunner(records, repository, cancellation_token, max_workers)
+        runner = _SpectralCompletionRunner(
+            records,
+            repository,
+            cancellation_token,
+            max_workers,
+            self._spectral_analyzer,
+        )
         runner.moveToThread(thread)
         thread.started.connect(runner.run)
         runner.progress.connect(self.progress)

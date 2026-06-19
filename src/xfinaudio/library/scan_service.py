@@ -10,8 +10,9 @@ from typing import Any
 
 from mutagen._file import File as MutagenFile
 
+from xfinaudio.audio.analyzer import LibrosaSpectralAnalyzer, SpectralAnalyzer
 from xfinaudio.audio.batch_analyzer import analyze_paths
-from xfinaudio.audio.spectral_profile import SpectralProfile, analyze_spectral_profile
+from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.metadata.mixedinkey_contract import parse_mixedinkey_tags
 
@@ -72,6 +73,8 @@ class MetadataScanService:
         self,
         folder: Path,
         *,
+        list_paths: PathLister | None = None,
+        read_tags: TagReader | None = None,
         on_progress: ProgressCallback | None = None,
         cancellation_token: ScanCancellationToken | None = None,
         parallel_spectral_analysis: bool = True,
@@ -79,10 +82,13 @@ class MetadataScanService:
         previous_profile_cache: ProfileCache | None = None,
         profile_cache_loader: ProfileCacheLoader | None = None,
         resolve_spectral_profiles: bool = True,
+        spectral_analyzer: SpectralAnalyzer | None = None,
     ) -> list[TrackRecord]:
         """Recursively scan supported audio files under folder."""
         return scan_folder(
             folder,
+            list_paths=list_paths,
+            read_tags=read_tags,
             on_progress=on_progress,
             cancellation_token=cancellation_token,
             parallel_spectral_analysis=parallel_spectral_analysis,
@@ -90,6 +96,7 @@ class MetadataScanService:
             previous_profile_cache=previous_profile_cache,
             profile_cache_loader=profile_cache_loader,
             resolve_spectral_profiles=resolve_spectral_profiles,
+            spectral_analyzer=spectral_analyzer,
         )
 
 
@@ -105,6 +112,7 @@ def scan_folder(
     previous_profile_cache: ProfileCache | None = None,
     profile_cache_loader: ProfileCacheLoader | None = None,
     resolve_spectral_profiles: bool = True,
+    spectral_analyzer: SpectralAnalyzer | None = None,
 ) -> list[TrackRecord]:
     """Return normalized track records for supported audio files below folder.
 
@@ -127,6 +135,8 @@ def scan_folder(
             ``previous_profile_cache`` are attached; missing profiles are left
             as ``None`` so a background worker can compute them later. Default
             True preserves the original synchronous behavior.
+        spectral_analyzer: Optional analyzer boundary used for both sequential
+            and batch spectral analysis.
     """
     path_lister = list_paths or _recursive_paths
     tag_reader = read_tags or read_mutagen_tags
@@ -178,6 +188,7 @@ def scan_folder(
         previous_profile_cache=previous_profile_cache,
         cancellation_token=cancellation_token,
         resolve_missing=resolve_spectral_profiles,
+        spectral_analyzer=spectral_analyzer,
     )
 
     # Phase 3: build records and emit per-file progress in deterministic order.
@@ -243,6 +254,7 @@ def _resolve_spectral_profiles(
     previous_profile_cache: ProfileCache | None,
     cancellation_token: ScanCancellationToken | None,
     resolve_missing: bool = True,
+    spectral_analyzer: SpectralAnalyzer | None = None,
 ) -> dict[Path, SpectralProfile | None]:
     """Return a spectral profile for each path, using cache or analysis."""
     profiles: dict[Path, SpectralProfile | None] = {}
@@ -265,16 +277,18 @@ def _resolve_spectral_profiles(
             max_workers=max_workers,
             executor="thread",
             cancellation_token=cancellation_token,
+            spectral_analyzer=spectral_analyzer,
         )
         for path in paths_to_analyze:
             profiles[path] = results.get(str(path))
     else:
+        analyzer = spectral_analyzer or LibrosaSpectralAnalyzer(
+            max_duration_seconds=_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS
+        )
         for path in paths_to_analyze:
             if cancellation_token is not None and cancellation_token.is_cancelled:
                 break
-            profiles[path] = analyze_spectral_profile(
-                path, max_duration_seconds=_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS
-            )
+            profiles[path] = analyzer.analyze(path)
 
     return profiles
 
