@@ -33,7 +33,6 @@ LEGACY_LAYOUT_METHODS = {
     "_on_recommend_requested": _layout.on_main_recommend_requested,
     "_on_copilot_variant_applied": _layout.on_main_copilot_variant_applied,
     "_format_safe_export_folder_label": _layout.format_main_safe_export_folder_label,
-    "choose_folder": _layout.choose_folder,
     "set_selected_folder": _layout.set_selected_folder,
     "_persist_last_scan_folder": _layout.persist_main_last_scan_folder,
     "_populate_track_table": _layout.populate_main_track_table,
@@ -49,7 +48,6 @@ LEGACY_LAYOUT_METHODS = {
     "_on_spectral_profile_ready": _layout.on_main_spectral_profile_ready,
     "_on_spectral_completion_finished": _layout.on_main_spectral_completion_finished,
     "_clear_scan_dependent_state": _layout.clear_main_scan_dependent_state_via_controller,
-    "_refresh_idle_action_state": _layout.refresh_main_idle_action_state,
 }
 
 
