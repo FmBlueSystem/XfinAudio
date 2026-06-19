@@ -1,0 +1,26 @@
+schema: gentle-ai.sdd-state.v1
+change: saved-playlist-application-service
+artifact_store: openspec
+status: archived
+created: 2026-06-19
+updated: 2026-06-19
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  archive: complete
+next_recommended: complete
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: stacked-to-main
+  review_budget_changed_lines: 400
+notes:
+  - Widgets, row selection, user messages, and export invocation remain in desktop.
+  - Repository schemas and export formats are unchanged.
+  - Fresh review follow-up added production app-state replacement path coverage.

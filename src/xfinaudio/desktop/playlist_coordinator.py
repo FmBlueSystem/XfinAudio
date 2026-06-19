@@ -1,10 +1,10 @@
 """Playlist coordination logic: a Qt-aware orchestrator extracted from MainWindow.
 
-``PlaylistCoordinator`` owns the playlist CRUD orchestration and the signal
-wiring between ``MyPlaylistsScreen`` / ``PlaylistEditor`` and the
-``PlaylistRepository``. It reads state and widgets through a structural
-``host`` handle (the ``MainWindow``), mirroring the ``ExportCoordinator`` /
-``ExportHost`` precedent.
+``PlaylistCoordinator`` owns the Qt signal wiring and presentation-side
+coordination between ``MyPlaylistsScreen`` / ``PlaylistEditor`` and the
+saved-playlist application service. It reads state and widgets through a
+structural ``host`` handle (the ``MainWindow``), mirroring the
+``ExportCoordinator`` / ``ExportHost`` precedent.
 
 The playlist screen signals were previously UNWIRED in ``MainWindow``; this
 coordinator is the wiring home (see ``connect_signals``), not ``MainWindow``.
@@ -13,16 +13,14 @@ coordinator is the wiring home (see ``connect_signals``), not ``MainWindow``.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from pathlib import Path
 from typing import Any, Protocol
 
+from xfinaudio.application.saved_playlists import SavedPlaylistService
 from xfinaudio.desktop.app_state_transitions import apply_saved_playlist_export_recommendation
 from xfinaudio.desktop.undo_manager import Command, UndoManager
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.ports import PlaylistRepositoryPort
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
-from xfinaudio.recommendation.strategies import default_strategy_registry
 
 LOGGER = logging.getLogger(__name__)
 
@@ -54,11 +52,12 @@ class PlaylistCoordinator:
     """Qt-aware playlist orchestration extracted from MainWindow.
 
     State and widget access flow through ``host`` (the ``MainWindow``);
-    persistence is delegated to ``host._playlist_repository``.
+    saved-playlist persistence decisions are delegated to ``SavedPlaylistService``.
     """
 
     def __init__(self, host: PlaylistHost) -> None:
         self._host = host
+        self._service = SavedPlaylistService(repository=host._playlist_repository)
 
     def connect_signals(self) -> None:
         """Wire all MyPlaylistsScreen and PlaylistEditor signals (net-new wiring)."""
@@ -88,7 +87,7 @@ class PlaylistCoordinator:
     def create_playlist(self) -> None:
         """Create a new empty playlist and refresh the list."""
         host = self._host
-        host._playlist_repository.create(host.tr("New Playlist"), [])
+        self._service.create_empty_playlist(host.tr("New Playlist"))
         self.refresh_list()
         host._sync_state()
 
@@ -97,28 +96,28 @@ class PlaylistCoordinator:
         if not name:
             return
         host = self._host
-        host._playlist_repository.update_name(playlist_id, name)
+        self._service.rename_playlist(playlist_id, name)
         self.refresh_list()
         host._sync_state()
 
     def duplicate_playlist(self, playlist_id: int) -> None:
         """Duplicate a playlist and refresh the list."""
         host = self._host
-        host._playlist_repository.duplicate(playlist_id)
+        self._service.duplicate_playlist(playlist_id)
         self.refresh_list()
         host._sync_state()
 
     def delete_playlist(self, playlist_id: int) -> None:
         """Delete a playlist and refresh the list."""
         host = self._host
-        host._playlist_repository.delete(playlist_id)
+        self._service.delete_playlist(playlist_id)
         self.refresh_list()
         host._sync_state()
 
     def save_playlist(self, playlist_id: int, track_paths: list[str]) -> None:
         """Persist the editor's current track order and refresh the list."""
         host = self._host
-        host._playlist_repository.update_tracks(playlist_id, track_paths)
+        self._service.save_track_order(playlist_id, track_paths)
         self.refresh_list()
         host._sync_state()
 
@@ -128,9 +127,7 @@ class PlaylistCoordinator:
         recommendation = host.last_recommendation
         if recommendation is None:
             return
-        playlist_name = name or self._default_recommendation_name(recommendation)
-        track_paths = [track.path for track in recommendation.ordered_tracks]
-        host._playlist_repository.create(playlist_name, track_paths)
+        self._service.save_recommendation(recommendation, name=name)
         self.refresh_list()
         host.workflow_tabs.setCurrentIndex(4)
         host._sync_state()
@@ -138,30 +135,16 @@ class PlaylistCoordinator:
     def export_playlist(self, playlist_id: int) -> None:
         """Load the requested playlist and run the normal Serato export flow."""
         host = self._host
-        playlist = host._playlist_repository.get_by_id(playlist_id)
-        if playlist is None:
+        export = self._service.build_export_recommendation(playlist_id, host.scanned_records)
+        if export is None:
             LOGGER.warning("Playlist %s not found on export", playlist_id)
             return
-        host._playlist_editor.set_playlist(playlist)
-        tracks_by_path = {track.path: track for track in host.scanned_records}
-        tracks = [
-            tracks_by_path.get(path) or TrackRecord(path=path, title=Path(path).stem, metadata_status="complete")
-            for path in playlist.track_paths
-        ]
-        recommendation = PlaylistRecommendation(
-            ordered_tracks=tracks,
-            transition_scores=[],
-            strategy=default_strategy_registry().get("build"),
-            warnings=[],
-            applied_controls={},
-            optimizer="saved-playlist",
-            total_score=0.0,
-        )
+        host._playlist_editor.set_playlist(export.playlist)
         if hasattr(host, "_replace_app_state") and hasattr(host, "_state"):
-            host._replace_app_state(apply_saved_playlist_export_recommendation(host._state, recommendation))
+            host._replace_app_state(apply_saved_playlist_export_recommendation(host._state, export.recommendation))
         else:
-            host.last_recommendation = recommendation
-        host._export_coordinator.export_recommendation_to_serato(crate_name=playlist.name)
+            host.last_recommendation = export.recommendation
+        host._export_coordinator.export_recommendation_to_serato(crate_name=export.playlist.name)
 
     def remove_track(self, path: str) -> None:
         """Persist a track removal performed in the editor."""
@@ -169,7 +152,7 @@ class PlaylistCoordinator:
         playlist_id = editor._playlist_id
         if playlist_id is None:
             return
-        self._host._playlist_repository.update_tracks(playlist_id, list(editor._track_paths))
+        self._service.save_track_order(playlist_id, list(editor._track_paths))
         self.refresh_list()
         self._host._sync_state()
 
@@ -201,11 +184,6 @@ class PlaylistCoordinator:
         editor = self._host._playlist_editor
         editor._track_paths = list(track_paths)
         editor._populate_table()
-        self._host._playlist_repository.update_tracks(playlist_id, track_paths)
+        self._service.save_track_order(playlist_id, track_paths)
         self.refresh_list()
         self._host._sync_state()
-
-    @staticmethod
-    def _default_recommendation_name(recommendation: PlaylistRecommendation) -> str:
-        date_text = datetime.now().strftime("%Y%m%d-%H%M%S")
-        return f"{recommendation.strategy.name} - {date_text}"
