@@ -377,3 +377,22 @@ This change MUST be a behavior-preserving refactor only. All `MainWindow` playli
 - THEN the command MUST exit with zero failures
 - AND `uv run ruff check .` MUST report zero errors
 - AND `uv run ruff format --check .` MUST pass
+
+### Requirement: Scan Context Reset Boundary
+
+The system MUST clear scan-dependent recommendation state through a pure AppState transition while preserving the desktop UI's visible clearing behavior.
+
+#### Scenario: Scan-dependent state reset is immutable
+
+- GIVEN scan records and recommendation-derived state exist in AppState
+- WHEN scan-dependent state is cleared
+- THEN the reset policy MUST return a new AppState instance
+- AND scanned records, records-by-path, recommendation result, explanation, quality report, readiness report, Prep Copilot plan, applied variant, and removed playlist paths MUST be cleared
+- AND unrelated track constraints MUST remain unchanged.
+
+#### Scenario: Desktop clear flow delegates state policy
+
+- GIVEN the desktop controller clears scan-dependent state
+- WHEN the reset runs
+- THEN desktop code MUST delegate AppState reset policy to the pure transition helper
+- AND desktop code MUST remain responsible for clearing widgets, guidance text, and rendered review/export UI only.
