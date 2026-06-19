@@ -77,6 +77,13 @@ When it depends on playlist storage
 Then it uses the explicit playlist repository port contract
 And concrete SQLite repository behavior remains an infrastructure detail.
 
+### AC-11: Application service boundary
+
+Given desktop receives saved-playlist commands
+When persistence or export recommendation construction is required
+Then desktop delegates those use cases to a UI-independent application service
+And desktop keeps widget rendering, list refresh, app-state sync, and export invocation responsibilities.
+
 ## Data Model
 
 ### Playlist

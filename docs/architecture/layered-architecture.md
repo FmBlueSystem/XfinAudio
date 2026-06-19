@@ -108,7 +108,7 @@ These are deliberately small. Do not batch them into a mega-refactor.
 
 ### Slice 2: Library repository port boundary
 
-**Status:** In progress via issue #125.
+**Status:** Completed in PR #126.
 
 **Goal:** make playlist/track persistence contracts explicit before moving more saved-playlist logic into application use cases.
 
@@ -121,6 +121,8 @@ These are deliberately small. Do not batch them into a mega-refactor.
 | Out of scope | Database migration or storage format changes |
 
 ### Slice 3: Saved playlist application service
+
+**Status:** In progress via issue #127.
 
 **Goal:** move save/update/delete/re-export orchestration out of `desktop.playlist_coordinator` into an application service.
 
