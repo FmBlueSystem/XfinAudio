@@ -65,7 +65,7 @@ def test_worker_emits_progress_for_missing_profiles(monkeypatch) -> None:
     ensure_app()
     expected_profile = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
     monkeypatch.setattr(
-        "xfinaudio.desktop.spectral_completion_worker.analyze_spectral_profile",
+        "xfinaudio.audio.analyzer.analyze_spectral_profile",
         lambda path, **kwargs: expected_profile,
     )
 
@@ -89,7 +89,7 @@ def test_worker_skips_cached_profiles(monkeypatch) -> None:
     cached_profile = SpectralProfile(red_ratio=0.1, green_ratio=0.8, blue_ratio=0.1, dominant_color="GREEN")
     repo = _FakeRepository(profiles={"/music/track.flac": cached_profile})
     monkeypatch.setattr(
-        "xfinaudio.desktop.spectral_completion_worker.analyze_spectral_profile",
+        "xfinaudio.audio.analyzer.analyze_spectral_profile",
         lambda path, **kwargs: pytest.fail("Should not analyze cached profile"),
     )
 
@@ -106,13 +106,35 @@ def test_worker_skips_cached_profiles(monkeypatch) -> None:
     assert repo.updated == {}
 
 
+def test_worker_uses_injected_spectral_analyzer(tmp_path: Path) -> None:
+    ensure_app()
+    profile = SpectralProfile(red_ratio=0.0, green_ratio=0.0, blue_ratio=1.0, dominant_color="BLUE")
+    calls: list[Path] = []
+
+    class FakeAnalyzer:
+        def analyze(self, path: Path) -> SpectralProfile:
+            calls.append(path)
+            return profile
+
+    record_path = tmp_path / "track.flac"
+    worker = SpectralCompletionWorker(spectral_analyzer=FakeAnalyzer())
+    progress_events: list[tuple[str, SpectralProfile | None]] = []
+    worker.progress.connect(lambda path, emitted_profile: progress_events.append((path, emitted_profile)))
+
+    worker.start([TrackRecord(path=str(record_path), title="Track", metadata_status="complete")], _FakeRepository())
+    _wait_for_worker(worker)
+
+    assert calls == [record_path]
+    assert progress_events == [(str(record_path), profile)]
+
+
 def test_worker_emits_progress_updated_counts_cached_and_analyzed(monkeypatch) -> None:
     ensure_app()
     cached_profile = SpectralProfile(red_ratio=0.1, green_ratio=0.8, blue_ratio=0.1, dominant_color="GREEN")
     analyzed_profile = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
     repo = _FakeRepository(profiles={"/music/cached.flac": cached_profile})
     monkeypatch.setattr(
-        "xfinaudio.desktop.spectral_completion_worker.analyze_spectral_profile",
+        "xfinaudio.audio.analyzer.analyze_spectral_profile",
         lambda path, **kwargs: analyzed_profile,
     )
 
@@ -144,7 +166,7 @@ def test_worker_emits_progress_updated_counts_cached_and_analyzed(monkeypatch) -
 def test_worker_respects_cancellation(monkeypatch) -> None:
     ensure_app()
     monkeypatch.setattr(
-        "xfinaudio.desktop.spectral_completion_worker.analyze_spectral_profile",
+        "xfinaudio.audio.analyzer.analyze_spectral_profile",
         lambda path, **kwargs: pytest.fail("Should not analyze when cancelled"),
     )
 
@@ -190,7 +212,7 @@ def test_scan_folder_leaves_profiles_none_when_resolve_is_false(monkeypatch) -> 
     def fake_analyze(path: Path) -> SpectralProfile:
         return SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
 
-    monkeypatch.setattr("xfinaudio.library.scan_service.analyze_spectral_profile", fake_analyze)
+    monkeypatch.setattr("xfinaudio.audio.analyzer.analyze_spectral_profile", fake_analyze)
 
     records = scan_folder(
         root,

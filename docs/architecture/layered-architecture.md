@@ -122,7 +122,7 @@ These are deliberately small. Do not batch them into a mega-refactor.
 
 ### Slice 3: Saved playlist application service
 
-**Status:** In progress via issue #127.
+**Status:** Completed in PR #128.
 
 **Goal:** move save/update/delete/re-export orchestration out of `desktop.playlist_coordinator` into an application service.
 
@@ -135,6 +135,8 @@ These are deliberately small. Do not batch them into a mega-refactor.
 | Out of scope | UI redesign |
 
 ### Slice 4: Audio analyzer adapter boundary
+
+**Status:** Implemented in issue #129; PR pending.
 
 **Goal:** separate pure spectral profile policy from concrete audio loading/analyzer execution.
 
@@ -172,4 +174,4 @@ Use this rule when deciding where new code belongs:
 
 ## Current recommendation
 
-Do **not** reopen the completed AppState responsibility-separation work. After the export use case and library repository port boundaries, the next useful architectural move is the saved-playlist application service, because repository contracts now exist and playlist orchestration still spans desktop UI adapters and persistence.
+Do **not** reopen the completed AppState responsibility-separation work. After the export use case, library repository ports, saved-playlist application service, and audio analyzer boundary, the next useful architectural move is legacy desktop shell cleanup, because the main Application, Ports, and Infrastructure boundary slices now have explicit seams.

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from xfinaudio.audio.spectral_profile import SpectralProfile, analyze_spectral_profile
 
 if TYPE_CHECKING:
+    from xfinaudio.audio.analyzer import SpectralAnalyzer
     from xfinaudio.library.scan_service import ScanCancellationToken
 
 LOGGER = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ def analyze_paths(
     cache: SpectralProfileCache | None = None,
     on_progress: Callable[[Path], None] | None = None,
     cancellation_token: ScanCancellationToken | None = None,
+    spectral_analyzer: SpectralAnalyzer | None = None,
 ) -> dict[str, SpectralProfile | None]:
     """Analyze a list of audio files, optionally in parallel with caching.
 
@@ -91,6 +93,8 @@ def analyze_paths(
         on_progress: Called once for every path as its result becomes available.
         cancellation_token: Checked between results; pending work is cancelled
             and already-completed results are returned.
+        spectral_analyzer: Optional analyzer boundary to use instead of the
+            module-level librosa-backed analyzer.
 
     Returns:
         Mapping ``path_str -> SpectralProfile | None``. May be partial when
@@ -115,22 +119,34 @@ def analyze_paths(
         return results
 
     if len(paths_to_analyze) == 1 or max_workers < 2 or executor == "sequential":
-        _run_sequential(paths_to_analyze, results, cache, on_progress, cancellation_token)
+        _run_sequential(paths_to_analyze, results, cache, on_progress, cancellation_token, spectral_analyzer)
         return results
 
     try:
-        _run_parallel(
-            paths_to_analyze,
-            results,
-            cache,
-            max_workers,
-            on_progress,
-            cancellation_token,
-            use_threads=executor == "thread",
-        )
+        if spectral_analyzer is None:
+            _run_parallel(
+                paths_to_analyze,
+                results,
+                cache,
+                max_workers,
+                on_progress,
+                cancellation_token,
+                use_threads=executor == "thread",
+            )
+        else:
+            _run_parallel_with_analyzer(
+                paths_to_analyze,
+                results,
+                cache,
+                max_workers,
+                on_progress,
+                cancellation_token,
+                spectral_analyzer=spectral_analyzer,
+                use_threads=executor == "thread",
+            )
     except Exception as exc:  # pragma: no cover - defensive fallback
         LOGGER.warning("Parallel executor failed (%s); falling back to sequential analysis", exc)
-        _run_sequential(paths_to_analyze, results, cache, on_progress, cancellation_token)
+        _run_sequential(paths_to_analyze, results, cache, on_progress, cancellation_token, spectral_analyzer)
 
     return results
 
@@ -141,11 +157,12 @@ def _run_sequential(
     cache: SpectralProfileCache | None,
     on_progress: Callable[[Path], None] | None,
     cancellation_token: ScanCancellationToken | None,
+    spectral_analyzer: SpectralAnalyzer | None = None,
 ) -> None:
     for path in paths:
         if cancellation_token is not None and cancellation_token.is_cancelled:
             break
-        profile = analyze_spectral_profile(path)
+        profile = spectral_analyzer.analyze(path) if spectral_analyzer is not None else analyze_spectral_profile(path)
         results[str(path)] = profile
         _store_in_cache(path, profile, cache)
         if on_progress is not None:
@@ -176,6 +193,39 @@ def _run_parallel(
                 path_str, profile = future.result()
                 results[path_str] = profile
                 _store_in_cache(Path(path_str), profile, cache)
+            except Exception:
+                LOGGER.exception("Spectral analysis failed for %s", path)
+                results[str(path)] = None
+            if on_progress is not None:
+                on_progress(path)
+
+
+def _run_parallel_with_analyzer(
+    paths: list[Path],
+    results: dict[str, SpectralProfile | None],
+    cache: SpectralProfileCache | None,
+    max_workers: int,
+    on_progress: Callable[[Path], None] | None,
+    cancellation_token: ScanCancellationToken | None,
+    *,
+    spectral_analyzer: SpectralAnalyzer,
+    use_threads: bool = True,
+) -> None:
+    pool_class = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
+    with pool_class(max_workers=max_workers) as pool:
+        future_to_path: dict[Future[SpectralProfile | None], Path] = {
+            pool.submit(spectral_analyzer.analyze, path): path for path in paths
+        }
+        for future in as_completed(future_to_path):
+            if cancellation_token is not None and cancellation_token.is_cancelled:
+                for pending in future_to_path:
+                    pending.cancel()
+                break
+            path = future_to_path[future]
+            try:
+                profile = future.result()
+                results[str(path)] = profile
+                _store_in_cache(path, profile, cache)
             except Exception:
                 LOGGER.exception("Spectral analysis failed for %s", path)
                 results[str(path)] = None

@@ -194,7 +194,7 @@ def test_scan_folder_attaches_spectral_profile_when_analyzer_returns_profile(mon
     def fake_analyze(path: Path, **kwargs) -> SpectralProfile:
         return expected_profile
 
-    monkeypatch.setattr("xfinaudio.library.scan_service.analyze_spectral_profile", fake_analyze)
+    monkeypatch.setattr("xfinaudio.audio.analyzer.analyze_spectral_profile", fake_analyze)
 
     records = scan_folder(
         root,
@@ -210,7 +210,7 @@ def test_scan_folder_continues_when_analyzer_returns_none(monkeypatch) -> None:
     root = Path("/library")
     audio_path = root / "track.flac"
 
-    monkeypatch.setattr("xfinaudio.library.scan_service.analyze_spectral_profile", lambda path, **kwargs: None)
+    monkeypatch.setattr("xfinaudio.audio.analyzer.analyze_spectral_profile", lambda path, **kwargs: None)
 
     records = scan_folder(
         root,
