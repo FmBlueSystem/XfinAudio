@@ -178,6 +178,8 @@ def replace_app_state(window, state: AppState) -> None:
         window._dj_readiness_controller._state = state
     if hasattr(window, "_scan_service"):
         window._scan_service._state = state
+    if hasattr(window, "_library_controller"):
+        window._library_controller._state = state
     if hasattr(window, "_recommendation_service"):
         window._recommendation_service._state = state
     if hasattr(window, "_prep_copilot"):

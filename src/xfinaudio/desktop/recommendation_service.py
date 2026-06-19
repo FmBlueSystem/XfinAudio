@@ -9,6 +9,8 @@ from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.desktop._workers import BackgroundWorker
+from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.app_state_transitions import apply_recommendation_completion
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 
@@ -32,7 +34,9 @@ class RecommendationService(QObject):
         self._current_request_id: int = 0
         self._scanned_records: Callable[[], list[TrackRecord]] = _unwired
         self._set_is_recommending: Callable[[bool], None] = _unwired
-        self._state: Any = None
+        self._state: AppState | None = None
+        self._current_state: Callable[[], AppState] = _unwired
+        self._set_state: Callable[[AppState], None] = _unwired
         self._build_screen: Any = None
         self._review_screen: Any = None
         self._export_screen: Any = None
@@ -56,11 +60,14 @@ class RecommendationService(QObject):
         *,
         scanned_records: Callable[[], list[TrackRecord]],
         set_is_recommending: Callable[[bool], None],
-        state: Any,
+        state: Callable[[], AppState],
+        set_state: Callable[[AppState], None],
     ) -> None:
         self._scanned_records = scanned_records
         self._set_is_recommending = set_is_recommending
-        self._state = state
+        self._current_state = state
+        self._state = state()
+        self._set_state = set_state
 
     def set_ui(
         self,
@@ -171,11 +178,10 @@ class RecommendationService(QObject):
         """Render a completed background recommendation."""
         self._require_wired()
         self._end_recommendation_state()
+        updated_state = apply_recommendation_completion(self._current_state(), result)
+        self._set_state(updated_state)
+        self._state = updated_state
         self._set_applied_copilot_variant(None)
-        self._state.last_recommendation = result.recommendation
-        self._state.last_playlist_explanation = result.explanation
-        self._state.last_quality_report = result.quality_report
-        self._state.playlist_removed_paths = frozenset()
         self._sync_state()
         self._show_recommendation(
             result.recommendation.ordered_tracks,
