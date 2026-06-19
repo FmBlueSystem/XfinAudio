@@ -164,3 +164,47 @@ def test_apply_playlist_track_restored_returns_new_state_without_mutating_origin
     assert updated is not state
     assert updated.playlist_removed_paths == frozenset({"/music/a.flac"})
     assert state.playlist_removed_paths == frozenset({"/music/a.flac", "/music/b.flac"})
+
+
+def test_apply_prep_copilot_variant_returns_new_state_and_clears_removed_paths() -> None:
+    previous_recommendation = object()
+    previous_explanation = object()
+    previous_quality_report = object()
+    previous_readiness = object()
+    recommendation = object()
+    explanation = object()
+    quality_report = object()
+    readiness = object()
+    state = AppState(
+        last_recommendation=previous_recommendation,  # type: ignore[arg-type]
+        last_playlist_explanation=previous_explanation,  # type: ignore[arg-type]
+        last_quality_report=previous_quality_report,  # type: ignore[arg-type]
+        last_dj_readiness_report=previous_readiness,  # type: ignore[arg-type]
+        playlist_removed_paths=frozenset({"/music/removed.flac"}),
+        applied_variant_name="safe",
+    )
+    payload = SimpleNamespace(
+        recommendation=recommendation,
+        explanation=explanation,
+        quality_report=quality_report,
+        readiness_report=readiness,
+        variant_name="balanced",
+    )
+
+    transition = getattr(app_state_transitions, "apply_prep_copilot_variant", None)
+    assert callable(transition)
+    updated = transition(state, payload)
+
+    assert updated is not state
+    assert updated.last_recommendation is recommendation
+    assert updated.last_playlist_explanation is explanation
+    assert updated.last_quality_report is quality_report
+    assert updated.last_dj_readiness_report is readiness
+    assert updated.playlist_removed_paths == frozenset()
+    assert updated.applied_variant_name == "balanced"
+    assert state.last_recommendation is previous_recommendation
+    assert state.last_playlist_explanation is previous_explanation
+    assert state.last_quality_report is previous_quality_report
+    assert state.last_dj_readiness_report is previous_readiness
+    assert state.playlist_removed_paths == frozenset({"/music/removed.flac"})
+    assert state.applied_variant_name == "safe"

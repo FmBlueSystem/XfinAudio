@@ -425,3 +425,23 @@ The system MUST update playlist removal/restoration state through pure AppState 
 - WHEN undo or redo is invoked
 - THEN the desktop controller MUST keep command and synchronization orchestration
 - AND AppState mutation policy MUST remain delegated to pure transition helpers.
+
+### Requirement: Prep Copilot Variant State Boundary
+
+The system MUST apply selected Prep Copilot variant state through a pure AppState transition while preserving desktop rendering, labels, and export guidance behavior.
+
+#### Scenario: Prep Copilot variant application is immutable
+
+- GIVEN stale recommendation state and removed playlist paths exist in AppState
+- WHEN a selected Prep Copilot variant is applied
+- THEN the transition MUST return a new AppState instance
+- AND recommendation, explanation, quality report, readiness report, and applied variant name MUST reflect the selected variant
+- AND removed playlist paths MUST be cleared
+- AND the original AppState MUST remain unchanged.
+
+#### Scenario: Desktop keeps rendering responsibility
+
+- GIVEN a selected Prep Copilot variant is applied from the desktop UI
+- WHEN the variant is rendered in review/export screens
+- THEN desktop code MUST keep selection validation, labels, status messages, and table rendering responsibilities
+- AND AppState mutation policy MUST remain delegated to the pure transition helper.

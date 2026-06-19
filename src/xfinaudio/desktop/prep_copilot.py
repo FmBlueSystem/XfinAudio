@@ -7,6 +7,10 @@ from typing import Any
 
 from PySide6.QtWidgets import QTableWidgetItem
 
+from xfinaudio.desktop.app_state_transitions import (
+    PrepCopilotVariantApplication,
+    apply_prep_copilot_variant,
+)
 from xfinaudio.desktop.rendering import format_quality_summary
 from xfinaudio.exporting.explainability import build_playlist_explanation
 from xfinaudio.quality.dj_readiness import format_dj_readiness_summary
@@ -78,13 +82,22 @@ class PrepCopilotController:
         recommendation = variant.recommendation
         explanation = build_playlist_explanation(recommendation)
         quality_report = build_quality_report(recommendation)
-        self._state.last_recommendation = recommendation
-        self._state.last_playlist_explanation = explanation
-        self._state.last_quality_report = quality_report
-        self._state.last_dj_readiness_report = variant.readiness
-        self._state._state.playlist_removed_paths = frozenset()
+        updated_state = apply_prep_copilot_variant(
+            self._state._state,
+            PrepCopilotVariantApplication(
+                recommendation=recommendation,
+                explanation=explanation,
+                quality_report=quality_report,
+                readiness_report=variant.readiness,
+                variant_name=variant.name,
+            ),
+        )
+        if hasattr(self._state, "_replace_app_state"):
+            self._state._replace_app_state(updated_state)
+        else:
+            self._state._state = updated_state
         self._on_state_changed()
-        self.set_applied_variant(variant.name)
+        self._render_applied_variant_label(variant.name)
         self._state.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)
         self._state._review_screen.review_summary_label.setText(format_quality_summary(quality_report))
         self._state._review_screen.dj_readiness_label.setText(format_dj_readiness_summary(variant.readiness))
@@ -103,6 +116,9 @@ class PrepCopilotController:
     def set_applied_variant(self, variant_name: str | None) -> None:
         self._state.applied_prep_copilot_variant_name = variant_name
         self._on_state_changed()
+        self._render_applied_variant_label(variant_name)
+
+    def _render_applied_variant_label(self, variant_name: str | None) -> None:
         variant_label = self._build_screen.applied_copilot_variant_label
         if variant_name is None:
             variant_label.setText(self._state.tr("Applied Variant: none"))

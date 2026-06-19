@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.exporting.explainability import PlaylistExplanation
+from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 
@@ -17,6 +19,17 @@ class CompletedRecommendationResult(Protocol):
     recommendation: PlaylistRecommendation
     explanation: PlaylistExplanation
     quality_report: RecommendationQualityReport
+
+
+@dataclass(frozen=True)
+class PrepCopilotVariantApplication:
+    """State payload for an applied Prep Copilot variant."""
+
+    recommendation: PlaylistRecommendation
+    explanation: PlaylistExplanation
+    quality_report: RecommendationQualityReport
+    readiness_report: DjReadinessReport
+    variant_name: str
 
 
 def apply_spectral_profile(state: AppState, *, path: str, profile: SpectralProfile) -> AppState:
@@ -80,10 +93,26 @@ def apply_playlist_track_restored(state: AppState, path: str) -> AppState:
     return state.model_copy(update={"playlist_removed_paths": state.playlist_removed_paths - {path}})
 
 
+def apply_prep_copilot_variant(state: AppState, payload: PrepCopilotVariantApplication) -> AppState:
+    """Return a new state with an applied Prep Copilot variant result."""
+    return state.model_copy(
+        update={
+            "last_recommendation": payload.recommendation,
+            "last_playlist_explanation": payload.explanation,
+            "last_quality_report": payload.quality_report,
+            "last_dj_readiness_report": payload.readiness_report,
+            "playlist_removed_paths": frozenset(),
+            "applied_variant_name": payload.variant_name,
+        }
+    )
+
+
 __all__ = [
     "CompletedRecommendationResult",
+    "PrepCopilotVariantApplication",
     "apply_playlist_track_removed",
     "apply_playlist_track_restored",
+    "apply_prep_copilot_variant",
     "apply_recommendation_completion",
     "apply_scan_context_reset",
     "apply_spectral_profile",
