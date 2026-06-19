@@ -9,6 +9,8 @@ from PySide6.QtWidgets import QTableWidgetItem
 
 from xfinaudio.desktop.app_state_transitions import (
     PrepCopilotVariantApplication,
+    apply_prep_copilot_plan_cleared,
+    apply_prep_copilot_plan_generated,
     apply_prep_copilot_variant,
 )
 from xfinaudio.desktop.rendering import format_quality_summary
@@ -36,10 +38,16 @@ class PrepCopilotController:
         self._on_state_changed = on_state_changed
         self._on_status_message = on_status_message
 
+    def _replace_state(self, updated_state: Any) -> None:
+        if hasattr(self._state, "_replace_app_state"):
+            self._state._replace_app_state(updated_state)
+        else:
+            self._state._state = updated_state
+
     def generate(self) -> None:
         controls = self._state._selected_track_controls()
         if controls is None:
-            self._state.last_prep_copilot_plan = None
+            self._replace_state(apply_prep_copilot_plan_cleared(self._state._state))
             self._build_screen.copilot_table.setRowCount(0)
             self._build_screen.apply_variant_button.setEnabled(False)
             self._on_status_message(self._state.tr("Select at least one complete track before generating Prep Copilot"))
@@ -55,7 +63,7 @@ class PrepCopilotController:
             genre_focus=genre_focus,
         )
         plan = build_prep_copilot_plan(records, intent)
-        self._state.last_prep_copilot_plan = plan
+        self._replace_state(apply_prep_copilot_plan_generated(self._state._state, plan))
         self._build_screen.apply_variant_button.setEnabled(True)
         self._on_status_message(self._state.tr("Generated {0} Prep Copilot variant(s)").format(len(plan.variants)))
         self._build_screen.copilot_table.setHidden(len(plan.variants) == 0)
@@ -92,10 +100,7 @@ class PrepCopilotController:
                 variant_name=variant.name,
             ),
         )
-        if hasattr(self._state, "_replace_app_state"):
-            self._state._replace_app_state(updated_state)
-        else:
-            self._state._state = updated_state
+        self._replace_state(updated_state)
         self._on_state_changed()
         self._render_applied_variant_label(variant.name)
         self._state.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)

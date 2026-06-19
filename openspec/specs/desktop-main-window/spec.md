@@ -475,3 +475,23 @@ The system MUST update excluded and locked track constraints through pure AppSta
 - THEN the transition MUST return a new AppState instance
 - AND excluded and locked paths MUST be empty
 - AND the original AppState MUST remain unchanged.
+
+### Requirement: Prep Copilot Plan State Boundary
+
+The system MUST store and clear generated Prep Copilot plans through pure AppState transitions while preserving desktop validation, controls, and rendering behavior.
+
+#### Scenario: Generated Prep Copilot plan storage is immutable
+
+- GIVEN no Prep Copilot plan exists in AppState
+- WHEN a plan is generated
+- THEN the transition MUST return a new AppState instance
+- AND the generated plan MUST be stored
+- AND the original AppState MUST remain unchanged.
+
+#### Scenario: Prep Copilot plan clearing is immutable
+
+- GIVEN a Prep Copilot plan exists in AppState
+- WHEN generation is rejected because selection is incomplete
+- THEN the transition MUST return a new AppState instance
+- AND the Prep Copilot plan MUST be cleared
+- AND the original AppState MUST remain unchanged.

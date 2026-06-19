@@ -12,6 +12,7 @@ from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
 
 
 class CompletedRecommendationResult(Protocol):
@@ -123,11 +124,23 @@ def apply_track_constraints_cleared(state: AppState) -> AppState:
     return state.model_copy(update={"excluded_paths": frozenset(), "locked_paths": frozenset()})
 
 
+def apply_prep_copilot_plan_generated(state: AppState, plan: PrepCopilotPlan) -> AppState:
+    """Return a new state with a generated Prep Copilot plan stored."""
+    return state.model_copy(update={"last_prep_copilot_plan": plan})
+
+
+def apply_prep_copilot_plan_cleared(state: AppState) -> AppState:
+    """Return a new state with the Prep Copilot plan cleared."""
+    return state.model_copy(update={"last_prep_copilot_plan": None})
+
+
 __all__ = [
     "CompletedRecommendationResult",
     "PrepCopilotVariantApplication",
     "apply_playlist_track_removed",
     "apply_playlist_track_restored",
+    "apply_prep_copilot_plan_cleared",
+    "apply_prep_copilot_plan_generated",
     "apply_prep_copilot_variant",
     "apply_recommendation_completion",
     "apply_track_constraints_cleared",

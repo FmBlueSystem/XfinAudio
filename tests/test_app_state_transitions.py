@@ -249,3 +249,29 @@ def test_apply_track_constraints_cleared_returns_new_state_without_mutating_orig
     assert updated.locked_paths == frozenset()
     assert state.excluded_paths == frozenset({"/music/excluded.flac"})
     assert state.locked_paths == frozenset({"/music/locked.flac"})
+
+
+def test_apply_prep_copilot_plan_generated_returns_new_state_without_mutating_original() -> None:
+    plan = object()
+    state = AppState(last_prep_copilot_plan=None)
+
+    transition = getattr(app_state_transitions, "apply_prep_copilot_plan_generated", None)
+    assert callable(transition)
+    updated = transition(state, plan)  # type: ignore[arg-type]
+
+    assert updated is not state
+    assert updated.last_prep_copilot_plan is plan
+    assert state.last_prep_copilot_plan is None
+
+
+def test_apply_prep_copilot_plan_cleared_returns_new_state_without_mutating_original() -> None:
+    plan = object()
+    state = AppState(last_prep_copilot_plan=plan)  # type: ignore[arg-type]
+
+    transition = getattr(app_state_transitions, "apply_prep_copilot_plan_cleared", None)
+    assert callable(transition)
+    updated = transition(state)
+
+    assert updated is not state
+    assert updated.last_prep_copilot_plan is None
+    assert state.last_prep_copilot_plan is plan
