@@ -207,6 +207,12 @@ class MainWindow(QMainWindow):
     def _build_widgets(self) -> None:
         _layout.build_main_widgets(self)
 
+    def choose_folder(self) -> None:
+        self._library_controller.choose_folder()
+
+    def _refresh_idle_action_state(self) -> None:
+        self._library_controller.refresh_idle_action_state()
+
     def _connect_screens(self) -> None:
         self._keyboard_shortcuts = bind_main_window_shortcuts(self)
         self._search_debounce.timeout.connect(lambda: self._apply_song_filter(clear_selection=True))

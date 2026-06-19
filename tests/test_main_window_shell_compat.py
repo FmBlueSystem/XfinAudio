@@ -14,14 +14,24 @@ def test_layout_no_longer_owns_legacy_method_installation() -> None:
 
 
 def test_shell_compat_names_legacy_layout_methods() -> None:
-    assert "choose_folder" in shell_compat.LEGACY_LAYOUT_METHODS
     assert "_apply_song_filter" in shell_compat.LEGACY_LAYOUT_METHODS
-    assert "_refresh_idle_action_state" in shell_compat.LEGACY_LAYOUT_METHODS
 
 
 def test_main_window_keeps_legacy_layout_methods_available() -> None:
     assert callable(MainWindow.choose_folder)
     assert callable(MainWindow._apply_song_filter)
+    assert callable(MainWindow._refresh_idle_action_state)
+
+
+def test_library_shell_methods_are_explicit_main_window_methods() -> None:
+    assert "choose_folder" not in shell_layout_compat.LEGACY_LAYOUT_METHODS
+    assert "_refresh_idle_action_state" not in shell_layout_compat.LEGACY_LAYOUT_METHODS
+
+    assert MainWindow.__dict__["choose_folder"] is not shell_layout_compat.LEGACY_LAYOUT_METHODS.get("choose_folder")
+    assert MainWindow.__dict__["_refresh_idle_action_state"] is not shell_layout_compat.LEGACY_LAYOUT_METHODS.get(
+        "_refresh_idle_action_state"
+    )
+    assert callable(MainWindow.choose_folder)
     assert callable(MainWindow._refresh_idle_action_state)
 
 
