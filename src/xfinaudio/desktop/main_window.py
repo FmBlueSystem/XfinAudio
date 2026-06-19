@@ -17,7 +17,6 @@ from xfinaudio.desktop import rendering as _rendering
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.menu import Menu
 from xfinaudio.desktop.prep_copilot import PrepCopilotController
-from xfinaudio.desktop.recommendation_presenter import build_recommendation_pool
 from xfinaudio.desktop.recommendation_render import clear_recommendation_review as render_clear_recommendation_review
 from xfinaudio.desktop.recommendation_render import render_recommendation
 from xfinaudio.desktop.recommendation_render import show_transition_review as render_transition_review
@@ -27,6 +26,7 @@ from xfinaudio.desktop.visual_design import apply_visual_design
 from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
+from xfinaudio.recommendation.candidate_pool import build_recommendation_pool
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 

@@ -44,7 +44,7 @@ class PrepCopilotController:
         genre_focus = self._build_screen.genre_focus_input.text().strip() or None
         intent = DJSetIntent(
             name="Desktop Prep Copilot",
-            strategy=self._build_screen.strategy_combo.currentText(),
+            strategy=self._build_screen.strategy_combo.currentData() or self._build_screen.strategy_combo.currentText(),
             target_track_count=self._build_screen.target_count_input.value(),
             start_path=controls.start_path,
             required_paths=controls.manual_order_paths,
