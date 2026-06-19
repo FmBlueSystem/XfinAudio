@@ -51,25 +51,7 @@ _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
 _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
 _SCREEN_NAMES = ["library", "build", "review", "export", "playlists", "metadata", "live"]
 
-_APP_STATE_ATTRIBUTES = frozenset(
-    {
-        "workflow_service",
-        "current_scan_cancellation_token",
-        "selected_folder",
-        "scanned_records",
-        "_records_by_path",
-        "last_recommendation",
-        "last_playlist_explanation",
-        "last_quality_report",
-        "last_dj_readiness_report",
-        "last_prep_copilot_plan",
-        "applied_prep_copilot_variant_name",
-        "serato_export_history",
-        "excluded_paths",
-        "locked_paths",
-        "playlist_removed_paths",
-    }
-)
+_APP_STATE_ATTRIBUTES = _shell_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES
 
 
 class MainWindow(QMainWindow):
@@ -95,23 +77,7 @@ class MainWindow(QMainWindow):
         raise AttributeError(name)
 
     def __setattr__(self, name: str, value: object) -> None:
-        if name in _APP_STATE_ATTRIBUTES and "_state" in self.__dict__:
-            if name == "_records_by_path":
-                self._state.records_by_path = value  # type: ignore[assignment]
-            elif name == "applied_prep_copilot_variant_name":
-                self._state.applied_variant_name = value  # type: ignore[assignment]
-            elif name == "workflow_service":
-                self._state.workflow_service = value  # type: ignore[assignment]
-                if hasattr(self, "_scan_service"):
-                    self._scan_service.workflow_service = value  # type: ignore[assignment]
-                if hasattr(self, "_recommendation_service"):
-                    self._recommendation_service.workflow_service = value  # type: ignore[assignment]
-            elif name == "current_scan_cancellation_token":
-                self._state.current_scan_cancellation_token = value  # type: ignore[assignment]
-                if hasattr(self, "_scan_service"):
-                    self._scan_service.current_scan_cancellation_token = value  # type: ignore[assignment]
-            else:
-                setattr(self._state, name, value)
+        if _shell_compat.try_set_legacy_app_state_attribute(self, name, value):
             return
         super().__setattr__(name, value)
 

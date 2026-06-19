@@ -7,6 +7,8 @@ names the compatibility surface while the desktop shell is cleaned up in slices.
 
 from __future__ import annotations
 
+from typing import Any
+
 from xfinaudio.desktop import layout as _layout
 
 LEGACY_LAYOUT_METHODS = {
@@ -56,6 +58,52 @@ LEGACY_LAYOUT_METHODS = {
     "_clear_scan_dependent_state": _layout.clear_main_scan_dependent_state_via_controller,
     "_refresh_idle_action_state": _layout.refresh_main_idle_action_state,
 }
+
+
+LEGACY_APP_STATE_WRITE_ATTRIBUTES = frozenset(
+    {
+        "workflow_service",
+        "current_scan_cancellation_token",
+        "selected_folder",
+        "scanned_records",
+        "_records_by_path",
+        "last_recommendation",
+        "last_playlist_explanation",
+        "last_quality_report",
+        "last_dj_readiness_report",
+        "last_prep_copilot_plan",
+        "applied_prep_copilot_variant_name",
+        "serato_export_history",
+        "excluded_paths",
+        "locked_paths",
+        "playlist_removed_paths",
+    }
+)
+
+
+def try_set_legacy_app_state_attribute(target: Any, name: str, value: object) -> bool:
+    """Set legacy AppState-backed MainWindow attributes when the shell owns state."""
+    state = target.__dict__.get("_state")
+    if state is None or name not in LEGACY_APP_STATE_WRITE_ATTRIBUTES:
+        return False
+
+    if name == "_records_by_path":
+        state.records_by_path = value
+    elif name == "applied_prep_copilot_variant_name":
+        state.applied_variant_name = value
+    elif name == "workflow_service":
+        state.workflow_service = value
+        if hasattr(target, "_scan_service"):
+            target._scan_service.workflow_service = value
+        if hasattr(target, "_recommendation_service"):
+            target._recommendation_service.workflow_service = value
+    elif name == "current_scan_cancellation_token":
+        state.current_scan_cancellation_token = value
+        if hasattr(target, "_scan_service"):
+            target._scan_service.current_scan_cancellation_token = value
+    else:
+        setattr(state, name, value)
+    return True
 
 
 def install_legacy_layout_methods(target_class: type) -> None:
