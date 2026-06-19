@@ -10,6 +10,7 @@ from typing import Protocol
 from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.exporting.explainability import PlaylistExplanation
+from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -91,6 +92,17 @@ def apply_library_folder_selected(state: AppState, folder: Path) -> AppState:
     return apply_scan_context_reset(state).model_copy(update={"selected_folder": folder})
 
 
+def apply_library_records_loaded(state: AppState, records: Iterable[TrackRecord]) -> AppState:
+    """Return a new state with loaded library records and lookup map applied."""
+    scanned_records = list(records)
+    return state.model_copy(
+        update={
+            "scanned_records": scanned_records,
+            "records_by_path": {record.path: record for record in scanned_records},
+        }
+    )
+
+
 def apply_playlist_track_removed(state: AppState, path: str) -> AppState:
     """Return a new state with a playlist track marked as removed."""
     return state.model_copy(update={"playlist_removed_paths": state.playlist_removed_paths | {path}})
@@ -159,6 +171,7 @@ __all__ = [
     "apply_tracks_excluded",
     "apply_tracks_locked",
     "apply_library_folder_selected",
+    "apply_library_records_loaded",
     "apply_scan_context_reset",
     "apply_spectral_profile",
 ]
