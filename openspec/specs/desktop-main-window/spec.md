@@ -396,3 +396,32 @@ The system MUST clear scan-dependent recommendation state through a pure AppStat
 - WHEN the reset runs
 - THEN desktop code MUST delegate AppState reset policy to the pure transition helper
 - AND desktop code MUST remain responsible for clearing widgets, guidance text, and rendered review/export UI only.
+
+### Requirement: Playlist Removal State Boundary
+
+The system MUST update playlist removal/restoration state through pure AppState transitions while preserving desktop undo and redo behavior.
+
+#### Scenario: Playlist track removal is immutable
+
+- GIVEN removed playlist paths already exist in AppState
+- WHEN a playlist track is removed
+- THEN the reset policy MUST return a new AppState instance
+- AND the removed path MUST be present
+- AND previously removed paths MUST remain present
+- AND the original AppState MUST remain unchanged.
+
+#### Scenario: Playlist track restoration is immutable
+
+- GIVEN a playlist track is present in removed playlist paths
+- WHEN the playlist track is restored
+- THEN the reset policy MUST return a new AppState instance
+- AND the restored path MUST be absent
+- AND unrelated removed paths MUST remain present
+- AND the original AppState MUST remain unchanged.
+
+#### Scenario: Desktop undo orchestration remains in the controller
+
+- GIVEN a user removes or restores a review playlist track from the desktop UI
+- WHEN undo or redo is invoked
+- THEN the desktop controller MUST keep command and synchronization orchestration
+- AND AppState mutation policy MUST remain delegated to pure transition helpers.

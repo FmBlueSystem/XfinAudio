@@ -1,0 +1,23 @@
+schema: gentle-ai.sdd-state.v1
+change: app-state-playlist-removal-transition
+artifact_store: openspec
+status: archived
+created: 2026-06-19
+updated: 2026-06-19
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: complete
+blocked_reasons: []
+delivery:
+  strategy: ask-on-risk
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Keep the slice focused on playlist_removed_paths remove/restore only.
