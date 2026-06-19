@@ -136,7 +136,7 @@ These are deliberately small. Do not batch them into a mega-refactor.
 
 ### Slice 4: Audio analyzer adapter boundary
 
-**Status:** Implemented in issue #129; PR pending.
+**Status:** Completed in PR #130.
 
 **Goal:** separate pure spectral profile policy from concrete audio loading/analyzer execution.
 
