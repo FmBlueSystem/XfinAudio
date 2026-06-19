@@ -186,7 +186,8 @@ def wire_main_recommendation_service(self: Any) -> None:
     self._recommendation_service.set_state_accessors(
         scanned_records=lambda: self.scanned_records,
         set_is_recommending=lambda value: setattr(self, "_is_recommending", value),
-        state=self._state,
+        state=lambda: self._state,
+        set_state=self._replace_app_state,
     )
     self._recommendation_service.set_ui(
         build_screen=self._build_screen,
