@@ -1,0 +1,26 @@
+schema: gentle-ai.sdd-state.v1
+change: library-repository-port-boundary
+artifact_store: openspec
+status: archived
+created: 2026-06-19
+updated: 2026-06-19
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  archive: complete
+next_recommended: complete
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: stacked-to-main
+  review_budget_changed_lines: 400
+notes:
+  - Concrete repository behavior unchanged.
+  - Saved-playlist application service remains a later slice.
+  - Interface segregation kept scan persistence separate from display listing, spectral cache reading, and spectral cache writing capabilities.

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypeGuard
 
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.ports import TrackRepositoryPort, TrackSpectralProfileCacheReaderPort
 from xfinaudio.library.scan_service import ProfileCache, ProgressCallback, ScanCancellationToken, ScanCancelledError
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
 from xfinaudio.recommendation.controls import DJControls
@@ -33,14 +34,6 @@ class ScanService(Protocol):
         resolve_spectral_profiles: bool = True,
     ) -> list[TrackRecord]:
         """Scan folder and return track records."""
-        ...
-
-
-class TrackPersistence(Protocol):
-    """Protocol for scan-result persistence used by application workflows."""
-
-    def save_scan_results(self, records: list[TrackRecord]) -> None:
-        """Persist scan results."""
         ...
 
 
@@ -68,7 +61,7 @@ class RecommendationWorkflowResult(BaseModel):
 class PlaylistWorkflowService:
     """Application service that sequences library scan and playlist recommendation workflows."""
 
-    def __init__(self, *, scan_service: ScanService, repository: TrackPersistence) -> None:
+    def __init__(self, *, scan_service: ScanService, repository: TrackRepositoryPort) -> None:
         self.scan_service = scan_service
         self.repository = repository
 
@@ -82,7 +75,7 @@ class PlaylistWorkflowService:
     ) -> ScanWorkflowResult:
         """Scan a folder, persist complete scan records, and return display-ready counts."""
         cache_loader: Callable[[list[Path]], ProfileCache] | None = None
-        if hasattr(self.repository, "load_spectral_profile_cache"):
+        if _supports_spectral_profile_cache(self.repository):
             repo = self.repository
 
             def _load_cache(paths: list[Path]) -> ProfileCache:
@@ -135,10 +128,13 @@ class PlaylistWorkflowService:
         )
 
 
+def _supports_spectral_profile_cache(repository: TrackRepositoryPort) -> TypeGuard[TrackSpectralProfileCacheReaderPort]:
+    return hasattr(repository, "load_spectral_profile_cache")
+
+
 __all__ = [
     "PlaylistWorkflowService",
     "RecommendationWorkflowResult",
     "ScanService",
     "ScanWorkflowResult",
-    "TrackPersistence",
 ]

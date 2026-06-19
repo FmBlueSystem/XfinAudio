@@ -94,6 +94,8 @@ These are deliberately small. Do not batch them into a mega-refactor.
 
 ### Slice 1: Application export use case boundary
 
+**Status:** Completed in PR #124.
+
 **Goal:** move export orchestration decisions behind an application-level use case while keeping UI copy and dialogs in `desktop`.
 
 | Item | Target |
@@ -106,12 +108,14 @@ These are deliberately small. Do not batch them into a mega-refactor.
 
 ### Slice 2: Library repository port boundary
 
+**Status:** In progress via issue #125.
+
 **Goal:** make playlist/track persistence contracts explicit before moving more saved-playlist logic into application use cases.
 
 | Item | Target |
 |---|---|
 | New/changed module | `xfinaudio.library.ports` or `xfinaudio.application.ports` |
-| Candidate ports | `TrackRepositoryPort`, `PlaylistRepositoryPort` |
+| Candidate ports | `TrackRepositoryPort`, `TrackDisplayRepositoryPort`, `TrackSpectralProfileCacheReaderPort`, `TrackSpectralProfileCachePort`, `PlaylistRepositoryPort` |
 | Keep in infrastructure | concrete JSON/SQLite/filesystem repository behavior |
 | Tests first | application/use-case tests using in-memory fakes |
 | Out of scope | Database migration or storage format changes |
@@ -166,4 +170,4 @@ Use this rule when deciding where new code belongs:
 
 ## Current recommendation
 
-Do **not** reopen the completed AppState responsibility-separation work. The next useful architectural move is to strengthen the `application` layer, starting with export or saved-playlist orchestration, because those areas already span domain decisions, persistence, and desktop UI adapters.
+Do **not** reopen the completed AppState responsibility-separation work. After the export use case and library repository port boundaries, the next useful architectural move is the saved-playlist application service, because repository contracts now exist and playlist orchestration still spans desktop UI adapters and persistence.

@@ -70,6 +70,13 @@ Given a saved playlist references a track that no longer exists
 When the playlist is loaded
 Then the track shows a "missing" indicator and is skipped during export.
 
+### AC-10: Repository contract boundary
+
+Given desktop or application orchestration needs saved-playlist persistence
+When it depends on playlist storage
+Then it uses the explicit playlist repository port contract
+And concrete SQLite repository behavior remains an infrastructure detail.
+
 ## Data Model
 
 ### Playlist
