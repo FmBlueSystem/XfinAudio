@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from xfinaudio.desktop.app_state_transitions import apply_saved_playlist_export_recommendation
 from xfinaudio.desktop.undo_manager import Command, UndoManager
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_repository import PlaylistRepository
@@ -45,6 +46,7 @@ class PlaylistHost(Protocol):
     scanned_records: list[TrackRecord]
 
     def tr(self, text: str) -> str: ...
+    def _replace_app_state(self, state: Any) -> None: ...
     def _sync_state(self) -> None: ...
 
 
@@ -146,7 +148,7 @@ class PlaylistCoordinator:
             tracks_by_path.get(path) or TrackRecord(path=path, title=Path(path).stem, metadata_status="complete")
             for path in playlist.track_paths
         ]
-        host.last_recommendation = PlaylistRecommendation(
+        recommendation = PlaylistRecommendation(
             ordered_tracks=tracks,
             transition_scores=[],
             strategy=default_strategy_registry().get("build"),
@@ -155,6 +157,10 @@ class PlaylistCoordinator:
             optimizer="saved-playlist",
             total_score=0.0,
         )
+        if hasattr(host, "_replace_app_state") and hasattr(host, "_state"):
+            host._replace_app_state(apply_saved_playlist_export_recommendation(host._state, recommendation))
+        else:
+            host.last_recommendation = recommendation
         host._export_coordinator.export_recommendation_to_serato(crate_name=playlist.name)
 
     def remove_track(self, path: str) -> None:

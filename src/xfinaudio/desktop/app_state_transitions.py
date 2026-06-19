@@ -134,6 +134,11 @@ def apply_prep_copilot_plan_cleared(state: AppState) -> AppState:
     return state.model_copy(update={"last_prep_copilot_plan": None})
 
 
+def apply_saved_playlist_export_recommendation(state: AppState, recommendation: PlaylistRecommendation) -> AppState:
+    """Return a new state with a saved-playlist export recommendation applied."""
+    return state.model_copy(update={"last_recommendation": recommendation})
+
+
 __all__ = [
     "CompletedRecommendationResult",
     "PrepCopilotVariantApplication",
@@ -143,6 +148,7 @@ __all__ = [
     "apply_prep_copilot_plan_generated",
     "apply_prep_copilot_variant",
     "apply_recommendation_completion",
+    "apply_saved_playlist_export_recommendation",
     "apply_track_constraints_cleared",
     "apply_tracks_excluded",
     "apply_tracks_locked",

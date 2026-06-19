@@ -495,3 +495,22 @@ The system MUST store and clear generated Prep Copilot plans through pure AppSta
 - THEN the transition MUST return a new AppState instance
 - AND the Prep Copilot plan MUST be cleared
 - AND the original AppState MUST remain unchanged.
+
+### Requirement: Saved Playlist Export Recommendation Boundary
+
+The system MUST replace the current recommendation for saved-playlist export through a pure AppState transition while preserving playlist editor and export orchestration behavior.
+
+#### Scenario: Saved playlist recommendation replacement is immutable
+
+- GIVEN a previous recommendation exists in AppState
+- WHEN a saved playlist is exported
+- THEN the transition MUST return a new AppState instance
+- AND the saved playlist recommendation MUST become the last recommendation
+- AND the original AppState MUST remain unchanged.
+
+#### Scenario: Playlist coordinator keeps orchestration responsibility
+
+- GIVEN a saved playlist is exported from the desktop UI
+- WHEN export is requested
+- THEN the coordinator MUST keep repository lookup, editor rendering, and export invocation responsibilities
+- AND AppState recommendation replacement policy MUST remain delegated to the pure transition helper.
