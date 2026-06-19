@@ -66,3 +66,70 @@ def test_shell_compat_handles_legacy_state_write_and_service_mirrors() -> None:
     assert target._state.records_by_path is records_by_path
 
     assert not shell_compat.try_set_legacy_app_state_attribute(target, "plain_attribute", object())
+
+
+def test_shell_compat_exposes_legacy_state_read_boundary() -> None:
+    assert callable(shell_compat.try_get_legacy_app_state_attribute)
+
+
+def test_shell_compat_handles_legacy_state_read_aliases_and_scan_token_sync() -> None:
+    class State:
+        records_by_path: object | None = None
+        applied_variant_name: object | None = None
+        current_scan_cancellation_token: object | None = None
+        workflow_service: object | None = None
+
+    class ScanService:
+        current_scan_cancellation_token: object | None = None
+
+    class Target:
+        pass
+
+    records_by_path = {"track.mp3": object()}
+    variant_name = "Warmup"
+    token = object()
+
+    target = Target()
+    target._state = State()
+    target._state.records_by_path = records_by_path
+    target._state.applied_variant_name = variant_name
+    target._scan_service = ScanService()
+    target._scan_service.current_scan_cancellation_token = token
+
+    assert shell_compat.try_get_legacy_app_state_attribute(target, "_records_by_path") is records_by_path
+    assert shell_compat.try_get_legacy_app_state_attribute(target, "applied_prep_copilot_variant_name") == variant_name
+    assert shell_compat.try_get_legacy_app_state_attribute(target, "current_scan_cancellation_token") is token
+    assert target._state.current_scan_cancellation_token is token
+
+
+def test_shell_compat_handles_delegated_reads_and_missing_private_attributes() -> None:
+    class Toolbar:
+        undo = object()
+        redo = object()
+
+    class LibraryController:
+        on_track_remove_requested = object()
+
+    class Target:
+        pass
+
+    target = Target()
+    target._undo_toolbar = Toolbar()
+    target._library_controller = LibraryController()
+
+    assert shell_compat.try_get_legacy_app_state_attribute(target, "undo") is target._undo_toolbar.undo
+    assert shell_compat.try_get_legacy_app_state_attribute(target, "redo") is target._undo_toolbar.redo
+    assert (
+        shell_compat.try_get_legacy_app_state_attribute(target, "_on_track_remove_requested")
+        is target._library_controller.on_track_remove_requested
+    )
+    assert shell_compat.is_missing_legacy_attribute(
+        shell_compat.try_get_legacy_app_state_attribute(target, "plain_attribute")
+    )
+
+    try:
+        shell_compat.try_get_legacy_app_state_attribute(target, "_missing_private")
+    except AttributeError as exc:
+        assert exc.args == ("_missing_private",)
+    else:
+        raise AssertionError("Expected AttributeError for missing private attribute")
