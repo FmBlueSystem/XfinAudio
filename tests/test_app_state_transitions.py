@@ -208,3 +208,44 @@ def test_apply_prep_copilot_variant_returns_new_state_and_clears_removed_paths()
     assert state.last_dj_readiness_report is previous_readiness
     assert state.playlist_removed_paths == frozenset({"/music/removed.flac"})
     assert state.applied_variant_name == "safe"
+
+
+def test_apply_tracks_excluded_returns_new_state_without_mutating_original() -> None:
+    state = AppState(excluded_paths=frozenset({"/music/a.flac"}))
+
+    transition = getattr(app_state_transitions, "apply_tracks_excluded", None)
+    assert callable(transition)
+    updated = transition(state, ["/music/b.flac", "/music/c.flac"])
+
+    assert updated is not state
+    assert updated.excluded_paths == frozenset({"/music/a.flac", "/music/b.flac", "/music/c.flac"})
+    assert state.excluded_paths == frozenset({"/music/a.flac"})
+
+
+def test_apply_tracks_locked_returns_new_state_without_mutating_original() -> None:
+    state = AppState(locked_paths=frozenset({"/music/a.flac"}))
+
+    transition = getattr(app_state_transitions, "apply_tracks_locked", None)
+    assert callable(transition)
+    updated = transition(state, ["/music/b.flac"])
+
+    assert updated is not state
+    assert updated.locked_paths == frozenset({"/music/a.flac", "/music/b.flac"})
+    assert state.locked_paths == frozenset({"/music/a.flac"})
+
+
+def test_apply_track_constraints_cleared_returns_new_state_without_mutating_original() -> None:
+    state = AppState(
+        excluded_paths=frozenset({"/music/excluded.flac"}),
+        locked_paths=frozenset({"/music/locked.flac"}),
+    )
+
+    transition = getattr(app_state_transitions, "apply_track_constraints_cleared", None)
+    assert callable(transition)
+    updated = transition(state)
+
+    assert updated is not state
+    assert updated.excluded_paths == frozenset()
+    assert updated.locked_paths == frozenset()
+    assert state.excluded_paths == frozenset({"/music/excluded.flac"})
+    assert state.locked_paths == frozenset({"/music/locked.flac"})

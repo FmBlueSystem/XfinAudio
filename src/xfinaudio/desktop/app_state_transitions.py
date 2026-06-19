@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -107,6 +108,21 @@ def apply_prep_copilot_variant(state: AppState, payload: PrepCopilotVariantAppli
     )
 
 
+def apply_tracks_excluded(state: AppState, paths: Iterable[str]) -> AppState:
+    """Return a new state with selected tracks excluded."""
+    return state.model_copy(update={"excluded_paths": state.excluded_paths | frozenset(paths)})
+
+
+def apply_tracks_locked(state: AppState, paths: Iterable[str]) -> AppState:
+    """Return a new state with selected tracks locked."""
+    return state.model_copy(update={"locked_paths": state.locked_paths | frozenset(paths)})
+
+
+def apply_track_constraints_cleared(state: AppState) -> AppState:
+    """Return a new state with excluded and locked track constraints cleared."""
+    return state.model_copy(update={"excluded_paths": frozenset(), "locked_paths": frozenset()})
+
+
 __all__ = [
     "CompletedRecommendationResult",
     "PrepCopilotVariantApplication",
@@ -114,6 +130,9 @@ __all__ = [
     "apply_playlist_track_restored",
     "apply_prep_copilot_variant",
     "apply_recommendation_completion",
+    "apply_track_constraints_cleared",
+    "apply_tracks_excluded",
+    "apply_tracks_locked",
     "apply_scan_context_reset",
     "apply_spectral_profile",
 ]

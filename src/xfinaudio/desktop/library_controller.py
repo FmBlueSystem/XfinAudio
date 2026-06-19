@@ -20,6 +20,9 @@ from xfinaudio.desktop.app_state_transitions import (
     apply_playlist_track_restored,
     apply_scan_context_reset,
     apply_spectral_profile,
+    apply_track_constraints_cleared,
+    apply_tracks_excluded,
+    apply_tracks_locked,
 )
 from xfinaudio.desktop.audio_player import AudioPlayer
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
@@ -219,16 +222,18 @@ class LibraryController:
         self._access.export_metadata_status_to_serato(status=norm_status, missing_field=missing_field)
 
     def on_exclude_requested(self) -> None:
-        self._state.excluded_paths = self._state.excluded_paths | frozenset(self._access.selected_paths)
+        self._state = apply_tracks_excluded(self._state, self._access.selected_paths)
+        self._access.state_setter(self._state)
         self._sync_state()
 
     def on_lock_requested(self) -> None:
-        self._state.locked_paths = self._state.locked_paths | frozenset(self._access.selected_paths)
+        self._state = apply_tracks_locked(self._state, self._access.selected_paths)
+        self._access.state_setter(self._state)
         self._sync_state()
 
     def on_clear_constraints(self) -> None:
-        self._state.excluded_paths = frozenset()
-        self._state.locked_paths = frozenset()
+        self._state = apply_track_constraints_cleared(self._state)
+        self._access.state_setter(self._state)
         self._sync_state()
 
     def on_library_filters_cleared(self, active_labels: list[str]) -> None:

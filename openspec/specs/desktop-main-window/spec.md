@@ -445,3 +445,33 @@ The system MUST apply selected Prep Copilot variant state through a pure AppStat
 - WHEN the variant is rendered in review/export screens
 - THEN desktop code MUST keep selection validation, labels, status messages, and table rendering responsibilities
 - AND AppState mutation policy MUST remain delegated to the pure transition helper.
+
+### Requirement: Track Constraint State Boundary
+
+The system MUST update excluded and locked track constraints through pure AppState transitions while preserving desktop selection and synchronization behavior.
+
+#### Scenario: Excluding selected tracks is immutable
+
+- GIVEN excluded track paths already exist in AppState
+- WHEN selected tracks are excluded
+- THEN the transition MUST return a new AppState instance
+- AND selected paths MUST be present in excluded paths
+- AND previously excluded paths MUST remain present
+- AND the original AppState MUST remain unchanged.
+
+#### Scenario: Locking selected tracks is immutable
+
+- GIVEN locked track paths already exist in AppState
+- WHEN selected tracks are locked
+- THEN the transition MUST return a new AppState instance
+- AND selected paths MUST be present in locked paths
+- AND previously locked paths MUST remain present
+- AND the original AppState MUST remain unchanged.
+
+#### Scenario: Clearing track constraints is immutable
+
+- GIVEN excluded and locked track paths exist in AppState
+- WHEN constraints are cleared
+- THEN the transition MUST return a new AppState instance
+- AND excluded and locked paths MUST be empty
+- AND the original AppState MUST remain unchanged.
