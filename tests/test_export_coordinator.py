@@ -356,7 +356,7 @@ def test_preview_export_consumes_missing_safe_folder_gate_copy_and_skips_planner
 
     with (
         patch("xfinaudio.desktop.export_coordinator.evaluate_export_gate", return_value=decision) as gate,
-        patch("xfinaudio.desktop.export_coordinator.plan_playlist_file_export") as planner,
+        patch("xfinaudio.desktop.export_coordinator.preview_playlist_file_export") as planner,
     ):
         coordinator.preview_export()
 
@@ -380,7 +380,7 @@ def test_export_recommendation_consumes_blocked_readiness_gate_copy_and_skips_pl
 
     with (
         patch("xfinaudio.desktop.export_coordinator.evaluate_export_gate", return_value=decision) as gate,
-        patch("xfinaudio.desktop.export_coordinator.plan_playlist_file_export") as planner,
+        patch("xfinaudio.desktop.export_coordinator.export_playlist_file") as planner,
     ):
         coordinator.export_recommendation()
 
@@ -394,7 +394,7 @@ def test_export_recommendation_missing_recommendation_copy_remains_unchanged(tmp
     host.last_recommendation = None
     coordinator = ExportCoordinator(host)  # type: ignore[arg-type]
 
-    with patch("xfinaudio.desktop.export_coordinator.plan_playlist_file_export") as planner:
+    with patch("xfinaudio.desktop.export_coordinator.export_playlist_file") as planner:
         coordinator.export_recommendation()
 
     planner.assert_not_called()
