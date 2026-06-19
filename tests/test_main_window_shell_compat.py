@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
+
 from xfinaudio.desktop import layout, shell_compat, shell_layout_compat, shell_state_compat
+from xfinaudio.desktop import main_window as main_window_module
 from xfinaudio.desktop.main_window import MainWindow
 
 
@@ -20,6 +23,14 @@ def test_main_window_keeps_legacy_layout_methods_available() -> None:
     assert callable(MainWindow.choose_folder)
     assert callable(MainWindow._apply_song_filter)
     assert callable(MainWindow._refresh_idle_action_state)
+
+
+def test_main_window_uses_explicit_shell_compatibility_surfaces() -> None:
+    source = inspect.getsource(main_window_module)
+
+    assert "shell_compat" not in source
+    assert "shell_layout_compat" in source
+    assert "shell_state_compat" in source
 
 
 def test_shell_compat_exposes_legacy_state_write_boundary() -> None:
