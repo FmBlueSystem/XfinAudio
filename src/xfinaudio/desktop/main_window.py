@@ -14,6 +14,7 @@ from xfinaudio.application.playlist_workflow import ScanService
 from xfinaudio.config.settings import AppSettings, WindowSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop import rendering as _rendering
+from xfinaudio.desktop import shell_compat as _shell_compat
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.menu import Menu
 from xfinaudio.desktop.prep_copilot import PrepCopilotController
@@ -368,4 +369,4 @@ class MainWindow(QMainWindow):
         render_transition_review(review_screen=self._review_screen, explanation=explanation, tr=self.tr)
 
 
-_layout.install_layout_methods(MainWindow)
+_shell_compat.install_legacy_layout_methods(MainWindow)

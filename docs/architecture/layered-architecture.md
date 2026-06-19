@@ -150,6 +150,8 @@ These are deliberately small. Do not batch them into a mega-refactor.
 
 ### Slice 5: Legacy desktop shell cleanup
 
+**Status:** In progress via issue #133.
+
 **Goal:** reduce dynamic layout method grafting and compatibility setters after application boundaries are stronger.
 
 | Item | Target |
