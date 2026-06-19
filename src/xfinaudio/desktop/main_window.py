@@ -10,7 +10,7 @@ from typing import Any
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QMainWindow
 
-from xfinaudio.application.playlist_workflow import ScanService, TrackPersistence
+from xfinaudio.application.playlist_workflow import ScanService
 from xfinaudio.config.settings import AppSettings, WindowSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop import rendering as _rendering
@@ -25,6 +25,7 @@ from xfinaudio.desktop.table_sorting import connect_table_sorting
 from xfinaudio.desktop.visual_design import apply_visual_design
 from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.ports import TrackRepositoryPort
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.candidate_pool import build_recommendation_pool
 from xfinaudio.recommendation.controls import DJControls
@@ -117,7 +118,7 @@ class MainWindow(QMainWindow):
         self,
         *,
         scan_service: ScanService,
-        repository: TrackPersistence,
+        repository: TrackRepositoryPort,
         settings: AppSettings | None = None,
         settings_repository: SettingsPersistence | None = None,
     ) -> None:
@@ -203,7 +204,7 @@ class MainWindow(QMainWindow):
     def _initialize_window_state(
         self,
         scan_service: ScanService,
-        repository: TrackPersistence,
+        repository: TrackRepositoryPort,
         settings: AppSettings | None,
         settings_repository: SettingsPersistence | None,
     ) -> None:

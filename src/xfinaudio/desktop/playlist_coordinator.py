@@ -20,7 +20,7 @@ from typing import Any, Protocol
 from xfinaudio.desktop.app_state_transitions import apply_saved_playlist_export_recommendation
 from xfinaudio.desktop.undo_manager import Command, UndoManager
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.library.playlist_repository import PlaylistRepository
+from xfinaudio.library.ports import PlaylistRepositoryPort
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.strategies import default_strategy_registry
 
@@ -34,7 +34,7 @@ class PlaylistHost(Protocol):
     decoupling playlist orchestration from the concrete window type.
     """
 
-    _playlist_repository: PlaylistRepository
+    _playlist_repository: PlaylistRepositoryPort
     _review_screen: Any
     _playlists_screen: Any
     _playlist_editor: Any

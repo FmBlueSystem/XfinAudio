@@ -5,7 +5,6 @@ from xfinaudio.application.playlist_workflow import (
     RecommendationWorkflowResult,
     ScanService,
     ScanWorkflowResult,
-    TrackPersistence,
 )
 
 __all__ = [
@@ -13,5 +12,4 @@ __all__ = [
     "RecommendationWorkflowResult",
     "ScanService",
     "ScanWorkflowResult",
-    "TrackPersistence",
 ]
