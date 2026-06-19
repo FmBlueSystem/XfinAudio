@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: split-shell-compat-surfaces
+artifact_store: openspec
+status: verify
+created: 2026-06-19
+updated: 2026-06-19
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: stacked-to-main
+  review_budget_changed_lines: 400
+notes:
+  - Preserve visible desktop behavior.
+  - Keep shell_compat.py as a facade during this slice.
