@@ -37,7 +37,8 @@ Extend XfinAudio's export capability so DJs can send playlists to Pioneer DJ Rek
 
 ### FR-5: Export Routing
 - `ExportScreen.preview_requested` and `export_requested` are routed through `MainWindow.preview_export()` and `MainWindow.export_recommendation()`.
-- These methods dispatch to the exporter matching the selected software.
+- For non-Serato software, these methods call the Application-layer playlist file export use case.
+- The Application use case dispatches to the writer matching the selected software.
 - Serato path is unchanged and continues to use the existing crate writer.
 
 ### FR-6: Path Handling
@@ -50,6 +51,12 @@ Extend XfinAudio's export capability so DJs can send playlists to Pioneer DJ Rek
 - If readiness is `blocked`, block export for all software (same as Serato).
 - If safe export folder is not set, block non-Serato exports with a clear message.
 - If the selected software is unknown, show "Unknown export software: {software}".
+
+### FR-8: Application Export Use Case Boundary
+- Non-Serato preview planning is available through a UI-independent Application-layer use case.
+- Non-Serato export writing is available through a UI-independent Application-layer use case.
+- Desktop code keeps UI copy, labels, selected-software reads, and error rendering.
+- Writer selection for Rekordbox, Traktor, and VirtualDJ is owned by the Application use case, not the desktop coordinator.
 
 ## Non-Functional Requirements
 

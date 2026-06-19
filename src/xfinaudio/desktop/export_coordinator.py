@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+from xfinaudio.application.playlist_file_export import export_playlist_file, preview_playlist_file_export
 from xfinaudio.desktop.rendering import _missing_worklist_display_name, _table_item
 from xfinaudio.desktop.table_populators import populate_serato_export_history_table
 from xfinaudio.desktop.theme import _READINESS_STATUS_LABELS
@@ -23,8 +24,6 @@ from xfinaudio.exporting.export_readiness import (
     ExportGateRequest,
     evaluate_export_gate,
 )
-from xfinaudio.exporting.playlist_file_export import plan_playlist_file_export
-from xfinaudio.exporting.rekordbox_xml import write_rekordbox_playlist_xml
 from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
     SeratoLibrary,
@@ -37,8 +36,6 @@ from xfinaudio.exporting.serato_playlist_exporter import (
     plan_serato_playlist_export,
     select_serato_library_for_tracks,
 )
-from xfinaudio.exporting.traktor_nml import write_traktor_playlist_nml
-from xfinaudio.exporting.virtualdj_xml import write_virtualdj_playlist_xml
 from xfinaudio.library.models import MetadataStatus
 from xfinaudio.quality.dj_readiness import DjReadinessReport, write_dj_readiness_report
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -250,7 +247,7 @@ class ExportCoordinator:
         assert safe_folder is not None
 
         try:
-            plan = plan_playlist_file_export(
+            plan = preview_playlist_file_export(
                 software=software,
                 recommendation=recommendation,
                 safe_folder=safe_folder,
@@ -295,7 +292,7 @@ class ExportCoordinator:
         assert safe_folder is not None
 
         try:
-            plan = plan_playlist_file_export(
+            result = export_playlist_file(
                 software=software,
                 recommendation=recommendation,
                 safe_folder=safe_folder,
@@ -306,34 +303,12 @@ class ExportCoordinator:
         except ValueError:
             host.status_label.setText(host.tr("Unknown export software: {0}").format(software))
             return
-
-        try:
-            if software == "Rekordbox":
-                written = write_rekordbox_playlist_xml(
-                    recommendation,
-                    plan.target_path,
-                    playlist_name=plan.playlist_name,
-                )
-            elif software == "Traktor":
-                written = write_traktor_playlist_nml(
-                    recommendation,
-                    plan.target_path,
-                    playlist_name=plan.playlist_name,
-                )
-            elif software == "VirtualDJ":
-                written = write_virtualdj_playlist_xml(
-                    recommendation,
-                    plan.target_path,
-                    playlist_name=plan.playlist_name,
-                )
-            else:
-                host.status_label.setText(host.tr("Unknown export software: {0}").format(software))
-                return
         except Exception as exc:
             LOGGER.exception("%s export failed", software)
             host.status_label.setText(host.tr("{0} export failed: {1}").format(software, exc))
             return
 
+        written = result.written_path
         host._export_screen.export_guidance_label.setText(
             host.tr("{0} playlist exported: {1}. Import it into {0}.").format(software, written)
         )
