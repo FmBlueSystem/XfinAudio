@@ -1,0 +1,28 @@
+schema: gentle-ai.sdd-state.v1
+change: export-readiness-gate-boundary
+artifact_store: openspec
+status: archived
+created: 2026-06-19
+updated: 2026-06-19
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  archive: complete
+next_recommended: none
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: pending
+  review_budget_changed_lines: 400
+notes:
+  - Preserve current behavior and UI copy.
+  - Behavior-changing implementation proceeded with RED -> GREEN -> REFACTOR.
+  - Do not touch untracked local handoff docs.
+  - Verify passed on 2026-06-19 with a non-blocking changed-file coverage warning.
+  - Archived on 2026-06-19 after PASS WITH WARNINGS verification.

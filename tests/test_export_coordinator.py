@@ -305,3 +305,109 @@ def test_plan_serato_export_uses_generated_strategy_name_when_no_variant(tmp_pat
     assert "20240310" in plan.crate_name
     assert plan.target_path.suffix == ".crate"
     assert library.serato_folder == serato_folder
+
+
+class SoftwareSelector:
+    def __init__(self, software: str) -> None:
+        self._software = software
+
+    def currentText(self) -> str:
+        return self._software
+
+
+class FileExportScreen:
+    def __init__(self, software: str) -> None:
+        self.software_selector = SoftwareSelector(software)
+        self.export_guidance_label = Label()
+        self.history_table = MagicMock()
+
+
+class FileExportHost:
+    def __init__(self, tmp_path: Path, *, software: str = "Rekordbox") -> None:
+        self.last_recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+        self.last_dj_readiness_report = DjReadinessReport(
+            status="ready",
+            summary="Ready",
+            checks=[],
+            blocker_count=0,
+            review_count=0,
+        )
+        self.last_quality_report = None
+        self.settings = MagicMock()
+        self.settings.export.safe_export_folder = tmp_path / "exports"
+        self.applied_prep_copilot_variant_name = None
+        self.status_label = Label()
+        self.serato_export_history = []
+        self._export_screen = FileExportScreen(software)
+
+    def tr(self, text: str) -> str:
+        return text
+
+    def _sync_state(self) -> None:
+        pass
+
+
+def test_preview_export_consumes_missing_safe_folder_gate_copy_and_skips_planner(tmp_path: Path) -> None:
+    from xfinaudio.exporting.export_readiness import ExportGateDecision
+
+    host = FileExportHost(tmp_path, software="Rekordbox")
+    coordinator = ExportCoordinator(host)  # type: ignore[arg-type]
+    decision = ExportGateDecision(allowed=False, code="missing_safe_folder")
+
+    with (
+        patch("xfinaudio.desktop.export_coordinator.evaluate_export_gate", return_value=decision) as gate,
+        patch("xfinaudio.desktop.export_coordinator.plan_playlist_file_export") as planner,
+    ):
+        coordinator.preview_export()
+
+    gate.assert_called_once()
+    request = gate.call_args.args[0]
+    assert request.operation == "preview"
+    assert request.software == "Rekordbox"
+    assert request.has_recommendation is True
+    assert request.readiness_status == "ready"
+    assert request.safe_folder == host.settings.export.safe_export_folder
+    planner.assert_not_called()
+    assert host.status_label.text == "Choose a safe export folder before previewing Rekordbox export"
+
+
+def test_export_recommendation_consumes_blocked_readiness_gate_copy_and_skips_planner(tmp_path: Path) -> None:
+    from xfinaudio.exporting.export_readiness import ExportGateDecision
+
+    host = FileExportHost(tmp_path, software="Traktor")
+    coordinator = ExportCoordinator(host)  # type: ignore[arg-type]
+    decision = ExportGateDecision(allowed=False, code="blocked_readiness")
+
+    with (
+        patch("xfinaudio.desktop.export_coordinator.evaluate_export_gate", return_value=decision) as gate,
+        patch("xfinaudio.desktop.export_coordinator.plan_playlist_file_export") as planner,
+    ):
+        coordinator.export_recommendation()
+
+    gate.assert_called_once()
+    planner.assert_not_called()
+    assert host.status_label.text == "Resolve blocked readiness checks before exporting."
+
+
+def test_export_recommendation_missing_recommendation_copy_remains_unchanged(tmp_path: Path) -> None:
+    host = FileExportHost(tmp_path, software="VirtualDJ")
+    host.last_recommendation = None
+    coordinator = ExportCoordinator(host)  # type: ignore[arg-type]
+
+    with patch("xfinaudio.desktop.export_coordinator.plan_playlist_file_export") as planner:
+        coordinator.export_recommendation()
+
+    planner.assert_not_called()
+    assert host.status_label.text == "Generate a recommendation before exporting to VirtualDJ"
+
+
+def test_serato_preview_missing_recommendation_copy_remains_unchanged_and_skips_plan(tmp_path: Path) -> None:
+    host = SeratoHost(tmp_path)
+    host.last_recommendation = None
+    coordinator = ExportCoordinator(host)  # type: ignore[arg-type]
+
+    with patch.object(coordinator, "_plan_current_serato_export") as planner:
+        coordinator.preview_serato_export()
+
+    planner.assert_not_called()
+    assert host.status_label.text == "Generate a recommendation before previewing Serato export"

@@ -17,6 +17,12 @@ from typing import Any, Protocol, cast
 from xfinaudio.desktop.rendering import _missing_worklist_display_name, _table_item
 from xfinaudio.desktop.table_populators import populate_serato_export_history_table
 from xfinaudio.desktop.theme import _READINESS_STATUS_LABELS
+from xfinaudio.exporting.export_readiness import (
+    ExportGateDecision,
+    ExportGateOperation,
+    ExportGateRequest,
+    evaluate_export_gate,
+)
 from xfinaudio.exporting.playlist_file_export import plan_playlist_file_export
 from xfinaudio.exporting.rekordbox_xml import write_rekordbox_playlist_xml
 from xfinaudio.exporting.serato_crate import write_serato_crate
@@ -166,6 +172,56 @@ class ExportCoordinator:
         self._host = host
         self._on_export_success = on_export_success
 
+    def _build_export_gate_request(self, operation: ExportGateOperation, software: str) -> ExportGateRequest:
+        """Build a pure export gate request from current host state."""
+        host = self._host
+        readiness_status = host.last_dj_readiness_report.status if host.last_dj_readiness_report is not None else None
+        return ExportGateRequest(
+            operation=operation,
+            software=software,
+            has_recommendation=host.last_recommendation is not None,
+            readiness_status=readiness_status,
+            safe_folder=host.settings.export.safe_export_folder,
+        )
+
+    def _handle_denied_export_gate(
+        self,
+        decision: ExportGateDecision,
+        operation: ExportGateOperation,
+        software: str,
+    ) -> bool:
+        """Render existing status copy for denied export gate decisions."""
+        if decision.allowed:
+            return False
+
+        host = self._host
+        if decision.code == "missing_recommendation":
+            if operation == "preview":
+                message = (
+                    host.tr("Generate a recommendation before previewing Serato export")
+                    if software == "Serato"
+                    else host.tr("Generate a recommendation before previewing {0} export").format(software)
+                )
+            else:
+                message = (
+                    host.tr("Generate a recommendation before exporting to Serato")
+                    if software == "Serato"
+                    else host.tr("Generate a recommendation before exporting to {0}").format(software)
+                )
+        elif decision.code == "blocked_readiness":
+            message = host.tr("Resolve blocked readiness checks before exporting.")
+        elif decision.code == "missing_safe_folder":
+            message = (
+                host.tr("Choose a safe export folder before previewing {0} export").format(software)
+                if operation == "preview"
+                else host.tr("Choose a safe export folder before exporting to {0}").format(software)
+            )
+        else:
+            return False
+
+        host.status_label.setText(message)
+        return True
+
     def selected_software(self) -> str:
         """Return the currently selected DJ software from the Export screen."""
         return self._host._export_screen.software_selector.currentText()
@@ -184,23 +240,19 @@ class ExportCoordinator:
             self.preview_serato_export(serato_folder=serato_folder, crate_name=crate_name, generated_at=generated_at)
             return
 
-        if host.last_recommendation is None:
-            host.status_label.setText(
-                host.tr("Generate a recommendation before previewing {0} export").format(software)
-            )
+        decision = evaluate_export_gate(self._build_export_gate_request("preview", software))
+        if self._handle_denied_export_gate(decision, "preview", software):
             return
 
+        recommendation = host.last_recommendation
         safe_folder = host.settings.export.safe_export_folder
-        if safe_folder is None:
-            host.status_label.setText(
-                host.tr("Choose a safe export folder before previewing {0} export").format(software)
-            )
-            return
+        assert recommendation is not None
+        assert safe_folder is not None
 
         try:
             plan = plan_playlist_file_export(
                 software=software,
-                recommendation=host.last_recommendation,
+                recommendation=recommendation,
                 safe_folder=safe_folder,
                 requested_name=crate_name,
                 variant_name=host.applied_prep_copilot_variant_name,
@@ -212,7 +264,7 @@ class ExportCoordinator:
 
         host._export_screen.export_guidance_label.setText(
             host.tr("{0} export preview: {1} | Tracks: {2}").format(
-                software, plan.target_path, len(host.last_recommendation.ordered_tracks)
+                software, plan.target_path, len(recommendation.ordered_tracks)
             )
         )
         host.status_label.setText(host.tr("{0} export preview: {1}").format(software, plan.target_path))
@@ -233,22 +285,19 @@ class ExportCoordinator:
             )
             return
 
-        if host.last_recommendation is None:
-            host.status_label.setText(host.tr("Generate a recommendation before exporting to {0}").format(software))
-            return
-        if host.last_dj_readiness_report is not None and host.last_dj_readiness_report.status == "blocked":
-            host.status_label.setText(host.tr("Resolve blocked readiness checks before exporting."))
+        decision = evaluate_export_gate(self._build_export_gate_request("export", software))
+        if self._handle_denied_export_gate(decision, "export", software):
             return
 
+        recommendation = host.last_recommendation
         safe_folder = host.settings.export.safe_export_folder
-        if safe_folder is None:
-            host.status_label.setText(host.tr("Choose a safe export folder before exporting to {0}").format(software))
-            return
+        assert recommendation is not None
+        assert safe_folder is not None
 
         try:
             plan = plan_playlist_file_export(
                 software=software,
-                recommendation=host.last_recommendation,
+                recommendation=recommendation,
                 safe_folder=safe_folder,
                 requested_name=crate_name,
                 variant_name=host.applied_prep_copilot_variant_name,
@@ -261,19 +310,19 @@ class ExportCoordinator:
         try:
             if software == "Rekordbox":
                 written = write_rekordbox_playlist_xml(
-                    host.last_recommendation,
+                    recommendation,
                     plan.target_path,
                     playlist_name=plan.playlist_name,
                 )
             elif software == "Traktor":
                 written = write_traktor_playlist_nml(
-                    host.last_recommendation,
+                    recommendation,
                     plan.target_path,
                     playlist_name=plan.playlist_name,
                 )
             elif software == "VirtualDJ":
                 written = write_virtualdj_playlist_xml(
-                    host.last_recommendation,
+                    recommendation,
                     plan.target_path,
                     playlist_name=plan.playlist_name,
                 )
@@ -299,8 +348,8 @@ class ExportCoordinator:
     ) -> None:
         """Preview the Serato crate destination without writing files."""
         host = self._host
-        if host.last_recommendation is None:
-            host.status_label.setText(host.tr("Generate a recommendation before previewing Serato export"))
+        decision = evaluate_export_gate(self._build_export_gate_request("preview", "Serato"))
+        if self._handle_denied_export_gate(decision, "preview", "Serato"):
             return
 
         try:
@@ -342,12 +391,11 @@ class ExportCoordinator:
     ) -> None:
         """Export the current recommendation as a confirmed Serato crate."""
         host = self._host
-        if host.last_recommendation is None:
-            host.status_label.setText(host.tr("Generate a recommendation before exporting to Serato"))
+        decision = evaluate_export_gate(self._build_export_gate_request("export", "Serato"))
+        if self._handle_denied_export_gate(decision, "export", "Serato"):
             return
-        if host.last_dj_readiness_report is not None and host.last_dj_readiness_report.status == "blocked":
-            host.status_label.setText(host.tr("Resolve blocked readiness checks before exporting."))
-            return
+        recommendation = host.last_recommendation
+        assert recommendation is not None
 
         try:
             plan, library = self._plan_current_serato_export(
@@ -375,7 +423,7 @@ class ExportCoordinator:
         readiness_paths: tuple[Path | None, Path | None] = (None, None)
         if host.last_quality_report is not None:
             host._show_dj_readiness(
-                host.last_recommendation,
+                recommendation,
                 host.last_quality_report,
                 serato_plan=plan,
                 serato_volume_root=library.volume_root,
