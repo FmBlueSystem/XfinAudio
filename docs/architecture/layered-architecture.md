@@ -150,7 +150,7 @@ These are deliberately small. Do not batch them into a mega-refactor.
 
 ### Slice 5: Legacy desktop shell cleanup
 
-**Status:** Partially completed through three reviewable sub-slices.
+**Status:** Partially completed through reviewable sub-slices.
 
 **Goal:** reduce dynamic layout method grafting and legacy MainWindow read/write compatibility after application boundaries are stronger.
 
@@ -159,7 +159,8 @@ These are deliberately small. Do not batch them into a mega-refactor.
 | Desktop shell compatibility boundary | Moved legacy layout method installation out of `desktop/layout.py` and into `desktop/shell_compat.py`. | PR #134; `openspec/specs/desktop-shell-compat-boundary/spec.md` |
 | MainWindow state write compatibility boundary | Reduced `MainWindow.__setattr__` to a thin delegator and moved legacy AppState write policy into `desktop/shell_compat.py`. | PR #138; `openspec/specs/mainwindow-state-compat-boundary/spec.md` |
 | MainWindow state read compatibility boundary | Reduced `MainWindow.__getattr__` to a thin delegator and moved legacy AppState/delegated read policy into `desktop/shell_compat.py`. | PR #142; `openspec/specs/mainwindow-read-compat-boundary/spec.md` |
-| Shell compatibility surface split | Split `desktop/shell_compat.py` into a facade plus `desktop/shell_layout_compat.py` and `desktop/shell_state_compat.py`. | Issue #147; `openspec/changes/split-shell-compat-surfaces/` |
+| Shell compatibility surface split | Split `desktop/shell_compat.py` into a facade plus `desktop/shell_layout_compat.py` and `desktop/shell_state_compat.py`. | PR #148; PR #150 archive; `openspec/specs/split-shell-compat-surfaces/spec.md` |
+| MainWindow explicit shell surfaces | Migrated `MainWindow` away from the facade and onto `desktop.shell_layout_compat` plus `desktop.shell_state_compat`. | Issue #151; `openspec/changes/mainwindow-explicit-shell-surfaces/` |
 
 | Remaining item | Target |
 |---|---|

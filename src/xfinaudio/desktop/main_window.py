@@ -14,7 +14,8 @@ from xfinaudio.application.playlist_workflow import ScanService
 from xfinaudio.config.settings import AppSettings, WindowSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop import rendering as _rendering
-from xfinaudio.desktop import shell_compat as _shell_compat
+from xfinaudio.desktop import shell_layout_compat as _shell_layout_compat
+from xfinaudio.desktop import shell_state_compat as _shell_state_compat
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.menu import Menu
 from xfinaudio.desktop.prep_copilot import PrepCopilotController
@@ -51,18 +52,18 @@ _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
 _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
 _SCREEN_NAMES = ["library", "build", "review", "export", "playlists", "metadata", "live"]
 
-_APP_STATE_ATTRIBUTES = _shell_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES
+_APP_STATE_ATTRIBUTES = _shell_state_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES
 
 
 class MainWindow(QMainWindow):
     def __getattr__(self, name: str) -> Any:
-        value = _shell_compat.try_get_legacy_app_state_attribute(self, name)
-        if not _shell_compat.is_missing_legacy_attribute(value):
+        value = _shell_state_compat.try_get_legacy_app_state_attribute(self, name)
+        if not _shell_state_compat.is_missing_legacy_attribute(value):
             return value
         raise AttributeError(name)
 
     def __setattr__(self, name: str, value: object) -> None:
-        if _shell_compat.try_set_legacy_app_state_attribute(self, name, value):
+        if _shell_state_compat.try_set_legacy_app_state_attribute(self, name, value):
             return
         super().__setattr__(name, value)
 
@@ -320,4 +321,4 @@ class MainWindow(QMainWindow):
         render_transition_review(review_screen=self._review_screen, explanation=explanation, tr=self.tr)
 
 
-_shell_compat.install_legacy_layout_methods(MainWindow)
+_shell_layout_compat.install_legacy_layout_methods(MainWindow)
