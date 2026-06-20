@@ -14,7 +14,7 @@ def test_layout_no_longer_owns_legacy_method_installation() -> None:
 
 
 def test_shell_compat_names_legacy_layout_methods() -> None:
-    assert "_on_copilot_variant_applied" in shell_compat.LEGACY_LAYOUT_METHODS
+    assert "_start_spectral_completion_worker" in shell_compat.LEGACY_LAYOUT_METHODS
 
 
 def test_main_window_keeps_legacy_layout_methods_available() -> None:
@@ -116,6 +116,7 @@ def test_prep_copilot_shell_methods_are_explicit_main_window_methods() -> None:
         "generate_prep_copilot",
         "_apply_prep_copilot_item",
         "apply_selected_prep_copilot_variant",
+        "_on_copilot_variant_applied",
     )
 
     for method_name in explicit_prep_copilot_methods:
@@ -140,8 +141,6 @@ def test_recommendation_shell_methods_are_explicit_main_window_methods() -> None
         assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
-
-    assert "_on_copilot_variant_applied" in shell_layout_compat.LEGACY_LAYOUT_METHODS
 
 
 def test_main_window_uses_explicit_shell_compatibility_surfaces() -> None:
