@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: smoke-shutdown-stability
 artifact_store: openspec
-status: verify
+status: archived
 created: 2026-06-20
 updated: 2026-06-20
 strict_tdd: true
@@ -11,8 +11,9 @@ phases:
   design: complete
   tasks: complete
   apply: complete
-  verify: complete-local
-next_recommended: review
+  verify: complete
+  archive: complete
+next_recommended: complete
 blocked_reasons: []
 delivery:
   strategy: single-pr

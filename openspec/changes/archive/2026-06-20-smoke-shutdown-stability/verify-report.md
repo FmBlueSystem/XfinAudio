@@ -1,6 +1,6 @@
 # Verify Report: Smoke shutdown stability
 
-Status: passed-local
+Status: passed-local-and-ci
 
 ## Focused evidence
 
@@ -19,6 +19,12 @@ Status: passed-local
 - PASS: `uv run ruff check .`
 - PASS: `uv run ruff format --check .`
 - PASS: `uv run python scripts/release_gate_check.py --run`
+
+## CI and merge evidence
+
+- PASS: PR #210 Non-audio release gates — run `27868414085`.
+- PASS: PR #210 merged at `2026-06-20T10:31:16Z` with merge commit `47b795295e406026fcd9a3329b33d0424227e081`.
+- PASS: main Non-audio release gates — run `27868467432`.
 
 ## Local GUI launch note
 
