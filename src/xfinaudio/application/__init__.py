@@ -18,6 +18,12 @@ if TYPE_CHECKING:
         build_prep_copilot_variant_application,
     )
     from xfinaudio.application.saved_playlists import SavedPlaylistExport, SavedPlaylistService
+    from xfinaudio.application.serato_metadata_export import (
+        SeratoMetadataCrateWriter,
+        SeratoMetadataExportResult,
+        export_metadata_status_serato_worklist,
+        export_missing_field_serato_worklist,
+    )
     from xfinaudio.application.serato_playlist_export import (
         SeratoCrateWriter,
         SeratoPlaylistExportPreview,
@@ -42,6 +48,19 @@ if TYPE_CHECKING:
     )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "SeratoMetadataCrateWriter": ("xfinaudio.application.serato_metadata_export", "SeratoMetadataCrateWriter"),
+    "SeratoMetadataExportResult": (
+        "xfinaudio.application.serato_metadata_export",
+        "SeratoMetadataExportResult",
+    ),
+    "export_metadata_status_serato_worklist": (
+        "xfinaudio.application.serato_metadata_export",
+        "export_metadata_status_serato_worklist",
+    ),
+    "export_missing_field_serato_worklist": (
+        "xfinaudio.application.serato_metadata_export",
+        "export_missing_field_serato_worklist",
+    ),
     "SeratoCrateWriter": ("xfinaudio.application.serato_playlist_export", "SeratoCrateWriter"),
     "SeratoPlaylistExportPreview": (
         "xfinaudio.application.serato_playlist_export",
@@ -103,6 +122,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
 }
 
 __all__ = [
+    "SeratoMetadataExportResult",
+    "export_metadata_status_serato_worklist",
+    "export_missing_field_serato_worklist",
+    "SeratoMetadataCrateWriter",
     "SeratoCrateWriter",
     "SeratoPlaylistExportPreview",
     "SeratoPlaylistExportResult",

@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from xfinaudio.application.playlist_file_export import export_playlist_file, preview_playlist_file_export
+from xfinaudio.application.serato_metadata_export import (
+    export_metadata_status_serato_worklist,
+    export_missing_field_serato_worklist,
+)
 from xfinaudio.application.serato_playlist_export import export_serato_playlist, preview_serato_playlist_export
 from xfinaudio.desktop.rendering import _missing_worklist_display_name, _table_item
 from xfinaudio.desktop.table_populators import populate_serato_export_history_table
@@ -25,14 +29,10 @@ from xfinaudio.exporting.export_readiness import (
     ExportGateRequest,
     evaluate_export_gate,
 )
-from xfinaudio.exporting.serato_crate import write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import (
     SeratoLibrary,
     SeratoLibraryNotFoundError,
     discover_serato_libraries,
-    plan_metadata_missing_field_serato_export,
-    plan_metadata_status_serato_export,
-    select_serato_library_for_tracks,
 )
 from xfinaudio.library.models import MetadataStatus
 from xfinaudio.quality.dj_readiness import DjReadinessReport, write_dj_readiness_report
@@ -468,16 +468,12 @@ class ExportCoordinator:
             return
 
         try:
-            library = (
-                SeratoLibrary(serato_folder=serato_folder, volume_root=serato_folder.parent)
-                if serato_folder is not None
-                else select_serato_library_for_tracks(
-                    [record.path for record in records],
-                    discover_serato_libraries(),
-                )
-            )
-            plan = plan_metadata_status_serato_export(records, cast(MetadataStatus, selected_status), library)
-            result = write_serato_crate(plan, confirm=True)
+            result = export_metadata_status_serato_worklist(
+                records=records,
+                status=cast(MetadataStatus, selected_status),
+                serato_folder=serato_folder,
+                discover_libraries=discover_serato_libraries,
+            ).write_result
         except Exception as exc:
             LOGGER.exception("Serato metadata status export failed")
             host.status_label.setText(host.tr("Serato metadata export failed: {0}").format(exc))
@@ -508,16 +504,12 @@ class ExportCoordinator:
             return
 
         try:
-            library = (
-                SeratoLibrary(serato_folder=serato_folder, volume_root=serato_folder.parent)
-                if serato_folder is not None
-                else select_serato_library_for_tracks(
-                    [record.path for record in records],
-                    discover_serato_libraries(),
-                )
-            )
-            plan = plan_metadata_missing_field_serato_export(records, missing_field, library)
-            result = write_serato_crate(plan, confirm=True)
+            result = export_missing_field_serato_worklist(
+                records=records,
+                missing_field=missing_field,
+                serato_folder=serato_folder,
+                discover_libraries=discover_serato_libraries,
+            ).write_result
         except Exception as exc:
             LOGGER.exception("Serato missing-metadata export failed")
             host.status_label.setText(host.tr("Serato metadata export failed: {0}").format(exc))
