@@ -4,4 +4,4 @@
 - [x] GREEN: Convert `xfinaudio.quality.__init__` to lazy public exports.
 - [x] REFACTOR: Keep type-checking support explicit and pyright-clean.
 - [x] VERIFY: Run focused and full gates.
-- [ ] ARCHIVE: Archive OpenSpec after merge.
+- [x] ARCHIVE: Archive OpenSpec after merge.
