@@ -97,6 +97,20 @@ def test_library_table_shell_methods_are_explicit_main_window_methods() -> None:
         assert callable(getattr(MainWindow, method_name))
 
 
+def test_metadata_filter_shell_methods_are_explicit_main_window_methods() -> None:
+    explicit_metadata_filter_methods = (
+        "_selected_metadata_status_filter",
+        "_selected_missing_metadata_filter",
+        "_metadata_status_records",
+        "_metadata_missing_field_records",
+    )
+
+    for method_name in explicit_metadata_filter_methods:
+        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
+        assert method_name in MainWindow.__dict__
+        assert callable(getattr(MainWindow, method_name))
+
+
 def test_main_window_uses_explicit_shell_compatibility_surfaces() -> None:
     source = inspect.getsource(main_window_module)
 
