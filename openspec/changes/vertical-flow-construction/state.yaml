@@ -22,5 +22,6 @@ delivery:
 notes:
   - Build product capability through the Library Scan -> Recommendation -> Playlist Save/Export vertical workflow.
   - First completed slice adds an application-level recommend-and-save facade without desktop/PySide dependencies.
-  - Scan-to-recommend and saved-playlist-to-export boundaries remain pending before archive.
+  - Second completed slice adds scan-to-recommend orchestration without moving Qt worker/UI ownership into application.
+  - Saved-playlist-to-export boundary remains pending before archive.
   - Behavior-changing work must continue RED -> GREEN -> REFACTOR -> VERIFY.
