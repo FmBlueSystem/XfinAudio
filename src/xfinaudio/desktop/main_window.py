@@ -301,6 +301,18 @@ class MainWindow(QMainWindow):
     def _on_spectral_cohesion_changed(self, value: int) -> None:
         self._settings_controller.on_spectral_cohesion_changed(value)
 
+    def scan_selected_folder(self) -> None:
+        self._scan_service.scan_selected_folder()
+
+    def _begin_scan_state(self) -> None:
+        self._scan_service.begin_scan_state()
+
+    def cancel_scan(self) -> None:
+        self._scan_service.cancel()
+
+    def _clear_scan_dependent_state(self) -> None:
+        self._library_controller.clear_scan_dependent_state()
+
     def _connect_screens(self) -> None:
         self._keyboard_shortcuts = bind_main_window_shortcuts(self)
         self._search_debounce.timeout.connect(lambda: self._apply_song_filter(clear_selection=True))

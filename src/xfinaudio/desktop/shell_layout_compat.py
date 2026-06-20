@@ -5,10 +5,7 @@ from __future__ import annotations
 from xfinaudio.desktop import layout as _layout
 
 LEGACY_LAYOUT_METHODS = {
-    "scan_selected_folder": _layout.scan_selected_folder,
-    "_begin_scan_state": _layout.begin_main_scan_state,
     "_on_library_selection_changed": _layout.on_main_library_selection_changed,
-    "cancel_scan": _layout.cancel_scan,
     "show_tracks": _layout.show_tracks,
     "generate_prep_copilot": _layout.generate_prep_copilot,
     "_apply_prep_copilot_item": _layout.apply_prep_copilot_item,
@@ -36,7 +33,6 @@ LEGACY_LAYOUT_METHODS = {
     "_on_spectral_progress_updated": _layout.on_main_spectral_progress_updated,
     "_on_spectral_profile_ready": _layout.on_main_spectral_profile_ready,
     "_on_spectral_completion_finished": _layout.on_main_spectral_completion_finished,
-    "_clear_scan_dependent_state": _layout.clear_main_scan_dependent_state_via_controller,
 }
 
 

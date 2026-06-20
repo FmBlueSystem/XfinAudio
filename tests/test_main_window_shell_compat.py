@@ -66,6 +66,20 @@ def test_settings_shell_methods_are_explicit_main_window_methods() -> None:
         assert callable(getattr(MainWindow, method_name))
 
 
+def test_scan_entry_shell_methods_are_explicit_main_window_methods() -> None:
+    explicit_scan_methods = (
+        "scan_selected_folder",
+        "_begin_scan_state",
+        "cancel_scan",
+        "_clear_scan_dependent_state",
+    )
+
+    for method_name in explicit_scan_methods:
+        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
+        assert method_name in MainWindow.__dict__
+        assert callable(getattr(MainWindow, method_name))
+
+
 def test_main_window_uses_explicit_shell_compatibility_surfaces() -> None:
     source = inspect.getsource(main_window_module)
 
