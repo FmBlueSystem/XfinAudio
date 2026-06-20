@@ -14,7 +14,6 @@ from xfinaudio.application.playlist_workflow import ScanService
 from xfinaudio.config.settings import AppSettings, WindowSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop import rendering as _rendering
-from xfinaudio.desktop import shell_layout_compat as _shell_layout_compat
 from xfinaudio.desktop import shell_state_compat as _shell_state_compat
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.menu import Menu
@@ -514,6 +513,3 @@ class MainWindow(QMainWindow):
 
     def show_transition_review(self, explanation: PlaylistExplanation) -> None:
         render_transition_review(review_screen=self._review_screen, explanation=explanation, tr=self.tr)
-
-
-_shell_layout_compat.install_legacy_layout_methods(MainWindow)
