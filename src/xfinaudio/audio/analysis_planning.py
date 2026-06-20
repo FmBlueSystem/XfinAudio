@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, TypeAlias
 
-from xfinaudio.audio.spectral_profile import SpectralProfile
+if TYPE_CHECKING:
+    from xfinaudio.audio.spectral_profile import SpectralProfile
+else:
+    SpectralProfile = Any
 
-SpectralProfileCache = dict[str, tuple[int, int, SpectralProfile]]
+SpectralProfileCache: TypeAlias = dict[str, tuple[int, int, SpectralProfile]]
 
 
 @dataclass(frozen=True)
