@@ -213,6 +213,88 @@ class MainWindow(QMainWindow):
     def _refresh_idle_action_state(self) -> None:
         self._library_controller.refresh_idle_action_state()
 
+    def choose_safe_export_folder(self) -> None:
+        self._export_actions.choose_safe_export_folder()
+
+    def set_safe_export_folder(self, folder: Any) -> None:
+        self._export_actions.set_safe_export_folder(folder)
+
+    def _format_safe_export_folder_label(self) -> str:
+        if not hasattr(self, "_settings_controller"):
+            folder = self.settings.export.safe_export_folder
+            if folder is None:
+                return self.tr("No safe export folder selected")
+            return self.tr("Safe export folder: {0}").format(folder)
+        return self._settings_controller.format_safe_export_folder_label()
+
+    def export_dj_readiness_report(self, *, generated_at: Any | None = None) -> None:
+        self._export_actions.export_dj_readiness_report(generated_at=generated_at)
+
+    def preview_export(
+        self,
+        *,
+        serato_folder: Any | None = None,
+        crate_name: str | None = None,
+        generated_at: Any | None = None,
+    ) -> None:
+        self._export_actions.preview_export(
+            serato_folder=serato_folder,
+            crate_name=crate_name,
+            generated_at=generated_at,
+        )
+
+    def export_recommendation(
+        self,
+        *,
+        serato_folder: Any | None = None,
+        crate_name: str | None = None,
+        generated_at: Any | None = None,
+    ) -> None:
+        self._export_actions.export_recommendation(
+            serato_folder=serato_folder,
+            crate_name=crate_name,
+            generated_at=generated_at,
+        )
+
+    def preview_serato_export(
+        self,
+        *,
+        serato_folder: Any | None = None,
+        crate_name: str | None = None,
+        generated_at: Any | None = None,
+    ) -> None:
+        self._export_actions.preview_serato_export(
+            serato_folder=serato_folder,
+            crate_name=crate_name,
+            generated_at=generated_at,
+        )
+
+    def export_recommendation_to_serato(
+        self,
+        *,
+        serato_folder: Any | None = None,
+        crate_name: str | None = None,
+        generated_at: Any | None = None,
+    ) -> None:
+        self._export_actions.export_recommendation_to_serato(
+            serato_folder=serato_folder,
+            crate_name=crate_name,
+            generated_at=generated_at,
+        )
+
+    def export_metadata_status_to_serato(
+        self,
+        *,
+        status: str | None = None,
+        missing_field: str | None = None,
+        serato_folder: Any | None = None,
+    ) -> None:
+        self._export_actions.export_metadata_status_to_serato(
+            status=status,
+            missing_field=missing_field,
+            serato_folder=serato_folder,
+        )
+
     def _connect_screens(self) -> None:
         self._keyboard_shortcuts = bind_main_window_shortcuts(self)
         self._search_debounce.timeout.connect(lambda: self._apply_song_filter(clear_selection=True))
