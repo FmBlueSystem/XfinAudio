@@ -7,6 +7,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QTableWidgetItem
 
+from xfinaudio.application.prep_copilot import build_prep_copilot_variant_application
 from xfinaudio.desktop.app_state_transitions import (
     PrepCopilotVariantApplication,
     apply_prep_copilot_plan_cleared,
@@ -14,10 +15,10 @@ from xfinaudio.desktop.app_state_transitions import (
     apply_prep_copilot_variant,
 )
 from xfinaudio.desktop.rendering import format_quality_summary
-from xfinaudio.exporting.explainability import build_playlist_explanation
 from xfinaudio.quality.dj_readiness import format_dj_readiness_summary
-from xfinaudio.quality.recommendation_quality import build_quality_report
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, build_prep_copilot_plan
+
+VariantApplicationBuilder = Callable[..., Any]
 
 
 class PrepCopilotController:
@@ -30,6 +31,7 @@ class PrepCopilotController:
         workflow_service: Any,
         on_state_changed: Callable[[], None],
         on_status_message: Callable[[str], None],
+        variant_application_builder: VariantApplicationBuilder = build_prep_copilot_variant_application,
     ) -> None:
         self._build_screen = build_screen
         self._build_vm = build_vm
@@ -37,6 +39,7 @@ class PrepCopilotController:
         self._workflow_service = workflow_service
         self._on_state_changed = on_state_changed
         self._on_status_message = on_status_message
+        self._variant_application_builder = variant_application_builder
 
     def _replace_state(self, updated_state: Any) -> None:
         if hasattr(self._state, "_replace_app_state"):
@@ -87,31 +90,32 @@ class PrepCopilotController:
             self._on_status_message(self._state.tr("Generate and select a Prep Copilot variant before applying"))
             return
         variant = self._state.last_prep_copilot_plan.variants[row_index]
-        recommendation = variant.recommendation
-        explanation = build_playlist_explanation(recommendation)
-        quality_report = build_quality_report(recommendation)
+        application = self._variant_application_builder(variant)
+        recommendation = application.recommendation
+        explanation = application.explanation
+        quality_report = application.quality_report
         updated_state = apply_prep_copilot_variant(
             self._state._state,
             PrepCopilotVariantApplication(
                 recommendation=recommendation,
                 explanation=explanation,
                 quality_report=quality_report,
-                readiness_report=variant.readiness,
-                variant_name=variant.name,
+                readiness_report=application.readiness_report,
+                variant_name=application.variant_name,
             ),
         )
         self._replace_state(updated_state)
         self._on_state_changed()
-        self._render_applied_variant_label(variant.name)
+        self._render_applied_variant_label(application.variant_name)
         self._state.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)
         self._state._review_screen.review_summary_label.setText(format_quality_summary(quality_report))
-        self._state._review_screen.dj_readiness_label.setText(format_dj_readiness_summary(variant.readiness))
-        self._state._populate_dj_readiness_table(variant.readiness)
+        self._state._review_screen.dj_readiness_label.setText(format_dj_readiness_summary(application.readiness_report))
+        self._state._populate_dj_readiness_table(application.readiness_report)
         self._state.show_transition_review(explanation)
         self._state._export_screen.export_guidance_label.setText(
             self._state.tr("Inspect the selected Prep Copilot variant before exporting it to Serato.")
         )
-        self._on_status_message(self._state.tr("Applied Prep Copilot variant: {0}").format(variant.name))
+        self._on_status_message(self._state.tr("Applied Prep Copilot variant: {0}").format(application.variant_name))
 
     def on_variant_applied(self, index: int) -> None:
         if 0 <= index < self._build_screen.copilot_table.rowCount():

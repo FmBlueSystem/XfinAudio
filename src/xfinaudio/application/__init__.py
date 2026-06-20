@@ -12,6 +12,11 @@ if TYPE_CHECKING:
         ScanService,
         ScanWorkflowResult,
     )
+    from xfinaudio.application.prep_copilot import (
+        PrepCopilotVariantApplicationResult,
+        PrepCopilotVariantLike,
+        build_prep_copilot_variant_application,
+    )
     from xfinaudio.application.saved_playlists import SavedPlaylistExport, SavedPlaylistService
     from xfinaudio.application.vertical_playlist_flow import (
         PlaylistWorkflow,
@@ -30,6 +35,15 @@ if TYPE_CHECKING:
     )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "PrepCopilotVariantApplicationResult": (
+        "xfinaudio.application.prep_copilot",
+        "PrepCopilotVariantApplicationResult",
+    ),
+    "PrepCopilotVariantLike": ("xfinaudio.application.prep_copilot", "PrepCopilotVariantLike"),
+    "build_prep_copilot_variant_application": (
+        "xfinaudio.application.prep_copilot",
+        "build_prep_copilot_variant_application",
+    ),
     "build_application_dj_readiness_report": (
         "xfinaudio.application.dj_readiness",
         "build_application_dj_readiness_report",
@@ -68,6 +82,9 @@ _EXPORTS: dict[str, tuple[str, str]] = {
 }
 
 __all__ = [
+    "PrepCopilotVariantApplicationResult",
+    "PrepCopilotVariantLike",
+    "build_prep_copilot_variant_application",
     "build_application_dj_readiness_report",
     "PlaylistWorkflowService",
     "PlaylistWorkflow",
