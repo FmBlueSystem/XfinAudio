@@ -8,12 +8,11 @@ No PySide6 dependency — pure Python data transformation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 from PySide6.QtCore import QCoreApplication
 
+from xfinaudio.application.strategy_catalog import describe_strategy, list_strategy_catalog
 from xfinaudio.desktop.app_state import AppState
-from xfinaudio.recommendation.strategies import _STRATEGIES, StrategyName
 
 
 @dataclass(frozen=True)
@@ -48,7 +47,7 @@ class BuildViewModel:
                 description=strategy.description,
                 requires_vibe_metadata=strategy.requires_vibe_metadata,
             )
-            for strategy in _STRATEGIES.values()
+            for strategy in list_strategy_catalog()
         ]
 
     def recommend_button_enabled(self, state: AppState) -> bool:
@@ -111,10 +110,7 @@ class BuildViewModel:
 
     def strategy_explanation(self, strategy_name: str) -> str:
         """Return the description for a given strategy name."""
-        strategy = _STRATEGIES.get(cast("StrategyName", strategy_name))
-        if strategy is None:
-            return ""
-        return strategy.description
+        return describe_strategy(strategy_name)
 
     @staticmethod
     def recommendation_vs_copilot_text() -> str:
