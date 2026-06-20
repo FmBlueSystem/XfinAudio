@@ -5,8 +5,6 @@ from __future__ import annotations
 from xfinaudio.desktop import layout as _layout
 
 LEGACY_LAYOUT_METHODS = {
-    "_open_settings_dialog": _layout.open_main_settings_dialog,
-    "_on_spectral_cohesion_changed": _layout.on_main_spectral_cohesion_changed,
     "scan_selected_folder": _layout.scan_selected_folder,
     "_begin_scan_state": _layout.begin_main_scan_state,
     "_on_library_selection_changed": _layout.on_main_library_selection_changed,
