@@ -177,8 +177,13 @@ def _playlist_size_check(recommendation: PlaylistRecommendation) -> DjReadinessC
 def _metadata_check(recommendation: PlaylistRecommendation) -> DjReadinessCheck:
     incomplete = [track for track in recommendation.ordered_tracks if track.metadata_status != "complete"]
     missing = [track for track in recommendation.ordered_tracks if track.missing_required_fields]
-    if incomplete or missing:
-        affected_paths = {track.path for track in [*incomplete, *missing]}
+    absent_required_values = [
+        track
+        for track in recommendation.ordered_tracks
+        if track.bpm is None or track.camelot_key is None or track.energy_level is None
+    ]
+    if incomplete or missing or absent_required_values:
+        affected_paths = {track.path for track in [*incomplete, *missing, *absent_required_values]}
         return DjReadinessCheck(
             label="Required metadata",
             status="blocked",

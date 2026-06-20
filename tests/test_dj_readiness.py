@@ -206,3 +206,31 @@ def test_dj_readiness_blocks_on_missing_metadata() -> None:
     assert report.status == "blocked"
     assert report.blocker_count >= 1
     assert any(check.label == "Required metadata" and check.status == "blocked" for check in report.checks)
+
+
+def test_dj_readiness_blocks_complete_tracks_with_absent_required_field_values() -> None:
+    complete_but_missing_bpm = TrackRecord(
+        path="/music/missing-bpm.flac",
+        title="Missing BPM",
+        artist="Artist",
+        bpm=None,
+        camelot_key="8A",
+        energy_level=5,
+        metadata_status="complete",
+    )
+    recommendation = manual_recommendation(
+        [
+            complete_but_missing_bpm,
+            track("/music/ready.flac", bpm=121, key="8A", energy=5),
+        ]
+    )
+
+    report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
+
+    assert report.status == "blocked"
+    assert any(
+        check.label == "Required metadata"
+        and check.status == "blocked"
+        and "1 track(s) need BPM, key, or energy metadata" in check.detail
+        for check in report.checks
+    )
