@@ -44,3 +44,28 @@ def test_desktop_main_activates_window(monkeypatch, tmp_path) -> None:
 
     assert desktop_app.main() == 0
     assert fake_window.calls == ["showMaximized", "setWindowState", "raise", "activateWindow"]
+
+
+def test_package_smoke_exits_without_creating_main_window(monkeypatch, tmp_path) -> None:
+    from xfinaudio.desktop import app as desktop_app
+
+    class FakeQApplication:
+        def __init__(self, argv):
+            self.argv = argv
+
+        def setApplicationName(self, name):
+            pass
+
+        def setApplicationDisplayName(self, name):
+            pass
+
+    def fail_if_window_is_created(*_args):
+        raise AssertionError("package smoke must not create MainWindow")
+
+    monkeypatch.setattr(desktop_app, "QApplication", FakeQApplication)
+    monkeypatch.setattr(desktop_app.MainWindow, "with_defaults", fail_if_window_is_created)
+    monkeypatch.setenv("XFINAUDIO_PACKAGE_SMOKE", "1")
+    monkeypatch.setenv("XFINAUDIO_DB_PATH", str(tmp_path / "db.sqlite3"))
+    monkeypatch.setenv("XFINAUDIO_SETTINGS_PATH", str(tmp_path / "settings.json"))
+
+    assert desktop_app.main() == 0

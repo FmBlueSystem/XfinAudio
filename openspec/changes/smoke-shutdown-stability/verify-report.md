@@ -1,0 +1,29 @@
+# Verify Report: Smoke shutdown stability
+
+Status: passed-local
+
+## Focused evidence
+
+- PASS: `uv run pytest tests/test_desktop_app.py -q`
+- PASS: `uv run pytest tests/test_desktop_app.py tests/test_pyinstaller_packaging.py::test_desktop_main_exits_before_event_loop_in_package_smoke_mode -q`
+- PASS: `QT_QPA_PLATFORM=offscreen XFINAUDIO_PACKAGE_SMOKE=1 uv run xfinaudio` exited 0 with no stderr/stdout traceback output.
+- PASS: `uv run pyright src/xfinaudio/desktop/app.py tests/test_desktop_app.py tests/test_pyinstaller_packaging.py`
+- PASS: `uv run ruff check src/xfinaudio/desktop/app.py tests/test_desktop_app.py tests/test_pyinstaller_packaging.py`
+- PASS: `uv run ruff format --check src/xfinaudio/desktop/app.py tests/test_desktop_app.py tests/test_pyinstaller_packaging.py`
+
+## Full gate evidence
+
+- PASS: `uv run pytest -q` — 938 passed.
+- PASS: `uv run pyright src tests` — 0 errors, 0 warnings.
+- PASS: `uv run pytest --cov --cov-fail-under=70 -q` — 938 passed, total coverage 89.95%.
+- PASS: `uv run ruff check .`
+- PASS: `uv run ruff format --check .`
+- PASS: `uv run python scripts/release_gate_check.py --run`
+
+## Local GUI launch note
+
+- INCONCLUSIVE in Codex environment: direct `uv run xfinaudio` has no screen available, and later local process inspection via `ps`/`pgrep` was blocked by the host process APIs. This does not invalidate the package smoke fix; it only means display-backed GUI confirmation must be performed from the user's desktop session if needed.
+
+## Safety evidence
+
+- No DSP, audio mutation, Serato DB V2, export format, dependency, project-root `build/`, or project-root `dist/` changes were made.
