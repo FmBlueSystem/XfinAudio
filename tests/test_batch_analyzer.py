@@ -59,3 +59,25 @@ def test_analyze_paths_respects_explicit_max_workers(monkeypatch) -> None:
     analyze_paths([Path("/music/a.flac"), Path("/music/b.flac")], max_workers=3)
 
     assert captured["max_workers"] == 3
+
+
+def test_analyze_paths_deduplicates_duplicate_uncached_paths(monkeypatch) -> None:
+    calls: list[Path] = []
+
+    class FakeAnalyzer:
+        def analyze(self, path: Path) -> None:
+            calls.append(path)
+            return None
+
+    audio_path = Path("/music/duplicate.flac")
+
+    results = analyze_paths(
+        [audio_path, audio_path],
+        max_workers=1,
+        executor="sequential",
+        cache={},
+        spectral_analyzer=FakeAnalyzer(),
+    )
+
+    assert calls == [audio_path]
+    assert results == {str(audio_path): None}
