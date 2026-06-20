@@ -267,7 +267,7 @@ uv run python scripts/release_gate_check.py --run
 ## Progress Tracker
 
 - [x] Slice 1: Settings shell methods explicit — removes 2, remaining 32.
-- [ ] Slice 2: Scan entry shell methods explicit — removes 4, remaining 28.
+- [x] Slice 2: Scan entry shell methods explicit — removes 4, remaining 28.
 - [ ] Slice 3: Library table shell methods explicit — removes 7, remaining 21.
 - [ ] Slice 4: Metadata filter shell methods explicit — removes 4, remaining 17.
 - [ ] Slice 5: Prep Copilot shell methods explicit — removes 3, remaining 14.
