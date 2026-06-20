@@ -51,7 +51,7 @@ Domain -> modal dialogs, tables, labels, or Qt workers
 | `library` | Layers 4, 5, and 6 mixed | Contains models, scan service, playlist/track repositories, and persistence. Good candidate for port separation. |
 | `exporting` | Layers 4, 5, and 6 mixed | Contains export readiness/planning plus concrete Serato/Rekordbox/Traktor/VirtualDJ writers. Good candidate for port separation. |
 | `audio` | Layers 4 and 6 mixed | Contains pure spectral profile logic and external audio-library analysis. |
-| `config` | Layers 5 and 6 mixed | Settings models and concrete settings repository live together. |
+| `config` | Layers 4/5/6 with an explicit settings port | Settings models remain pure, `config.ports.SettingsRepositoryPort` defines the persistence contract, and `settings_repository.py` remains the concrete JSON/filesystem adapter. |
 
 ## Verified architecture invariants
 
@@ -84,7 +84,7 @@ PY
 | `library` repositories and scan service | Domain models, repository contracts, concrete persistence, and scan orchestration are close together. | Extract repository/scan ports only around use cases that need substitution or narrower tests. |
 | `exporting` writers | Export decisions and concrete file/format writers share package space. | Keep pure export planning/readiness separate; introduce writer ports when application use cases own export orchestration. |
 | `audio` analysis | Pure spectral color policy and external audio-library loading live in the same package. | Keep pure spectral models independent; treat analyzer execution as infrastructure. |
-| `config` | Settings schema and settings repository are adjacent. | Define a settings port before moving settings workflows into application use cases. |
+| `config` | Settings schema and concrete repository are still adjacent, but `SettingsRepositoryPort` now makes the persistence boundary explicit. | Keep desktop/application code depending on the port; move future settings workflows into application services only when behavior requires it. |
 | Desktop shell compatibility surfaces | Layout method grafting and legacy AppState read/write compatibility now live behind explicit compatibility surfaces. | Continue shrinking or removing each compatibility surface independently; do not move new product rules into them. |
 | Runtime AppState sync | `AppController` and `ScanService` mutate runtime snapshot/progress fields. | Consider a runtime-state model only if progress/cancellation testing becomes painful. |
 
