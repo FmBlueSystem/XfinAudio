@@ -35,6 +35,25 @@ def test_library_shell_methods_are_explicit_main_window_methods() -> None:
     assert callable(MainWindow._refresh_idle_action_state)
 
 
+def test_export_shell_methods_are_explicit_main_window_methods() -> None:
+    explicit_export_methods = (
+        "choose_safe_export_folder",
+        "set_safe_export_folder",
+        "_format_safe_export_folder_label",
+        "export_dj_readiness_report",
+        "preview_export",
+        "export_recommendation",
+        "preview_serato_export",
+        "export_recommendation_to_serato",
+        "export_metadata_status_to_serato",
+    )
+
+    for method_name in explicit_export_methods:
+        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
+        assert method_name in MainWindow.__dict__
+        assert callable(getattr(MainWindow, method_name))
+
+
 def test_main_window_uses_explicit_shell_compatibility_surfaces() -> None:
     source = inspect.getsource(main_window_module)
 

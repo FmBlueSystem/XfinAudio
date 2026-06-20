@@ -162,6 +162,7 @@ These are deliberately small. Do not batch them into a mega-refactor.
 | Shell compatibility surface split | Split `desktop/shell_compat.py` into a facade plus `desktop/shell_layout_compat.py` and `desktop/shell_state_compat.py`. | PR #148; PR #150 archive; `openspec/specs/split-shell-compat-surfaces/spec.md` |
 | MainWindow explicit shell surfaces | Migrated `MainWindow` away from the facade and onto `desktop.shell_layout_compat` plus `desktop.shell_state_compat`. | Issue #151; `openspec/changes/mainwindow-explicit-shell-surfaces/` |
 | Library shell methods explicit | Removed `choose_folder` and `_refresh_idle_action_state` from dynamic layout grafting and made them explicit `MainWindow` delegators. | Issue #155; `openspec/changes/library-shell-methods-explicit/` |
+| Export shell methods explicit | Removed the Export / Safe Export method group from dynamic layout grafting and made it explicit `MainWindow` delegation to export actions. | Issue #159; `openspec/changes/export-shell-methods-explicit/` |
 
 | Remaining item | Target |
 |---|---|

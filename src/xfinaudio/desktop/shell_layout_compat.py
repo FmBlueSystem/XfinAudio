@@ -5,16 +5,8 @@ from __future__ import annotations
 from xfinaudio.desktop import layout as _layout
 
 LEGACY_LAYOUT_METHODS = {
-    "choose_safe_export_folder": _layout.choose_safe_export_folder,
     "_open_settings_dialog": _layout.open_main_settings_dialog,
     "_on_spectral_cohesion_changed": _layout.on_main_spectral_cohesion_changed,
-    "set_safe_export_folder": _layout.set_safe_export_folder,
-    "export_dj_readiness_report": _layout.export_dj_readiness_report,
-    "preview_export": _layout.preview_export,
-    "export_recommendation": _layout.export_recommendation,
-    "preview_serato_export": _layout.preview_serato_export,
-    "export_recommendation_to_serato": _layout.export_recommendation_to_serato,
-    "export_metadata_status_to_serato": _layout.export_metadata_status_to_serato,
     "scan_selected_folder": _layout.scan_selected_folder,
     "_begin_scan_state": _layout.begin_main_scan_state,
     "_on_library_selection_changed": _layout.on_main_library_selection_changed,
@@ -32,7 +24,6 @@ LEGACY_LAYOUT_METHODS = {
     "_populate_dj_readiness_table": _layout.populate_main_dj_readiness_table,
     "_on_recommend_requested": _layout.on_main_recommend_requested,
     "_on_copilot_variant_applied": _layout.on_main_copilot_variant_applied,
-    "_format_safe_export_folder_label": _layout.format_main_safe_export_folder_label,
     "set_selected_folder": _layout.set_selected_folder,
     "_persist_last_scan_folder": _layout.persist_main_last_scan_folder,
     "_populate_track_table": _layout.populate_main_track_table,
