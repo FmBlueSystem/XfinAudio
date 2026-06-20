@@ -5,9 +5,6 @@ from __future__ import annotations
 from xfinaudio.desktop import layout as _layout
 
 LEGACY_LAYOUT_METHODS = {
-    "generate_prep_copilot": _layout.generate_prep_copilot,
-    "_apply_prep_copilot_item": _layout.apply_prep_copilot_item,
-    "apply_selected_prep_copilot_variant": _layout.apply_selected_prep_copilot_variant,
     "recommend_playlist": _layout.recommend_playlist,
     "_begin_recommendation_state": _layout.begin_main_recommendation_state,
     "_end_recommendation_state": _layout.end_main_recommendation_state,

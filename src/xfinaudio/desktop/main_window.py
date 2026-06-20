@@ -248,6 +248,15 @@ class MainWindow(QMainWindow):
     def _metadata_missing_field_records(self, missing_field: str) -> list[Any]:
         return self._library_controller.metadata_missing_field_records(missing_field)
 
+    def generate_prep_copilot(self) -> None:
+        self._prep_copilot.generate()
+
+    def _apply_prep_copilot_item(self, item: Any) -> None:
+        self._prep_copilot.apply_item(item)
+
+    def apply_selected_prep_copilot_variant(self) -> None:
+        self._prep_copilot.apply_selected_variant()
+
     def choose_safe_export_folder(self) -> None:
         self._export_actions.choose_safe_export_folder()
 
