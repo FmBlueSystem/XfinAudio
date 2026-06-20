@@ -1,0 +1,23 @@
+schema: gentle-ai.sdd-state.v1
+change: dj-readiness-summary-application-boundary
+artifact_store: openspec
+status: verify-complete
+created: 2026-06-20
+updated: 2026-06-20
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Keep this slice limited to DJ readiness summary display formatting delegation.

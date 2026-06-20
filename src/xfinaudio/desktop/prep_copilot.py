@@ -7,6 +7,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QTableWidgetItem
 
+from xfinaudio.application.dj_readiness import format_application_dj_readiness_summary
 from xfinaudio.application.prep_copilot import (
     PrepCopilotGenerationRequest,
     build_prep_copilot_variant_application,
@@ -19,7 +20,6 @@ from xfinaudio.desktop.app_state_transitions import (
     apply_prep_copilot_variant,
 )
 from xfinaudio.desktop.rendering import format_quality_summary
-from xfinaudio.quality.dj_readiness import format_dj_readiness_summary
 
 VariantApplicationBuilder = Callable[..., Any]
 PlanGenerationBuilder = Callable[..., Any]
@@ -114,7 +114,9 @@ class PrepCopilotController:
         self._render_applied_variant_label(application.variant_name)
         self._state.show_recommendation(recommendation.ordered_tracks, recommendation.strategy.name, explanation)
         self._state._review_screen.review_summary_label.setText(format_quality_summary(quality_report))
-        self._state._review_screen.dj_readiness_label.setText(format_dj_readiness_summary(application.readiness_report))
+        self._state._review_screen.dj_readiness_label.setText(
+            format_application_dj_readiness_summary(application.readiness_report)
+        )
         self._state._populate_dj_readiness_table(application.readiness_report)
         self._state.show_transition_review(explanation)
         self._state._export_screen.export_guidance_label.setText(

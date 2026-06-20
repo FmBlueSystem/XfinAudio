@@ -6,13 +6,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from xfinaudio.application.dj_readiness import build_application_dj_readiness_report
+from xfinaudio.application.dj_readiness import (
+    build_application_dj_readiness_report,
+    format_application_dj_readiness_summary,
+)
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.rendering import _table_item
 from xfinaudio.desktop.screens import ReviewScreen
 from xfinaudio.desktop.table_populators import populate_dj_readiness_table
 from xfinaudio.desktop.theme import _READINESS_STATUS_COLORS, _READINESS_STATUS_LABELS, _READINESS_STATUS_TOOLTIPS
-from xfinaudio.quality.dj_readiness import DjReadinessReport, format_dj_readiness_summary
+from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 
@@ -51,7 +54,7 @@ class DjReadinessController:
         )
         self._last_report_setter(report)
         self._sync_state()
-        self._review_screen.dj_readiness_label.setText(format_dj_readiness_summary(report))
+        self._review_screen.dj_readiness_label.setText(format_application_dj_readiness_summary(report))
         self.populate_table(report)
 
     def populate_table(self, report: DjReadinessReport) -> None:
