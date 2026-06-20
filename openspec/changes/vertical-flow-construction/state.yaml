@@ -1,0 +1,26 @@
+schema: gentle-ai.sdd-state.v1
+change: vertical-flow-construction
+artifact_store: openspec
+status: apply
+created: 2026-06-20
+updated: 2026-06-20
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: in-progress
+  verify: in-progress
+next_recommended: apply
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Build product capability through the Library Scan -> Recommendation -> Playlist Save/Export vertical workflow.
+  - First completed slice adds an application-level recommend-and-save facade without desktop/PySide dependencies.
+  - Scan-to-recommend and saved-playlist-to-export boundaries remain pending before archive.
+  - Behavior-changing work must continue RED -> GREEN -> REFACTOR -> VERIFY.
