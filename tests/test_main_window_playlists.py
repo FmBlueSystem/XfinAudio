@@ -31,6 +31,9 @@ class FakeRepository:
 
 
 class FakeSettingsRepo:
+    def load(self) -> AppSettings:
+        return AppSettings()
+
     def save(self, settings: AppSettings) -> None:
         pass
 

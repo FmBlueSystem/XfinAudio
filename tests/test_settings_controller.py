@@ -15,6 +15,9 @@ class _FakeRepository(SettingsPersistence):
     def __init__(self) -> None:
         self.saved: list[AppSettings] = []
 
+    def load(self) -> AppSettings:
+        return self.saved[-1] if self.saved else AppSettings()
+
     def save(self, settings: AppSettings) -> None:
         self.saved.append(settings)
 

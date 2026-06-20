@@ -67,6 +67,9 @@ class FakeSettingsRepository:
     def __init__(self) -> None:
         self.saved_settings: AppSettings | None = None
 
+    def load(self) -> AppSettings:
+        return self.saved_settings or AppSettings()
+
     def save(self, settings: AppSettings) -> None:
         self.saved_settings = settings
 
