@@ -295,6 +295,12 @@ class MainWindow(QMainWindow):
             serato_folder=serato_folder,
         )
 
+    def _open_settings_dialog(self) -> None:
+        self._settings_controller.open_settings_dialog()
+
+    def _on_spectral_cohesion_changed(self, value: int) -> None:
+        self._settings_controller.on_spectral_cohesion_changed(value)
+
     def _connect_screens(self) -> None:
         self._keyboard_shortcuts = bind_main_window_shortcuts(self)
         self._search_debounce.timeout.connect(lambda: self._apply_song_filter(clear_selection=True))

@@ -163,6 +163,7 @@ These are deliberately small. Do not batch them into a mega-refactor.
 | MainWindow explicit shell surfaces | Migrated `MainWindow` away from the facade and onto `desktop.shell_layout_compat` plus `desktop.shell_state_compat`. | Issue #151; `openspec/changes/mainwindow-explicit-shell-surfaces/` |
 | Library shell methods explicit | Removed `choose_folder` and `_refresh_idle_action_state` from dynamic layout grafting and made them explicit `MainWindow` delegators. | Issue #155; `openspec/changes/library-shell-methods-explicit/` |
 | Export shell methods explicit | Removed the Export / Safe Export method group from dynamic layout grafting and made it explicit `MainWindow` delegation to export actions. | Issue #159; `openspec/changes/export-shell-methods-explicit/` |
+| Settings shell methods explicit | Removed `_open_settings_dialog` and `_on_spectral_cohesion_changed` from dynamic layout grafting and made them explicit `MainWindow` delegators to `SettingsController`. | Issue #165; `openspec/changes/settings-shell-methods-explicit/` |
 
 | Remaining item | Target |
 |---|---|
