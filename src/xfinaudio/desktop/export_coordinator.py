@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+from xfinaudio.application.dj_readiness import write_application_dj_readiness_report
 from xfinaudio.application.playlist_file_export import export_playlist_file, preview_playlist_file_export
 from xfinaudio.application.serato_metadata_export import (
     export_metadata_status_serato_worklist,
@@ -35,7 +36,7 @@ from xfinaudio.exporting.serato_playlist_exporter import (
     discover_serato_libraries,
 )
 from xfinaudio.library.models import MetadataStatus
-from xfinaudio.quality.dj_readiness import DjReadinessReport, write_dj_readiness_report
+from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 
 LOGGER = logging.getLogger(__name__)
@@ -138,7 +139,7 @@ def write_readiness_sidecars(
     stem = crate_path.stem
     json_path = base / f"{stem}.dj-readiness.json"
     csv_path = base / f"{stem}.dj-readiness.csv"
-    return write_dj_readiness_report(report, json_path, csv_path)
+    return write_application_dj_readiness_report(report, json_path, csv_path)
 
 
 class ExportCoordinator:
