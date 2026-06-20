@@ -6,14 +6,17 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from xfinaudio.application.dj_readiness import build_application_dj_readiness_report
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.rendering import _table_item
 from xfinaudio.desktop.screens import ReviewScreen
 from xfinaudio.desktop.table_populators import populate_dj_readiness_table
 from xfinaudio.desktop.theme import _READINESS_STATUS_COLORS, _READINESS_STATUS_LABELS, _READINESS_STATUS_TOOLTIPS
-from xfinaudio.quality.dj_readiness import DjReadinessReport, build_dj_readiness_report, format_dj_readiness_summary
+from xfinaudio.quality.dj_readiness import DjReadinessReport, format_dj_readiness_summary
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+
+ReadinessBuilder = Callable[..., DjReadinessReport]
 
 
 class DjReadinessController:
@@ -24,11 +27,13 @@ class DjReadinessController:
         review_screen: ReviewScreen,
         sync_state: Callable[[], None],
         last_report_setter: Callable[[DjReadinessReport | None], None],
+        readiness_builder: ReadinessBuilder = build_application_dj_readiness_report,
     ) -> None:
         self._state = state
         self._review_screen = review_screen
         self._sync_state = sync_state
         self._last_report_setter = last_report_setter
+        self._readiness_builder = readiness_builder
 
     def show(
         self,
@@ -38,7 +43,7 @@ class DjReadinessController:
         serato_plan: Any | None = None,
         serato_volume_root: Path | None = None,
     ) -> None:
-        report = build_dj_readiness_report(
+        report = self._readiness_builder(
             recommendation,
             quality_report,
             serato_plan=serato_plan,
