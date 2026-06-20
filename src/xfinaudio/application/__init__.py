@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from xfinaudio.application.dj_readiness import build_application_dj_readiness_report
+    from xfinaudio.application.dj_readiness import (
+        build_application_dj_readiness_report,
+        write_application_dj_readiness_report,
+    )
     from xfinaudio.application.playlist_workflow import (
         PlaylistWorkflowService,
         RecommendationWorkflowResult,
@@ -97,6 +100,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "xfinaudio.application.dj_readiness",
         "build_application_dj_readiness_report",
     ),
+    "write_application_dj_readiness_report": (
+        "xfinaudio.application.dj_readiness",
+        "write_application_dj_readiness_report",
+    ),
     "plan_recommendation_candidates": (
         "xfinaudio.application.recommendation_candidates",
         "plan_recommendation_candidates",
@@ -151,6 +158,7 @@ __all__ = [
     "PrepCopilotVariantLike",
     "build_prep_copilot_variant_application",
     "build_application_dj_readiness_report",
+    "write_application_dj_readiness_report",
     "plan_recommendation_candidates",
     "PlaylistWorkflowService",
     "PlaylistWorkflow",

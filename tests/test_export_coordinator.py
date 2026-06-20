@@ -127,7 +127,7 @@ def test_write_readiness_sidecars_calls_writer(tmp_path: Path):
     expected_csv = crate_path.with_suffix(".dj-readiness.csv")
 
     with patch(
-        "xfinaudio.desktop.export_coordinator.write_dj_readiness_report",
+        "xfinaudio.desktop.export_coordinator.write_application_dj_readiness_report",
         return_value=(expected_json, expected_csv),
     ) as mock_write:
         json_path, csv_path = write_readiness_sidecars(report, crate_path)
@@ -140,7 +140,10 @@ def test_write_readiness_sidecars_calls_writer(tmp_path: Path):
 def test_write_readiness_sidecars_derives_paths_from_crate(tmp_path: Path):
     crate_path = tmp_path / "subcrates" / "set.crate"
     report = MagicMock()
-    with patch("xfinaudio.desktop.export_coordinator.write_dj_readiness_report", return_value=(Path("a"), Path("b"))):
+    with patch(
+        "xfinaudio.desktop.export_coordinator.write_application_dj_readiness_report",
+        return_value=(Path("a"), Path("b")),
+    ):
         write_readiness_sidecars(report, crate_path)
 
 
@@ -153,7 +156,9 @@ def test_write_readiness_sidecars_creates_missing_safe_folder_before_writing(tmp
         assert safe_folder.is_dir()
         return json_path, csv_path
 
-    with patch("xfinaudio.desktop.export_coordinator.write_dj_readiness_report", side_effect=assert_folder_exists):
+    with patch(
+        "xfinaudio.desktop.export_coordinator.write_application_dj_readiness_report", side_effect=assert_folder_exists
+    ):
         json_path, csv_path = write_readiness_sidecars(report, crate_path, safe_folder=safe_folder)
 
     assert json_path.parent == safe_folder

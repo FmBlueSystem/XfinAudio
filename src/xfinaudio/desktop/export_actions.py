@@ -8,8 +8,8 @@ from typing import Any
 
 from PySide6.QtWidgets import QFileDialog
 
+from xfinaudio.application.dj_readiness import write_application_dj_readiness_report
 from xfinaudio.config.settings import ExportSettings
-from xfinaudio.quality.dj_readiness import write_dj_readiness_report
 
 
 class ExportActions:
@@ -52,7 +52,7 @@ class ExportActions:
         timestamp = generated_at.strftime("%Y%m%d-%H%M%S")
         json_path = safe_folder / f"xfinaudio-dj-readiness-{timestamp}.json"
         csv_path = safe_folder / f"xfinaudio-dj-readiness-{timestamp}.csv"
-        json_path, csv_path = write_dj_readiness_report(host.last_dj_readiness_report, json_path, csv_path)
+        json_path, csv_path = write_application_dj_readiness_report(host.last_dj_readiness_report, json_path, csv_path)
         host.status_label.setText(host.tr("Exported DJ readiness report: {0} and {1}").format(json_path, csv_path))
 
     def preview_export(
