@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         PrepCopilotVariantLike,
         build_prep_copilot_variant_application,
     )
+    from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates
     from xfinaudio.application.saved_playlists import SavedPlaylistExport, SavedPlaylistService
     from xfinaudio.application.serato_metadata_export import (
         SeratoMetadataCrateWriter,
@@ -96,6 +97,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "xfinaudio.application.dj_readiness",
         "build_application_dj_readiness_report",
     ),
+    "plan_recommendation_candidates": (
+        "xfinaudio.application.recommendation_candidates",
+        "plan_recommendation_candidates",
+    ),
     "PlaylistWorkflowService": ("xfinaudio.application.playlist_workflow", "PlaylistWorkflowService"),
     "PlaylistWorkflow": ("xfinaudio.application.vertical_playlist_flow", "PlaylistWorkflow"),
     "PlaylistWorkflowRecommender": ("xfinaudio.application.vertical_playlist_flow", "PlaylistWorkflowRecommender"),
@@ -146,6 +151,7 @@ __all__ = [
     "PrepCopilotVariantLike",
     "build_prep_copilot_variant_application",
     "build_application_dj_readiness_report",
+    "plan_recommendation_candidates",
     "PlaylistWorkflowService",
     "PlaylistWorkflow",
     "PlaylistWorkflowRecommender",

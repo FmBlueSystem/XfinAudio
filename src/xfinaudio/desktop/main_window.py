@@ -11,6 +11,7 @@ from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QMainWindow
 
 from xfinaudio.application.playlist_workflow import ScanService
+from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates
 from xfinaudio.config.settings import AppSettings, WindowSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop import rendering as _rendering
@@ -29,7 +30,6 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.ports import TrackRepositoryPort
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
-from xfinaudio.recommendation.candidate_pool import build_recommendation_pool
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 
@@ -465,7 +465,11 @@ class MainWindow(QMainWindow):
         return _layout.selected_main_track_controls(self)
 
     def _desktop_recommendation_records(self, controls: DJControls | None) -> list[TrackRecord]:
-        return build_recommendation_pool(self.scanned_records, controls, _DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT)
+        return plan_recommendation_candidates(
+            scanned_records=self.scanned_records,
+            controls=controls,
+            limit=_DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT,
+        )
 
     def show_recommendation(
         self,
