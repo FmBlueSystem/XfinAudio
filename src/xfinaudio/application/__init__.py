@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         export_serato_playlist,
         preview_serato_playlist_export,
     )
+    from xfinaudio.application.spectral_profile_display import format_application_spectral_color
     from xfinaudio.application.strategy_catalog import (
         StrategyCatalogEntry,
         describe_strategy,
@@ -86,6 +87,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "preview_serato_playlist_export": (
         "xfinaudio.application.serato_playlist_export",
         "preview_serato_playlist_export",
+    ),
+    "format_application_spectral_color": (
+        "xfinaudio.application.spectral_profile_display",
+        "format_application_spectral_color",
     ),
     "PrepCopilotVariantApplicationResult": (
         "xfinaudio.application.prep_copilot",
@@ -154,6 +159,7 @@ __all__ = [
     "SeratoPlaylistExportResult",
     "export_serato_playlist",
     "preview_serato_playlist_export",
+    "format_application_spectral_color",
     "PrepCopilotVariantApplicationResult",
     "PrepCopilotVariantLike",
     "build_prep_copilot_variant_application",

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication
 
-from xfinaudio.audio.spectral_profile import format_spectral_color
+from xfinaudio.application.spectral_profile_display import format_application_spectral_color
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.library.models import TrackRecord
 
@@ -99,7 +99,7 @@ def _to_display_row(track: TrackRecord) -> TrackDisplayRow:
         missing_fields=_fmt_missing(track.missing_required_fields),
         genre=_fmt_genre(track.genre),
         metadata_status=track.metadata_status,
-        spectral_color=format_spectral_color(track.spectral_profile),
+        spectral_color=format_application_spectral_color(track.spectral_profile),
         display_path=Path(track.path).name,
     )
 
