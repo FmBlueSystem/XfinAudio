@@ -59,6 +59,21 @@ def test_build_quality_report_compares_manual_path_sequence() -> None:
     assert report.manual_order_match_prefix_count == 1
 
 
+def test_build_quality_report_ignores_duplicate_manual_paths_for_overlap() -> None:
+    recommendation = recommend_playlist(
+        [
+            complete_track("/music/a.flac", 120.0, 3),
+            complete_track("/music/b.flac", 121.0, 4),
+        ],
+        "harmonic_journey",
+    )
+    manual_paths = [recommendation.ordered_tracks[0].path, recommendation.ordered_tracks[0].path, "/music/missing.flac"]
+
+    report = build_quality_report(recommendation, manual_paths=manual_paths)
+
+    assert report.manual_overlap_ratio == 0.5
+
+
 def test_recommend_playlist_warns_on_red_to_green_spectral_shift() -> None:
     red = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
     green = SpectralProfile(red_ratio=0.05, green_ratio=0.9, blue_ratio=0.05, dominant_color="GREEN")

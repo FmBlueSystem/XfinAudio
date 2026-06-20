@@ -64,9 +64,10 @@ def build_quality_report(
 
 
 def _overlap_ratio(generated_paths: list[str], manual_paths: list[str]) -> float:
-    if not manual_paths:
+    manual_reference_paths = set(manual_paths)
+    if not manual_reference_paths:
         return 0.0
-    return round(len(set(generated_paths) & set(manual_paths)) / len(manual_paths), 6)
+    return round(len(set(generated_paths) & manual_reference_paths) / len(manual_reference_paths), 6)
 
 
 def _order_match_prefix_count(generated_paths: list[str], manual_paths: list[str]) -> int:
