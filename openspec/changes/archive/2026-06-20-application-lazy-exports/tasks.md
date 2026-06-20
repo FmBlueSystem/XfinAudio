@@ -4,4 +4,4 @@
 - [x] GREEN: Convert `xfinaudio.application` package exports to lazy resolution.
 - [x] REFACTOR: Keep type-checking support explicit and pyright-clean.
 - [x] VERIFY: Run focused tests and full gates.
-- [ ] ARCHIVE: Archive OpenSpec after merge.
+- [x] ARCHIVE: Archive OpenSpec after merge.
