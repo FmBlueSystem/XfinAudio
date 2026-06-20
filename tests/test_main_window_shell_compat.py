@@ -111,6 +111,19 @@ def test_metadata_filter_shell_methods_are_explicit_main_window_methods() -> Non
         assert callable(getattr(MainWindow, method_name))
 
 
+def test_prep_copilot_shell_methods_are_explicit_main_window_methods() -> None:
+    explicit_prep_copilot_methods = (
+        "generate_prep_copilot",
+        "_apply_prep_copilot_item",
+        "apply_selected_prep_copilot_variant",
+    )
+
+    for method_name in explicit_prep_copilot_methods:
+        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
+        assert method_name in MainWindow.__dict__
+        assert callable(getattr(MainWindow, method_name))
+
+
 def test_main_window_uses_explicit_shell_compatibility_surfaces() -> None:
     source = inspect.getsource(main_window_module)
 

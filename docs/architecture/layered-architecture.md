@@ -167,6 +167,7 @@ These are deliberately small. Do not batch them into a mega-refactor.
 | Scan entry shell methods explicit | Removed scan entry and scan cleanup methods from dynamic layout grafting and made them explicit `MainWindow` delegators to `ScanService` and `LibraryController`. | Issue #169; `openspec/changes/scan-entry-shell-methods-explicit/` |
 | Library table shell methods explicit | Removed Library table rendering, filtering, selected-folder persistence, and restore methods from dynamic layout grafting and made them explicit `MainWindow` delegators to `LibraryController`. | Issue #173; `openspec/changes/library-table-shell-methods-explicit/` |
 | Metadata filter shell methods explicit | Removed metadata filter selection and metadata-record provider methods from dynamic layout grafting and made them explicit `MainWindow` delegators to `LibraryController`. | Issue #177; `openspec/changes/metadata-filter-shell-methods-explicit/` |
+| Prep Copilot shell methods explicit | Removed Prep Copilot generate/apply methods from dynamic layout grafting and made them explicit `MainWindow` delegators to the Prep Copilot controller. | Issue #181; `openspec/changes/prep-copilot-shell-methods-explicit/` |
 
 | Remaining item | Target |
 |---|---|
