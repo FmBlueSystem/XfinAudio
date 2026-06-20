@@ -11,7 +11,7 @@ phases:
   design: complete
   tasks: complete
   apply: in-progress
-  verify: in-progress
+  verify: complete
 next_recommended: apply
 blocked_reasons: []
 delivery:
@@ -23,5 +23,5 @@ notes:
   - Build product capability through the Library Scan -> Recommendation -> Playlist Save/Export vertical workflow.
   - First completed slice adds an application-level recommend-and-save facade without desktop/PySide dependencies.
   - Second completed slice adds scan-to-recommend orchestration without moving Qt worker/UI ownership into application.
-  - Saved-playlist-to-export boundary remains pending before archive.
-  - Behavior-changing work must continue RED -> GREEN -> REFACTOR -> VERIFY.
+  - Final functional slice adds saved-playlist-to-export orchestration through an injected application-level exporter without changing export writers.
+  - Functional implementation and verification are complete; native dispatcher remains in apply because the archive task is intentionally unchecked until /sdd-archive runs.
