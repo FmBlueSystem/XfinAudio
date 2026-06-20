@@ -21,13 +21,31 @@ def _camelot_compatible(track_key: str | None, anchor_key: str | None) -> bool:
         return False
     if track_key == anchor_key:
         return True
-    track_num = int(track_key[:-1])
-    track_letter = track_key[-1]
-    anchor_num = int(anchor_key[:-1])
-    anchor_letter = anchor_key[-1]
+    parsed_track = _parse_camelot_key(track_key)
+    parsed_anchor = _parse_camelot_key(anchor_key)
+    if parsed_track is None or parsed_anchor is None:
+        return False
+    track_num, track_letter = parsed_track
+    anchor_num, anchor_letter = parsed_anchor
     return (track_letter == anchor_letter and abs(track_num - anchor_num) <= 1) or (
         track_num == anchor_num and track_letter != anchor_letter
     )
+
+
+def _parse_camelot_key(key: str) -> tuple[int, str] | None:
+    if len(key) < 2:
+        return None
+    number_text = key[:-1]
+    letter = key[-1]
+    if letter not in {"A", "B"}:
+        return None
+    try:
+        number = int(number_text)
+    except ValueError:
+        return None
+    if not 1 <= number <= 12:
+        return None
+    return number, letter
 
 
 def _track_similarity_key(
