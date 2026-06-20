@@ -7,13 +7,8 @@ from datetime import datetime
 from pathlib import Path
 
 from xfinaudio.exporting.export_naming import default_export_filename
+from xfinaudio.exporting.software import playlist_file_extension
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
-
-_PLAYLIST_FILE_EXTENSIONS = {
-    "Rekordbox": ".xml",
-    "Traktor": ".nml",
-    "VirtualDJ": ".xml",
-}
 
 
 @dataclass(frozen=True)
@@ -36,9 +31,7 @@ def plan_playlist_file_export(
     generated_at: datetime | None = None,
 ) -> PlaylistFileExportPlan:
     """Build a deterministic non-Serato playlist file export plan without writing files."""
-    extension = _PLAYLIST_FILE_EXTENSIONS.get(software)
-    if extension is None:
-        raise ValueError(f"Unknown export software: {software}")
+    extension = playlist_file_extension(software)
 
     target_name = (
         requested_name

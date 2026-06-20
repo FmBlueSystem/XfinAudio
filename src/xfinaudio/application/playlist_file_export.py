@@ -9,6 +9,7 @@ from typing import Protocol
 
 from xfinaudio.exporting.playlist_file_export import PlaylistFileExportPlan, plan_playlist_file_export
 from xfinaudio.exporting.rekordbox_xml import write_rekordbox_playlist_xml
+from xfinaudio.exporting.software import playlist_file_extension
 from xfinaudio.exporting.traktor_nml import write_traktor_playlist_nml
 from xfinaudio.exporting.virtualdj_xml import write_virtualdj_playlist_xml
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -77,13 +78,12 @@ def export_playlist_file(
         generated_at=generated_at,
     )
     writer_bundle = writers or PlaylistFileExportWriters()
+    playlist_file_extension(software)
     writer = {
         "Rekordbox": writer_bundle.rekordbox,
         "Traktor": writer_bundle.traktor,
         "VirtualDJ": writer_bundle.virtualdj,
-    }.get(software)
-    if writer is None:
-        raise ValueError(f"Unknown export software: {software}")
+    }[software]
     written_path = writer(recommendation, plan.target_path, playlist_name=plan.playlist_name)
     return PlaylistFileExportResult(plan=plan, written_path=written_path)
 

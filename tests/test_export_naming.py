@@ -87,3 +87,14 @@ def test_default_export_filename_without_suffix() -> None:
 
     assert "warmup" in name
     assert "8_tracks" in name
+
+
+def test_default_export_filename_ignores_suffix_that_sanitizes_to_empty() -> None:
+    """Unsafe-only suffix does not create an empty filename part."""
+    recommendation = _make_recommendation(strategy_name="build", track_count=2)
+    generated_at = datetime(2026, 6, 14, 3, 30, 45)
+
+    name = default_export_filename(recommendation, generated_at=generated_at, suffix="!!!")
+
+    assert name == "20260614_033045_build_2_tracks"
+    assert "__" not in name
