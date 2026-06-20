@@ -18,6 +18,13 @@ if TYPE_CHECKING:
         build_prep_copilot_variant_application,
     )
     from xfinaudio.application.saved_playlists import SavedPlaylistExport, SavedPlaylistService
+    from xfinaudio.application.serato_playlist_export import (
+        SeratoCrateWriter,
+        SeratoPlaylistExportPreview,
+        SeratoPlaylistExportResult,
+        export_serato_playlist,
+        preview_serato_playlist_export,
+    )
     from xfinaudio.application.vertical_playlist_flow import (
         PlaylistWorkflow,
         PlaylistWorkflowRecommender,
@@ -35,6 +42,20 @@ if TYPE_CHECKING:
     )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "SeratoCrateWriter": ("xfinaudio.application.serato_playlist_export", "SeratoCrateWriter"),
+    "SeratoPlaylistExportPreview": (
+        "xfinaudio.application.serato_playlist_export",
+        "SeratoPlaylistExportPreview",
+    ),
+    "SeratoPlaylistExportResult": (
+        "xfinaudio.application.serato_playlist_export",
+        "SeratoPlaylistExportResult",
+    ),
+    "export_serato_playlist": ("xfinaudio.application.serato_playlist_export", "export_serato_playlist"),
+    "preview_serato_playlist_export": (
+        "xfinaudio.application.serato_playlist_export",
+        "preview_serato_playlist_export",
+    ),
     "PrepCopilotVariantApplicationResult": (
         "xfinaudio.application.prep_copilot",
         "PrepCopilotVariantApplicationResult",
@@ -82,6 +103,11 @@ _EXPORTS: dict[str, tuple[str, str]] = {
 }
 
 __all__ = [
+    "SeratoCrateWriter",
+    "SeratoPlaylistExportPreview",
+    "SeratoPlaylistExportResult",
+    "export_serato_playlist",
+    "preview_serato_playlist_export",
     "PrepCopilotVariantApplicationResult",
     "PrepCopilotVariantLike",
     "build_prep_copilot_variant_application",
