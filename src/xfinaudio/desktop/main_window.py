@@ -236,6 +236,18 @@ class MainWindow(QMainWindow):
     def restore_persisted_tracks(self, records: list[Any]) -> None:
         self._library_controller.restore_persisted_tracks(records)
 
+    def _selected_metadata_status_filter(self) -> str | None:
+        return self._library_controller.selected_metadata_status_filter()
+
+    def _selected_missing_metadata_filter(self) -> str | None:
+        return self._library_controller.selected_missing_metadata_filter()
+
+    def _metadata_status_records(self, status: str) -> list[Any]:
+        return self._library_controller.metadata_status_records(status)
+
+    def _metadata_missing_field_records(self, missing_field: str) -> list[Any]:
+        return self._library_controller.metadata_missing_field_records(missing_field)
+
     def choose_safe_export_folder(self) -> None:
         self._export_actions.choose_safe_export_folder()
 

@@ -166,6 +166,7 @@ These are deliberately small. Do not batch them into a mega-refactor.
 | Settings shell methods explicit | Removed `_open_settings_dialog` and `_on_spectral_cohesion_changed` from dynamic layout grafting and made them explicit `MainWindow` delegators to `SettingsController`. | Issue #165; `openspec/changes/settings-shell-methods-explicit/` |
 | Scan entry shell methods explicit | Removed scan entry and scan cleanup methods from dynamic layout grafting and made them explicit `MainWindow` delegators to `ScanService` and `LibraryController`. | Issue #169; `openspec/changes/scan-entry-shell-methods-explicit/` |
 | Library table shell methods explicit | Removed Library table rendering, filtering, selected-folder persistence, and restore methods from dynamic layout grafting and made them explicit `MainWindow` delegators to `LibraryController`. | Issue #173; `openspec/changes/library-table-shell-methods-explicit/` |
+| Metadata filter shell methods explicit | Removed metadata filter selection and metadata-record provider methods from dynamic layout grafting and made them explicit `MainWindow` delegators to `LibraryController`. | Issue #177; `openspec/changes/metadata-filter-shell-methods-explicit/` |
 
 | Remaining item | Target |
 |---|---|
