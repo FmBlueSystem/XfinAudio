@@ -22,7 +22,7 @@ Remaining methods:
 (none)
 ```
 
-Initial baseline before this chain: 34 legacy layout grafted methods. Completed slices 1-8 removed all 34 from the graft map; the final cleanup slice now decides whether the empty compatibility surface can be removed safely.
+Initial baseline before this chain: 34 legacy layout grafted methods. Completed slices 1-8 removed all 34 from the graft map; the final cleanup slice removed the empty compatibility surface safely.
 
 ## Non-Negotiables
 
@@ -243,4 +243,4 @@ uv run python scripts/release_gate_check.py --run
 - [x] Slice 6: Recommendation shell methods explicit — removes 8, remaining 6.
 - [x] Slice 7: Copilot/recommendation bridge explicit — removes 1, remaining 5.
 - [x] Slice 8: Spectral completion shell methods explicit — removes 5, remaining 0.
-- [ ] Final removal slice: remove empty compatibility surface if safe. (Ready: graft map is empty.)
+- [x] Final removal slice: remove empty compatibility surface if safe.

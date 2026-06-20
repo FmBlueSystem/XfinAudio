@@ -2,13 +2,13 @@
 
 ## ADDED Requirements
 
-### Requirement: Layout compatibility has its own surface
-Legacy layout method grafting MUST live in a layout-specific compatibility module.
+### Requirement: Layout compatibility surface is retired after explicit methods
+Legacy layout method grafting MUST NOT remain once all former grafted methods exist explicitly on `MainWindow`.
 
-#### Scenario: Layout compatibility module owns method installation
-- **GIVEN** the desktop shell compatibility code
-- **WHEN** legacy layout methods are installed on `MainWindow`
-- **THEN** the layout compatibility module owns the method map and installation behavior.
+#### Scenario: Layout compatibility module is removed
+- **GIVEN** all former layout graft methods are explicit `MainWindow` methods
+- **WHEN** the desktop shell imports
+- **THEN** it does not import `shell_layout_compat` or call `install_legacy_layout_methods`.
 
 ### Requirement: AppState compatibility has its own surface
 Legacy MainWindow AppState read/write compatibility MUST live in a state-specific compatibility module.
@@ -18,10 +18,10 @@ Legacy MainWindow AppState read/write compatibility MUST live in a state-specifi
 - **WHEN** `MainWindow` delegates the compatibility operation
 - **THEN** the state compatibility module handles it without changing visible behavior.
 
-### Requirement: Shell facade remains stable
-Existing imports from `desktop.shell_compat` MUST remain valid while callers migrate to narrower modules.
+### Requirement: Shell facade remains stable for state compatibility
+Existing state-compatibility imports from `desktop.shell_compat` MUST remain valid while callers migrate to narrower modules.
 
-#### Scenario: Existing facade exports continue to work
+#### Scenario: Existing facade exports state compatibility names
 - **GIVEN** existing tests import `desktop.shell_compat`
-- **WHEN** they access legacy compatibility names
+- **WHEN** they access legacy state compatibility names
 - **THEN** those names remain available through the facade.

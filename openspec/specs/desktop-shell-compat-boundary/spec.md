@@ -2,19 +2,19 @@
 
 ## ADDED Requirements
 
-### Requirement: Legacy shell methods remain available
+### Requirement: Former legacy shell methods remain available explicitly
 
-`MainWindow` MUST continue to expose the legacy layout-backed methods currently used by desktop callers while the shell cleanup is migrated in slices.
+`MainWindow` MUST continue to expose the former legacy layout-backed method names currently used by desktop callers. These methods are explicit `MainWindow` methods, not dynamic layout grafts.
 
-#### Scenario: MainWindow exposes selected legacy methods
+#### Scenario: MainWindow exposes selected former legacy methods
 
 - **GIVEN** the `MainWindow` class is imported
-- **WHEN** callers access legacy layout-backed methods such as `choose_folder`, `_apply_song_filter`, and `_refresh_idle_action_state`
+- **WHEN** callers access former legacy layout-backed methods such as `choose_folder`, `_apply_song_filter`, and `_refresh_idle_action_state`
 - **THEN** each method is callable on `MainWindow`
 
-### Requirement: Compatibility grafting is explicit
+### Requirement: Layout owns no method installation
 
-The dynamic method grafting boundary MUST be named as desktop shell compatibility instead of being hidden in layout construction.
+Dynamic layout method grafting MUST NOT be hidden in layout construction or shell compatibility.
 
 #### Scenario: layout no longer owns method installation
 
@@ -22,18 +22,18 @@ The dynamic method grafting boundary MUST be named as desktop shell compatibilit
 - **WHEN** maintainers inspect its public responsibilities
 - **THEN** it does not expose `install_layout_methods`
 
-#### Scenario: shell compatibility owns method installation
+#### Scenario: shell compatibility no longer owns layout grafting
 
 - **GIVEN** `xfinaudio.desktop.shell_compat` is imported
-- **WHEN** maintainers inspect `LEGACY_LAYOUT_METHODS`
-- **THEN** it names the legacy methods installed on `MainWindow`
+- **WHEN** maintainers inspect its exported responsibilities
+- **THEN** it exposes state compatibility only and does not expose a layout method graft map or installer.
 
 ### Requirement: Product behavior is unchanged
 
-Moving the compatibility installer MUST NOT change UI workflow behavior, business logic, audio behavior, export behavior, storage behavior, or Serato behavior.
+Removing the compatibility installer MUST NOT change UI workflow behavior, business logic, audio behavior, export behavior, storage behavior, or Serato behavior.
 
 #### Scenario: MainWindow behavior tests still pass
 
-- **GIVEN** the compatibility boundary has moved
+- **GIVEN** the compatibility boundary has been removed
 - **WHEN** the focused MainWindow tests run
 - **THEN** they pass without changing expected UI behavior

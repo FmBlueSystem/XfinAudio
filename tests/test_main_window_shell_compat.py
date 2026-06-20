@@ -4,17 +4,13 @@ from __future__ import annotations
 
 import inspect
 
-from xfinaudio.desktop import layout, shell_compat, shell_layout_compat, shell_state_compat
+from xfinaudio.desktop import layout, shell_compat, shell_state_compat
 from xfinaudio.desktop import main_window as main_window_module
 from xfinaudio.desktop.main_window import MainWindow
 
 
 def test_layout_no_longer_owns_legacy_method_installation() -> None:
     assert not hasattr(layout, "install_layout_methods")
-
-
-def test_shell_compat_names_legacy_layout_methods() -> None:
-    assert isinstance(shell_compat.LEGACY_LAYOUT_METHODS, dict)
 
 
 def test_main_window_keeps_legacy_layout_methods_available() -> None:
@@ -24,13 +20,6 @@ def test_main_window_keeps_legacy_layout_methods_available() -> None:
 
 
 def test_library_shell_methods_are_explicit_main_window_methods() -> None:
-    assert "choose_folder" not in shell_layout_compat.LEGACY_LAYOUT_METHODS
-    assert "_refresh_idle_action_state" not in shell_layout_compat.LEGACY_LAYOUT_METHODS
-
-    assert MainWindow.__dict__["choose_folder"] is not shell_layout_compat.LEGACY_LAYOUT_METHODS.get("choose_folder")
-    assert MainWindow.__dict__["_refresh_idle_action_state"] is not shell_layout_compat.LEGACY_LAYOUT_METHODS.get(
-        "_refresh_idle_action_state"
-    )
     assert callable(MainWindow.choose_folder)
     assert callable(MainWindow._refresh_idle_action_state)
 
@@ -49,7 +38,6 @@ def test_export_shell_methods_are_explicit_main_window_methods() -> None:
     )
 
     for method_name in explicit_export_methods:
-        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
 
@@ -61,7 +49,6 @@ def test_settings_shell_methods_are_explicit_main_window_methods() -> None:
     )
 
     for method_name in explicit_settings_methods:
-        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
 
@@ -75,7 +62,6 @@ def test_scan_entry_shell_methods_are_explicit_main_window_methods() -> None:
     )
 
     for method_name in explicit_scan_methods:
-        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
 
@@ -92,7 +78,6 @@ def test_library_table_shell_methods_are_explicit_main_window_methods() -> None:
     )
 
     for method_name in explicit_library_table_methods:
-        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
 
@@ -106,7 +91,6 @@ def test_metadata_filter_shell_methods_are_explicit_main_window_methods() -> Non
     )
 
     for method_name in explicit_metadata_filter_methods:
-        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
 
@@ -120,7 +104,6 @@ def test_prep_copilot_shell_methods_are_explicit_main_window_methods() -> None:
     )
 
     for method_name in explicit_prep_copilot_methods:
-        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
 
@@ -138,7 +121,6 @@ def test_recommendation_shell_methods_are_explicit_main_window_methods() -> None
     )
 
     for method_name in explicit_recommendation_methods:
-        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
 
@@ -153,16 +135,24 @@ def test_spectral_completion_shell_methods_are_explicit_main_window_methods() ->
     )
 
     for method_name in explicit_spectral_methods:
-        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
+
+
+def test_layout_compat_graft_surface_is_removed() -> None:
+    source = inspect.getsource(main_window_module)
+
+    assert "shell_layout_compat" not in source
+    assert "install_legacy_layout_methods" not in source
+    assert not hasattr(shell_compat, "LEGACY_LAYOUT_METHODS")
+    assert not hasattr(shell_compat, "install_legacy_layout_methods")
 
 
 def test_main_window_uses_explicit_shell_compatibility_surfaces() -> None:
     source = inspect.getsource(main_window_module)
 
     assert "shell_compat" not in source
-    assert "shell_layout_compat" in source
+    assert "shell_layout_compat" not in source
     assert "shell_state_compat" in source
 
 
@@ -280,8 +270,8 @@ def test_shell_compat_handles_delegated_reads_and_missing_private_attributes() -
 
 
 def test_shell_compat_surfaces_are_split_by_responsibility() -> None:
-    assert shell_compat.LEGACY_LAYOUT_METHODS is shell_layout_compat.LEGACY_LAYOUT_METHODS
-    assert shell_compat.install_legacy_layout_methods is shell_layout_compat.install_legacy_layout_methods
+    assert not hasattr(shell_compat, "LEGACY_LAYOUT_METHODS")
+    assert not hasattr(shell_compat, "install_legacy_layout_methods")
     assert shell_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES is shell_state_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES
     assert shell_compat.try_set_legacy_app_state_attribute is shell_state_compat.try_set_legacy_app_state_attribute
     assert shell_compat.try_get_legacy_app_state_attribute is shell_state_compat.try_get_legacy_app_state_attribute
