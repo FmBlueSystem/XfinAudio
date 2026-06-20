@@ -49,7 +49,7 @@ Domain -> modal dialogs, tables, labels, or Qt workers
 | `quality` | Layer 4 | Mostly well assigned. It imports recommendation/exporting concepts for report context. |
 | `metadata` | Layer 4 | Clean, no outbound package dependency in the current import scan. |
 | `library` | Layers 4, 5, and 6 mixed with explicit ports and pure scan planning | Contains models, pure scan candidate planning, scan execution, playlist/track repositories, and persistence. Repository ports are explicit; scan planning is now separated from metadata/audio execution. |
-| `exporting` | Layers 4, 5, and 6 mixed | Contains export readiness/planning plus concrete Serato/Rekordbox/Traktor/VirtualDJ writers. Good candidate for port separation. |
+| `exporting` | Layers 4, 5, and 6 mixed with explicit readiness and software catalog boundaries | Contains export readiness/planning, pure software/extension catalog, and concrete Serato/Rekordbox/Traktor/VirtualDJ writers. |
 | `audio` | Layers 4 and 6 mixed | Contains pure spectral profile logic and external audio-library analysis. |
 | `config` | Layers 4/5/6 with an explicit settings port | Settings models remain pure, `config.ports.SettingsRepositoryPort` defines the persistence contract, and `settings_repository.py` remains the concrete JSON/filesystem adapter. |
 
@@ -82,7 +82,7 @@ PY
 | Hotspot | Why it matters | Recommended treatment |
 |---|---|---|
 | `library` repositories and scan service | Domain models, repository contracts, concrete persistence, scan planning, and scan execution are close together. | Keep pure scan planning in `library.scan_planning`; continue extracting execution or persistence seams only around use cases that need substitution or narrower tests. |
-| `exporting` writers | Export decisions and concrete file/format writers share package space. | Keep pure export planning/readiness separate; introduce writer ports when application use cases own export orchestration. |
+| `exporting` writers | Export decisions, software catalog, and concrete file/format writers share package space. | Keep pure export planning/readiness/software catalog separate; introduce writer ports when application use cases need more substitution. |
 | `audio` analysis | Pure spectral color policy and external audio-library loading live in the same package. | Keep pure spectral models independent; treat analyzer execution as infrastructure. |
 | `config` | Settings schema and concrete repository are still adjacent, but `SettingsRepositoryPort` now makes the persistence boundary explicit. | Keep desktop/application code depending on the port; move future settings workflows into application services only when behavior requires it. |
 | Desktop shell compatibility surfaces | Layout method grafting and legacy AppState read/write compatibility now live behind explicit compatibility surfaces. | Continue shrinking or removing each compatibility surface independently; do not move new product rules into them. |

@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: exporting-software-boundary
+artifact_store: openspec
+status: verified
+created: 2026-06-20
+updated: 2026-06-20
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: review
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: stacked-to-main
+  review_budget_changed_lines: 400
+notes:
+  - Third slice of the broader layered cleanup objective after config and library scan planning.
+  - Preserves existing export formats exactly.

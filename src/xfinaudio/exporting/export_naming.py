@@ -40,7 +40,9 @@ def default_export_filename(
 
     parts = [timestamp, strategy_name]
     if suffix:
-        parts.append(_sanitize(suffix))
+        safe_suffix = _sanitize(suffix)
+        if safe_suffix:
+            parts.append(safe_suffix)
     parts.append(f"{count}_{track_word}")
 
     return "_".join(parts)
