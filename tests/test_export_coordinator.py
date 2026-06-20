@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from xfinaudio.desktop import export_coordinator
 from xfinaudio.desktop.export_coordinator import (
     ExportCoordinator,
     plan_serato_export,
@@ -168,13 +169,25 @@ def test_serato_export_auto_saves_recommendation_after_successful_readiness_expo
     library = MagicMock(volume_root=tmp_path)
     readiness_paths = (tmp_path / "reports" / "set.dj-readiness.json", tmp_path / "reports" / "set.dj-readiness.csv")
 
+    export_result = MagicMock(plan=plan, library=library, write_result=result)
+
     with (
-        patch.object(coordinator, "_plan_current_serato_export", return_value=(plan, library)),
-        patch("xfinaudio.desktop.export_coordinator.write_serato_crate", return_value=result),
+        patch(
+            "xfinaudio.desktop.export_coordinator.export_serato_playlist",
+            return_value=export_result,
+        ) as export_use_case,
         patch("xfinaudio.desktop.export_coordinator.write_readiness_sidecars", return_value=readiness_paths),
     ):
-        coordinator.export_recommendation_to_serato()
+        coordinator.export_recommendation_to_serato(crate_name="Warmup")
 
+    export_use_case.assert_called_once_with(
+        recommendation=host.last_recommendation,
+        copilot_variant_name=host.applied_prep_copilot_variant_name,
+        serato_folder=None,
+        crate_name="Warmup",
+        generated_at=None,
+        discover_libraries=export_coordinator.discover_serato_libraries,
+    )
     save_recommendation.assert_called_once_with()
 
 
@@ -237,9 +250,10 @@ def test_serato_export_reports_sidecar_write_failure_without_bubbling(tmp_path: 
     plan = MagicMock(target_path=result.written_path)
     library = MagicMock(volume_root=tmp_path)
 
+    export_result = MagicMock(plan=plan, library=library, write_result=result)
+
     with (
-        patch.object(coordinator, "_plan_current_serato_export", return_value=(plan, library)),
-        patch("xfinaudio.desktop.export_coordinator.write_serato_crate", return_value=result),
+        patch("xfinaudio.desktop.export_coordinator.export_serato_playlist", return_value=export_result),
         patch(
             "xfinaudio.desktop.export_coordinator.write_readiness_sidecars",
             side_effect=OSError("permission denied"),

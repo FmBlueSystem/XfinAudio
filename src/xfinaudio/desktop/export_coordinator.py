@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from xfinaudio.application.playlist_file_export import export_playlist_file, preview_playlist_file_export
+from xfinaudio.application.serato_playlist_export import export_serato_playlist, preview_serato_playlist_export
 from xfinaudio.desktop.rendering import _missing_worklist_display_name, _table_item
 from xfinaudio.desktop.table_populators import populate_serato_export_history_table
 from xfinaudio.desktop.theme import _READINESS_STATUS_LABELS
@@ -29,11 +30,8 @@ from xfinaudio.exporting.serato_playlist_exporter import (
     SeratoLibrary,
     SeratoLibraryNotFoundError,
     discover_serato_libraries,
-    plan_copilot_variant_serato_playlist_export,
-    plan_generated_serato_playlist_export,
     plan_metadata_missing_field_serato_export,
     plan_metadata_status_serato_export,
-    plan_serato_playlist_export,
     select_serato_library_for_tracks,
 )
 from xfinaudio.library.models import MetadataStatus
@@ -90,30 +88,15 @@ def plan_serato_export(
     Selects the appropriate planning strategy based on whether a crate_name or
     copilot_variant_name is provided, falling back to a generated strategy name.
     """
-    library = (
-        SeratoLibrary(serato_folder=serato_folder, volume_root=serato_folder.parent)
-        if serato_folder is not None
-        else select_serato_library_for_tracks(
-            [track.path for track in recommendation.ordered_tracks],
-            discover_serato_libraries(),
-        )
+    preview = preview_serato_playlist_export(
+        recommendation=recommendation,
+        copilot_variant_name=copilot_variant_name,
+        serato_folder=serato_folder,
+        crate_name=crate_name,
+        generated_at=generated_at,
+        discover_libraries=discover_serato_libraries,
     )
-    if crate_name is not None:
-        plan = plan_serato_playlist_export(crate_name, recommendation, library)
-    elif copilot_variant_name is not None:
-        plan = plan_copilot_variant_serato_playlist_export(
-            copilot_variant_name,
-            recommendation,
-            library,
-            generated_at=generated_at,
-        )
-    else:
-        plan = plan_generated_serato_playlist_export(
-            recommendation,
-            library,
-            generated_at=generated_at,
-        )
-    return plan, library
+    return preview.plan, preview.library
 
 
 def build_serato_export_entry(
@@ -373,12 +356,17 @@ class ExportCoordinator:
         assert recommendation is not None
 
         try:
-            plan, library = self._plan_current_serato_export(
+            export_result = export_serato_playlist(
+                recommendation=recommendation,
+                copilot_variant_name=host.applied_prep_copilot_variant_name,
                 serato_folder=serato_folder,
                 crate_name=crate_name,
                 generated_at=generated_at,
+                discover_libraries=discover_serato_libraries,
             )
-            result = write_serato_crate(plan, confirm=True)
+            plan = export_result.plan
+            library = export_result.library
+            result = export_result.write_result
         except SeratoLibraryNotFoundError:
             host.status_label.setText(
                 host.tr("Serato not found — open Serato DJ Pro at least once to create its library folder")
