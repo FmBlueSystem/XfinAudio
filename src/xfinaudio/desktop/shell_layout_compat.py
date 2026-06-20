@@ -5,7 +5,6 @@ from __future__ import annotations
 from xfinaudio.desktop import layout as _layout
 
 LEGACY_LAYOUT_METHODS = {
-    "_on_copilot_variant_applied": _layout.on_main_copilot_variant_applied,
     "_start_spectral_completion_worker": _layout.start_main_spectral_completion_worker,
     "_cancel_spectral_completion_worker": _layout.cancel_main_spectral_completion_worker,
     "_on_spectral_progress_updated": _layout.on_main_spectral_progress_updated,

@@ -258,6 +258,9 @@ class MainWindow(QMainWindow):
     def apply_selected_prep_copilot_variant(self) -> None:
         self._prep_copilot.apply_selected_variant()
 
+    def _on_copilot_variant_applied(self, index: int) -> None:
+        self._prep_copilot.on_variant_applied(index)
+
     def recommend_playlist(self) -> None:
         self._recommendation_service.recommend()
 

@@ -272,6 +272,6 @@ uv run python scripts/release_gate_check.py --run
 - [x] Slice 4: Metadata filter shell methods explicit — removes 4, remaining 17.
 - [x] Slice 5: Prep Copilot shell methods explicit — removes 3, remaining 14.
 - [x] Slice 6: Recommendation shell methods explicit — removes 8, remaining 6.
-- [ ] Slice 7: Copilot/recommendation bridge explicit — removes 1, remaining 5.
+- [x] Slice 7: Copilot/recommendation bridge explicit — removes 1, remaining 5.
 - [ ] Slice 8: Spectral completion shell methods explicit — removes 5, remaining 0.
 - [ ] Final removal slice: remove empty compatibility surface if safe.
