@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: dj-readiness-application-boundary
 artifact_store: openspec
-status: verify
+status: archived
 created: 2026-06-20
 updated: 2026-06-20
 strict_tdd: true
@@ -12,7 +12,8 @@ phases:
   tasks: complete
   apply: complete
   verify: complete
-next_recommended: archive
+  archive: complete
+next_recommended: none
 blocked_reasons: []
 delivery:
   strategy: ask-on-risk
