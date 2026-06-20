@@ -14,6 +14,7 @@ from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, 
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from xfinaudio.audio.analysis_planning import SpectralProfileCache, plan_analysis_paths, store_in_cache
 from xfinaudio.audio.spectral_profile import SpectralProfile, analyze_spectral_profile
 
 if TYPE_CHECKING:
@@ -21,8 +22,6 @@ if TYPE_CHECKING:
     from xfinaudio.library.scan_service import ScanCancellationToken
 
 LOGGER = logging.getLogger(__name__)
-
-SpectralProfileCache = dict[str, tuple[int, int, SpectralProfile]]
 
 
 def _analyze_one(path_str: str) -> tuple[str, SpectralProfile | None]:
@@ -33,39 +32,6 @@ def _analyze_one(path_str: str) -> tuple[str, SpectralProfile | None]:
 def _default_max_workers_for_analysis(cpu_count: int | None = None) -> int:
     """Return the default analysis pool size while reserving one CPU core."""
     return max(1, (cpu_count or os.cpu_count() or 4) - 1)
-
-
-def _try_cached_profile(
-    path: Path,
-    cache: SpectralProfileCache | None,
-) -> SpectralProfile | None:
-    """Return the cached profile for *path* if mtime and size still match."""
-    if cache is None:
-        return None
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    cached = cache.get(str(path))
-    if cached is None:
-        return None
-    if cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
-        return cached[2]
-    return None
-
-
-def _store_in_cache(
-    path: Path,
-    profile: SpectralProfile | None,
-    cache: SpectralProfileCache | None,
-) -> None:
-    if cache is None or profile is None:
-        return
-    try:
-        stat = path.stat()
-    except OSError:
-        return
-    cache[str(path)] = (stat.st_mtime_ns, stat.st_size, profile)
 
 
 def analyze_paths(
@@ -103,17 +69,14 @@ def analyze_paths(
     if max_workers is None:
         max_workers = _default_max_workers_for_analysis()
 
-    results: dict[str, SpectralProfile | None] = {}
-    paths_to_analyze: list[Path] = []
+    plan = plan_analysis_paths(paths, cache=cache)
+    results: dict[str, SpectralProfile | None] = dict(plan.results)
+    paths_to_analyze = plan.pending_paths
 
-    for path in paths:
-        cached_profile = _try_cached_profile(path, cache)
-        if cached_profile is not None:
-            results[str(path)] = cached_profile
-            if on_progress is not None:
+    if on_progress is not None:
+        for path in paths:
+            if str(path) in plan.results:
                 on_progress(path)
-            continue
-        paths_to_analyze.append(path)
 
     if not paths_to_analyze:
         return results
@@ -164,7 +127,7 @@ def _run_sequential(
             break
         profile = spectral_analyzer.analyze(path) if spectral_analyzer is not None else analyze_spectral_profile(path)
         results[str(path)] = profile
-        _store_in_cache(path, profile, cache)
+        store_in_cache(path, profile, cache)
         if on_progress is not None:
             on_progress(path)
 
@@ -192,7 +155,7 @@ def _run_parallel(
             try:
                 path_str, profile = future.result()
                 results[path_str] = profile
-                _store_in_cache(Path(path_str), profile, cache)
+                store_in_cache(Path(path_str), profile, cache)
             except Exception:
                 LOGGER.exception("Spectral analysis failed for %s", path)
                 results[str(path)] = None
@@ -225,7 +188,7 @@ def _run_parallel_with_analyzer(
             try:
                 profile = future.result()
                 results[str(path)] = profile
-                _store_in_cache(path, profile, cache)
+                store_in_cache(path, profile, cache)
             except Exception:
                 LOGGER.exception("Spectral analysis failed for %s", path)
                 results[str(path)] = None

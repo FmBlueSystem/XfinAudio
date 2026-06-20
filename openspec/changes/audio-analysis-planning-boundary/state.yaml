@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: audio-analysis-planning-boundary
+artifact_store: openspec
+status: verified
+created: 2026-06-20
+updated: 2026-06-20
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: review
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: stacked-to-main
+  review_budget_changed_lines: 400
+notes:
+  - Fourth slice of the broader layered cleanup objective after config, library scan planning, and exporting software catalog.
+  - No DSP math or audio mutation changes.
