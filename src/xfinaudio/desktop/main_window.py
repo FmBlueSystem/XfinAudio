@@ -261,6 +261,21 @@ class MainWindow(QMainWindow):
     def _on_copilot_variant_applied(self, index: int) -> None:
         self._prep_copilot.on_variant_applied(index)
 
+    def _start_spectral_completion_worker(self, records: list[TrackRecord]) -> None:
+        self._library_controller.start_spectral_completion_worker(records)
+
+    def _cancel_spectral_completion_worker(self) -> None:
+        self._library_controller.cancel_spectral_completion_worker()
+
+    def _on_spectral_progress_updated(self, processed_count: int, total_count: int) -> None:
+        self._library_controller.on_spectral_progress_updated(processed_count, total_count)
+
+    def _on_spectral_profile_ready(self, path: str, profile: object) -> None:
+        self._library_controller.on_spectral_profile_ready(path, profile)
+
+    def _on_spectral_completion_finished(self) -> None:
+        self._library_controller.on_spectral_completion_finished()
+
     def recommend_playlist(self) -> None:
         self._recommendation_service.recommend()
 

@@ -1,19 +1,23 @@
-"""Legacy desktop layout method compatibility surface."""
+"""Legacy layout compatibility shims for :class:`~xfinaudio.desktop.main_window.MainWindow`."""
 
 from __future__ import annotations
 
-from xfinaudio.desktop import layout as _layout
+from collections.abc import MutableMapping
+from typing import Any
 
-LEGACY_LAYOUT_METHODS = {
-    "_start_spectral_completion_worker": _layout.start_main_spectral_completion_worker,
-    "_cancel_spectral_completion_worker": _layout.cancel_main_spectral_completion_worker,
-    "_on_spectral_progress_updated": _layout.on_main_spectral_progress_updated,
-    "_on_spectral_profile_ready": _layout.on_main_spectral_profile_ready,
-    "_on_spectral_completion_finished": _layout.on_main_spectral_completion_finished,
-}
+LEGACY_LAYOUT_METHODS = {}
 
 
-def install_legacy_layout_methods(target_class: type) -> None:
-    """Install legacy layout-backed methods on a MainWindow-compatible class."""
+def install_legacy_layout_methods(namespace: MutableMapping[str, Any] | type[Any]) -> None:
+    """Install legacy layout methods on ``namespace``.
+
+    The layout graft map is intentionally empty after the explicit shell-method
+    migration. Keep this stable no-op until the final removal slice can delete
+    the compatibility module and its import safely.
+    """
+
     for name, method in LEGACY_LAYOUT_METHODS.items():
-        setattr(target_class, name, method)
+        if isinstance(namespace, MutableMapping):
+            namespace.setdefault(name, method)
+        elif not hasattr(namespace, name):
+            setattr(namespace, name, method)

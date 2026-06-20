@@ -14,7 +14,7 @@ def test_layout_no_longer_owns_legacy_method_installation() -> None:
 
 
 def test_shell_compat_names_legacy_layout_methods() -> None:
-    assert "_start_spectral_completion_worker" in shell_compat.LEGACY_LAYOUT_METHODS
+    assert isinstance(shell_compat.LEGACY_LAYOUT_METHODS, dict)
 
 
 def test_main_window_keeps_legacy_layout_methods_available() -> None:
@@ -138,6 +138,21 @@ def test_recommendation_shell_methods_are_explicit_main_window_methods() -> None
     )
 
     for method_name in explicit_recommendation_methods:
+        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
+        assert method_name in MainWindow.__dict__
+        assert callable(getattr(MainWindow, method_name))
+
+
+def test_spectral_completion_shell_methods_are_explicit_main_window_methods() -> None:
+    explicit_spectral_methods = (
+        "_start_spectral_completion_worker",
+        "_cancel_spectral_completion_worker",
+        "_on_spectral_progress_updated",
+        "_on_spectral_profile_ready",
+        "_on_spectral_completion_finished",
+    )
+
+    for method_name in explicit_spectral_methods:
         assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
