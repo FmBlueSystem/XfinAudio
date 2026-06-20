@@ -1,0 +1,23 @@
+schema: gentle-ai.sdd-state.v1
+change: quality-lazy-exports
+artifact_store: openspec
+status: verify
+created: 2026-06-20
+updated: 2026-06-20
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Pure package-boundary refactor; no UI, export behavior, audio mutation, DSP, or Serato DB V2 writes.
