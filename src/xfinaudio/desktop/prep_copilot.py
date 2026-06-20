@@ -7,7 +7,11 @@ from typing import Any
 
 from PySide6.QtWidgets import QTableWidgetItem
 
-from xfinaudio.application.prep_copilot import build_prep_copilot_variant_application
+from xfinaudio.application.prep_copilot import (
+    PrepCopilotGenerationRequest,
+    build_prep_copilot_variant_application,
+    generate_prep_copilot_plan,
+)
 from xfinaudio.desktop.app_state_transitions import (
     PrepCopilotVariantApplication,
     apply_prep_copilot_plan_cleared,
@@ -16,9 +20,9 @@ from xfinaudio.desktop.app_state_transitions import (
 )
 from xfinaudio.desktop.rendering import format_quality_summary
 from xfinaudio.quality.dj_readiness import format_dj_readiness_summary
-from xfinaudio.recommendation.prep_copilot import DJSetIntent, build_prep_copilot_plan
 
 VariantApplicationBuilder = Callable[..., Any]
+PlanGenerationBuilder = Callable[..., Any]
 
 
 class PrepCopilotController:
@@ -32,6 +36,7 @@ class PrepCopilotController:
         on_state_changed: Callable[[], None],
         on_status_message: Callable[[str], None],
         variant_application_builder: VariantApplicationBuilder = build_prep_copilot_variant_application,
+        plan_generation_builder: PlanGenerationBuilder = generate_prep_copilot_plan,
     ) -> None:
         self._build_screen = build_screen
         self._build_vm = build_vm
@@ -40,6 +45,7 @@ class PrepCopilotController:
         self._on_state_changed = on_state_changed
         self._on_status_message = on_status_message
         self._variant_application_builder = variant_application_builder
+        self._plan_generation_builder = plan_generation_builder
 
     def _replace_state(self, updated_state: Any) -> None:
         if hasattr(self._state, "_replace_app_state"):
@@ -57,15 +63,14 @@ class PrepCopilotController:
             return
         records = self._state._desktop_recommendation_records(controls)
         genre_focus = self._build_screen.genre_focus_input.text().strip() or None
-        intent = DJSetIntent(
-            name="Desktop Prep Copilot",
+        request = PrepCopilotGenerationRequest(
             strategy=self._build_screen.strategy_combo.currentData() or self._build_screen.strategy_combo.currentText(),
             target_track_count=self._build_screen.target_count_input.value(),
             start_path=controls.start_path,
             required_paths=controls.manual_order_paths,
             genre_focus=genre_focus,
         )
-        plan = build_prep_copilot_plan(records, intent)
+        plan = self._plan_generation_builder(records, request)
         self._replace_state(apply_prep_copilot_plan_generated(self._state._state, plan))
         self._build_screen.apply_variant_button.setEnabled(True)
         self._on_status_message(self._state.tr("Generated {0} Prep Copilot variant(s)").format(len(plan.variants)))
