@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from xfinaudio.application.dj_readiness import (
         build_application_dj_readiness_report,
+        format_application_dj_readiness_summary,
         write_application_dj_readiness_report,
     )
     from xfinaudio.application.playlist_workflow import (
@@ -105,6 +106,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "xfinaudio.application.dj_readiness",
         "build_application_dj_readiness_report",
     ),
+    "format_application_dj_readiness_summary": (
+        "xfinaudio.application.dj_readiness",
+        "format_application_dj_readiness_summary",
+    ),
     "write_application_dj_readiness_report": (
         "xfinaudio.application.dj_readiness",
         "write_application_dj_readiness_report",
@@ -164,6 +169,7 @@ __all__ = [
     "PrepCopilotVariantLike",
     "build_prep_copilot_variant_application",
     "build_application_dj_readiness_report",
+    "format_application_dj_readiness_summary",
     "write_application_dj_readiness_report",
     "plan_recommendation_candidates",
     "PlaylistWorkflowService",

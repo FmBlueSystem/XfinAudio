@@ -7,6 +7,7 @@ from pathlib import Path
 from xfinaudio.exporting.serato_crate import SeratoExportPlan
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.dj_readiness import build_dj_readiness_report as _build_dj_readiness_report
+from xfinaudio.quality.dj_readiness import format_dj_readiness_summary as _format_dj_readiness_summary
 from xfinaudio.quality.dj_readiness import write_dj_readiness_report as _write_dj_readiness_report
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -37,4 +38,13 @@ def write_application_dj_readiness_report(
     return _write_dj_readiness_report(report, json_path, csv_path)
 
 
-__all__ = ["build_application_dj_readiness_report", "write_application_dj_readiness_report"]
+def format_application_dj_readiness_summary(report: DjReadinessReport) -> str:
+    """Return DJ readiness summary text through the application boundary."""
+    return _format_dj_readiness_summary(report)
+
+
+__all__ = [
+    "build_application_dj_readiness_report",
+    "format_application_dj_readiness_summary",
+    "write_application_dj_readiness_report",
+]
