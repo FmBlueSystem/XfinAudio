@@ -115,9 +115,9 @@ def main() -> int:
     _configure_macos_app("XfinAudio", icon_path)
     lang = os.environ.get("XFINAUDIO_LANG") or _load_settings_language()
     install_translator(lang)
-    window = MainWindow.with_defaults(database_path_from_environment(), settings_path_from_environment())
     if package_smoke_enabled():
         return 0
+    window = MainWindow.with_defaults(database_path_from_environment(), settings_path_from_environment())
     window.showMaximized()
     window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)
     window.raise_()

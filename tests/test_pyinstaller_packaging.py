@@ -120,18 +120,8 @@ def test_desktop_main_exits_before_event_loop_in_package_smoke_mode(
             events.append("exec")
             return 1
 
-    class FakeWindow:
-        def resize(self, width: int, height: int) -> None:
-            events.append(f"resize:{width}x{height}")
-
-        def show(self) -> None:
-            events.append("show")
-
-    def fake_with_defaults(actual_db_path: Path, actual_settings_path: Path | None = None) -> FakeWindow:
-        events.append(f"with_defaults:{actual_db_path}:{actual_settings_path}")
-        assert actual_db_path == db_path
-        assert actual_settings_path == settings_path
-        return FakeWindow()
+    def fake_with_defaults(*_args: object) -> object:
+        raise AssertionError("package smoke must not create MainWindow")
 
     monkeypatch.setenv("XFINAUDIO_PACKAGE_SMOKE", "1")
     monkeypatch.setenv("XFINAUDIO_DB_PATH", str(db_path))
@@ -140,7 +130,7 @@ def test_desktop_main_exits_before_event_loop_in_package_smoke_mode(
     monkeypatch.setattr(desktop_app.MainWindow, "with_defaults", fake_with_defaults)
 
     assert desktop_app.main() == 0
-    assert events == ["app", f"with_defaults:{db_path}:{settings_path}"]
+    assert events == ["app"]
 
 
 def test_validate_launch_requires_temp_build() -> None:
