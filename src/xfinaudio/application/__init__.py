@@ -31,6 +31,11 @@ if TYPE_CHECKING:
         export_serato_playlist,
         preview_serato_playlist_export,
     )
+    from xfinaudio.application.strategy_catalog import (
+        StrategyCatalogEntry,
+        describe_strategy,
+        list_strategy_catalog,
+    )
     from xfinaudio.application.vertical_playlist_flow import (
         PlaylistWorkflow,
         PlaylistWorkflowRecommender,
@@ -48,6 +53,9 @@ if TYPE_CHECKING:
     )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "StrategyCatalogEntry": ("xfinaudio.application.strategy_catalog", "StrategyCatalogEntry"),
+    "describe_strategy": ("xfinaudio.application.strategy_catalog", "describe_strategy"),
+    "list_strategy_catalog": ("xfinaudio.application.strategy_catalog", "list_strategy_catalog"),
     "SeratoMetadataCrateWriter": ("xfinaudio.application.serato_metadata_export", "SeratoMetadataCrateWriter"),
     "SeratoMetadataExportResult": (
         "xfinaudio.application.serato_metadata_export",
@@ -122,6 +130,9 @@ _EXPORTS: dict[str, tuple[str, str]] = {
 }
 
 __all__ = [
+    "StrategyCatalogEntry",
+    "describe_strategy",
+    "list_strategy_catalog",
     "SeratoMetadataExportResult",
     "export_metadata_status_serato_worklist",
     "export_missing_field_serato_worklist",
