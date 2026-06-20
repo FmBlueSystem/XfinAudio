@@ -28,6 +28,7 @@ from xfinaudio.desktop.visual_design import apply_visual_design
 from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.ports import TrackRepositoryPort
+from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.candidate_pool import build_recommendation_pool
 from xfinaudio.recommendation.controls import DJControls
@@ -256,6 +257,32 @@ class MainWindow(QMainWindow):
 
     def apply_selected_prep_copilot_variant(self) -> None:
         self._prep_copilot.apply_selected_variant()
+
+    def recommend_playlist(self) -> None:
+        self._recommendation_service.recommend()
+
+    def _begin_recommendation_state(self, candidate_count: int) -> None:
+        self._recommendation_service._begin_recommendation_state(candidate_count)
+
+    def _end_recommendation_state(self) -> None:
+        self._recommendation_service._end_recommendation_state()
+
+    def _start_recommendation_worker(
+        self, records: list[TrackRecord], strategy_name: str, controls: DJControls | None = None
+    ) -> None:
+        self._recommendation_service.start_recommendation(records, strategy_name, controls)
+
+    def _finish_recommendation(self, result: Any) -> None:
+        self._recommendation_service.on_completed(result)
+
+    def _fail_recommendation(self, error: object) -> None:
+        self._recommendation_service.on_failed(error)
+
+    def _populate_dj_readiness_table(self, report: DjReadinessReport) -> None:
+        self._dj_readiness_controller.populate_table(report)
+
+    def _on_recommend_requested(self, strategy_name: str, paths: list[str]) -> None:
+        self._recommendation_service.on_recommend_requested(strategy_name, paths)
 
     def choose_safe_export_folder(self) -> None:
         self._export_actions.choose_safe_export_folder()

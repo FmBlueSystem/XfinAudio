@@ -5,14 +5,6 @@ from __future__ import annotations
 from xfinaudio.desktop import layout as _layout
 
 LEGACY_LAYOUT_METHODS = {
-    "recommend_playlist": _layout.recommend_playlist,
-    "_begin_recommendation_state": _layout.begin_main_recommendation_state,
-    "_end_recommendation_state": _layout.end_main_recommendation_state,
-    "_start_recommendation_worker": _layout.start_main_recommendation_worker,
-    "_finish_recommendation": _layout.finish_main_recommendation,
-    "_fail_recommendation": _layout.fail_main_recommendation,
-    "_populate_dj_readiness_table": _layout.populate_main_dj_readiness_table,
-    "_on_recommend_requested": _layout.on_main_recommend_requested,
     "_on_copilot_variant_applied": _layout.on_main_copilot_variant_applied,
     "_start_spectral_completion_worker": _layout.start_main_spectral_completion_worker,
     "_cancel_spectral_completion_worker": _layout.cancel_main_spectral_completion_worker,
