@@ -1,8 +1,8 @@
 # Verify Report: Vertical flow construction foundation
 
-Status: partial-pass
+Status: pass
 
-The vertical-flow construction now includes application-level recommend-and-save and scan-to-recommend facades without adding desktop/PySide dependencies. The broader vertical workflow remains incomplete until the saved-playlist-to-export boundary is implemented and fully verified.
+The vertical-flow construction now includes application-level recommend-and-save, scan-to-recommend, and saved-playlist-to-export facades without adding desktop/PySide dependencies. The functional workflow boundary is implemented; archive remains pending.
 
 ## RED/GREEN Evidence: Recommend -> Save Slice
 
@@ -18,43 +18,40 @@ The vertical-flow construction now includes application-level recommend-and-save
 - GREEN command: `uv run pytest tests/test_application_vertical_playlist_flow.py -q`
   - Result: PASS, `2 passed`.
 
-## Focused Verification: Scan -> Recommend Slice
+## RED/GREEN Evidence: Saved Playlist -> Export Slice
+
+- Safety-net command: `uv run pytest tests/test_application_vertical_playlist_flow.py -q`
+  - Result: PASS, `2 passed` before this slice changed production code.
+- RED command: `uv run pytest tests/test_application_vertical_playlist_flow.py -q`
+  - Result: FAIL, expected missing boundary: `TypeError: VerticalPlaylistFlow.__init__() got an unexpected keyword argument 'saved_playlist_exporter'`.
+- GREEN command: `uv run pytest tests/test_application_vertical_playlist_flow.py -q`
+  - Result: PASS, `3 passed`.
+
+## Focused Verification: Saved Playlist -> Export Slice
 
 - `uv run pytest tests/test_application_vertical_playlist_flow.py -q`
-  - Result: PASS, `2 passed`.
+  - Result: PASS, `3 passed`.
 - `uv run pyright src/xfinaudio/application/vertical_playlist_flow.py src/xfinaudio/application/__init__.py tests/test_application_vertical_playlist_flow.py`
   - Result: PASS, `0 errors, 0 warnings, 0 informations`.
-- `uv run ruff check tests/test_application_vertical_playlist_flow.py src/xfinaudio/application/vertical_playlist_flow.py src/xfinaudio/application/__init__.py && uv run ruff format --check tests/test_application_vertical_playlist_flow.py src/xfinaudio/application/vertical_playlist_flow.py src/xfinaudio/application/__init__.py`
-  - Result: PASS, `All checks passed!` and `3 files already formatted`.
+- `uv run ruff check tests/test_application_vertical_playlist_flow.py src/xfinaudio/application/vertical_playlist_flow.py src/xfinaudio/application/__init__.py`
+  - Result: PASS, `All checks passed!`.
+- `uv run ruff format --check tests/test_application_vertical_playlist_flow.py src/xfinaudio/application/vertical_playlist_flow.py src/xfinaudio/application/__init__.py`
+  - Result: PASS, `3 files already formatted`.
 
-## Focused Verification: Recommend -> Save Slice
-
-- `uv run pytest tests/test_application_saved_playlists.py tests/test_application_vertical_playlist_flow.py tests/test_playlist_workflow.py -q`
-  - Result: PASS, `10 passed`.
-- `uv run pyright src/xfinaudio/application tests/test_application_vertical_playlist_flow.py`
-  - Result: PASS, `0 errors, 0 warnings, 0 informations`.
-- Application UI import invariant:
-  - Result: PASS, no `xfinaudio.desktop` or `PySide6` imports under `src/xfinaudio/application`.
-
-## Full Verification Run During Prior Recommend -> Save Slice
+## Full Verification: Final Functional Slice
 
 - `uv run pytest -q`
-  - Result: PASS, `935 passed`.
+  - Result: PASS, `937 passed, 54 warnings in 29.64s`.
 - `uv run pyright src tests`
   - Result: PASS, `0 errors, 0 warnings, 0 informations`.
 - `uv run pytest --cov --cov-fail-under=70 -q`
-  - Result: PASS, `935 passed`, total coverage `89.92%`.
+  - Result: PASS, `937 passed, 44 warnings`, total coverage `89.95%`, coverage threshold `70%` reached.
 - `uv run ruff check .`
-  - Result: PASS.
+  - Result: PASS, `All checks passed!`.
 - `uv run ruff format --check .`
   - Result: PASS, `220 files already formatted`.
 - `uv run python scripts/release_gate_check.py --run`
-  - Result: PASS through tests, type-check, coverage, lint, format, smoke, publication docs, artifact hygiene, source package hygiene, PyInstaller check-only, and root artifact hygiene.
-
-## Remaining Verification Needed Before Archive
-
-- Saved playlist -> export application boundary tests and implementation.
-- Full XfinAudio gates after the export slice before archive.
+  - Result: PASS through tests, type-check, coverage, lint, format, smoke, publication docs, artifact hygiene, source package hygiene, PyInstaller check-only, root artifact hygiene, and manual/pending release-gate reporting.
 
 ## Safety
 
@@ -64,4 +61,5 @@ The vertical-flow construction now includes application-level recommend-and-save
 - No audio files mutated.
 - No DSP scope added.
 - No live Serato database V2 writes.
+- No export formats or Serato writers changed.
 - No desktop or PySide6 imports were added to the vertical flow facade.

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from xfinaudio.application.saved_playlists import SavedPlaylistExport
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_models import Playlist
 from xfinaudio.library.scan_service import ProgressCallback, ScanCancellationToken
@@ -78,6 +79,35 @@ class RecommendationSaver(Protocol):
         ...
 
 
+class SavedPlaylistExportBuilder(Protocol):
+    """Application dependency that can build an exportable saved playlist recommendation."""
+
+    def build_export_recommendation(
+        self,
+        playlist_id: int,
+        scanned_records: list[TrackRecord],
+    ) -> SavedPlaylistExport | None:
+        """Return an exportable recommendation for a saved playlist."""
+        ...
+
+
+class SavedPlaylistStore(RecommendationSaver, SavedPlaylistExportBuilder, Protocol):
+    """Application dependency that can save and prepare saved playlists for export."""
+
+
+class SavedPlaylistApplicationExporter(Protocol):
+    """Application dependency that exports a saved playlist recommendation."""
+
+    def export_saved_playlist(
+        self,
+        *,
+        recommendation: PlaylistRecommendation,
+        requested_name: str,
+    ) -> object:
+        """Export a saved playlist recommendation using the requested export name."""
+        ...
+
+
 @dataclass(frozen=True)
 class VerticalPlaylistFlowResult:
     """Application result for recommending and saving a playlist."""
@@ -104,6 +134,24 @@ class VerticalScanRecommendationResult:
         return self.recommendation_result.recommendation
 
 
+@dataclass(frozen=True)
+class VerticalSavedPlaylistExportResult:
+    """Application result for exporting a saved playlist."""
+
+    saved_playlist_export: SavedPlaylistExport
+    export_result: object
+
+    @property
+    def playlist(self) -> Playlist:
+        """Return the saved playlist used as the export source."""
+        return self.saved_playlist_export.playlist
+
+    @property
+    def recommendation(self) -> PlaylistRecommendation:
+        """Return the recommendation exported by this vertical flow."""
+        return self.saved_playlist_export.recommendation
+
+
 class VerticalPlaylistFlow:
     """Compose existing application services into a vertical recommend/save flow."""
 
@@ -111,10 +159,12 @@ class VerticalPlaylistFlow:
         self,
         *,
         playlist_workflow: PlaylistWorkflow,
-        saved_playlists: RecommendationSaver,
+        saved_playlists: SavedPlaylistStore,
+        saved_playlist_exporter: SavedPlaylistApplicationExporter | None = None,
     ) -> None:
         self._playlist_workflow = playlist_workflow
         self._saved_playlists = saved_playlists
+        self._saved_playlist_exporter = saved_playlist_exporter
 
     def scan_and_recommend(
         self,
@@ -170,6 +220,30 @@ class VerticalPlaylistFlow:
             playlist=playlist,
         )
 
+    def export_saved_playlist(
+        self,
+        *,
+        playlist_id: int,
+        scanned_records: list[TrackRecord],
+    ) -> VerticalSavedPlaylistExportResult | None:
+        """Export a saved playlist through the injected application exporter."""
+        if self._saved_playlist_exporter is None:
+            raise ValueError("saved_playlist_exporter is required to export a saved playlist")
+        saved_playlist_export = self._saved_playlists.build_export_recommendation(
+            playlist_id,
+            scanned_records,
+        )
+        if saved_playlist_export is None:
+            return None
+        export_result = self._saved_playlist_exporter.export_saved_playlist(
+            recommendation=saved_playlist_export.recommendation,
+            requested_name=saved_playlist_export.playlist.name,
+        )
+        return VerticalSavedPlaylistExportResult(
+            saved_playlist_export=saved_playlist_export,
+            export_result=export_result,
+        )
+
 
 __all__ = [
     "PlaylistWorkflow",
@@ -178,7 +252,11 @@ __all__ = [
     "RecommendationSaver",
     "RecommendationWorkflowResultLike",
     "ScanWorkflowResultLike",
+    "SavedPlaylistApplicationExporter",
+    "SavedPlaylistExportBuilder",
+    "SavedPlaylistStore",
     "VerticalPlaylistFlow",
     "VerticalPlaylistFlowResult",
+    "VerticalSavedPlaylistExportResult",
     "VerticalScanRecommendationResult",
 ]
