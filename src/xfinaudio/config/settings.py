@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from xfinaudio.library.scan_service import SUPPORTED_AUDIO_EXTENSIONS
+from xfinaudio.library.scan_planning import SUPPORTED_AUDIO_EXTENSIONS
 from xfinaudio.recommendation.scoring import DEFAULT_WEIGHTS, ScoringWeights
 
 CURRENT_SETTINGS_VERSION = 1

@@ -39,6 +39,25 @@ def test_scan_folder_recursively_reads_supported_audio_metadata() -> None:
     assert records[0].source_fields["camelot_key"] == "key"
 
 
+def test_scan_folder_reads_duplicate_lister_candidates_once() -> None:
+    root = Path("/library")
+    audio_path = root / "track.flac"
+    requested_paths: list[Path] = []
+
+    def read_tags(path: Path) -> dict[str, list[str]]:
+        requested_paths.append(path)
+        return {"title": ["Track One"]}
+
+    records = scan_folder(
+        root,
+        list_paths=lambda folder: [audio_path, audio_path, root / "notes.txt"],
+        read_tags=read_tags,
+    )
+
+    assert requested_paths == [audio_path]
+    assert [record.path for record in records] == [str(audio_path)]
+
+
 def test_scan_folder_marks_records_incomplete_when_required_metadata_is_missing() -> None:
     root = Path("/library")
     audio_path = root / "track.aif"
