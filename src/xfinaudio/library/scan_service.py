@@ -14,11 +14,15 @@ from xfinaudio.audio.analyzer import LibrosaSpectralAnalyzer, SpectralAnalyzer
 from xfinaudio.audio.batch_analyzer import analyze_paths
 from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.scan_planning import (
+    SUPPORTED_AUDIO_EXTENSIONS as SUPPORTED_AUDIO_EXTENSIONS,
+)
+from xfinaudio.library.scan_planning import (
+    plan_supported_audio_paths,
+)
 from xfinaudio.metadata.mixedinkey_contract import parse_mixedinkey_tags
 
 LOGGER = logging.getLogger(__name__)
-
-SUPPORTED_AUDIO_EXTENSIONS = frozenset({".aif", ".aiff", ".flac", ".m4a", ".mp3", ".wav"})
 
 PathLister = Callable[[Path], Iterable[Path]]
 TagReader = Callable[[Path], dict[str, Any] | None]
@@ -141,11 +145,7 @@ def scan_folder(
     path_lister = list_paths or _recursive_paths
     tag_reader = read_tags or read_mutagen_tags
     records: list[TrackRecord] = []
-    supported_paths = [
-        path
-        for path in sorted(path_lister(folder), key=lambda candidate: str(candidate))
-        if _is_supported_audio_file(path)
-    ]
+    supported_paths = plan_supported_audio_paths(folder, list_paths=path_lister)
     total_count = len(supported_paths)
 
     if previous_profile_cache is None and profile_cache_loader is not None and supported_paths:
@@ -341,10 +341,6 @@ def read_mutagen_tags(path: Path) -> dict[str, Any] | None:
 
 def _recursive_paths(folder: Path) -> Iterable[Path]:
     return folder.rglob("*")
-
-
-def _is_supported_audio_file(path: Path) -> bool:
-    return path.suffix.casefold() in SUPPORTED_AUDIO_EXTENSIONS
 
 
 def _coerce_tag_value(value: Any) -> Any:
