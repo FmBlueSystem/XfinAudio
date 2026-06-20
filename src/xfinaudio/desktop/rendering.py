@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QTableWidgetItem
 
-from xfinaudio.audio.spectral_profile import format_spectral_color as _spectral_color_formatter
+from xfinaudio.application.spectral_profile_display import format_application_spectral_color
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 
@@ -56,7 +56,7 @@ def _format_missing_metadata(track: TrackRecord) -> str:
 
 def _format_spectral_color(track: TrackRecord) -> str:
     """Return a compact spectral color badge for the track table."""
-    return _spectral_color_formatter(track.spectral_profile)
+    return format_application_spectral_color(track.spectral_profile)
 
 
 def _missing_worklist_display_name(missing_field: str) -> str:
