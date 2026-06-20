@@ -213,6 +213,29 @@ class MainWindow(QMainWindow):
     def _refresh_idle_action_state(self) -> None:
         self._library_controller.refresh_idle_action_state()
 
+    def _on_library_selection_changed(self, paths: list[str]) -> None:
+        self._library_controller.on_library_selection_changed(paths)
+
+    def show_tracks(
+        self, records: list[Any], complete_count: int | None = None, incomplete_count: int | None = None
+    ) -> None:
+        self._library_controller.show_tracks(records, complete_count, incomplete_count)
+
+    def set_selected_folder(self, folder: Any) -> None:
+        self._library_controller.set_selected_folder(folder)
+
+    def _persist_last_scan_folder(self, folder: Any) -> None:
+        self._library_controller._persist_last_scan_folder(folder)
+
+    def _populate_track_table(self, records: list[Any]) -> None:
+        self._library_controller.populate_track_table(records)
+
+    def _apply_song_filter(self, query: str | None = None, *, clear_selection: bool = False) -> None:
+        self._library_controller.apply_song_filter(query, clear_selection=clear_selection)
+
+    def restore_persisted_tracks(self, records: list[Any]) -> None:
+        self._library_controller.restore_persisted_tracks(records)
+
     def choose_safe_export_folder(self) -> None:
         self._export_actions.choose_safe_export_folder()
 
