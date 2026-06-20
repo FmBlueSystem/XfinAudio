@@ -14,7 +14,7 @@ def test_layout_no_longer_owns_legacy_method_installation() -> None:
 
 
 def test_shell_compat_names_legacy_layout_methods() -> None:
-    assert "_apply_song_filter" in shell_compat.LEGACY_LAYOUT_METHODS
+    assert "recommend_playlist" in shell_compat.LEGACY_LAYOUT_METHODS
 
 
 def test_main_window_keeps_legacy_layout_methods_available() -> None:
@@ -75,6 +75,23 @@ def test_scan_entry_shell_methods_are_explicit_main_window_methods() -> None:
     )
 
     for method_name in explicit_scan_methods:
+        assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
+        assert method_name in MainWindow.__dict__
+        assert callable(getattr(MainWindow, method_name))
+
+
+def test_library_table_shell_methods_are_explicit_main_window_methods() -> None:
+    explicit_library_table_methods = (
+        "_on_library_selection_changed",
+        "show_tracks",
+        "set_selected_folder",
+        "_persist_last_scan_folder",
+        "_populate_track_table",
+        "_apply_song_filter",
+        "restore_persisted_tracks",
+    )
+
+    for method_name in explicit_library_table_methods:
         assert method_name not in shell_layout_compat.LEGACY_LAYOUT_METHODS
         assert method_name in MainWindow.__dict__
         assert callable(getattr(MainWindow, method_name))
