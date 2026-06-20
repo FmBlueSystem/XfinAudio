@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: vertical-flow-construction
 artifact_store: openspec
-status: apply
+status: archived
 created: 2026-06-20
 updated: 2026-06-20
 strict_tdd: true
@@ -10,9 +10,10 @@ phases:
   specs: complete
   design: complete
   tasks: complete
-  apply: in-progress
+  apply: complete
   verify: complete
-next_recommended: apply
+  archive: complete
+next_recommended: none
 blocked_reasons: []
 delivery:
   strategy: auto-chain
@@ -25,3 +26,4 @@ notes:
   - Second completed slice adds scan-to-recommend orchestration without moving Qt worker/UI ownership into application.
   - Final functional slice adds saved-playlist-to-export orchestration through an injected application-level exporter without changing export writers.
   - Functional implementation and verification are complete; native dispatcher remains in apply because the archive task is intentionally unchecked until /sdd-archive runs.
+  - Archived after merged functional PRs #202, #204, and #206 passed post-merge main CI.

@@ -11,4 +11,4 @@
 - [x] RED: extend the application boundary toward saved-playlist export orchestration without desktop-owned product policy.
 - [x] GREEN: compose saved playlist export through application collaborators without changing export formats.
 - [x] VERIFY: run full XfinAudio gates after each additional vertical-flow slice.
-- [ ] Archive the OpenSpec change after scan/recommend/save/export coverage is implemented and verified.
+- [x] Archive the OpenSpec change after scan/recommend/save/export coverage is implemented and verified.
