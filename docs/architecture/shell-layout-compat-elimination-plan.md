@@ -12,48 +12,17 @@
 
 ## Current State
 
-Last verified: 2026-06-20 on `main` at `3c1d9df`.
+Last verified: 2026-06-20 on `refactor/spectral-completion-shell-methods-explicit` after Slice 8 local verification.
 
-`LEGACY_LAYOUT_METHODS` remaining count: **34**.
+`LEGACY_LAYOUT_METHODS` remaining count: **0**.
 
 Remaining methods:
 
 ```text
-_open_settings_dialog
-_on_spectral_cohesion_changed
-scan_selected_folder
-_begin_scan_state
-_on_library_selection_changed
-cancel_scan
-show_tracks
-generate_prep_copilot
-_apply_prep_copilot_item
-apply_selected_prep_copilot_variant
-recommend_playlist
-_begin_recommendation_state
-_end_recommendation_state
-_start_recommendation_worker
-_finish_recommendation
-_fail_recommendation
-_populate_dj_readiness_table
-_on_recommend_requested
-_on_copilot_variant_applied
-set_selected_folder
-_persist_last_scan_folder
-_populate_track_table
-_apply_song_filter
-_selected_metadata_status_filter
-_selected_missing_metadata_filter
-_metadata_status_records
-_metadata_missing_field_records
-restore_persisted_tracks
-_start_spectral_completion_worker
-_cancel_spectral_completion_worker
-_on_spectral_progress_updated
-_on_spectral_profile_ready
-_on_spectral_completion_finished
-_clear_scan_dependent_state
+(none)
 ```
+
+Initial baseline before this chain: 34 legacy layout grafted methods. Completed slices 1-8 removed all 34 from the graft map; the final cleanup slice now decides whether the empty compatibility surface can be removed safely.
 
 ## Non-Negotiables
 
@@ -273,5 +242,5 @@ uv run python scripts/release_gate_check.py --run
 - [x] Slice 5: Prep Copilot shell methods explicit — removes 3, remaining 14.
 - [x] Slice 6: Recommendation shell methods explicit — removes 8, remaining 6.
 - [x] Slice 7: Copilot/recommendation bridge explicit — removes 1, remaining 5.
-- [ ] Slice 8: Spectral completion shell methods explicit — removes 5, remaining 0.
-- [ ] Final removal slice: remove empty compatibility surface if safe.
+- [x] Slice 8: Spectral completion shell methods explicit — removes 5, remaining 0.
+- [ ] Final removal slice: remove empty compatibility surface if safe. (Ready: graft map is empty.)

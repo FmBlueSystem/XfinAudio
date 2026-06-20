@@ -1,0 +1,28 @@
+schema: gentle-ai.sdd-state.v1
+change: spectral-completion-shell-methods-explicit
+artifact_store: openspec
+status: complete
+created: 2026-06-20
+updated: 2026-06-20
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: stacked-to-main
+  review_budget_changed_lines: 400
+notes:
+  - Implementation must proceed RED -> GREEN -> REFACTOR.
+  - Expected legacy layout graft map count after this slice is 0.
+  - RED failed as expected before production changes.
+  - GREEN focused tests passed after explicit spectral delegators and empty graft map.
+  - Full verification gates passed; ready to archive after implementation merge.
+  - LEGACY_LAYOUT_METHODS is empty; final cleanup can remove or reduce shell_layout_compat safely.
