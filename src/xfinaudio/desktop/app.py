@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -102,7 +103,7 @@ def _load_settings_language() -> str | None:
         return None
 
 
-def main() -> int:
+def main(*, macos_configurator: Callable[[str, Path | None], None] = _configure_macos_app) -> int:
     """Start the XfinAudio desktop application."""
     sys.argv[0] = "XfinAudio"
     _set_process_name("XfinAudio")
@@ -112,11 +113,11 @@ def main() -> int:
     icon_path = Path(__file__).resolve().parents[2] / "assets" / "icons" / "app-icon-512x512.png"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
-    _configure_macos_app("XfinAudio", icon_path)
-    lang = os.environ.get("XFINAUDIO_LANG") or _load_settings_language()
-    install_translator(lang)
     if package_smoke_enabled():
         return 0
+    macos_configurator("XfinAudio", icon_path)
+    lang = os.environ.get("XFINAUDIO_LANG") or _load_settings_language()
+    install_translator(lang)
     window = MainWindow.with_defaults(database_path_from_environment(), settings_path_from_environment())
     window.showMaximized()
     window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)

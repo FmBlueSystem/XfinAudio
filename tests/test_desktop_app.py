@@ -42,8 +42,11 @@ def test_desktop_main_activates_window(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("XFINAUDIO_DB_PATH", str(tmp_path / "db.sqlite3"))
     monkeypatch.setenv("XFINAUDIO_SETTINGS_PATH", str(tmp_path / "settings.json"))
 
-    assert desktop_app.main() == 0
+    macos_calls = []
+
+    assert desktop_app.main(macos_configurator=lambda name, icon: macos_calls.append((name, icon))) == 0
     assert fake_window.calls == ["showMaximized", "setWindowState", "raise", "activateWindow"]
+    assert macos_calls[0][0] == "XfinAudio"
 
 
 def test_package_smoke_exits_without_creating_main_window(monkeypatch, tmp_path) -> None:
@@ -68,4 +71,6 @@ def test_package_smoke_exits_without_creating_main_window(monkeypatch, tmp_path)
     monkeypatch.setenv("XFINAUDIO_DB_PATH", str(tmp_path / "db.sqlite3"))
     monkeypatch.setenv("XFINAUDIO_SETTINGS_PATH", str(tmp_path / "settings.json"))
 
-    assert desktop_app.main() == 0
+    macos_calls = []
+    assert desktop_app.main(macos_configurator=lambda name, icon: macos_calls.append((name, icon))) == 0
+    assert macos_calls == []

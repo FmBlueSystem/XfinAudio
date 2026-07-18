@@ -17,8 +17,8 @@ dependencies = [
     "mutagen>=1.47,<2.0",
     "pydantic>=2.0,<3.0",
     "PySide6>=6.0,<7.0",
-    "pyobjc-framework-Cocoa>=10.0; platform_system == 'Darwin'",
-    "setproctitle>=1.3",
+    "pyobjc-framework-Cocoa>=10.0,<11.0; platform_system == 'Darwin'",
+    "setproctitle>=1.3,<2.0",
     "librosa>=0.10,<0.12",
     "numpy>=1.24,<3.0",
 ]
@@ -29,10 +29,10 @@ xfinaudio = "xfinaudio.desktop.app:main"
 [dependency-groups]
 dev = [
     "pyinstaller==6.20.0",
-    "pyright>=1.1.410",
-    "pytest>=8.0",
-    "pytest-cov>=7.1.0",
-    "ruff>=0.11",
+    "pyright>=1.1.410,<2.0",
+    "pytest>=8.0,<10.0",
+    "pytest-cov>=7.1.0,<8.0",
+    "ruff>=0.11,<1.0",
 ]
 
 [build-system]
