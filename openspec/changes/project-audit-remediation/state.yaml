@@ -1,0 +1,27 @@
+schema: gentle-ai.sdd-state.v1
+change: project-audit-remediation
+artifact_store: openspec
+status: complete
+created: 2026-07-18
+updated: 2026-07-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Implementation must proceed by autonomous PR slice, not as one monolithic patch.
+  - Behavior-changing tasks require RED -> GREEN -> REFACTOR -> VERIFY.
+  - Preserve product behavior while remediating test, dependency, lifecycle, and module-structure findings.
+  - Corrective apply completed after failed verification; rerun verify against the new evidence.
+  - PR4 corrective strict-TDD cycle is now recorded with observed RED, GREEN, refactor, focused tests, and full release gates.
