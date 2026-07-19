@@ -1,0 +1,33 @@
+schema: gentle-ai.sdd-state.v1
+change: serato-export-partial-success
+artifact_store: openspec
+status: archive
+verify_verdict: pass-with-notes
+archived_at: 2026-07-19
+created: 2026-07-19
+updated: 2026-07-19
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+archive:
+  status: complete
+  spec_synced: true
+  folder_moved: true
+  report_written: true
+  archive_path: openspec/changes/archive/2026-07-19-serato-export-partial-success/
+delivery:
+  strategy: ask-on-risk
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Archive complete on 2026-07-19 per skill.
+  - Implementation delivered as single slice (274 changed lines, within 400-line budget).
+  - Spec synced to openspec/specs/serato-recommendation-export/spec.md (new capability).
+  - All verify-report notes (2 WARNING, 3 SUGGESTION) recorded; no CRITICAL issues.
+  - Review lineages recorded: review-36d0ce486cf4a757 (4R, approved), review-09fb42d8757429ca (approved).
