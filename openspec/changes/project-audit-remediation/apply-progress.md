@@ -1,6 +1,38 @@
 # Apply Progress: Project Audit Remediation
 
-Status: Complete after corrective apply — 9 of 9 work units implemented; verification rerun is required.
+Status: Corrective apply complete — 12 of 12 work units implemented; final independent review is pending.
+
+## Independent Review R3 Cleanup — Work Unit 12.1
+
+| Evidence | Result |
+|---|---|
+| Change | Removed the duplicate sidebar-width block, unused `_RECOMMENDATION_READY_GUIDANCE`, unused `QCoreApplication` import, and stray standalone string from `main_window_layout.py`. |
+| Behavior | No runtime contract changed; the single retained constants still drive `responsive_sidebar_width` and layout construction. |
+| Focused verification | Responsive/layout selection across extracted boundaries, main window, and visual integration: **10 passed, 126 deselected**. |
+| Static verification | Ruff: PASS; Pyright: 0 errors. |
+| Rollback boundary | `src/xfinaudio/desktop/main_window_layout.py` only. |
+
+## Independent Review R2 Correction — Work Unit 11.1
+
+| Evidence | Result |
+|---|---|
+| RED | Four semantic-policy cases failed with missing `_is_bounded_requirement`: malformed `<garbage`, arbitrary `===local`, lower-only `>=1`, and wildcard `==1.*`. |
+| GREEN | `uv run pytest -q tests/test_dependency_bounds.py tests/test_extracted_desktop_boundaries.py`: **16 passed**. |
+| REFACTOR | Requirements are parsed by `packaging.requirements.Requirement`; only valid ordered upper bounds or valid non-wildcard exact pins pass. `packaging>=24,<26` is now an explicit bounded dev dependency. |
+| Characterization | Successful generic write asserts forwarding/status; successful Serato write asserts backup, readiness sidecars, receipt arguments, and callback; metadata-status write asserts records/status forwarding and visible completion. |
+| VERIFY | Full suite **1004 passed**; Pyright 0 errors; coverage **90.11%**; Ruff lint/format and release gate pass. |
+| Rollback boundary | `tests/test_dependency_bounds.py`, `tests/test_extracted_desktop_boundaries.py`, `pyproject.toml`, and `uv.lock`. |
+
+## Independent Review Correction — Work Unit 10.1
+
+| Evidence | Result |
+|---|---|
+| RED | `tests/test_dependency_bounds.py::test_pyobjc_range_supports_python_314_compatible_release` failed against `<11`; `tests/test_desktop_app.py::test_main_resolves_default_macos_configurator_at_call_time` reached the captured native configurator and aborted, proving the seam defect. |
+| GREEN | `OPENSSL_CONF=/dev/null uv run pytest -q tests/test_dependency_bounds.py tests/test_desktop_app.py tests/test_extracted_desktop_boundaries.py`: **12 passed**. |
+| REFACTOR | Dependency audit now flattens main, every optional, and every dependency-group list; extraction tests assert scan wiring and three user-visible export routes; dead constants were removed and module docstrings corrected. |
+| VERIFY | Full ordered gates: **997 passed**; Pyright 0 errors; coverage **90.16%**; Ruff lint/format pass; release gate pass. |
+| Runtime harness | Package smoke and release-readiness smoke pass inside the release gate. |
+| Rollback boundary | `pyproject.toml`, `uv.lock`, `app.py`, two extraction modules, and the three focused test files. |
 
 ## Corrective Work Unit Evidence
 

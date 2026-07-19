@@ -25,3 +25,10 @@ notes:
   - Preserve product behavior while remediating test, dependency, lifecycle, and module-structure findings.
   - Corrective apply completed after failed verification; rerun verify against the new evidence.
   - PR4 corrective strict-TDD cycle is now recorded with observed RED, GREEN, refactor, focused tests, and full release gates.
+  - All five independent-review findings were corrected and local gates pass; archive remains blocked until independent re-review allows the corrected revision.
+  - R2 semantic dependency-policy and successful export-write characterization corrections pass locally; independent re-review remains required.
+  - R3 final dead-constant cleanup passes focused layout, Ruff, and Pyright checks.
+  - Fresh-context same-family review converged 5 -> 2 -> 1 -> 0 and R4 is CLEAN.
+  - Anthropic cross-model review was unavailable because Claude required extra usage; the owner explicitly waived that missing check with the exact response "si, aprobado".
+  - Final verification passes with OPENSSL_CONF=/dev/null for Pyright because the managed host blocks Node from reading the system OpenSSL configuration.
+  - Verification completion does not fabricate or grant a native review transaction, ledger entry, receipt, or archive authority.
