@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any, Protocol
 
 from xfinaudio.application.dj_readiness import write_application_dj_readiness_report
 from xfinaudio.application.playlist_file_export import export_playlist_file, preview_playlist_file_export
 from xfinaudio.application.serato_playlist_export import export_serato_playlist
+from xfinaudio.desktop.export_dependencies import ExportDependencies
 from xfinaudio.desktop.serato_metadata_worklist_export import SeratoMetadataWorklistExportMixin
 from xfinaudio.desktop.serato_recommendation_export import (
     SeratoRecommendationExportMixin,
@@ -72,17 +72,6 @@ def write_readiness_sidecars(*args: Any, **kwargs: Any) -> Any:
     """Compatibility entrypoint with call-time report-writer resolution."""
     kwargs.setdefault("write_report", write_application_dj_readiness_report)
     return _write_readiness_sidecars(*args, **kwargs)
-
-
-@dataclass(frozen=True)
-class ExportDependencies:
-    evaluate_export_gate: Callable[..., Any]
-    preview_playlist_file_export: Callable[..., Any]
-    export_playlist_file: Callable[..., Any]
-    export_serato_playlist: Callable[..., Any]
-    discover_serato_libraries: Callable[..., Any]
-    write_application_dj_readiness_report: Callable[..., Any]
-    write_readiness_sidecars: Callable[..., Any]
 
 
 class ExportHost(Protocol):

@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from xfinaudio.application.dj_readiness import write_application_dj_readiness_report
-from xfinaudio.application.serato_playlist_export import export_serato_playlist, preview_serato_playlist_export
+from xfinaudio.application.serato_playlist_export import preview_serato_playlist_export
+from xfinaudio.desktop.export_dependencies import resolve_export_dependencies
 from xfinaudio.desktop.rendering import _table_item
 from xfinaudio.desktop.table_populators import populate_serato_export_history_table
 from xfinaudio.desktop.theme import _READINESS_STATUS_LABELS
-from xfinaudio.exporting.export_readiness import evaluate_export_gate
 from xfinaudio.exporting.serato_playlist_exporter import (
     SeratoLibrary,
     SeratoLibraryNotFoundError,
@@ -23,23 +23,6 @@ from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 
 LOGGER = logging.getLogger(__name__)
 _SERATO_EXPORT_HISTORY_LIMIT = 5
-
-
-def _dependencies(owner: Any) -> Any:
-    resolver = getattr(owner, "_export_dependencies", None)
-    if resolver is not None:
-        return resolver()
-    return type(
-        "SeratoExportDependencies",
-        (),
-        {
-            "evaluate_export_gate": staticmethod(evaluate_export_gate),
-            "export_serato_playlist": staticmethod(export_serato_playlist),
-            "discover_serato_libraries": staticmethod(discover_serato_libraries),
-            "write_application_dj_readiness_report": staticmethod(write_application_dj_readiness_report),
-            "write_readiness_sidecars": staticmethod(write_readiness_sidecars),
-        },
-    )()
 
 
 def plan_serato_export(
@@ -120,7 +103,7 @@ class SeratoRecommendationExportMixin:
     ) -> None:
         """Preview the Serato crate destination without writing files."""
         host = self._host
-        dependencies = _dependencies(self)
+        dependencies = resolve_export_dependencies(self)
         decision = dependencies.evaluate_export_gate(self._build_export_gate_request("preview", "Serato"))
         if self._handle_denied_export_gate(decision, "preview", "Serato"):
             return
@@ -164,7 +147,7 @@ class SeratoRecommendationExportMixin:
     ) -> None:
         """Export the current recommendation as a confirmed Serato crate."""
         host = self._host
-        dependencies = _dependencies(self)
+        dependencies = resolve_export_dependencies(self)
         decision = dependencies.evaluate_export_gate(self._build_export_gate_request("export", "Serato"))
         if self._handle_denied_export_gate(decision, "export", "Serato"):
             return
@@ -255,7 +238,7 @@ class SeratoRecommendationExportMixin:
             serato_folder=serato_folder,
             crate_name=crate_name,
             generated_at=generated_at,
-            discover_libraries=_dependencies(self).discover_serato_libraries,
+            discover_libraries=resolve_export_dependencies(self).discover_serato_libraries,
         )
 
     def _record_serato_export(

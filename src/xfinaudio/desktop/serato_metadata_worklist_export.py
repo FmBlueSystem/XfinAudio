@@ -10,8 +10,8 @@ from xfinaudio.application.serato_metadata_export import (
     export_metadata_status_serato_worklist,
     export_missing_field_serato_worklist,
 )
+from xfinaudio.desktop.export_dependencies import resolve_export_dependencies
 from xfinaudio.desktop.rendering import _missing_worklist_display_name
-from xfinaudio.exporting.serato_playlist_exporter import discover_serato_libraries
 from xfinaudio.library.models import MetadataStatus
 
 LOGGER = logging.getLogger(__name__)
@@ -45,11 +45,12 @@ class SeratoMetadataWorklistExportMixin:
             return
 
         try:
+            dependencies = resolve_export_dependencies(self)
             result = export_metadata_status_serato_worklist(
                 records=records,
                 status=cast(MetadataStatus, selected_status),
                 serato_folder=serato_folder,
-                discover_libraries=discover_serato_libraries,
+                discover_libraries=dependencies.discover_serato_libraries,
             ).write_result
         except Exception as exc:
             LOGGER.exception("Serato metadata status export failed")
@@ -81,11 +82,12 @@ class SeratoMetadataWorklistExportMixin:
             return
 
         try:
+            dependencies = resolve_export_dependencies(self)
             result = export_missing_field_serato_worklist(
                 records=records,
                 missing_field=missing_field,
                 serato_folder=serato_folder,
-                discover_libraries=discover_serato_libraries,
+                discover_libraries=dependencies.discover_serato_libraries,
             ).write_result
         except Exception as exc:
             LOGGER.exception("Serato missing-metadata export failed")
