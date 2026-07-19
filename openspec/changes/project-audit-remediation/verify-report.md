@@ -2,18 +2,18 @@
 
 ```yaml
 schema: gentle-ai.verify-result/v1
-evidence_revision: sha256:dc89afe05cd8b5881577afbd1a5d8c9d26909131fbd28a05be8488b1a2861384
-verdict: pass
-blockers: 0
+evidence_revision: pending-native-re-review
+verdict: pending_review
+blockers: 1
 critical_findings: 0
 requirements: 5/5
 scenarios: 10/10
 test_command: uv run pytest -q
 test_exit_code: 0
-test_output_hash: sha256:cfff27b312a157098437a47f7a0702e763f907ec433b1a91accc22a8cd49797e
+test_output_hash: pending-native-review-receipt
 build_command: OPENSSL_CONF=/dev/null uv run python scripts/release_gate_check.py --run
 build_exit_code: 0
-build_output_hash: sha256:3b868e0f7a25665aa7e953c24d2fb4bf49f9549cdaa300ea057df7bbaaef5196
+build_output_hash: pending-native-review-receipt
 ```
 
 ## Verification Report
@@ -22,27 +22,27 @@ build_output_hash: sha256:3b868e0f7a25665aa7e953c24d2fb4bf49f9549cdaa300ea057df7
 
 **Mode**: Strict TDD
 
-**Verdict**: **PASS WITH DOCUMENTED REVIEW DEGRADATION**
+**Verdict**: **LOCAL PASS — NATIVE RE-REVIEW PENDING**
 
 ### Completeness
 
 | Metric | Result |
 |---|---|
 | Planning artifacts | PASS — proposal, spec, design, tasks, and state are coherent |
-| Apply work units | PASS — 12/12 checked |
+| Apply work units | PASS — 13/13 checked |
 | Requirements | PASS — 5/5 |
 | Scenarios | PASS — 10/10 |
 | Runtime gates | PASS under the repository's managed-host OpenSSL workaround |
-| Independent review | CLEAN R4; cross-model authority waived by owner |
+| Independent review | PENDING — native 4R corrections changed the reviewed bytes |
 
 ### Ordered Verification Evidence
 
 | Command | Result | Exact output hash |
 |---|---|---|
-| `uv run pytest -q` | PASS — 1004 passed, 38 warnings | `sha256:cfff27b312a157098437a47f7a0702e763f907ec433b1a91accc22a8cd49797e` |
+| `uv run pytest -q` | PASS — 1005 passed | supersedes prior hash; native re-review pending |
 | `uv run pyright src tests` | HOST FAILURE — sandbox denied Node access to `/System/Library/OpenSSL/openssl.cnf`; no project diagnostic was emitted | `sha256:0414a7d00a5bc7215b19b99932754d738295551ed23a6b5bc9363c1b84c97f39` |
 | `OPENSSL_CONF=/dev/null uv run pyright src tests` | PASS — 0 errors, 0 warnings | `sha256:3c1a00ce86bcdce1ef7ba97d18d9c5b4e7026f49a5dc61a23382ed7345e02316` |
-| `uv run pytest --cov --cov-fail-under=70 -q` | PASS — 1004 passed; 90.11% | `sha256:4718233de10ac92d51e328a95ee1ebbdfce3fbf0f42261652b30b1277e621906` |
+| `uv run pytest --cov --cov-fail-under=70 -q` | PASS — 1005 passed; 90.23% | supersedes prior hash; native re-review pending |
 | `uv run ruff check .` | PASS | `sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18` |
 | `uv run ruff format --check .` | PASS — 262 files formatted | `sha256:378773692b3f13efd8b27b3a876ce716d70e19f27836db2815403436b552a3ae` |
 | `uv run python scripts/release_gate_check.py --run` | HOST FAILURE at its nested Pyright command for the same sandboxed OpenSSL path | `sha256:0663618473f0942b5dcdff80aeb10133b7dec104ac449466ec884ad5132044c5` |
@@ -65,9 +65,9 @@ The unmodified Pyright invocations fail before Pyright can inspect the project b
 | Check | Result | Details |
 |---|---|---|
 | TDD evidence reported | PASS | `apply-progress.md` contains the cycle table and corrective work-unit evidence |
-| All tasks complete | PASS | 12/12 |
+| All tasks complete | PASS | 13/13 |
 | Test files exist | PASS | All referenced focused files exist |
-| GREEN confirmed | PASS | 1004 tests pass on final bytes |
+| GREEN confirmed | PASS | 1005 tests pass on native-corrected bytes |
 | Triangulation | PASS | Happy, denial, error, and successful write/startup paths are represented |
 | Safety net | PASS | Existing focused and full suites are recorded before/after extraction |
 
@@ -90,7 +90,7 @@ The three final corrective test files contain 16 tests: dependency-policy unit t
 | `src/xfinaudio/desktop/serato_recommendation_export.py` | 85% | Acceptable |
 | `src/xfinaudio/desktop/serato_metadata_worklist_export.py` | 73% | Informational low; safe-write paths are behaviorally characterized |
 
-Aggregate project coverage is 90.11%, above the 70% gate. Per-file coverage is informational under the strict module and does not contradict the passing behavioral scenarios.
+Aggregate project coverage is 90.23%, above the 70% gate. Per-file coverage is informational under the strict module and does not contradict the passing behavioral scenarios.
 
 ### Architecture and Safety
 
@@ -98,11 +98,11 @@ Aggregate project coverage is 90.11%, above the 70% gate. Per-file coverage is i
 - `AppState` remains immutable through `model_copy(update=...)` paths.
 - No audio mutation, DSP expansion, or live Serato V2 write path was added.
 - Project-root `build/` and `dist/` are absent after the release gate.
-- Audited facades remain below 400 lines: `library_screen.py` 180, `layout.py` 282, and `export_coordinator.py` 157.
+- Audited facades remain below 400 lines: `library_screen.py` 180, `layout.py` 282, and `export_coordinator.py` 205.
 
 ### Independent Review and Owner Waiver
 
-Fresh-context same-family review converged across four rounds from **5 → 2 → 1 → 0** findings. R4 reports **CLEAN — no current BUG, RISK, or NIT findings** for `/tmp/xfinaudio-independent-review/audit-remediation-r4.diff`; review hash: `sha256:052fe3beedd4bfd293c2a125570b633930f02b0371fe90e96cfd0c02d5839563`.
+Fresh-context same-family review previously converged across four rounds from **5 → 2 → 1 → 0** findings. That R4 result covered the pre-native-correction bytes and is now historical; it does not authorize the current revision.
 
 Cross-model Anthropic verification could not run because Claude rejected access pending account `extra usage`. The owner was explicitly asked whether to continue with the clean same-family review and replied exactly: **“si, aprobado”**. This is recorded as a named owner waiver for the missing cross-model Anthropic check; it does not fabricate or substitute a native review transaction, ledger entry, receipt, or archive authority.
 
@@ -114,4 +114,4 @@ Cross-model Anthropic verification could not run because Claude rejected access 
 
 ## Final Status
 
-Verification is complete for the final implementation bytes. The change may proceed to archive orchestration, but this report grants no native transaction/receipt or archive authority.
+Local verification is complete for the native-corrected bytes. Native re-review and its valid transaction/receipt are required before archive orchestration.

@@ -1,6 +1,20 @@
 # Apply Progress: Project Audit Remediation
 
-Status: Corrective apply complete — 12 of 12 work units implemented; final independent review is pending.
+Status: Corrective apply complete — 13 of 13 work units implemented; native re-review is pending.
+
+## Native 4R Corrections — Work Unit 13.1
+
+| Finding | RED / correction evidence |
+|---|---|
+| READ-001 | Removed extracted-module back-imports to `export_coordinator`; `ExportDependencies` is owned/injected by `ExportCoordinator` and resolves facade globals at call time, preserving explicit injection and monkeypatch seams. |
+| READ-002 / REL-001 | Removed both no-op callable wrappers; `ExportActions` resolves coordinator methods for every call. The replacement-method test proves call-time delegation. |
+| READ-003 | Removed the redundant event-path `Qt` import; the module-level import remains. |
+| REL-002 | Package smoke installs the translator before its safe early return while still avoiding native NSApplication configuration, MainWindow construction, and the event loop. |
+| REL-003 | `sort_rows_for_column` sorts present rows directionally and appends missing numeric rows. Pure and Qt tests cover ascending and descending BPM order. |
+
+Focused verification: **61 passed**. Full verification: **1005 passed**, Pyright 0 errors, coverage **90.23%**, Ruff/format PASS, release gate PASS.
+
+Rollback boundary: export dependency/facade modules and tests; `app.py`/packaging smoke test; library presenter/rendering and sorting tests.
 
 ## Independent Review R3 Cleanup — Work Unit 12.1
 
