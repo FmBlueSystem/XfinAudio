@@ -1,4 +1,4 @@
-"""Responsive layout helpers for the desktop shell."""
+"""Connect main-window state, UI, and actions to application services."""
 
 from __future__ import annotations
 
@@ -13,9 +13,6 @@ from xfinaudio.desktop.theme import (
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 
-_SIDEBAR_WIDTH_WIDE = 180
-_SIDEBAR_WIDTH_NARROW = 120
-_NARROW_BREAKPOINT = 900
 _TRACK_TITLE_COLUMN = 0
 _TRACK_STATUS_COLUMN = 9
 _TRACK_PATH_COLUMN = 11

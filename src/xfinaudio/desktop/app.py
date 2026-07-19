@@ -103,7 +103,7 @@ def _load_settings_language() -> str | None:
         return None
 
 
-def main(*, macos_configurator: Callable[[str, Path | None], None] = _configure_macos_app) -> int:
+def main(*, macos_configurator: Callable[[str, Path | None], None] | None = None) -> int:
     """Start the XfinAudio desktop application."""
     sys.argv[0] = "XfinAudio"
     _set_process_name("XfinAudio")
@@ -115,6 +115,8 @@ def main(*, macos_configurator: Callable[[str, Path | None], None] = _configure_
         app.setWindowIcon(QIcon(str(icon_path)))
     if package_smoke_enabled():
         return 0
+    if macos_configurator is None:
+        macos_configurator = _configure_macos_app
     macos_configurator("XfinAudio", icon_path)
     lang = os.environ.get("XFINAUDIO_LANG") or _load_settings_language()
     install_translator(lang)

@@ -1,10 +1,10 @@
-"""Responsive layout helpers for the desktop shell."""
+"""Build and resize the desktop shell layout."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -21,21 +21,6 @@ from xfinaudio.desktop.status_bar import StatusBar
 from xfinaudio.desktop.undo_toolbar import UndoToolbar
 from xfinaudio.desktop.visual_design import apply_compact_mac_layout
 from xfinaudio.desktop.workflow_stack import WorkflowStack
-
-_SIDEBAR_WIDTH_WIDE = 180
-_SIDEBAR_WIDTH_NARROW = 120
-_NARROW_BREAKPOINT = 900
-_TRACK_TITLE_COLUMN = 0
-_TRACK_STATUS_COLUMN = 9
-_TRACK_PATH_COLUMN = 11
-_RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
-    "MainWindow",
-    "Selected row starts the playlist; multiple selected rows set the opening order. "
-    "Up to 25 candidates are used for interactive speed. Choose a strategy, then click Recommend Playlist.",
-)
-
-
-"""Responsive primitives extracted from the legacy layout facade."""
 
 _SIDEBAR_WIDTH_WIDE = 180
 _SIDEBAR_WIDTH_NARROW = 120
