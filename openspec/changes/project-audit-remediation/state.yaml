@@ -12,7 +12,7 @@ phases:
   tasks: complete
   apply: complete
   verify: in-progress
-next_recommended: native-re-review
+next_recommended: final-native-re-review
 blocked_reasons: []
 delivery:
   strategy: auto-chain
@@ -33,3 +33,4 @@ notes:
   - Final verification passes with OPENSSL_CONF=/dev/null for Pyright because the managed host blocks Node from reading the system OpenSSL configuration.
   - Verification completion does not fabricate or grant a native review transaction, ledger entry, receipt, or archive authority.
   - Native 4R READ-001/2/3 and REL-001/2/3 corrections pass focused and full gates; native re-review is pending.
+  - Final RES-001 and READ-004 corrections pass focused and full gates; final native re-review remains required.

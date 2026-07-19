@@ -29,7 +29,7 @@ build_output_hash: pending-native-review-receipt
 | Metric | Result |
 |---|---|
 | Planning artifacts | PASS — proposal, spec, design, tasks, and state are coherent |
-| Apply work units | PASS — 13/13 checked |
+| Apply work units | PASS — 14/14 checked |
 | Requirements | PASS — 5/5 |
 | Scenarios | PASS — 10/10 |
 | Runtime gates | PASS under the repository's managed-host OpenSSL workaround |
@@ -39,10 +39,10 @@ build_output_hash: pending-native-review-receipt
 
 | Command | Result | Exact output hash |
 |---|---|---|
-| `uv run pytest -q` | PASS — 1005 passed | supersedes prior hash; native re-review pending |
+| `uv run pytest -q` | PASS — 1006 passed | supersedes prior hash; final native re-review pending |
 | `uv run pyright src tests` | HOST FAILURE — sandbox denied Node access to `/System/Library/OpenSSL/openssl.cnf`; no project diagnostic was emitted | `sha256:0414a7d00a5bc7215b19b99932754d738295551ed23a6b5bc9363c1b84c97f39` |
 | `OPENSSL_CONF=/dev/null uv run pyright src tests` | PASS — 0 errors, 0 warnings | `sha256:3c1a00ce86bcdce1ef7ba97d18d9c5b4e7026f49a5dc61a23382ed7345e02316` |
-| `uv run pytest --cov --cov-fail-under=70 -q` | PASS — 1005 passed; 90.23% | supersedes prior hash; native re-review pending |
+| `uv run pytest --cov --cov-fail-under=70 -q` | PASS — 1006 passed; 90.32% | supersedes prior hash; final native re-review pending |
 | `uv run ruff check .` | PASS | `sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18` |
 | `uv run ruff format --check .` | PASS — 262 files formatted | `sha256:378773692b3f13efd8b27b3a876ce716d70e19f27836db2815403436b552a3ae` |
 | `uv run python scripts/release_gate_check.py --run` | HOST FAILURE at its nested Pyright command for the same sandboxed OpenSSL path | `sha256:0663618473f0942b5dcdff80aeb10133b7dec104ac449466ec884ad5132044c5` |
@@ -65,9 +65,9 @@ The unmodified Pyright invocations fail before Pyright can inspect the project b
 | Check | Result | Details |
 |---|---|---|
 | TDD evidence reported | PASS | `apply-progress.md` contains the cycle table and corrective work-unit evidence |
-| All tasks complete | PASS | 13/13 |
+| All tasks complete | PASS | 14/14 |
 | Test files exist | PASS | All referenced focused files exist |
-| GREEN confirmed | PASS | 1005 tests pass on native-corrected bytes |
+| GREEN confirmed | PASS | 1006 tests pass on final native-corrected bytes |
 | Triangulation | PASS | Happy, denial, error, and successful write/startup paths are represented |
 | Safety net | PASS | Existing focused and full suites are recorded before/after extraction |
 
@@ -90,7 +90,7 @@ The three final corrective test files contain 16 tests: dependency-policy unit t
 | `src/xfinaudio/desktop/serato_recommendation_export.py` | 85% | Acceptable |
 | `src/xfinaudio/desktop/serato_metadata_worklist_export.py` | 73% | Informational low; safe-write paths are behaviorally characterized |
 
-Aggregate project coverage is 90.23%, above the 70% gate. Per-file coverage is informational under the strict module and does not contradict the passing behavioral scenarios.
+Aggregate project coverage is 90.32%, above the 70% gate. Per-file coverage is informational under the strict module and does not contradict the passing behavioral scenarios.
 
 ### Architecture and Safety
 
@@ -114,4 +114,4 @@ Cross-model Anthropic verification could not run because Claude rejected access 
 
 ## Final Status
 
-Local verification is complete for the native-corrected bytes. Native re-review and its valid transaction/receipt are required before archive orchestration.
+Local verification is complete for the final native-corrected bytes. Final native re-review and its valid transaction/receipt are required before archive orchestration.

@@ -1,6 +1,16 @@
 # Apply Progress: Project Audit Remediation
 
-Status: Corrective apply complete — 13 of 13 work units implemented; native re-review is pending.
+Status: Corrective apply complete — 14 of 14 work units implemented; final native re-review is pending.
+
+## Final Native Corrections — Work Unit 14.1
+
+| Finding | Evidence |
+|---|---|
+| RES-001 | RED showed injected replacement discovery was ignored by metadata export. Both metadata-status and missing-field paths now resolve `discover_serato_libraries` from the same owner bundle as other export paths. |
+| READ-004 | Added canonical `export_dependencies.py` with the explicit frozen bundle, owner protocol, standalone default factory, and one resolver. Removed both opaque dynamically manufactured fallback classes. |
+| GREEN | Export/extraction focused suite: **28 passed**; the replacement discovery callable is forwarded by identity. |
+| VERIFY | Full suite **1006 passed**; Pyright 0 errors; coverage **90.32%**; Ruff/format and release gate pass. |
+| Rollback boundary | `export_dependencies.py`, the three extracted export modules, coordinator import, focused export test, and this lifecycle evidence. |
 
 ## Native 4R Corrections — Work Unit 13.1
 
