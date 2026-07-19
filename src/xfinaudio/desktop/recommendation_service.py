@@ -49,7 +49,7 @@ class RecommendationService(QObject):
         self._show_recommendation: Callable[[list[TrackRecord], str, Any], None] = _unwired
         self._show_transition_review: Callable[[Any], None] = _unwired
         self._selected_track_controls: Callable[[], DJControls | None] = _unwired
-        self._desktop_recommendation_records: Callable[[DJControls | None], list[TrackRecord]] = _unwired
+        self._desktop_recommendation_records: Callable[..., list[TrackRecord]] = _unwired
         self._set_recommendation_sections_expanded: Callable[[bool], None] = _unwired
         self._set_applied_copilot_variant: Callable[[str | None], None] = _unwired
         self._show_dj_readiness: Callable[..., None] = _unwired
@@ -96,7 +96,7 @@ class RecommendationService(QObject):
         show_recommendation: Callable[[list[TrackRecord], str, Any], None],
         show_transition_review: Callable[[Any], None],
         selected_track_controls: Callable[[], DJControls | None],
-        desktop_recommendation_records: Callable[[DJControls | None], list[TrackRecord]],
+        desktop_recommendation_records: Callable[..., list[TrackRecord]],
         set_recommendation_sections_expanded: Callable[[bool], None],
         set_applied_copilot_variant: Callable[[str | None], None],
         show_dj_readiness: Callable[..., None],
@@ -150,7 +150,7 @@ class RecommendationService(QObject):
             self._set_recommendation_sections_expanded(False)
             self._status_label.setText(self._tr("Select at least one complete track before recommending"))
             return
-        records = self._desktop_recommendation_records(controls)
+        records = self._desktop_recommendation_records(controls, strategy_name)
         spectral_cohesion = self._build_screen.spectral_cohesion_value() / 100.0
         self._begin_recommendation_state(len(records))
         self.start_recommendation(records, strategy_name, controls, spectral_cohesion)

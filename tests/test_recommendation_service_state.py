@@ -59,7 +59,7 @@ def _wire_service(
         show_recommendation=lambda *_args: None,
         show_transition_review=lambda _explanation: None,
         selected_track_controls=lambda: None,
-        desktop_recommendation_records=lambda _controls: [],
+        desktop_recommendation_records=lambda _controls, _strategy=None: [],
         set_recommendation_sections_expanded=lambda _expanded: None,
         set_applied_copilot_variant=set_applied_copilot_variant,
         show_dj_readiness=lambda *_args: None,

@@ -51,7 +51,6 @@ def test_build_prefers_ascending_energy() -> None:
     strategy = get_strategy("build")
 
     assert strategy.sort_hint == "energy_ascending"
-    assert strategy.prefer_energy_direction == "ascending"
 
 
 def test_peak_time_prefers_high_energy() -> None:

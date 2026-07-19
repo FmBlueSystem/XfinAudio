@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import QFileDialog, QLabel, QWidget
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
@@ -19,6 +20,7 @@ from xfinaudio.desktop.app_state_transitions import (
     apply_library_folder_selected,
     apply_library_records_loaded,
     apply_playlist_track_removed,
+    apply_playlist_track_replaced,
     apply_playlist_track_restored,
     apply_scan_context_reset,
     apply_spectral_profile,
@@ -39,6 +41,12 @@ from xfinaudio.desktop.screens import BuildScreen, ExportScreen, LibraryScreen, 
 from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
 from xfinaudio.desktop.table_populators import populate_library_table
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.playlist_service import (
+    PlaylistRecommendation,
+    prefilter_strategy_candidates,
+    recommendation_with_replacement,
+)
 
 _TRACK_COLOR_COLUMN = 6
 _TRACK_PATH_COLUMN = 11
@@ -262,25 +270,43 @@ class LibraryController:
 
         if path in self._state.playlist_removed_paths:
             return
-        self.apply_track_removed(path)
+        previous_recommendation = self._state.last_recommendation
+        replacement = self._replacement_recommendation(path)
+        self.apply_track_removed(path, replacement)
         self._access.undo_manager.push(
             Command(
                 label=self._tr("Remove {0}").format(Path(path).name),
-                execute=lambda: self.apply_track_removed(path),
-                undo=lambda: self.apply_track_restored(path),
+                execute=lambda: self.apply_track_removed(path, replacement),
+                undo=lambda: self.apply_track_restored(path, previous_recommendation),
             )
         )
         self._access.refresh_undo_state()
 
-    def apply_track_removed(self, path: str) -> None:
-        self._state = apply_playlist_track_removed(self._state, path)
+    def apply_track_removed(self, path: str, replacement: PlaylistRecommendation | None = None) -> None:
+        if replacement is None:
+            self._state = apply_playlist_track_removed(self._state, path)
+        else:
+            self._state = apply_playlist_track_replaced(self._state, path=path, recommendation=replacement)
         self._access.state_setter(self._state)
         self._sync_state()
 
-    def apply_track_restored(self, path: str) -> None:
-        self._state = apply_playlist_track_restored(self._state, path)
+    def apply_track_restored(self, path: str, recommendation: PlaylistRecommendation | None = None) -> None:
+        self._state = apply_playlist_track_restored(self._state, path, recommendation)
         self._access.state_setter(self._state)
         self._sync_state()
+
+    def _replacement_recommendation(self, path: str) -> PlaylistRecommendation | None:
+        """Return the removal recommendation with the slot backfilled, or None without one."""
+        recommendation = self._state.last_recommendation
+        if recommendation is None or all(item.path != path for item in recommendation.ordered_tracks):
+            return None
+        anchor_path = next((item.path for item in recommendation.ordered_tracks if item.path != path), None)
+        controls = DJControls(start_path=anchor_path) if anchor_path is not None else None
+        candidates = prefilter_strategy_candidates(self._state.scanned_records, recommendation.strategy.name, controls)
+        blocked_paths = self._state.playlist_removed_paths | {path}
+        eligible = [candidate for candidate in candidates if candidate.path not in blocked_paths]
+        cohesion = self._access.settings_getter().scoring.spectral_cohesion
+        return recommendation_with_replacement(recommendation, path, eligible, spectral_cohesion=cohesion)
 
     def on_track_play_requested(self, path: str) -> None:
         try:
@@ -352,7 +378,11 @@ class LibraryController:
         self.start_spectral_completion_worker(records)
 
     def start_spectral_completion_worker(self, records: list[TrackRecord]) -> None:
-        missing = [record for record in records if record.spectral_profile is None]
+        missing = [
+            record
+            for record in records
+            if record.spectral_profile is None or record.spectral_profile.analysis_version != CURRENT_ANALYSIS_VERSION
+        ]
         if not missing:
             return
         total_count = len(missing)

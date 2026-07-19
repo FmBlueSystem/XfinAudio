@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from pydantic import BaseModel, ConfigDict
 
+from xfinaudio.audio.spectral_profile import ColorName
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls
 from xfinaudio.recommendation.optimizer import recommend_sequence
@@ -65,6 +68,63 @@ def recommendation_without_paths(
     )
 
 
+def recommendation_with_replacement(
+    recommendation: PlaylistRecommendation,
+    removed_path: str,
+    candidates: list[TrackRecord],
+    *,
+    spectral_cohesion: float = 0.0,
+) -> PlaylistRecommendation:
+    """Replace a removed track with the best-fitting candidate at the same slot.
+
+    The candidate maximizing the summed transition score against the slot's
+    neighbors wins; adjacency scores are recomputed for the whole order. Falls
+    back to plain removal when no candidate is eligible.
+    """
+    paths = [item.path for item in recommendation.ordered_tracks]
+    if removed_path not in paths:
+        return recommendation
+
+    playlist_paths = set(paths)
+    eligible = [
+        candidate
+        for candidate in candidates
+        if candidate.path not in playlist_paths and candidate.metadata_status == "complete"
+    ]
+    if not eligible:
+        return recommendation_without_paths(
+            recommendation, frozenset({removed_path}), spectral_cohesion=spectral_cohesion
+        )
+
+    scoring_config = TransitionScoringConfig(
+        weights=recommendation.strategy.weights,
+        spectral_cohesion=spectral_cohesion,
+    )
+    index = paths.index(removed_path)
+    left = recommendation.ordered_tracks[index - 1] if index > 0 else None
+    right = recommendation.ordered_tracks[index + 1] if index + 1 < len(paths) else None
+
+    def _slot_fit(candidate: TrackRecord) -> float:
+        fit = 0.0
+        if left is not None:
+            fit += score_transition(left, candidate, weights=scoring_config.weights, config=scoring_config).total_score
+        if right is not None:
+            fit += score_transition(candidate, right, weights=scoring_config.weights, config=scoring_config).total_score
+        return fit
+
+    replacement = max(eligible, key=_slot_fit)
+    remaining = [item for item in recommendation.ordered_tracks if item.path != removed_path]
+    ordered_tracks = [*remaining[:index], replacement, *remaining[index:]]
+    transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config)
+    return recommendation.model_copy(
+        update={
+            "ordered_tracks": ordered_tracks,
+            "transition_scores": transition_scores,
+            "total_score": sum(score.total_score for score in transition_scores),
+        }
+    )
+
+
 def recommend_playlist(
     tracks: list[TrackRecord],
     strategy_name: StrategyName | str,
@@ -99,6 +159,11 @@ def recommend_playlist(
             filtered_tracks, controls, preserve_paths=_preserved_control_paths(controls)
         )
         warnings.extend(genre_warnings)
+    if strategy.name == "same_color":
+        filtered_tracks, color_warnings = _apply_color_filter(
+            filtered_tracks, controls, preserve_paths=_preserved_control_paths(controls)
+        )
+        warnings.extend(color_warnings)
     applied = apply_controls(filtered_tracks, controls)
 
     anchor_energy = _resolve_anchor_energy(applied)
@@ -303,6 +368,97 @@ def _dominant_genre(genres: list[str]) -> str:
     return min(counts, key=lambda genre: (-counts[genre], first_seen[genre]))
 
 
+def prefilter_strategy_candidates(
+    tracks: list[TrackRecord],
+    strategy_name: StrategyName | str,
+    controls: DJControls | None = None,
+    strategy_registry: StrategyRegistry | None = None,
+) -> list[TrackRecord]:
+    """Apply a strategy's hard filters to a full candidate pool before interactive capping.
+
+    Interactive adapters truncate the candidate pool for optimizer speed; running
+    the same hard filters ``recommend_playlist`` applies (energy/BPM ranges, anchor
+    genre, anchor color, energy tolerance) BEFORE that truncation keeps the capped
+    pool full of strategy-viable tracks instead of arbitrary scan-order ones.
+    """
+    strategy = (strategy_registry or default_strategy_registry()).get(str(strategy_name))
+    controls = controls or DJControls()
+    preserve_paths = _preserved_control_paths(controls)
+    complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
+
+    filtered, _ = _apply_strategy_filters(complete_tracks, strategy, preserve_paths=preserve_paths)
+    if strategy.name == "same_genre":
+        filtered, _ = _apply_genre_filter(filtered, controls, preserve_paths=preserve_paths)
+    if strategy.name == "same_color":
+        filtered, _ = _apply_color_filter(filtered, controls, preserve_paths=preserve_paths)
+    if strategy.energy_tolerance is not None:
+        # apply_controls re-validates control paths; a control track filtered out
+        # upstream would raise here, so fall back to skipping the tolerance
+        # prefilter and let recommend_playlist surface the real error.
+        with contextlib.suppress(ValueError):
+            applied = apply_controls(filtered, controls)
+            anchor_energy = _resolve_anchor_energy(applied)
+            if anchor_energy is not None:
+                filtered, _ = _apply_energy_tolerance(applied.candidate_tracks, strategy, anchor_energy, preserve_paths)
+    return filtered
+
+
+def _apply_color_filter(
+    tracks: list[TrackRecord], controls: DJControls, preserve_paths: set[str]
+) -> tuple[list[TrackRecord], list[str]]:
+    anchor_color = _resolve_anchor_color(tracks, controls)
+    if anchor_color is None:
+        return tracks, []
+
+    warnings = [f"same_color filter applied: {anchor_color}"]
+    filtered = [track for track in tracks if track.path in preserve_paths or _track_color(track) == anchor_color]
+    eligible = [track for track in filtered if track.path not in preserve_paths]
+    if not eligible:
+        warnings.append(
+            f"same_color: no candidates match anchor color '{anchor_color}'; falling back to unfiltered scoring"
+        )
+        return tracks, warnings
+    return filtered, warnings
+
+
+def _resolve_anchor_color(tracks: list[TrackRecord], controls: DJControls) -> ColorName | None:
+    by_path = {track.path: track for track in tracks}
+    if (
+        controls.start_path is not None
+        and (start_track := by_path.get(controls.start_path)) is not None
+        and (start_color := _track_color(start_track)) is not None
+    ):
+        return start_color
+
+    manual_colors: list[ColorName] = [
+        color
+        for path in controls.manual_order_paths
+        if path not in controls.excluded_paths and (manual_track := by_path.get(path)) is not None
+        if (color := _track_color(manual_track)) is not None
+    ]
+    if manual_colors:
+        return _dominant_color_value(manual_colors)
+
+    for candidate in tracks:
+        if (color := _track_color(candidate)) is not None:
+            return color
+    return None
+
+
+def _dominant_color_value(colors: list[ColorName]) -> ColorName:
+    first_seen: dict[ColorName, int] = {}
+    counts: dict[ColorName, int] = {}
+    for index, color in enumerate(colors):
+        first_seen.setdefault(color, index)
+        counts[color] = counts.get(color, 0) + 1
+    return min(counts, key=lambda color: (-counts[color], first_seen[color]))
+
+
+def _track_color(track: TrackRecord) -> ColorName | None:
+    profile = track.spectral_profile
+    return None if profile is None else profile.dominant_color
+
+
 def _normalized_genre(track: TrackRecord) -> str | None:
     if track.genre is None:
         return None
@@ -450,4 +606,10 @@ def _spectral_jump_warnings(tracks: list[TrackRecord]) -> list[str]:
     return [f"Spectral shifts: {summary}"]
 
 
-__all__ = ["PlaylistRecommendation", "recommend_playlist"]
+__all__ = [
+    "PlaylistRecommendation",
+    "prefilter_strategy_candidates",
+    "recommend_playlist",
+    "recommendation_with_replacement",
+    "recommendation_without_paths",
+]

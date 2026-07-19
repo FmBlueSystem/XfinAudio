@@ -12,7 +12,7 @@ from mutagen._file import File as MutagenFile
 
 from xfinaudio.audio.analyzer import LibrosaSpectralAnalyzer, SpectralAnalyzer
 from xfinaudio.audio.batch_analyzer import analyze_paths
-from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_planning import (
     SUPPORTED_AUDIO_EXTENSIONS as SUPPORTED_AUDIO_EXTENSIONS,
@@ -29,11 +29,6 @@ TagReader = Callable[[Path], dict[str, Any] | None]
 ProgressCallback = Callable[["ScanProgress"], None]
 ProfileCache = dict[str, tuple[int, int, SpectralProfile]]
 
-# First 30 seconds is representative of a DJ track's tonal character and
-# cuts librosa analysis time by ~5x for a typical 3-minute track without
-# affecting color (red/green/blue band) classification. Set to None to
-# analyze the full file.
-_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS: float | None = 30.0
 ProfileCacheLoader = Callable[[list[Path]], ProfileCache]
 
 
@@ -282,9 +277,7 @@ def _resolve_spectral_profiles(
         for path in paths_to_analyze:
             profiles[path] = results.get(str(path))
     else:
-        analyzer = spectral_analyzer or LibrosaSpectralAnalyzer(
-            max_duration_seconds=_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS
-        )
+        analyzer = spectral_analyzer or LibrosaSpectralAnalyzer()
         for path in paths_to_analyze:
             if cancellation_token is not None and cancellation_token.is_cancelled:
                 break
@@ -307,7 +300,11 @@ def _lookup_previous_profile(
     cached = previous_profile_cache.get(str(path))
     if cached is None:
         return None
-    if cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+    if (
+        cached[0] == stat.st_mtime_ns
+        and cached[1] == stat.st_size
+        and cached[2].analysis_version == CURRENT_ANALYSIS_VERSION
+    ):
         return cached[2]
     return None
 

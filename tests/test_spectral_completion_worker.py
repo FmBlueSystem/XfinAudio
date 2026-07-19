@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
-from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.desktop import spectral_completion_worker
 from xfinaudio.desktop.spectral_completion_worker import (
     SpectralCompletionWorker,
@@ -86,7 +86,13 @@ def test_worker_emits_progress_for_missing_profiles(monkeypatch) -> None:
 
 def test_worker_skips_cached_profiles(monkeypatch) -> None:
     ensure_app()
-    cached_profile = SpectralProfile(red_ratio=0.1, green_ratio=0.8, blue_ratio=0.1, dominant_color="GREEN")
+    cached_profile = SpectralProfile(
+        red_ratio=0.1,
+        green_ratio=0.8,
+        blue_ratio=0.1,
+        dominant_color="GREEN",
+        analysis_version=CURRENT_ANALYSIS_VERSION,
+    )
     repo = _FakeRepository(profiles={"/music/track.flac": cached_profile})
     monkeypatch.setattr(
         "xfinaudio.audio.analyzer.analyze_spectral_profile",
@@ -130,7 +136,13 @@ def test_worker_uses_injected_spectral_analyzer(tmp_path: Path) -> None:
 
 def test_worker_emits_progress_updated_counts_cached_and_analyzed(monkeypatch) -> None:
     ensure_app()
-    cached_profile = SpectralProfile(red_ratio=0.1, green_ratio=0.8, blue_ratio=0.1, dominant_color="GREEN")
+    cached_profile = SpectralProfile(
+        red_ratio=0.1,
+        green_ratio=0.8,
+        blue_ratio=0.1,
+        dominant_color="GREEN",
+        analysis_version=CURRENT_ANALYSIS_VERSION,
+    )
     analyzed_profile = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
     repo = _FakeRepository(profiles={"/music/cached.flac": cached_profile})
     monkeypatch.setattr(
@@ -150,6 +162,7 @@ def test_worker_emits_progress_updated_counts_cached_and_analyzed(monkeypatch) -
                 green_ratio=0.2,
                 blue_ratio=0.6,
                 dominant_color="BLUE",
+                analysis_version=CURRENT_ANALYSIS_VERSION,
             ),
         ),
     ]
@@ -161,6 +174,34 @@ def test_worker_emits_progress_updated_counts_cached_and_analyzed(monkeypatch) -
     _wait_for_worker(worker)
 
     assert progress_updates == [(1, 2), (2, 2)]
+
+
+@pytest.mark.parametrize("analysis_version", [1, CURRENT_ANALYSIS_VERSION + 1])
+def test_worker_reanalyzes_non_current_profiles(tmp_path: Path, analysis_version: int) -> None:
+    ensure_app()
+    stale = SpectralProfile(
+        red_ratio=0.9,
+        green_ratio=0.05,
+        blue_ratio=0.05,
+        dominant_color="RED",
+        analysis_version=analysis_version,
+    )
+    current = stale.model_copy(update={"analysis_version": CURRENT_ANALYSIS_VERSION})
+    path = tmp_path / "track.flac"
+    calls: list[Path] = []
+
+    class FakeAnalyzer:
+        def analyze(self, path: Path) -> SpectralProfile:
+            calls.append(path)
+            return current
+
+    worker = SpectralCompletionWorker(spectral_analyzer=FakeAnalyzer())
+    repository = _FakeRepository(profiles={str(path): stale})
+    worker.start([TrackRecord(path=str(path), spectral_profile=stale)], repository, max_workers=1)
+    _wait_for_worker(worker)
+
+    assert calls == [path]
+    assert repository.updated == {str(path): current}
 
 
 def test_worker_respects_cancellation(monkeypatch) -> None:

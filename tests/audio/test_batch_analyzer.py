@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from xfinaudio.audio.batch_analyzer import analyze_paths
-from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.library.scan_service import ScanCancellationToken
 
 SYNTHETIC_DIR = Path(__file__).resolve().parents[2] / "assets" / "synthetic_color_tests"
@@ -60,6 +60,7 @@ def test_batch_analyzer_uses_cached_profile_when_identity_matches(monkeypatch) -
         green_ratio=0.8,
         blue_ratio=0.1,
         dominant_color="GREEN",
+        analysis_version=CURRENT_ANALYSIS_VERSION,
     )
     cache = {str(path): (stat.st_mtime_ns, stat.st_size, cached_profile)}
 

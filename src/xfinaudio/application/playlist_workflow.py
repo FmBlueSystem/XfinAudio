@@ -9,8 +9,9 @@ from typing import Protocol, TypeGuard
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
+from xfinaudio.library import ports as library_ports
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.library.ports import TrackRepositoryPort, TrackSpectralProfileCacheReaderPort
+from xfinaudio.library.ports import TrackRepositoryPort
 from xfinaudio.library.scan_service import ProfileCache, ProgressCallback, ScanCancellationToken, ScanCancelledError
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
 from xfinaudio.recommendation.controls import DJControls
@@ -101,6 +102,18 @@ class PlaylistWorkflowService:
             )
 
         self.repository.save_scan_results(records)
+        if _supports_stored_track_read(self.repository):
+            stored_profiles = {
+                record.path: record.spectral_profile
+                for record in self.repository.list_display_tracks()
+                if record.spectral_profile is not None
+            }
+            records = [
+                record.model_copy(update={"spectral_profile": stored_profiles[record.path]})
+                if record.spectral_profile is None and record.path in stored_profiles
+                else record
+                for record in records
+            ]
         complete_count = sum(1 for record in records if record.metadata_status == "complete")
         return ScanWorkflowResult(
             records=records,
@@ -128,8 +141,14 @@ class PlaylistWorkflowService:
         )
 
 
-def _supports_spectral_profile_cache(repository: TrackRepositoryPort) -> TypeGuard[TrackSpectralProfileCacheReaderPort]:
+def _supports_spectral_profile_cache(
+    repository: TrackRepositoryPort,
+) -> TypeGuard[library_ports.TrackSpectralProfileCacheReaderPort]:
     return hasattr(repository, "load_spectral_profile_cache")
+
+
+def _supports_stored_track_read(repository: object) -> TypeGuard[library_ports.TrackDisplayRepositoryPort]:
+    return hasattr(repository, "list_display_tracks")
 
 
 __all__ = [

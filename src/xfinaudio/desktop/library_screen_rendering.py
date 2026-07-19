@@ -84,17 +84,27 @@ class LibraryScreenRenderingMixin:
         self.empty_state_label.setVisible(bool(text))
 
     def _render_scan_progress(self, state: AppState) -> None:
-        if not state.is_scanning:
-            self.scan_progress_bar.setVisible(False)
-            self.scan_progress_label.setVisible(False)
-            self.scan_progress_label.setText("")
+        if state.is_scanning:
+            self.scan_progress_bar.setValue(progress_percent(state.scan_progress_count, state.scan_progress_total))
+            self.scan_progress_label.setText(
+                progress_status_text(state.scan_progress_count, state.scan_progress_total, state.scan_elapsed_seconds)
+            )
+            self.scan_progress_bar.setVisible(True)
+            self.scan_progress_label.setVisible(True)
             return
-        self.scan_progress_bar.setValue(progress_percent(state.scan_progress_count, state.scan_progress_total))
-        self.scan_progress_label.setText(
-            progress_status_text(state.scan_progress_count, state.scan_progress_total, state.scan_elapsed_seconds)
-        )
-        self.scan_progress_bar.setVisible(True)
-        self.scan_progress_label.setVisible(True)
+        if state.is_completing_spectral and state.spectral_total_count > 0:
+            self.scan_progress_bar.setValue(progress_percent(state.spectral_progress_count, state.spectral_total_count))
+            self.scan_progress_label.setText(
+                self.tr("Analyzing colors {0:,}/{1:,}").format(
+                    state.spectral_progress_count, state.spectral_total_count
+                )
+            )
+            self.scan_progress_bar.setVisible(True)
+            self.scan_progress_label.setVisible(True)
+            return
+        self.scan_progress_bar.setVisible(False)
+        self.scan_progress_label.setVisible(False)
+        self.scan_progress_label.setText("")
 
     def _populate_table(self, rows: list[TrackDisplayRow]) -> None:
         # Preserve selected paths so sorting does not lose selection.

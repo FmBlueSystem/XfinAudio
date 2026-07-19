@@ -464,11 +464,14 @@ class MainWindow(QMainWindow):
     def _selected_track_controls(self) -> DJControls | None:
         return _layout.selected_main_track_controls(self)
 
-    def _desktop_recommendation_records(self, controls: DJControls | None) -> list[TrackRecord]:
+    def _desktop_recommendation_records(
+        self, controls: DJControls | None, strategy_name: str | None = None
+    ) -> list[TrackRecord]:
         return plan_recommendation_candidates(
             scanned_records=self.scanned_records,
             controls=controls,
             limit=_DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT,
+            strategy_name=strategy_name,
         )
 
     def show_recommendation(

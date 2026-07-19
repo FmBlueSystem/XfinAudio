@@ -4,18 +4,89 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from pathlib import Path
+
+    from xfinaudio.application.playlist_file_export import (
+        PlaylistFileExportResult,
+        PlaylistFileExportWriters,
+    )
+    from xfinaudio.application.serato_playlist_export import LibraryDiscoverer, SeratoPlaylistExportResult
+    from xfinaudio.exporting.export_readiness import ExportGateDecision, ExportGateRequest
+    from xfinaudio.exporting.playlist_file_export import PlaylistFileExportPlan
+    from xfinaudio.quality.dj_readiness import DjReadinessReport
+    from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+
+
+class PreviewPlaylistFileExportContract(Protocol):
+    """Callable contract for previewing a non-Serato playlist file export."""
+
+    def __call__(
+        self,
+        *,
+        software: str,
+        recommendation: PlaylistRecommendation,
+        safe_folder: Path,
+        requested_name: str | None,
+        variant_name: str | None,
+        generated_at: datetime | None = None,
+    ) -> PlaylistFileExportPlan: ...
+
+
+class ExportPlaylistFileContract(Protocol):
+    """Callable contract for writing a confirmed non-Serato playlist file export."""
+
+    def __call__(
+        self,
+        *,
+        software: str,
+        recommendation: PlaylistRecommendation,
+        safe_folder: Path,
+        requested_name: str | None,
+        variant_name: str | None,
+        generated_at: datetime | None = None,
+        writers: PlaylistFileExportWriters | None = None,
+    ) -> PlaylistFileExportResult: ...
+
+
+class ExportSeratoPlaylistContract(Protocol):
+    """Callable contract for writing a confirmed Serato crate export."""
+
+    def __call__(
+        self,
+        *,
+        recommendation: PlaylistRecommendation,
+        copilot_variant_name: str | None,
+        serato_folder: Path | None = None,
+        crate_name: str | None = None,
+        generated_at: datetime | None = None,
+        discover_libraries: LibraryDiscoverer = ...,
+    ) -> SeratoPlaylistExportResult: ...
+
+
+class WriteReadinessSidecarsContract(Protocol):
+    """Callable contract for writing DJ readiness sidecars beside a written crate."""
+
+    def __call__(
+        self,
+        report: DjReadinessReport,
+        crate_path: Path,
+        *,
+        safe_folder: Path | None = None,
+    ) -> tuple[Path, Path]: ...
 
 
 @dataclass(frozen=True)
 class ExportDependencies:
-    evaluate_export_gate: Callable[..., Any]
-    preview_playlist_file_export: Callable[..., Any]
-    export_playlist_file: Callable[..., Any]
-    export_serato_playlist: Callable[..., Any]
-    discover_serato_libraries: Callable[..., Any]
-    write_application_dj_readiness_report: Callable[..., Any]
-    write_readiness_sidecars: Callable[..., Any]
+    evaluate_export_gate: Callable[[ExportGateRequest], ExportGateDecision]
+    preview_playlist_file_export: PreviewPlaylistFileExportContract
+    export_playlist_file: ExportPlaylistFileContract
+    export_serato_playlist: ExportSeratoPlaylistContract
+    discover_serato_libraries: LibraryDiscoverer
+    write_readiness_sidecars: WriteReadinessSidecarsContract
 
 
 class ExportDependencyOwner(Protocol):
@@ -24,7 +95,6 @@ class ExportDependencyOwner(Protocol):
 
 def default_export_dependencies() -> ExportDependencies:
     """Build standalone dependencies without importing the compatibility facade."""
-    from xfinaudio.application.dj_readiness import write_application_dj_readiness_report
     from xfinaudio.application.playlist_file_export import export_playlist_file, preview_playlist_file_export
     from xfinaudio.application.serato_playlist_export import export_serato_playlist
     from xfinaudio.desktop.serato_recommendation_export import write_readiness_sidecars
@@ -37,7 +107,6 @@ def default_export_dependencies() -> ExportDependencies:
         export_playlist_file=export_playlist_file,
         export_serato_playlist=export_serato_playlist,
         discover_serato_libraries=discover_serato_libraries,
-        write_application_dj_readiness_report=write_application_dj_readiness_report,
         write_readiness_sidecars=write_readiness_sidecars,
     )
 

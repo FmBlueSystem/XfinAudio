@@ -148,6 +148,30 @@ def test_scan_progress_bar_shows_eta_and_hides_when_complete(qapp: QApplication)
     assert screen.scan_progress_label.text() == ""
 
 
+def test_scan_progress_bar_shows_spectral_completion_progress(qapp: QApplication) -> None:
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+
+    screen.render(
+        vm,
+        AppState(
+            Path("/music"),
+            is_completing_spectral=True,
+            spectral_progress_count=2500,
+            spectral_total_count=10000,
+        ),
+        lightweight=True,
+    )
+
+    assert screen.scan_progress_bar.isHidden() is False
+    assert screen.scan_progress_bar.value() == 25
+    assert screen.scan_progress_label.text() == "Analyzing colors 2,500/10,000"
+
+    screen.render(vm, AppState(selected_folder=Path("/music")), lightweight=True)
+    assert screen.scan_progress_bar.isHidden() is True
+    assert screen.scan_progress_label.text() == ""
+
+
 def test_primary_and_secondary_action_buttons_have_visual_hierarchy(qapp: QApplication) -> None:
     """Scan is a larger primary action; Settings is a smaller muted secondary action."""
     screen = LibraryScreen()

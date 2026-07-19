@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
+from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken, ScanCancelledError, ScanProgress
@@ -40,6 +41,23 @@ def test_playlist_workflow_scan_folder_returns_counts_and_persists_records(tmp_p
     assert result.complete_count == 1
     assert result.incomplete_count == 1
     assert result.cancelled is False
+
+
+def test_playlist_workflow_scan_keeps_identity_matched_stale_profile_attached(tmp_path) -> None:
+    from xfinaudio.library.track_repository import TrackRepository
+
+    audio_file = tmp_path / "a.flac"
+    audio_file.write_text("audio")
+    stale = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    repository = TrackRepository(tmp_path / "library.db")
+    repository.save_scan_results([TrackRecord(path=str(audio_file), spectral_profile=stale)])
+
+    result = PlaylistWorkflowService(scan_service=FakeScanService(), repository=repository).scan_folder(
+        tmp_path, resolve_spectral_profiles=False
+    )
+
+    matched = next(record for record in result.records if record.path == str(audio_file))
+    assert matched.spectral_profile == stale
 
 
 class CancellableFakeScanService:

@@ -1,7 +1,9 @@
 import pytest
 
-from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.audio.spectral_profile import SpectralProfile, dominant_color_for_ratios
+from xfinaudio.config.settings import AppSettings
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.playlist_service import recommend_playlist
 from xfinaudio.recommendation.scoring import (
     KeyShiftConfig,
     ScoringWeights,
@@ -270,6 +272,60 @@ def test_spectral_cohesion_boosts_weight_for_same_color() -> None:
     high_cohesion = score_transition(left, right, config=TransitionScoringConfig(spectral_cohesion=1.0))
 
     assert high_cohesion.total_score >= no_cohesion.total_score
+
+
+def test_new_color_rule_drives_spectral_penalty_for_different_and_same_colors() -> None:
+    red = SpectralProfile(
+        red_ratio=0.46,
+        green_ratio=0.40,
+        blue_ratio=0.14,
+        dominant_color=dominant_color_for_ratios(0.46, 0.40, 0.14),
+    )
+    blue = SpectralProfile(
+        red_ratio=0.40,
+        green_ratio=0.35,
+        blue_ratio=0.25,
+        dominant_color=dominant_color_for_ratios(0.40, 0.35, 0.25),
+    )
+    config = TransitionScoringConfig(spectral_cohesion=0.5)
+
+    different = score_transition(
+        track("red", spectral_profile=red), track("blue", spectral_profile=blue), config=config
+    )
+    same = score_transition(track("red-1", spectral_profile=red), track("red-2", spectral_profile=red), config=config)
+
+    assert "Spectral color penalty applied" in " ".join(different.warnings)
+    assert "Spectral color penalty applied" not in " ".join(same.warnings)
+
+
+def test_default_app_settings_drive_new_color_penalty_through_recommendation() -> None:
+    settings = AppSettings()
+    red = SpectralProfile(
+        red_ratio=0.46,
+        green_ratio=0.40,
+        blue_ratio=0.14,
+        dominant_color=dominant_color_for_ratios(0.46, 0.40, 0.14),
+    )
+    blue = SpectralProfile(
+        red_ratio=0.40,
+        green_ratio=0.35,
+        blue_ratio=0.25,
+        dominant_color=dominant_color_for_ratios(0.40, 0.35, 0.25),
+    )
+
+    different = recommend_playlist(
+        [track("red", spectral_profile=red), track("blue", spectral_profile=blue)],
+        "build",
+        spectral_cohesion=settings.scoring.spectral_cohesion,
+    )
+    same = recommend_playlist(
+        [track("red-1", spectral_profile=red), track("red-2", spectral_profile=red)],
+        "build",
+        spectral_cohesion=settings.scoring.spectral_cohesion,
+    )
+
+    assert "Spectral color penalty applied" in " ".join(different.transition_scores[0].warnings)
+    assert "Spectral color penalty applied" not in " ".join(same.transition_scores[0].warnings)
 
 
 def test_spectral_cohesion_out_of_range_is_rejected() -> None:

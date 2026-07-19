@@ -7,7 +7,9 @@ from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
     _bpm_jump_warning,
     _spectral_jump_warnings,
+    prefilter_strategy_candidates,
     recommend_playlist,
+    recommendation_with_replacement,
     recommendation_without_paths,
 )
 from xfinaudio.recommendation.scoring import ScoringWeights, score_transition
@@ -270,6 +272,178 @@ def test_same_genre_falls_back_when_no_eligible_candidate_matches_anchor_genre()
         "same_genre: no candidates match anchor genre 'world & latin'; falling back to unfiltered scoring"
         in result.warnings
     )
+
+
+def test_same_color_filters_candidates_to_selected_start_color() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED"),
+        spectral_track("/red.flac", "RED"),
+        spectral_track("/green.flac", "GREEN"),
+        track("/no-profile.flac"),
+        spectral_track("/blue.flac", "BLUE"),
+    ]
+
+    result = recommend_playlist(tracks, "same_color", controls=DJControls(start_path="/anchor.flac"))
+
+    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/red.flac"}
+    assert "same_color filter applied: RED" in result.warnings
+
+
+def test_same_color_uses_manual_prefix_color_when_start_path_is_absent() -> None:
+    tracks = [
+        spectral_track("/manual.flac", "GREEN"),
+        spectral_track("/green.flac", "GREEN"),
+        spectral_track("/red.flac", "RED"),
+    ]
+
+    result = recommend_playlist(tracks, "same_color", controls=DJControls(manual_order_paths=["/manual.flac"]))
+
+    assert [item.path for item in result.ordered_tracks[:1]] == ["/manual.flac"]
+    assert {item.path for item in result.ordered_tracks} == {"/manual.flac", "/green.flac"}
+    assert "same_color filter applied: GREEN" in result.warnings
+
+
+def test_same_color_preserves_controlled_paths_even_when_color_differs() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED"),
+        spectral_track("/red.flac", "RED"),
+        spectral_track("/locked-green.flac", "GREEN"),
+        spectral_track("/end-blue.flac", "BLUE"),
+    ]
+    controls = DJControls(start_path="/anchor.flac", end_path="/end-blue.flac", locked_paths={"/locked-green.flac"})
+
+    result = recommend_playlist(tracks, "same_color", controls=controls)
+
+    assert {item.path for item in result.ordered_tracks} == {
+        "/anchor.flac",
+        "/red.flac",
+        "/locked-green.flac",
+        "/end-blue.flac",
+    }
+    assert "same_color filter applied: RED" in result.warnings
+
+
+def test_same_color_falls_back_when_no_eligible_candidate_matches_anchor_color() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED"),
+        spectral_track("/green.flac", "GREEN"),
+        spectral_track("/blue.flac", "BLUE"),
+    ]
+
+    result = recommend_playlist(tracks, "same_color", controls=DJControls(start_path="/anchor.flac"))
+
+    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/green.flac", "/blue.flac"}
+    assert "same_color filter applied: RED" in result.warnings
+    assert "same_color: no candidates match anchor color 'RED'; falling back to unfiltered scoring" in result.warnings
+
+
+def test_same_color_skips_filter_when_no_track_has_a_profile() -> None:
+    tracks = [track("/a.flac"), track("/b.flac")]
+
+    result = recommend_playlist(tracks, "same_color")
+
+    assert {item.path for item in result.ordered_tracks} == {"/a.flac", "/b.flac"}
+    assert not any(warning.startswith("same_color") for warning in result.warnings)
+
+
+def test_prefilter_strategy_candidates_keeps_only_anchor_color_for_same_color() -> None:
+    reds = [spectral_track(f"/red-{i}.flac", "RED") for i in range(30)]
+    greens = [spectral_track(f"/green-{i}.flac", "GREEN") for i in range(30)]
+
+    result = prefilter_strategy_candidates(
+        [*reds, *greens], "same_color", controls=DJControls(start_path="/green-0.flac")
+    )
+
+    assert {item.path for item in result} == {green.path for green in greens}
+
+
+def test_prefilter_strategy_candidates_applies_energy_range_for_peak_time() -> None:
+    low = track("/low.flac", energy_level=3)
+    high = track("/high.flac", energy_level=8)
+
+    result = prefilter_strategy_candidates([low, high], "peak_time")
+
+    assert [item.path for item in result] == ["/high.flac"]
+
+
+def test_prefilter_strategy_candidates_applies_energy_tolerance_for_same_energy() -> None:
+    anchor = track("/anchor.flac", energy_level=5)
+    near = track("/near.flac", energy_level=6)
+    far = track("/far.flac", energy_level=9)
+
+    result = prefilter_strategy_candidates(
+        [anchor, near, far], "same_energy", controls=DJControls(start_path="/anchor.flac")
+    )
+
+    assert {item.path for item in result} == {"/anchor.flac", "/near.flac"}
+
+
+def _three_track_recommendation() -> PlaylistRecommendation:
+    return recommend_playlist(
+        [
+            track("/left.flac", bpm=120.0, camelot_key="8A", energy_level=4),
+            track("/removed.flac", bpm=121.0, camelot_key="9A", energy_level=5),
+            track("/right.flac", bpm=122.0, camelot_key="10A", energy_level=6),
+        ],
+        "build",
+    )
+
+
+def test_recommendation_with_replacement_fills_the_slot_with_best_fitting_candidate() -> None:
+    recommendation = _three_track_recommendation()
+    good_fit = track("/good.flac", bpm=121.0, camelot_key="9A", energy_level=5)
+    bad_fit = track("/bad.flac", bpm=90.0, camelot_key="2B", energy_level=1)
+
+    result = recommendation_with_replacement(recommendation, "/removed.flac", [bad_fit, good_fit])
+
+    assert [item.path for item in result.ordered_tracks] == ["/left.flac", "/good.flac", "/right.flac"]
+    assert len(result.transition_scores) == 2
+    assert result.transition_scores[0].right_path == "/good.flac"
+    assert result.transition_scores[1].left_path == "/good.flac"
+    assert result.total_score == sum(score.total_score for score in result.transition_scores)
+
+
+def test_recommendation_with_replacement_ignores_candidates_already_in_playlist() -> None:
+    recommendation = _three_track_recommendation()
+    duplicate = track("/right.flac", bpm=122.0, camelot_key="10A", energy_level=6)
+
+    result = recommendation_with_replacement(recommendation, "/removed.flac", [duplicate])
+
+    assert [item.path for item in result.ordered_tracks] == ["/left.flac", "/right.flac"]
+
+
+def test_recommendation_with_replacement_shrinks_when_no_candidate_is_eligible() -> None:
+    recommendation = _three_track_recommendation()
+
+    result = recommendation_with_replacement(recommendation, "/removed.flac", [])
+
+    assert [item.path for item in result.ordered_tracks] == ["/left.flac", "/right.flac"]
+    assert len(result.transition_scores) == 1
+
+
+def test_recommendation_with_replacement_returns_same_object_for_unknown_path() -> None:
+    recommendation = _three_track_recommendation()
+
+    result = recommendation_with_replacement(recommendation, "/absent.flac", [track("/candidate.flac")])
+
+    assert result is recommendation
+
+
+def test_recommendation_with_replacement_handles_edge_slots() -> None:
+    recommendation = _three_track_recommendation()
+    candidate = track("/new-start.flac", bpm=119.0, camelot_key="7A", energy_level=4)
+
+    result = recommendation_with_replacement(recommendation, "/left.flac", [candidate])
+
+    assert [item.path for item in result.ordered_tracks] == ["/new-start.flac", "/removed.flac", "/right.flac"]
+
+
+def test_prefilter_strategy_candidates_passes_through_unconstrained_strategies() -> None:
+    tracks = [track("/a.flac"), track("/b.flac", status="incomplete")]
+
+    result = prefilter_strategy_candidates(tracks, "harmonic_journey")
+
+    assert [item.path for item in result] == ["/a.flac"]
 
 
 def test_recommend_playlist_uses_injected_strategy_registry() -> None:
