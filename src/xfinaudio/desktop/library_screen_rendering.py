@@ -93,9 +93,7 @@ class LibraryScreenRenderingMixin:
             self.scan_progress_label.setVisible(True)
             return
         if state.is_completing_spectral and state.spectral_total_count > 0:
-            self.scan_progress_bar.setValue(
-                progress_percent(state.spectral_progress_count, state.spectral_total_count)
-            )
+            self.scan_progress_bar.setValue(progress_percent(state.spectral_progress_count, state.spectral_total_count))
             self.scan_progress_label.setText(
                 self.tr("Analyzing colors {0:,}/{1:,}").format(
                     state.spectral_progress_count, state.spectral_total_count

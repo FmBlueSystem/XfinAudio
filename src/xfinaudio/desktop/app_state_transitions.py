@@ -108,9 +108,7 @@ def apply_playlist_track_removed(state: AppState, path: str) -> AppState:
     return state.model_copy(update={"playlist_removed_paths": state.playlist_removed_paths | {path}})
 
 
-def apply_playlist_track_replaced(
-    state: AppState, *, path: str, recommendation: PlaylistRecommendation
-) -> AppState:
+def apply_playlist_track_replaced(state: AppState, *, path: str, recommendation: PlaylistRecommendation) -> AppState:
     """Return a new state with a removed track marked and its backfilled recommendation applied."""
     return state.model_copy(
         update={

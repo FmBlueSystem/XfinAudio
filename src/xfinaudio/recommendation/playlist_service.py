@@ -399,9 +399,7 @@ def prefilter_strategy_candidates(
             applied = apply_controls(filtered, controls)
             anchor_energy = _resolve_anchor_energy(applied)
             if anchor_energy is not None:
-                filtered, _ = _apply_energy_tolerance(
-                    applied.candidate_tracks, strategy, anchor_energy, preserve_paths
-                )
+                filtered, _ = _apply_energy_tolerance(applied.candidate_tracks, strategy, anchor_energy, preserve_paths)
     return filtered
 
 
