@@ -148,16 +148,25 @@ def analyze_spectral_profile(
 
 
 def _dominant_color(red_ratio: float, green_ratio: float, blue_ratio: float) -> ColorName:
-    """Classify the dominant color using a simple threshold.
+    """Classify color by per-band thresholds and threshold excess.
 
-    A color is dominant when its ratio is at least 0.55; otherwise the profile
-    is classified as MIXED.
+    When multiple bands qualify, the largest excess wins. Dictionary order
+    provides the deterministic RED, GREEN, BLUE priority for exact ties.
     """
-    ratios = {"RED": red_ratio, "GREEN": green_ratio, "BLUE": blue_ratio}
-    dominant_name, dominant_value = max(ratios.items(), key=lambda item: item[1])
-    if dominant_value >= 0.55:
-        return dominant_name  # type: ignore[return-value]
-    return "MIXED"
+    candidates: dict[ColorName, float] = {
+        "RED": red_ratio - 0.45,
+        "GREEN": green_ratio - 0.45,
+        "BLUE": blue_ratio - 0.25,
+    }
+    eligible: dict[ColorName, float] = {color: excess for color, excess in candidates.items() if excess >= 0.0}
+    if not eligible:
+        return "MIXED"
+    return max(eligible.items(), key=lambda item: item[1])[0]
+
+
+def dominant_color_for_ratios(red_ratio: float, green_ratio: float, blue_ratio: float) -> ColorName:
+    """Return the spectral color classification for normalized band ratios."""
+    return _dominant_color(red_ratio, green_ratio, blue_ratio)
 
 
 def score_spectral_similarity(left: SpectralProfile, right: SpectralProfile) -> float:

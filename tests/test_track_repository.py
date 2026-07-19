@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -165,6 +166,52 @@ def test_track_repository_round_trips_spectral_profile(tmp_path) -> None:
     repository.save_scan_results([original])
 
     assert repository.list_tracks() == [original]
+
+
+@pytest.mark.parametrize("stored_color", ["RED", None, "NOT_A_COLOR"])
+def test_track_repository_recomputes_dominant_color_on_read(tmp_path, stored_color: str | None) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    repository = TrackRepository(db_path)
+    repository.save_scan_results([TrackRecord(path="/music/track.flac")])
+    payload: dict[str, object] = {
+        "red_ratio": 0.40,
+        "green_ratio": 0.35,
+        "blue_ratio": 0.25,
+        "centroid_hz": 500.0,
+        "rolloff_hz": 1200.0,
+        "rms": 0.05,
+    }
+    if stored_color is not None:
+        payload["dominant_color"] = stored_color
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE tracks SET spectral_profile_json = ? WHERE path = ?",
+            (json.dumps(payload), "/music/track.flac"),
+        )
+
+    profile = repository.list_tracks()[0].spectral_profile
+
+    assert profile is not None
+    assert profile.dominant_color == "BLUE"
+
+
+def test_track_repository_rejects_invalid_profile_ratios_on_read(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    repository = TrackRepository(db_path)
+    repository.save_scan_results([TrackRecord(path="/music/track.flac")])
+    payload = {
+        "red_ratio": 1.1,
+        "green_ratio": 0.0,
+        "blue_ratio": 0.0,
+        "dominant_color": "RED",
+    }
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE tracks SET spectral_profile_json = ? WHERE path = ?",
+            (json.dumps(payload), "/music/track.flac"),
+        )
+
+    assert repository.list_tracks()[0].spectral_profile is None
 
 
 def test_track_repository_migrates_v1_database_to_v3(tmp_path) -> None:

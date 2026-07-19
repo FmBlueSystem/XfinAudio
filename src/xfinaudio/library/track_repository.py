@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.audio.spectral_profile import SpectralProfile, dominant_color_for_ratios
 from xfinaudio.library.models import TrackRecord
 
 SCHEMA_VERSION = 3
@@ -286,6 +286,12 @@ def _deserialize_profile(value: str | None) -> SpectralProfile | None:
     if value is None:
         return None
     try:
-        return SpectralProfile.model_validate_json(value)
+        profile_data = json.loads(value)
+        profile_data["dominant_color"] = dominant_color_for_ratios(
+            profile_data["red_ratio"],
+            profile_data["green_ratio"],
+            profile_data["blue_ratio"],
+        )
+        return SpectralProfile.model_validate(profile_data)
     except Exception:
         return None

@@ -38,3 +38,31 @@ VERDICT: REVISE
 Remaining finding addressed (internal 0.0 vs effective desktop 0.5 default distinguished, settings-driven regression coverage added). No new material problems.
 
 VERDICT: APPROVED
+
+## Act 3 — Build
+
+Builder model: gpt-5.6-sol (config default) — codex-cli 0.144.6. MAX_FIX_ROUNDS=2.
+Thread: 019f7a8e-fef4-7a03-8b3a-125dacbfc98d
+
+### Round 1 — Codex build
+
+Implemented the frozen spec RED-first: new per-band threshold rule in
+`_dominant_color` (RED>=0.45 / GREEN>=0.45 / BLUE>=0.25, largest excess wins,
+exact ties resolve RED>GREEN>BLUE via dict order), public
+`dominant_color_for_ratios` wrapper, and `_deserialize_profile` now parses the
+JSON dict, recomputes `dominant_color` from ratios, then validates once.
+Tests: threshold/tie-break/near-tie cases, stale/missing/invalid stored color
+recompute-on-read, invalid ratios -> None, spectral penalty regression, and
+default-AppSettings (spectral_cohesion=0.5) recommendation path. RED evidence:
+ImportError collection failure before implementation.
+
+### Claude's verdict
+
+- Full diff read: 5 files, all in spec scope, zero out-of-scope edits. Style
+  and typing match surrounding code; the old `type: ignore` became unnecessary.
+- Proof run independently by Claude: focused tests 63 passed; full suite
+  1082 passed.
+- Empirical validation (Codex, read-only against ~/.xfinaudio/xfinaudio.sqlite3):
+  RED 3192 / GREEN 3940 / BLUE 1071 / MIXED 2187 on 10390 profiles — exact
+  match with the frozen calibration in PLAN.md.
+- Deviations: none. Round 1 accepted; no fix rounds needed.
