@@ -1,7 +1,8 @@
 schema: gentle-ai.sdd-state.v1
 change: serato-export-partial-success
 artifact_store: openspec
-status: apply
+status: verify
+verify_verdict: pass-with-notes
 created: 2026-07-19
 updated: 2026-07-19
 strict_tdd: true
@@ -11,8 +12,8 @@ phases:
   design: complete
   tasks: complete
   apply: complete
-  verify: pending
-next_recommended: verify
+  verify: complete
+next_recommended: archive
 blocked_reasons: []
 delivery:
   strategy: ask-on-risk
