@@ -10,16 +10,11 @@ from PySide6.QtWidgets import QFileDialog
 
 from xfinaudio.application.dj_readiness import write_application_dj_readiness_report
 from xfinaudio.config.settings import ExportSettings
-from xfinaudio.desktop.serato_metadata_worklist_export import MetadataWorklistExport
-from xfinaudio.desktop.software_export_coordinator import SoftwareExportCoordinator
 
 
 class ExportActions:
     def __init__(self, export_coordinator: Any) -> None:
         self._export_coordinator = export_coordinator
-        self._preview_boundary = SoftwareExportCoordinator(export_coordinator.preview_export)
-        self._export_boundary = SoftwareExportCoordinator(export_coordinator.export_recommendation)
-        self._metadata_boundary = MetadataWorklistExport(export_coordinator.export_metadata_status_to_serato)
 
     @property
     def _host(self) -> Any:
@@ -67,7 +62,7 @@ class ExportActions:
         crate_name: str | None = None,
         generated_at: datetime | None = None,
     ) -> None:
-        self._preview_boundary.run(
+        self._export_coordinator.preview_export(
             serato_folder=serato_folder,
             crate_name=crate_name,
             generated_at=generated_at,
@@ -80,7 +75,7 @@ class ExportActions:
         crate_name: str | None = None,
         generated_at: datetime | None = None,
     ) -> None:
-        self._export_boundary.run(
+        self._export_coordinator.export_recommendation(
             serato_folder=serato_folder,
             crate_name=crate_name,
             generated_at=generated_at,
@@ -119,7 +114,7 @@ class ExportActions:
         missing_field: str | None = None,
         serato_folder: Path | None = None,
     ) -> None:
-        self._metadata_boundary.run(
+        self._export_coordinator.export_metadata_status_to_serato(
             status=status,
             missing_field=missing_field,
             serato_folder=serato_folder,

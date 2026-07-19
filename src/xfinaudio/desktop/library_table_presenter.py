@@ -37,3 +37,13 @@ def sort_key_for_column(row: TrackDisplayRow, column: int) -> Any:
     if column == 11:
         return row.path.casefold()
     return ""
+
+
+def sort_rows_for_column(rows: list[TrackDisplayRow], column: int, *, ascending: bool) -> list[TrackDisplayRow]:
+    """Sort rows while keeping missing numeric values at the end."""
+    present: list[TrackDisplayRow] = []
+    missing: list[TrackDisplayRow] = []
+    for row in rows:
+        target = missing if column in {2, 4, 5} and sort_key_for_column(row, column) == float("inf") else present
+        target.append(row)
+    return sorted(present, key=lambda row: sort_key_for_column(row, column), reverse=not ascending) + missing

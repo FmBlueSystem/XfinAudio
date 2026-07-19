@@ -45,6 +45,25 @@ def test_missing_column_is_hidden_by_default(qapp: QApplication) -> None:
     assert screen.missing_column_button.text() == "Show Missing"
 
 
+def test_bpm_sort_keeps_missing_values_last_in_both_directions(qapp: QApplication) -> None:
+    screen = LibraryScreen()
+    state = AppState(
+        selected_folder=Path("/music"),
+        scanned_records=[
+            TrackRecord(path="/music/missing.flac", title="Missing", missing_required_fields=["bpm"]),
+            TrackRecord(path="/music/slow.flac", title="Slow", bpm=100.0),
+            TrackRecord(path="/music/fast.flac", title="Fast", bpm=130.0),
+        ],
+    )
+    screen.render(LibraryViewModel(), state)
+
+    screen._on_header_double_clicked(2)
+    assert [screen.tracks_table.item(row, 0).text() for row in range(3)] == ["Slow", "Fast", "Missing"]
+
+    screen._on_header_double_clicked(2)
+    assert [screen.tracks_table.item(row, 0).text() for row in range(3)] == ["Fast", "Slow", "Missing"]
+
+
 def test_toggle_button_shows_and_hides_missing_column(qapp: QApplication) -> None:
     """The toggle button reveals and hides the Missing column."""
     screen = LibraryScreen()

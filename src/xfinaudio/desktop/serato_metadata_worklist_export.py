@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 from xfinaudio.application.serato_metadata_export import (
     export_metadata_status_serato_worklist,
@@ -15,14 +15,6 @@ from xfinaudio.exporting.serato_playlist_exporter import discover_serato_librari
 from xfinaudio.library.models import MetadataStatus
 
 LOGGER = logging.getLogger(__name__)
-
-
-class MetadataWorklistExport:
-    def __init__(self, action):
-        self._action = action
-
-    def run(self, **kwargs: Any) -> None:
-        self._action(**kwargs)
 
 
 class SeratoMetadataWorklistExportMixin:

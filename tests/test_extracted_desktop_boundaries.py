@@ -2,10 +2,22 @@ from types import SimpleNamespace
 
 from xfinaudio.desktop import export_coordinator
 from xfinaudio.desktop.main_window_layout import responsive_sidebar_width
-from xfinaudio.desktop.serato_metadata_worklist_export import MetadataWorklistExport, SeratoMetadataWorklistExportMixin
+from xfinaudio.desktop.serato_metadata_worklist_export import SeratoMetadataWorklistExportMixin
 from xfinaudio.desktop.serato_recommendation_export import SeratoRecommendationExportMixin
-from xfinaudio.desktop.software_export_coordinator import SoftwareExportCoordinator, SoftwareExportCoordinatorMixin
+from xfinaudio.desktop.software_export_coordinator import SoftwareExportCoordinatorMixin
 from xfinaudio.desktop.window_service_wiring import wire_main_scan_service, wire_services
+
+
+def _facade_dependencies():
+    return SimpleNamespace(
+        evaluate_export_gate=export_coordinator.evaluate_export_gate,
+        preview_playlist_file_export=export_coordinator.preview_playlist_file_export,
+        export_playlist_file=export_coordinator.export_playlist_file,
+        export_serato_playlist=export_coordinator.export_serato_playlist,
+        discover_serato_libraries=export_coordinator.discover_serato_libraries,
+        write_application_dj_readiness_report=export_coordinator.write_application_dj_readiness_report,
+        write_readiness_sidecars=export_coordinator.write_readiness_sidecars,
+    )
 
 
 def test_responsive_sidebar_width_has_two_layout_states() -> None:
@@ -17,20 +29,6 @@ def test_wire_services_invokes_scan_then_recommendation() -> None:
     calls = []
     wire_services(lambda: calls.append("scan"), lambda: calls.append("recommendation"))
     assert calls == ["scan", "recommendation"]
-
-
-def test_software_export_coordinator_forwards_arguments() -> None:
-    calls = []
-    boundary = SoftwareExportCoordinator(lambda **kwargs: calls.append(kwargs))
-    boundary.run(crate_name="Set")
-    assert calls == [{"crate_name": "Set"}]
-
-
-def test_metadata_worklist_export_forwards_arguments() -> None:
-    calls = []
-    boundary = MetadataWorklistExport(lambda **kwargs: calls.append(kwargs))
-    boundary.run(status="incomplete")
-    assert calls == [{"status": "incomplete"}]
 
 
 def test_extracted_boundaries_own_real_responsibilities() -> None:
@@ -87,6 +85,9 @@ def test_extracted_export_previews_update_user_visible_guidance(monkeypatch, tmp
     class SoftwareBoundary(SoftwareExportCoordinatorMixin):
         _host = host
 
+        def _export_dependencies(self):
+            return _facade_dependencies()
+
         def selected_software(self):
             return "Rekordbox"
 
@@ -108,6 +109,9 @@ def test_extracted_export_previews_update_user_visible_guidance(monkeypatch, tmp
 
     class SeratoBoundary(SeratoRecommendationExportMixin):
         _host = host
+
+        def _export_dependencies(self):
+            return _facade_dependencies()
 
         def _build_export_gate_request(self, *_args):
             return object()
@@ -158,6 +162,9 @@ def test_generic_write_updates_visible_status_and_forwards_export_arguments(monk
     class Boundary(SoftwareExportCoordinatorMixin):
         _host = host
 
+        def _export_dependencies(self):
+            return _facade_dependencies()
+
         def selected_software(self):
             return "Rekordbox"
 
@@ -205,6 +212,9 @@ def test_serato_write_observes_backup_sidecars_history_and_callback(monkeypatch,
 
     class Boundary(SeratoRecommendationExportMixin):
         _host = host
+
+        def _export_dependencies(self):
+            return _facade_dependencies()
 
         def _on_export_success(self):
             callbacks.append("success")

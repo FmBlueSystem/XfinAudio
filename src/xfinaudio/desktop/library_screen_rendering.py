@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QTableWidgetItem
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_filter_state import library_filters_from_flags, row_matches_query
-from xfinaudio.desktop.library_table_presenter import sort_key_for_column
+from xfinaudio.desktop.library_table_presenter import sort_rows_for_column
 from xfinaudio.desktop.library_view_model import LibraryFilters, LibraryViewModel, TrackDisplayRow
 from xfinaudio.desktop.scan_service import progress_percent, progress_status_text
 
@@ -55,11 +55,7 @@ class LibraryScreenRenderingMixin:
         rows = vm.tracks_for_display(state, self._current_library_filters())
         sort_column = self._sort_column
         if sort_column is not None:
-            rows = sorted(
-                rows,
-                key=lambda r: sort_key_for_column(r, sort_column),
-                reverse=not self._sort_ascending,
-            )
+            rows = sort_rows_for_column(rows, sort_column, ascending=self._sort_ascending)
         self._populate_table(rows)
         self._apply_filter()
         self._apply_constraint_colors(state.excluded_paths, state.locked_paths)
@@ -142,8 +138,6 @@ class LibraryScreenRenderingMixin:
             self._sort_column = column
             self._sort_ascending = True
         header = self.tracks_table.horizontalHeader()
-        from PySide6.QtCore import Qt
-
         header.setSortIndicator(
             column,
             Qt.SortOrder.AscendingOrder if self._sort_ascending else Qt.SortOrder.DescendingOrder,

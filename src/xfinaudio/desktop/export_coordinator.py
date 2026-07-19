@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from xfinaudio.application.dj_readiness import write_application_dj_readiness_report
@@ -19,9 +20,13 @@ from xfinaudio.desktop.serato_metadata_worklist_export import SeratoMetadataWork
 from xfinaudio.desktop.serato_recommendation_export import (
     SeratoRecommendationExportMixin,
     build_serato_export_entry,
-    plan_serato_export,
     record_export,
-    write_readiness_sidecars,
+)
+from xfinaudio.desktop.serato_recommendation_export import (
+    plan_serato_export as _plan_serato_export,
+)
+from xfinaudio.desktop.serato_recommendation_export import (
+    write_readiness_sidecars as _write_readiness_sidecars,
 )
 from xfinaudio.desktop.software_export_coordinator import SoftwareExportCoordinatorMixin
 from xfinaudio.exporting.export_readiness import (
@@ -55,6 +60,29 @@ __all__ = [
 LOGGER = logging.getLogger(__name__)
 
 _SERATO_EXPORT_HISTORY_LIMIT = 5
+
+
+def plan_serato_export(*args: Any, **kwargs: Any) -> Any:
+    """Compatibility entrypoint with call-time dependency resolution."""
+    kwargs.setdefault("discover_libraries", discover_serato_libraries)
+    return _plan_serato_export(*args, **kwargs)
+
+
+def write_readiness_sidecars(*args: Any, **kwargs: Any) -> Any:
+    """Compatibility entrypoint with call-time report-writer resolution."""
+    kwargs.setdefault("write_report", write_application_dj_readiness_report)
+    return _write_readiness_sidecars(*args, **kwargs)
+
+
+@dataclass(frozen=True)
+class ExportDependencies:
+    evaluate_export_gate: Callable[..., Any]
+    preview_playlist_file_export: Callable[..., Any]
+    export_playlist_file: Callable[..., Any]
+    export_serato_playlist: Callable[..., Any]
+    discover_serato_libraries: Callable[..., Any]
+    write_application_dj_readiness_report: Callable[..., Any]
+    write_readiness_sidecars: Callable[..., Any]
 
 
 class ExportHost(Protocol):
@@ -98,9 +126,29 @@ class ExportCoordinator(
     planning is delegated to the module-level free functions.
     """
 
-    def __init__(self, host: ExportHost, on_export_success: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        host: ExportHost,
+        on_export_success: Callable[[], None] | None = None,
+        dependencies: ExportDependencies | None = None,
+    ) -> None:
         self._host = host
         self._on_export_success = on_export_success
+        self._injected_dependencies = dependencies
+
+    def _export_dependencies(self) -> ExportDependencies:
+        """Resolve injectable dependencies at call time to preserve monkeypatch seams."""
+        if self._injected_dependencies is not None:
+            return self._injected_dependencies
+        return ExportDependencies(
+            evaluate_export_gate=evaluate_export_gate,
+            preview_playlist_file_export=preview_playlist_file_export,
+            export_playlist_file=export_playlist_file,
+            export_serato_playlist=export_serato_playlist,
+            discover_serato_libraries=discover_serato_libraries,
+            write_application_dj_readiness_report=write_application_dj_readiness_report,
+            write_readiness_sidecars=write_readiness_sidecars,
+        )
 
     def _build_export_gate_request(self, operation: ExportGateOperation, software: str) -> ExportGateRequest:
         """Build a pure export gate request from current host state."""

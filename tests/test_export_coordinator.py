@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from xfinaudio.desktop import export_coordinator
@@ -17,6 +18,19 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.strategies import default_strategy_registry
+
+
+def test_export_actions_resolves_coordinator_methods_at_call_time() -> None:
+    from xfinaudio.desktop.export_actions import ExportActions
+
+    calls = []
+    coordinator = SimpleNamespace(_host=object(), preview_export=lambda **_kwargs: calls.append("original"))
+    actions = ExportActions(coordinator)
+    coordinator.preview_export = lambda **_kwargs: calls.append("replacement")
+
+    actions.preview_export(crate_name="Set")
+
+    assert calls == ["replacement"]
 
 
 def _make_recommendation(paths: list[str]) -> PlaylistRecommendation:
