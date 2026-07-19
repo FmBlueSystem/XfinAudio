@@ -200,7 +200,7 @@ class SeratoRecommendationExportMixin:
                 json_path, csv_path = dependencies.write_readiness_sidecars(
                     host.last_dj_readiness_report, result.written_path, safe_folder=safe_folder
                 )
-            except OSError as exc:
+            except Exception as exc:
                 LOGGER.exception("Serato readiness sidecar export failed")
                 readiness_note = host.tr(" Readiness report failed: {0}.").format(exc)
             else:

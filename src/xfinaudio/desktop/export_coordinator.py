@@ -136,7 +136,6 @@ class ExportCoordinator(
             export_playlist_file=export_playlist_file,
             export_serato_playlist=export_serato_playlist,
             discover_serato_libraries=discover_serato_libraries,
-            write_application_dj_readiness_report=write_application_dj_readiness_report,
             write_readiness_sidecars=write_readiness_sidecars,
         )
 
