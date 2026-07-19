@@ -1,50 +1,40 @@
-# Plan Review Log: Removed playlist tracks must not be exported
-No Act 1/2 grill — root cause was diagnosed directly by Claude (spec in PLAN.md), build delegated to Codex via /codex-build.
-Builder model: gpt-5.6-sol (config default) — codex-cli 0.144.6. MAX_FIX_ROUNDS=2.
+# Plan Review Log: Recalibrate spectral color classification
 
-## Act 3 — Build
+Act 1 (grill) complete — plan locked with the user. MAX_ROUNDS=5.
+Reviewer model: gpt-5.6-sol (config default) — codex-cli 0.144.6.
 
-### Round 1 — Codex build
-Implemented the frozen spec: new pure `recommendation_without_paths` helper in
-`playlist_service.py` (filters `ordered_tracks`, recomputes `transition_scores`
-for the new adjacencies via `_score_ordered_tracks`, updates `total_score`,
-returns the original object untouched when nothing matches), applied at all 5
-export read sites (3 in `serato_recommendation_export.py`, 2 in
-`software_export_coordinator.py`), `playlist_removed_paths` added to the
-`ExportHost` protocol, fake hosts updated. RED-first regression test
-`test_serato_export_plan_excludes_track_removed_in_review` shown failing
-pre-fix (`('kept.flac', 'removed.flac') != ('kept.flac',)`). Proof: 1066
-passed, pyright 0, ruff clean, full release gate PASS.
+## Round 1 — Codex
 
-### Claude's verdict — Round 1
-- Verified the real-host wiring independently: `playlist_removed_paths` was
-  already in `shell_state_compat.py:23`'s legacy attribute set, so the real
-  MainWindow exposes it through the same compat layer `last_recommendation`
-  already used — the fix works in production, not just against test fakes.
-- Ran the proof myself: 1066 passed, pyright 0 errors, ruff clean.
-- **One fidelity problem found**: the helper recomputed scores with
-  `TransitionScoringConfig(weights=strategy.weights)` only, but the desktop
-  generates recommendations WITH spectral cohesion from the Build screen
-  slider (`recommendation_service.py:154`). After a removal, every recomputed
-  export score would silently drop the spectral component — diverging from
-  what the Review screen showed even for untouched adjacencies. → fix round.
+1. BUG — scoring incorrectly declared unaffected: `dominant_color` drives `_spectral_color_penalty` (scoring.py:320-330), so recalibration can change transition scores/ordering.
+2. BUG — "ignored on read" conflicts with validate-first deserialization: validating `SpectralProfile` first still rejects missing/invalid persisted `dominant_color`. Parse JSON, replace field, then validate.
+3. RISK — exact equal-excess ties undefined (dict order would accidentally decide). Define deterministic tie policy + tests.
+4. RISK — empirical acceptance not reproducible: no tolerance, dataset identity, or query specified.
+5. BUG — repository governance absent: plan lacks OpenSpec/SDD artifacts and six-command verification sequence.
 
-### Round 2 — Codex fix (same session)
-Added keyword-only `spectral_cohesion: float = 0.0` to
-`recommendation_without_paths`, threaded into `TransitionScoringConfig`; all 5
-call sites now pass `host.settings.scoring.spectral_cohesion` (kept in sync
-with the Build slider by `settings_controller.py:44-47`); fake hosts gained a
-`scoring` settings namespace. RED-first proof shown (TypeError for the
-then-nonexistent kwarg), new test
-`test_recommendation_without_paths_preserves_spectral_cohesion_for_new_seam`
-asserts the parameter actually reaches the scoring.
+VERDICT: REVISE
 
-### Claude's verdict — Round 2
-Read the diff: all 5 call sites correct, helper signature correct. Ran the
-full verification sequence myself: 1067 passed, pyright 0 errors, coverage
-90.44% (gate 70%), ruff check/format clean, full release gate PASS. Known
-residual edge (accepted): if the user moves the spectral-cohesion slider
-after generating and before exporting without regenerating, the recomputed
-scores use the new slider value — strictly more faithful than dropping the
-component entirely, and the pre-existing generate/export split already has
-this property. Build accepted; awaiting human diff sign-off.
+### Claude's response
+
+- Finding 1 ACCEPTED (verified with nuance): `_spectral_color_penalty` reads `dominant_color` but is inactive under the default config (`spectral_cohesion = 0.0`, scoring.py:90). Plan now states the real blast radius and adds a scoring regression test.
+- Finding 2 ACCEPTED: deserialization order fixed in the plan — parse dict, overwrite `dominant_color`, validate once; tests added for stale/missing/invalid values.
+- Finding 3 ACCEPTED: exact ties resolve RED > GREEN > BLUE, with exact-tie and near-tie boundary tests.
+- Finding 4 ACCEPTED (scoped): validation now names the DB, denominator, exact expected counts for the frozen 10,390-profile snapshot, and a ±2pp tolerance if the library drifts; results recorded in this log, no library data committed.
+- Finding 5 REJECTED: process governance (SDD/OpenSpec artifacts, verification gates) is orchestration-level workflow chosen by the user, not plan content for this skill's flow. The plan already mandates strict TDD; how the work is routed (SDD cycle vs direct build) is decided at implementation sign-off.
+
+## Round 2 — Codex
+
+Prior findings (deserialization, tie-break, empirical validation, scoring impact) addressed. One remaining:
+
+1. BUG — "inactive under the default config" is false for the desktop app: `AppSettings` defaults `spectral_cohesion` to 0.5 and the Build screen slider initializes at 50%, so recalibration affects recommendation ordering for default users.
+
+VERDICT: REVISE
+
+### Claude's response
+
+- Finding ACCEPTED (verified: `config/settings.py:37` defaults 0.5; `build_screen.py:107` slider at 50). Claude's Round-1 nuance was wrong — the internal `TransitionScoringConfig` 0.0 default is not what desktop users get. Plan now states the effective desktop default is 0.5, accepts the ordering change as intended, and adds a regression test through the default settings-to-recommendation path.
+
+## Round 3 — Codex
+
+Remaining finding addressed (internal 0.0 vs effective desktop 0.5 default distinguished, settings-driven regression coverage added). No new material problems.
+
+VERDICT: APPROVED

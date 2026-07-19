@@ -1,62 +1,48 @@
-# Plan: Removed playlist tracks must not be exported
-_Diagnosed by Claude — fix delegated to Codex_
+# Plan: Recalibrate spectral color classification
 
-## Bug (confirmed root cause, with evidence)
+_Locked via grill — by Claude + Freddy_
 
-When the user removes a track from a generated recommendation in the Review screen ("Remove from Playlist"), the track is still included in every export (Serato crate, other DJ software, readiness sidecars).
+## Goal
 
-Data flow:
-1. Review screen's remove button emits `track_remove_requested(path)` (`src/xfinaudio/desktop/screens/review_screen.py:89,330-340`), handled by `on_track_remove_requested` (`src/xfinaudio/desktop/library_controller.py:260-283`), which calls `apply_playlist_track_removed` — this ONLY adds the path to `AppState.playlist_removed_paths` (`src/xfinaudio/desktop/app_state_transitions.py:106-108`).
-2. The Review UI filters removed paths **for display only**: `review_view_model.py:146-157` (`recommendation_rows`), `:64-68` (`readiness_status`), `:138-143` (`can_export`) all skip `state.playlist_removed_paths`.
-3. The export flow reads `host.last_recommendation` directly — the ORIGINAL, unfiltered `PlaylistRecommendation`:
-   - `src/xfinaudio/desktop/serato_recommendation_export.py:154` (`export_recommendation_to_serato`), `:233-236` and `:253-256` (preview/report paths)
-   - `src/xfinaudio/desktop/software_export_coordinator.py:34` and `:80`
-   Nothing anywhere subtracts `playlist_removed_paths` before exporting. The removal is purely cosmetic.
+The current dominant-color rule (any band ratio >= 0.55, else MIXED) fails to discriminate on real data: measured against the user's live library of 10,390 analyzed tracks, 78.5% classify as MIXED and only 9 tracks (0.1%) as BLUE. Replace the classification rule with per-band thresholds so the color badge and spectral-shift warnings become meaningful, without re-analyzing any audio.
 
-## Fix approach
+## Approach
 
-Add a single pure helper and use it at every export entry point:
+1. Change `_dominant_color` in `src/xfinaudio/audio/spectral_profile.py` to per-band thresholds:
+   - RED dominant when `red_ratio >= 0.45`
+   - GREEN dominant when `green_ratio >= 0.45`
+   - BLUE dominant when `blue_ratio >= 0.25` (lower bar: high-frequency energy is structurally smaller)
+   - If more than one band passes its threshold, pick the band with the largest excess over its own threshold; on an exact excess tie, resolve by fixed priority RED > GREEN > BLUE (documented, deterministic).
+   - If none passes, classify MIXED.
+2. Expose the classification for reuse by the repository layer (public wrapper in the same module, e.g. `dominant_color_for_ratios(red, green, blue)`).
+3. Update `_deserialize_profile` in `src/xfinaudio/library/track_repository.py` to recompute `dominant_color` from the stored ratios instead of trusting the persisted value. Order matters: parse the JSON into a dict first, overwrite/insert `dominant_color` with the recomputed value, then validate the reconstructed `SpectralProfile` once — so profiles with stale, missing, or invalid persisted `dominant_color` values still load as long as their ratios are valid. The stored field remains in the JSON for backward compatibility.
+4. TDD (strict): first write/extend tests, then implement:
+   - `tests/audio/test_spectral_profile.py`: each band dominance, BLUE at its lower threshold, multi-band tie-break by largest excess, exact-excess tie resolved RED > GREEN > BLUE, near-tie boundary values, all-below-threshold -> MIXED.
+   - `tests/test_track_repository.py`: stored profiles with stale, missing, and invalid `dominant_color` values are recomputed on read from their ratios; profiles with invalid ratios still return `None`.
+   - `tests/test_transition_scoring.py`: `_spectral_color_penalty` regression — with `spectral_cohesion > 0`, adjacent tracks whose colors differ under the NEW rule are penalized and same-color pairs are not (the penalty reads `dominant_color`, so recalibration changes which pairs it fires on).
+   - Default-path regression: building a recommendation with default `AppSettings` (`spectral_cohesion = 0.5`) exercises the color penalty under the new rule — pin that the penalty fires for differing-color adjacents and not for same-color adjacents through the settings-driven path.
+5. Empirical validation (reproducible): run the classification over all stored `(red_ratio, green_ratio, blue_ratio)` triples in `~/.xfinaudio/xfinaudio.sqlite3` (`tracks.spectral_profile_json`, denominator = rows with a non-null profile). Expected on the reference library of 10,390 profiles: RED 3,192 / GREEN 3,940 / BLUE 1,071 / MIXED 2,187 (tolerance: exact match for this frozen snapshot; if the library changed, shares within ±2 percentage points). Record the observed counts in the review log; do not commit any library data.
 
-1. **New pure function** in `src/xfinaudio/recommendation/playlist_service.py` (or a small new module if playlist_service is the wrong home — implementer's call, but it must be pure and unit-testable without Qt):
-   ```python
-   def recommendation_without_paths(
-       recommendation: PlaylistRecommendation, removed_paths: frozenset[str]
-   ) -> PlaylistRecommendation:
-   ```
-   - Returns the recommendation unchanged (same object is fine) when `removed_paths` is empty or intersects nothing.
-   - Otherwise returns a copy with `ordered_tracks` filtered, and `transition_scores` **recomputed for the new adjacencies** (removing a middle track creates a new seam between its former neighbors — reuse the existing `_score_ordered_tracks`/`score_transition` machinery so the scores stay honest; do NOT just drop the removed track's score entries, that would misalign scores with adjacencies).
-   - `total_score` updated consistently with the recomputed transition scores.
-   - `PlaylistRecommendation` is a frozen pydantic model — use `model_copy(update=...)`.
+## Key decisions & tradeoffs
 
-2. **Apply it at every export read-site of `host.last_recommendation`**, filtering by the AppState's `playlist_removed_paths`:
-   - `serato_recommendation_export.py` — all three read sites (`:154`, `:233-236`, `:253-256`), so the confirmed export, the preview, and the readiness report all agree with what the Review screen shows.
-   - `software_export_coordinator.py` — both read sites (`:34`, `:80`).
-   - Find how those hosts access AppState (`host` protocol / `self._state` on the controllers — check `export_coordinator.py:84`'s host protocol and how `library_controller` reaches state) and thread `playlist_removed_paths` through minimally. If the host protocol needs a new member (e.g. `playlist_removed_paths` property), add it where the protocol is defined and implement it on the real window/state holder.
+- **Per-band absolute thresholds** over the two rejected alternatives:
+  - *Margin-over-second-place*: structurally cannot rescue BLUE (max 0.4% of tracks at any margin) because high-frequency energy never outweighs bass+mids.
+  - *Library-relative normalization* (divide by library mean ratio): balances all colors (~25% each) but makes a track's color depend on which other tracks exist — non-deterministic across libraries, breaks cache/profile comparability. Rejected.
+- **Thresholds (0.45 / 0.45 / 0.25)** calibrated by simulation against the user's real 10,390-track library.
+- **Recompute-on-deserialize** over a one-shot DB migration: self-healing (old and future profiles always reflect the current rule), no partial-migration failure modes, no external consumer reads the JSON directly.
+- **Analyzer signal chain unchanged** (`power=1.0` mel spectrogram, first-30s window, 250/2000 Hz band edges): changing any of these forces re-analyzing 10k audio files; deferred as a possible phase 2.
+- `score_spectral_similarity` uses raw ratios, not `dominant_color` — unaffected by design. However, `_spectral_color_penalty` (`recommendation/scoring.py:320`) DOES read `dominant_color`, and the effective desktop default enables it: `ScoringSettings.spectral_cohesion` defaults to 0.5 (`config/settings.py:37`) and the Build screen slider initializes at 50%. `TransitionScoringConfig`'s internal 0.0 default only applies to library-level callers that bypass settings. Recalibration therefore changes recommendation ordering for default desktop users. This is accepted as intended behavior (fewer meaningless MIXED pairs makes the penalty informative instead of near-inert) and is pinned by regression tests, including one through the default settings-to-recommendation path.
 
-3. **Edge case — everything removed**: `review_view_model.can_export` (`:138-143`) already blocks export when zero tracks remain, so the export entry points should not be reachable with an empty result; still, the helper must handle the empty result without crashing, and an assertion-friendly guard (return early with a status message rather than exporting an empty crate) at the export sites is acceptable defense.
+## Risks / open questions
 
-## Tests (RED-first — this repo enforces strict TDD)
-
-- Unit tests for `recommendation_without_paths` in `tests/test_playlist_service.py` (or a matching new test module):
-  - Removing a middle track: `ordered_tracks` shrinks, `transition_scores` has exactly `len(ordered_tracks)-1` entries, and the new seam between former neighbors is scored (not carried over stale).
-  - Removing nothing / empty `removed_paths`: recommendation returned unchanged.
-  - Removing the first/last track.
-  - Removing all tracks: empty `ordered_tracks`, empty `transition_scores`, no crash.
-- Export-level regression test (mirror the existing patterns in `tests/test_export_coordinator.py` / `tests/test_playlist_coordinator.py` for how exports are tested with fake hosts): generate a recommendation, mark one track removed in state, run the Serato export path, assert the written/planned crate does NOT contain the removed track's path. This is the test that reproduces the user-reported bug — it must fail before the fix and pass after.
-
-## Verification (all must pass)
-
-```
-uv run pytest -q
-uv run pyright src tests
-uv run pytest --cov --cov-fail-under=70 -q
-uv run ruff check .
-uv run ruff format --check .
-uv run python scripts/release_gate_check.py --run
-```
+- Thresholds are tuned against one library (Latin/DJ-heavy); other libraries may skew differently. Mitigation: constants are trivial to retune, and recompute-on-read makes retuning retroactive for free.
+- Tracks near two thresholds can flip color under the largest-excess tie-break; acceptable for a coarse 4-value badge. Exact ties resolve deterministically (RED > GREEN > BLUE).
+- Recommendation ordering WILL change for default desktop users (effective default `spectral_cohesion = 0.5`) because the color penalty now fires on different pairs; accepted and covered by the scoring regression tests.
+- `_spectral_jump_warnings` in playlists will report more shifts now that fewer tracks are MIXED — expected and desirable, not a regression.
 
 ## Out of scope
 
-- Changing how removal works in the Review UI (undo/redo via `playlist_removed_paths` stays exactly as is).
-- Re-running the optimizer after a removal (the remaining order is preserved as-is; only adjacency scores are recomputed).
-- Persisted "My Playlists" export path (`playlist_coordinator.py:146` builds a fresh recommendation from a saved playlist's own track list — separate flow, not driven by `last_recommendation`, not part of this bug).
+- Changing `power`, band edges, sample window, or any part of `analyze_spectral_profile`'s signal chain (would require full library rescan).
+- DB migrations or schema changes.
+- UI changes beyond the existing badge rendering.
+- Tuning `score_spectral_similarity` or scoring weights.
