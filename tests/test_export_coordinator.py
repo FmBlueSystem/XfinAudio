@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -321,7 +322,8 @@ def test_serato_export_reports_sidecar_write_failure_without_bubbling(tmp_path: 
             pass
 
     host = Host()
-    coordinator = ExportCoordinator(host)  # type: ignore[arg-type]
+    on_export_success = MagicMock()
+    coordinator = ExportCoordinator(host, on_export_success=on_export_success)  # type: ignore[arg-type]
     result = MagicMock(written_path=tmp_path / "_Serato_" / "Subcrates" / "set.crate", backup_path=None)
     plan = MagicMock(target_path=result.written_path)
     library = MagicMock(volume_root=tmp_path)
@@ -337,8 +339,158 @@ def test_serato_export_reports_sidecar_write_failure_without_bubbling(tmp_path: 
     ):
         coordinator.export_recommendation_to_serato()
 
+    on_export_success.assert_not_called()
     assert "Exported Serato crate" in host.status_label.text
     assert "readiness report failed" in host.status_label.text.casefold()
+
+
+def test_serato_export_reports_non_oserror_sidecar_failure_without_bubbling(tmp_path: Path, caplog) -> None:
+    from xfinaudio.desktop.export_coordinator import ExportCoordinator
+
+    class Label:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def setText(self, text: str) -> None:
+            self.text = text
+
+    class ExportScreen:
+        def __init__(self) -> None:
+            self.export_guidance_label = Label()
+            self.history_table = MagicMock()
+
+    class Host:
+        def __init__(self) -> None:
+            self.last_recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+            self.playlist_removed_paths: frozenset[str] = frozenset()
+            self.last_dj_readiness_report = DjReadinessReport(
+                status="ready",
+                summary="Ready",
+                checks=[],
+                blocker_count=0,
+                review_count=0,
+            )
+            self.last_quality_report = None
+            self.settings = MagicMock()
+            self.settings.export.safe_export_folder = tmp_path / "reports"
+            self.settings.scoring.spectral_cohesion = 0.0
+            self.applied_prep_copilot_variant_name = None
+            self.status_label = Label()
+            self.serato_export_history = []
+            self._export_screen = ExportScreen()
+
+        def tr(self, text: str) -> str:
+            return text
+
+        def _sync_state(self) -> None:
+            pass
+
+    host = Host()
+    on_export_success = MagicMock()
+    coordinator = ExportCoordinator(host, on_export_success=on_export_success)  # type: ignore[arg-type]
+    crate_path = tmp_path / "_Serato_" / "Subcrates" / "set.crate"
+    result = MagicMock(written_path=crate_path, backup_path=None)
+    plan = MagicMock(target_path=result.written_path)
+    library = MagicMock(volume_root=tmp_path)
+
+    export_result = MagicMock(plan=plan, library=library, write_result=result)
+
+    with (
+        patch("xfinaudio.desktop.export_coordinator.export_serato_playlist", return_value=export_result),
+        patch(
+            "xfinaudio.desktop.export_coordinator.write_readiness_sidecars",
+            side_effect=ValueError("readiness writer exploded"),
+        ),
+        caplog.at_level("ERROR", logger="xfinaudio.desktop.serato_recommendation_export"),
+    ):
+        coordinator.export_recommendation_to_serato()
+
+    guidance_text = host._export_screen.export_guidance_label.text
+    status_text = host.status_label.text
+    assert str(crate_path) in guidance_text
+    assert "failed" in guidance_text.lower()
+    assert str(crate_path) in status_text
+    assert "failed" in status_text.lower()
+    assert len(host.serato_export_history) == 1
+    entry = host.serato_export_history[0]
+    assert entry["path"] == str(crate_path)
+    assert entry["readiness_json_path"] == ""
+    assert entry["readiness_csv_path"] == ""
+    on_export_success.assert_not_called()
+    assert "Serato readiness sidecar export failed" in caplog.text
+
+
+def test_serato_export_sidecar_retry_does_not_rewrite_crate(tmp_path: Path) -> None:
+    class Label:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def setText(self, text: str) -> None:
+            self.text = text
+
+    class ExportScreen:
+        def __init__(self) -> None:
+            self.export_guidance_label = Label()
+            self.history_table = MagicMock()
+
+    class Host:
+        def __init__(self) -> None:
+            self.last_recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+            self.playlist_removed_paths: frozenset[str] = frozenset()
+            self.last_dj_readiness_report = DjReadinessReport(
+                status="ready",
+                summary="Ready",
+                checks=[],
+                blocker_count=0,
+                review_count=0,
+            )
+            self.last_quality_report = None
+            self.settings = MagicMock()
+            self.settings.export.safe_export_folder = tmp_path / "reports"
+            self.settings.scoring.spectral_cohesion = 0.0
+            self.applied_prep_copilot_variant_name = None
+            self.status_label = Label()
+            self.serato_export_history = []
+            self._export_screen = ExportScreen()
+
+        def tr(self, text: str) -> str:
+            return text
+
+        def _sync_state(self) -> None:
+            pass
+
+    host = Host()
+    coordinator = ExportCoordinator(host)  # type: ignore[arg-type]
+    crate_path = tmp_path / "_Serato_" / "Subcrates" / "set.crate"
+    crate_path.parent.mkdir(parents=True)
+    crate_path.write_bytes(b"original crate contents")
+    original_bytes = crate_path.read_bytes()
+    original_mtime = crate_path.stat().st_mtime_ns
+
+    result = MagicMock(written_path=crate_path, backup_path=None)
+    plan = MagicMock(target_path=crate_path)
+    library = MagicMock(volume_root=tmp_path)
+    export_result = MagicMock(plan=plan, library=library, write_result=result)
+
+    with (
+        patch("xfinaudio.desktop.export_coordinator.export_serato_playlist", return_value=export_result) as export_spy,
+        patch(
+            "xfinaudio.desktop.export_coordinator.write_application_dj_readiness_report",
+            side_effect=OSError("permission denied"),
+        ),
+    ):
+        coordinator.export_recommendation_to_serato()
+
+        with contextlib.suppress(OSError):
+            write_readiness_sidecars(
+                host.last_dj_readiness_report,
+                crate_path,
+                safe_folder=host.settings.export.safe_export_folder,
+            )
+
+    assert export_spy.call_count == 1
+    assert crate_path.read_bytes() == original_bytes
+    assert crate_path.stat().st_mtime_ns == original_mtime
 
 
 def test_plan_serato_export_uses_crate_name_when_provided(tmp_path: Path) -> None:
