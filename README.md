@@ -614,6 +614,27 @@ open packaging/pyinstaller/dist/XfinAudio.app
 
 > **Note:** Unsigned `.app` bundles may show a security warning on first launch. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
+#### Opening a downloaded DMG (unsigned build)
+
+XfinAudio ships as an unsigned, ad-hoc-signed `.app`/`.dmg` — there is no paid
+Apple Developer ID behind it, so macOS Gatekeeper doesn't recognize the
+publisher. This does not affect functionality; it only means the first launch
+needs one extra confirmation from you:
+
+1. Download and open the `.dmg`, drag `XfinAudio.app` into `Applications`.
+2. Double-clicking it the first time may show *"XfinAudio.app cannot be
+   opened because Apple cannot check it for malicious software"* (or similar,
+   wording varies by macOS version).
+3. Right-click (or Control-click) `XfinAudio.app` in `Applications` → **Open**
+   → confirm **Open** in the dialog. This only needs to be done once — after
+   that, the app launches normally by double-clicking.
+   - Alternative: **System Settings → Privacy & Security**, scroll down to
+     the blocked-app notice, and click **Open Anyway**.
+
+This is standard for small/hobby open-source macOS apps distributed without
+a paid Developer ID (US$99/year) — see `docs/packaging-strategy.md` for the
+full signing/notarization tradeoff.
+
 Publishing the package to PyPI (so users can run `pipx install xfinaudio`) is an optional later step that requires a PyPI account and API token; it does not require code changes.
 
 ## Quick start for development
@@ -1245,6 +1266,28 @@ open packaging/pyinstaller/dist/XfinAudio.app
 ```
 
 > **Nota:** Los bundles `.app` no firmados pueden mostrar una advertencia de seguridad al primer lanzamiento. Ve a **Ajustes del Sistema → Privacidad y Seguridad** y haz click en **Abrir de todas formas**.
+
+#### Abrir un DMG descargado (build sin firmar)
+
+XfinAudio se distribuye como `.app`/`.dmg` sin firmar (firma ad-hoc) — no hay
+una cuenta de Apple Developer ID pagada detrás, así que Gatekeeper no
+reconoce al publicador. Esto no afecta el funcionamiento; solo implica una
+confirmación extra en el primer lanzamiento:
+
+1. Descargá y abrí el `.dmg`, arrastrá `XfinAudio.app` a `Applications`.
+2. Al hacer doble click la primera vez puede aparecer *"XfinAudio.app no se
+   puede abrir porque Apple no puede verificar que no contiene malware"* (el
+   texto varía según la versión de macOS).
+3. Click derecho (o Control+click) en `XfinAudio.app` dentro de
+   `Applications` → **Abrir** → confirmá **Abrir** en el diálogo. Esto solo
+   hace falta una vez — después abre normalmente con doble click.
+   - Alternativa: **Ajustes del Sistema → Privacidad y Seguridad**, bajá
+     hasta el aviso de app bloqueada y hacé click en **Abrir de todas
+     formas**.
+
+Esto es lo habitual para apps de macOS chicas/hobby open source distribuidas
+sin una cuenta de Developer ID paga (US$99/año) — ver
+`docs/packaging-strategy.md` para el trade-off completo de firma/notarización.
 
 Publicar el paquete en PyPI para permitir `pipx install xfinaudio` es un paso posterior opcional que requiere cuenta y API token de PyPI; no requiere cambios de código.
 
