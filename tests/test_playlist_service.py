@@ -7,6 +7,7 @@ from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
     _bpm_jump_warning,
     _spectral_jump_warnings,
+    prefilter_strategy_candidates,
     recommend_playlist,
     recommendation_without_paths,
 )
@@ -344,6 +345,46 @@ def test_same_color_skips_filter_when_no_track_has_a_profile() -> None:
 
     assert {item.path for item in result.ordered_tracks} == {"/a.flac", "/b.flac"}
     assert not any(warning.startswith("same_color") for warning in result.warnings)
+
+
+def test_prefilter_strategy_candidates_keeps_only_anchor_color_for_same_color() -> None:
+    reds = [spectral_track(f"/red-{i}.flac", "RED") for i in range(30)]
+    greens = [spectral_track(f"/green-{i}.flac", "GREEN") for i in range(30)]
+
+    result = prefilter_strategy_candidates(
+        [*reds, *greens], "same_color", controls=DJControls(start_path="/green-0.flac")
+    )
+
+    assert {item.path for item in result} == {green.path for green in greens}
+
+
+def test_prefilter_strategy_candidates_applies_energy_range_for_peak_time() -> None:
+    low = track("/low.flac", energy_level=3)
+    high = track("/high.flac", energy_level=8)
+
+    result = prefilter_strategy_candidates([low, high], "peak_time")
+
+    assert [item.path for item in result] == ["/high.flac"]
+
+
+def test_prefilter_strategy_candidates_applies_energy_tolerance_for_same_energy() -> None:
+    anchor = track("/anchor.flac", energy_level=5)
+    near = track("/near.flac", energy_level=6)
+    far = track("/far.flac", energy_level=9)
+
+    result = prefilter_strategy_candidates(
+        [anchor, near, far], "same_energy", controls=DJControls(start_path="/anchor.flac")
+    )
+
+    assert {item.path for item in result} == {"/anchor.flac", "/near.flac"}
+
+
+def test_prefilter_strategy_candidates_passes_through_unconstrained_strategies() -> None:
+    tracks = [track("/a.flac"), track("/b.flac", status="incomplete")]
+
+    result = prefilter_strategy_candidates(tracks, "harmonic_journey")
+
+    assert [item.path for item in result] == ["/a.flac"]
 
 
 def test_recommend_playlist_uses_injected_strategy_registry() -> None:

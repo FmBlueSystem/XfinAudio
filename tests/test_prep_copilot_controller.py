@@ -152,7 +152,7 @@ def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) 
         _state=initial_state,
         tr=lambda text: text,
         _selected_track_controls=lambda: controls,
-        _desktop_recommendation_records=lambda controls_arg: records,
+        _desktop_recommendation_records=lambda controls_arg, _strategy=None: records,
         _replace_app_state=lambda updated_state: None,
     )
     generation_calls: list[tuple[Any, Any]] = []

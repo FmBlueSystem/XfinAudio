@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.audio.spectral_profile import ColorName
@@ -309,6 +311,43 @@ def _dominant_genre(genres: list[str]) -> str:
     return min(counts, key=lambda genre: (-counts[genre], first_seen[genre]))
 
 
+def prefilter_strategy_candidates(
+    tracks: list[TrackRecord],
+    strategy_name: StrategyName | str,
+    controls: DJControls | None = None,
+    strategy_registry: StrategyRegistry | None = None,
+) -> list[TrackRecord]:
+    """Apply a strategy's hard filters to a full candidate pool before interactive capping.
+
+    Interactive adapters truncate the candidate pool for optimizer speed; running
+    the same hard filters ``recommend_playlist`` applies (energy/BPM ranges, anchor
+    genre, anchor color, energy tolerance) BEFORE that truncation keeps the capped
+    pool full of strategy-viable tracks instead of arbitrary scan-order ones.
+    """
+    strategy = (strategy_registry or default_strategy_registry()).get(str(strategy_name))
+    controls = controls or DJControls()
+    preserve_paths = _preserved_control_paths(controls)
+    complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
+
+    filtered, _ = _apply_strategy_filters(complete_tracks, strategy, preserve_paths=preserve_paths)
+    if strategy.name == "same_genre":
+        filtered, _ = _apply_genre_filter(filtered, controls, preserve_paths=preserve_paths)
+    if strategy.name == "same_color":
+        filtered, _ = _apply_color_filter(filtered, controls, preserve_paths=preserve_paths)
+    if strategy.energy_tolerance is not None:
+        # apply_controls re-validates control paths; a control track filtered out
+        # upstream would raise here, so fall back to skipping the tolerance
+        # prefilter and let recommend_playlist surface the real error.
+        with contextlib.suppress(ValueError):
+            applied = apply_controls(filtered, controls)
+            anchor_energy = _resolve_anchor_energy(applied)
+            if anchor_energy is not None:
+                filtered, _ = _apply_energy_tolerance(
+                    applied.candidate_tracks, strategy, anchor_energy, preserve_paths
+                )
+    return filtered
+
+
 def _apply_color_filter(
     tracks: list[TrackRecord], controls: DJControls, preserve_paths: set[str]
 ) -> tuple[list[TrackRecord], list[str]]:
@@ -512,4 +551,4 @@ def _spectral_jump_warnings(tracks: list[TrackRecord]) -> list[str]:
     return [f"Spectral shifts: {summary}"]
 
 
-__all__ = ["PlaylistRecommendation", "recommend_playlist"]
+__all__ = ["PlaylistRecommendation", "prefilter_strategy_candidates", "recommend_playlist"]
