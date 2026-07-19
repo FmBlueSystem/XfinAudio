@@ -302,9 +302,7 @@ class LibraryController:
             return None
         anchor_path = next((item.path for item in recommendation.ordered_tracks if item.path != path), None)
         controls = DJControls(start_path=anchor_path) if anchor_path is not None else None
-        candidates = prefilter_strategy_candidates(
-            self._state.scanned_records, recommendation.strategy.name, controls
-        )
+        candidates = prefilter_strategy_candidates(self._state.scanned_records, recommendation.strategy.name, controls)
         blocked_paths = self._state.playlist_removed_paths | {path}
         eligible = [candidate for candidate in candidates if candidate.path not in blocked_paths]
         cohesion = self._access.settings_getter().scoring.spectral_cohesion

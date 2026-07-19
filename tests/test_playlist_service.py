@@ -334,9 +334,7 @@ def test_same_color_falls_back_when_no_eligible_candidate_matches_anchor_color()
 
     assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/green.flac", "/blue.flac"}
     assert "same_color filter applied: RED" in result.warnings
-    assert (
-        "same_color: no candidates match anchor color 'RED'; falling back to unfiltered scoring" in result.warnings
-    )
+    assert "same_color: no candidates match anchor color 'RED'; falling back to unfiltered scoring" in result.warnings
 
 
 def test_same_color_skips_filter_when_no_track_has_a_profile() -> None:
