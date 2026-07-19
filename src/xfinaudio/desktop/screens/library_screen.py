@@ -87,6 +87,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
             self.missing_bpm_filter_button: "Show only tracks missing a BPM value",
             self.missing_key_filter_button: "Show only tracks missing a musical key",
             self.missing_energy_filter_button: "Show only tracks missing an energy level",
+            self.hide_duplicates_button: "Collapse near-duplicate versions of the same song into one row",
         }
         for button, tip in tips.items():
             button.setToolTip(self.tr(tip))
@@ -154,6 +155,9 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
         self.search_input.textChanged.connect(self._on_search_changed)
         for button in self.quick_filter_buttons:
             button.clicked.connect(self._on_quick_filter_changed)
+        # Hide Duplicates bypasses _on_quick_filter_changed's mutual-exclusion logic —
+        # no mutual exclusion applies to it.
+        self.hide_duplicates_button.clicked.connect(self._refresh_filter_state)
         self.clear_filters_button.clicked.connect(self._clear_quick_filters)
         self.settings_button.clicked.connect(self.settings_requested)
         self.help_button.clicked.connect(self._show_help)

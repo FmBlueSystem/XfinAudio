@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+_CHECKED_FILTER_BUTTON_STYLE = "QPushButton:checked { background: #00d4ff; color: #061018; border-color: #00d4ff; }"
+
 
 def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int) -> None:
     screen._filter_query = ""
@@ -89,10 +91,18 @@ def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int
     screen.active_filter_count_label = QLabel(screen.tr("0 active"))
     for button in screen.quick_filter_buttons:
         button.setCheckable(True)
-        button.setStyleSheet("QPushButton:checked { background: #00d4ff; color: #061018; border-color: #00d4ff; }")
+        button.setStyleSheet(_CHECKED_FILTER_BUTTON_STYLE)
         screen.quick_filter_layout.addWidget(button)
+    # Hide Duplicates is deliberately NOT part of quick_filter_buttons — it must not
+    # participate in the Complete/Incomplete vs Missing-* mutual-exclusion logic.
+    screen.hide_duplicates_button = QPushButton(screen.tr("Hide Duplicates"))
+    screen.hide_duplicates_button.setCheckable(True)
+    screen.hide_duplicates_button.setStyleSheet(_CHECKED_FILTER_BUTTON_STYLE)
+    screen.quick_filter_layout.addWidget(screen.hide_duplicates_button)
     screen.quick_filter_layout.addWidget(screen.clear_filters_button)
     screen.quick_filter_layout.addWidget(screen.active_filter_count_label)
+    screen.duplicate_count_label = QLabel("")
+    screen.quick_filter_layout.addWidget(screen.duplicate_count_label)
     screen.quick_filter_layout.addStretch()
     layout.addLayout(screen.quick_filter_layout)
 

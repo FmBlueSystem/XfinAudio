@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import QTableWidgetItem
 
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.library_filter import _RowInfo, suppressed_duplicate_paths
 from xfinaudio.desktop.library_filter_state import library_filters_from_flags, row_matches_query
 from xfinaudio.desktop.library_table_presenter import sort_rows_for_column
-from xfinaudio.desktop.library_view_model import LibraryFilters, LibraryViewModel, TrackDisplayRow
+from xfinaudio.desktop.library_view_model import (
+    _DASH,
+    MISSING_FIELDS_SEPARATOR,
+    LibraryFilters,
+    LibraryViewModel,
+    TrackDisplayRow,
+)
 from xfinaudio.desktop.scan_service import progress_percent, progress_status_text
 
 _EMPTY = QTableWidgetItem("")
@@ -31,6 +40,9 @@ _COLUMNS = [
     "Preview",
     "Path",
 ]
+_TITLE_COLUMN = _COLUMNS.index("Title")
+_ARTIST_COLUMN = _COLUMNS.index("Artist")
+_STATUS_COLUMN = _COLUMNS.index("Status")
 
 
 class LibraryScreenRenderingMixin:
@@ -57,7 +69,7 @@ class LibraryScreenRenderingMixin:
         if sort_column is not None:
             rows = sort_rows_for_column(rows, sort_column, ascending=self._sort_ascending)
         self._populate_table(rows)
-        self._apply_filter()
+        self._apply_search_and_duplicate_filters()
         self._apply_constraint_colors(state.excluded_paths, state.locked_paths)
         self._apply_playing_highlight()
 
@@ -153,7 +165,7 @@ class LibraryScreenRenderingMixin:
 
     def _on_search_changed(self, text: str) -> None:
         self._filter_query = text.strip().casefold()
-        self._apply_filter()
+        self._apply_search_and_duplicate_filters()
 
     def _on_quick_filter_changed(self) -> None:
         sender = self.sender()
@@ -173,10 +185,17 @@ class LibraryScreenRenderingMixin:
     def _clear_quick_filters(self) -> None:
         self.clear_quick_filters(emit_signal=True)
 
+    def _all_filter_buttons(self) -> tuple[Any, ...]:
+        # Includes hide_duplicates_button so Clear Filters, undo-restore, and the
+        # active-count sum stay consistent, even though it is excluded from the
+        # mutual-exclusion tuple `quick_filter_buttons`.
+        return (*self.quick_filter_buttons, self.hide_duplicates_button)
+
     def clear_quick_filters(self, *, emit_signal: bool) -> None:
         """Clear quick filters, optionally emitting undoable-action metadata."""
-        active_labels = [button.text() for button in self.quick_filter_buttons if button.isChecked()]
-        for button in self.quick_filter_buttons:
+        buttons = self._all_filter_buttons()
+        active_labels = [button.text() for button in buttons if button.isChecked()]
+        for button in buttons:
             button.setChecked(False)
         self._refresh_filter_state()
         if emit_signal and active_labels:
@@ -185,12 +204,12 @@ class LibraryScreenRenderingMixin:
     def restore_quick_filters(self, labels: list[str]) -> None:
         """Re-check the quick-filter buttons named in *labels* (undo support)."""
         wanted = set(labels)
-        for button in self.quick_filter_buttons:
+        for button in self._all_filter_buttons():
             button.setChecked(button.text() in wanted)
         self._refresh_filter_state()
 
     def _refresh_filter_state(self) -> None:
-        active_count = sum(1 for button in self.quick_filter_buttons if button.isChecked())
+        active_count = sum(1 for button in self._all_filter_buttons() if button.isChecked())
         self.active_filter_count_label.setText(self.tr("{0} active").format(active_count))
         if self._last_vm is not None and self._last_state is not None:
             self.render(self._last_vm, self._last_state)
@@ -215,6 +234,59 @@ class LibraryScreenRenderingMixin:
             values = tuple((self.tracks_table.item(row, col) or _EMPTY).text() for col in _SEARCH_COLS)
             match = row_matches_query(values, query)
             self.tracks_table.setRowHidden(row, not match)
+
+    def _apply_duplicate_filter(self) -> None:
+        """Hide all but one representative row per near-duplicate group (display-only).
+
+        Only considers rows that already survived `_apply_filter` (i.e. currently
+        visible), so this can never permanently hide a row a search query would
+        otherwise match. No-ops entirely — hides nothing, unhides nothing — when
+        the toggle is off.
+        """
+        if not self.hide_duplicates_button.isChecked():
+            self.duplicate_count_label.setText("")
+            return
+        path_col = len(_COLUMNS) - 1
+        rows: list[_RowInfo] = []
+        for row in range(self.tracks_table.rowCount()):
+            if self.tracks_table.isRowHidden(row):
+                continue
+            title = (self.tracks_table.item(row, _TITLE_COLUMN) or _EMPTY).text()
+            artist = (self.tracks_table.item(row, _ARTIST_COLUMN) or _EMPTY).text()
+            status = (self.tracks_table.item(row, _STATUS_COLUMN) or _EMPTY).text()
+            missing_text = (self.tracks_table.item(row, _MISSING_COLUMN) or _EMPTY).text()
+            missing_field_count = 0 if missing_text == _DASH else len(missing_text.split(MISSING_FIELDS_SEPARATOR))
+            path = (self.tracks_table.item(row, path_col) or _EMPTY).text()
+            rows.append(
+                _RowInfo(
+                    title=title,
+                    artist=artist,
+                    status=status,
+                    missing_field_count=missing_field_count,
+                    path=path,
+                )
+            )
+        suppressed = suppressed_duplicate_paths(rows)
+        for row in range(self.tracks_table.rowCount()):
+            if self.tracks_table.isRowHidden(row):
+                continue
+            path_item = self.tracks_table.item(row, path_col)
+            if path_item is not None and path_item.text() in suppressed:
+                self.tracks_table.setRowHidden(row, True)
+        if not suppressed:
+            # Distinct from the toggle-off empty string, so the user can tell
+            # "inactive" apart from "active, nothing to hide right now".
+            self.duplicate_count_label.setText(self.tr("No duplicates found"))
+        elif len(suppressed) == 1:
+            self.duplicate_count_label.setText(self.tr("1 duplicate hidden"))
+        else:
+            self.duplicate_count_label.setText(self.tr("{0} duplicates hidden").format(len(suppressed)))
+
+    def _apply_search_and_duplicate_filters(self) -> None:
+        """Run search then duplicate-suppression, always in this order, so the two
+        passes can never run out of sync with each other."""
+        self._apply_filter()
+        self._apply_duplicate_filter()
 
     def _apply_constraint_colors(self, excluded: frozenset[str], locked: frozenset[str]) -> None:
         if not excluded and not locked:

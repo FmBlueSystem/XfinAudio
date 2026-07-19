@@ -23,6 +23,32 @@ def _state_with_tracks() -> AppState:
     )
 
 
+def _state_with_duplicates() -> AppState:
+    return AppState(
+        selected_folder=Path("/music"),
+        scanned_records=[
+            TrackRecord(
+                path="/music/song-clean.flac",
+                title="Right On Track",
+                artist="DJ Richie Rich",
+                metadata_status="complete",
+            ),
+            TrackRecord(
+                path="/music/song-v2.flac",
+                title="Right On Track (v2)",
+                artist="DJ Richie Rich",
+                missing_required_fields=["bpm"],
+            ),
+            TrackRecord(
+                path="/music/other.flac",
+                title="Other Song",
+                artist="Someone",
+                metadata_status="complete",
+            ),
+        ],
+    )
+
+
 def test_library_screen_renders_scan_settings_review(qapp: QApplication) -> None:
     """The scan settings review label is updated when the screen renders."""
     screen = LibraryScreen()
@@ -183,3 +209,181 @@ def test_tour_button_provides_walkthrough_steps(qapp: QApplication) -> None:
     steps = screen.tour_steps()
     assert len(steps) >= 3
     assert all(step.strip() for step in steps)
+
+
+# ---------------------------------------------------------------------------
+# Hide Duplicates quick filter — R4, R5, R6
+# ---------------------------------------------------------------------------
+
+
+def _visible_titles(screen: LibraryScreen) -> list[str]:
+    return [
+        screen.tracks_table.item(row, 0).text()
+        for row in range(screen.tracks_table.rowCount())
+        if not screen.tracks_table.isRowHidden(row)
+    ]
+
+
+def test_hide_duplicates_button_collapses_duplicate_rows(qapp: QApplication) -> None:
+    """Toggling Hide Duplicates hides all but the representative row of a group (R4)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_duplicates())
+
+    screen.hide_duplicates_button.click()
+
+    visible = _visible_titles(screen)
+    assert visible.count("Right On Track") == 1
+    assert "Right On Track (v2)" not in visible
+    assert "Other Song" in visible
+
+
+def test_hide_duplicates_button_off_shows_all_rows(qapp: QApplication) -> None:
+    """Hide Duplicates off leaves all rows visible — no-op for dedup (R4)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_duplicates())
+
+    visible = _visible_titles(screen)
+    assert "Right On Track" in visible
+    assert "Right On Track (v2)" in visible
+    assert "Other Song" in visible
+
+
+def test_search_does_not_unhide_suppressed_duplicates(qapp: QApplication) -> None:
+    """Typing into search after enabling Hide Duplicates never un-hides a suppressed row (R4)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_duplicates())
+    screen.hide_duplicates_button.click()
+
+    screen._on_search_changed("Track")  # matches both "Right On Track" variants
+
+    visible = _visible_titles(screen)
+    assert "Right On Track (v2)" not in visible
+    assert "Right On Track" in visible
+
+
+def test_duplicate_filter_only_considers_search_visible_rows(qapp: QApplication) -> None:
+    """Dedup only looks at rows search already matched — a lone visible variant stays visible (R4)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_duplicates())
+    screen.hide_duplicates_button.click()
+
+    screen._on_search_changed("v2")  # only the v2 variant matches; it becomes a singleton among visible rows
+
+    assert _visible_titles(screen) == ["Right On Track (v2)"]
+
+
+def test_hide_duplicates_button_independent_of_status_mutual_exclusion(qapp: QApplication) -> None:
+    """Hide Duplicates does not participate in the Complete/Incomplete mutual exclusion (R5)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_tracks())
+
+    screen.complete_filter_button.click()
+    screen.hide_duplicates_button.click()
+
+    assert screen.complete_filter_button.isChecked() is True
+    assert screen.hide_duplicates_button.isChecked() is True
+
+    screen.incomplete_filter_button.click()
+
+    assert screen.hide_duplicates_button.isChecked() is True
+    assert screen.complete_filter_button.isChecked() is False
+
+
+def test_hide_duplicates_toggle_does_not_uncheck_missing_filters(qapp: QApplication) -> None:
+    """Hide Duplicates toggling has no effect on the Missing-* mutual exclusion group (R5)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_tracks())
+
+    screen.missing_bpm_filter_button.click()
+    screen.hide_duplicates_button.click()
+
+    assert screen.missing_bpm_filter_button.isChecked() is True
+
+
+def test_clear_filters_includes_hide_duplicates_button(qapp: QApplication) -> None:
+    """Clear Filters resets Hide Duplicates alongside every other quick filter (R5)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_tracks())
+
+    screen.hide_duplicates_button.click()
+    screen.clear_filters_button.click()
+
+    assert screen.hide_duplicates_button.isChecked() is False
+
+
+def test_restore_quick_filters_restores_hide_duplicates_button(qapp: QApplication) -> None:
+    """Undo-restore re-checks Hide Duplicates the same way as other quick filters (R5)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_tracks())
+
+    labels = [screen.hide_duplicates_button.text()]
+    screen.restore_quick_filters(labels)
+
+    assert screen.hide_duplicates_button.isChecked() is True
+
+
+def test_active_filter_count_includes_hide_duplicates_button(qapp: QApplication) -> None:
+    """The active-filter count sum includes Hide Duplicates (R5)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_tracks())
+
+    screen.hide_duplicates_button.click()
+    assert screen.active_filter_count_label.text() == "1 active"
+
+    screen.complete_filter_button.click()
+    assert screen.active_filter_count_label.text() == "2 active"
+
+
+def test_duplicate_count_label_empty_when_toggle_off(qapp: QApplication) -> None:
+    """The duplicate-count label is empty while Hide Duplicates is off (R6)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_duplicates())
+
+    assert screen.duplicate_count_label.text() == ""
+
+
+def test_duplicate_count_label_shows_count_when_enabled(qapp: QApplication) -> None:
+    """The duplicate-count label reflects the number of suppressed rows, singular (R6)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_duplicates())
+
+    screen.hide_duplicates_button.click()
+
+    assert screen.duplicate_count_label.text() == "1 duplicate hidden"
+
+
+def test_duplicate_count_label_distinct_from_toggle_off_when_no_duplicates(qapp: QApplication) -> None:
+    """Toggle-on-but-nothing-found reads differently from toggle-off, so the two states
+    are distinguishable to the user (R6)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_tracks())
+
+    screen.hide_duplicates_button.click()
+
+    assert screen.duplicate_count_label.text() == "No duplicates found"
+    assert screen.duplicate_count_label.text() != ""
+
+
+def test_duplicate_count_label_clears_when_toggle_off_again(qapp: QApplication) -> None:
+    """The duplicate-count label resets to empty once the toggle is switched off (R6)."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_duplicates())
+
+    screen.hide_duplicates_button.click()
+    assert screen.duplicate_count_label.text() != ""
+
+    screen.hide_duplicates_button.click()
+    assert screen.duplicate_count_label.text() == ""
