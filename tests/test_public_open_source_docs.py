@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -9,7 +10,8 @@ README = PROJECT_ROOT / "README.md"
 CONTRIBUTING = PROJECT_ROOT / "CONTRIBUTING.md"
 SECURITY = PROJECT_ROOT / "SECURITY.md"
 NOTICE = PROJECT_ROOT / "NOTICE.md"
-PUBLIC_DOCS = [README, CONTRIBUTING, SECURITY, NOTICE]
+AGENTS = PROJECT_ROOT / "AGENTS.md"
+PUBLIC_DOCS = [README, CONTRIBUTING, SECURITY, NOTICE, AGENTS]
 
 
 def read(path: Path) -> str:
@@ -55,6 +57,12 @@ def test_readme_describes_project_scope_workflow_and_release_caveats() -> None:
     for fragment in forbidden_fragments:
         assert fragment.lower() not in text.lower()
 
+    for line in text.splitlines():
+        if "Test suite" in line or "Suite de tests" in line:
+            assert not re.search(r"\d+\s+tests", line), (
+                f"Hardcoded test count found in README suite-status line: {line!r}"
+            )
+
 
 def test_contributing_sets_dev_workflow_tdd_and_safety_boundaries() -> None:
     text = read(CONTRIBUTING)
@@ -93,6 +101,13 @@ def test_security_sets_disclosure_placeholder_scope_and_dependency_caveats() -> 
     ]
     for fragment in required_fragments:
         assert fragment in text
+
+
+def test_agents_governs_repo_root_without_hardcoded_path() -> None:
+    text = read(AGENTS)
+
+    assert "governs this repository root" in text
+    assert "/Users/" not in text
 
 
 def test_notice_records_license_dependency_inventory_and_legal_limits() -> None:

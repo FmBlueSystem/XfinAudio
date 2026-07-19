@@ -1,6 +1,6 @@
 # XfinAudio Agent Governance — gentle-ai SDD/TDD
 
-> This `AGENTS.md` governs the entire `/Users/freddymolina/Documents/audio` tree.
+> This `AGENTS.md` governs this repository root and its subdirectories.
 > It takes precedence over the global `AGENTS.md` for this project.
 
 ## Project identity
