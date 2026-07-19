@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
+import numpy as np
 import pytest
+from scipy.io import wavfile
 
+from xfinaudio.audio.analyzer import LibrosaSpectralAnalyzer
+from xfinaudio.audio.batch_analyzer import _analyze_one, analyze_paths
 from xfinaudio.audio.spectral_profile import (
+    CURRENT_ANALYSIS_VERSION,
     SpectralProfile,
     analyze_spectral_profile,
     dominant_color_for_ratios,
@@ -14,6 +20,14 @@ from xfinaudio.audio.spectral_profile import (
 )
 
 SYNTHETIC_DIR = Path(__file__).resolve().parents[2] / "assets" / "synthetic_color_tests"
+
+
+def _write_tone_sections(path: Path, sections: list[tuple[float, float]], *, sample_rate: int = 8000) -> None:
+    samples = [
+        np.sin(2.0 * np.pi * frequency * np.arange(int(duration * sample_rate)) / sample_rate)
+        for duration, frequency in sections
+    ]
+    wavfile.write(path, sample_rate, np.concatenate(samples).astype(np.float32))
 
 
 def test_analyze_spectral_profile_classifies_synthetic_red() -> None:
@@ -33,7 +47,6 @@ def test_analyze_spectral_profile_classifies_synthetic_green() -> None:
 
     assert profile is not None
     assert profile.dominant_color == "GREEN"
-    assert profile.green_ratio > 0.8
 
 
 def test_analyze_spectral_profile_classifies_synthetic_blue() -> None:
@@ -68,6 +81,46 @@ def test_analyze_spectral_profile_returns_none_for_missing_file() -> None:
     profile = analyze_spectral_profile(Path("/nonexistent/file.wav"))
 
     assert profile is None
+
+
+def test_analyze_spectral_profile_uses_canonical_mid_track_window(tmp_path: Path) -> None:
+    path = tmp_path / "intro-red-middle-green.wav"
+    _write_tone_sections(path, [(20.0, 100.0), (30.0, 500.0), (20.0, 100.0)])
+
+    profile = analyze_spectral_profile(path)
+
+    assert profile is not None
+    assert profile.dominant_color == "GREEN"
+    assert profile.green_ratio > 0.8
+
+
+def test_analyze_spectral_profile_short_file_falls_back_to_start(tmp_path: Path) -> None:
+    path = tmp_path / "short-red.wav"
+    _write_tone_sections(path, [(5.0, 100.0)])
+
+    profile = analyze_spectral_profile(path)
+
+    assert profile is not None
+    assert profile.dominant_color == "RED"
+
+
+def test_all_default_analysis_paths_use_same_window_and_version(tmp_path: Path) -> None:
+    path = tmp_path / "cross-path.wav"
+    _write_tone_sections(path, [(20.0, 100.0), (30.0, 500.0), (20.0, 100.0)])
+
+    direct = analyze_spectral_profile(path)
+    _, worker_result = _analyze_one(str(path))
+    sequential = analyze_paths([path], executor="sequential", max_workers=1)[str(path)]
+
+    assert direct is not None
+    assert worker_result == direct
+    assert sequential == direct
+    assert direct.analysis_version == CURRENT_ANALYSIS_VERSION == 2
+
+
+def test_canonical_window_cannot_be_overridden_by_callers() -> None:
+    assert "max_duration_seconds" not in inspect.signature(analyze_spectral_profile).parameters
+    assert "max_duration_seconds" not in inspect.signature(LibrosaSpectralAnalyzer).parameters
 
 
 @pytest.mark.parametrize(

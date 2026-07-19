@@ -14,6 +14,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
 ColorName = Literal["RED", "GREEN", "BLUE", "MIXED"]
+CURRENT_ANALYSIS_VERSION = 2
 
 _COLOR_BADGES: dict[ColorName, str] = {
     "RED": "🔴 RED",
@@ -34,6 +35,7 @@ _ANALYSIS_SAMPLE_RATE = 22050
 _N_MELS = 64
 _N_FFT = 1024
 _HOP_LENGTH = 512
+_ANALYSIS_WINDOW_SECONDS = 30.0
 
 
 class SpectralProfile(BaseModel):
@@ -48,6 +50,7 @@ class SpectralProfile(BaseModel):
     rolloff_hz: float = Field(default=0.0, ge=0.0)
     rms: float = Field(default=0.0, ge=0.0)
     dominant_color: ColorName
+    analysis_version: int = Field(default=1, ge=1)
 
 
 def format_spectral_color(profile: SpectralProfile | None, *, emoji_only: bool = False) -> str:
@@ -61,20 +64,15 @@ def format_spectral_color(profile: SpectralProfile | None, *, emoji_only: bool =
     return lookup.get(profile.dominant_color, "")
 
 
-def analyze_spectral_profile(
-    path: Path | str,
-    *,
-    max_duration_seconds: float | None = None,
-) -> SpectralProfile | None:
+def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
     """Return a spectral color profile for ``path``.
 
     Returns ``None`` when the file cannot be read or the spectral dependency is
     unavailable. The source file is never modified.
 
-    ``max_duration_seconds`` caps the audio segment analyzed. For DJ library
-    scanning, the first 30 seconds is representative of the track's overall
-    tonal character and cuts analysis time by ~5x for a typical 3-minute
-    track without affecting color classification.
+    Analysis uses the canonical 30-second window centered at the track middle.
+    Short tracks and files whose duration cannot be resolved are read from the
+    beginning for up to 30 seconds.
     """
     try:
         import librosa
@@ -85,11 +83,19 @@ def analyze_spectral_profile(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             audio_path = Path(path)
+            try:
+                track_duration = float(librosa.get_duration(path=audio_path))
+            except Exception:
+                track_duration = None
+            offset = 0.0
+            if track_duration is not None and track_duration > _ANALYSIS_WINDOW_SECONDS:
+                offset = max(0.0, (track_duration / 2.0) - (_ANALYSIS_WINDOW_SECONDS / 2.0))
             y, sr = librosa.load(
                 audio_path,
                 sr=_ANALYSIS_SAMPLE_RATE,
                 mono=True,
-                duration=max_duration_seconds,
+                offset=offset,
+                duration=_ANALYSIS_WINDOW_SECONDS,
             )
             if y.size == 0:
                 return None
@@ -142,6 +148,7 @@ def analyze_spectral_profile(
             rolloff_hz=float(rolloff.mean()),
             rms=float(rms.mean()),
             dominant_color=_dominant_color(red_ratio, green_ratio, blue_ratio),
+            analysis_version=CURRENT_ANALYSIS_VERSION,
         )
     except Exception:
         return None

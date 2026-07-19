@@ -9,7 +9,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from xfinaudio.audio.spectral_profile import SpectralProfile, dominant_color_for_ratios
+from xfinaudio.audio.spectral_profile import (
+    CURRENT_ANALYSIS_VERSION,
+    SpectralProfile,
+    dominant_color_for_ratios,
+)
 from xfinaudio.library.models import TrackRecord
 
 SCHEMA_VERSION = 3
@@ -53,7 +57,13 @@ class TrackRepository:
                     missing_required_fields_json = excluded.missing_required_fields_json,
                     source_fields_json = excluded.source_fields_json,
                     raw_metadata_json = excluded.raw_metadata_json,
-                    spectral_profile_json = excluded.spectral_profile_json,
+                    spectral_profile_json = CASE
+                        WHEN excluded.spectral_profile_json IS NOT NULL THEN excluded.spectral_profile_json
+                        WHEN tracks.file_mtime_ns = excluded.file_mtime_ns
+                             AND tracks.file_size_bytes = excluded.file_size_bytes
+                            THEN tracks.spectral_profile_json
+                        ELSE NULL
+                    END,
                     file_mtime_ns = excluded.file_mtime_ns,
                     file_size_bytes = excluded.file_size_bytes
                 """,
@@ -143,7 +153,7 @@ class TrackRepository:
             rows = connection.execute(query, path_list).fetchall()
         for row in rows:
             profile = _deserialize_profile(row["spectral_profile_json"])
-            if profile is not None:
+            if profile is not None and profile.analysis_version == CURRENT_ANALYSIS_VERSION:
                 cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
 

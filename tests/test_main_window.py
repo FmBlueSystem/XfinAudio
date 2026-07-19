@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import Mock
 
 from PySide6.QtCore import QItemSelectionModel
 from PySide6.QtGui import QCloseEvent, QKeySequence
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
 )
 
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings, WindowSettings
 from xfinaudio.desktop import export_coordinator, main_window
 from xfinaudio.desktop.main_window import MainWindow
@@ -846,6 +848,27 @@ def test_main_window_spectral_completion_finished_clears_progress_state() -> Non
     assert window._state.is_completing_spectral is False
     assert window._state.spectral_progress_count == 0
     assert window._state.spectral_total_count == 0
+
+
+def test_main_window_starts_spectral_completion_for_non_current_profiles(monkeypatch) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    worker = Mock()
+    worker._thread = None
+    monkeypatch.setattr("xfinaudio.desktop.library_controller.SpectralCompletionWorker", Mock(return_value=worker))
+    stale = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    future = stale.model_copy(update={"analysis_version": CURRENT_ANALYSIS_VERSION + 1})
+    current = stale.model_copy(update={"analysis_version": CURRENT_ANALYSIS_VERSION})
+    records = [
+        TrackRecord(path="/music/stale.flac", spectral_profile=stale),
+        TrackRecord(path="/music/future.flac", spectral_profile=future),
+        TrackRecord(path="/music/current.flac", spectral_profile=current),
+    ]
+
+    window._library_controller.start_spectral_completion_worker(records)
+
+    started_records = worker.start.call_args.args[0]
+    assert [record.path for record in started_records] == ["/music/stale.flac", "/music/future.flac"]
 
 
 def test_main_window_scan_enables_cancel_and_updates_progress_then_disables_on_success(tmp_path) -> None:

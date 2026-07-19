@@ -51,6 +51,8 @@ def try_cached_profile(
     cache: SpectralProfileCache | None,
 ) -> SpectralProfile | None:
     """Return the cached profile for *path* if mtime and size still match."""
+    from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION
+
     if cache is None:
         return None
     try:
@@ -60,7 +62,11 @@ def try_cached_profile(
     cached = cache.get(str(path))
     if cached is None:
         return None
-    if cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+    if (
+        cached[0] == stat.st_mtime_ns
+        and cached[1] == stat.st_size
+        and cached[2].analysis_version == CURRENT_ANALYSIS_VERSION
+    ):
         return cached[2]
     return None
 

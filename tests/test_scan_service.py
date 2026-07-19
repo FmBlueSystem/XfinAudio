@@ -3,8 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from xfinaudio.audio.spectral_profile import SpectralProfile
-from xfinaudio.library.scan_service import ScanCancellationToken, ScanCancelledError, scan_folder
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
+from xfinaudio.library.scan_service import (
+    ScanCancellationToken,
+    ScanCancelledError,
+    _lookup_previous_profile,
+    scan_folder,
+)
 
 
 def test_scan_folder_recursively_reads_supported_audio_metadata() -> None:
@@ -270,6 +275,26 @@ def test_scan_folder_uses_previous_profile_cache_when_file_identity_matches() ->
     # Because the file cannot be stated, the mismatched cache is ignored and analyze runs.
     # This test primarily verifies the cache code path does not crash.
     assert records[0].spectral_profile is None
+
+
+@pytest.mark.parametrize(
+    ("version", "is_hit"),
+    [(1, False), (CURRENT_ANALYSIS_VERSION, True), (CURRENT_ANALYSIS_VERSION + 1, False)],
+)
+def test_previous_profile_cache_requires_exact_current_version(tmp_path: Path, version: int, is_hit: bool) -> None:
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_text("audio")
+    stat = audio_path.stat()
+    profile = SpectralProfile(
+        red_ratio=0.9,
+        green_ratio=0.05,
+        blue_ratio=0.05,
+        dominant_color="RED",
+        analysis_version=version,
+    )
+    cache = {str(audio_path): (stat.st_mtime_ns, stat.st_size, profile)}
+
+    assert (_lookup_previous_profile(audio_path, cache) is profile) is is_hit
 
 
 def test_scan_folder_runs_parallel_batch_when_enabled(monkeypatch) -> None:

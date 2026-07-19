@@ -17,14 +17,9 @@ from typing import Any
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from xfinaudio.audio.analyzer import LibrosaSpectralAnalyzer, SpectralAnalyzer
-from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken
-
-# Match the scan-service limit so the post-scan completion worker and the
-# initial scan agree on the audio window to analyze.
-_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS: float | None = 30.0
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -63,9 +58,7 @@ class _SpectralCompletionRunner(QObject):
         self._repository = repository
         self._cancellation_token = cancellation_token
         self._max_workers = max_workers if max_workers is not None else _default_max_workers_for_analysis()
-        self._spectral_analyzer = spectral_analyzer or LibrosaSpectralAnalyzer(
-            max_duration_seconds=_SPECTRAL_ANALYSIS_MAX_DURATION_SECONDS
-        )
+        self._spectral_analyzer = spectral_analyzer or LibrosaSpectralAnalyzer()
 
     @Slot()
     def run(self) -> None:
@@ -78,7 +71,11 @@ class _SpectralCompletionRunner(QObject):
             self.finished.emit()
 
     def _run_completion(self) -> None:
-        paths = [record.path for record in self._records if record.spectral_profile is None]
+        paths = [
+            record.path
+            for record in self._records
+            if record.spectral_profile is None or record.spectral_profile.analysis_version != CURRENT_ANALYSIS_VERSION
+        ]
         if not paths or _is_cancelled(self._cancellation_token):
             return
         total_count = len(paths)
@@ -90,7 +87,7 @@ class _SpectralCompletionRunner(QObject):
             cache = self._repository.load_spectral_profile_cache(paths)
             for path in paths:
                 entry = cache.get(path)
-                if entry is not None:
+                if entry is not None and entry[2].analysis_version == CURRENT_ANALYSIS_VERSION:
                     cached_profiles[path] = entry[2]
                     self.progress.emit(path, entry[2])
                     processed_count += 1

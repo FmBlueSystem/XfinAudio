@@ -3,7 +3,7 @@ import sqlite3
 
 import pytest
 
-from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.track_repository import (
     SCHEMA_VERSION,
@@ -281,6 +281,7 @@ def test_track_repository_load_spectral_profile_cache_returns_profiles_with_iden
         green_ratio=0.05,
         blue_ratio=0.05,
         dominant_color="RED",
+        analysis_version=CURRENT_ANALYSIS_VERSION,
     )
     record = TrackRecord(
         path=str(audio_file),
@@ -294,6 +295,72 @@ def test_track_repository_load_spectral_profile_cache_returns_profiles_with_iden
 
     stat = audio_file.stat()
     assert cache == {str(audio_file): (stat.st_mtime_ns, stat.st_size, profile)}
+
+
+@pytest.mark.parametrize("analysis_version", [1, CURRENT_ANALYSIS_VERSION + 1])
+def test_track_repository_cache_excludes_non_current_profiles(tmp_path, analysis_version: int) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    profile = SpectralProfile(
+        red_ratio=0.9,
+        green_ratio=0.05,
+        blue_ratio=0.05,
+        dominant_color="RED",
+        analysis_version=analysis_version,
+    )
+    repository.save_scan_results([TrackRecord(path=str(audio_file), spectral_profile=profile)])
+
+    assert repository.load_spectral_profile_cache([str(audio_file)]) == {}
+    assert repository.list_tracks()[0].spectral_profile == profile
+
+
+def test_track_repository_deserializes_legacy_profile_as_version_one(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    repository.save_scan_results([TrackRecord(path="/music/legacy.flac")])
+    payload = {
+        "red_ratio": 0.9,
+        "green_ratio": 0.05,
+        "blue_ratio": 0.05,
+        "dominant_color": "RED",
+    }
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute(
+            "UPDATE tracks SET spectral_profile_json = ? WHERE path = ?",
+            (json.dumps(payload), "/music/legacy.flac"),
+        )
+
+    profile = repository.list_tracks()[0].spectral_profile
+
+    assert profile is not None
+    assert profile.analysis_version == 1
+
+
+def test_save_scan_results_preserves_profile_when_file_identity_matches(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("unchanged")
+    profile = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    repository.save_scan_results([TrackRecord(path=str(audio_file), title="Old", spectral_profile=profile)])
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file), title="Refreshed")])
+
+    restored = repository.list_tracks()[0]
+    assert restored.title == "Refreshed"
+    assert restored.spectral_profile == profile
+
+
+def test_save_scan_results_drops_profile_when_file_identity_changes(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("before")
+    profile = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    repository.save_scan_results([TrackRecord(path=str(audio_file), spectral_profile=profile)])
+    audio_file.write_text("after with changed size")
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file))])
+
+    assert repository.list_tracks()[0].spectral_profile is None
 
 
 def test_track_repository_load_spectral_profile_cache_returns_empty_for_missing_file(tmp_path) -> None:

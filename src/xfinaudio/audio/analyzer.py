@@ -21,10 +21,8 @@ class SpectralAnalyzer(Protocol):
 class LibrosaSpectralAnalyzer:
     """Default adapter for the existing librosa-backed analyzer."""
 
-    max_duration_seconds: float | None = None
-
     def analyze(self, path: Path) -> SpectralProfile | None:
-        return analyze_spectral_profile(path, max_duration_seconds=self.max_duration_seconds)
+        return analyze_spectral_profile(path)
 
 
 __all__ = ["LibrosaSpectralAnalyzer", "SpectralAnalyzer"]

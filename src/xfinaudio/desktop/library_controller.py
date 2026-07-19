@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import QFileDialog, QLabel, QWidget
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
@@ -379,7 +380,11 @@ class LibraryController:
         self.start_spectral_completion_worker(records)
 
     def start_spectral_completion_worker(self, records: list[TrackRecord]) -> None:
-        missing = [record for record in records if record.spectral_profile is None]
+        missing = [
+            record
+            for record in records
+            if record.spectral_profile is None or record.spectral_profile.analysis_version != CURRENT_ANALYSIS_VERSION
+        ]
         if not missing:
             return
         total_count = len(missing)

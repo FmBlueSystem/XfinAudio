@@ -61,7 +61,8 @@ class PrepCopilotController:
             self._build_screen.apply_variant_button.setEnabled(False)
             self._on_status_message(self._state.tr("Select at least one complete track before generating Prep Copilot"))
             return
-        strategy_name = self._build_screen.strategy_combo.currentData() or self._build_screen.strategy_combo.currentText()
+        strategy_combo = self._build_screen.strategy_combo
+        strategy_name = strategy_combo.currentData() or strategy_combo.currentText()
         records = self._state._desktop_recommendation_records(controls, strategy_name)
         genre_focus = self._build_screen.genre_focus_input.text().strip() or None
         request = PrepCopilotGenerationRequest(
