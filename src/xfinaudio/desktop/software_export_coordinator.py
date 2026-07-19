@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from xfinaudio.desktop.export_dependencies import resolve_export_dependencies
+from xfinaudio.recommendation.playlist_service import recommendation_without_paths
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +32,11 @@ class SoftwareExportCoordinatorMixin:
         if self._handle_denied_export_gate(decision, "preview", software):
             return
 
-        recommendation = host.last_recommendation
+        recommendation = recommendation_without_paths(
+            host.last_recommendation,
+            host.playlist_removed_paths,
+            spectral_cohesion=host.settings.scoring.spectral_cohesion,
+        )
         safe_folder = host.settings.export.safe_export_folder
         assert recommendation is not None
         assert safe_folder is not None
@@ -77,7 +82,11 @@ class SoftwareExportCoordinatorMixin:
         if self._handle_denied_export_gate(decision, "export", software):
             return
 
-        recommendation = host.last_recommendation
+        recommendation = recommendation_without_paths(
+            host.last_recommendation,
+            host.playlist_removed_paths,
+            spectral_cohesion=host.settings.scoring.spectral_cohesion,
+        )
         safe_folder = host.settings.export.safe_export_folder
         assert recommendation is not None
         assert safe_folder is not None

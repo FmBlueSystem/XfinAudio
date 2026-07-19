@@ -8,6 +8,7 @@ from xfinaudio.recommendation.playlist_service import (
     _bpm_jump_warning,
     _spectral_jump_warnings,
     recommend_playlist,
+    recommendation_without_paths,
 )
 from xfinaudio.recommendation.scoring import ScoringWeights, score_transition
 from xfinaudio.recommendation.strategies import StrategyRegistry, get_strategy
@@ -46,6 +47,74 @@ def spectral_track(path: str, color: ColorName) -> TrackRecord:
             )
         }
     )
+
+
+def test_recommendation_without_paths_recomputes_new_middle_seam() -> None:
+    recommendation = recommend_playlist(
+        [
+            track("/left.flac", bpm=120.0, camelot_key="8A", energy_level=4),
+            track("/middle.flac", bpm=121.0, camelot_key="9A", energy_level=5),
+            track("/right.flac", bpm=122.0, camelot_key="10A", energy_level=6),
+        ],
+        "build",
+    )
+
+    result = recommendation_without_paths(recommendation, frozenset({"/middle.flac"}))
+
+    assert [item.path for item in result.ordered_tracks] == ["/left.flac", "/right.flac"]
+    assert len(result.transition_scores) == 1
+    assert result.transition_scores[0].left_path == "/left.flac"
+    assert result.transition_scores[0].right_path == "/right.flac"
+    assert result.total_score == result.transition_scores[0].total_score
+
+
+def test_recommendation_without_paths_preserves_spectral_cohesion_for_new_seam() -> None:
+    recommendation = recommend_playlist(
+        [
+            spectral_track("/left.flac", "RED"),
+            spectral_track("/middle.flac", "GREEN"),
+            spectral_track("/right.flac", "RED").model_copy(update={"energy_level": 7}),
+        ],
+        "build",
+        spectral_cohesion=1.0,
+    )
+    removed_paths = frozenset({"/middle.flac"})
+
+    without_cohesion = recommendation_without_paths(recommendation, removed_paths, spectral_cohesion=0.0)
+    with_cohesion = recommendation_without_paths(recommendation, removed_paths, spectral_cohesion=1.0)
+
+    assert with_cohesion.transition_scores[0].component_scores["spectral"] > 0.0
+    assert with_cohesion.transition_scores[0].total_score != without_cohesion.transition_scores[0].total_score
+
+
+def test_recommendation_without_paths_returns_unchanged_when_nothing_matches() -> None:
+    recommendation = recommend_playlist([track("/a.flac"), track("/b.flac")], "build")
+
+    assert recommendation_without_paths(recommendation, frozenset()) is recommendation
+    assert recommendation_without_paths(recommendation, frozenset({"/missing.flac"})) is recommendation
+
+
+def test_recommendation_without_paths_removes_first_and_last_tracks() -> None:
+    recommendation = recommend_playlist(
+        [track("/first.flac"), track("/middle.flac"), track("/last.flac")],
+        "build",
+    )
+
+    result = recommendation_without_paths(recommendation, frozenset({"/first.flac", "/last.flac"}))
+
+    assert [item.path for item in result.ordered_tracks] == ["/middle.flac"]
+    assert result.transition_scores == []
+    assert result.total_score == 0.0
+
+
+def test_recommendation_without_paths_handles_all_tracks_removed() -> None:
+    recommendation = recommend_playlist([track("/a.flac"), track("/b.flac")], "build")
+
+    result = recommendation_without_paths(recommendation, frozenset({"/a.flac", "/b.flac"}))
+
+    assert result.ordered_tracks == []
+    assert result.transition_scores == []
+    assert result.total_score == 0.0
 
 
 def test_recommend_playlist_excludes_incomplete_tracks() -> None:

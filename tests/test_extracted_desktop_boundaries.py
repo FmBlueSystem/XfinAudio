@@ -74,7 +74,11 @@ def test_extracted_export_previews_update_user_visible_guidance(monkeypatch, tmp
     recommendation = SimpleNamespace(ordered_tracks=[1, 2])
     host = SimpleNamespace(
         last_recommendation=recommendation,
-        settings=SimpleNamespace(export=SimpleNamespace(safe_export_folder=tmp_path)),
+        playlist_removed_paths=frozenset(),
+        settings=SimpleNamespace(
+            export=SimpleNamespace(safe_export_folder=tmp_path),
+            scoring=SimpleNamespace(spectral_cohesion=0.0),
+        ),
         applied_prep_copilot_variant_name=None,
         last_dj_readiness_report=None,
         status_label=Label(),
@@ -151,7 +155,11 @@ def test_generic_write_updates_visible_status_and_forwards_export_arguments(monk
     recommendation = SimpleNamespace(ordered_tracks=[1])
     host = SimpleNamespace(
         last_recommendation=recommendation,
-        settings=SimpleNamespace(export=SimpleNamespace(safe_export_folder=tmp_path)),
+        playlist_removed_paths=frozenset(),
+        settings=SimpleNamespace(
+            export=SimpleNamespace(safe_export_folder=tmp_path),
+            scoring=SimpleNamespace(spectral_cohesion=0.0),
+        ),
         applied_prep_copilot_variant_name="Warm",
         status_label=label,
         _export_screen=SimpleNamespace(export_guidance_label=guidance),
@@ -193,10 +201,14 @@ def test_serato_write_observes_backup_sidecars_history_and_callback(monkeypatch,
     recommendation = SimpleNamespace(ordered_tracks=[1], strategy=SimpleNamespace(name="Flow"))
     host = SimpleNamespace(
         last_recommendation=recommendation,
+        playlist_removed_paths=frozenset(),
         applied_prep_copilot_variant_name="Warm",
         last_quality_report=None,
         last_dj_readiness_report=object(),
-        settings=SimpleNamespace(export=SimpleNamespace(safe_export_folder=tmp_path)),
+        settings=SimpleNamespace(
+            export=SimpleNamespace(safe_export_folder=tmp_path),
+            scoring=SimpleNamespace(spectral_cohesion=0.0),
+        ),
         status_label=label,
         _export_screen=SimpleNamespace(
             export_guidance_label=guidance,

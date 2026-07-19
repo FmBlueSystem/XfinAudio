@@ -38,6 +38,33 @@ class PlaylistRecommendation(BaseModel):
     total_score: float
 
 
+def recommendation_without_paths(
+    recommendation: PlaylistRecommendation,
+    removed_paths: frozenset[str],
+    *,
+    spectral_cohesion: float = 0.0,
+) -> PlaylistRecommendation:
+    """Return a recommendation with removed tracks and honest adjacency scores."""
+    if not removed_paths:
+        return recommendation
+    ordered_tracks = [track for track in recommendation.ordered_tracks if track.path not in removed_paths]
+    if len(ordered_tracks) == len(recommendation.ordered_tracks):
+        return recommendation
+
+    scoring_config = TransitionScoringConfig(
+        weights=recommendation.strategy.weights,
+        spectral_cohesion=spectral_cohesion,
+    )
+    transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config)
+    return recommendation.model_copy(
+        update={
+            "ordered_tracks": ordered_tracks,
+            "transition_scores": transition_scores,
+            "total_score": sum(score.total_score for score in transition_scores),
+        }
+    )
+
+
 def recommend_playlist(
     tracks: list[TrackRecord],
     strategy_name: StrategyName | str,

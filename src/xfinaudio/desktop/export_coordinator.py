@@ -82,6 +82,7 @@ class ExportHost(Protocol):
     """
 
     last_recommendation: PlaylistRecommendation | None
+    playlist_removed_paths: frozenset[str]
     last_dj_readiness_report: DjReadinessReport | None
     last_quality_report: Any | None
     settings: Any
