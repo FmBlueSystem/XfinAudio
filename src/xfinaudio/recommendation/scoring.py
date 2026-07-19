@@ -221,11 +221,23 @@ def _invalid_camelot_warnings(left: TrackRecord, right: TrackRecord) -> list[str
     return warnings or ["invalid Camelot key"]
 
 
+# 2% per side of the 2:1 ratio, accounts for BPM detection measurement noise. Compared
+# below as `HALF_TIME_RATIO_TOLERANCE * 2.0` because the check is against the ratio
+# (which spans 2.0 +/- tolerance on each side), giving an effective band of [1.96, 2.04].
+HALF_TIME_RATIO_TOLERANCE = 0.02
+
+
 def _bpm_difference_percent(left_bpm: float, right_bpm: float) -> float:
     lower = min(left_bpm, right_bpm)
+    upper = max(left_bpm, right_bpm)
     if lower <= 0:
         return 100.0
-    return abs(left_bpm - right_bpm) / lower * 100
+    ratio = upper / lower
+    if abs(ratio - 2.0) <= HALF_TIME_RATIO_TOLERANCE * 2.0:
+        # Exact half-time/double-time pair (e.g. 128 vs 64): normalize before diffing
+        # so it scores as compatible instead of a ~100% jump.
+        upper = upper / 2.0
+    return abs(upper - lower) / lower * 100
 
 
 def _shifted_key(camelot_key: str, semitones: int) -> str:

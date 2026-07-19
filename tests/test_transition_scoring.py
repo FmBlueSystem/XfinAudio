@@ -8,6 +8,7 @@ from xfinaudio.recommendation.scoring import (
     ThresholdScore,
     TransitionScore,
     TransitionScoringConfig,
+    _bpm_difference_percent,
     score_transition,
 )
 
@@ -41,6 +42,12 @@ def test_score_transition_scores_bpm_compatibility() -> None:
 
     assert result.component_scores["bpm"] == pytest.approx(0.902344)
     assert "BPM difference is 2.50%" in result.explanations
+
+
+def test_score_transition_explanation_reports_zero_percent_for_half_time_pair() -> None:
+    result = score_transition(track("left", bpm=128.0), track("right", bpm=64.0))
+
+    assert "BPM difference is 0.00%" in result.explanations
 
 
 def test_score_transition_scores_energy_compatibility() -> None:
@@ -271,3 +278,25 @@ def test_spectral_cohesion_out_of_range_is_rejected() -> None:
 
     with pytest.raises(ValueError):
         TransitionScoringConfig(spectral_cohesion=-0.1)
+
+
+def test_bpm_difference_percent_treats_exact_double_time_pairs_as_compatible() -> None:
+    assert _bpm_difference_percent(128.0, 64.0) == pytest.approx(0.0, abs=1e-6)
+    assert _bpm_difference_percent(64.0, 128.0) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_bpm_difference_percent_non_half_time_pair_is_unaffected() -> None:
+    assert _bpm_difference_percent(128.0, 100.0) == pytest.approx(28.0, abs=0.01)
+    assert _bpm_difference_percent(100.0, 128.0) == pytest.approx(28.0, abs=0.01)
+
+
+def test_bpm_difference_percent_tolerance_boundary_inside_band_is_near_zero() -> None:
+    # ratio = 128 / 64.97 ~= 1.9698, inside [1.96, 2.04] -> normalized to near-zero.
+    assert _bpm_difference_percent(128.0, 64.97) < 5.0
+    assert _bpm_difference_percent(64.97, 128.0) < 5.0
+
+
+def test_bpm_difference_percent_tolerance_boundary_outside_band_falls_back_to_plain_formula() -> None:
+    # ratio = 128 / 65.64 ~= 1.9500, outside [1.96, 2.04] -> plain formula, ~95% difference.
+    assert _bpm_difference_percent(128.0, 65.64) > 50.0
+    assert _bpm_difference_percent(65.64, 128.0) > 50.0

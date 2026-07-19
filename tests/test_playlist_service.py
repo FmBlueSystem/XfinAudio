@@ -5,6 +5,7 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
+    _bpm_jump_warning,
     _spectral_jump_warnings,
     recommend_playlist,
 )
@@ -241,6 +242,61 @@ def test_harmonic_journey_drops_generated_tracks_after_bpm_jump_over_three_perce
     assert [item.path for item in result.ordered_tracks] == ["/start.flac", "/good.flac"]
     assert "Dropped 1 generated track(s) because adjacent BPM jump exceeded 3.0%" in result.warnings
     assert all(score.component_scores["bpm"] > 0.0 for score in result.transition_scores)
+
+
+def test_warmup_drops_generated_track_after_impossible_bpm_jump_from_manual_prefix() -> None:
+    tracks = [
+        track("/manual.flac", bpm=100.0, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+        track("/too-fast.flac", bpm=140.0, camelot_key="8A", energy_level=2, genre="Disco", tags=["Disco"]),
+        track("/ok.flac", bpm=101.0, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+    ]
+
+    result = recommend_playlist(tracks, "warmup", controls=DJControls(manual_order_paths=["/manual.flac"]))
+
+    assert [item.path for item in result.ordered_tracks] == ["/manual.flac", "/ok.flac"]
+    assert "Dropped 1 generated track(s) because adjacent BPM jump exceeded 3.0%" in result.warnings
+
+
+def test_harmonic_journey_drops_generated_track_after_bpm_jump_from_manual_seam() -> None:
+    tracks = [
+        track("/manual.flac", bpm=100.0, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+        track("/too-fast.flac", bpm=140.0, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+    ]
+
+    result = recommend_playlist(tracks, "harmonic_journey", controls=DJControls(manual_order_paths=["/manual.flac"]))
+
+    assert [item.path for item in result.ordered_tracks] == ["/manual.flac"]
+    expected_warning = _bpm_jump_warning(
+        1, suffix=" while re-validating the sequence anchored on the manually ordered tracks"
+    )
+    assert expected_warning in result.warnings
+
+
+def test_harmonic_journey_pre_and_post_sequencing_bpm_gates_drop_different_tracks() -> None:
+    # harmonic_journey has no sort_hint override (defaults to alphabetical-by-path sorting
+    # applied before controls are resolved), so remaining_tracks (manual excluded) is ordered
+    # [a-kept-by-pregate, b-dropped-by-pregate]:
+    # - the pre-sequencing gate (playlist_service.py:114, unchanged) anchors on
+    #   "/a-kept-by-pregate.flac" (first remaining track) and drops
+    #   "/b-dropped-by-pregate.flac" for its jump from that anchor.
+    # - the surviving "/a-kept-by-pregate.flac" then reaches the new post-sequencing gate,
+    #   which is seeded with the manual anchor and drops it for its jump from "/manual.flac".
+    tracks = [
+        track("/manual.flac", bpm=100.0, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+        track("/a-kept-by-pregate.flac", bpm=104.0, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+        track("/b-dropped-by-pregate.flac", bpm=140.0, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+    ]
+
+    result = recommend_playlist(tracks, "harmonic_journey", controls=DJControls(manual_order_paths=["/manual.flac"]))
+
+    pre_sequencing_warning = _bpm_jump_warning(1)
+    post_sequencing_warning = _bpm_jump_warning(
+        1, suffix=" while re-validating the sequence anchored on the manually ordered tracks"
+    )
+    assert pre_sequencing_warning in result.warnings
+    assert post_sequencing_warning in result.warnings
+    assert pre_sequencing_warning != post_sequencing_warning
+    assert [item.path for item in result.ordered_tracks] == ["/manual.flac"]
 
 
 def test_score_cache_is_fresh_per_recommendation_session() -> None:

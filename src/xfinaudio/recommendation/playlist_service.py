@@ -101,23 +101,29 @@ def recommend_playlist(
         warnings.append("same_vibe metadata unavailable; falling back to harmonic sequencing")
 
     if _uses_strategy_order(strategy):
+        # Strategy-order strategies have a single sequencing stage (no separate optimizer
+        # pass), so `sequenced_tracks` here already IS the final order — one gate call,
+        # seeded with the manual anchor when present, validates the whole thing at once.
         sequenced_tracks = _apply_terminal_constraints(remaining_tracks, start_path, applied.end_path)
-        sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(sequenced_tracks)
-        if dropped_bpm_jump_count:
-            warnings.append(
-                "Dropped "
-                f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
-                f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
+        if manual_prefix:
+            sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+                [manual_prefix[-1], *sequenced_tracks]
             )
+            sequenced_tracks = sequenced_tracks[1:]
+        else:
+            sequenced_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+                sequenced_tracks
+            )
+        if dropped_bpm_jump_count:
+            warnings.append(_bpm_jump_warning(dropped_bpm_jump_count))
         optimizer = "strategy-order"
     else:
+        # The optimizer branch has two distinct sequencing stages, so it needs two gate
+        # calls: this first one filters the unordered candidate pool BEFORE `recommend_sequence`
+        # picks the final adjacency (it never sees manual_prefix — there is no "final order" yet).
         remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(remaining_tracks)
         if dropped_bpm_jump_count:
-            warnings.append(
-                "Dropped "
-                f"{dropped_bpm_jump_count} generated track(s) because adjacent BPM jump exceeded "
-                f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
-            )
+            warnings.append(_bpm_jump_warning(dropped_bpm_jump_count))
         sequenced = recommend_sequence(
             remaining_tracks,
             start_path=start_path,
@@ -128,6 +134,23 @@ def recommend_playlist(
         )
         sequenced_tracks = sequenced.ordered_tracks
         optimizer = sequenced.optimizer
+        # Second gate call: now that the true final order is known, re-validate it seeded
+        # with the manual anchor. This can drop more than just the manual->generated seam
+        # (it walks the whole chain, same as the pre-existing start_path/anchor pattern), so
+        # the warning describes the mechanism ("re-validating... anchored on") rather than
+        # claiming the manual track specifically caused every drop.
+        if manual_prefix:
+            seeded, post_sequencing_dropped_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+                [manual_prefix[-1], *sequenced_tracks]
+            )
+            sequenced_tracks = seeded[1:]
+            if post_sequencing_dropped_count:
+                warnings.append(
+                    _bpm_jump_warning(
+                        post_sequencing_dropped_count,
+                        suffix=" while re-validating the sequence anchored on the manually ordered tracks",
+                    )
+                )
 
     ordered_tracks = [*manual_prefix, *sequenced_tracks]
     transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config, cache=_score_cache)
@@ -333,6 +356,14 @@ def _sort_by_hint(tracks: list[TrackRecord], strategy: PlaylistStrategy) -> list
     if strategy.sort_hint == "bpm_ascending":
         return sorted(tracks, key=lambda track: (track.bpm is None, track.bpm or 0.0, track.path))
     return sorted(tracks, key=lambda track: track.path)
+
+
+def _bpm_jump_warning(dropped_count: int, *, suffix: str = "") -> str:
+    return (
+        "Dropped "
+        f"{dropped_count} generated track(s) because adjacent BPM jump exceeded "
+        f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%{suffix}"
+    )
 
 
 def _drop_generated_tracks_after_impossible_bpm_jumps(

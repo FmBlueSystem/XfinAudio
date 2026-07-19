@@ -88,6 +88,24 @@ def test_pool_prefers_bpm_feasible_candidate_over_generic_tag_overlap() -> None:
     assert paths.index("/close.mp3") < paths.index("/fast.mp3")
 
 
+def test_build_pool_treats_camelot_wrap_around_as_compatible() -> None:
+    anchor = _record("/anchor.mp3", bpm=120.0, genre="House", tags=["peak"])
+    anchor = anchor.model_copy(update={"camelot_key": "12A", "energy_level": 5})
+    wrap_compatible = _record("/wrap.mp3", bpm=120.0, genre="House", tags=["peak"])
+    wrap_compatible = wrap_compatible.model_copy(update={"camelot_key": "1A", "energy_level": 5})
+    incompatible = _record("/incompatible.mp3", bpm=120.0, genre="House", tags=["peak"])
+    incompatible = incompatible.model_copy(update={"camelot_key": "6A", "energy_level": 5})
+
+    result = build_recommendation_pool(
+        [anchor, wrap_compatible, incompatible],
+        controls=DJControls(start_path="/anchor.mp3"),
+        limit=25,
+    )
+
+    paths = [track.path for track in result]
+    assert paths.index("/wrap.mp3") < paths.index("/incompatible.mp3")
+
+
 def test_build_pool_treats_invalid_candidate_camelot_key_as_incompatible() -> None:
     anchor = _record("/anchor.mp3", bpm=120.0, genre="House", tags=["peak"])
     anchor = anchor.model_copy(update={"camelot_key": "8A", "energy_level": 5})
