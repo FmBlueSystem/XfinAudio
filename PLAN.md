@@ -1,48 +1,57 @@
-# Plan: Recalibrate spectral color classification
+# Plan: Analyze mid-track window for spectral color (analyzer phase 2)
 
 _Locked via grill — by Claude + Freddy_
 
 ## Goal
 
-The current dominant-color rule (any band ratio >= 0.55, else MIXED) fails to discriminate on real data: measured against the user's live library of 10,390 analyzed tracks, 78.5% classify as MIXED and only 9 tracks (0.1%) as BLUE. Replace the classification rule with per-band thresholds so the color badge and spectral-shift warnings become meaningful, without re-analyzing any audio.
+Spectral color is currently computed from the first 30 seconds of each track. An experiment on 80 randomly sampled library tracks (seed 42, read-only) showed the intro window disagrees with a mid-track window on 46.2% of color classifications — DJ intros (sparse percussion, fade-ins) misrepresent the track's body. Switch the analysis window to 30 seconds centered at the track middle, keep everything else in the signal chain unchanged, and re-analyze the library lazily in the background via profile versioning — without wiping existing colors while the rescan runs.
+
+## Empirical basis (recorded 2026-07-19)
+
+- Window stability intro vs mid (power=1, current thresholds): 53.8% agreement — material improvement potential.
+- power=2.0 was evaluated and REJECTED: mean ratios become R=0.756/G=0.221/B=0.024, 88% of tracks classify RED, BLUE and MIXED die entirely. The magnitude domain (power=1.0) is what keeps the 3-band scheme discriminative. Do not revisit.
+- Sanity: recomputing with the current chain reproduces stored profiles 100%.
 
 ## Approach
 
-1. Change `_dominant_color` in `src/xfinaudio/audio/spectral_profile.py` to per-band thresholds:
-   - RED dominant when `red_ratio >= 0.45`
-   - GREEN dominant when `green_ratio >= 0.45`
-   - BLUE dominant when `blue_ratio >= 0.25` (lower bar: high-frequency energy is structurally smaller)
-   - If more than one band passes its threshold, pick the band with the largest excess over its own threshold; on an exact excess tie, resolve by fixed priority RED > GREEN > BLUE (documented, deterministic).
-   - If none passes, classify MIXED.
-2. Expose the classification for reuse by the repository layer (public wrapper in the same module, e.g. `dominant_color_for_ratios(red, green, blue)`).
-3. Update `_deserialize_profile` in `src/xfinaudio/library/track_repository.py` to recompute `dominant_color` from the stored ratios instead of trusting the persisted value. Order matters: parse the JSON into a dict first, overwrite/insert `dominant_color` with the recomputed value, then validate the reconstructed `SpectralProfile` once — so profiles with stale, missing, or invalid persisted `dominant_color` values still load as long as their ratios are valid. The stored field remains in the JSON for backward compatibility.
-4. TDD (strict): first write/extend tests, then implement:
-   - `tests/audio/test_spectral_profile.py`: each band dominance, BLUE at its lower threshold, multi-band tie-break by largest excess, exact-excess tie resolved RED > GREEN > BLUE, near-tie boundary values, all-below-threshold -> MIXED.
-   - `tests/test_track_repository.py`: stored profiles with stale, missing, and invalid `dominant_color` values are recomputed on read from their ratios; profiles with invalid ratios still return `None`.
-   - `tests/test_transition_scoring.py`: `_spectral_color_penalty` regression — with `spectral_cohesion > 0`, adjacent tracks whose colors differ under the NEW rule are penalized and same-color pairs are not (the penalty reads `dominant_color`, so recalibration changes which pairs it fires on).
-   - Default-path regression: building a recommendation with default `AppSettings` (`spectral_cohesion = 0.5`) exercises the color penalty under the new rule — pin that the penalty fires for differing-color adjacents and not for same-color adjacents through the settings-driven path.
-5. Empirical validation (reproducible): run the classification over all stored `(red_ratio, green_ratio, blue_ratio)` triples in `~/.xfinaudio/xfinaudio.sqlite3` (`tracks.spectral_profile_json`, denominator = rows with a non-null profile). Expected on the reference library of 10,390 profiles: RED 3,192 / GREEN 3,940 / BLUE 1,071 / MIXED 2,187 (tolerance: exact match for this frozen snapshot; if the library changed, shares within ±2 percentage points). Record the observed counts in the review log; do not commit any library data.
+1. Add `analysis_version: int = Field(default=1, ge=1)` to `SpectralProfile`. Old persisted JSON (no field) deserializes as version 1. Define `CURRENT_ANALYSIS_VERSION = 2` in `spectral_profile.py`; `analyze_spectral_profile` stamps it on new profiles.
+2. Change `analyze_spectral_profile` windowing: resolve track duration with `librosa.get_duration(path=...)`; analyze `offset = max(0, duration/2 - window/2)`, `duration = 30s`. Fallback: if duration cannot be resolved or is <= the window, analyze from offset 0. Keep power=1.0, sample rate 22050, 64 mels, band edges 250/2000 Hz, and the shared-STFT optimization unchanged.
+3. ONE canonical window enforced by construction: REMOVE the `max_duration_seconds` parameter from `analyze_spectral_profile` and the `LibrosaSpectralAnalyzer` adapter (and the constants that feed it in `scan_service.py:286` / `spectral_completion_worker.py:26`) — the 30-second mid-track window is a module constant, not a caller choice, so version 2 CANNOT be stamped on any other window. Today `batch_analyzer._analyze_one` (:29) and the sequential fallback (:128) analyze the FULL track while scan/worker pass 30s; after this change every path is identical by construction. Cross-path test plus a test that the parameter no longer exists (signature).
+4. Staleness gates — exact-equality freshness (`analysis_version != CURRENT_ANALYSIS_VERSION` is stale; a future version 3 must NOT pass a version-2 gate) at EVERY eligibility point:
+   - `TrackRepository.load_spectral_profile_cache`: non-current profiles are cache misses for analysis purposes.
+   - `_SpectralCompletionRunner._run_completion` (spectral_completion_worker.py:81): pending = profile is None OR non-current version.
+   - `LibraryController.start_spectral_completion_worker` (library_controller.py:381): same predicate — today it filters `spectral_profile is None`, which would prevent the rescan from ever starting; controller-level regression test required.
+   - `analysis_planning.try_cached_profile` and `scan_service._lookup_previous_profile`: both trust mtime/size identity alone today, so caller-supplied caches (`analyze_paths(cache=...)`, `scan_folder(previous_profile_cache=...)`) would resurrect v1 profiles. Apply the same exact-version predicate at both consumption helpers, with RED tests covering identity-matched v1, v2, and future-version profiles.
+5. Scan must not erase preserved colors — identity-guarded, in BOTH layers:
+   - Repository: `save_scan_results` keeps the stored `spectral_profile_json` when the incoming record carries no profile AND the stored `file_mtime_ns`/`file_size_bytes` match the incoming file identity; if the file changed, store NULL (an unconditional COALESCE would pair an old profile with new identity fields and make an obsolete profile look cache-current after an interrupted rescan). Scan-during-rescan and file-changed regression tests.
+   - Live UI: `PlaylistWorkflowService.scan_folder` returns profile-less records that `show_tracks` renders directly, so the Color column would blank even with the DB preserved. After saving, attach identity-matched stored profiles (any version — display is not version-gated) to the returned records; the version predicate still queues them for re-analysis. Regression test: scan result records carry the stale profile.
+6. Display is NOT gated on version: `list_tracks`/`list_display_tracks` keep returning stale-version profiles (with recomputed dominant_color) so the UI shows the old color until the new profile lands — no blank Color column during the hours-long rescan.
+7. TDD (strict, RED first):
+   - `tests/audio/test_spectral_profile.py`: synthetic audio whose intro and middle have different band content — analyzer classifies by the middle; short-file fallback analyzes from 0; new profiles carry version 2; cross-path window/version consistency (direct call, batch `_analyze_one`, sequential fallback).
+   - `tests/test_track_repository.py`: non-current-version profiles excluded from `load_spectral_profile_cache`; still returned by `list_tracks`; old JSON without the field deserializes as version 1; `save_scan_results` with a profile-less incoming record preserves the stored profile.
+   - `tests/test_spectral_completion_worker.py`: worker re-analyzes tracks with non-current profiles, skips current ones.
+   - `tests/test_main_window.py` (or controller-level): `start_spectral_completion_worker` enqueues stale-version tracks.
+8. Rollout with provable completion: the worker already emits progress counts; completion is validated with SQL using `COALESCE(json_extract(spectral_profile_json, '$.analysis_version'), 1)` (legacy JSON without the field counts as v1, not SQL NULL) filtered on version = 2 — total, current-version, stale-version, and NULL counts are recorded in the review log. Failed analyses (worker emits None and keeps counting) surface as stale/NULL remainder in that query. NO threshold retune decision until every readable track is version-2 or explicitly accounted for as unreadable.
 
 ## Key decisions & tradeoffs
 
-- **Per-band absolute thresholds** over the two rejected alternatives:
-  - *Margin-over-second-place*: structurally cannot rescue BLUE (max 0.4% of tracks at any margin) because high-frequency energy never outweighs bass+mids.
-  - *Library-relative normalization* (divide by library mean ratio): balances all colors (~25% each) but makes a track's color depend on which other tracks exist — non-deterministic across libraries, breaks cache/profile comparability. Rejected.
-- **Thresholds (0.45 / 0.45 / 0.25)** calibrated by simulation against the user's real 10,390-track library.
-- **Recompute-on-deserialize** over a one-shot DB migration: self-healing (old and future profiles always reflect the current rule), no partial-migration failure modes, no external consumer reads the JSON directly.
-- **Analyzer signal chain unchanged** (`power=1.0` mel spectrogram, first-30s window, 250/2000 Hz band edges): changing any of these forces re-analyzing 10k audio files; deferred as a possible phase 2.
-- `score_spectral_similarity` uses raw ratios, not `dominant_color` — unaffected by design. However, `_spectral_color_penalty` (`recommendation/scoring.py:320`) DOES read `dominant_color`, and the effective desktop default enables it: `ScoringSettings.spectral_cohesion` defaults to 0.5 (`config/settings.py:37`) and the Build screen slider initializes at 50%. `TransitionScoringConfig`'s internal 0.0 default only applies to library-level callers that bypass settings. Recalibration therefore changes recommendation ordering for default desktop users. This is accepted as intended behavior (fewer meaningless MIXED pairs makes the penalty informative instead of near-inert) and is pinned by regression tests, including one through the default settings-to-recommendation path.
+- **Mid-track window over intro**: the track body is what a DJ actually hears in the mix; 46.2% of sampled tracks change color, confirming intros are unrepresentative.
+- **power=1.0 kept**: empirically superior for band discrimination (see basis above); the original suspicion against it is refuted with data.
+- **Versioned lazy re-analysis over destructive wipe or one-shot migration**: old colors keep displaying during the rescan; interrupted rescans resume naturally (version gate persists); no migration script to babysit.
+- **Thresholds (0.45/0.45/0.25) unchanged for now**: mid-window sample skews GREEN-heavier (56% in the sample); a retune decision is deferred until the full-library distribution is measured — retuning is retroactively free.
+- **`librosa.get_duration` for the offset** instead of threading DB duration into the analyzer: keeps `analyze_spectral_profile` self-contained; duration reads are header-based and cheap relative to decode+STFT.
 
 ## Risks / open questions
 
-- Thresholds are tuned against one library (Latin/DJ-heavy); other libraries may skew differently. Mitigation: constants are trivial to retune, and recompute-on-read makes retuning retroactive for free.
-- Tracks near two thresholds can flip color under the largest-excess tie-break; acceptable for a coarse 4-value badge. Exact ties resolve deterministically (RED > GREEN > BLUE).
-- Recommendation ordering WILL change for default desktop users (effective default `spectral_cohesion = 0.5`) because the color penalty now fires on different pairs; accepted and covered by the scoring regression tests.
-- `_spectral_jump_warnings` in playlists will report more shifts now that fewer tracks are MIXED — expected and desirable, not a regression.
+- Mid-window distribution may need a threshold retune (GREEN-heavy sample); mitigated by the frozen post-rescan validation step and free retroactive retuning.
+- ~10,390 track re-analysis takes hours in the background; interruptions are safe (per-track persistence, version gate resumes).
+- Tracks with unresolvable duration silently fall back to the intro window (logged by absence of failure; acceptable).
+- A normal metadata re-scan during the rescan window must not wipe colors — covered by the save_scan_results preservation change and its regression test.
+- `analysis_version` added to serialized JSON grows each profile by ~24 bytes; negligible.
 
 ## Out of scope
 
-- Changing `power`, band edges, sample window, or any part of `analyze_spectral_profile`'s signal chain (would require full library rescan).
-- DB migrations or schema changes.
-- UI changes beyond the existing badge rendering.
-- Tuning `score_spectral_similarity` or scoring weights.
+- Changing `power`, band edges, sample rate, mel parameters, or thresholds in this change.
+- `score_spectral_similarity`, scoring weights, or any recommendation logic.
+- UI changes; DB schema changes (the version lives inside the existing JSON column).
+- Multi-segment analysis (e.g., averaging 3 windows) — possible phase 3 if mid-window proves insufficient.

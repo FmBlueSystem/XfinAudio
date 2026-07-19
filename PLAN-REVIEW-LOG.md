@@ -1,68 +1,58 @@
-# Plan Review Log: Recalibrate spectral color classification
+# Plan Review Log: Analyze mid-track window for spectral color (analyzer phase 2)
 
-Act 1 (grill) complete — plan locked with the user. MAX_ROUNDS=5.
+Act 1 (grill) complete — direction locked with the user after an 80-track empirical experiment
+(power=2.0 rejected with data; mid-track window confirmed as the change worth a rescan). MAX_ROUNDS=5.
 Reviewer model: gpt-5.6-sol (config default) — codex-cli 0.144.6.
 
-## Round 1 — Codex
+## Round 1 — Codex (effort: high)
 
-1. BUG — scoring incorrectly declared unaffected: `dominant_color` drives `_spectral_color_penalty` (scoring.py:320-330), so recalibration can change transition scores/ordering.
-2. BUG — "ignored on read" conflicts with validate-first deserialization: validating `SpectralProfile` first still rejects missing/invalid persisted `dominant_color`. Parse JSON, replace field, then validate.
-3. RISK — exact equal-excess ties undefined (dict order would accidentally decide). Define deterministic tie policy + tests.
-4. RISK — empirical acceptance not reproducible: no tolerance, dataset identity, or query specified.
-5. BUG — repository governance absent: plan lacks OpenSpec/SDD artifacts and six-command verification sequence.
-
-VERDICT: REVISE
-
-### Claude's response
-
-- Finding 1 ACCEPTED (verified with nuance): `_spectral_color_penalty` reads `dominant_color` but is inactive under the default config (`spectral_cohesion = 0.0`, scoring.py:90). Plan now states the real blast radius and adds a scoring regression test.
-- Finding 2 ACCEPTED: deserialization order fixed in the plan — parse dict, overwrite `dominant_color`, validate once; tests added for stale/missing/invalid values.
-- Finding 3 ACCEPTED: exact ties resolve RED > GREEN > BLUE, with exact-tie and near-tie boundary tests.
-- Finding 4 ACCEPTED (scoped): validation now names the DB, denominator, exact expected counts for the frozen 10,390-profile snapshot, and a ±2pp tolerance if the library drifts; results recorded in this log, no library data committed.
-- Finding 5 REJECTED: process governance (SDD/OpenSpec artifacts, verification gates) is orchestration-level workflow chosen by the user, not plan content for this skill's flow. The plan already mandates strict TDD; how the work is routed (SDD cycle vs direct build) is decided at implementation sign-off.
-
-## Round 2 — Codex
-
-Prior findings (deserialization, tie-break, empirical validation, scoring impact) addressed. One remaining:
-
-1. BUG — "inactive under the default config" is false for the desktop app: `AppSettings` defaults `spectral_cohesion` to 0.5 and the Build screen slider initializes at 50%, so recalibration affects recommendation ordering for default users.
+1. BUG — rescan never starts for stale profiles: `LibraryController.start_spectral_completion_worker` filters `spectral_profile is None` before the worker sees records.
+2. BUG — a normal metadata scan erases preserved colors: with stale profiles excluded from the cache, `save_scan_results` overwrites `spectral_profile_json` with NULL.
+3. BUG — version 2 does not uniquely mean "middle 30s": batch/sequential paths call `analyze_spectral_profile` with no duration cap (full track) while worker/scan use 30s.
+4. RISK — rollout completion unprovable: failed analyses emit None but still finish; unqualified validation SQL would mix v1/v2 and drive a bad retune.
+5. RISK — `< CURRENT` accepts future versions as current; freshness must be exact equality.
 
 VERDICT: REVISE
 
 ### Claude's response
 
-- Finding ACCEPTED (verified: `config/settings.py:37` defaults 0.5; `build_screen.py:107` slider at 50). Claude's Round-1 nuance was wrong — the internal `TransitionScoringConfig` 0.0 default is not what desktop users get. Plan now states the effective desktop default is 0.5, accepts the ordering change as intended, and adds a regression test through the default settings-to-recommendation path.
+All five ACCEPTED after verification against source:
+- #1 confirmed at library_controller.py:381-382 — controller gate added to the plan with regression test.
+- #2 confirmed conceptually (upsert nulls profile when incoming record has none) — COALESCE-preservation added with scan-during-rescan test.
+- #3 confirmed and worse than stated: batch_analyzer.py:29 and :128 already analyze the FULL track today while scan_service/worker use 30s — two windows coexist in production. Plan now mandates one canonical mid-window default inside analyze_spectral_profile with a cross-path test.
+- #4 accepted — validation SQL filters analysis_version = 2; counts recorded; retune withheld until completion is proven.
+- #5 accepted — freshness is exact equality at every gate.
 
-## Round 3 — Codex
+## Round 2 — Codex (effort: high)
 
-Remaining finding addressed (internal 0.0 vs effective desktop 0.5 default distinguished, settings-driven regression coverage added). No new material problems.
+Addressed: controller gate, exact-equality versioning, rollout accounting. Remaining:
+1. BUG — unconditional COALESCE poisons cache identity: changed file + preserved old profile + new mtime/size = obsolete profile looks current after interrupted rescan.
+2. BUG — repository preservation does not stop the live UI from blanking: scan returns profile-less records and show_tracks renders them directly.
+3. RISK — v2 can still mean a noncanonical window: LibrosaSpectralAnalyzer forwards None/arbitrary durations.
+
+VERDICT: REVISE
+
+### Claude's response
+
+All three ACCEPTED:
+- #1: preservation is now identity-guarded — keep stored profile only when stored mtime/size match the incoming file; changed file stores NULL. File-changed regression test added.
+- #2: scan_folder now attaches identity-matched stored profiles (any version, display only) to returned records after saving; re-analysis queueing unaffected. Regression test added.
+- #3: accepted and simplified further — the `max_duration_seconds` parameter is REMOVED from analyze_spectral_profile and the adapter entirely; the canonical mid-window is a module constant, making a noncanonical v2 stamp impossible by construction.
+
+## Round 3 — Codex (effort: high)
+
+Prior three addressed. One new:
+1. BUG — two cache consumers bypass version freshness: analysis_planning.try_cached_profile and scan_service._lookup_previous_profile trust mtime/size alone, so caller-supplied caches can resurrect v1 profiles.
+
+VERDICT: REVISE
+
+### Claude's response
+
+ACCEPTED — the exact-version predicate now applies at both consumption helpers too, with RED tests for identity-matched v1, v2, and future-version profiles. The staleness contract is now: every cache consumer (repository producer, worker, controller, planning helper, scan lookup) enforces exact-version equality; display alone is version-agnostic.
+
+## Round 4 — Codex (effort: high)
+
+Remaining finding addressed. No new material problems. Non-blocking detail adopted:
+rollout SQL uses COALESCE(json_extract(...), 1) so legacy JSON without the field counts as v1.
 
 VERDICT: APPROVED
-
-## Act 3 — Build
-
-Builder model: gpt-5.6-sol (config default) — codex-cli 0.144.6. MAX_FIX_ROUNDS=2.
-Thread: 019f7a8e-fef4-7a03-8b3a-125dacbfc98d
-
-### Round 1 — Codex build
-
-Implemented the frozen spec RED-first: new per-band threshold rule in
-`_dominant_color` (RED>=0.45 / GREEN>=0.45 / BLUE>=0.25, largest excess wins,
-exact ties resolve RED>GREEN>BLUE via dict order), public
-`dominant_color_for_ratios` wrapper, and `_deserialize_profile` now parses the
-JSON dict, recomputes `dominant_color` from ratios, then validates once.
-Tests: threshold/tie-break/near-tie cases, stale/missing/invalid stored color
-recompute-on-read, invalid ratios -> None, spectral penalty regression, and
-default-AppSettings (spectral_cohesion=0.5) recommendation path. RED evidence:
-ImportError collection failure before implementation.
-
-### Claude's verdict
-
-- Full diff read: 5 files, all in spec scope, zero out-of-scope edits. Style
-  and typing match surrounding code; the old `type: ignore` became unnecessary.
-- Proof run independently by Claude: focused tests 63 passed; full suite
-  1082 passed.
-- Empirical validation (Codex, read-only against ~/.xfinaudio/xfinaudio.sqlite3):
-  RED 3192 / GREEN 3940 / BLUE 1071 / MIXED 2187 on 10390 profiles — exact
-  match with the frozen calibration in PLAN.md.
-- Deviations: none. Round 1 accepted; no fix rounds needed.
