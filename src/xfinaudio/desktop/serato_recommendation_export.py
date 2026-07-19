@@ -19,7 +19,7 @@ from xfinaudio.exporting.serato_playlist_exporter import (
     discover_serato_libraries,
 )
 from xfinaudio.quality.dj_readiness import DjReadinessReport
-from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommendation_without_paths
 
 LOGGER = logging.getLogger(__name__)
 _SERATO_EXPORT_HISTORY_LIMIT = 5
@@ -151,7 +151,11 @@ class SeratoRecommendationExportMixin:
         decision = dependencies.evaluate_export_gate(self._build_export_gate_request("export", "Serato"))
         if self._handle_denied_export_gate(decision, "export", "Serato"):
             return
-        recommendation = host.last_recommendation
+        recommendation = recommendation_without_paths(
+            host.last_recommendation,
+            host.playlist_removed_paths,
+            spectral_cohesion=host.settings.scoring.spectral_cohesion,
+        )
         assert recommendation is not None
 
         try:
@@ -232,8 +236,13 @@ class SeratoRecommendationExportMixin:
         host = self._host
         if host.last_recommendation is None:
             raise ValueError("Generate a recommendation before planning Serato export")
-        return plan_serato_export(
+        recommendation = recommendation_without_paths(
             host.last_recommendation,
+            host.playlist_removed_paths,
+            spectral_cohesion=host.settings.scoring.spectral_cohesion,
+        )
+        return plan_serato_export(
+            recommendation,
             host.applied_prep_copilot_variant_name,
             serato_folder=serato_folder,
             crate_name=crate_name,
@@ -252,8 +261,13 @@ class SeratoRecommendationExportMixin:
         host = self._host
         if host.last_recommendation is None:
             return
-        entry = build_serato_export_entry(
+        recommendation = recommendation_without_paths(
             host.last_recommendation,
+            host.playlist_removed_paths,
+            spectral_cohesion=host.settings.scoring.spectral_cohesion,
+        )
+        entry = build_serato_export_entry(
+            recommendation,
             written_path,
             readiness_json_path=readiness_json_path,
             readiness_csv_path=readiness_csv_path,

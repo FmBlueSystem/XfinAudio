@@ -1,58 +1,62 @@
-# Plan: Hide duplicate track versions in the Library screen
-_Locked via grill — by Claude + Freddy_
+# Plan: Removed playlist tracks must not be exported
+_Diagnosed by Claude — fix delegated to Codex_
 
-## Goal
-The Library table shows multiple rows for what is really the same song when several near-duplicate files exist on disk (e.g. three files for "Right On Track (Kwikmix By Dj Richie Rich)" with slightly different titles). Add a "Hide Duplicates" quick-filter toggle that collapses each such group down to one representative row, using the existing quick-filter-button pattern already established in the Library screen. Scope is display-only — the recommendation engine, playlist building, and the underlying scanned data are untouched.
+## Bug (confirmed root cause, with evidence)
 
-## Approach
+When the user removes a track from a generated recommendation in the Review screen ("Remove from Playlist"), the track is still included in every export (Serato crate, other DJ software, readiness sidecars).
 
-1. **Pure grouping/normalization logic** — new functions in `src/xfinaudio/desktop/library_filter.py` (alongside the existing pure helpers `metadata_status_records`/`metadata_missing_field_records`). Parameterized on plain strings, not `TrackRecord`, so they work equally at the data layer (if ever needed) and the rendered-row layer (see step 2):
-   - `_normalize_title_for_grouping(title: str) -> str`: strip whitespace, then **repeatedly** strip two technical-suffix patterns until neither matches anymore (fixes order-dependence, e.g. `"Song - 8A - Energy 7 (v2)"` must fully reduce regardless of which suffix is checked first): (a) a trailing `" - <CamelotKey> - Energy <N>"` segment, Camelot key anchored to the real shape `[1-9]|1[0-2]` + `[AB]` (e.g. `12A`, `1B`) so it can't misfire on incidental text; (b) a trailing `"(vN)"` version-number marker — **then** lowercase (`casefold()`) as the final step, once suffix-stripping is done. **Correction from Codex Round 4**: the original draft lowercased *before* suffix-stripping, but the suffix regex is written against the real casing titles actually use (`"Energy"`, uppercase Camelot letters `A`/`B`, as seen in the screenshot's own `"- 12A - Energy 7"`); lowercasing first would turn that into `"energy"`/`"a"`/`"b"`, which the regex (unless explicitly given `re.IGNORECASE`) would never match, silently disabling suffix-stripping entirely. Fixed by reordering: strip suffixes against the original-case text first, casefold last. Never touches other parenthetical content — remix/edit/mix descriptors like `"(kwikMIX by DJ Richie Rich)"`, `"(Long Version)"`, `"(Clean)"` are preserved verbatim, since two different remixes of the same base song must NOT be grouped together.
-   - `_normalize_artist_for_grouping(artist: str) -> str`: **explicit contract, per Codex Round 3** (the original draft only detailed title normalization and left artist as an unspecified "casefold+trim, no suffix stripping needed"). Exactly `artist.strip().casefold()` — no suffix stripping (artist names don't carry the app-generated `"- key - Energy N"` pattern). `"DJ Name"`, `"dj name"`, `"  DJ Name  "` all normalize identically.
-   - `_duplicate_group_key(title: str | None, artist: str | None) -> tuple[str, str] | None`: returns `None` (meaning "treat as a singleton, never group") when either `title` or `artist` is `None`, blank, **or equal to the display-layer's placeholder dash character (`"—"`, the same `_DASH` constant `library_view_model.py:42` already uses for missing values)** — otherwise `(_normalize_artist_for_grouping(artist), _normalize_title_for_grouping(title))`. **Correction from Codex Round 1**: `TrackRecord.title`/`.artist` are `str | None` (`library/models.py:20-21`); without this guard, multiple tracks with genuinely blank metadata would collapse into one fake "duplicate" group. **Correction from Codex Round 2**: the row-level caller (step 2 below) only has the *rendered cell text* to work with, and `_to_display_row()` (`library_view_model.py:93-94`) already converts `None`/blank title or artist to the `"—"` placeholder before the row is ever populated into the table — so checking for `None`/blank alone is not enough once the value has passed through display formatting; the placeholder string itself must also be treated as "blank."
-   - `_RowInfo` (local named tuple, step 2's row-level caller builds these): `title: str`, `artist: str`, `status: str`, `missing_field_count: int`, `path: str`. **Correction from Codex Round 3**: the original draft carried the raw rendered *text* of the missing-fields column (e.g. `"bpm, camelot_key"` or `"—"`) with no defined parsing contract for ranking. Fixed by computing `missing_field_count` once, at `_RowInfo` construction time in the row-level caller: `0` if the rendered missing-fields cell text equals the `"—"` placeholder, otherwise `len(text.split(", "))` (matches exactly how `_fmt_missing` — `library_view_model.py:71-74` — joins the field-name list with `", "` in the first place, so splitting on the same separator round-trips the count precisely). `_pick_duplicate_representative` and `suppressed_duplicate_paths` operate on the pre-computed `int`, never on formatted text.
-   - `_pick_duplicate_representative(rows: list[_RowInfo]) -> _RowInfo`: within a group, pick by (1) `status == "complete"` before anything else, (2) lower `missing_field_count`, (3) shortest original (non-normalized) `title` text, (4) alphabetical tiebreak on `path`, as a final deterministic tiebreak.
-   - `suppressed_duplicate_paths(rows: list[_RowInfo]) -> set[str]` — **locked-down return shape, per Codex Round 2** (the original draft left this "TBD," which blocks writing tests against a real contract): groups `rows` by `_duplicate_group_key`, and for every group with 2+ members, returns the `path` of every member **except** the one `_pick_duplicate_representative` selects. Groups of 1 (including every row treated as a forced singleton per the blank-metadata guard above) contribute nothing to the result. This exact shape — "a set of paths to hide" — mirrors the existing `_apply_constraint_colors(excluded: frozenset[str], locked: frozenset[str])` pattern in the same file, which already reads the Path column back out of the table and compares against path sets.
+Data flow:
+1. Review screen's remove button emits `track_remove_requested(path)` (`src/xfinaudio/desktop/screens/review_screen.py:89,330-340`), handled by `on_track_remove_requested` (`src/xfinaudio/desktop/library_controller.py:260-283`), which calls `apply_playlist_track_removed` — this ONLY adds the path to `AppState.playlist_removed_paths` (`src/xfinaudio/desktop/app_state_transitions.py:106-108`).
+2. The Review UI filters removed paths **for display only**: `review_view_model.py:146-157` (`recommendation_rows`), `:64-68` (`readiness_status`), `:138-143` (`can_export`) all skip `state.playlist_removed_paths`.
+3. The export flow reads `host.last_recommendation` directly — the ORIGINAL, unfiltered `PlaylistRecommendation`:
+   - `src/xfinaudio/desktop/serato_recommendation_export.py:154` (`export_recommendation_to_serato`), `:233-236` and `:253-256` (preview/report paths)
+   - `src/xfinaudio/desktop/software_export_coordinator.py:34` and `:80`
+   Nothing anywhere subtracts `playlist_removed_paths` before exporting. The removal is purely cosmetic.
 
-2. **Row-level application, NOT the `tracks_for_display` data pipeline.** **Major correction from Codex Round 1** (verified by reading the real code, not assumed): the Library screen has two independent, layered search/filter mechanisms, and my original plan only accounted for one of them.
-   - `LibraryFilters.search_query` (used inside `tracks_for_display`, `library_view_model.py:126-130`) is **dead code in production** — `_current_library_filters()` (`library_screen_rendering.py:198-205`) never populates it; it only passes `complete`/`incomplete`/`missing_*` flags through `library_filters_from_flags`.
-   - The **actual** live search is `_apply_filter()` (`library_screen_rendering.py:207-217`): it runs on the **already-rendered** `QTableWidget` rows (via `setRowHidden`), reading `self._filter_query` (set by `_on_search_changed`), and is called at the end of every `render()` (`library_screen_rendering.py:60`), **after** `_populate_table(rows)` where `rows` already came from `tracks_for_display`.
-   - **Consequence for the original plan**: if dedup ran inside `tracks_for_display` (data layer, before the table is ever populated), a suppressed duplicate's row would never be rendered at all — so if a user later searches for text that only matches that suppressed duplicate's title, `_apply_filter` has no row left to un-hide. The search would show zero results **permanently** (not just transiently) while "Hide Duplicates" stays on, even though a matching file genuinely exists.
-   - **Fix**: implement duplicate-hiding as a third row-level pass, `_apply_duplicate_filter()`, structurally parallel to `_apply_filter()` and `_apply_constraint_colors()`. Reads Title/Artist/Status/MissingFields/Path directly from the rendered `QTableWidgetItem` text per row (same technique `_apply_constraint_colors` already uses to read the Path column back out of the table), builds `_RowInfo` only for rows where `not self.tracks_table.isRowHidden(row)` (i.e. only rows that already survived search), calls `suppressed_duplicate_paths` on that visible subset, then `setRowHidden(row, True)` for every row whose Path is in the returned set. No-ops entirely (unhides nothing, hides nothing) when `self.hide_duplicates_button.isChecked()` is `False`.
-   - This also means `LibraryFilters.hide_duplicates` and any `library_filters_from_flags` plumbing described in the original draft are **dropped** — `_apply_duplicate_filter()` reads `self.hide_duplicates_button.isChecked()` directly, the same way `_apply_filter()` reads `self._filter_query` directly, not through `LibraryFilters`.
-   - **Second correction from Codex Round 2**: `_on_search_changed()` (`library_screen_rendering.py:154-156`) calls `self._apply_filter()` directly on every keystroke — it does **not** go through `render()`. If `_apply_duplicate_filter()` is only ever called from `render()`, typing into the search box would call `_apply_filter()` alone, which unconditionally sets `setRowHidden(row, not match)` for every row based on search text alone — silently **un-hiding** rows that dedup had previously suppressed, until the next full `render()` happens to fire (there is no guarantee one will, on every keystroke, given the existing debounce). **Fix**: introduce a single composite method, `_apply_search_and_duplicate_filters()`, that always calls `_apply_filter()` then `_apply_duplicate_filter()` in that order, and call *that* composite from both `render()` (replacing the standalone `self._apply_filter()` call at line 60) and `_on_search_changed()` (replacing its standalone `self._apply_filter()` call) — so the two passes can never run out of sync with each other.
+## Fix approach
 
-3. **UI button** — `src/xfinaudio/desktop/library_screen_builder.py`:
-   - Add `screen.hide_duplicates_button = QPushButton(screen.tr("Hide Duplicates"))`, `setCheckable(True)`, same checked-style stylesheet as the other quick-filter buttons, added to `quick_filter_layout` right after the existing 5 buttons.
-   - **Deliberately NOT added to the `screen.quick_filter_buttons` tuple.** That tuple drives `_on_quick_filter_changed`'s mutual-exclusion logic (`status_buttons` vs `missing_buttons`). Folding "Hide Duplicates" into it would incorrectly uncheck "Missing BPM/Key/Energy" whenever it's toggled (falls into the `missing_buttons` `else` branch). It gets its own attribute and its own wiring.
-   - **New**: `screen.duplicate_count_label = QLabel("")`, added to `quick_filter_layout` next to `active_filter_count_label`. Empty/hidden when "Hide Duplicates" is off; shows `"N duplicates hidden"` when on and `N > 0`.
+Add a single pure helper and use it at every export entry point:
 
-4. **Screen wiring** — `src/xfinaudio/desktop/library_screen_rendering.py` and `src/xfinaudio/desktop/screens/library_screen.py`:
-   - Connect `screen.hide_duplicates_button.clicked` directly to `self._refresh_filter_state` (bypassing `_on_quick_filter_changed`'s mutual-exclusion logic — none applies here).
-   - `_refresh_filter_state`: include `hide_duplicates_button` in the active-count sum (so "N active" stays accurate for it too), and re-trigger `render()` as it already does.
-   - `clear_quick_filters` / `restore_quick_filters`: include `hide_duplicates_button` alongside the existing buttons, for consistent "Clear Filters" and undo-restore behavior.
-   - `render()` and `_on_search_changed()`: both call the new composite `self._apply_search_and_duplicate_filters()` (see step 2) instead of calling `self._apply_filter()` directly. `_apply_duplicate_filter()` also updates `duplicate_count_label`'s text each time it runs.
-   - **New, per Codex Round 1 finding 5**: include `hide_duplicates_button` in `_setup_button_tooltips()`, `_setup_accessibility()`, and `_setup_tab_order()` (`screens/library_screen.py:73,122,136`) — established per-button contracts every other quick-filter button already follows.
+1. **New pure function** in `src/xfinaudio/recommendation/playlist_service.py` (or a small new module if playlist_service is the wrong home — implementer's call, but it must be pure and unit-testable without Qt):
+   ```python
+   def recommendation_without_paths(
+       recommendation: PlaylistRecommendation, removed_paths: frozenset[str]
+   ) -> PlaylistRecommendation:
+   ```
+   - Returns the recommendation unchanged (same object is fine) when `removed_paths` is empty or intersects nothing.
+   - Otherwise returns a copy with `ordered_tracks` filtered, and `transition_scores` **recomputed for the new adjacencies** (removing a middle track creates a new seam between its former neighbors — reuse the existing `_score_ordered_tracks`/`score_transition` machinery so the scores stay honest; do NOT just drop the removed track's score entries, that would misalign scores with adjacencies).
+   - `total_score` updated consistently with the recomputed transition scores.
+   - `PlaylistRecommendation` is a frozen pydantic model — use `model_copy(update=...)`.
 
-5. **Default state**: unchecked on every app launch — no persistence (matches the existing quick-filter buttons, which reset each session; confirmed no `QSettings`/persistence hook exists for any of them today).
+2. **Apply it at every export read-site of `host.last_recommendation`**, filtering by the AppState's `playlist_removed_paths`:
+   - `serato_recommendation_export.py` — all three read sites (`:154`, `:233-236`, `:253-256`), so the confirmed export, the preview, and the readiness report all agree with what the Review screen shows.
+   - `software_export_coordinator.py` — both read sites (`:34`, `:80`).
+   - Find how those hosts access AppState (`host` protocol / `self._state` on the controllers — check `export_coordinator.py:84`'s host protocol and how `library_controller` reaches state) and thread `playlist_removed_paths` through minimally. If the host protocol needs a new member (e.g. `playlist_removed_paths` property), add it where the protocol is defined and implement it on the real window/state holder.
 
-## Key decisions & tradeoffs
+3. **Edge case — everything removed**: `review_view_model.can_export` (`:138-143`) already blocks export when zero tracks remain, so the export entry points should not be reachable with an empty result; still, the helper must handle the empty result without crashing, and an assertion-friendly guard (return early with a status message rather than exporting an empty crate) at the export sites is acceptable defense.
 
-- **Row-level (post-search) dedup, not data-level (pre-search) dedup**: the single most important decision, forced by Codex Round 1's discovery that live search in this screen operates entirely on already-rendered rows, not through the `LibraryFilters`/`tracks_for_display` pipeline. Dedup must compose with whatever's already visible, or it permanently breaks search for suppressed duplicates.
-- **Suffix-stripping is narrowly scoped, not a general "clean title" heuristic**: only the app-generated `" - <key> - Energy <N>"` and `"(vN)"` patterns are stripped, applied repeatedly until stable. Deliberately conservative — under-groups some genuine duplicates with more creative title noise, but never over-groups two different remixes/edits into one hidden group.
-- **Blank title/artist tracks are never grouped with each other**: guards against `TrackRecord.title`/`.artist` being `None`.
-- **Representative-row tiebreak is metadata-completeness first, title-length second, path third**: matches the app's existing quality signal (the Status column); path is a fully deterministic final tiebreak.
-- **Toggle is excluded from `quick_filter_buttons`' mutual-exclusion tuple**: existing binary group-split logic in `_on_quick_filter_changed` would misbehave otherwise.
-- **No persistence**: matches current behavior of every other quick filter.
-- **OpenSpec artifacts required** (per Codex Round 1 + this repo's established governance, confirmed earlier this session): `openspec/changes/library-hide-duplicate-versions/` with the full 7-file set this repo's `sdd.phase_rules` requires — `proposal.md`, `spec.md`, `design.md`, `tasks.md`, `apply-progress.md`, `verify-report.md`, `state.yaml` (**Codex Round 2**: the original draft named only the first four). RED-first TDD tasks for: suffix normalization (including the repeated-strip case), blank/placeholder-metadata handling, row-level composition with search (the `_apply_search_and_duplicate_filters()` ordering bug), representative selection, clear/undo, mutual exclusion, and the active/duplicate-count labels. Verification uses this repo's full mandatory sequence: `uv run pytest -q`, `uv run pyright src tests`, `uv run pytest --cov --cov-fail-under=70 -q`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run python scripts/release_gate_check.py --run`.
+## Tests (RED-first — this repo enforces strict TDD)
 
-## Risks / open questions
-- The Camelot-key regex in the suffix-stripper must anchor to the exact `[1-9]|1[0-2]` + `[AB]` shape to avoid accidentally stripping a coincidental `" - AB - Energy 7"`-shaped substring that isn't actually an app-generated suffix. Will validate with a dedicated unit test using real titles from the screenshot plus adversarial near-misses.
-- Reading Status/MissingFields back out of rendered `QTableWidgetItem` text (rather than the original `TrackRecord`) at the row-level layer means the grouping logic depends on the exact column text formatting (`_fmt_missing`, `metadata_status` string values) staying stable — acceptable since `_apply_constraint_colors` already depends on the same kind of round-trip for the Path column, an established pattern in this file.
-- Not addressed by this plan (explicitly out of scope, confirmed with user): the recommendation engine has zero awareness of "same track, different file" — a generated playlist can still include multiple versions of the same song. Flagged as a separate future change.
+- Unit tests for `recommendation_without_paths` in `tests/test_playlist_service.py` (or a matching new test module):
+  - Removing a middle track: `ordered_tracks` shrinks, `transition_scores` has exactly `len(ordered_tracks)-1` entries, and the new seam between former neighbors is scored (not carried over stale).
+  - Removing nothing / empty `removed_paths`: recommendation returned unchanged.
+  - Removing the first/last track.
+  - Removing all tracks: empty `ordered_tracks`, empty `transition_scores`, no crash.
+- Export-level regression test (mirror the existing patterns in `tests/test_export_coordinator.py` / `tests/test_playlist_coordinator.py` for how exports are tested with fake hosts): generate a recommendation, mark one track removed in state, run the Serato export path, assert the written/planned crate does NOT contain the removed track's path. This is the test that reproduces the user-reported bug — it must fail before the fix and pass after.
+
+## Verification (all must pass)
+
+```
+uv run pytest -q
+uv run pyright src tests
+uv run pytest --cov --cov-fail-under=70 -q
+uv run ruff check .
+uv run ruff format --check .
+uv run python scripts/release_gate_check.py --run
+```
 
 ## Out of scope
-- Recommendation/playlist-building engine changes.
-- Any mutation of the underlying scanned data, database rows, or files on disk — this is a display-only, row-hiding filter, nothing is deleted or merged in storage.
-- Persisting the toggle's state across app restarts.
-- A configurable/user-editable suffix-pattern list (user confirmed the automatic narrow rule instead).
+
+- Changing how removal works in the Review UI (undo/redo via `playlist_removed_paths` stays exactly as is).
+- Re-running the optimizer after a removal (the remaining order is preserved as-is; only adjacency scores are recomputed).
+- Persisted "My Playlists" export path (`playlist_coordinator.py:146` builds a fresh recommendation from a saved playlist's own track list — separate flow, not driven by `last_recommendation`, not part of this bug).

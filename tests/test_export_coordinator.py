@@ -111,6 +111,7 @@ class ExportScreen:
 class SeratoHost:
     def __init__(self, tmp_path: Path) -> None:
         self.last_recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+        self.playlist_removed_paths: frozenset[str] = frozenset()
         self.last_dj_readiness_report = DjReadinessReport(
             status="ready",
             summary="Ready",
@@ -121,6 +122,7 @@ class SeratoHost:
         self.last_quality_report = None
         self.settings = MagicMock()
         self.settings.export.safe_export_folder = tmp_path / "reports"
+        self.settings.scoring.spectral_cohesion = 0.0
         self.applied_prep_copilot_variant_name = None
         self.status_label = Label()
         self.serato_export_history = []
@@ -131,6 +133,21 @@ class SeratoHost:
 
     def _sync_state(self) -> None:
         pass
+
+
+def test_serato_export_plan_excludes_track_removed_in_review(tmp_path: Path) -> None:
+    serato_folder = tmp_path / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    kept_path = str(tmp_path / "kept.flac")
+    removed_path = str(tmp_path / "removed.flac")
+    host = SeratoHost(tmp_path)
+    host.last_recommendation = _make_recommendation([kept_path, removed_path])
+    host.playlist_removed_paths = frozenset({removed_path})
+    coordinator = ExportCoordinator(host)  # type: ignore[arg-type]
+
+    plan, _library = coordinator._plan_current_serato_export(serato_folder=serato_folder, crate_name="Review")
+
+    assert plan.relative_paths == ("kept.flac",)
 
 
 def test_record_export_prepends_entry():
@@ -280,6 +297,7 @@ def test_serato_export_reports_sidecar_write_failure_without_bubbling(tmp_path: 
     class Host:
         def __init__(self) -> None:
             self.last_recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+            self.playlist_removed_paths: frozenset[str] = frozenset()
             self.last_dj_readiness_report = DjReadinessReport(
                 status="ready",
                 summary="Ready",
@@ -290,6 +308,7 @@ def test_serato_export_reports_sidecar_write_failure_without_bubbling(tmp_path: 
             self.last_quality_report = None
             self.settings = MagicMock()
             self.settings.export.safe_export_folder = tmp_path / "reports"
+            self.settings.scoring.spectral_cohesion = 0.0
             self.applied_prep_copilot_variant_name = None
             self.status_label = Label()
             self.serato_export_history = []
@@ -396,6 +415,7 @@ class FileExportScreen:
 class FileExportHost:
     def __init__(self, tmp_path: Path, *, software: str = "Rekordbox") -> None:
         self.last_recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+        self.playlist_removed_paths: frozenset[str] = frozenset()
         self.last_dj_readiness_report = DjReadinessReport(
             status="ready",
             summary="Ready",
@@ -406,6 +426,7 @@ class FileExportHost:
         self.last_quality_report = None
         self.settings = MagicMock()
         self.settings.export.safe_export_folder = tmp_path / "exports"
+        self.settings.scoring.spectral_cohesion = 0.0
         self.applied_prep_copilot_variant_name = None
         self.status_label = Label()
         self.serato_export_history = []
