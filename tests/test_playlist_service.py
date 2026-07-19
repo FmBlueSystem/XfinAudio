@@ -272,6 +272,80 @@ def test_same_genre_falls_back_when_no_eligible_candidate_matches_anchor_genre()
     )
 
 
+def test_same_color_filters_candidates_to_selected_start_color() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED"),
+        spectral_track("/red.flac", "RED"),
+        spectral_track("/green.flac", "GREEN"),
+        track("/no-profile.flac"),
+        spectral_track("/blue.flac", "BLUE"),
+    ]
+
+    result = recommend_playlist(tracks, "same_color", controls=DJControls(start_path="/anchor.flac"))
+
+    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/red.flac"}
+    assert "same_color filter applied: RED" in result.warnings
+
+
+def test_same_color_uses_manual_prefix_color_when_start_path_is_absent() -> None:
+    tracks = [
+        spectral_track("/manual.flac", "GREEN"),
+        spectral_track("/green.flac", "GREEN"),
+        spectral_track("/red.flac", "RED"),
+    ]
+
+    result = recommend_playlist(tracks, "same_color", controls=DJControls(manual_order_paths=["/manual.flac"]))
+
+    assert [item.path for item in result.ordered_tracks[:1]] == ["/manual.flac"]
+    assert {item.path for item in result.ordered_tracks} == {"/manual.flac", "/green.flac"}
+    assert "same_color filter applied: GREEN" in result.warnings
+
+
+def test_same_color_preserves_controlled_paths_even_when_color_differs() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED"),
+        spectral_track("/red.flac", "RED"),
+        spectral_track("/locked-green.flac", "GREEN"),
+        spectral_track("/end-blue.flac", "BLUE"),
+    ]
+    controls = DJControls(start_path="/anchor.flac", end_path="/end-blue.flac", locked_paths={"/locked-green.flac"})
+
+    result = recommend_playlist(tracks, "same_color", controls=controls)
+
+    assert {item.path for item in result.ordered_tracks} == {
+        "/anchor.flac",
+        "/red.flac",
+        "/locked-green.flac",
+        "/end-blue.flac",
+    }
+    assert "same_color filter applied: RED" in result.warnings
+
+
+def test_same_color_falls_back_when_no_eligible_candidate_matches_anchor_color() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED"),
+        spectral_track("/green.flac", "GREEN"),
+        spectral_track("/blue.flac", "BLUE"),
+    ]
+
+    result = recommend_playlist(tracks, "same_color", controls=DJControls(start_path="/anchor.flac"))
+
+    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/green.flac", "/blue.flac"}
+    assert "same_color filter applied: RED" in result.warnings
+    assert (
+        "same_color: no candidates match anchor color 'RED'; falling back to unfiltered scoring" in result.warnings
+    )
+
+
+def test_same_color_skips_filter_when_no_track_has_a_profile() -> None:
+    tracks = [track("/a.flac"), track("/b.flac")]
+
+    result = recommend_playlist(tracks, "same_color")
+
+    assert {item.path for item in result.ordered_tracks} == {"/a.flac", "/b.flac"}
+    assert not any(warning.startswith("same_color") for warning in result.warnings)
+
+
 def test_recommend_playlist_uses_injected_strategy_registry() -> None:
     peak_as_custom = get_strategy("peak_time").model_copy(update={"name": "custom_peak"})
     registry = StrategyRegistry([peak_as_custom])

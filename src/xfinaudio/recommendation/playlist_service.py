@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from xfinaudio.audio.spectral_profile import ColorName
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls
 from xfinaudio.recommendation.optimizer import recommend_sequence
@@ -99,6 +100,11 @@ def recommend_playlist(
             filtered_tracks, controls, preserve_paths=_preserved_control_paths(controls)
         )
         warnings.extend(genre_warnings)
+    if strategy.name == "same_color":
+        filtered_tracks, color_warnings = _apply_color_filter(
+            filtered_tracks, controls, preserve_paths=_preserved_control_paths(controls)
+        )
+        warnings.extend(color_warnings)
     applied = apply_controls(filtered_tracks, controls)
 
     anchor_energy = _resolve_anchor_energy(applied)
@@ -301,6 +307,62 @@ def _dominant_genre(genres: list[str]) -> str:
         first_seen.setdefault(genre, index)
         counts[genre] = counts.get(genre, 0) + 1
     return min(counts, key=lambda genre: (-counts[genre], first_seen[genre]))
+
+
+def _apply_color_filter(
+    tracks: list[TrackRecord], controls: DJControls, preserve_paths: set[str]
+) -> tuple[list[TrackRecord], list[str]]:
+    anchor_color = _resolve_anchor_color(tracks, controls)
+    if anchor_color is None:
+        return tracks, []
+
+    warnings = [f"same_color filter applied: {anchor_color}"]
+    filtered = [track for track in tracks if track.path in preserve_paths or _track_color(track) == anchor_color]
+    eligible = [track for track in filtered if track.path not in preserve_paths]
+    if not eligible:
+        warnings.append(
+            f"same_color: no candidates match anchor color '{anchor_color}'; falling back to unfiltered scoring"
+        )
+        return tracks, warnings
+    return filtered, warnings
+
+
+def _resolve_anchor_color(tracks: list[TrackRecord], controls: DJControls) -> ColorName | None:
+    by_path = {track.path: track for track in tracks}
+    if (
+        controls.start_path is not None
+        and (start_track := by_path.get(controls.start_path)) is not None
+        and (start_color := _track_color(start_track)) is not None
+    ):
+        return start_color
+
+    manual_colors: list[ColorName] = [
+        color
+        for path in controls.manual_order_paths
+        if path not in controls.excluded_paths and (manual_track := by_path.get(path)) is not None
+        if (color := _track_color(manual_track)) is not None
+    ]
+    if manual_colors:
+        return _dominant_color_value(manual_colors)
+
+    for candidate in tracks:
+        if (color := _track_color(candidate)) is not None:
+            return color
+    return None
+
+
+def _dominant_color_value(colors: list[ColorName]) -> ColorName:
+    first_seen: dict[ColorName, int] = {}
+    counts: dict[ColorName, int] = {}
+    for index, color in enumerate(colors):
+        first_seen.setdefault(color, index)
+        counts[color] = counts.get(color, 0) + 1
+    return min(counts, key=lambda color: (-counts[color], first_seen[color]))
+
+
+def _track_color(track: TrackRecord) -> ColorName | None:
+    profile = track.spectral_profile
+    return None if profile is None else profile.dominant_color
 
 
 def _normalized_genre(track: TrackRecord) -> str | None:
