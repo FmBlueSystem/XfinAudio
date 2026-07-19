@@ -100,7 +100,7 @@ def score_camelot_transition(
     """Score harmonic compatibility between two Camelot keys.
 
     Scores are deterministic: exact key ``1.0``, adjacent same-letter ``0.9``, relative A/B ``0.85``,
-    diagonal fuzzy ``0.7``, configured boost ``0.8``, and incompatible ``0.0``.
+    diagonal (adjacent number, different letter) ``0.9``, configured boost ``0.8``, and incompatible ``0.0``.
     """
     left = parse_camelot_key(from_key)
     right = parse_camelot_key(to_key)

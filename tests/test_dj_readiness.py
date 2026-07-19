@@ -79,6 +79,24 @@ def test_dj_readiness_flags_bpm_jump_for_review_not_blocked() -> None:
     assert "10.00%" in report.summary
 
 
+def test_dj_readiness_treats_half_time_bpm_pair_as_continuous() -> None:
+    # Regression guard: dj_readiness used to keep its own private duplicate of
+    # scoring._bpm_difference_percent, which never got the half-time/double-time
+    # normalization — this would have flagged 128->64 as a ~100% jump even though
+    # the recommendation engine now treats it as fully compatible.
+    recommendation = manual_recommendation(
+        [
+            track("/music/a.flac", bpm=128, key="8A", energy=5),
+            track("/music/b.flac", bpm=64, key="8A", energy=5),
+        ]
+    )
+
+    report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
+
+    assert any(check.label == "BPM continuity" and check.status == "ready" for check in report.checks)
+    assert "0.00%" in report.summary
+
+
 def test_dj_readiness_flags_genre_or_tag_warnings_for_review() -> None:
     recommendation = manual_recommendation(
         [

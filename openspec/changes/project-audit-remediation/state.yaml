@@ -1,0 +1,36 @@
+schema: gentle-ai.sdd-state.v1
+change: project-audit-remediation
+artifact_store: openspec
+status: verify
+created: 2026-07-18
+updated: 2026-07-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in-progress
+next_recommended: final-native-re-review
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Implementation must proceed by autonomous PR slice, not as one monolithic patch.
+  - Behavior-changing tasks require RED -> GREEN -> REFACTOR -> VERIFY.
+  - Preserve product behavior while remediating test, dependency, lifecycle, and module-structure findings.
+  - Corrective apply completed after failed verification; rerun verify against the new evidence.
+  - PR4 corrective strict-TDD cycle is now recorded with observed RED, GREEN, refactor, focused tests, and full release gates.
+  - All five independent-review findings were corrected and local gates pass; archive remains blocked until independent re-review allows the corrected revision.
+  - R2 semantic dependency-policy and successful export-write characterization corrections pass locally; independent re-review remains required.
+  - R3 final dead-constant cleanup passes focused layout, Ruff, and Pyright checks.
+  - Fresh-context same-family review converged 5 -> 2 -> 1 -> 0 and R4 is CLEAN.
+  - Anthropic cross-model review was unavailable because Claude required extra usage; the owner explicitly waived that missing check with the exact response "si, aprobado".
+  - Final verification passes with OPENSSL_CONF=/dev/null for Pyright because the managed host blocks Node from reading the system OpenSSL configuration.
+  - Verification completion does not fabricate or grant a native review transaction, ledger entry, receipt, or archive authority.
+  - Native 4R READ-001/2/3 and REL-001/2/3 corrections pass focused and full gates; native re-review is pending.
+  - Final RES-001 and READ-004 corrections pass focused and full gates; final native re-review remains required.

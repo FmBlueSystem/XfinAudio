@@ -68,10 +68,13 @@ def _fmt_duration(seconds: float | None) -> str:
     return f"{minutes}:{secs:02d}"
 
 
+MISSING_FIELDS_SEPARATOR = ", "
+
+
 def _fmt_missing(fields: list[str]) -> str:
     if not fields:
         return _DASH
-    return ", ".join(fields)
+    return MISSING_FIELDS_SEPARATOR.join(fields)
 
 
 def _fmt_genre(genre: str | None) -> str:

@@ -1,0 +1,33 @@
+schema: gentle-ai.sdd-state.v1
+change: recommendation-scoring-correctness-fixes
+artifact_store: openspec
+status: archived
+state: complete
+step: archive
+review_status: approved
+created: 2026-07-18
+updated: 2026-07-18
+archived: 2026-07-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  review: complete
+  archive: complete
+next_recommended: none
+blocked_reasons: []
+delivery:
+  strategy: direct
+  chained_prs_recommended: false
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 400
+notes:
+  - Originated from /grill-me-codex (see PLAN.md / PLAN-REVIEW-LOG.md at repo root for the full grill + adversarial-review transcript).
+  - OpenSpec artifacts added retroactively after Codex (Round 1 + Round 2 adversarial review) flagged AGENTS.md's non-trivial-change SDD requirement; PLAN.md content was reused, not re-derived.
+  - Addresses F1 (Camelot wrap-around), F2 (docstring), F3 (manual-seam BPM gate), F4 (half-time/double-time BPM).
+  - Native gentle-ai review (4R lenses, high risk tier) ran across 3 lineages; found and fixed 1 CRITICAL (quality/dj_readiness.py had an unfixed duplicate of _bpm_difference_percent) plus 6 non-blocking WARNING/SUGGESTION findings. Final approved receipt at .git/gentle-ai/review-transactions/v2/review-78d1fed3f42157d4/review-receipt.json. See apply-progress.md "Native review corrections" for the full account.
+  - Follow-up (not fixed, out of scope): src/xfinaudio/desktop/screens/live_assistant_screen.py has a third independent BPM-jump formula lacking half-time normalization, classified base-only (pre-existing).

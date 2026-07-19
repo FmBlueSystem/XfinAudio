@@ -27,7 +27,9 @@ def _camelot_compatible(track_key: str | None, anchor_key: str | None) -> bool:
         return False
     track_num, track_letter = parsed_track
     anchor_num, anchor_letter = parsed_anchor
-    return (track_letter == anchor_letter and abs(track_num - anchor_num) <= 1) or (
+    direct_delta = abs(track_num - anchor_num)
+    circular_delta = min(direct_delta, 12 - direct_delta)
+    return (track_letter == anchor_letter and circular_delta <= 1) or (
         track_num == anchor_num and track_letter != anchor_letter
     )
 

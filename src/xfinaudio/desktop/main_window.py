@@ -25,6 +25,7 @@ from xfinaudio.desktop.recommendation_render import show_transition_review as re
 from xfinaudio.desktop.shortcuts import bind_main_window_shortcuts
 from xfinaudio.desktop.table_sorting import connect_table_sorting
 from xfinaudio.desktop.visual_design import apply_visual_design
+from xfinaudio.desktop.window_service_wiring import wire_services
 from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.ports import TrackRepositoryPort
@@ -88,8 +89,7 @@ class MainWindow(QMainWindow):
             on_state_changed=self._sync_state,
             on_status_message=self.status_label.setText,
         )
-        self._wire_scan_service()
-        self._wire_recommendation_service()
+        wire_services(self._wire_scan_service, self._wire_recommendation_service)
 
         self._connect_screens()
         apply_visual_design(self)

@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from xfinaudio.exporting.serato_crate import SeratoExportPlan, validate_serato_crate_file
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import MAX_ADJACENT_BPM_DIFFERENCE_PERCENT, PlaylistRecommendation
+from xfinaudio.recommendation.scoring import _bpm_difference_percent
 
 LOGGER = logging.getLogger(__name__)
 
@@ -259,13 +260,6 @@ def _max_bpm_jump_percent(recommendation: PlaylistRecommendation) -> float:
         ),
         default=0.0,
     )
-
-
-def _bpm_difference_percent(left_bpm: float, right_bpm: float) -> float:
-    lower = min(left_bpm, right_bpm)
-    if lower <= 0:
-        return 100.0
-    return abs(left_bpm - right_bpm) / lower * 100
 
 
 def _worst_status(statuses: Iterable[ReadinessStatus]) -> ReadinessStatus:

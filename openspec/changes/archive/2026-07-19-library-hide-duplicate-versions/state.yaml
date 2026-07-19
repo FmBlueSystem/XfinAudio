@@ -1,0 +1,31 @@
+schema: gentle-ai.sdd-state.v1
+change: library-hide-duplicate-versions
+artifact_store: openspec
+status: archived
+state: archived
+step: archive
+review_status: approved
+created: 2026-07-19
+updated: 2026-07-19
+archived: 2026-07-19
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  review: complete
+  archive: complete
+next_recommended: none
+blocked_reasons: []
+delivery:
+  strategy: direct
+  chained_prs_recommended: false
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 400
+notes:
+  - Originated from /grill-me-codex (see PLAN.md / PLAN-REVIEW-LOG.md at repo root for the full grill + 5-round adversarial-review transcript, APPROVED).
+  - Round 1 of Codex review forced a major architectural correction — dedup moved from the LibraryFilters/tracks_for_display data layer to a row-level pass composed with the existing _apply_filter() search mechanism, after Codex found the data-layer approach would permanently break search for suppressed duplicates.
+  - Native gentle-ai review (4R lenses, high risk tier) ran across 2 lineages; found and fixed 1 CRITICAL (title normalization failed to group the exact motivating screenshot's 3 duplicate titles because parens were treated as opaque) plus 6 non-blocking WARNING/SUGGESTION findings, one deliberately deferred (per-keystroke perf, no debounce). Final approved receipt at .git/gentle-ai/review-transactions/v2/review-193e3a2f9299bd42/review-receipt.json. See apply-progress.md "Native review corrections" and verify-report.md "Known limitations" for full detail.

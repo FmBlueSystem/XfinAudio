@@ -123,14 +123,18 @@ def test_desktop_main_exits_before_event_loop_in_package_smoke_mode(
     def fake_with_defaults(*_args: object) -> object:
         raise AssertionError("package smoke must not create MainWindow")
 
+    def fail_if_native_activation_runs(*_args: object) -> None:
+        raise AssertionError("package smoke must not configure the native macOS application")
+
     monkeypatch.setenv("XFINAUDIO_PACKAGE_SMOKE", "1")
     monkeypatch.setenv("XFINAUDIO_DB_PATH", str(db_path))
     monkeypatch.setenv("XFINAUDIO_SETTINGS_PATH", str(settings_path))
     monkeypatch.setattr(desktop_app, "QApplication", FakeApplication)
     monkeypatch.setattr(desktop_app.MainWindow, "with_defaults", fake_with_defaults)
+    monkeypatch.setattr(desktop_app, "install_translator", lambda lang: events.append(f"translator:{lang}"))
 
-    assert desktop_app.main() == 0
-    assert events == ["app"]
+    assert desktop_app.main(macos_configurator=fail_if_native_activation_runs) == 0
+    assert events == ["app", "translator:None"]
 
 
 def test_validate_launch_requires_temp_build() -> None:

@@ -1,0 +1,28 @@
+schema: gentle-ai.sdd-state.v1
+change: ui-phase-4-visual-hierarchy
+artifact_store: openspec
+status: active
+state: verifying
+step: review
+review_status: pending
+created: 2026-06-06
+updated: 2026-07-18
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  review: pending
+next_recommended: review
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: pending
+  review_budget_changed_lines: 400
+notes:
+  - State reconstructed from completed apply and verify artifacts.
+  - Commit and PR remain unchecked in tasks.md; archive is not yet justified.

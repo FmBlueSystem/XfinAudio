@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from xfinaudio.desktop import export_coordinator
@@ -17,6 +19,56 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.strategies import default_strategy_registry
+
+
+def test_export_actions_resolves_coordinator_methods_at_call_time() -> None:
+    from xfinaudio.desktop.export_actions import ExportActions
+
+    calls = []
+    coordinator = SimpleNamespace(_host=object(), preview_export=lambda **_kwargs: calls.append("original"))
+    actions = ExportActions(coordinator)
+    coordinator.preview_export = lambda **_kwargs: calls.append("replacement")
+
+    actions.preview_export(crate_name="Set")
+
+    assert calls == ["replacement"]
+
+
+def test_metadata_worklist_honors_injected_serato_discovery(monkeypatch, tmp_path) -> None:
+    forwarded = []
+
+    def replacement_discovery():
+        return []
+
+    label = SimpleNamespace(setText=lambda _text: None)
+    host = MagicMock()
+    host.last_recommendation = None
+    host.last_dj_readiness_report = None
+    host.last_quality_report = None
+    host.settings = SimpleNamespace(export=SimpleNamespace(safe_export_folder=tmp_path))
+    host.applied_prep_copilot_variant_name = None
+    host.status_label = label
+    host.serato_export_history = []
+    host._export_screen = SimpleNamespace(export_guidance_label=label)
+    host.tr.side_effect = lambda text: text
+    host._selected_missing_metadata_filter.return_value = None
+    host._selected_metadata_status_filter.return_value = "complete"
+    host._metadata_status_records.return_value = [object()]
+    baseline = ExportCoordinator(host)._export_dependencies()
+    coordinator = ExportCoordinator(
+        host, dependencies=replace(baseline, discover_serato_libraries=replacement_discovery)
+    )
+    monkeypatch.setattr(
+        "xfinaudio.desktop.serato_metadata_worklist_export.export_metadata_status_serato_worklist",
+        lambda **kwargs: (
+            forwarded.append(kwargs)
+            or SimpleNamespace(write_result=SimpleNamespace(written_path=tmp_path / "Complete.crate"))
+        ),
+    )
+
+    coordinator.export_metadata_status_to_serato(status="complete")
+
+    assert forwarded[0]["discover_libraries"] is replacement_discovery
 
 
 def _make_recommendation(paths: list[str]) -> PlaylistRecommendation:

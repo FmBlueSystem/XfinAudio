@@ -555,7 +555,7 @@ These exports follow the same strategy-grouped, timestamped, non-overwriting con
 - License posture: full open source under GPL-3.0-only. See `LICENSE` and `docs/open-source-license.md`.
 - Distribution model: XfinAudio ships as an installable Python package (source/wheel). Users install it with `pip`, `pipx`, or `uv tool` and the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses.
 - **macOS .app bundle**: A PyInstaller spec is included under `packaging/pyinstaller/` for building a local `.app` bundle. The bundle includes Qt Multimedia plugins and FFmpeg libraries for audio preview. Unsigned bundles work for personal use; signed/notarized distribution requires Apple Developer ID and separate legal review.
-- **Test suite**: 778 tests, all passing. Strict TDD is enforced for all changes.
+- **Test suite**: run `uv run pytest -q` for current status. Strict TDD is enforced for behavior-changing changes.
 - Platform posture: validated on macOS with Python 3.11. The dependencies are cross-platform, but Linux and Windows are not yet validated.
 - Publication checklist: follow `docs/repository-publication-checklist.md` before turning a local tree into a public source repository.
 
@@ -1187,7 +1187,7 @@ Estas exportaciones siguen la misma convención de agrupación por estrategia, t
 - Licencia: open source bajo GPL-3.0-only. Ver `LICENSE` y `docs/open-source-license.md`.
 - Modelo de distribución: XfinAudio se distribuye como paquete Python instalable (source/wheel). El usuario instala con `pip`, `pipx` o `uv tool`; el resolver descarga PySide6 y mutagen desde PyPI bajo sus propias licencias.
 - **Bundle .app para macOS**: Se incluye un spec de PyInstaller bajo `packaging/pyinstaller/` para construir un bundle `.app` local. El bundle incluye plugins de Qt Multimedia y librerías FFmpeg para audio preview. Los bundles no firmados sirven para uso personal; la distribución firmada/notarizada requiere Apple Developer ID y revisión legal separada.
-- **Suite de tests**: 734 tests, todos pasando. Se aplica TDD estricto para todos los cambios.
+- **Suite de tests**: ejecutar `uv run pytest -q` para ver el estado actual. Se aplica TDD estricto para cambios que modifican comportamiento.
 - Plataforma: validado en macOS con Python 3.11. Las dependencias son cross-platform, pero Linux y Windows todavía no están validados.
 - Checklist de publicación: seguir `docs/repository-publication-checklist.md` antes de convertir un árbol local en repo público.
 
