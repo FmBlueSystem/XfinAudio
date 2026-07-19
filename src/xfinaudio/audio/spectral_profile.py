@@ -97,6 +97,16 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
                 offset=offset,
                 duration=_ANALYSIS_WINDOW_SECONDS,
             )
+            if y.size == 0 and offset > 0.0:
+                # Truncated files can declare a header duration longer than the
+                # real stream, so a mid-track seek lands past EOF and yields no
+                # samples. Analyze what actually exists from the start instead.
+                y, sr = librosa.load(
+                    audio_path,
+                    sr=_ANALYSIS_SAMPLE_RATE,
+                    mono=True,
+                    duration=_ANALYSIS_WINDOW_SECONDS,
+                )
             if y.size == 0:
                 return None
 
@@ -159,11 +169,14 @@ def _dominant_color(red_ratio: float, green_ratio: float, blue_ratio: float) -> 
 
     When multiple bands qualify, the largest excess wins. Dictionary order
     provides the deterministic RED, GREEN, BLUE priority for exact ties.
+    Thresholds are calibrated against the mid-track-window distribution of a
+    real 10,386-profile library (GREEN needs a higher bar because mid-track
+    energy concentrates in the mids; BLUE a lower one).
     """
     candidates: dict[ColorName, float] = {
         "RED": red_ratio - 0.45,
-        "GREEN": green_ratio - 0.45,
-        "BLUE": blue_ratio - 0.25,
+        "GREEN": green_ratio - 0.48,
+        "BLUE": blue_ratio - 0.22,
     }
     eligible: dict[ColorName, float] = {color: excess for color, excess in candidates.items() if excess >= 0.0}
     if not eligible:
