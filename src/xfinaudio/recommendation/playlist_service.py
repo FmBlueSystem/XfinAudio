@@ -68,6 +68,63 @@ def recommendation_without_paths(
     )
 
 
+def recommendation_with_replacement(
+    recommendation: PlaylistRecommendation,
+    removed_path: str,
+    candidates: list[TrackRecord],
+    *,
+    spectral_cohesion: float = 0.0,
+) -> PlaylistRecommendation:
+    """Replace a removed track with the best-fitting candidate at the same slot.
+
+    The candidate maximizing the summed transition score against the slot's
+    neighbors wins; adjacency scores are recomputed for the whole order. Falls
+    back to plain removal when no candidate is eligible.
+    """
+    paths = [item.path for item in recommendation.ordered_tracks]
+    if removed_path not in paths:
+        return recommendation
+
+    playlist_paths = set(paths)
+    eligible = [
+        candidate
+        for candidate in candidates
+        if candidate.path not in playlist_paths and candidate.metadata_status == "complete"
+    ]
+    if not eligible:
+        return recommendation_without_paths(
+            recommendation, frozenset({removed_path}), spectral_cohesion=spectral_cohesion
+        )
+
+    scoring_config = TransitionScoringConfig(
+        weights=recommendation.strategy.weights,
+        spectral_cohesion=spectral_cohesion,
+    )
+    index = paths.index(removed_path)
+    left = recommendation.ordered_tracks[index - 1] if index > 0 else None
+    right = recommendation.ordered_tracks[index + 1] if index + 1 < len(paths) else None
+
+    def _slot_fit(candidate: TrackRecord) -> float:
+        fit = 0.0
+        if left is not None:
+            fit += score_transition(left, candidate, weights=scoring_config.weights, config=scoring_config).total_score
+        if right is not None:
+            fit += score_transition(candidate, right, weights=scoring_config.weights, config=scoring_config).total_score
+        return fit
+
+    replacement = max(eligible, key=_slot_fit)
+    remaining = [item for item in recommendation.ordered_tracks if item.path != removed_path]
+    ordered_tracks = [*remaining[:index], replacement, *remaining[index:]]
+    transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config)
+    return recommendation.model_copy(
+        update={
+            "ordered_tracks": ordered_tracks,
+            "transition_scores": transition_scores,
+            "total_score": sum(score.total_score for score in transition_scores),
+        }
+    )
+
+
 def recommend_playlist(
     tracks: list[TrackRecord],
     strategy_name: StrategyName | str,
@@ -551,4 +608,10 @@ def _spectral_jump_warnings(tracks: list[TrackRecord]) -> list[str]:
     return [f"Spectral shifts: {summary}"]
 
 
-__all__ = ["PlaylistRecommendation", "prefilter_strategy_candidates", "recommend_playlist"]
+__all__ = [
+    "PlaylistRecommendation",
+    "prefilter_strategy_candidates",
+    "recommend_playlist",
+    "recommendation_with_replacement",
+    "recommendation_without_paths",
+]

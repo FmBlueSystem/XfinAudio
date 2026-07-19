@@ -2943,6 +2943,47 @@ def test_track_removal_is_undoable_and_redoable(tmp_path) -> None:
     assert window.undo_history_menu.actions()[0].text() == "Remove b.flac"
 
 
+def test_track_removal_backfills_recommendation_and_undo_restores_it() -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    def _record(path: str, bpm: float, key: str, energy: int) -> TrackRecord:
+        return TrackRecord(
+            path=path,
+            title=path,
+            bpm=bpm,
+            camelot_key=key,
+            energy_level=energy,
+            metadata_status="complete",
+        )
+
+    left = _record("/left.flac", 120.0, "8A", 4)
+    mid = _record("/mid.flac", 121.0, "9A", 5)
+    right = _record("/right.flac", 122.0, "10A", 6)
+    spare = _record("/spare.flac", 121.0, "9A", 5)
+    window.scanned_records = [left, mid, right, spare]
+    original = make_recommendation([left, mid, right])
+    window.last_recommendation = original
+
+    window._on_track_remove_requested("/mid.flac")
+
+    assert "/mid.flac" in window.playlist_removed_paths
+    backfilled_paths = [item.path for item in window.last_recommendation.ordered_tracks]
+    assert "/mid.flac" not in backfilled_paths
+    assert "/spare.flac" in backfilled_paths
+    assert len(backfilled_paths) == 3
+
+    window.undo()
+    assert "/mid.flac" not in window.playlist_removed_paths
+    assert [item.path for item in window.last_recommendation.ordered_tracks] == [
+        item.path for item in original.ordered_tracks
+    ]
+
+    window.redo()
+    assert "/mid.flac" in window.playlist_removed_paths
+    assert "/spare.flac" in [item.path for item in window.last_recommendation.ordered_tracks]
+
+
 def test_clearing_library_filters_is_undoable() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())

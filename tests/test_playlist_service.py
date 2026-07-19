@@ -9,6 +9,7 @@ from xfinaudio.recommendation.playlist_service import (
     _spectral_jump_warnings,
     prefilter_strategy_candidates,
     recommend_playlist,
+    recommendation_with_replacement,
     recommendation_without_paths,
 )
 from xfinaudio.recommendation.scoring import ScoringWeights, score_transition
@@ -377,6 +378,66 @@ def test_prefilter_strategy_candidates_applies_energy_tolerance_for_same_energy(
     )
 
     assert {item.path for item in result} == {"/anchor.flac", "/near.flac"}
+
+
+def _three_track_recommendation() -> PlaylistRecommendation:
+    return recommend_playlist(
+        [
+            track("/left.flac", bpm=120.0, camelot_key="8A", energy_level=4),
+            track("/removed.flac", bpm=121.0, camelot_key="9A", energy_level=5),
+            track("/right.flac", bpm=122.0, camelot_key="10A", energy_level=6),
+        ],
+        "build",
+    )
+
+
+def test_recommendation_with_replacement_fills_the_slot_with_best_fitting_candidate() -> None:
+    recommendation = _three_track_recommendation()
+    good_fit = track("/good.flac", bpm=121.0, camelot_key="9A", energy_level=5)
+    bad_fit = track("/bad.flac", bpm=90.0, camelot_key="2B", energy_level=1)
+
+    result = recommendation_with_replacement(recommendation, "/removed.flac", [bad_fit, good_fit])
+
+    assert [item.path for item in result.ordered_tracks] == ["/left.flac", "/good.flac", "/right.flac"]
+    assert len(result.transition_scores) == 2
+    assert result.transition_scores[0].right_path == "/good.flac"
+    assert result.transition_scores[1].left_path == "/good.flac"
+    assert result.total_score == sum(score.total_score for score in result.transition_scores)
+
+
+def test_recommendation_with_replacement_ignores_candidates_already_in_playlist() -> None:
+    recommendation = _three_track_recommendation()
+    duplicate = track("/right.flac", bpm=122.0, camelot_key="10A", energy_level=6)
+
+    result = recommendation_with_replacement(recommendation, "/removed.flac", [duplicate])
+
+    assert [item.path for item in result.ordered_tracks] == ["/left.flac", "/right.flac"]
+
+
+def test_recommendation_with_replacement_shrinks_when_no_candidate_is_eligible() -> None:
+    recommendation = _three_track_recommendation()
+
+    result = recommendation_with_replacement(recommendation, "/removed.flac", [])
+
+    assert [item.path for item in result.ordered_tracks] == ["/left.flac", "/right.flac"]
+    assert len(result.transition_scores) == 1
+
+
+def test_recommendation_with_replacement_returns_same_object_for_unknown_path() -> None:
+    recommendation = _three_track_recommendation()
+
+    result = recommendation_with_replacement(recommendation, "/absent.flac", [track("/candidate.flac")])
+
+    assert result is recommendation
+
+
+def test_recommendation_with_replacement_handles_edge_slots() -> None:
+    recommendation = _three_track_recommendation()
+    candidate = track("/new-start.flac", bpm=119.0, camelot_key="7A", energy_level=4)
+
+    result = recommendation_with_replacement(recommendation, "/left.flac", [candidate])
+
+    assert [item.path for item in result.ordered_tracks] == ["/new-start.flac", "/removed.flac", "/right.flac"]
 
 
 def test_prefilter_strategy_candidates_passes_through_unconstrained_strategies() -> None:

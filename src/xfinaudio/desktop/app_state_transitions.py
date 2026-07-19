@@ -108,9 +108,30 @@ def apply_playlist_track_removed(state: AppState, path: str) -> AppState:
     return state.model_copy(update={"playlist_removed_paths": state.playlist_removed_paths | {path}})
 
 
-def apply_playlist_track_restored(state: AppState, path: str) -> AppState:
-    """Return a new state with a playlist track restored."""
-    return state.model_copy(update={"playlist_removed_paths": state.playlist_removed_paths - {path}})
+def apply_playlist_track_replaced(
+    state: AppState, *, path: str, recommendation: PlaylistRecommendation
+) -> AppState:
+    """Return a new state with a removed track marked and its backfilled recommendation applied."""
+    return state.model_copy(
+        update={
+            "last_recommendation": recommendation,
+            "playlist_removed_paths": state.playlist_removed_paths | {path},
+        }
+    )
+
+
+def apply_playlist_track_restored(
+    state: AppState, path: str, recommendation: PlaylistRecommendation | None = None
+) -> AppState:
+    """Return a new state with a playlist track restored.
+
+    When ``recommendation`` is provided, the pre-removal recommendation is
+    restored too (undo of a backfilled removal).
+    """
+    update: dict[str, object] = {"playlist_removed_paths": state.playlist_removed_paths - {path}}
+    if recommendation is not None:
+        update["last_recommendation"] = recommendation
+    return state.model_copy(update=update)
 
 
 def apply_prep_copilot_variant(state: AppState, payload: PrepCopilotVariantApplication) -> AppState:
@@ -161,6 +182,7 @@ __all__ = [
     "CompletedRecommendationResult",
     "PrepCopilotVariantApplication",
     "apply_playlist_track_removed",
+    "apply_playlist_track_replaced",
     "apply_playlist_track_restored",
     "apply_prep_copilot_plan_cleared",
     "apply_prep_copilot_plan_generated",
