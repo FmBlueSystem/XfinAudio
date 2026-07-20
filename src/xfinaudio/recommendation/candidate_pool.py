@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from xfinaudio.library.duplicate_grouping import duplicate_representative_sort_key, playlist_duplicate_group_key
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
 
 _DEFAULT_LIMIT = 25
 
@@ -118,6 +119,68 @@ def anchor_preflight_warnings(controls: DJControls | None, scanned_records: list
             f"{len(incomplete_manual)} manually-ordered track(s) are incomplete or unavailable and will be ignored."
         )
     return warnings
+
+
+def dedupe_recommendation_duplicates(records: list[TrackRecord], controls: DJControls | None) -> list[TrackRecord]:
+    """Collapse near-duplicate title+artist versions to one representative each.
+
+    Uses `playlist_duplicate_group_key` (`xfinaudio.library.duplicate_grouping`)
+    — STRICTER than the Library screen's display-only duplicate filter's
+    grouping key: parenthetical descriptor content is ignored entirely, so
+    e.g. "Too Hot (Clean)" and "Too Hot (Single Version)" are the same song
+    for candidate-pool purposes (maintainer decision 2026-07-20). The Library
+    display filter keeps using the conservative key unchanged. Control tracks
+    (locked, manual-order, start, end) are never removed: when a duplicate
+    group contains one or more control tracks, all controls in the group
+    survive and only non-control siblings are suppressed. Otherwise the
+    representative is chosen deterministically via
+    `duplicate_representative_sort_key` (complete status first, fewer missing
+    fields, shorter title, path as final tiebreak). Order-preserving: the
+    result keeps the original relative order of surviving records.
+
+    Only `metadata_status == "complete"` records are grouped/suppressed;
+    incomplete records (including incomplete control tracks) pass through
+    untouched. `build_recommendation_pool` already drops incomplete records
+    entirely (including incomplete controls, which never make it into its
+    priority set), so letting an incomplete control "win" a group here would
+    silently suppress its complete non-control sibling and then lose the
+    song outright downstream — this is the exact defect this restriction
+    prevents.
+    """
+    preserve = preserved_control_paths(controls) if controls is not None else set()
+
+    groups: dict[tuple[str, str], list[TrackRecord]] = {}
+    for record in records:
+        if record.metadata_status != "complete":
+            continue
+        key = playlist_duplicate_group_key(record.title, record.artist)
+        if key is None:
+            continue
+        groups.setdefault(key, []).append(record)
+
+    suppressed: set[str] = set()
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        controls_in_group = [r for r in group if r.path in preserve]
+        if controls_in_group:
+            keep_paths = {r.path for r in controls_in_group}
+        else:
+            representative = min(
+                group,
+                key=lambda r: duplicate_representative_sort_key(
+                    is_complete=r.metadata_status == "complete",
+                    missing_field_count=len(r.missing_required_fields),
+                    title=r.title or "",
+                    path=r.path,
+                ),
+            )
+            keep_paths = {representative.path}
+        for record in group:
+            if record.path not in keep_paths:
+                suppressed.add(record.path)
+
+    return [r for r in records if r.path not in suppressed]
 
 
 def build_recommendation_pool(

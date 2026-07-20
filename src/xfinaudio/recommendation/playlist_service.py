@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.audio.spectral_profile import ColorName
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls
+from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls, preserved_control_paths
 from xfinaudio.recommendation.optimizer import recommend_sequence
 from xfinaudio.recommendation.scoring import (
     ScoringWeights,
@@ -152,24 +152,24 @@ def recommend_playlist(
         warnings.append(f"Excluded {incomplete_count} incomplete track(s)")
 
     filtered_tracks, filter_warnings = _apply_strategy_filters(
-        complete_tracks, strategy, preserve_paths=_preserved_control_paths(controls)
+        complete_tracks, strategy, preserve_paths=preserved_control_paths(controls)
     )
     warnings.extend(filter_warnings)
     if strategy.name == "same_genre":
         filtered_tracks, genre_warnings = _apply_genre_filter(
-            filtered_tracks, controls, preserve_paths=_preserved_control_paths(controls)
+            filtered_tracks, controls, preserve_paths=preserved_control_paths(controls)
         )
         warnings.extend(genre_warnings)
     if strategy.name in _COLOR_FILTER_STRATEGIES:
         filtered_tracks, color_warnings = _apply_color_filter(
-            filtered_tracks, controls, preserve_paths=_preserved_control_paths(controls), strategy_name=strategy.name
+            filtered_tracks, controls, preserve_paths=preserved_control_paths(controls), strategy_name=strategy.name
         )
         warnings.extend(color_warnings)
     applied = apply_controls(filtered_tracks, controls)
 
     anchor_energy = _resolve_anchor_energy(applied)
     if strategy.energy_tolerance is not None and anchor_energy is not None:
-        preserve_paths = _preserved_control_paths(controls)
+        preserve_paths = preserved_control_paths(controls)
         tolerance_filtered, tolerance_warnings = _apply_energy_tolerance(
             applied.candidate_tracks, strategy, anchor_energy, preserve_paths
         )
@@ -384,7 +384,7 @@ def prefilter_strategy_candidates(
     """
     strategy = (strategy_registry or default_strategy_registry()).get(str(strategy_name))
     controls = controls or DJControls()
-    preserve_paths = _preserved_control_paths(controls)
+    preserve_paths = preserved_control_paths(controls)
     complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
 
     filtered, _ = _apply_strategy_filters(complete_tracks, strategy, preserve_paths=preserve_paths)
@@ -467,15 +467,6 @@ def _normalized_genre(track: TrackRecord) -> str | None:
         return None
     genre = track.genre.casefold().strip()
     return genre or None
-
-
-def _preserved_control_paths(controls: DJControls) -> set[str]:
-    preserved = set(controls.locked_paths) | set(controls.manual_order_paths)
-    if controls.start_path is not None:
-        preserved.add(controls.start_path)
-    if controls.end_path is not None:
-        preserved.add(controls.end_path)
-    return preserved - controls.excluded_paths
 
 
 def _resolve_anchor_energy(applied: AppliedControls) -> int | None:

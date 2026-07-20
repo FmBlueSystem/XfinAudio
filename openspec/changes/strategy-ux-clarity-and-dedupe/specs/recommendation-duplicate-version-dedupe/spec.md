@@ -14,27 +14,41 @@ no duplicates.
 ### Requirement: Candidate Pool Keeps One Representative per Group
 
 The recommendation candidate pool MUST include at most one
-representative track per near-duplicate group, where a group is defined
-by the same normalized title+artist key used by the existing library
-duplicate filter's grouping helpers.
+representative track per near-duplicate group. For the candidate pool,
+a group is defined by a playlist-level key that is STRICTER than the
+library display filter's key: in addition to stripping app-generated
+technical suffixes, it MUST ignore parenthetical descriptor content
+entirely (maintainer decision 2026-07-20: "Too Hot (Clean)" and "Too
+Hot (Single Version)" are the same song for playlist purposes). The
+library display filter's grouping semantics MUST remain unchanged.
 
 #### Scenario: Duplicate versions collapse to one representative
 
 - GIVEN a candidate pool containing multiple near-duplicate versions of
-  the same title+artist (differing only by app-generated suffixes such
-  as `" - 12A - Energy 7"` or `"(v2)"`, or by a parenthetical descriptor
-  variant)
+  the same title+artist (differing by app-generated suffixes such as
+  `" - 12A - Energy 7"` or `"(v2)"`, or by parenthetical descriptor
+  variants such as `"(Clean)"` vs `"(Single Version)"` vs no
+  descriptor)
 - WHEN the recommendation candidate pool is built
 - THEN the pool MUST contain at most one track from that duplicate group
 
 #### Scenario: Live-observed regression is fixed
 
-- GIVEN a 20-track candidate pool containing two versions each of "Too
-  Hot", "Se La", and "Still" (same artist, differing only by generated
-  suffixes)
+- GIVEN a candidate pool containing the three live-observed pairs:
+  "Too Hot (Single Version)" + "Too Hot (Clean)", "Se La" +
+  "Se La (12\" Version)", and "Still" + "Still - 3B - Energy 3"
+  (same artists)
 - WHEN a recommendation is generated from that pool
 - THEN the resulting recommendation MUST contain at most one version of
-  each of "Too Hot", "Se La", and "Still"
+  each of the three songs
+
+#### Scenario: Library display grouping is unchanged
+
+- GIVEN the Library screen's hide-duplicates toggle
+- WHEN titles differ only by parenthetical descriptor content (e.g.
+  "(Clean)" vs "(Single Version)")
+- THEN the Library display filter MUST keep treating them as distinct
+  versions, byte-identical to current behavior
 
 ### Requirement: Control Tracks Are Never Removed by Dedupe
 

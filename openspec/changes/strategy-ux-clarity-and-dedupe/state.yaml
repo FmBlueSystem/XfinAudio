@@ -3,16 +3,16 @@ change: strategy-ux-clarity-and-dedupe
 artifact_store: openspec
 status: apply
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-20
 strict_tdd: true
 phases:
   proposal: complete
   specs: complete
   design: complete
   tasks: complete
-  apply: in-progress
+  apply: complete
   verify: pending
-next_recommended: sdd-verify (Slice A) then sdd-apply (Slice B)
+next_recommended: sdd-verify (Slice A and Slice B)
 blocked_reasons: []
 delivery:
   strategy: auto-chain
@@ -20,9 +20,12 @@ delivery:
   chain_strategy: feature-branch-chain
   review_budget_changed_lines: 400
 notes:
-  - "Slice A APPLIED (this branch): all A1-A16 tasks complete, apply-progress.md written. Slice B NOT started."
-  - Two chained slices per design.md: Slice A (UI — description refresh + display-name combo, Items 1+2) ships first as PR1; Slice B (pool dedupe, Item 3) ships second as PR2 targeting PR1's branch.
+  - "Slice A APPLIED (merged to main): all A1-A16 tasks complete, apply-progress.md written."
+  - "Slice B APPLIED (branch feat/recommendation-dedupe, based on main): all B1-B15 tasks complete. Full verification tail passes (1183 tests, pyright clean, 90.73% coverage, ruff clean, release_gate_check all PASS)."
+  - "size:exception ACCEPTED by maintainer 2026-07-20 for the original 792-line Slice B diff: 274 production lines were within/near forecast; the overage was entirely test coverage (518 lines), not production code. No longer blocking."
+  - "Slice B delta (maintainer decisions 2026-07-20, same branch, no new commit): (1) recorded the size:exception above; (2) spec amended — recommendation-duplicate-version-dedupe now requires a STRICTER playlist-level grouping key that ignores parenthetical descriptor content entirely (aggressive grouping), while the Library display filter's conservative key stays byte-identical. Implemented `normalize_title_for_playlist_grouping` + `playlist_duplicate_group_key` in library/duplicate_grouping.py; `dedupe_recommendation_duplicates` (candidate_pool.py) now uses the playlist key instead of the conservative one. RED fixtures used the three live-observed pairs verbatim (Too Hot Single Version/Clean, Se La/Se La 12in Version, Still/Still-3B-Energy3) plus a negative guard (Love On The Rocks vs Love Me Tender). tests/test_library_filter.py remains at zero edits (still delegates to the unchanged conservative key)."
+  - "Post-delta measured diff: 980 changed lines in src+tests (was 792 before this delta; +188 from the new playlist-level key + its RED/characterization tests). This is a further increase beyond the maintainer's already-accepted 792 baseline — reported transparently in apply-progress.md rather than silently folded into the prior acceptance. New production delta is small (+61 lines: normalize_title_for_playlist_grouping, playlist_duplicate_group_key, a shared _strip_generated_suffixes helper, and the candidate_pool.py key swap); the increase is again dominated by tests (+127 lines) covering the 3 verbatim live pairs plus the negative guard and the conservative-vs-playlist-key contrast test."
+  - Two chained slices per design.md: Slice A (UI — description refresh + display-name combo, Items 1+2) shipped first as PR1; Slice B (pool dedupe, Item 3) is PR2 targeting PR1's branch.
   - Slice A and Slice B touch disjoint files with no technical ordering dependency; sequencing is a delivery choice matching the design's recommended split.
-  - Behavior-changing tasks require RED -> GREEN -> REFACTOR -> VERIFY; characterization tasks lock byte-identical regression guards for duplicate-free libraries, the library display filter after helper relocation, and the combo emission contract.
-  - Combined estimate risks exceeding the 400-line budget; each individual slice is sized to stay under or near budget on its own (Slice A Low risk, Slice B Medium risk).
-  - Open design decision (promote vs. inline preserved_control_paths for Slice B task B9) has a documented default and safe fallback; not blocking for apply.
+  - Behavior-changing tasks require RED -> GREEN -> REFACTOR -> VERIFY; characterization tasks lock byte-identical regression guards for duplicate-free libraries, the library display filter after helper relocation, and the combo emission contract. All honored in Slice B and its delta.
+  - "Preserve-set decision for Slice B task B9: PROMOTED _preserved_control_paths from playlist_service.py to a public preserved_control_paths in recommendation/controls.py, called from both playlist_service.py and candidate_pool.py."
