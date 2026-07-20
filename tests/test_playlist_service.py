@@ -346,6 +346,147 @@ def test_same_color_skips_filter_when_no_track_has_a_profile() -> None:
     assert not any(warning.startswith("same_color") for warning in result.warnings)
 
 
+def test_same_color_output_and_warnings_are_stable_after_seam_widening() -> None:
+    """Characterization baseline (Task 1): freeze same_color output/warnings before dispatch is widened."""
+    tracks = [
+        spectral_track("/anchor.flac", "RED"),
+        spectral_track("/red-a.flac", "RED"),
+        spectral_track("/red-b.flac", "RED"),
+        spectral_track("/green.flac", "GREEN"),
+        track("/no-profile.flac"),
+        spectral_track("/blue.flac", "BLUE"),
+    ]
+
+    result = recommend_playlist(tracks, "same_color", controls=DJControls(start_path="/anchor.flac"))
+
+    assert [item.path for item in result.ordered_tracks] == ["/anchor.flac", "/red-a.flac", "/red-b.flac"]
+    assert result.warnings == ["same_color filter applied: RED"]
+
+
+def test_same_energy_output_and_warnings_are_stable_after_seam_widening() -> None:
+    """Characterization baseline (Task 1): freeze same_energy output/warnings before dispatch is widened."""
+    tracks = [
+        track("/anchor.flac", energy_level=5),
+        track("/near_low.flac", energy_level=4),
+        track("/near_same.flac", energy_level=5),
+        track("/near_high.flac", energy_level=6),
+        track("/too_low.flac", energy_level=1),
+        track("/too_high.flac", energy_level=9),
+    ]
+
+    result = recommend_playlist(tracks, "same_energy", controls=DJControls(start_path="/anchor.flac"))
+
+    assert [item.path for item in result.ordered_tracks] == [
+        "/anchor.flac",
+        "/near_high.flac",
+        "/near_same.flac",
+        "/near_low.flac",
+    ]
+    assert result.warnings == ["Filtered 2 track(s) outside same_energy energy tolerance"]
+
+
+def test_same_color_energy_filters_candidates_to_anchor_color() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5}),
+        spectral_track("/red-near.flac", "RED").model_copy(update={"energy_level": 5}),
+        spectral_track("/green.flac", "GREEN").model_copy(update={"energy_level": 5}),
+        spectral_track("/blue.flac", "BLUE").model_copy(update={"energy_level": 5}),
+    ]
+
+    result = recommend_playlist(tracks, "same_color_energy", controls=DJControls(start_path="/anchor.flac"))
+
+    non_control = [item for item in result.ordered_tracks if item.path != "/anchor.flac"]
+    assert non_control
+    for candidate in non_control:
+        profile = candidate.spectral_profile
+        assert profile is not None
+        assert profile.dominant_color == "RED"
+
+
+def test_same_color_energy_enforces_energy_tolerance() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5}),
+        spectral_track("/near_low.flac", "RED").model_copy(update={"energy_level": 4}),
+        spectral_track("/near_same.flac", "RED").model_copy(update={"energy_level": 5}),
+        spectral_track("/near_high.flac", "RED").model_copy(update={"energy_level": 6}),
+        spectral_track("/too_low.flac", "RED").model_copy(update={"energy_level": 1}),
+        spectral_track("/too_high.flac", "RED").model_copy(update={"energy_level": 9}),
+    ]
+
+    result = recommend_playlist(tracks, "same_color_energy", controls=DJControls(start_path="/anchor.flac"))
+
+    paths = [item.path for item in result.ordered_tracks]
+    assert "/too_low.flac" not in paths
+    assert "/too_high.flac" not in paths
+    assert {"/anchor.flac", "/near_low.flac", "/near_same.flac", "/near_high.flac"}.issubset(set(paths))
+
+
+def test_same_color_energy_composes_color_and_energy_simultaneously() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5}),
+        spectral_track("/color-only.flac", "RED").model_copy(update={"energy_level": 9}),
+        spectral_track("/energy-only.flac", "GREEN").model_copy(update={"energy_level": 5}),
+        spectral_track("/both.flac", "RED").model_copy(update={"energy_level": 6}),
+        spectral_track("/neither.flac", "GREEN").model_copy(update={"energy_level": 9}),
+    ]
+
+    result = recommend_playlist(tracks, "same_color_energy", controls=DJControls(start_path="/anchor.flac"))
+
+    paths = {item.path for item in result.ordered_tracks}
+    assert paths == {"/anchor.flac", "/both.flac"}
+
+
+def test_same_color_energy_preserves_control_paths() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5}),
+        spectral_track("/red.flac", "RED").model_copy(update={"energy_level": 5}),
+        spectral_track("/locked-green.flac", "GREEN").model_copy(update={"energy_level": 9}),
+        spectral_track("/end-blue.flac", "BLUE").model_copy(update={"energy_level": 1}),
+    ]
+    controls = DJControls(start_path="/anchor.flac", end_path="/end-blue.flac", locked_paths={"/locked-green.flac"})
+
+    result = recommend_playlist(tracks, "same_color_energy", controls=controls)
+
+    assert {item.path for item in result.ordered_tracks} == {
+        "/anchor.flac",
+        "/red.flac",
+        "/locked-green.flac",
+        "/end-blue.flac",
+    }
+
+
+def test_same_color_energy_falls_back_on_empty_color_pool_with_named_warning() -> None:
+    tracks = [
+        spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5}),
+        spectral_track("/green.flac", "GREEN").model_copy(update={"energy_level": 5}),
+        spectral_track("/blue.flac", "BLUE").model_copy(update={"energy_level": 6}),
+    ]
+
+    result = recommend_playlist(tracks, "same_color_energy", controls=DJControls(start_path="/anchor.flac"))
+
+    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/green.flac", "/blue.flac"}
+    assert "same_color_energy filter applied: RED" in result.warnings
+    assert (
+        "same_color_energy: no candidates match anchor color 'RED'; falling back to unfiltered scoring"
+        in result.warnings
+    )
+
+
+def test_prefilter_strategy_candidates_applies_color_and_energy_for_same_color_energy() -> None:
+    anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5})
+    both = spectral_track("/both.flac", "RED").model_copy(update={"energy_level": 6})
+    color_only = spectral_track("/color-only.flac", "RED").model_copy(update={"energy_level": 9})
+    energy_only = spectral_track("/energy-only.flac", "GREEN").model_copy(update={"energy_level": 5})
+
+    result = prefilter_strategy_candidates(
+        [anchor, both, color_only, energy_only],
+        "same_color_energy",
+        controls=DJControls(start_path="/anchor.flac"),
+    )
+
+    assert {item.path for item in result} == {"/anchor.flac", "/both.flac"}
+
+
 def test_prefilter_strategy_candidates_keeps_only_anchor_color_for_same_color() -> None:
     reds = [spectral_track(f"/red-{i}.flac", "RED") for i in range(30)]
     greens = [spectral_track(f"/green-{i}.flac", "GREEN") for i in range(30)]

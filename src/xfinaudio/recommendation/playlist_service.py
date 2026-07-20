@@ -25,6 +25,7 @@ from xfinaudio.recommendation.strategies import (
 )
 
 MAX_ADJACENT_BPM_DIFFERENCE_PERCENT = 3.0
+_COLOR_FILTER_STRATEGIES: frozenset[str] = frozenset({"same_color", "same_color_energy"})
 
 
 class PlaylistRecommendation(BaseModel):
@@ -159,9 +160,9 @@ def recommend_playlist(
             filtered_tracks, controls, preserve_paths=_preserved_control_paths(controls)
         )
         warnings.extend(genre_warnings)
-    if strategy.name == "same_color":
+    if strategy.name in _COLOR_FILTER_STRATEGIES:
         filtered_tracks, color_warnings = _apply_color_filter(
-            filtered_tracks, controls, preserve_paths=_preserved_control_paths(controls)
+            filtered_tracks, controls, preserve_paths=_preserved_control_paths(controls), strategy_name=strategy.name
         )
         warnings.extend(color_warnings)
     applied = apply_controls(filtered_tracks, controls)
@@ -389,8 +390,10 @@ def prefilter_strategy_candidates(
     filtered, _ = _apply_strategy_filters(complete_tracks, strategy, preserve_paths=preserve_paths)
     if strategy.name == "same_genre":
         filtered, _ = _apply_genre_filter(filtered, controls, preserve_paths=preserve_paths)
-    if strategy.name == "same_color":
-        filtered, _ = _apply_color_filter(filtered, controls, preserve_paths=preserve_paths)
+    if strategy.name in _COLOR_FILTER_STRATEGIES:
+        filtered, _ = _apply_color_filter(
+            filtered, controls, preserve_paths=preserve_paths, strategy_name=strategy.name
+        )
     if strategy.energy_tolerance is not None:
         # apply_controls re-validates control paths; a control track filtered out
         # upstream would raise here, so fall back to skipping the tolerance
@@ -404,18 +407,18 @@ def prefilter_strategy_candidates(
 
 
 def _apply_color_filter(
-    tracks: list[TrackRecord], controls: DJControls, preserve_paths: set[str]
+    tracks: list[TrackRecord], controls: DJControls, preserve_paths: set[str], strategy_name: str
 ) -> tuple[list[TrackRecord], list[str]]:
     anchor_color = _resolve_anchor_color(tracks, controls)
     if anchor_color is None:
         return tracks, []
 
-    warnings = [f"same_color filter applied: {anchor_color}"]
+    warnings = [f"{strategy_name} filter applied: {anchor_color}"]
     filtered = [track for track in tracks if track.path in preserve_paths or _track_color(track) == anchor_color]
     eligible = [track for track in filtered if track.path not in preserve_paths]
     if not eligible:
         warnings.append(
-            f"same_color: no candidates match anchor color '{anchor_color}'; falling back to unfiltered scoring"
+            f"{strategy_name}: no candidates match anchor color '{anchor_color}'; falling back to unfiltered scoring"
         )
         return tracks, warnings
     return filtered, warnings
@@ -509,7 +512,7 @@ def _apply_energy_tolerance(
     removed = len(candidate_tracks) - len(filtered)
     warnings: list[str] = []
     if removed:
-        warnings.append(f"Filtered {removed} track(s) outside same_energy energy tolerance")
+        warnings.append(f"Filtered {removed} track(s) outside {strategy.name} energy tolerance")
     return filtered, warnings
 
 

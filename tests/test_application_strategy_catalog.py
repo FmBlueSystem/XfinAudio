@@ -18,3 +18,11 @@ def test_list_strategy_catalog_returns_display_entries() -> None:
 def test_describe_strategy_returns_description_or_empty_fallback() -> None:
     assert "energy" in describe_strategy("build").lower()
     assert describe_strategy("unknown") == ""
+
+
+def test_list_strategy_catalog_includes_same_color_energy() -> None:
+    entries = list_strategy_catalog()
+
+    matching = [entry for entry in entries if entry.name == "same_color_energy"]
+    assert len(matching) == 1
+    assert matching[0].display_name == "Same Color & Energy"
