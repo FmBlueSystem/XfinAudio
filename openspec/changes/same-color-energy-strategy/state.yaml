@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: same-color-energy-strategy
 artifact_store: openspec
-status: apply
+status: verify
 created: 2026-07-19
 updated: 2026-07-19
 strict_tdd: true
@@ -11,8 +11,8 @@ phases:
   design: complete
   tasks: complete
   apply: complete
-  verify: pending
-next_recommended: verify
+  verify: complete
+next_recommended: archive
 blocked_reasons: []
 delivery:
   strategy: ask-on-risk
@@ -27,3 +27,4 @@ notes:
   - Verified during tasks phase - BuildViewModel.available_strategies() and list_strategy_catalog() are registry-driven; no bespoke UI wiring needed for the new strategy to appear in the dropdown.
   - Review Workload Forecast: ~230-260 estimated changed lines, single PR slice, budget risk low, decision-needed false.
   - Apply phase complete: all 13 tasks done, 207 measured changed lines (src+tests), full verification tail green (pytest 1136 passed, pyright 0 errors, coverage 90.69%, ruff clean, release_gate_check.py all PASS). One unplanned fix: tests/test_main_window.py strategy_combo.count() updated 9 -> 10 (expected fallout of auto-enumeration). See apply-progress.md.
+  - Verify phase complete (commit 64a64e3, read-only): all 7 requirements map to passing asserting tests; full tail green (pytest 1136, pyright 0 errors, coverage 90.69%, ruff clean, release_gate all PASS). Verdict PASS WITH NOTES. One pre-approved info-level follow-up: apply-progress.md:41 narrative cites stale "Color is not considered" wording vs shipped "Color is weighted but not limited" (doc-only, not fixed).
