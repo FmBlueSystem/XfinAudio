@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-import re
 from typing import NamedTuple
 
 from xfinaudio.desktop.library_view_model import _DASH
+from xfinaudio.library.duplicate_grouping import (
+    duplicate_group_key,
+    duplicate_representative_sort_key,
+    normalize_artist_for_grouping,
+    normalize_title_for_grouping,
+)
 from xfinaudio.library.models import TrackRecord
 
 
@@ -21,49 +26,16 @@ def metadata_missing_field_records(records: list[TrackRecord], missing_field: st
 
 # ---------------------------------------------------------------------------
 # Duplicate-version grouping — display-only, row-level filtering.
+#
+# The normalization/group-key/sort-key core lives in
+# `xfinaudio.library.duplicate_grouping` (layer-neutral, Qt-free) — these are
+# thin delegators only, so the Library screen display filter stays
+# byte-identical while `recommendation/` can reuse the same core without
+# depending on `desktop/`. See design.md Decision 3a.
 # ---------------------------------------------------------------------------
 
-# Trailing " - <CamelotKey> - Energy <N>" suffix, e.g. " - 12A - Energy 7".
-# Camelot key anchored to the real shape: 1-12 followed by A or B (real-case text).
-_CAMELOT_ENERGY_SUFFIX = re.compile(r"\s*-\s*(?:[1-9]|1[0-2])[AB]\s*-\s*Energy\s+\d+\s*$")
-
-# Trailing "(vN)" version marker, e.g. "(v2)".
-_VERSION_SUFFIX = re.compile(r"\s*\(v\d+\)\s*$")
-
-
-def _normalize_title_for_grouping(title: str) -> str:
-    """Strip app-generated technical suffixes, repeatedly, then casefold.
-
-    Suffix stripping happens against the original-case text first (the regex is
-    written for real-case text like "Energy"/"A"/"B") — casefolding happens last.
-    Remix/edit/mix descriptor *content* is never touched, but the parentheses
-    around it are stripped as punctuation: real-world exports are inconsistent
-    about wrapping a descriptor in parens (e.g. "Song (Remix)" vs "Song Remix"
-    for the exact same file), so treating "(" / ")" as opaque would fail to
-    group those two forms of the same descriptor together — which defeats the
-    whole point of this feature for exactly that case.
-    """
-    text = title.strip()
-    changed = True
-    while changed:
-        changed = False
-        stripped = _CAMELOT_ENERGY_SUFFIX.sub("", text)
-        if stripped != text:
-            text = stripped.strip()
-            changed = True
-            continue
-        stripped = _VERSION_SUFFIX.sub("", text)
-        if stripped != text:
-            text = stripped.strip()
-            changed = True
-    text = text.replace("(", " ").replace(")", " ")
-    text = re.sub(r"\s+", " ", text).strip()
-    return text.casefold()
-
-
-def _normalize_artist_for_grouping(artist: str) -> str:
-    """Strip whitespace and casefold — no suffix stripping for artist names."""
-    return artist.strip().casefold()
+_normalize_title_for_grouping = normalize_title_for_grouping
+_normalize_artist_for_grouping = normalize_artist_for_grouping
 
 
 def _duplicate_group_key(title: str | None, artist: str | None) -> tuple[str, str] | None:
@@ -72,15 +44,7 @@ def _duplicate_group_key(title: str | None, artist: str | None) -> tuple[str, st
     None/blank/placeholder-dash title or artist is never grouped, since blank
     metadata tracks must never collapse into a fake "duplicate" group.
     """
-    if title is None or artist is None:
-        return None
-    title_stripped = title.strip()
-    artist_stripped = artist.strip()
-    if not title_stripped or not artist_stripped:
-        return None
-    if title_stripped == _DASH or artist_stripped == _DASH:
-        return None
-    return (_normalize_artist_for_grouping(artist), _normalize_title_for_grouping(title))
+    return duplicate_group_key(title, artist, placeholder=_DASH)
 
 
 class _RowInfo(NamedTuple):
@@ -101,11 +65,11 @@ def _pick_duplicate_representative(rows: list[_RowInfo]) -> _RowInfo:
     """
 
     def sort_key(row: _RowInfo) -> tuple[int, int, int, str]:
-        return (
-            0 if row.status == "complete" else 1,
-            row.missing_field_count,
-            len(row.title),
-            row.path,
+        return duplicate_representative_sort_key(
+            is_complete=row.status == "complete",
+            missing_field_count=row.missing_field_count,
+            title=row.title,
+            path=row.path,
         )
 
     return min(rows, key=sort_key)

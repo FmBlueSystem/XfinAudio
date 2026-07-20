@@ -80,6 +80,22 @@ def apply_controls(tracks: list[TrackRecord], controls: DJControls | None = None
     )
 
 
+def preserved_control_paths(controls: DJControls) -> set[str]:
+    """Return the set of paths that must never be filtered away by pool policy.
+
+    This is the union of manually-ordered, start, end, and locked paths, minus
+    any excluded paths — the "must survive" set shared by strategy filtering
+    (`playlist_service.py`) and recommendation candidate-pool dedupe
+    (`candidate_pool.dedupe_recommendation_duplicates`).
+    """
+    preserved = set(controls.locked_paths) | set(controls.manual_order_paths)
+    if controls.start_path is not None:
+        preserved.add(controls.start_path)
+    if controls.end_path is not None:
+        preserved.add(controls.end_path)
+    return preserved - controls.excluded_paths
+
+
 def _validate_known_paths(by_path: dict[str, TrackRecord], controls: DJControls) -> None:
     for label, path in (("start_path", controls.start_path), ("end_path", controls.end_path)):
         if path is not None and path not in by_path:
@@ -92,4 +108,4 @@ def _validate_known_paths(by_path: dict[str, TrackRecord], controls: DJControls)
             raise ValueError(f"Unknown locked_path: {path}")
 
 
-__all__ = ["AppliedControls", "DJControls", "apply_controls"]
+__all__ = ["AppliedControls", "DJControls", "apply_controls", "preserved_control_paths"]

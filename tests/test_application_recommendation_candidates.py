@@ -94,3 +94,100 @@ def test_desktop_main_window_imports_application_candidate_boundary() -> None:
 
     assert "from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates" in source
     assert "from xfinaudio.recommendation.candidate_pool import build_recommendation_pool" not in source
+
+
+# ---------------------------------------------------------------------------
+# B10/B11 — dedupe runs before the 25-cap, for both the strategy and
+# no-strategy branches.
+# ---------------------------------------------------------------------------
+
+
+def _duplicate_pool_records() -> list[TrackRecord]:
+    """30 records: a duplicate pair sorted first by path, followed by 28 distinct.
+
+    Paths are prefixed (`/00-...`) so the duplicate pair sorts first
+    regardless of whether the caller re-sorts by path (strategy branch) or
+    keeps scan order (no-strategy branch) — isolating the dedupe-before-cap
+    assertion from unrelated path-sort behavior. If dedupe did not run before
+    the cap, the 25-slot pool would contain both duplicate-group members and
+    only 24 distinct singles; with dedupe running first, the pool contains one
+    representative of the duplicate pair plus 24 other distinct tracks,
+    filling all 25 slots with no duplicate-group collapse.
+    """
+    duplicate_pair = [
+        _record("/00-dup-a.mp3"),
+        _record("/00-dup-b.mp3"),
+    ]
+    duplicate_pair[0] = duplicate_pair[0].model_copy(update={"title": "Too Hot", "artist": "Glenn Jones"})
+    duplicate_pair[1] = duplicate_pair[1].model_copy(
+        update={"title": "Too Hot - 8A - Energy 7", "artist": "Glenn Jones"}
+    )
+    distinct = [
+        _record(f"/10-distinct-{index:02d}.mp3").model_copy(
+            update={"title": f"Distinct Song {index:02d}", "artist": "Other Artist"}
+        )
+        for index in range(28)
+    ]
+    return [*duplicate_pair, *distinct]
+
+
+def test_plan_recommendation_candidates_dedupes_before_cap_without_strategy() -> None:
+    from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates
+
+    result = plan_recommendation_candidates(
+        scanned_records=_duplicate_pool_records(),
+        controls=None,
+        limit=25,
+    )
+
+    assert len(result) == 25
+    duplicate_paths_present = {track.path for track in result} & {"/00-dup-a.mp3", "/00-dup-b.mp3"}
+    assert len(duplicate_paths_present) == 1
+
+
+# ---------------------------------------------------------------------------
+# CRITICAL 1 correction (native 4R review): an incomplete control track must
+# never win a duplicate group over a complete non-control sibling, since
+# `build_recommendation_pool` drops incomplete records (including incomplete
+# controls) entirely — suppressing the complete sibling in favor of the
+# incomplete control caused total silent song loss.
+# ---------------------------------------------------------------------------
+
+
+def test_plan_recommendation_candidates_does_not_lose_complete_track_to_incomplete_locked_duplicate() -> None:
+    from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates
+
+    complete = TrackRecord(path="/complete.mp3", title="Song", artist="Artist", metadata_status="complete")
+    locked_incomplete = TrackRecord(
+        path="/locked.mp3",
+        title="Song (v2)",
+        artist="Artist",
+        metadata_status="incomplete",
+        missing_required_fields=["bpm"],
+    )
+
+    result = plan_recommendation_candidates(
+        scanned_records=[complete, locked_incomplete],
+        controls=DJControls(locked_paths={"/locked.mp3"}),
+        limit=25,
+    )
+
+    assert [track.path for track in result] == ["/complete.mp3"]
+
+
+def test_plan_recommendation_candidates_dedupes_before_cap_with_strategy() -> None:
+    from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates
+
+    # `same_vibe` has no energy/bpm hard range and a stable path sort_hint, so
+    # this isolates the dedupe-before-cap behavior from unrelated
+    # strategy-specific reordering/filtering.
+    result = plan_recommendation_candidates(
+        scanned_records=_duplicate_pool_records(),
+        controls=None,
+        limit=25,
+        strategy_name="same_vibe",
+    )
+
+    assert len(result) == 25
+    duplicate_paths_present = {track.path for track in result} & {"/00-dup-a.mp3", "/00-dup-b.mp3"}
+    assert len(duplicate_paths_present) == 1

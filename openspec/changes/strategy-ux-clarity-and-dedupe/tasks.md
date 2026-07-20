@@ -205,7 +205,7 @@ new `tests/test_candidate_pool.py`), `tests/test_application_recommendation_cand
 Spec: `specs/recommendation-duplicate-version-dedupe/spec.md` — all
 requirements.
 
-### B1. Characterization — library display filter is byte-identical before relocation
+### B1. Characterization — library display filter is byte-identical before relocation [x]
 
 - **RED/characterization**: Before touching `library_filter.py`, confirm
   `tests/test_library_filter.py` passes unmodified against current code (this
@@ -220,7 +220,7 @@ requirements.
   hard non-regression gate the spec's control-immunity/no-change
   requirements depend on).
 
-### B2. RED — new `library/duplicate_grouping.py` neutral helpers
+### B2. RED — new `library/duplicate_grouping.py` neutral helpers [x]
 
 - Add failing tests (new test module, e.g.
   `tests/test_duplicate_grouping.py`) for:
@@ -238,7 +238,7 @@ requirements.
   Pool Keeps One Representative per Group" and "Representative Choice Is
   Deterministic".
 
-### B3. GREEN — implement `library/duplicate_grouping.py`
+### B3. GREEN — implement `library/duplicate_grouping.py` [x]
 
 - Create the module with the three/four pure functions per design.md 3a,
   parametrizing `placeholder` instead of importing `_DASH`.
@@ -246,7 +246,7 @@ requirements.
   in the new module (`recommendation` importing `library` must not transitively
   reach `desktop`).
 
-### B4. RED — `library_filter.py` delegates without behavior change
+### B4. RED — `library_filter.py` delegates without behavior change [x]
 
 - Extend/add a test asserting `desktop/library_filter.py`'s
   `_duplicate_group_key`, `_normalize_title_for_grouping`,
@@ -256,7 +256,7 @@ requirements.
   the B1 characterization baseline for the same fixtures.
 - Requirement: design.md 3a "imports only, no logic change".
 
-### B5. GREEN — relocate delegation in `library_filter.py`
+### B5. GREEN — relocate delegation in `library_filter.py` [x]
 
 - Replace the local normalization/group-key bodies with thin calls into
   `library.duplicate_grouping` (`placeholder=_DASH` for the group-key call);
@@ -267,7 +267,7 @@ requirements.
   green with the ORIGINAL test file unmodified** (per design.md and B1). Also
   run B2/B4.
 
-### B6. RED — `dedupe_recommendation_duplicates` collapses a duplicate group
+### B6. RED — `dedupe_recommendation_duplicates` collapses a duplicate group [x]
 
 - Add a failing test (`tests/test_candidate_pool.py`, new or extended) using
   a "Too Hot" x2 fixture (same artist, differing only by a generated suffix):
@@ -278,7 +278,7 @@ requirements.
 - Requirement: Spec `recommendation-duplicate-version-dedupe` → "Candidate
   Pool Keeps One Representative per Group" (both scenarios).
 
-### B7. RED — control-path immunity
+### B7. RED — control-path immunity [x]
 
 - Add failing tests:
   - A duplicate group containing a locked track: the locked track survives,
@@ -288,7 +288,7 @@ requirements.
 - Requirement: Spec `recommendation-duplicate-version-dedupe` → "Control
   Tracks Are Never Removed by Dedupe" (both scenarios).
 
-### B8. RED — determinism and no-duplicates characterization
+### B8. RED — determinism and no-duplicates characterization [x]
 
 - Add failing tests:
   - Deduping the same fixed duplicate group twice in separate runs picks the
@@ -300,7 +300,7 @@ requirements.
   "Representative Choice Is Deterministic"; "Duplicate-Free Libraries Are
   Unchanged" / "No duplicates means no change".
 
-### B9. GREEN — implement `dedupe_recommendation_duplicates` in `candidate_pool.py`
+### B9. GREEN — implement `dedupe_recommendation_duplicates` in `candidate_pool.py` [x]
 
 - Implement per design.md 3b: build the `preserve` set (manual ∪ start ∪ end
   ∪ locked − excluded), group by `duplicate_group_key(title, artist,
@@ -317,7 +317,7 @@ requirements.
   was taken in `apply-progress.md`.
 - **VERIFY**: B6, B7, B8 pass.
 
-### B10. RED — dedupe runs before the 25-cap in `plan_recommendation_candidates`
+### B10. RED — dedupe runs before the 25-cap in `plan_recommendation_candidates` [x]
 
 - Add a failing test in `tests/test_application_recommendation_candidates.py`:
   a `scanned_records` fixture with more than 25 candidates where duplicates
@@ -329,7 +329,7 @@ requirements.
   versions collapse to one representative" and the "20-track pool" live
   regression scenario; design.md 3c placement requirement.
 
-### B11. GREEN — call dedupe before `build_recommendation_pool`
+### B11. GREEN — call dedupe before `build_recommendation_pool` [x]
 
 - In `plan_recommendation_candidates`, after the optional
   `prefilter_strategy_candidates` call and before `build_recommendation_pool`,
@@ -338,7 +338,7 @@ requirements.
   3c's code sketch).
 - **VERIFY**: B10 passes.
 
-### B12. RED — anchor/energy filters still apply to surviving representatives
+### B12. RED — anchor/energy filters still apply to surviving representatives [x]
 
 - Add a failing test: a pool with a duplicate group where dedupe removes a
   non-control candidate; generate under `same_color_energy`; assert the
@@ -348,14 +348,14 @@ requirements.
 - Requirement: Spec `recommendation-duplicate-version-dedupe` → "Anchor/energy
   filters apply to deduped representatives".
 
-### B13. VERIFY — B12 passes; REFACTOR pass over Slice B
+### B13. VERIFY — B12 passes; REFACTOR pass over Slice B [x]
 
 - Confirm B12 passes with the B9/B11 implementation as-is (no anticipated
   production change — the filter chain runs on the same `pool_source` object
   dedupe returns). Refactor for clarity/naming only if warranted; no logic
   change. Re-run B6-B12 plus `test_application_recommendation_candidates.py`.
 
-### B14. Characterization — duplicate-free libraries unchanged end-to-end
+### B14. Characterization — duplicate-free libraries unchanged end-to-end [x]
 
 - Add/confirm a test: a fixed pool of tracks and anchor with no duplicate
   groups produces an identical ordered candidate list, transition scores, and
@@ -366,7 +366,7 @@ requirements.
   "Strategy Filtering Semantics Are Unaffected" / "Filtering output is
   unchanged for duplicate-free pools".
 
-### B15. VERIFY — Slice B full gate
+### B15. VERIFY — Slice B full gate [x]
 
 - Run `uv run pytest -q`, `uv run pyright src tests`,
   `uv run pytest --cov --cov-fail-under=70 -q`, `uv run ruff check .`,
