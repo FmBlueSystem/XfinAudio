@@ -1,0 +1,43 @@
+schema: gentle-ai.sdd-state.v1
+change: same-color-energy-strategy
+artifact_store: openspec
+status: archive
+created: 2026-07-19
+updated: 2026-07-20
+archived_at: 2026-07-20
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  archive: complete
+blocked_reasons: []
+delivery:
+  strategy: ask-on-risk
+  chained_prs_recommended: false
+  chain_strategy: single-slice
+  review_budget_changed_lines: 400
+archive:
+  location: openspec/changes/archive/2026-07-20-same-color-energy-strategy/
+  spec_synced: true
+  main_spec_target: openspec/specs/same-color-energy-strategy/spec.md
+  archive_report_exists: true
+  follow_up_items:
+    - id: a
+      title: apply-progress.md:41 wording alignment
+      status: closed
+      action_taken: aligned to shipped copy during archive
+    - id: b
+      title: optional differential test for manual-prefix anchor resolution
+      status: open
+      recommendation: future enhancement, not shipped-code gap
+notes:
+  - Archive procedure completed successfully on 2026-07-20
+  - All 7 spec requirements mapped to passing implementation and tests
+  - Verify verdict PASS WITH NOTES (0 CRITICAL, 0 WARNING, 1 pre-approved SUGGESTION)
+  - Pre-approved follow-up (apply-progress.md:41 wording drift) closed during archive
+  - Spec synced to main specs tree (byte-identical copy)
+  - Review lineages: review-dde687b938357b60 (4R, approved with bounded correction), review-936afef478b20927 (recovery successor, approved), review-6d58a1f1507d256f (verify artifacts, approved)

@@ -38,7 +38,7 @@ Status: all 13 tasks complete. Single-slice apply, no chaining needed.
   `test_strategy_descriptions_state_guarantees` (substring checks). RED
   confirmed for the two existing profiles' copy. GREEN: updated
   `same_energy` description to "Hard limit: only tracks within ±1 energy
-  level of the anchor. Color is not considered." and `same_color` to "Hard
+  level of the anchor. Color is weighted but not limited." and `same_color` to "Hard
   filter: only tracks matching the anchor's spectral color. Energy is
   weighted but not limited." (`same_color_energy`'s description was already
   set to the final guarantee-explicit text in Task 3: "Hard filters: only
