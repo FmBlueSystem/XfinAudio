@@ -142,7 +142,7 @@ class RecommendationService(QObject):
             self._status_label.setText(self._tr("Scan tracks before recommending"))
             self._recommendation_guidance_label.setText(self._tr("Scan metadata before recommending a playlist."))
             return
-        strategy_name = self._build_screen.strategy_combo.currentText()
+        strategy_name = self._build_screen.strategy_combo.currentData()
         controls = self._selected_track_controls()
         if controls is None:
             self._clear_recommendation_review()
@@ -221,7 +221,7 @@ class RecommendationService(QObject):
     def on_recommend_requested(self, strategy_name: str, paths: list[str]) -> None:
         """Adapter: BuildScreen emits (strategy_name, paths), recommend reads from widgets."""
         self._require_wired()
-        combo_idx = self._build_screen.strategy_combo.findText(strategy_name)
+        combo_idx = self._build_screen.strategy_combo.findData(strategy_name)
         if combo_idx >= 0:
             self._build_screen.strategy_combo.setCurrentIndex(combo_idx)
         self.recommend()

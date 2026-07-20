@@ -55,6 +55,7 @@ class BuildScreen(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._last_vm: BuildViewModel | None = None
         self._build_ui()
         self._connect_signals()
 
@@ -269,6 +270,7 @@ class BuildScreen(QWidget):
         self.lock_button.clicked.connect(self.lock_requested)
         self.clear_constraints_button.clicked.connect(self.clear_constraints_requested)
         self.spectral_cohesion_slider.valueChanged.connect(self._on_spectral_cohesion_changed)
+        self.strategy_combo.currentIndexChanged.connect(self._on_strategy_changed)
 
     def connect_signals(self, window: Any) -> None:
         self.copilot_table.itemDoubleClicked.connect(window._apply_prep_copilot_item)
@@ -301,10 +303,12 @@ class BuildScreen(QWidget):
             lightweight: If True, skip expensive copilot table population
                         (used for non-visible tabs during state sync).
         """
+        self._last_vm = vm
+
         # Populate strategy combo (only if empty to avoid clearing user selection)
         if self.strategy_combo.count() == 0:
             for option in vm.available_strategies():
-                self.strategy_combo.addItem(option.name)
+                self.strategy_combo.addItem(option.display_name, option.name)
 
         # recommend_button enabled state is managed by MainWindow._refresh_idle_action_state
         self.copilot_button.setEnabled(vm.copilot_button_enabled(state))
@@ -335,8 +339,7 @@ class BuildScreen(QWidget):
         self.anchor_label.setText(text)
         self.anchor_label.setVisible(bool(state.scanned_records))
 
-        current_strategy = self.strategy_combo.currentData() or self.strategy_combo.currentText()
-        self.strategy_explanation_label.setText(vm.strategy_explanation(current_strategy))
+        self._refresh_strategy_explanation(vm)
 
         self.recommendation_vs_copilot_label.setText(vm.recommendation_vs_copilot_text())
         self.constraint_explanation_label.setText(vm.constraint_explanation())
@@ -354,6 +357,10 @@ class BuildScreen(QWidget):
             parts.append(self.tr("{0} locked").format(locked))
         self.constraints_label.setText(", ".join(parts) if parts else "")
         self.clear_constraints_button.setEnabled(bool(excluded or locked))
+
+    def _refresh_strategy_explanation(self, vm: BuildViewModel) -> None:
+        current_strategy = self.strategy_combo.currentData() or self.strategy_combo.currentText()
+        self.strategy_explanation_label.setText(vm.strategy_explanation(current_strategy))
 
     def _render_recommend_progress(self, state: AppState) -> None:
         if not state.is_recommending:
@@ -402,8 +409,12 @@ class BuildScreen(QWidget):
     # ------------------------------------------------------------------
 
     def _on_recommend(self) -> None:
-        strategy = self.strategy_combo.currentText()
+        strategy = self.strategy_combo.currentData()
         self.recommend_requested.emit(strategy, [])
+
+    def _on_strategy_changed(self, _index: int) -> None:
+        if self._last_vm is not None:
+            self._refresh_strategy_explanation(self._last_vm)
 
     def _on_apply_variant(self) -> None:
         selected_rows = self.copilot_table.selectedItems()

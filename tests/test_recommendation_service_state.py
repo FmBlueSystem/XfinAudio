@@ -23,6 +23,39 @@ class _Button:
         pass
 
 
+class _StrategyCombo:
+    """Test double mirroring the data-backed QComboBox contract (text=display, data=internal)."""
+
+    def __init__(self, items: list[tuple[str, str]], current_index: int = 0) -> None:
+        self._items = items
+        self._current_index = current_index
+        self.find_text_calls: list[str] = []
+        self.find_data_calls: list[str] = []
+
+    def currentText(self) -> str:  # noqa: N802 - Qt-compatible test double
+        return self._items[self._current_index][0]
+
+    def currentData(self) -> str:  # noqa: N802 - Qt-compatible test double
+        return self._items[self._current_index][1]
+
+    def findText(self, text: str) -> int:  # noqa: N802 - Qt-compatible test double
+        self.find_text_calls.append(text)
+        for index, (item_text, _item_data) in enumerate(self._items):
+            if item_text == text:
+                return index
+        return -1
+
+    def findData(self, data: str) -> int:  # noqa: N802 - Qt-compatible test double
+        self.find_data_calls.append(data)
+        for index, (_item_text, item_data) in enumerate(self._items):
+            if item_data == data:
+                return index
+        return -1
+
+    def setCurrentIndex(self, index: int) -> None:  # noqa: N802 - Qt-compatible test double
+        self._current_index = index
+
+
 def _result() -> SimpleNamespace:
     return SimpleNamespace(
         recommendation=SimpleNamespace(ordered_tracks=[], strategy=SimpleNamespace(name="Test")),
@@ -37,6 +70,7 @@ def _wire_service(
     state: Callable[[], AppState] = AppState,
     set_state: Callable[[AppState], None] = lambda _state: None,
     set_applied_copilot_variant: Callable[[str | None], None] = lambda _variant: None,
+    build_screen: Any | None = None,
 ) -> None:
     service.set_state_accessors(
         scanned_records=list,
@@ -45,7 +79,7 @@ def _wire_service(
         set_state=set_state,
     )
     service.set_ui(
-        build_screen=SimpleNamespace(recommend_button=_Button()),
+        build_screen=build_screen if build_screen is not None else SimpleNamespace(recommend_button=_Button()),
         review_screen=SimpleNamespace(review_summary_label=_Label()),
         export_screen=SimpleNamespace(export_guidance_label=_Label()),
         library_screen=SimpleNamespace(scan_button=_Button()),
@@ -121,3 +155,70 @@ def test_replace_app_state_refreshes_library_controller_state() -> None:
     replace_app_state(window, replacement)
 
     assert library_controller._state is replacement
+
+
+def test_recommend_reads_strategy_via_current_data() -> None:
+    """`recommend()` reads the strategy name from `currentData()`, not `currentText()`.
+
+    Spec `strategy-selection-ux` -> "Downstream Consumers Keep Working".
+    """
+    service = RecommendationService(cast(Any, object()))
+    combo = _StrategyCombo([("Same Color & Energy", "same_color_energy")])
+    build_screen = SimpleNamespace(
+        recommend_button=_Button(),
+        strategy_combo=combo,
+        spectral_cohesion_value=lambda: 50,
+    )
+    _wire_service(service, build_screen=build_screen)
+    service._scanned_records = lambda: [cast(Any, object())]
+    service._selected_track_controls = lambda: cast(Any, object())
+    captured_strategies: list[str] = []
+
+    def _fake_desktop_recommendation_records(_controls: Any, _strategy: str | None = None) -> list[Any]:
+        assert _strategy is not None
+        captured_strategies.append(_strategy)
+        return []
+
+    service._desktop_recommendation_records = _fake_desktop_recommendation_records
+    started_strategies: list[str] = []
+
+    def _fake_start_recommendation(
+        _records: list[Any], strategy_name: str, controls: Any = None, spectral_cohesion: float = 0.0
+    ) -> None:
+        started_strategies.append(strategy_name)
+
+    service.start_recommendation = _fake_start_recommendation
+
+    service.recommend()
+
+    assert captured_strategies == ["same_color_energy"]
+    assert started_strategies == ["same_color_energy"]
+    assert combo.currentText() != "same_color_energy"
+
+
+def test_on_recommend_requested_selects_item_via_find_data() -> None:
+    """`on_recommend_requested` locates the combo item via `findData`, not `findText`.
+
+    Spec `strategy-selection-ux` -> "Downstream Consumers Keep Working".
+    """
+    service = RecommendationService(cast(Any, object()))
+    combo = _StrategyCombo(
+        [("Same Color", "same_color"), ("Same Color & Energy", "same_color_energy")],
+        current_index=0,
+    )
+    build_screen = SimpleNamespace(
+        recommend_button=_Button(),
+        strategy_combo=combo,
+        spectral_cohesion_value=lambda: 50,
+    )
+    _wire_service(service, build_screen=build_screen)
+    service._scanned_records = lambda: [cast(Any, object())]
+    service._selected_track_controls = lambda: cast(Any, object())
+    service._desktop_recommendation_records = lambda _controls, _strategy=None: []
+    service.start_recommendation = lambda *_args, **_kwargs: None
+
+    service.on_recommend_requested("same_color_energy", [])
+
+    assert combo.find_data_calls == ["same_color_energy"]
+    assert combo.find_text_calls == []
+    assert combo.currentData() == "same_color_energy"
