@@ -1,9 +1,10 @@
 schema: gentle-ai.sdd-state.v1
 change: strategy-ux-clarity-and-dedupe
 artifact_store: openspec
-status: apply
+status: archive
 created: 2026-07-19
 updated: 2026-07-20
+archived_at: 2026-07-20
 strict_tdd: true
 phases:
   proposal: complete
@@ -11,8 +12,9 @@ phases:
   design: complete
   tasks: complete
   apply: complete
-  verify: pending
-next_recommended: sdd-verify (Slice A and Slice B)
+  verify: complete
+  archive: complete
+next_recommended: none
 blocked_reasons: []
 delivery:
   strategy: auto-chain
@@ -29,3 +31,5 @@ notes:
   - Slice A and Slice B touch disjoint files with no technical ordering dependency; sequencing is a delivery choice matching the design's recommended split.
   - Behavior-changing tasks require RED -> GREEN -> REFACTOR -> VERIFY; characterization tasks lock byte-identical regression guards for duplicate-free libraries, the library display filter after helper relocation, and the combo emission contract. All honored in Slice B and its delta.
   - "Preserve-set decision for Slice B task B9: PROMOTED _preserved_control_paths from playlist_service.py to a public preserved_control_paths in recommendation/controls.py, called from both playlist_service.py and candidate_pool.py."
+  - "VERIFY 2026-07-19 (pass-with-notes): both specs traced to impl+tests on merged main (PR #303 e403482, PR #304 169022f). Tail green: 1201 passed, pyright clean, cov 90.76%, ruff clean, release_gate exit 0. Both CRITICAL bounded-correction fixes (lineage review-c8b72a193ac5d41f: complete-only grouping + fully-parenthetical singleton guard) present with asserting tests. Notes to align at archive: design.md still shows conservative placeholder=None pool key (stale); apply-progress.md lacks a correction-batch RED/GREEN entry; size:exception accepted. See verify-report.md."
+  - "ARCHIVE 2026-07-20: design.md Decision 3b updated with 'Superseded (2026-07-20)' section recording maintainer playlist-key decision. apply-progress.md appended with 'Bounded Correction Batch' section (RED-before-GREEN evidence for both CRITICAL fixes, lineage review-c8b72a193ac5d41f). Delta specs merged to main specs: openspec/specs/strategy-selection-ux/spec.md (NEW), openspec/specs/recommendation-duplicate-version-dedupe/spec.md (NEW). All artifacts archived to openspec/changes/archive/2026-07-20-strategy-ux-clarity-and-dedupe/. Archive complete."

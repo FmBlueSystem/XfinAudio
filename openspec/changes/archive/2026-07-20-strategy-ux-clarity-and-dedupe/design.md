@@ -212,6 +212,33 @@ home, beside `DJControls`/`apply_controls`) and calling it from both
 is an inline 4-line set build in the dedupe function. Either keeps the pool PR
 self-contained.
 
+### 3b SUPERSEDED (2026-07-20) — Stricter Playlist-Level Grouping Key
+
+The original Decision 3b's algorithm specification (line 182) called for
+`duplicate_group_key(r.title, r.artist, placeholder=None)` as the grouping key
+for `dedupe_recommendation_duplicates`. This was the conservative key, identical
+to the Library display filter's semantics—keeping distinct parenthetical
+descriptors (e.g., "(Clean)" vs "(Single Version)") as separate groups.
+
+**Maintainer decision (2026-07-20): SUPERSEDED.** The recommendation pool now
+uses a stricter, playlist-level key: `playlist_duplicate_group_key`, implemented
+via `normalize_title_for_playlist_grouping`, which **ignores parenthetical
+descriptor content entirely**. This aggressive grouping collapses "(Clean)",
+"(Single Version)", and the base title to a single group for candidate-pool
+deduplication purposes. Concretely: "Too Hot (Clean)", "Too Hot (Single Version)",
+and "Too Hot" all normalize to the same playlist group key, so only one
+representative survives in the pool.
+
+**Library filter unchanged.** The Library display screen's duplicate grouping
+retains the conservative key semantics (via `duplicate_group_key` with
+`placeholder=_DASH`), keeping distinct variants visually separate to the DJ.
+No changes to `desktop/library_filter.py` beyond the existing delegation pattern.
+
+**Implementation references:**
+- `src/xfinaudio/library/duplicate_grouping.py`: `normalize_title_for_playlist_grouping` (new) and `playlist_duplicate_group_key` (new)
+- `src/xfinaudio/recommendation/candidate_pool.py`: `dedupe_recommendation_duplicates` uses `playlist_duplicate_group_key` instead of `duplicate_group_key(..., placeholder=None)`
+- `src/xfinaudio/desktop/library_filter.py`: unchanged; still delegates to conservative key
+
 ### 3c. Placement relative to the 25-cap
 
 **Decision.** Call the dedupe in `plan_recommendation_candidates`

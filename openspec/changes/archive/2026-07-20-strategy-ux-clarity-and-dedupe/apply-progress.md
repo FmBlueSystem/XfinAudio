@@ -465,6 +465,42 @@ Full verification tail re-run after the delta:
   tests/test_library_filter.py` — **no output** (zero edits, still true
   after the delta).
 
+## Bounded Correction Batch (lineage `review-c8b72a193ac5d41f`)
+
+Post-implementation native 4R review (review-c8b72a193ac5d41f, Slice B) identified two CRITICAL findings that were corrected and re-tested, both present in the merged tree (PR #304 commit 169022f) with asserting RED-before-GREEN evidence.
+
+### CRITICAL Finding 1: Incomplete Record Could Silently Eliminate Complete Duplicate Sibling
+
+**Issue:** In a duplicate group where one record is `metadata_status == "complete"` and its sibling is incomplete (missing required fields), the original `dedupe_recommendation_duplicates` algorithm grouped by title+artist without checking completeness. The `duplicate_representative_sort_key` prioritizes complete records (via `is_complete` in the sort tuple), but this only applies within a group. When an incomplete record happened to come earlier in the original list, it could be selected as the representative and suppress the complete sibling — silently losing information.
+
+**RED Evidence (pre-fix):** `test_application_recommendation_candidates.py::test_plan_recommendation_candidates_does_not_lose_complete_track_to_incomplete_locked_duplicate` — test asserted the complete track survived and was included in the 25-slot recommendation pool; without the fix, this test returned an empty result set (both the incomplete and complete siblings were incorrectly suppressed).
+
+**Fix:** Modified `dedupe_recommendation_duplicates` in `src/xfinaudio/recommendation/candidate_pool.py` (lines 153-155) to group **only `metadata_status == "complete"` records**. Incomplete records are excluded from grouping entirely and pass through to the output unchanged (never compared for duplicates). This guarantees that incomplete metadata never masks a complete duplicate. See the docstring (lines 141-148) for the full rationale.
+
+**GREEN Evidence:** Test now passes. The complete track is included in the pool. Incomplete records without a complete sibling still survive (passed through as singletons).
+
+---
+
+### CRITICAL Finding 2: Fully-Parenthetical Titles Collided on Empty Key
+
+**Issue:** The playlist-level key `playlist_duplicate_group_key` normalizes titles by first stripping app-generated suffixes, then removing parenthetical content via `re.sub(r"\([^)]*\)", " ", ...)`. A title consisting entirely of parentheticals—e.g., `"(Intro)"` —would become an empty string after normalization, colliding with other fully-parenthetical titles. This violated the principle that incomplete or placeholder metadata should never group (the `None` key singleton guard).
+
+**RED Evidence (pre-fix):** 
+- `test_duplicate_grouping.py::test_playlist_duplicate_group_key_none_when_normalized_title_is_fully_parenthetical` — test asserted that `playlist_duplicate_group_key("(Intro)", "Artist")` returns `None` (no grouping). Before the fix, the normalized title was an empty string `""`, which generated a non-None tuple key `("", "artist")`, causing the test to fail.
+- `test_candidate_pool.py::test_dedupe_does_not_collapse_distinct_fully_parenthetical_titles` — test asserted that two tracks with fully-parenthetical titles `"(Intro)"` and `"(Outro)"` (no base title) remain distinct in the output. Without the singleton guard, they collapsed to one representative under the empty-string key.
+
+**Fix:** Added a singleton guard in `playlist_duplicate_group_key` (lines 132-137 of `src/xfinaudio/library/duplicate_grouping.py`). After normalizing the title, if the result is empty or whitespace-only, return `None` (no grouping). This mirrors the design requirement: "Records with `None`/blank/placeholder title or artist never group."
+
+**GREEN Evidence:** Both tests now pass. Fully-parenthetical titles remain singletons (`None` key) and never collapse with each other.
+
+---
+
+### Correction Impact Summary
+
+- **Correction delta:** 78 lines total — 17 production (`duplicate_grouping.py` +6, `candidate_pool.py` +11) plus 61 test lines across three test files
+- **Test coverage:** All new tests confirmed RED pre-fix, GREEN post-fix. No regression in full suite (1201 tests, all passing).
+- **Risk assessment:** Low — both findings address boundary conditions (incomplete metadata, fully-parenthetical titles) that were not anticipated in the original algorithm sketch but are now guarded by characterization tests.
+
 ## Next steps
 
 - Slice A: recommended to run `sdd-verify` for Slice A to produce
