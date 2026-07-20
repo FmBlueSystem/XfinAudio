@@ -23,6 +23,7 @@ EXPECTED_STRATEGIES = {
     "same_vibe",
     "same_color",
     "same_genre",
+    "same_color_energy",
 }
 
 
@@ -80,6 +81,28 @@ def test_same_vibe_requires_tags_or_genre_and_can_degrade() -> None:
     assert strategy.requires_vibe_metadata is True
     assert strategy.degrade_without_vibe_metadata is True
     assert strategy.weights.tags > strategy.weights.harmonic
+
+
+def test_same_color_energy_registers_with_expected_profile() -> None:
+    strategy = get_strategy("same_color_energy")
+
+    assert strategy.display_name == "Same Color & Energy"
+    assert strategy.energy_tolerance == 1
+    assert strategy.weights == ScoringWeights(harmonic=0.25, bpm=0.15, energy=0.30, tags=0.10, spectral=0.20)
+
+
+def test_strategy_descriptions_state_guarantees() -> None:
+    same_color_energy_description = get_strategy("same_color_energy").description.lower()
+    assert "color" in same_color_energy_description
+    assert "±1" in same_color_energy_description or "+/-1" in same_color_energy_description
+
+    same_color_description = get_strategy("same_color").description.lower()
+    assert "only tracks matching" in same_color_description
+    assert "energy" in same_color_description and "not" in same_color_description
+
+    same_energy_description = get_strategy("same_energy").description.lower()
+    assert "±1" in same_energy_description or "+/-1" in same_energy_description
+    assert "color" in same_energy_description and "not" in same_energy_description
 
 
 def test_same_genre_constrains_to_anchor_primary_genre() -> None:

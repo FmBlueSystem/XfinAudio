@@ -19,6 +19,7 @@ StrategyName = Literal[
     "same_vibe",
     "same_color",
     "same_genre",
+    "same_color_energy",
 ]
 SortHint = Literal["path", "energy_ascending", "energy_descending", "bpm_ascending"]
 
@@ -82,7 +83,7 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
     "same_energy": PlaylistStrategy(
         name="same_energy",
         display_name="Same Energy",
-        description="Keep the playlist close to a stable energy band.",
+        description="Hard limit: only tracks within ±1 energy level of the anchor. Color is weighted but not limited.",
         weights=ScoringWeights(harmonic=0.20, bpm=0.20, energy=0.50, tags=0.10),
         energy_tolerance=1,
     ),
@@ -97,7 +98,9 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
     "same_color": PlaylistStrategy(
         name="same_color",
         display_name="Same Color",
-        description="Prioritize tracks with similar spectral color profiles for a cohesive timbre.",
+        description=(
+            "Hard filter: only tracks matching the anchor's spectral color. Energy is weighted but not limited."
+        ),
         weights=ScoringWeights(harmonic=0.30, bpm=0.20, energy=0.20, tags=0.10, spectral=0.20),
     ),
     "same_genre": PlaylistStrategy(
@@ -106,6 +109,13 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
         description="Constrain the playlist to the dominant primary genre of the anchor tracks.",
         weights=ScoringWeights(harmonic=0.30, bpm=0.20, energy=0.20, tags=0.30),
         sort_hint="path",
+    ),
+    "same_color_energy": PlaylistStrategy(
+        name="same_color_energy",
+        display_name="Same Color & Energy",
+        description="Hard filters: only tracks matching the anchor's color AND within ±1 energy level of the anchor.",
+        weights=ScoringWeights(harmonic=0.25, bpm=0.15, energy=0.30, tags=0.10, spectral=0.20),
+        energy_tolerance=1,
     ),
 }
 
