@@ -418,7 +418,7 @@ def test_main_window_changing_folder_clears_stale_scan_and_recommendation_state(
     window.scan_selected_folder()
     _process_events_until(lambda: window.current_scan_cancellation_token is None)
     _library_tracks_table(window).selectRow(0)
-    window._build_screen.strategy_combo.setCurrentText("warmup")
+    window._build_screen.strategy_combo.setCurrentText("Warmup")
     window.recommend_playlist()
     _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
@@ -965,7 +965,7 @@ def test_main_window_updates_guidance_after_scan_and_recommend(tmp_path) -> None
     assert "Recommend Playlist" in window.recommendation_guidance_label.text()
 
     _library_tracks_table(window).selectRow(0)
-    window._build_screen.strategy_combo.setCurrentText("warmup")
+    window._build_screen.strategy_combo.setCurrentText("Warmup")
     window.recommend_playlist()
     _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
@@ -981,7 +981,7 @@ def test_main_window_recommend_action_populates_playlist_table_and_status(tmp_pa
     window.scan_selected_folder()
     _process_events_until(lambda: window.current_scan_cancellation_token is None)
     _library_tracks_table(window).selectRow(0)
-    window._build_screen.strategy_combo.setCurrentText("warmup")
+    window._build_screen.strategy_combo.setCurrentText("Warmup")
     window.recommend_playlist()
     _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
@@ -1134,7 +1134,7 @@ def test_main_window_recommend_action_exposes_transition_explanation_table_data(
 
     window.show_tracks(window.scanned_records)
     _library_tracks_table(window).selectRow(0)
-    window._build_screen.strategy_combo.setCurrentText("harmonic_journey")
+    window._build_screen.strategy_combo.setCurrentText("Harmonic Journey")
     window.recommend_playlist()
     _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
@@ -1173,7 +1173,7 @@ def test_main_window_recommend_action_populates_review_summary(tmp_path) -> None
 
     window.show_tracks(window.scanned_records)
     _library_tracks_table(window).selectRow(0)
-    window._build_screen.strategy_combo.setCurrentText("harmonic_journey")
+    window._build_screen.strategy_combo.setCurrentText("Harmonic Journey")
     window.recommend_playlist()
     _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
@@ -1210,7 +1210,7 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
 
     window.show_tracks(window.scanned_records)
     _library_tracks_table(window).selectRow(0)
-    window._build_screen.strategy_combo.setCurrentText("harmonic_journey")
+    window._build_screen.strategy_combo.setCurrentText("Harmonic Journey")
     window.recommend_playlist()
     _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
@@ -1265,7 +1265,7 @@ def test_main_window_recommend_action_guides_review_table_before_export(tmp_path
 
     window.show_tracks(window.scanned_records)
     _library_tracks_table(window).selectRow(0)
-    window._build_screen.strategy_combo.setCurrentText("harmonic_journey")
+    window._build_screen.strategy_combo.setCurrentText("Harmonic Journey")
     window.recommend_playlist()
     _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
@@ -1418,7 +1418,7 @@ def test_main_window_recommendation_runs_in_background_without_blocking_ui(tmp_p
     ]
     window.show_tracks(window.scanned_records)
     _library_tracks_table(window).selectRow(0)
-    window._build_screen.strategy_combo.setCurrentText("warmup")
+    window._build_screen.strategy_combo.setCurrentText("Warmup")
     expected_result = window.workflow_service.recommend(window.scanned_records, "warmup")
     slow_workflow = SlowFakeRecommendationWorkflow(expected_result)
     window.workflow_service = slow_workflow

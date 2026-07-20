@@ -1,0 +1,28 @@
+schema: gentle-ai.sdd-state.v1
+change: strategy-ux-clarity-and-dedupe
+artifact_store: openspec
+status: apply
+created: 2026-07-19
+updated: 2026-07-19
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: in-progress
+  verify: pending
+next_recommended: sdd-verify (Slice A) then sdd-apply (Slice B)
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - "Slice A APPLIED (this branch): all A1-A16 tasks complete, apply-progress.md written. Slice B NOT started."
+  - Two chained slices per design.md: Slice A (UI — description refresh + display-name combo, Items 1+2) ships first as PR1; Slice B (pool dedupe, Item 3) ships second as PR2 targeting PR1's branch.
+  - Slice A and Slice B touch disjoint files with no technical ordering dependency; sequencing is a delivery choice matching the design's recommended split.
+  - Behavior-changing tasks require RED -> GREEN -> REFACTOR -> VERIFY; characterization tasks lock byte-identical regression guards for duplicate-free libraries, the library display filter after helper relocation, and the combo emission contract.
+  - Combined estimate risks exceeding the 400-line budget; each individual slice is sized to stay under or near budget on its own (Slice A Low risk, Slice B Medium risk).
+  - Open design decision (promote vs. inline preserved_control_paths for Slice B task B9) has a documented default and safe fallback; not blocking for apply.
