@@ -198,6 +198,48 @@ class SpectralCompletionWorker(QObject):
             return True
         return self._thread.wait(timeout_ms)
 
+    def is_running(self) -> bool:
+        """Return whether the background thread is still executing."""
+        return self._thread is not None and self._thread.isRunning()
+
+    def dispose_when_idle(self) -> None:
+        """Release this worker as soon as its thread stops running.
+
+        ``cancel()`` is cooperative and librosa does not interrupt mid-file, so a
+        cancelled worker can still be analyzing. Deleting it now would destroy a
+        running QThread (it is the thread's parent) and abort the process, and
+        blocking on ``wait()`` would freeze the UI. Deferring to ``finished``
+        releases the runner -- and every TrackRecord it holds -- without either.
+
+        Safe to call before ``start()`` and more than once.
+        """
+        thread = self._thread
+        if thread is None or not thread.isRunning():
+            self.deleteLater()
+            return
+        thread.finished.connect(self.deleteLater)
+
+    def shutdown(self, timeout_ms: int = 200) -> None:
+        """Force the thread to stop and release the runner.
+
+        Only for application teardown, where the process is going away anyway:
+        ``terminate()`` kills the thread at an arbitrary point, which is unsafe
+        while it is inside librosa or numpy. For ordinary cancellation use
+        ``cancel()`` followed by ``dispose_when_idle()``.
+
+        Safe to call before ``start()`` and more than once.
+        """
+        self.cancel(timeout_ms)
+        thread = self._thread
+        if thread is not None and thread.isRunning():
+            thread.terminate()
+            thread.wait(timeout_ms)
+        if self._runner is not None:
+            self._runner.deleteLater()
+            self._runner = None
+        self._thread = None
+        self._cancellation_token = None
+
     @Slot()
     def _on_finished(self) -> None:
         self.finished.emit()

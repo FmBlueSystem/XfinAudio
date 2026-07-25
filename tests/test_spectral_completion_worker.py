@@ -282,3 +282,33 @@ def test_runner_respects_explicit_max_workers(monkeypatch) -> None:
     runner = _SpectralCompletionRunner([], _FakeRepository(), max_workers=3)
 
     assert runner._max_workers == 3
+
+
+def test_worker_shutdown_releases_runner_and_thread() -> None:
+    """A cancelled worker must not keep its runner -- and its whole record list -- alive.
+
+    cancel() is cooperative and librosa does not interrupt mid-file, so a worker
+    cancelled during analysis can outlive its timeout with _on_finished never
+    reached, leaving the runner (and every TrackRecord it holds) referenced.
+    """
+    ensure_app()
+    records = [TrackRecord(path=f"/music/track{index}.flac", metadata_status="complete") for index in range(3)]
+    worker = SpectralCompletionWorker()
+    worker.start(records, _FakeRepository(), max_workers=1)
+
+    worker.shutdown()
+
+    assert worker._runner is None
+    assert not worker.is_running()
+
+
+def test_worker_shutdown_is_safe_before_start_and_twice() -> None:
+    ensure_app()
+    worker = SpectralCompletionWorker()
+
+    worker.shutdown()
+    worker.start([TrackRecord(path="/music/a.flac", metadata_status="complete")], _FakeRepository(), max_workers=1)
+    worker.shutdown()
+    worker.shutdown()
+
+    assert not worker.is_running()

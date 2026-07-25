@@ -3046,3 +3046,26 @@ def test_playlist_reorder_is_undoable_and_redoable(monkeypatch) -> None:
 
     window.redo()
     assert editor._track_paths == reordered
+
+
+def test_repeated_spectral_worker_cancellation_does_not_accumulate_children(tmp_path) -> None:
+    """Each re-scan cancels the previous worker; those must not pile up on the window.
+
+    The worker is parented to the MainWindow, so dropping the reference leaves it
+    alive as a child, holding its runner and that runner's whole TrackRecord list.
+    """
+    from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
+
+    ensure_app()
+    window = MainWindow.with_defaults(tmp_path / "db.sqlite3", tmp_path / "settings.json")
+    records = [
+        TrackRecord(path=str(tmp_path / f"t{index}.flac"), title=f"T{index}", metadata_status="complete")
+        for index in range(3)
+    ]
+
+    for _ in range(5):
+        window._library_controller.start_spectral_completion_worker(records)
+        window._library_controller.cancel_spectral_completion_worker()
+
+    # Release is deferred until each cancelled thread actually stops.
+    _process_events_until(lambda: not window.findChildren(SpectralCompletionWorker))
