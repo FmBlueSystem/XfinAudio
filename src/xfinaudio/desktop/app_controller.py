@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QListWidget
 
 from xfinaudio.desktop.app_state import AppState
@@ -25,6 +25,11 @@ from xfinaudio.desktop.screens import (
 )
 from xfinaudio.desktop.workflow_stack import WorkflowStack
 from xfinaudio.library.models import TrackRecord
+
+# Upper bound on full-render frequency while progress events stream in. Long
+# enough that a 7-thread analyzer cannot outrun the UI, short enough that
+# progress still reads as live.
+_SYNC_COALESCE_MS = 200
 
 
 @dataclass(frozen=True)
@@ -79,6 +84,25 @@ class AppController:
         self._view_models = view_models
         self._access = access
         self._current_tab_index = workflow_tabs.currentIndex()
+        self._sync_timer = QTimer()
+        self._sync_timer.setSingleShot(True)
+        self._sync_timer.setInterval(_SYNC_COALESCE_MS)
+        # Late-bound on purpose so tests can patch sync_state.
+        self._sync_timer.timeout.connect(lambda: self.sync_state())
+
+    def request_sync(self) -> None:
+        """Ask for a render, coalescing bursts into at most one per interval.
+
+        For high-frequency callers (per-file scan progress, per-track spectral
+        results). Throttles rather than debounces: the timer is left running if
+        already armed, so a continuous burst still refreshes every interval
+        instead of starving until it stops.
+
+        Terminal transitions must call ``sync_state`` directly, so the final
+        state is never left waiting on a timer.
+        """
+        if not self._sync_timer.isActive():
+            self._sync_timer.start()
 
     def sync_state(self) -> None:
         self.refresh_state_fields()

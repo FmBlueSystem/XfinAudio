@@ -120,8 +120,12 @@ class ScanService(QObject):
         refresh_idle_action_state: Callable[[], None],
         cancel_spectral_completion_worker: Callable[[], None],
         show_status_bar: Callable[[], None],
+        request_sync: Callable[[], None] | None = None,
     ) -> None:
         self._sync_state = sync_state
+        # Coalesced variant for per-file progress. Falls back to the immediate
+        # one so callers that do not wire it keep the old behaviour.
+        self._request_sync = request_sync or sync_state
         self._show_tracks = show_tracks
         self._clear_scan_dependent_state = clear_scan_dependent_state
         self._refresh_idle_action_state = refresh_idle_action_state
@@ -225,7 +229,9 @@ class ScanService(QObject):
             )
         )
         self._state.scan_progress_count = progress.processed_count
-        self._sync_state()
+        # Fires once per scanned file, and library/scan_service.py emits the
+        # whole batch in a tight loop at the end, so coalesce.
+        self._request_sync()
 
     def _start_scan_worker(self, folder: Path, token: ScanCancellationToken, request_id: int) -> None:
         thread = QThread(self)

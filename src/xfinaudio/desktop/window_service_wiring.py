@@ -63,6 +63,7 @@ def wire_main_scan_service(self: Any) -> None:
     )
     self._scan_service.set_actions(
         sync_state=self._sync_state,
+        request_sync=self._request_sync,
         show_tracks=self.show_tracks,
         clear_scan_dependent_state=self._clear_scan_dependent_state,
         refresh_idle_action_state=self._refresh_idle_action_state,

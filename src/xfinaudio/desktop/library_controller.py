@@ -108,6 +108,7 @@ class LibraryController:
         tr: Callable[[str], str],
         log: logging.Logger,
         parent: QWidget,
+        request_sync: Callable[[], None] | None = None,
     ) -> None:
         self._state = state
         self._workflow_service = workflow_service
@@ -115,6 +116,9 @@ class LibraryController:
         self._access = access
         self._audio_player = audio_player
         self._sync_state = sync_state
+        # Coalesced variant for per-track progress. Falls back to the immediate
+        # one so callers that do not wire it keep the old behaviour.
+        self._request_sync = request_sync or sync_state
         self._tr = tr
         self._log = log
         self._parent = parent
@@ -455,7 +459,9 @@ class LibraryController:
             spectral_progress_count=processed_count,
             spectral_total_count=total_count,
         )
-        self._sync_state()
+        # Fires once per analyzed track; coalesce so the UI is not re-rendered
+        # thousands of times mid-scan.
+        self._request_sync()
 
     @Slot(str, object)
     def on_spectral_profile_ready(self, path: str, profile: object) -> None:
@@ -468,7 +474,9 @@ class LibraryController:
                 color_text = _format_spectral_color(record) if record is not None else ""
                 self._widgets.library_screen.tracks_table.item(row_index, _TRACK_COLOR_COLUMN).setText(color_text)
                 break
-        self._sync_state()
+        # The color cell above is already updated in place, so the full render
+        # this asks for is only needed to refresh the other screens.
+        self._request_sync()
 
     @Slot()
     def on_spectral_completion_finished(self) -> None:

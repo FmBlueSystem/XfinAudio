@@ -164,6 +164,7 @@ def initialize_library_controller(window, log) -> None:
         ),
         audio_player=window._audio_player,
         sync_state=window._sync_state,
+        request_sync=window._request_sync,
         tr=window.tr,
         log=log,
         parent=window,

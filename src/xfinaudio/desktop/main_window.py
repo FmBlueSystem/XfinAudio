@@ -195,6 +195,9 @@ class MainWindow(QMainWindow):
     def _sync_state(self) -> None:
         self._app_controller.sync_state()
 
+    def _request_sync(self) -> None:
+        self._app_controller.request_sync()
+
     def _render_screens(self) -> None:
         self._app_controller.render_screens()
 

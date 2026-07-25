@@ -51,6 +51,7 @@ def test_extracted_boundaries_own_real_responsibilities() -> None:
         recommendation_guidance_label=object(),
         tr=lambda text: text,
         _sync_state=lambda: None,
+        _request_sync=lambda: None,
         show_tracks=lambda: None,
         _clear_scan_dependent_state=lambda: None,
         _refresh_idle_action_state=lambda: None,
