@@ -104,3 +104,15 @@ def test_packaging_build_is_manual_optional_when_present() -> None:
     assert "include_packaging_build:" in text
     assert "default: false" in text
     assert "if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_packaging_build }}" in text
+
+
+def test_workflow_does_not_run_pytest_outside_the_release_gates() -> None:
+    """The gate runner already executes the suite; a second step doubles CI time.
+
+    The workflow step and the gates ran pytest three times per CI run in total,
+    for ~20s of tests each. It also tripled exposure to an intermittent hang
+    observed in the coverage gate.
+    """
+    pytest_invocations = [line for line in workflow_text().splitlines() if "pytest" in line]
+
+    assert pytest_invocations == [], f"pytest is invoked directly by the workflow: {pytest_invocations}"

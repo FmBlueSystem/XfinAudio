@@ -26,9 +26,10 @@ class CommandGate(NamedTuple):
 
 
 NON_AUDIO_COMMAND_GATES = [
-    CommandGate("tests", ["uv", "run", "pytest", "-q"]),
+    # One run, not two: a coverage run executes every test, so a separate bare
+    # run added no signal and doubled the slowest gate.
+    CommandGate("tests and coverage", ["uv", "run", "pytest", "--cov", "--cov-fail-under=70", "-q"]),
     CommandGate("type-check", ["uv", "run", "pyright", "src", "tests"]),
-    CommandGate("coverage", ["uv", "run", "pytest", "--cov", "--cov-fail-under=70", "-q"]),
     CommandGate("lint", ["uv", "run", "ruff", "check", "."]),
     CommandGate("format", ["uv", "run", "ruff", "format", "--check", "."]),
     CommandGate(
