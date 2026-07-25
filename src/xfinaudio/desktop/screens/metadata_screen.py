@@ -91,8 +91,9 @@ class MetadataScreen(QWidget):
         self.worklist_empty_label.setWordWrap(True)
         layout.addWidget(self.worklist_empty_label, 1)
 
-        # Push nav to bottom; spare space goes to the worklist table.
-        layout.addStretch(1)
+        # No spacer here: the worklist table above carries the stretch and pushes
+        # the nav row down on its own. A trailing addStretch would compete with
+        # it for the free height, leaving the table about five rows tall.
 
         # Bottom nav
         nav = QHBoxLayout()

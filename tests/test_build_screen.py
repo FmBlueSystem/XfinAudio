@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QApplication, QFrame
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.build_view_model import BuildViewModel
-from xfinaudio.desktop.screens.build_screen import BuildScreen
+from xfinaudio.desktop.screens.build_screen import _COPILOT_COLUMNS, BuildScreen
 
 
 def test_recommend_progress_bar_shows_eta_and_hides_when_complete(qapp: QApplication) -> None:
@@ -162,3 +162,38 @@ def test_selecting_strategy_by_display_name_resolves_to_internal_strategy_name(q
 
     resolved = default_strategy_registry().get(internal_name)
     assert resolved.name == "same_color_energy"
+
+
+def test_copilot_table_uses_the_free_vertical_space(qapp: QApplication) -> None:
+    """A trailing addStretch(1) competed with the table for the free height.
+
+    Measured at 1200x660: the table got 127px, about three visible rows, or 19%
+    of the screen, while the spacer below it took the rest.
+    """
+    screen = BuildScreen()
+    screen.resize(1200, 660)
+    screen.show()
+    qapp.processEvents()
+
+    table = screen.copilot_table
+    row_height = max(table.verticalHeader().defaultSectionSize(), 1)
+
+    # The screen carries a lot of controls above the table, so it will never own
+    # most of the height; 127px was the spacer stealing what was left.
+    assert table.viewport().height() // row_height >= 6
+    assert table.height() > 0.33 * screen.height()
+
+
+def test_copilot_description_column_is_wider_than_the_count_column(qapp: QApplication) -> None:
+    """Description holds a sentence; Tracks holds a number. They were both 294px."""
+    screen = BuildScreen()
+    screen.resize(1200, 660)
+    screen.show()
+    qapp.processEvents()
+
+    header = screen.copilot_table.horizontalHeader()
+    width = {name: header.sectionSize(index) for index, name in enumerate(_COPILOT_COLUMNS)}
+
+    # A plain ">" would pass on the 294 vs 293 rounding of an even split.
+    assert width["Description"] > 2 * width["Tracks"]
+    assert width["Description"] > width["Readiness"]

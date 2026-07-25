@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QApplication, QFrame
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.export_view_model import ExportViewModel
-from xfinaudio.desktop.screens.export_screen import ExportScreen
+from xfinaudio.desktop.screens.export_screen import _HISTORY_COLUMNS, ExportScreen
 
 
 def test_export_progress_bar_shows_eta_and_hides_when_complete(qapp: QApplication) -> None:
@@ -64,3 +64,17 @@ def test_history_table_headers_have_tooltips(qapp: QApplication) -> None:
     table = screen.history_table
     tooltips = [table.horizontalHeaderItem(col).toolTip() for col in range(table.columnCount())]
     assert all(tip.strip() for tip in tooltips)
+
+
+def test_history_paths_get_more_width_than_the_count_column(qapp: QApplication) -> None:
+    """Three columns hold file paths; Tracks holds a number. All six were 107px."""
+    screen = ExportScreen()
+    screen.resize(1200, 660)
+    screen.show()
+    qapp.processEvents()
+
+    header = screen.history_table.horizontalHeader()
+    width = {name: header.sectionSize(index) for index, name in enumerate(_HISTORY_COLUMNS)}
+
+    for path_column in ("Serato Crate", "Readiness JSON", "Readiness CSV"):
+        assert width[path_column] > width["Tracks"], f"{path_column} is no wider than the count column"
