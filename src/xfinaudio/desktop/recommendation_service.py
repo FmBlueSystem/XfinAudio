@@ -14,6 +14,22 @@ from xfinaudio.desktop.app_state_transitions import apply_recommendation_complet
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 
+# Two different questions, previously answered by one number.
+#
+# The pool is how many candidates the optimizer gets to choose among. Measured
+# on a 10,367-track library, mean transition score peaks at 50: 0.8716 at a pool
+# of 10, 0.9002 at 50, then back down to 0.8898 at 80 as the greedy path wanders
+# further from the anchor. Beyond that it is also slow -- 200 took 5s per set.
+DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 50
+# The slot length is what a booked DJ actually knows. A fixed track count cannot
+# hit it: on the real library, 10 tracks ran anywhere from 36 to 71 minutes
+# because track lengths vary by nearly a factor of two.
+DESKTOP_RECOMMENDATION_SET_MINUTES = 30.0
+# How long each track is on air before the mix moves on. A DJ plays a segment,
+# not the whole record: at a 4.8 minute median, a 30-minute slot is 6 tracks
+# played whole but 15 played two minutes at a time.
+DESKTOP_PLAYED_SECONDS_PER_TRACK = 120.0
+
 
 def _unwired(*_args: Any, **_kwargs: Any) -> Any:
     raise RuntimeError("RecommendationService dependencies were not wired")
@@ -237,7 +253,12 @@ class RecommendationService(QObject):
         thread = QThread(self)
         worker = BackgroundWorker(
             lambda: self.workflow_service.recommend(
-                records, strategy_name, controls=controls, spectral_cohesion=spectral_cohesion
+                records,
+                strategy_name,
+                controls=controls,
+                spectral_cohesion=spectral_cohesion,
+                target_duration_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
+                played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
             ),
             request_id=request_id,
         )

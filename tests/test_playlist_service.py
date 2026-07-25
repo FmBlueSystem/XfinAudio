@@ -26,10 +26,12 @@ def track(
     genre: str | None = "House",
     tags: list[str] | None = None,
     status: str = "complete",
+    duration: float | None = None,
 ) -> TrackRecord:
     return TrackRecord(
         path=path,
         title=path.rsplit("/", maxsplit=1)[-1],
+        duration=duration,
         bpm=bpm,
         camelot_key=camelot_key,
         energy_level=energy_level,
@@ -765,3 +767,156 @@ def test_bpm_jump_gate_still_drops_unprotected_jumps() -> None:
 
     assert [candidate.path for candidate in kept] == ["/a.flac"]
     assert dropped == 1
+
+
+def test_target_count_trims_the_set_without_shrinking_the_pool() -> None:
+    """Pool size and set length are different questions.
+
+    They used to be the same number: asking for 25 candidates produced a 25-track
+    set, so the optimizer had exactly as many options as slots and never actually
+    selected anything. Measured on a real library, widening the pool to 50 while
+    keeping a 10-track set raised the mean transition score from 0.8716 to 0.9002.
+    """
+    tracks = [track(f"/t{index}.flac", bpm=120.0 + index * 0.5, camelot_key="8A") for index in range(30)]
+
+    recommendation = recommend_playlist(tracks, strategy_name="harmonic_journey", target_count=10)
+
+    assert len(recommendation.ordered_tracks) == 10
+    assert len(recommendation.transition_scores) == 9
+
+
+def test_target_count_larger_than_the_pool_returns_everything() -> None:
+    tracks = [track(f"/t{index}.flac", bpm=120.0 + index * 0.5, camelot_key="8A") for index in range(6)]
+
+    recommendation = recommend_playlist(tracks, strategy_name="harmonic_journey", target_count=50)
+
+    assert len(recommendation.ordered_tracks) == 6
+
+
+def test_without_target_count_no_trimming_is_applied() -> None:
+    """Existing callers keep the current behaviour.
+
+    The untrimmed result is not necessarily the whole input -- the BPM gate can
+    still drop tracks -- so this compares against a trimmed run rather than
+    asserting a fixed length.
+    """
+    tracks = [track(f"/t{index}.flac", bpm=120.0 + index * 0.5, camelot_key="8A") for index in range(12)]
+
+    untrimmed = recommend_playlist(tracks, strategy_name="harmonic_journey")
+    trimmed = recommend_playlist(tracks, strategy_name="harmonic_journey", target_count=4)
+
+    assert len(trimmed.ordered_tracks) == 4
+    assert len(untrimmed.ordered_tracks) > 4
+
+
+def test_target_count_keeps_the_anchor_first() -> None:
+    tracks = [track(f"/t{index}.flac", bpm=120.0 + index * 0.5, camelot_key="8A") for index in range(20)]
+
+    recommendation = recommend_playlist(
+        tracks,
+        strategy_name="harmonic_journey",
+        controls=DJControls(start_path="/t7.flac"),
+        target_count=5,
+    )
+
+    assert len(recommendation.ordered_tracks) == 5
+    assert recommendation.ordered_tracks[0].path == "/t7.flac"
+
+
+def test_target_duration_fills_the_requested_time() -> None:
+    """A DJ books minutes, not track counts.
+
+    A fixed count of 10 produced sets between 36 and 71 minutes on the real
+    library, because track lengths vary. Asking for time uses the real durations
+    of the tracks actually chosen.
+    """
+    tracks = [
+        track(f"/t{index}.flac", bpm=120.0 + index * 0.4, camelot_key="8A", duration=300.0) for index in range(20)
+    ]
+
+    recommendation = recommend_playlist(tracks, strategy_name="harmonic_journey", target_duration_minutes=30.0)
+
+    total_minutes = sum(t.duration or 0.0 for t in recommendation.ordered_tracks) / 60
+    assert 25.0 <= total_minutes <= 35.0
+    assert len(recommendation.ordered_tracks) == 6
+
+
+def test_target_duration_adapts_to_longer_tracks() -> None:
+    """The same 30 minutes is fewer tracks when the tracks run long."""
+    long_tracks = [
+        track(f"/t{index}.flac", bpm=120.0 + index * 0.4, camelot_key="8A", duration=600.0) for index in range(20)
+    ]
+
+    recommendation = recommend_playlist(long_tracks, strategy_name="harmonic_journey", target_duration_minutes=30.0)
+
+    assert len(recommendation.ordered_tracks) == 3
+
+
+def test_target_duration_keeps_the_anchor_first() -> None:
+    tracks = [
+        track(f"/t{index}.flac", bpm=120.0 + index * 0.4, camelot_key="8A", duration=300.0) for index in range(20)
+    ]
+
+    recommendation = recommend_playlist(
+        tracks,
+        strategy_name="harmonic_journey",
+        controls=DJControls(start_path="/t9.flac"),
+        target_duration_minutes=15.0,
+    )
+
+    assert recommendation.ordered_tracks[0].path == "/t9.flac"
+    assert len(recommendation.ordered_tracks) == 3
+
+
+def test_target_duration_returns_everything_when_the_pool_is_too_short() -> None:
+    tracks = [track(f"/t{index}.flac", bpm=120.0 + index * 0.4, camelot_key="8A", duration=300.0) for index in range(3)]
+
+    recommendation = recommend_playlist(tracks, strategy_name="harmonic_journey", target_duration_minutes=120.0)
+
+    assert len(recommendation.ordered_tracks) == 3
+
+
+def test_slot_accounts_for_playing_only_a_segment_of_each_track() -> None:
+    """A DJ plays a segment, not the whole track.
+
+    Summing full durations answers "how long is this music", not "how long is my
+    set". At a 4.8 minute median, a 30-minute slot is 6 tracks played whole but
+    15 played two minutes at a time.
+    """
+    tracks = [
+        track(f"/t{index}.flac", bpm=120.0 + index * 0.2, camelot_key="8A", duration=300.0) for index in range(30)
+    ]
+
+    recommendation = recommend_playlist(
+        tracks,
+        strategy_name="harmonic_journey",
+        target_duration_minutes=30.0,
+        played_seconds_per_track=120.0,
+    )
+
+    assert len(recommendation.ordered_tracks) == 15
+
+
+def test_a_track_shorter_than_the_segment_only_contributes_its_length() -> None:
+    """You cannot play two minutes of a ninety-second edit."""
+    tracks = [track(f"/t{index}.flac", bpm=120.0 + index * 0.2, camelot_key="8A", duration=90.0) for index in range(30)]
+
+    recommendation = recommend_playlist(
+        tracks,
+        strategy_name="harmonic_journey",
+        target_duration_minutes=15.0,
+        played_seconds_per_track=120.0,
+    )
+
+    assert len(recommendation.ordered_tracks) == 10
+
+
+def test_without_a_segment_length_the_whole_track_counts() -> None:
+    """Existing callers keep counting full durations."""
+    tracks = [
+        track(f"/t{index}.flac", bpm=120.0 + index * 0.2, camelot_key="8A", duration=300.0) for index in range(30)
+    ]
+
+    recommendation = recommend_playlist(tracks, strategy_name="harmonic_journey", target_duration_minutes=30.0)
+
+    assert len(recommendation.ordered_tracks) == 6

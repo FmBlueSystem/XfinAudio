@@ -22,6 +22,7 @@ from xfinaudio.desktop.prep_copilot import PrepCopilotController
 from xfinaudio.desktop.recommendation_render import clear_recommendation_review as render_clear_recommendation_review
 from xfinaudio.desktop.recommendation_render import render_recommendation
 from xfinaudio.desktop.recommendation_render import show_transition_review as render_transition_review
+from xfinaudio.desktop.recommendation_service import DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT
 from xfinaudio.desktop.shortcuts import bind_main_window_shortcuts
 from xfinaudio.desktop.table_sorting import connect_table_sorting
 from xfinaudio.desktop.visual_design import apply_visual_design
@@ -48,9 +49,8 @@ _EMPTY_REVIEW_SUMMARY = QCoreApplication.translate("MainWindow", "No recommendat
 _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
     "MainWindow",
     "Selected row starts the playlist; multiple selected rows set the opening order. "
-    "Up to 25 candidates are used for interactive speed. Choose a strategy, then click Recommend Playlist.",
+    "Choose a strategy, then click Recommend Playlist.",
 )
-_DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 25
 _SCREEN_NAMES = ["library", "build", "review", "export", "playlists", "metadata", "live"]
 
 _APP_STATE_ATTRIBUTES = _shell_state_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES
@@ -473,7 +473,7 @@ class MainWindow(QMainWindow):
         return plan_recommendation_candidates(
             scanned_records=self.scanned_records,
             controls=controls,
-            limit=_DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT,
+            limit=DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT,
             strategy_name=strategy_name,
         )
 
