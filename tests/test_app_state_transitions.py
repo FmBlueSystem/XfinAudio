@@ -345,3 +345,84 @@ def test_apply_saved_playlist_export_recommendation_returns_new_state_without_mu
     assert updated is not state
     assert updated.last_recommendation is replacement
     assert state.last_recommendation is previous_recommendation
+
+
+# ---------------------------------------------------------------------------
+# Hand edits made on the Export screen.
+#
+# The crate is written from state.last_recommendation, so an edit that only
+# changed the table would export the untouched original.
+# ---------------------------------------------------------------------------
+
+
+def _export_state(paths: list[str]):
+    from xfinaudio.desktop.app_state import AppState
+    from xfinaudio.library.models import TrackRecord
+    from xfinaudio.recommendation.playlist_service import recommend_playlist
+
+    tracks = [
+        TrackRecord(
+            path=path,
+            title=path.rsplit("/", maxsplit=1)[-1],
+            bpm=120.0,
+            camelot_key="8A",
+            energy_level=6,
+            metadata_status="complete",
+        )
+        for path in paths
+    ]
+    return AppState(last_recommendation=recommend_playlist(tracks, "same_energy"))
+
+
+def test_apply_export_track_order_reorders_the_exported_recommendation() -> None:
+    from xfinaudio.desktop.app_state_transitions import apply_export_track_order
+
+    state = _export_state(["/a.flac", "/b.flac", "/c.flac"])
+    assert state.last_recommendation is not None
+    flipped = list(reversed([track.path for track in state.last_recommendation.ordered_tracks]))
+
+    result = apply_export_track_order(state, flipped)
+
+    assert result.last_recommendation is not None
+    assert [track.path for track in result.last_recommendation.ordered_tracks] == flipped
+
+
+def test_apply_export_track_order_rescores_rather_than_carrying_stale_seams() -> None:
+    from xfinaudio.desktop.app_state_transitions import apply_export_track_order
+
+    state = _export_state(["/a.flac", "/b.flac", "/c.flac"])
+    assert state.last_recommendation is not None
+    flipped = list(reversed([track.path for track in state.last_recommendation.ordered_tracks]))
+
+    result = apply_export_track_order(state, flipped)
+
+    assert result.last_recommendation is not None
+    scores = result.last_recommendation.transition_scores
+    assert [score.left_path for score in scores] == flipped[:-1]
+    assert [score.right_path for score in scores] == flipped[1:]
+
+
+def test_apply_export_track_removal_drops_the_track() -> None:
+    from xfinaudio.desktop.app_state_transitions import apply_export_track_removal
+
+    state = _export_state(["/a.flac", "/b.flac", "/c.flac"])
+    assert state.last_recommendation is not None
+    doomed = state.last_recommendation.ordered_tracks[1].path
+
+    result = apply_export_track_removal(state, doomed)
+
+    assert result.last_recommendation is not None
+    remaining = [track.path for track in result.last_recommendation.ordered_tracks]
+    assert doomed not in remaining
+    assert len(remaining) == 2
+
+
+def test_export_edits_are_inert_without_a_recommendation() -> None:
+    """Nothing to edit is not an error -- the screen may render before one exists."""
+    from xfinaudio.desktop.app_state import AppState
+    from xfinaudio.desktop.app_state_transitions import apply_export_track_order, apply_export_track_removal
+
+    empty = AppState()
+
+    assert apply_export_track_order(empty, ["/a.flac"]) is empty
+    assert apply_export_track_removal(empty, "/a.flac") is empty

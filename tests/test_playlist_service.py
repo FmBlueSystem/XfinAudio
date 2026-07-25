@@ -920,3 +920,92 @@ def test_without_a_segment_length_the_whole_track_counts() -> None:
     recommendation = recommend_playlist(tracks, strategy_name="harmonic_journey", target_duration_minutes=30.0)
 
     assert len(recommendation.ordered_tracks) == 6
+
+
+# ---------------------------------------------------------------------------
+# recommendation_reordered — the DJ moves a track by hand on the Export screen.
+#
+# The order the DJ leaves behind is what gets written to the crate, so the
+# adjacency scores have to describe THAT order. Carrying the optimizer's
+# original scores forward would show the Review screen seams that no longer
+# exist.
+# ---------------------------------------------------------------------------
+
+
+def test_recommendation_reordered_rescores_the_seams_it_creates() -> None:
+    from xfinaudio.recommendation.playlist_service import recommendation_reordered
+
+    recommendation = recommend_playlist(
+        [
+            track("/a.flac", bpm=120.0, camelot_key="8A", energy_level=4),
+            track("/b.flac", bpm=121.0, camelot_key="9A", energy_level=5),
+            track("/c.flac", bpm=122.0, camelot_key="10A", energy_level=6),
+        ],
+        "build",
+    )
+    original = [item.path for item in recommendation.ordered_tracks]
+    reversed_order = list(reversed(original))
+
+    result = recommendation_reordered(recommendation, reversed_order)
+
+    assert [item.path for item in result.ordered_tracks] == reversed_order
+    assert len(result.transition_scores) == len(original) - 1
+    assert result.transition_scores[0].left_path == reversed_order[0]
+    assert result.transition_scores[0].right_path == reversed_order[1]
+    assert result.total_score == sum(score.total_score for score in result.transition_scores)
+
+
+def test_recommendation_reordered_keeps_every_track() -> None:
+    """Reordering never drops anything -- removal is a separate operation."""
+    from xfinaudio.recommendation.playlist_service import recommendation_reordered
+
+    recommendation = recommend_playlist([track("/a.flac"), track("/b.flac"), track("/c.flac")], "build")
+    original = [item.path for item in recommendation.ordered_tracks]
+
+    result = recommendation_reordered(recommendation, list(reversed(original)))
+
+    assert sorted(item.path for item in result.ordered_tracks) == sorted(original)
+
+
+def test_recommendation_reordered_returns_unchanged_for_the_same_order() -> None:
+    from xfinaudio.recommendation.playlist_service import recommendation_reordered
+
+    recommendation = recommend_playlist([track("/a.flac"), track("/b.flac")], "build")
+    same = [item.path for item in recommendation.ordered_tracks]
+
+    assert recommendation_reordered(recommendation, same) is recommendation
+
+
+def test_recommendation_reordered_rejects_an_order_that_is_not_a_permutation() -> None:
+    """A partial or padded list is a caller bug, not an edit.
+
+    Honouring it would silently drop or invent tracks; the DJ would export a
+    crate that does not match what the screen showed.
+    """
+    from xfinaudio.recommendation.playlist_service import recommendation_reordered
+
+    recommendation = recommend_playlist([track("/a.flac"), track("/b.flac")], "build")
+
+    assert recommendation_reordered(recommendation, ["/a.flac"]) is recommendation
+    assert recommendation_reordered(recommendation, ["/a.flac", "/b.flac", "/ghost.flac"]) is recommendation
+    assert recommendation_reordered(recommendation, ["/a.flac", "/a.flac"]) is recommendation
+
+
+def test_recommendation_reordered_honours_spectral_cohesion() -> None:
+    from xfinaudio.recommendation.playlist_service import recommendation_reordered
+
+    recommendation = recommend_playlist(
+        [
+            spectral_track("/left.flac", "RED"),
+            spectral_track("/middle.flac", "GREEN"),
+            spectral_track("/right.flac", "RED").model_copy(update={"energy_level": 7}),
+        ],
+        "build",
+        spectral_cohesion=1.0,
+    )
+    flipped = list(reversed([item.path for item in recommendation.ordered_tracks]))
+
+    without = recommendation_reordered(recommendation, flipped, spectral_cohesion=0.0)
+    with_cohesion = recommendation_reordered(recommendation, flipped, spectral_cohesion=1.0)
+
+    assert with_cohesion.transition_scores[0].total_score != without.transition_scores[0].total_score
