@@ -120,9 +120,8 @@ def test_run_mode_propagates_subprocess_failure_and_stops(
     assert release_gate_check.main(["--run"]) == 17
 
     assert calls == [
-        ["uv", "run", "pytest", "-q"],
-        ["uv", "run", "pyright", "src", "tests"],
         ["uv", "run", "pytest", "--cov", "--cov-fail-under=70", "-q"],
+        ["uv", "run", "pyright", "src", "tests"],
         ["uv", "run", "ruff", "check", "."],
     ]
     output = capsys.readouterr().out
@@ -180,9 +179,8 @@ def test_check_only_report_json_lists_gates_and_pending_manual_gates(
     assert report["project_root"] == str(PROJECT_ROOT)
     assert report["overall_status"] == "listed"
     assert {gate["name"]: gate["status"] for gate in report["gates"]} == {
-        "tests": "listed",
+        "tests and coverage": "listed",
         "type-check": "listed",
-        "coverage": "listed",
         "lint": "listed",
         "format": "listed",
         "release readiness smoke": "listed",
@@ -192,7 +190,7 @@ def test_check_only_report_json_lists_gates_and_pending_manual_gates(
         "PyInstaller check-only": "listed",
         "root artifact hygiene": "listed",
     }
-    assert report["gates"][0]["command"] == ["uv", "run", "pytest", "-q"]
+    assert report["gates"][0]["command"] == ["uv", "run", "pytest", "--cov", "--cov-fail-under=70", "-q"]
     open_source_gate = next(gate for gate in report["gates"] if gate["name"] == "open-source publication docs")
     assert open_source_gate["command"] == [
         "uv",
@@ -233,9 +231,8 @@ def test_successful_run_report_json_records_passed_gates(tmp_path: Path, monkeyp
     assert report["mode"] == "run"
     assert report["overall_status"] == "passed"
     assert {gate["name"]: (gate["status"], gate["return_code"]) for gate in report["gates"]} == {
-        "tests": ("passed", 0),
+        "tests and coverage": ("passed", 0),
         "type-check": ("passed", 0),
-        "coverage": ("passed", 0),
         "lint": ("passed", 0),
         "format": ("passed", 0),
         "release readiness smoke": ("passed", 0),
@@ -261,9 +258,8 @@ def test_failure_report_json_is_written_before_nonzero_return(tmp_path: Path, mo
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["overall_status"] == "failed"
     assert [(gate["name"], gate["status"], gate["return_code"]) for gate in report["gates"]] == [
-        ("tests", "passed", 0),
+        ("tests and coverage", "passed", 0),
         ("type-check", "passed", 0),
-        ("coverage", "passed", 0),
         ("lint", "failed", 17),
     ]
     expected_mik_status = release_gate_check._mik_qa_evidence_status()
@@ -355,3 +351,22 @@ def test_release_docs_reference_non_audio_gate_runner_and_limits() -> None:
     assert "passed" in evidence_text
     assert "open-source publication docs" in evidence_text
     assert "publication artifact hygiene" in evidence_text
+
+
+def test_suite_and_coverage_are_a_single_gate() -> None:
+    """Running pytest bare and then again under --cov doubles the slowest gate.
+
+    A coverage run executes every test, so the separate bare run added no signal.
+    """
+    # Gates that name specific files are cheap, nameable signals; the ones that
+    # run the whole suite are the expensive duplicates.
+    full_suite_gates = [
+        gate
+        for gate in release_gate_check.NON_AUDIO_COMMAND_GATES
+        if "pytest" in gate.command and not any(part.startswith("tests/") for part in gate.command)
+    ]
+
+    assert len(full_suite_gates) == 1, (
+        f"the full suite runs in {len(full_suite_gates)} gates: {[g.name for g in full_suite_gates]}"
+    )
+    assert "--cov" in full_suite_gates[0].command
