@@ -7,6 +7,7 @@ from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralP
 from xfinaudio.library.scan_service import (
     ScanCancellationToken,
     ScanCancelledError,
+    _coerce_tag_value,
     _lookup_previous_profile,
     scan_folder,
 )
@@ -320,3 +321,76 @@ def test_scan_folder_runs_parallel_batch_when_enabled(monkeypatch) -> None:
     assert len(records) == 2
     assert all(record.spectral_profile is not None for record in records)
     assert all(record.spectral_profile.dominant_color == "RED" for record in records)
+
+
+def test_scan_folder_keeps_only_parsed_tags_in_raw_metadata() -> None:
+    """Bulk tags the parser never reads must not be retained on the record.
+
+    Serato/Mixed In Key blobs (beatgrid, overview, lyrics) accounted for 261 MB
+    of a 269 MB real library DB while contributing nothing to any parsed field.
+    """
+    root = Path("/library")
+
+    def read_tags(path: Path) -> dict[str, list[str]]:
+        return {
+            "title": ["Track One"],
+            "artist": ["Artist One"],
+            "bpm": ["116.0"],
+            "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiIxMUIiLCJzb3VyY2UiOiJtaXhlZGlua2V5In0="],
+            "energy": ["eyJhbGdvcml0aG0iOjEzLCJlbmVyZ3lMZXZlbCI6Nywic291cmNlIjoibWl4ZWRpbmtleSJ9"],
+            "genre": ["Disco"],
+            "beatgrid": ["A" * 100_000],
+            "serato_overview": ["B" * 50_000],
+            "lyrics": ["C" * 10_000],
+            "cuepoints": ["D" * 5_000],
+        }
+
+    records = scan_folder(root, list_paths=lambda folder: [root / "track.flac"], read_tags=read_tags)
+
+    raw = records[0].raw_metadata
+    assert raw["title"] == ["Track One"]
+    assert raw["genre"] == ["Disco"]
+    for dropped in ("beatgrid", "serato_overview", "lyrics", "cuepoints"):
+        assert dropped not in raw
+    # Parsing must be unaffected: it runs before the record is built.
+    assert records[0].bpm == 116.0
+    assert records[0].camelot_key == "11B"
+    assert records[0].energy_level == 7
+    assert records[0].metadata_status == "complete"
+
+
+def test_coerce_tag_value_summarizes_binary_frames_without_expanding_them() -> None:
+    """Binary frames must never go through repr(), which escapes each byte to \\xNN.
+
+    Measured: str() on a mutagen APIC holding a 1 MB cover yields 4,000,111
+    characters. On an MP3 library with embedded art that is tens of GB.
+    """
+
+    class FakeApic:
+        """Mimics a mutagen APIC frame: no .text, repr() dumps the raw bytes."""
+
+        def __init__(self, data: bytes) -> None:
+            self.data = data
+
+        def __repr__(self) -> str:
+            return f"APIC(data={self.data!r})"
+
+    payload = b"\xff" * 100_000
+    result = _coerce_tag_value(FakeApic(payload))
+
+    assert isinstance(result, str)
+    assert len(result) < 200
+    assert "100000" in result
+    assert "\\xff" not in result
+
+
+def test_coerce_tag_value_still_reads_text_frames() -> None:
+    """The binary guard must not change how ordinary text tags are coerced."""
+
+    class FakeTextFrame:
+        def __init__(self, text: list[str]) -> None:
+            self.text = text
+
+    assert _coerce_tag_value(FakeTextFrame(["Track One"])) == ["Track One"]
+    assert _coerce_tag_value(["Disco", "House"]) == ["Disco", "House"]
+    assert _coerce_tag_value("plain") == "plain"

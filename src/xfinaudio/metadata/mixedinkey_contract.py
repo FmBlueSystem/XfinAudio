@@ -14,6 +14,32 @@ ENERGY_TEXT_RE = re.compile(r"Energy\s+([1-9]|10)\b", re.IGNORECASE)
 COMMENT_ENERGY_RE = re.compile(r"⚡️?\s*([1-9]|10)")
 TAG_FIELDS = ("genre", "mood", "subgenre", "dj_zone", "genre_category")
 
+# Every tag key parse_mixedinkey_tags() can consult, casefolded to match
+# _casefold_mapping(). Callers retain only these; the rest (Serato overviews,
+# Mixed In Key beatgrids, lyrics) is never read and is dropped after parsing.
+# Keep in sync with _parse_bpm, _parse_camelot_key, _parse_energy and TAG_FIELDS.
+PARSED_TAG_KEYS = frozenset(
+    {
+        "title",
+        "tit2",
+        "artist",
+        "tpe1",
+        "tcon",
+        "bpm",
+        "tbpm",
+        "ibpm",
+        "key",
+        "initialkey",
+        "tkey",
+        "energy",
+        "energylevel",
+        "grouping",
+        "publisher",
+        "comment",
+        *TAG_FIELDS,
+    }
+)
+
 # Mixed In Key frequently writes the key as a standard musical name (e.g. "Cm", "Bbm", "G")
 # instead of Camelot notation. Map every pitch-class (with enharmonic equivalents) to its Camelot
 # code: minor keys take the "A" column, major keys take the "B" column (Camelot wheel layout).
