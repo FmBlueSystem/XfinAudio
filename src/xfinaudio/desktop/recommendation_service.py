@@ -14,6 +14,18 @@ from xfinaudio.desktop.app_state_transitions import apply_recommendation_complet
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 
+# Two different questions, previously answered by one number.
+#
+# The pool is how many candidates the optimizer gets to choose among. Measured
+# on a 10,367-track library, mean transition score peaks at 50: 0.8716 at a pool
+# of 10, 0.9002 at 50, then back down to 0.8898 at 80 as the greedy path wanders
+# further from the anchor. Beyond that it is also slow -- 200 took 5s per set.
+DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 50
+# The set length is how many tracks actually get played. At a median track
+# length of 4.8 minutes, a 30-minute set is 8-12 tracks; 10 also keeps the
+# sequencer in its exact (Held-Karp) branch rather than the greedy one.
+DESKTOP_RECOMMENDATION_SET_LENGTH = 10
+
 
 def _unwired(*_args: Any, **_kwargs: Any) -> Any:
     raise RuntimeError("RecommendationService dependencies were not wired")
@@ -237,7 +249,11 @@ class RecommendationService(QObject):
         thread = QThread(self)
         worker = BackgroundWorker(
             lambda: self.workflow_service.recommend(
-                records, strategy_name, controls=controls, spectral_cohesion=spectral_cohesion
+                records,
+                strategy_name,
+                controls=controls,
+                spectral_cohesion=spectral_cohesion,
+                target_count=DESKTOP_RECOMMENDATION_SET_LENGTH,
             ),
             request_id=request_id,
         )

@@ -127,10 +127,19 @@ class PlaylistWorkflowService:
         strategy_name: StrategyName | str,
         controls: DJControls | None = None,
         spectral_cohesion: float = 0.0,
+        target_count: int | None = None,
     ) -> RecommendationWorkflowResult:
-        """Build a recommendation plus explanation and quality report for UI rendering."""
+        """Build a recommendation plus explanation and quality report for UI rendering.
+
+        ``target_count`` is how many tracks the DJ plays, which is not the same
+        as how many candidates ``records`` offers the optimizer to choose among.
+        """
         recommendation = recommend_playlist(
-            records, strategy_name, controls=controls, spectral_cohesion=spectral_cohesion
+            records,
+            strategy_name,
+            controls=controls,
+            spectral_cohesion=spectral_cohesion,
+            target_count=target_count,
         )
         explanation = build_playlist_explanation(recommendation)
         quality_report = build_quality_report(recommendation)
