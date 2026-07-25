@@ -1,10 +1,15 @@
 import contextlib
 import os
 
-import pytest
-from PySide6.QtWidgets import QApplication
-
+# Before PySide6 is imported, not after: Qt has to learn it is headless while
+# it still matters. Twice the CI job burned its full 20-minute timeout inside
+# `uv run pytest` having emitted nothing at all -- no progress dot, no
+# collection error -- on a runner where nothing set this and the announcement
+# came one line too late.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 @pytest.fixture(scope="session")
