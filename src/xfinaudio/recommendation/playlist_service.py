@@ -291,6 +291,13 @@ def recommend_playlist(
             cache=_score_cache,
             config=scoring_config,
             arc_strategy=strategy.name,
+            # The shape must span the set the DJ plays, not the pool it is drawn
+            # from. Sizing it by the pool showed only the opening fraction of the
+            # curve, so a warm-up never climbed and a journey's peak sat past the
+            # end of the set.
+            arc_length=_expected_set_length(
+                remaining_tracks, target_duration_minutes, played_seconds_per_track, target_count
+            ),
         )
         sequenced_tracks = sequenced.ordered_tracks
         optimizer = sequenced.optimizer
@@ -371,6 +378,33 @@ def _manual_prefix_without_terminal_end(manual_prefix: list[TrackRecord], end_pa
     if end_path is None:
         return manual_prefix
     return [track for track in manual_prefix if track.path != end_path]
+
+
+def _expected_set_length(
+    candidates: list[TrackRecord],
+    target_duration_minutes: float | None,
+    played_seconds_per_track: float | None,
+    target_count: int | None,
+) -> int | None:
+    """Return how many tracks the DJ will actually play, if the caller said.
+
+    ``None`` when the caller asked for no cap, which leaves the shape spanning
+    the whole sequence -- there is nothing to trim it down to.
+
+    With no ``played_seconds_per_track`` each track counts its own length, so
+    the estimate uses the candidates' mean duration. It only has to be close:
+    it sizes a curve, and being a track or two out moves every target by a few
+    percent.
+    """
+    if target_duration_minutes is None:
+        return target_count
+    seconds = played_seconds_per_track
+    if seconds is None:
+        durations = [track.duration for track in candidates if track.duration]
+        seconds = sum(durations) / len(durations) if durations else None
+    if not seconds:
+        return target_count
+    return max(1, round(target_duration_minutes * 60 / seconds))
 
 
 def _uses_strategy_order(strategy: PlaylistStrategy) -> bool:

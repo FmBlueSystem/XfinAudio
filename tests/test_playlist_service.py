@@ -1009,3 +1009,21 @@ def test_recommendation_reordered_honours_spectral_cohesion() -> None:
     with_cohesion = recommendation_reordered(recommendation, flipped, spectral_cohesion=1.0)
 
     assert with_cohesion.transition_scores[0].total_score != without.transition_scores[0].total_score
+
+
+def test_expected_set_length_sizes_the_arc_by_the_slot() -> None:
+    from xfinaudio.recommendation.playlist_service import _expected_set_length
+
+    assert _expected_set_length([], 30.0, 120.0, None) == 15
+    assert _expected_set_length([], 60.0, 120.0, None) == 30
+    assert _expected_set_length([], None, None, 12) == 12
+    assert _expected_set_length([], None, None, None) is None
+
+
+def test_expected_set_length_falls_back_to_the_mean_duration() -> None:
+    """With no segment length each track counts in full."""
+    from xfinaudio.recommendation.playlist_service import _expected_set_length
+
+    pool = [track(f"/t{index}.flac").model_copy(update={"duration": 300.0}) for index in range(4)]
+
+    assert _expected_set_length(pool, 30.0, None, None) == 6
