@@ -128,11 +128,14 @@ class PlaylistWorkflowService:
         controls: DJControls | None = None,
         spectral_cohesion: float = 0.0,
         target_count: int | None = None,
+        target_duration_minutes: float | None = None,
+        played_seconds_per_track: float | None = None,
     ) -> RecommendationWorkflowResult:
         """Build a recommendation plus explanation and quality report for UI rendering.
 
-        ``target_count`` is how many tracks the DJ plays, which is not the same
-        as how many candidates ``records`` offers the optimizer to choose among.
+        ``target_duration_minutes`` is the DJ's slot length, which is how the job
+        is actually booked; ``target_count`` is the lower-level equivalent. Both
+        are separate from how many candidates ``records`` offers the optimizer.
         """
         recommendation = recommend_playlist(
             records,
@@ -140,6 +143,8 @@ class PlaylistWorkflowService:
             controls=controls,
             spectral_cohesion=spectral_cohesion,
             target_count=target_count,
+            target_duration_minutes=target_duration_minutes,
+            played_seconds_per_track=played_seconds_per_track,
         )
         explanation = build_playlist_explanation(recommendation)
         quality_report = build_quality_report(recommendation)

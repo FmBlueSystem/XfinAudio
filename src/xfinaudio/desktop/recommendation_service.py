@@ -21,10 +21,14 @@ from xfinaudio.recommendation.controls import DJControls
 # of 10, 0.9002 at 50, then back down to 0.8898 at 80 as the greedy path wanders
 # further from the anchor. Beyond that it is also slow -- 200 took 5s per set.
 DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 50
-# The set length is how many tracks actually get played. At a median track
-# length of 4.8 minutes, a 30-minute set is 8-12 tracks; 10 also keeps the
-# sequencer in its exact (Held-Karp) branch rather than the greedy one.
-DESKTOP_RECOMMENDATION_SET_LENGTH = 10
+# The slot length is what a booked DJ actually knows. A fixed track count cannot
+# hit it: on the real library, 10 tracks ran anywhere from 36 to 71 minutes
+# because track lengths vary by nearly a factor of two.
+DESKTOP_RECOMMENDATION_SET_MINUTES = 30.0
+# How long each track is on air before the mix moves on. A DJ plays a segment,
+# not the whole record: at a 4.8 minute median, a 30-minute slot is 6 tracks
+# played whole but 15 played two minutes at a time.
+DESKTOP_PLAYED_SECONDS_PER_TRACK = 120.0
 
 
 def _unwired(*_args: Any, **_kwargs: Any) -> Any:
@@ -253,7 +257,8 @@ class RecommendationService(QObject):
                 strategy_name,
                 controls=controls,
                 spectral_cohesion=spectral_cohesion,
-                target_count=DESKTOP_RECOMMENDATION_SET_LENGTH,
+                target_duration_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
+                played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
             ),
             request_id=request_id,
         )
