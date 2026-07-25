@@ -252,3 +252,39 @@ def test_dj_readiness_blocks_complete_tracks_with_absent_required_field_values()
         and "1 track(s) need BPM, key, or energy metadata" in check.detail
         for check in report.checks
     )
+
+
+def test_dj_readiness_flags_large_energy_jump_for_review() -> None:
+    """An 8-level energy jump emptied the floor while all five checks read ready.
+
+    BPM continuity was guarded; its energy counterpart was not, and the average
+    transition score does not catch it either: under harmonic_journey energy
+    weighs 0.15, so a brutal jump stays buried under the other dimensions.
+    """
+    recommendation = manual_recommendation(
+        [
+            track("/music/a.flac", bpm=128, key="8A", energy=2),
+            track("/music/b.flac", bpm=128, key="8A", energy=10),
+        ]
+    )
+
+    report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
+
+    assert report.status == "needs_review"
+    assert report.blocker_count == 0
+    assert any(check.label == "Energy continuity" and check.status == "needs_review" for check in report.checks)
+
+
+def test_dj_readiness_accepts_gradual_energy_progression() -> None:
+    """Climbing an energy level at a time is exactly what a DJ set should do."""
+    recommendation = manual_recommendation(
+        [
+            track("/music/a.flac", bpm=128, key="8A", energy=4),
+            track("/music/b.flac", bpm=128, key="8A", energy=5),
+            track("/music/c.flac", bpm=128, key="8A", energy=7),
+        ]
+    )
+
+    report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
+
+    assert any(check.label == "Energy continuity" and check.status == "ready" for check in report.checks)

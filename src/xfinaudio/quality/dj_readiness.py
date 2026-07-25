@@ -27,6 +27,11 @@ _STATUS_LABELS: dict[ReadinessStatus, str] = {
 }
 _STATUS_RANK: dict[ReadinessStatus, int] = {"ready": 0, "needs_review": 1, "blocked": 2}
 
+# Largest adjacent energy step (1-10 scale) a set can take without jarring the
+# floor. Matches the scoring curve, whose energy score has already fallen to 0.4
+# by a delta of 3.
+MAX_ADJACENT_ENERGY_JUMP = 3
+
 
 class DjReadinessCheck(BaseModel):
     """One operational readiness signal for a DJ playlist."""
@@ -63,6 +68,7 @@ def build_dj_readiness_report(
         _playlist_size_check(recommendation),
         _metadata_check(recommendation),
         _bpm_continuity_check(recommendation),
+        _energy_continuity_check(recommendation),
         _transition_warning_check(recommendation),
         _average_score_check(quality_report, min_average_transition_score),
     ]
@@ -212,6 +218,41 @@ def _bpm_continuity_check(recommendation: PlaylistRecommendation) -> DjReadiness
         label="BPM continuity",
         status="ready",
         detail=(f"Max adjacent BPM jump is {max_jump:.2f}%, within {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"),
+    )
+
+
+def _max_energy_jump(recommendation: PlaylistRecommendation) -> int:
+    return max(
+        (
+            abs(left.energy_level - right.energy_level)
+            for left, right in zip(recommendation.ordered_tracks, recommendation.ordered_tracks[1:], strict=False)
+            if left.energy_level is not None and right.energy_level is not None
+        ),
+        default=0,
+    )
+
+
+def _energy_continuity_check(recommendation: PlaylistRecommendation) -> DjReadinessCheck:
+    """Flag abrupt energy changes between adjacent tracks.
+
+    The average transition score does not surface these: energy weighs 0.15
+    under harmonic_journey, so an eight-level jump stays buried under a perfect
+    harmonic and BPM match while the floor empties.
+    """
+    max_jump = _max_energy_jump(recommendation)
+    if max_jump > MAX_ADJACENT_ENERGY_JUMP:
+        return DjReadinessCheck(
+            label="Energy continuity",
+            status="needs_review",
+            detail=(
+                f"Max adjacent energy jump is {max_jump} levels, above {MAX_ADJACENT_ENERGY_JUMP} — "
+                "export allowed, but review the transition before playing live"
+            ),
+        )
+    return DjReadinessCheck(
+        label="Energy continuity",
+        status="ready",
+        detail=f"Max adjacent energy jump is {max_jump} level(s), within {MAX_ADJACENT_ENERGY_JUMP}",
     )
 
 
