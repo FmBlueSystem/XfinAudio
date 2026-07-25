@@ -13,6 +13,14 @@ BoostRule = tuple[str, str]
 
 _KEY_PATTERN = re.compile(r"^(?P<number>1[0-2]|[1-9])(?P<letter>[abAB])$")
 
+# Mixed In Key's "Energy Boost": +2 on the same ring, one whole step up in
+# pitch (5A -> 7A, 8A -> 10A). It lifts a floor, but the sources are explicit
+# that it wants a cut rather than a long blend, since overlapping the two keys
+# clashes. Hence a score below the safe moves and well above a clash: the
+# optimizer may reach for it, but prefers a true harmonic match when one exists.
+ENERGY_BOOST_NUMBER_DELTA = 2
+ENERGY_BOOST_SCORE = 0.70
+
 
 class CamelotKey(BaseModel):
     """Parsed Camelot wheel key."""
@@ -116,11 +124,31 @@ def score_camelot_transition(
     if move.number_delta == 1 and not move.same_letter:
         return 0.9
 
+    # An explicitly configured rule wins over the built-in boost: the caller
+    # vouched for that specific pair, so it outranks the generic technique.
     normalized_rule = (left.normalized(), right.normalized())
     if boost_rules is not None and normalized_rule in _normalized_boost_rules(boost_rules):
         return 0.8
 
+    if move.number_delta == ENERGY_BOOST_NUMBER_DELTA and move.same_letter:
+        return ENERGY_BOOST_SCORE
+
     return 0.0
+
+
+def is_energy_boost(from_key: str, to_key: str) -> bool:
+    """Return whether the move is the +2 same-ring Energy Boost.
+
+    Callers use this to warn that the transition wants a cut: the two keys are a
+    whole step apart, so overlapping them clashes even though the lift works.
+    """
+    try:
+        left = parse_camelot_key(from_key)
+        right = parse_camelot_key(to_key)
+    except ValueError:
+        return False
+    move = _camelot_move(left, right)
+    return move.number_delta == ENERGY_BOOST_NUMBER_DELTA and move.same_letter
 
 
 def _normalized_boost_rules(boost_rules: Collection[BoostRule]) -> set[BoostRule]:

@@ -9,7 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from xfinaudio.audio.spectral_profile import score_spectral_similarity
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.recommendation.camelot import BoostRule, score_camelot_transition, shift_camelot_key
+from xfinaudio.recommendation.camelot import (
+    BoostRule,
+    is_energy_boost,
+    score_camelot_transition,
+    shift_camelot_key,
+)
 
 
 class ScoringWeights(BaseModel):
@@ -172,6 +177,11 @@ def score_transition(
             scoring_config.key_shift,
         )
     )
+    if is_energy_boost(left_key, right_key):
+        explanations.append(
+            f"Energy boost {left_key} → {right_key}: a whole step up lifts the floor, "
+            "but cut rather than blend — overlapping these keys clashes"
+        )
 
     tag_score = _score_tags(left, right)
     if tag_score is None:

@@ -59,7 +59,9 @@ class PlaylistEditor(QWidget):
         # Toolbar
         toolbar = QHBoxLayout()
         self.export_button = QPushButton(self.tr("Export to Serato"))
+        self.export_button.setToolTip(self.tr("Write this playlist to your Serato crates"))
         self.save_button = QPushButton(self.tr("Save"))
+        self.save_button.setToolTip(self.tr("Save changes to this playlist"))
         toolbar.addStretch()
         toolbar.addWidget(self.export_button)
         toolbar.addWidget(self.save_button)
