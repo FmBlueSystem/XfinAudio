@@ -66,10 +66,15 @@ class _CandidateRow(QWidget):
 
         self._preview_button = QPushButton("▶")
         self._preview_button.setFixedWidth(32)
+        # The glyph alone says nothing on screen and nothing at all to a screen
+        # reader, so both the tooltip and the accessible name carry the meaning.
+        self._preview_button.setToolTip(self.tr("Preview this suggestion"))
+        self._preview_button.setAccessibleName(self.tr("Preview this suggestion"))
         self._preview_button.clicked.connect(self._on_preview)
         layout.addWidget(self._preview_button)
 
         self._load_button = QPushButton("Load Next")
+        self._load_button.setToolTip(self.tr("Load this suggestion as the next track"))
         self._load_button.clicked.connect(self._on_load)
         layout.addWidget(self._load_button)
 
@@ -128,6 +133,7 @@ class LiveAssistantScreen(QWidget):
         header.addWidget(QLabel("<h1>Live Assistant</h1>"))
         header.addStretch()
         self._exit_button = QPushButton("Exit")
+        self._exit_button.setToolTip(self.tr("Leave Live Assistant and return to the workflow"))
         self._exit_button.clicked.connect(self.exit_requested.emit)
         header.addWidget(self._exit_button)
         layout.addLayout(header)

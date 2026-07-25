@@ -184,7 +184,9 @@ def test_score_transition_uses_custom_energy_thresholds() -> None:
 
 
 def test_score_transition_default_harmonic_score_is_unchanged_without_key_shift() -> None:
-    result = score_transition(track("left", camelot_key="8A"), track("right", camelot_key="6A"))
+    # 8A -> 1A is a genuine clash. The original pair here was 8A -> 6A, which is
+    # +2 on the same ring and now scores as an Energy Boost rather than 0.
+    result = score_transition(track("left", camelot_key="8A"), track("right", camelot_key="1A"))
 
     assert result.component_scores["harmonic"] == 0.0
 
@@ -387,3 +389,20 @@ def test_bpm_difference_percent_tolerance_boundary_outside_band_falls_back_to_pl
     # ratio = 128 / 65.64 ~= 1.9500, outside [1.96, 2.04] -> plain formula, ~95% difference.
     assert _bpm_difference_percent(128.0, 65.64) > 50.0
     assert _bpm_difference_percent(65.64, 128.0) > 50.0
+
+
+def test_energy_boost_transition_explains_that_it_needs_a_cut() -> None:
+    """A +2 lift is playable but clashes if the two keys overlap.
+
+    The DJ has to know to cut rather than run a long blend, so the transition
+    says so instead of silently scoring 0.70.
+    """
+    result = score_transition(track("left", camelot_key="8A"), track("right", camelot_key="10A"))
+
+    assert any("cut" in explanation.lower() for explanation in result.explanations), result.explanations
+
+
+def test_ordinary_harmonic_transition_says_nothing_about_cutting() -> None:
+    result = score_transition(track("left", camelot_key="8A"), track("right", camelot_key="9A"))
+
+    assert not any("cut" in explanation.lower() for explanation in result.explanations)

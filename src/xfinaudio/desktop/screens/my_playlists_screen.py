@@ -45,6 +45,13 @@ class MyPlaylistsScreen(QWidget):
         self.rename_button = QPushButton(self.tr("Rename"))
         self.duplicate_button = QPushButton(self.tr("Duplicate"))
         self.delete_button = QPushButton(self.tr("Delete"))
+        for button, tip in (
+            (self.create_button, "Create an empty playlist"),
+            (self.rename_button, "Rename the selected playlist"),
+            (self.duplicate_button, "Copy the selected playlist under a new name"),
+            (self.delete_button, "Delete the selected playlist permanently"),
+        ):
+            button.setToolTip(self.tr(tip))
         toolbar.addWidget(self.create_button)
         toolbar.addWidget(self.rename_button)
         toolbar.addWidget(self.duplicate_button)

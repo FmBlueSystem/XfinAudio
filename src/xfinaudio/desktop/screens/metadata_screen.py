@@ -62,6 +62,7 @@ class MetadataScreen(QWidget):
         self.status_combo = QComboBox()
         self.missing_combo = QComboBox()
         self.export_button = QPushButton(self.tr("Export to Serato"))
+        self.export_button.setToolTip(self.tr("Export the current playlist; needs a completed recommendation"))
         self.export_button.setEnabled(False)
         filter_row.addWidget(self.status_combo)
         filter_row.addWidget(self.missing_combo)
@@ -98,6 +99,7 @@ class MetadataScreen(QWidget):
         # Bottom nav
         nav = QHBoxLayout()
         self.back_button = QPushButton(self.tr("← Library"))
+        self.back_button.setToolTip(self.tr("Return to the Library screen"))
         nav.addWidget(self.back_button)
         nav.addStretch()
         layout.addLayout(nav)
