@@ -28,6 +28,7 @@ __pycache__/
 # Build/release evidence artifacts
 build/
 dist/
+out/
 release-dist/
 .release-evidence/
 .worktrees/
