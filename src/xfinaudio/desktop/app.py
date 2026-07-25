@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import multiprocessing
 import os
 import sys
 from collections.abc import Callable
@@ -105,6 +106,13 @@ def _load_settings_language() -> str | None:
 
 def main(*, macos_configurator: Callable[[str, Path | None], None] | None = None) -> int:
     """Start the XfinAudio desktop application."""
+    # Required before anything can spawn a process pool in a frozen bundle. macOS
+    # uses the "spawn" start method, so each child re-imports and re-runs this
+    # entry point; without the guard a child would open its own QApplication and
+    # spawn again, cascading. batch_analyzer.analyze_paths() can use a
+    # ProcessPoolExecutor, so the guard has to be here even though the desktop
+    # currently pins executor="thread".
+    multiprocessing.freeze_support()
     sys.argv[0] = "XfinAudio"
     _set_process_name("XfinAudio")
     app = QApplication(sys.argv)

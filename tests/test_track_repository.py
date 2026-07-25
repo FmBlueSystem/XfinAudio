@@ -333,6 +333,34 @@ def test_track_repository_load_spectral_profile_cache_returns_profiles_with_iden
     assert cache == {str(audio_file): (stat.st_mtime_ns, stat.st_size, profile)}
 
 
+def test_track_repository_load_spectral_profile_cache_exceeding_sqlite_variable_limit(tmp_path) -> None:
+    """A library larger than SQLITE_MAX_VARIABLE_NUMBER (32766) must still load.
+
+    A single IN (?,?,...) with one placeholder per path raises OperationalError
+    past that limit, and the caller swallows it, so spectral analysis would die
+    silently on large libraries.
+    """
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("dummy audio content")
+    profile = SpectralProfile(
+        red_ratio=0.9,
+        green_ratio=0.05,
+        blue_ratio=0.05,
+        dominant_color="RED",
+        analysis_version=CURRENT_ANALYSIS_VERSION,
+    )
+    repository.save_scan_results(
+        [TrackRecord(path=str(audio_file), title="Track One", metadata_status="complete", spectral_profile=profile)]
+    )
+    paths = [str(audio_file)] + [f"/music/absent{index}.flac" for index in range(40_000)]
+
+    cache = repository.load_spectral_profile_cache(paths)
+
+    stat = audio_file.stat()
+    assert cache == {str(audio_file): (stat.st_mtime_ns, stat.st_size, profile)}
+
+
 @pytest.mark.parametrize("analysis_version", [1, CURRENT_ANALYSIS_VERSION + 1])
 def test_track_repository_cache_excludes_non_current_profiles(tmp_path, analysis_version: int) -> None:
     repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")

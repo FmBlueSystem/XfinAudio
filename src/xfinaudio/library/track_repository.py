@@ -19,6 +19,10 @@ from xfinaudio.metadata.mixedinkey_contract import PARSED_TAG_KEYS
 
 SCHEMA_VERSION = 4
 
+# Bound placeholders per IN (...) clause. Modern SQLite allows 32766, older
+# builds only 999; 900 stays safe everywhere and keeps queries small.
+_MAX_QUERY_VARIABLES = 900
+
 
 class DatabaseSchemaError(RuntimeError):
     """Base error for unsupported or unsafe SQLite schema states."""
@@ -140,22 +144,23 @@ class TrackRepository:
         path_list = list(paths)
         if not path_list:
             return {}
-        placeholders = ",".join("?" * len(path_list))
-        query = f"""
-            SELECT path, file_mtime_ns, file_size_bytes, spectral_profile_json
-            FROM tracks
-            WHERE path IN ({placeholders})
-              AND file_mtime_ns IS NOT NULL
-              AND file_size_bytes IS NOT NULL
-              AND spectral_profile_json IS NOT NULL
-        """
         cache: dict[str, tuple[int, int, SpectralProfile]] = {}
         with self._connect() as connection:
-            rows = connection.execute(query, path_list).fetchall()
-        for row in rows:
-            profile = _deserialize_profile(row["spectral_profile_json"])
-            if profile is not None and profile.analysis_version == CURRENT_ANALYSIS_VERSION:
-                cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
+            for start in range(0, len(path_list), _MAX_QUERY_VARIABLES):
+                chunk = path_list[start : start + _MAX_QUERY_VARIABLES]
+                placeholders = ",".join("?" * len(chunk))
+                query = f"""
+                    SELECT path, file_mtime_ns, file_size_bytes, spectral_profile_json
+                    FROM tracks
+                    WHERE path IN ({placeholders})
+                      AND file_mtime_ns IS NOT NULL
+                      AND file_size_bytes IS NOT NULL
+                      AND spectral_profile_json IS NOT NULL
+                """
+                for row in connection.execute(query, chunk):
+                    profile = _deserialize_profile(row["spectral_profile_json"])
+                    if profile is not None and profile.analysis_version == CURRENT_ANALYSIS_VERSION:
+                        cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
 
     def _initialize(self) -> None:

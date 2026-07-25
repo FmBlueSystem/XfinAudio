@@ -37,6 +37,18 @@ _N_FFT = 1024
 _HOP_LENGTH = 512
 _ANALYSIS_WINDOW_SECONDS = 30.0
 
+# librosa emits these on every load that falls back from soundfile to audioread.
+# Registered once, at import, rather than per call: warnings.catch_warnings()
+# mutates process-global filter state, so with the analyzer running on 7-11
+# threads one worker would blank every other thread's filters for the duration
+# of its own analysis -- suppressing unrelated diagnostics, not just its own.
+for _noisy_message in (
+    r".*PySoundFile failed.*",
+    r".*__audioread_load.*",
+    r".*audioread.*[Dd]eprecated.*",
+):
+    warnings.filterwarnings("ignore", message=_noisy_message)
+
 
 class SpectralProfile(BaseModel):
     """Normalized spectral color fingerprint for a single audio file."""
@@ -80,75 +92,73 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
         return None
 
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            audio_path = Path(path)
-            try:
-                track_duration = float(librosa.get_duration(path=audio_path))
-            except Exception:
-                track_duration = None
-            offset = 0.0
-            if track_duration is not None and track_duration > _ANALYSIS_WINDOW_SECONDS:
-                offset = max(0.0, (track_duration / 2.0) - (_ANALYSIS_WINDOW_SECONDS / 2.0))
+        audio_path = Path(path)
+        try:
+            track_duration = float(librosa.get_duration(path=audio_path))
+        except Exception:
+            track_duration = None
+        offset = 0.0
+        if track_duration is not None and track_duration > _ANALYSIS_WINDOW_SECONDS:
+            offset = max(0.0, (track_duration / 2.0) - (_ANALYSIS_WINDOW_SECONDS / 2.0))
+        y, sr = librosa.load(
+            audio_path,
+            sr=_ANALYSIS_SAMPLE_RATE,
+            mono=True,
+            offset=offset,
+            duration=_ANALYSIS_WINDOW_SECONDS,
+        )
+        if y.size == 0 and offset > 0.0:
+            # Truncated files can declare a header duration longer than the
+            # real stream, so a mid-track seek lands past EOF and yields no
+            # samples. Analyze what actually exists from the start instead.
             y, sr = librosa.load(
                 audio_path,
                 sr=_ANALYSIS_SAMPLE_RATE,
                 mono=True,
-                offset=offset,
                 duration=_ANALYSIS_WINDOW_SECONDS,
             )
-            if y.size == 0 and offset > 0.0:
-                # Truncated files can declare a header duration longer than the
-                # real stream, so a mid-track seek lands past EOF and yields no
-                # samples. Analyze what actually exists from the start instead.
-                y, sr = librosa.load(
-                    audio_path,
-                    sr=_ANALYSIS_SAMPLE_RATE,
-                    mono=True,
-                    duration=_ANALYSIS_WINDOW_SECONDS,
-                )
-            if y.size == 0:
-                return None
+        if y.size == 0:
+            return None
 
-            # Compute the STFT once and share it across all four feature
-            # calls. Without sharing, librosa would run the same FFT three
-            # extra times internally (once each for melspectrogram,
-            # spectral_centroid, and spectral_rolloff), which is the dominant
-            # cost of the analyzer on a real DJ library.
-            stft = librosa.stft(y=y, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
-            magnitude = np.abs(stft)
+        # Compute the STFT once and share it across all four feature
+        # calls. Without sharing, librosa would run the same FFT three
+        # extra times internally (once each for melspectrogram,
+        # spectral_centroid, and spectral_rolloff), which is the dominant
+        # cost of the analyzer on a real DJ library.
+        stft = librosa.stft(y=y, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
+        magnitude = np.abs(stft)
 
-            # melspectrogram defaults to power=2.0 (expects |STFT|²). Pass
-            # the magnitude directly with power=1.0 to skip squaring; color
-            # classification only depends on the ratio of band energies,
-            # which is scale-invariant.
-            mel_spec = librosa.feature.melspectrogram(
-                S=magnitude,
-                sr=sr,
-                n_mels=_N_MELS,
-                n_fft=_N_FFT,
-                hop_length=_HOP_LENGTH,
-                power=1.0,
-            )
-            mel_energies = mel_spec.sum(axis=1)
-            mel_freqs = librosa.mel_frequencies(n_mels=_N_MELS, fmin=0.0, fmax=sr / 2.0)
+        # melspectrogram defaults to power=2.0 (expects |STFT|²). Pass
+        # the magnitude directly with power=1.0 to skip squaring; color
+        # classification only depends on the ratio of band energies,
+        # which is scale-invariant.
+        mel_spec = librosa.feature.melspectrogram(
+            S=magnitude,
+            sr=sr,
+            n_mels=_N_MELS,
+            n_fft=_N_FFT,
+            hop_length=_HOP_LENGTH,
+            power=1.0,
+        )
+        mel_energies = mel_spec.sum(axis=1)
+        mel_freqs = librosa.mel_frequencies(n_mels=_N_MELS, fmin=0.0, fmax=sr / 2.0)
 
-            red_energy = mel_energies[mel_freqs <= _RED_MAX_HZ].sum()
-            green_energy = mel_energies[(mel_freqs > _RED_MAX_HZ) & (mel_freqs <= _GREEN_MAX_HZ)].sum()
-            blue_energy = mel_energies[mel_freqs > _GREEN_MAX_HZ].sum()
-            total_energy = red_energy + green_energy + blue_energy
-            if total_energy <= 0:
-                return None
+        red_energy = mel_energies[mel_freqs <= _RED_MAX_HZ].sum()
+        green_energy = mel_energies[(mel_freqs > _RED_MAX_HZ) & (mel_freqs <= _GREEN_MAX_HZ)].sum()
+        blue_energy = mel_energies[mel_freqs > _GREEN_MAX_HZ].sum()
+        total_energy = red_energy + green_energy + blue_energy
+        if total_energy <= 0:
+            return None
 
-            red_ratio = float(red_energy / total_energy)
-            green_ratio = float(green_energy / total_energy)
-            blue_ratio = float(blue_energy / total_energy)
+        red_ratio = float(red_energy / total_energy)
+        green_ratio = float(green_energy / total_energy)
+        blue_ratio = float(blue_energy / total_energy)
 
-            centroid = librosa.feature.spectral_centroid(S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
-            rolloff = librosa.feature.spectral_rolloff(
-                S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH, roll_percent=0.85
-            )
-            rms = librosa.feature.rms(S=magnitude, frame_length=_N_FFT, hop_length=_HOP_LENGTH)
+        centroid = librosa.feature.spectral_centroid(S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
+        rolloff = librosa.feature.spectral_rolloff(
+            S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH, roll_percent=0.85
+        )
+        rms = librosa.feature.rms(S=magnitude, frame_length=_N_FFT, hop_length=_HOP_LENGTH)
 
         return SpectralProfile(
             red_ratio=red_ratio,
