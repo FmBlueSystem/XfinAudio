@@ -15,8 +15,13 @@ from xfinaudio.audio.spectral_profile import (
     dominant_color_for_ratios,
 )
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.metadata.mixedinkey_contract import PARSED_TAG_KEYS
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+
+# Bound placeholders per IN (...) clause. Modern SQLite allows 32766, older
+# builds only 999; 900 stays safe everywhere and keeps queries small.
+_MAX_QUERY_VARIABLES = 900
 
 
 class DatabaseSchemaError(RuntimeError):
@@ -139,22 +144,23 @@ class TrackRepository:
         path_list = list(paths)
         if not path_list:
             return {}
-        placeholders = ",".join("?" * len(path_list))
-        query = f"""
-            SELECT path, file_mtime_ns, file_size_bytes, spectral_profile_json
-            FROM tracks
-            WHERE path IN ({placeholders})
-              AND file_mtime_ns IS NOT NULL
-              AND file_size_bytes IS NOT NULL
-              AND spectral_profile_json IS NOT NULL
-        """
         cache: dict[str, tuple[int, int, SpectralProfile]] = {}
         with self._connect() as connection:
-            rows = connection.execute(query, path_list).fetchall()
-        for row in rows:
-            profile = _deserialize_profile(row["spectral_profile_json"])
-            if profile is not None and profile.analysis_version == CURRENT_ANALYSIS_VERSION:
-                cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
+            for start in range(0, len(path_list), _MAX_QUERY_VARIABLES):
+                chunk = path_list[start : start + _MAX_QUERY_VARIABLES]
+                placeholders = ",".join("?" * len(chunk))
+                query = f"""
+                    SELECT path, file_mtime_ns, file_size_bytes, spectral_profile_json
+                    FROM tracks
+                    WHERE path IN ({placeholders})
+                      AND file_mtime_ns IS NOT NULL
+                      AND file_size_bytes IS NOT NULL
+                      AND spectral_profile_json IS NOT NULL
+                """
+                for row in connection.execute(query, chunk):
+                    profile = _deserialize_profile(row["spectral_profile_json"])
+                    if profile is not None and profile.analysis_version == CURRENT_ANALYSIS_VERSION:
+                        cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
 
     def _initialize(self) -> None:
@@ -172,8 +178,47 @@ class TrackRepository:
                     "refusing to mark it as schema v1 without an explicit migration"
                 )
             self._ensure_schema(connection)
+            needs_raw_metadata_trim = 0 < schema_version < 4
+            if needs_raw_metadata_trim:
+                self._trim_legacy_raw_metadata(connection)
             if schema_version < SCHEMA_VERSION:
                 connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        if needs_raw_metadata_trim:
+            self._reclaim_free_pages()
+
+    @staticmethod
+    def _trim_legacy_raw_metadata(connection: sqlite3.Connection) -> None:
+        """Drop tag keys the parser never reads from already-persisted rows.
+
+        Schema v4 stopped writing them (see library/scan_service.py), but existing
+        databases still carry them: 261 MB of 269 MB on a real 10,392-track library,
+        dominated by Serato overviews and Mixed In Key beatgrids. Trimming here makes
+        an upgraded database equivalent to a freshly scanned one.
+        """
+        updates: list[tuple[str, str]] = []
+        for path, raw_json in connection.execute("SELECT path, raw_metadata_json FROM tracks"):
+            try:
+                raw = json.loads(raw_json)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(raw, dict):
+                continue
+            trimmed = {key: value for key, value in raw.items() if key.casefold() in PARSED_TAG_KEYS}
+            if len(trimmed) != len(raw):
+                updates.append((json.dumps(trimmed, sort_keys=True), path))
+        connection.executemany("UPDATE tracks SET raw_metadata_json = ? WHERE path = ?", updates)
+
+    def _reclaim_free_pages(self) -> None:
+        """VACUUM so the trimmed payload is returned to the filesystem.
+
+        Must run outside the migration transaction; without it SQLite keeps the
+        freed pages and the file never shrinks.
+        """
+        connection = self._connect()
+        try:
+            connection.execute("VACUUM")
+        finally:
+            connection.close()
 
     @staticmethod
     def _tracks_table_exists(connection: sqlite3.Connection) -> bool:

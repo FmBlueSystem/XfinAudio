@@ -829,10 +829,14 @@ def test_main_window_spectral_progress_update_replaces_app_state_immutably() -> 
 
     window._on_spectral_progress_updated(2, 5)
 
+    # State changes immediately; the render is coalesced behind the sync timer.
     assert window._state is not previous_state
     assert window._state.is_completing_spectral is True
     assert window._state.spectral_progress_count == 2
     assert window._state.spectral_total_count == 5
+
+    window._app_controller._sync_timer.timeout.emit()
+
     assert window._library_screen.status_label.text() == "Analyzing spectral colors 2/5"
 
 
@@ -3046,3 +3050,57 @@ def test_playlist_reorder_is_undoable_and_redoable(monkeypatch) -> None:
 
     window.redo()
     assert editor._track_paths == reordered
+
+
+def test_repeated_spectral_worker_cancellation_does_not_accumulate_children(tmp_path) -> None:
+    """Each re-scan cancels the previous worker; those must not pile up on the window.
+
+    The worker is parented to the MainWindow, so dropping the reference leaves it
+    alive as a child, holding its runner and that runner's whole TrackRecord list.
+    """
+    from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
+
+    ensure_app()
+    window = MainWindow.with_defaults(tmp_path / "db.sqlite3", tmp_path / "settings.json")
+    records = [
+        TrackRecord(path=str(tmp_path / f"t{index}.flac"), title=f"T{index}", metadata_status="complete")
+        for index in range(3)
+    ]
+
+    for _ in range(5):
+        window._library_controller.start_spectral_completion_worker(records)
+        window._library_controller.cancel_spectral_completion_worker()
+
+    # Release is deferred until each cancelled thread actually stops.
+    _process_events_until(lambda: not window.findChildren(SpectralCompletionWorker))
+
+
+def test_spectral_progress_requests_coalesce_into_a_single_render(monkeypatch) -> None:
+    """Progress events must not each trigger a full five-screen render.
+
+    Measured on the real app: sync_state ran 3.0 times per track (708 calls for
+    234 tracks, 2928 for 974), so a 10k library meant ~31k full re-renders while
+    7 analysis threads produced results faster than the UI could drain them.
+    """
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    controller = window._app_controller
+
+    renders = 0
+    original_sync = controller.sync_state
+
+    def counting_sync() -> None:
+        nonlocal renders
+        renders += 1
+        original_sync()
+
+    monkeypatch.setattr(controller, "sync_state", counting_sync)
+
+    for _ in range(500):
+        controller.request_sync()
+
+    assert renders == 0, "requests must be deferred, not rendered on the spot"
+
+    controller._sync_timer.timeout.emit()
+
+    assert renders == 1

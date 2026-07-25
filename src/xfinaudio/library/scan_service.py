@@ -20,7 +20,7 @@ from xfinaudio.library.scan_planning import (
 from xfinaudio.library.scan_planning import (
     plan_supported_audio_paths,
 )
-from xfinaudio.metadata.mixedinkey_contract import parse_mixedinkey_tags
+from xfinaudio.metadata.mixedinkey_contract import PARSED_TAG_KEYS, parse_mixedinkey_tags
 
 LOGGER = logging.getLogger(__name__)
 
@@ -234,11 +234,21 @@ def _build_records(
                 metadata_status="complete" if metadata.is_complete else "incomplete",
                 missing_required_fields=metadata.missing_required_fields,
                 source_fields=metadata.source_fields,
-                raw_metadata=raw_metadata_by_path[path],
+                raw_metadata=_retained_raw_metadata(raw_metadata_by_path[path]),
                 spectral_profile=spectral_profile,
             )
         )
     return records
+
+
+def _retained_raw_metadata(raw_metadata: dict[str, Any]) -> dict[str, Any]:
+    """Keep only the tags the parser reads.
+
+    parse_mixedinkey_tags() has already run by this point, so dropping the rest
+    costs nothing. On a real 10,392-track library this is the difference between
+    261 MB and ~2 MB of retained and persisted tag payload.
+    """
+    return {key: value for key, value in raw_metadata.items() if key.casefold() in PARSED_TAG_KEYS}
 
 
 def _resolve_spectral_profiles(
@@ -346,4 +356,11 @@ def _coerce_tag_value(value: Any) -> Any:
         return [str(item) for item in text_values]
     if isinstance(value, list | tuple):
         return [str(item) for item in value]
+    # Binary frames (APIC artwork, GEOB Serato blobs) have no .text, and their
+    # repr() escapes every byte to \xNN — 4x the payload. Summarize instead.
+    payload = getattr(value, "data", None)
+    if isinstance(payload, bytes | bytearray):
+        return f"<binary:{type(value).__name__}:{len(payload)} bytes>"
+    if isinstance(value, bytes | bytearray):
+        return f"<binary:{len(value)} bytes>"
     return str(value)

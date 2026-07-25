@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
+
+# Undo commands close over whole PlaylistRecommendation objects, so an unbounded
+# stack pins every superseded recommendation for the life of the session.
+UNDO_HISTORY_LIMIT = 50
 
 
 @dataclass(frozen=True)
@@ -13,7 +18,7 @@ class Command:
 
 class UndoManager:
     def __init__(self) -> None:
-        self._undo_stack: list[Command] = []
+        self._undo_stack: deque[Command] = deque(maxlen=UNDO_HISTORY_LIMIT)
         self._redo_stack: list[Command] = []
 
     @property

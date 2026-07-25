@@ -219,10 +219,11 @@ class LiveAssistantScreen(QWidget):
         layout.addWidget(self._content_widget)
         self._content_widget.setVisible(False)
 
-        # Timer
+        # Timer. Started by set_current_track(), not here: the screen is built
+        # for every session but most never open it, and an idle screen has no
+        # elapsed time to show.
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.timeout.connect(self._update_timer)
-        self._elapsed_timer.start(1000)
 
         # Keyboard shortcuts
         self._shortcut_esc = QShortcut(Qt.Key.Key_Escape, self)
@@ -244,6 +245,7 @@ class LiveAssistantScreen(QWidget):
         self._now_playing_energy.setText(str(track.energy_level) if track.energy_level else "—")
         self._session_start = datetime.now()
         self._update_timer()
+        self._elapsed_timer.start(1000)
 
         self._empty_state_widget.setVisible(False)
         self._content_widget.setVisible(True)

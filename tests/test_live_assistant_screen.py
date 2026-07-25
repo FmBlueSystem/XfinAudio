@@ -173,3 +173,14 @@ def test_keyboard_shortcut_esc_emits_exit(qapp: QApplication) -> None:
     screen._shortcut_esc.activated.emit()
 
     assert received == [True]
+
+
+def test_elapsed_timer_idle_until_a_track_is_loaded(qapp: QApplication, track_a: TrackRecord) -> None:
+    """The 1 Hz tick must not run for users who never open the Live Assistant."""
+    screen = LiveAssistantScreen()
+
+    assert not screen._elapsed_timer.isActive()
+
+    screen.set_current_track(track_a)
+
+    assert screen._elapsed_timer.isActive()

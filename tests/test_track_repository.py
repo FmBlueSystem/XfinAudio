@@ -48,6 +48,42 @@ def test_track_repository_replaces_existing_record_for_same_path(tmp_path) -> No
     assert repository.list_tracks() == [second]
 
 
+def test_track_repository_trims_legacy_raw_metadata_blobs_on_upgrade(tmp_path) -> None:
+    """Databases written before the tag allowlist must be purged of unread blobs.
+
+    A real 10,392-track library carried 261 MB of beatgrid/serato_overview/lyrics
+    payload in raw_metadata_json that no code path ever reads.
+    """
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    repository = TrackRepository(db_path)
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path="/music/track.flac",
+                title="Track One",
+                metadata_status="incomplete",
+                raw_metadata={
+                    "title": ["Track One"],
+                    "bpm": ["116.0"],
+                    "beatgrid": "A" * 50_000,
+                    "serato_overview": "B" * 20_000,
+                    "lyrics": "C" * 10_000,
+                },
+            )
+        ]
+    )
+    # Simulate a database written by the previous schema version.
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION - 1}")
+
+    TrackRepository(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        stored = json.loads(connection.execute("SELECT raw_metadata_json FROM tracks").fetchone()[0])
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert stored == {"title": ["Track One"], "bpm": ["116.0"]}
+
+
 def test_track_repository_initializes_schema_user_version(tmp_path) -> None:
     db_path = tmp_path / "xfinaudio.sqlite3"
 
@@ -214,7 +250,7 @@ def test_track_repository_rejects_invalid_profile_ratios_on_read(tmp_path) -> No
     assert repository.list_tracks()[0].spectral_profile is None
 
 
-def test_track_repository_migrates_v1_database_to_v3(tmp_path) -> None:
+def test_track_repository_migrates_v1_database_to_current_schema(tmp_path) -> None:
     db_path = tmp_path / "xfinaudio.sqlite3"
     with sqlite3.connect(db_path) as connection:
         connection.execute(
@@ -241,7 +277,7 @@ def test_track_repository_migrates_v1_database_to_v3(tmp_path) -> None:
     repository = TrackRepository(db_path)
 
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert repository.list_tracks() == []
 
 
@@ -292,6 +328,34 @@ def test_track_repository_load_spectral_profile_cache_returns_profiles_with_iden
 
     repository.save_scan_results([record])
     cache = repository.load_spectral_profile_cache([str(audio_file)])
+
+    stat = audio_file.stat()
+    assert cache == {str(audio_file): (stat.st_mtime_ns, stat.st_size, profile)}
+
+
+def test_track_repository_load_spectral_profile_cache_exceeding_sqlite_variable_limit(tmp_path) -> None:
+    """A library larger than SQLITE_MAX_VARIABLE_NUMBER (32766) must still load.
+
+    A single IN (?,?,...) with one placeholder per path raises OperationalError
+    past that limit, and the caller swallows it, so spectral analysis would die
+    silently on large libraries.
+    """
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("dummy audio content")
+    profile = SpectralProfile(
+        red_ratio=0.9,
+        green_ratio=0.05,
+        blue_ratio=0.05,
+        dominant_color="RED",
+        analysis_version=CURRENT_ANALYSIS_VERSION,
+    )
+    repository.save_scan_results(
+        [TrackRecord(path=str(audio_file), title="Track One", metadata_status="complete", spectral_profile=profile)]
+    )
+    paths = [str(audio_file)] + [f"/music/absent{index}.flac" for index in range(40_000)]
+
+    cache = repository.load_spectral_profile_cache(paths)
 
     stat = audio_file.stat()
     assert cache == {str(audio_file): (stat.st_mtime_ns, stat.st_size, profile)}

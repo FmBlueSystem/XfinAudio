@@ -108,6 +108,7 @@ class LibraryController:
         tr: Callable[[str], str],
         log: logging.Logger,
         parent: QWidget,
+        request_sync: Callable[[], None] | None = None,
     ) -> None:
         self._state = state
         self._workflow_service = workflow_service
@@ -115,6 +116,9 @@ class LibraryController:
         self._access = access
         self._audio_player = audio_player
         self._sync_state = sync_state
+        # Coalesced variant for per-track progress. Falls back to the immediate
+        # one so callers that do not wire it keep the old behaviour.
+        self._request_sync = request_sync or sync_state
         self._tr = tr
         self._log = log
         self._parent = parent
@@ -402,9 +406,7 @@ class LibraryController:
         worker.start(missing, self._workflow_service.repository)
 
     def cancel_spectral_completion_worker(self) -> None:
-        if self._spectral_completion_worker is not None:
-            self._spectral_completion_worker.cancel()
-            self._spectral_completion_worker = None
+        self._dispose_spectral_completion_worker()
         if self._state.is_completing_spectral:
             self._replace_state(
                 is_completing_spectral=False,
@@ -414,7 +416,7 @@ class LibraryController:
             self._sync_state()
 
     def shutdown(self) -> None:
-        """Cancel and wait for the spectral completion worker.
+        """Stop and release the spectral completion worker.
 
         Called automatically when the parent MainWindow is destroyed. Without
         this, the worker's QThread is destroyed while still running (librosa
@@ -422,20 +424,33 @@ class LibraryController:
         "QThread: Destroyed while thread '' is still running" and aborts the
         process at interpreter exit (returncode 134).
 
-        The cooperative ``cancel()`` asks the worker to stop and waits up to
-        200ms. If the thread is still running after that, ``terminate()`` is
-        used as a last resort to prevent the abort.
+        Teardown is the one place a forced ``shutdown()`` is warranted: the
+        process is going away, so terminating a thread stuck inside librosa is
+        preferable to hanging on exit.
         """
-        if self._spectral_completion_worker is not None:
-            self._spectral_completion_worker.cancel()
-            self._spectral_completion_worker.wait(200)
-            if (
-                self._spectral_completion_worker._thread is not None
-                and self._spectral_completion_worker._thread.isRunning()
-            ):
-                self._spectral_completion_worker._thread.terminate()
-                self._spectral_completion_worker._thread.wait(200)
-            self._spectral_completion_worker = None
+        worker = self._spectral_completion_worker
+        if worker is None:
+            return
+        self._spectral_completion_worker = None
+        worker.shutdown()
+
+    def _dispose_spectral_completion_worker(self) -> None:
+        """Ask the worker to stop and release it once it actually does.
+
+        The worker is parented to the MainWindow, so dropping the reference is
+        not enough: it survives as a child, holding its runner and that runner's
+        full TrackRecord list. Every re-scan cancels the previous worker, so
+        without this one accumulated per scan.
+
+        Cancellation is cooperative and must not block the UI thread, hence
+        ``dispose_when_idle`` rather than a wait-and-terminate.
+        """
+        worker = self._spectral_completion_worker
+        if worker is None:
+            return
+        self._spectral_completion_worker = None
+        worker.cancel()
+        worker.dispose_when_idle()
 
     @Slot(int, int)
     def on_spectral_progress_updated(self, processed_count: int, total_count: int) -> None:
@@ -444,7 +459,9 @@ class LibraryController:
             spectral_progress_count=processed_count,
             spectral_total_count=total_count,
         )
-        self._sync_state()
+        # Fires once per analyzed track; coalesce so the UI is not re-rendered
+        # thousands of times mid-scan.
+        self._request_sync()
 
     @Slot(str, object)
     def on_spectral_profile_ready(self, path: str, profile: object) -> None:
@@ -457,11 +474,19 @@ class LibraryController:
                 color_text = _format_spectral_color(record) if record is not None else ""
                 self._widgets.library_screen.tracks_table.item(row_index, _TRACK_COLOR_COLUMN).setText(color_text)
                 break
-        self._sync_state()
+        # The color cell above is already updated in place, so the full render
+        # this asks for is only needed to refresh the other screens.
+        self._request_sync()
 
     @Slot()
     def on_spectral_completion_finished(self) -> None:
+        # Normal completion: the worker itself signalled us, so we are inside its
+        # own signal chain. Never wait on or terminate its thread from here (that
+        # segfaults) -- just release it so it stops living as a MainWindow child.
+        worker = self._spectral_completion_worker
         self._spectral_completion_worker = None
+        if worker is not None:
+            worker.deleteLater()
         self._replace_state(
             is_completing_spectral=False,
             spectral_progress_count=0,

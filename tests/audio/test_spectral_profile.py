@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -175,3 +176,34 @@ def test_dominant_color_exact_excess_ties_use_fixed_priority(ratios: tuple[float
 def test_dominant_color_near_tie_uses_exact_largest_excess() -> None:
     assert dominant_color_for_ratios(0.4500001, 0.48, 0.0) == "RED"
     assert dominant_color_for_ratios(0.45, 0.4800001, 0.0) == "GREEN"
+
+
+def test_analyze_spectral_profile_does_not_suppress_other_threads_warnings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The analyzer must not blank the process-wide warning filters while it runs.
+
+    ``warnings.catch_warnings()`` + ``simplefilter("ignore")`` mutates global
+    state, so with 7-11 analysis threads one worker silences every other thread's
+    warnings for the duration of its own call.
+    """
+    import warnings
+
+    import librosa
+
+    observed_during_analysis: list[bool] = []
+    real_load = librosa.load
+
+    def probing_load(*args: Any, **kwargs: Any) -> Any:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.warn("probe from another thread", UserWarning, stacklevel=1)
+            observed_during_analysis.append(bool(caught))
+        return real_load(*args, **kwargs)
+
+    monkeypatch.setattr(librosa, "load", probing_load)
+    path = SYNTHETIC_DIR / "red_100hz.wav"
+
+    analyze_spectral_profile(path)
+
+    assert observed_during_analysis, "librosa.load was never reached"
+    assert all(observed_during_analysis), "analysis suppressed a warning raised outside its own code"

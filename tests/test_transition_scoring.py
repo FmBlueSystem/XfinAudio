@@ -69,15 +69,43 @@ def test_score_transition_scores_tag_overlap_with_genre() -> None:
     assert "Tag overlap is 2/4" in result.explanations
 
 
-def test_score_transition_redistributes_weight_when_tags_are_missing() -> None:
+def test_score_transition_scores_missing_tags_as_neutral_not_perfect() -> None:
+    """An unevaluable component must not be treated as agreement.
+
+    Excluding it from the denominator inflated the total, so pairs with less
+    metadata outranked fully-described ones. Absent components score neutral.
+    """
     left = track("left", genre=None, tags=[])
     right = track("right", genre=None, tags=[])
 
     result = score_transition(left, right)
 
     assert "tags" not in result.component_scores
-    assert result.total_score == 1.0
+    assert result.total_score < 1.0
     assert "Tag score unavailable; both tracks have no tags or genre" in result.warnings
+
+
+def test_sparse_metadata_pair_does_not_outrank_complete_agreeing_pair() -> None:
+    """The optimizer must never prefer a track just because it is undocumented."""
+    red = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    complete_left = track("cl", genre="House", tags=["Peak"], spectral_profile=red)
+    complete_right = track("cr", genre="House", tags=["Peak"], spectral_profile=red)
+    sparse_left = track("sl", genre=None, tags=[], spectral_profile=None)
+    sparse_right = track("sr", genre=None, tags=[], spectral_profile=None)
+
+    complete = score_transition(complete_left, complete_right)
+    sparse = score_transition(sparse_left, sparse_right)
+
+    assert sparse.total_score < complete.total_score
+
+
+def test_absent_component_scores_between_disagreement_and_agreement() -> None:
+    """Neutral must sit between a known mismatch and a known match."""
+    agreeing = score_transition(track("al", genre="House", tags=["Peak"]), track("ar", genre="House", tags=["Peak"]))
+    unknown = score_transition(track("ul", genre=None, tags=[]), track("ur", genre=None, tags=[]))
+    clashing = score_transition(track("cl", genre="Techno", tags=["Dark"]), track("cr", genre="Disco", tags=["Happy"]))
+
+    assert clashing.total_score < unknown.total_score < agreeing.total_score
 
 
 def test_score_transition_warns_and_returns_zero_when_required_metadata_is_incomplete() -> None:
@@ -96,7 +124,10 @@ def test_score_transition_combines_weighted_component_scores() -> None:
 
     result = score_transition(left, right)
 
-    assert result.total_score == pytest.approx(0.814475)
+    # (0.4 + 0.902344*0.25 + 0.555556*0.25 + 0.5*0.1 + 0.5*0.1) / 1.10, where the
+    # trailing 0.5 is the neutral score for the absent spectral component.
+    assert result.total_score == pytest.approx(0.785886)
+    # component_scores still reports only what could actually be measured.
     assert result.component_scores == {
         "harmonic": 1.0,
         "bpm": pytest.approx(0.902344),

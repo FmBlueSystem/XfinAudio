@@ -86,6 +86,13 @@ class TransitionScoringConfig(BaseModel):
     spectral_cohesion: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+# Every component _weighted_total accounts for, present or not.
+SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral")
+# Score for a component that cannot be evaluated: midway between a known
+# mismatch (0.0) and a known match (1.0), so absent metadata neither rewards
+# nor punishes.
+NEUTRAL_COMPONENT_SCORE = 0.5
+
 DEFAULT_WEIGHTS = ScoringWeights()
 DEFAULT_SCORING_CONFIG = TransitionScoringConfig(weights=DEFAULT_WEIGHTS, score_curve="fuzzy", spectral_cohesion=0.0)
 REQUIRED_FIELDS = DEFAULT_SCORING_CONFIG.required_fields
@@ -331,8 +338,20 @@ def _spectral_color_penalty(left: TrackRecord, right: TrackRecord, cohesion: flo
 
 
 def _weighted_total(component_scores: dict[str, float], weights: ScoringWeights) -> float:
-    available_weights = {name: getattr(weights, name) for name in component_scores}
-    total_weight = sum(available_weights.values())
+    """Combine component scores, scoring unevaluable components as neutral.
+
+    Dropping absent components from the denominator instead used to inflate the
+    total, so a pair with no tags and no spectral profile scored a perfect 1.0
+    while a fully-described but clashing pair scored 0.83. The optimizer maximizes
+    adjacent scores, so it systematically preferred the least documented tracks --
+    worst during the progressive spectral pass, when much of the library has no
+    profile yet. Neutral keeps the ordering honest: clash < unknown < match.
+    """
+    all_weights = {name: getattr(weights, name) for name in SCORED_COMPONENTS}
+    total_weight = sum(all_weights.values())
     if total_weight <= 0:
         return 0.0
-    return sum(component_scores[name] * weight for name, weight in available_weights.items()) / total_weight
+    return (
+        sum(component_scores.get(name, NEUTRAL_COMPONENT_SCORE) * weight for name, weight in all_weights.items())
+        / total_weight
+    )
