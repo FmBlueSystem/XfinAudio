@@ -214,7 +214,12 @@ def recommend_playlist(
         # The optimizer branch has two distinct sequencing stages, so it needs two gate
         # calls: this first one filters the unordered candidate pool BEFORE `recommend_sequence`
         # picks the final adjacency (it never sees manual_prefix — there is no "final order" yet).
-        remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(remaining_tracks)
+        # Shield the control tracks: this gate runs on an unordered pool, so the
+        # anchor is not necessarily first, and recommend_sequence below rejects
+        # the request outright if start_path is missing from what it receives.
+        remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+            remaining_tracks, preserve_paths=preserved_control_paths(controls)
+        )
         if dropped_bpm_jump_count:
             warnings.append(_bpm_jump_warning(dropped_bpm_jump_count))
         sequenced = recommend_sequence(
@@ -544,14 +549,29 @@ def _bpm_jump_warning(dropped_count: int, *, suffix: str = "") -> str:
 
 
 def _drop_generated_tracks_after_impossible_bpm_jumps(
-    tracks: list[TrackRecord], *, max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT
+    tracks: list[TrackRecord],
+    *,
+    max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
+    preserve_paths: set[str] | None = None,
 ) -> tuple[list[TrackRecord], int]:
+    """Drop tracks whose BPM jump from the last kept one is unplayable.
+
+    ``preserve_paths`` shields the DJ's control tracks, as every other filter in
+    this module already does. Without it the anchor could be dropped here and
+    ``recommend_sequence`` would then reject the whole request with "Unknown
+    start_path" -- the gate walks the list in order and compares against the last
+    kept track, so whether the anchor survived depended on candidate ordering.
+    """
     if len(tracks) < 2:
         return tracks, 0
 
+    protected = preserve_paths or set()
     kept = [tracks[0]]
     dropped_count = 0
     for candidate in tracks[1:]:
+        if candidate.path in protected:
+            kept.append(candidate)
+            continue
         if candidate.bpm is None or kept[-1].bpm is None:
             kept.append(candidate)
             continue

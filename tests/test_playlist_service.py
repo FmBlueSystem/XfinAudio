@@ -6,6 +6,7 @@ from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
     _bpm_jump_warning,
+    _drop_generated_tracks_after_impossible_bpm_jumps,
     _spectral_jump_warnings,
     prefilter_strategy_candidates,
     recommend_playlist,
@@ -728,3 +729,39 @@ def test_spectral_jump_warnings_ignore_same_color_and_missing_profiles() -> None
     ]
 
     assert _spectral_jump_warnings(tracks) == []
+
+
+def test_bpm_jump_gate_keeps_control_paths() -> None:
+    """The pre-optimizer BPM gate must not drop the anchor.
+
+    Every other filter in the pipeline takes preserve_paths and respects control
+    tracks; this one did not. recommend_sequence then raises "Unknown
+    start_path". Because the gate walks the list in order and compares against
+    the last kept track, it surfaced on roughly 1 in 40 real sets.
+
+    These BPMs are from the real failure: 97.7 keeps 100.0 (2.35%), then the
+    anchor at 97.05 sits 3.04% from 100.0 and falls just past the 3% limit.
+    """
+    tracks = [
+        track("/a.flac", bpm=97.7, camelot_key="4A"),
+        track("/b.flac", bpm=100.0, camelot_key="4A"),
+        track("/anchor.flac", bpm=97.05, camelot_key="4A"),
+        track("/d.flac", bpm=97.3, camelot_key="4A"),
+    ]
+
+    kept, _ = _drop_generated_tracks_after_impossible_bpm_jumps(tracks, preserve_paths={"/anchor.flac"})
+
+    assert any(candidate.path == "/anchor.flac" for candidate in kept)
+
+
+def test_bpm_jump_gate_still_drops_unprotected_jumps() -> None:
+    """Protecting the anchor must not turn the gate off for everything else."""
+    tracks = [
+        track("/a.flac", bpm=97.7, camelot_key="4A"),
+        track("/far.flac", bpm=140.0, camelot_key="4A"),
+    ]
+
+    kept, dropped = _drop_generated_tracks_after_impossible_bpm_jumps(tracks, preserve_paths={"/a.flac"})
+
+    assert [candidate.path for candidate in kept] == ["/a.flac"]
+    assert dropped == 1
