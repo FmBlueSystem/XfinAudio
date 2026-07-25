@@ -76,8 +76,10 @@ def build_main_window_layout(self: Any) -> None:
     sidebar_layout = QVBoxLayout()
     sidebar_layout.setContentsMargins(0, 0, 0, 0)
     sidebar_layout.setSpacing(0)
-    sidebar_layout.addWidget(self.workflow_sidebar, 0)
-    sidebar_layout.addStretch(1)
+    # The list takes the panel's full height. With stretch factor 0 next to an
+    # addStretch(1) it only claimed its size hint, so the last workflow entry
+    # sat behind a scrollbar while the space it needed went to empty filler.
+    sidebar_layout.addWidget(self.workflow_sidebar, 1)
     sidebar_panel.setLayout(sidebar_layout)
     self._sidebar_panel = sidebar_panel
     self._responsive_layout = ResponsiveLayout(
