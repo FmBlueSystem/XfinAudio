@@ -13,13 +13,22 @@ BoostRule = tuple[str, str]
 
 _KEY_PATTERN = re.compile(r"^(?P<number>1[0-2]|[1-9])(?P<letter>[abAB])$")
 
-# Mixed In Key's "Energy Boost": +2 on the same ring, one whole step up in
-# pitch (5A -> 7A, 8A -> 10A). It lifts a floor, but the sources are explicit
-# that it wants a cut rather than a long blend, since overlapping the two keys
-# clashes. Hence a score below the safe moves and well above a clash: the
-# optimizer may reach for it, but prefers a true harmonic match when one exists.
-ENERGY_BOOST_NUMBER_DELTA = 2
+# Mixed In Key's documented lifts. Both want a cut rather than a long blend --
+# overlapping the two keys clashes -- so they score below the safe moves and
+# well above a clash: the optimizer may reach for one, but prefers a true
+# harmonic match when it exists.
+#
+# Both are DIRECTIONAL. The wheel distance alone cannot tell +2 from -2, and
+# only going up is the technique; dropping a whole step is not a lift.
+#
+# "Energy Boost": +2 forward, same ring. 5A -> 7A, 8A -> 10A. Up a whole step.
+ENERGY_BOOST_FORWARD_STEPS = 2
 ENERGY_BOOST_SCORE = 0.70
+# The Armin van Buuren variation, described as subtracting 5: 8A -> 3A. That is
+# 7 forward on a 12-step wheel, and lands a semitone up. A semitone clashes
+# harder than a whole step, so it is the more daring of the two.
+SEMITONE_LIFT_FORWARD_STEPS = 7
+SEMITONE_LIFT_SCORE = 0.60
 
 
 class CamelotKey(BaseModel):
@@ -130,25 +139,36 @@ def score_camelot_transition(
     if boost_rules is not None and normalized_rule in _normalized_boost_rules(boost_rules):
         return 0.8
 
-    if move.number_delta == ENERGY_BOOST_NUMBER_DELTA and move.same_letter:
-        return ENERGY_BOOST_SCORE
+    if left.letter == right.letter:
+        forward = _forward_steps(left, right)
+        if forward == ENERGY_BOOST_FORWARD_STEPS:
+            return ENERGY_BOOST_SCORE
+        if forward == SEMITONE_LIFT_FORWARD_STEPS:
+            return SEMITONE_LIFT_SCORE
 
     return 0.0
 
 
 def is_energy_boost(from_key: str, to_key: str) -> bool:
-    """Return whether the move is the +2 same-ring Energy Boost.
+    """Return whether the move is one of the documented upward lifts.
 
-    Callers use this to warn that the transition wants a cut: the two keys are a
-    whole step apart, so overlapping them clashes even though the lift works.
+    Callers use this to warn that the transition wants a cut: the keys sit a
+    whole step or a semitone apart, so overlapping them clashes even though the
+    lift itself works.
     """
     try:
         left = parse_camelot_key(from_key)
         right = parse_camelot_key(to_key)
     except ValueError:
         return False
-    move = _camelot_move(left, right)
-    return move.number_delta == ENERGY_BOOST_NUMBER_DELTA and move.same_letter
+    if left.letter != right.letter:
+        return False
+    return _forward_steps(left, right) in (ENERGY_BOOST_FORWARD_STEPS, SEMITONE_LIFT_FORWARD_STEPS)
+
+
+def _forward_steps(left: CamelotKey, right: CamelotKey) -> int:
+    """Steps clockwise from *left* to *right* on the 12-position wheel."""
+    return (right.number - left.number) % 12
 
 
 def _normalized_boost_rules(boost_rules: Collection[BoostRule]) -> set[BoostRule]:

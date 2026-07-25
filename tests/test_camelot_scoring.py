@@ -2,6 +2,7 @@ import pytest
 
 from xfinaudio.recommendation.camelot import (
     ENERGY_BOOST_SCORE,
+    SEMITONE_LIFT_SCORE,
     CamelotKey,
     parse_camelot_key,
     score_camelot_transition,
@@ -65,10 +66,38 @@ def test_energy_boost_ranks_below_the_safe_moves_and_above_a_clash() -> None:
 
 
 def test_energy_boost_across_the_wheel_wrap_is_recognised() -> None:
+    """Wrapping past 12 still counts, as long as the move goes up."""
     assert score_camelot_transition("12A", "2A") == pytest.approx(ENERGY_BOOST_SCORE)
-    assert score_camelot_transition("1A", "11A") == pytest.approx(ENERGY_BOOST_SCORE)
+    assert score_camelot_transition("11A", "1A") == pytest.approx(ENERGY_BOOST_SCORE)
+    # The mirror of that wrap is a drop, not a lift.
+    assert score_camelot_transition("1A", "11A") == 0.0
 
 
 def test_energy_boost_requires_matching_letters() -> None:
     """A +2 that also swaps ring is not the documented technique."""
     assert score_camelot_transition("8A", "10B") == 0.0
+
+
+def test_energy_boost_is_directional() -> None:
+    """Only going up is the documented technique.
+
+    The first implementation used the wheel's minimum distance, which cannot
+    tell +2 from -2, so dropping a whole step scored as a lift.
+    """
+    assert score_camelot_transition("8A", "10A") == pytest.approx(ENERGY_BOOST_SCORE)  # up a whole step
+    assert score_camelot_transition("8A", "6A") == 0.0  # down a whole step is not a boost
+
+
+@pytest.mark.parametrize(("from_key", "to_key"), [("8A", "3A"), ("5A", "12A"), ("11B", "6B")])
+def test_semitone_lift_is_recognised(from_key: str, to_key: str) -> None:
+    """Mixed In Key's Armin van Buuren variation: -5 on the wheel, a semitone up."""
+    assert score_camelot_transition(from_key, to_key) == pytest.approx(SEMITONE_LIFT_SCORE)
+
+
+def test_semitone_lift_ranks_below_the_whole_step_boost() -> None:
+    """A semitone clashes harder than a whole step, so it is the more daring move."""
+    assert 0.0 < SEMITONE_LIFT_SCORE < ENERGY_BOOST_SCORE
+
+
+def test_semitone_drop_is_not_a_lift() -> None:
+    assert score_camelot_transition("3A", "8A") == 0.0
