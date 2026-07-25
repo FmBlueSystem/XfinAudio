@@ -334,3 +334,87 @@ def test_a_remixer_name_before_the_marker_is_left_alone() -> None:
     """
     assert normalize_title_for_playlist_grouping("Africa Scooter Re-Drum Mix") == "africa scooter"
     assert normalize_title_for_playlist_grouping("Africa Scooter Re-Drum Mix Super Short Edit") == "africa scooter"
+
+
+# ---------------------------------------------------------------------------
+# normalize_artist_for_playlist_grouping — featuring credits
+#
+# Measured on a 10,392-track library: the pool caught 1,516 duplicate groups but
+# missed 24 (67 tracks) purely because the featured artist was written
+# differently on each copy -- "Estelle" against "Estelle feat. Kanye West",
+# "Fun Ft. Janelle Monae" against "Fun f. Janelle Monae".
+# ---------------------------------------------------------------------------
+
+
+def test_playlist_artist_key_drops_the_featured_credit() -> None:
+    from xfinaudio.library.duplicate_grouping import normalize_artist_for_playlist_grouping
+
+    assert normalize_artist_for_playlist_grouping("Estelle feat. Kanye West") == "estelle"
+    assert normalize_artist_for_playlist_grouping("Jay Sean Feat Lil Wayne") == "jay sean"
+    assert normalize_artist_for_playlist_grouping("Rihanna featuring Jay-Z") == "rihanna"
+
+
+def test_playlist_artist_key_accepts_every_featuring_spelling_in_the_wild() -> None:
+    """The same collaboration is written four different ways across the library."""
+    from xfinaudio.library.duplicate_grouping import normalize_artist_for_playlist_grouping
+
+    spellings = [
+        "Daft Punk feat. Pharrell Williams",
+        "Daft Punk Feat. Pharrell",
+        "Daft Punk ft Pharrell",
+        "Daft Punk F. Pharrell",
+    ]
+
+    assert {normalize_artist_for_playlist_grouping(name) for name in spellings} == {"daft punk"}
+
+
+def test_playlist_artist_key_keeps_co_credited_acts_intact() -> None:
+    """ "&" and "with" mean both acts are principals, not a featured guest.
+
+    Stripping them would merge genuinely different artists: the library has 471
+    names containing "&", including single acts like "Earth, Wind & Fire".
+    """
+    from xfinaudio.library.duplicate_grouping import normalize_artist_for_playlist_grouping
+
+    assert normalize_artist_for_playlist_grouping("Earth, Wind & Fire") == "earth, wind & fire"
+    assert normalize_artist_for_playlist_grouping("James Ingram with Michael McDonald") == (
+        "james ingram with michael mcdonald"
+    )
+
+
+def test_playlist_artist_key_leaves_spanish_con_alone() -> None:
+    """Spanish "con" reads as a featuring but is part of the name far more often.
+
+    Both matches in the reference library were false: "Vaya Con Dios" and
+    "Café Con Leche".
+    """
+    from xfinaudio.library.duplicate_grouping import normalize_artist_for_playlist_grouping
+
+    assert normalize_artist_for_playlist_grouping("Rico Bernasconi Vs. Vaya Con Dios") == (
+        "rico bernasconi vs. vaya con dios"
+    )
+
+
+def test_playlist_artist_key_never_returns_an_empty_name() -> None:
+    """A name that is nothing but a credit must keep its text, not vanish.
+
+    An empty key would collapse every such track onto one bogus group.
+    """
+    from xfinaudio.library.duplicate_grouping import normalize_artist_for_playlist_grouping
+
+    assert normalize_artist_for_playlist_grouping("feat. Pitbull") == "feat. pitbull"
+
+
+def test_playlist_group_key_merges_the_two_featuring_spellings() -> None:
+    assert playlist_duplicate_group_key("We Are Young", "Fun Ft. Janelle Monae") == (
+        playlist_duplicate_group_key("We Are Young (Alvin Risk Mix)", "Fun f. Janelle Monae")
+    )
+
+
+def test_library_display_key_still_separates_the_featuring_spellings() -> None:
+    """The display filter stays conservative -- it shows versions, it does not merge them.
+
+    Same split as normalize_title_for_grouping against its playlist variant.
+    """
+    assert duplicate_group_key("Umbrella", "Rihanna") != duplicate_group_key("Umbrella", "Rihanna feat. Jay-Z")
+    assert normalize_artist_for_grouping("Rihanna feat. Jay-Z") == "rihanna feat. jay-z"
