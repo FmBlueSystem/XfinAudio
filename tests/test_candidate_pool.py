@@ -8,9 +8,23 @@ from __future__ import annotations
 
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.recommendation.candidate_pool import dedupe_recommendation_duplicates
+from xfinaudio.recommendation.candidate_pool import build_recommendation_pool, dedupe_recommendation_duplicates
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import recommend_playlist
+
+
+def track(path: str, *, energy_level: int | None = 5) -> TrackRecord:
+    return TrackRecord(
+        path=path,
+        title=path.rsplit("/", maxsplit=1)[-1],
+        bpm=126.0,
+        camelot_key="8A",
+        energy_level=energy_level,
+        duration=240.0,
+        genre="House",
+        tags=["house"],
+        metadata_status="complete",
+    )
 
 
 def _record(
@@ -318,3 +332,51 @@ def test_dedupe_excluded_manual_path_is_not_treated_as_preserved():
     result = dedupe_recommendation_duplicates([excluded_manual, other], controls=controls)
     assert len(result) == 1
     assert result[0].path == "/other.mp3"
+
+
+def _energy_levels(tracks) -> set[int]:
+    return {track.energy_level for track in tracks if track.energy_level is not None}
+
+
+def test_energy_spread_reserves_room_for_levels_the_arc_needs() -> None:
+    """Similarity ranking fills the pool with the anchor's own energy.
+
+    Measured on a real library: with an E7 anchor, up to 80% of a 120-track pool
+    landed on level 7, so the arc had nothing to build a shape from. A set needs
+    material at the ends, even at the cost of some transition quality.
+    """
+    anchor = track("/anchor.flac", energy_level=7)
+    crowd = [track(f"/same{index}.flac", energy_level=7) for index in range(200)]
+    sparse = [track(f"/low{index}.flac", energy_level=4) for index in range(5)]
+    sparse += [track(f"/high{index}.flac", energy_level=9) for index in range(5)]
+
+    pool = build_recommendation_pool(
+        [anchor, *crowd, *sparse],
+        DJControls(start_path="/anchor.flac"),
+        30,
+        spread_energy=True,
+    )
+
+    assert pool[0].path == "/anchor.flac"
+    assert {4, 9} <= _energy_levels(pool), sorted(_energy_levels(pool))
+
+
+def test_energy_spread_is_off_by_default() -> None:
+    """Strategies that hold one level must not be handed a spread pool."""
+    anchor = track("/anchor.flac", energy_level=7)
+    crowd = [track(f"/same{index}.flac", energy_level=7) for index in range(60)]
+    sparse = [track(f"/low{index}.flac", energy_level=2) for index in range(5)]
+
+    pool = build_recommendation_pool([anchor, *crowd, *sparse], DJControls(start_path="/anchor.flac"), 20)
+
+    assert _energy_levels(pool) == {7}
+
+
+def test_energy_spread_still_fills_the_pool() -> None:
+    """Spreading must not shrink the pool the optimizer gets."""
+    anchor = track("/anchor.flac", energy_level=6)
+    crowd = [track(f"/t{index}.flac", energy_level=5 + index % 4) for index in range(100)]
+
+    pool = build_recommendation_pool([anchor, *crowd], DJControls(start_path="/anchor.flac"), 40, spread_energy=True)
+
+    assert len(pool) == 40

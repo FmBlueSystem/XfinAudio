@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.camelot import BoostRule
+from xfinaudio.recommendation.energy_arc import arc_targets
 from xfinaudio.recommendation.scoring import (
     DEFAULT_SCORING_CONFIG,
     DEFAULT_WEIGHTS,
@@ -16,6 +17,56 @@ from xfinaudio.recommendation.scoring import (
     TransitionScoringConfig,
     score_transition,
 )
+
+# How much the shape of the set weighs against the quality of each transition.
+# Transition scores run 0-1, so this is the most a single slot can be penalised
+# for sitting at the wrong energy. Low enough that a harmonically broken pair
+# never wins on shape alone; high enough to break the tie between two equally
+# playable candidates, which is what produced flat sets.
+ARC_WEIGHT = 0.35
+
+
+def _arc_bonuses(
+    tracks: list[TrackRecord],
+    arc_strategy: str | None,
+    arc_weight: float,
+    start_path: str | None = None,
+) -> list[list[float]] | None:
+    """Return per-track, per-slot adherence scores for the target energy shape.
+
+    ``None`` when no shape is requested, which keeps the solvers on their
+    original scoring path.
+
+    Energy is normalized against the range the pool actually offers, so a set
+    drawn from levels 5-8 still traces the full curve inside that band instead
+    of being told it is uniformly wrong.
+    """
+    if arc_strategy is None or arc_weight <= 0 or not tracks:
+        return None
+    levels = [track.energy_level for track in tracks if track.energy_level is not None]
+    if not levels:
+        return None
+    lowest, highest = min(levels), max(levels)
+    span = highest - lowest
+    if span == 0:
+        return None
+
+    # The anchor holds slot zero, so the shape builds from wherever it sits
+    # rather than asking for an opening the DJ's pick cannot provide.
+    start_at: float | None = None
+    if start_path is not None:
+        anchor = next((track for track in tracks if track.path == start_path), None)
+        if anchor is not None and anchor.energy_level is not None:
+            start_at = (anchor.energy_level - lowest) / span
+    targets = arc_targets(arc_strategy, length=len(tracks), start_at=start_at)
+    bonuses: list[list[float]] = []
+    for track in tracks:
+        if track.energy_level is None:
+            bonuses.append([0.0] * len(tracks))
+            continue
+        position_value = (track.energy_level - lowest) / span
+        bonuses.append([arc_weight * (1.0 - abs(position_value - target)) for target in targets])
+    return bonuses
 
 
 class SequenceRecommendation(BaseModel):
@@ -38,6 +89,8 @@ def recommend_sequence(
     weights: ScoringWeights = DEFAULT_WEIGHTS,
     cache: dict[tuple, TransitionScore] | None = None,
     config: TransitionScoringConfig | None = None,
+    arc_strategy: str | None = None,
+    arc_weight: float = ARC_WEIGHT,
 ) -> SequenceRecommendation:
     """Recommend a deterministic track ordering that maximizes adjacent transition scores.
 
@@ -51,11 +104,12 @@ def recommend_sequence(
     scoring_config = config or DEFAULT_SCORING_CONFIG
     ordered = sorted(tracks, key=lambda track: track.path)
     score_matrix = _score_matrix(ordered, boost_rules, weights, scoring_config, cache)
+    arc = _arc_bonuses(ordered, arc_strategy, arc_weight, start_path)
     if len(ordered) <= exact_limit:
-        path_indexes = _exact_path(ordered, score_matrix, start_path, end_path)
+        path_indexes = _exact_path(ordered, score_matrix, start_path, end_path, arc)
         optimizer = "exact"
     else:
-        path_indexes = _heuristic_path(ordered, score_matrix, start_path, end_path)
+        path_indexes = _heuristic_path(ordered, score_matrix, start_path, end_path, arc)
         optimizer = "greedy-2opt"
 
     ordered_tracks = [ordered[index] for index in path_indexes]
@@ -106,6 +160,7 @@ def _exact_path(
     score_matrix: list[list[float]],
     start_path: str | None,
     end_path: str | None,
+    arc: list[list[float]] | None = None,
 ) -> tuple[int, ...]:
     path_by_index = {track.path: index for index, track in enumerate(tracks)}
     start_indexes = [path_by_index[start_path]] if start_path is not None else list(range(len(tracks)))
@@ -115,11 +170,12 @@ def _exact_path(
     parents: dict[tuple[int, int], tuple[int, int] | None] = {}
     for index in start_indexes:
         key = (1 << index, index)
-        states[key] = 0.0
+        states[key] = arc[index][0] if arc else 0.0
         parents[key] = None
 
     full_mask = (1 << len(tracks)) - 1
-    for _ in range(1, len(tracks)):
+    # The layer index is the slot being filled, which is what the arc scores.
+    for slot in range(1, len(tracks)):
         next_states: dict[tuple[int, int], float] = {}
         next_parents: dict[tuple[int, int], tuple[int, int] | None] = {}
         for (mask, last), score in states.items():
@@ -131,6 +187,8 @@ def _exact_path(
                     continue
                 key = (next_mask, candidate)
                 next_score = score + score_matrix[last][candidate]
+                if arc:
+                    next_score += arc[candidate][slot]
                 parent_key = (mask, last)
                 if _state_is_better(next_score, key, next_states):
                     next_states[key] = next_score
@@ -149,6 +207,7 @@ def _heuristic_path(
     score_matrix: list[list[float]],
     start_path: str | None,
     end_path: str | None,
+    arc: list[list[float]] | None = None,
 ) -> tuple[int, ...]:
     path_by_index = {track.path: index for index, track in enumerate(tracks)}
     end_index = path_by_index[end_path] if end_path is not None else None
@@ -160,7 +219,14 @@ def _heuristic_path(
 
     path = [current]
     while remaining:
-        candidate = min(remaining, key=lambda index: (-score_matrix[current][index], tracks[index].path))
+        slot = len(path)
+        candidate = min(
+            remaining,
+            key=lambda index: (
+                -(score_matrix[current][index] + (arc[index][slot] if arc else 0.0)),
+                tracks[index].path,
+            ),
+        )
         path.append(candidate)
         remaining.remove(candidate)
         current = candidate
@@ -173,6 +239,7 @@ def _heuristic_path(
         tracks,
         start_fixed=start_path is not None,
         end_fixed=end_path is not None,
+        arc=arc,
     )
 
 
@@ -183,6 +250,7 @@ def _two_opt(
     *,
     start_fixed: bool,
     end_fixed: bool,
+    arc: list[list[float]] | None = None,
 ) -> tuple[int, ...]:
     best = path
     improved = True
@@ -193,7 +261,7 @@ def _two_opt(
         for left in range(start, stop - 1):
             for right in range(left + 1, stop):
                 candidate = (*best[:left], *reversed(best[left : right + 1]), *best[right + 1 :])
-                if _path_is_better(candidate, best, score_matrix, tracks):
+                if _path_is_better(candidate, best, score_matrix, tracks, arc):
                     best = candidate
                     improved = True
                     break
@@ -202,8 +270,11 @@ def _two_opt(
     return best
 
 
-def _path_score(path: tuple[int, ...], score_matrix: list[list[float]]) -> float:
-    return sum(score_matrix[left][right] for left, right in zip(path, path[1:], strict=False))
+def _path_score(path: tuple[int, ...], score_matrix: list[list[float]], arc: list[list[float]] | None = None) -> float:
+    total = sum(score_matrix[left][right] for left, right in zip(path, path[1:], strict=False))
+    if arc:
+        total += sum(arc[track_index][slot] for slot, track_index in enumerate(path))
+    return total
 
 
 def _path_is_better(
@@ -211,9 +282,10 @@ def _path_is_better(
     current: tuple[int, ...],
     score_matrix: list[list[float]],
     tracks: list[TrackRecord],
+    arc: list[list[float]] | None = None,
 ) -> bool:
-    candidate_score = _path_score(candidate, score_matrix)
-    current_score = _path_score(current, score_matrix)
+    candidate_score = _path_score(candidate, score_matrix, arc)
+    current_score = _path_score(current, score_matrix, arc)
     if candidate_score > current_score:
         return True
     return candidate_score == current_score and _path_key(candidate, tracks) < _path_key(current, tracks)
