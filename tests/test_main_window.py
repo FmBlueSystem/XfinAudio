@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings, WindowSettings
 from xfinaudio.desktop import export_coordinator, main_window
+from xfinaudio.desktop.library_screen_rendering import _COLUMNS
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.exporting.explainability import PlaylistExplanation, TrackExplanation, TransitionExplanation
 from xfinaudio.exporting.serato_crate import parse_serato_crate_bytes
@@ -3131,3 +3132,45 @@ def test_sidebar_shows_every_workflow_entry_without_scrolling(tmp_path) -> None:
     assert sidebar.count() == len(window._workflow_labels)
     assert hidden == [], f"workflow entries not reachable without scrolling: {hidden}"
     assert sidebar.verticalScrollBar().maximum() == 0
+
+
+def test_spectral_color_column_fits_without_horizontal_scrolling(tmp_path) -> None:
+    """The spectral color must stay on screen; it is what the analysis exists for.
+
+    Measured: Color ends at 761px and the table viewport never drops below
+    849px, so it fits today. This guards that -- inserting a column before it,
+    or widening Title/Artist, would push the ~30-minute spectral pass's only
+    visible output off the right edge. Genre, Status and Preview already sit
+    past it below a ~1200px window.
+    """
+    ensure_app()
+    window = MainWindow.with_defaults(tmp_path / "db.sqlite3", tmp_path / "settings.json")
+    window.resize(812, 875)
+    window.show()
+    window.show_tracks(
+        [
+            TrackRecord(
+                path=str(tmp_path / f"t{index}.flac"),
+                title=f"A Fairly Long Track Title Number {index}",
+                artist=f"Artist {index}",
+                bpm=128.0,
+                camelot_key="8A",
+                energy_level=5,
+                duration=240.0,
+                genre="House",
+                metadata_status="complete",
+            )
+            for index in range(20)
+        ]
+    )
+    ensure_app().processEvents()
+
+    table = window._library_screen.tracks_table
+    header = table.horizontalHeader()
+    color_column = _COLUMNS.index("Color")
+    color_right_edge = header.sectionViewportPosition(color_column) + header.sectionSize(color_column)
+
+    assert not table.isColumnHidden(color_column)
+    assert color_right_edge <= table.viewport().width(), (
+        f"Color column ends at {color_right_edge}px, viewport is {table.viewport().width()}px wide"
+    )
