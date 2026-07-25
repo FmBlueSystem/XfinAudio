@@ -27,6 +27,27 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # The version lives only in pyproject.toml and names the packaged file.
+      # Left alone it drifts silently: v1.0.2 was tagged six weeks and 265
+      # commits before anyone noticed the package still claimed to be that
+      # release, so two files with the same name held different builds.
+      - name: Require a version bump
+        if: github.event_name == 'pull_request'
+        run: |
+          read_version() { sed -n 's/^version = "\(.*\)"/\1/p' | head -1; }
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          base="$(git show FETCH_HEAD:pyproject.toml | read_version)"
+          head="$(read_version < pyproject.toml)"
+          if [[ -z "${base}" || -z "${head}" ]]; then
+            echo "error: could not read the version from pyproject.toml" >&2
+            exit 1
+          fi
+          if [[ "${base}" == "${head}" ]]; then
+            echo "error: pyproject.toml is still ${head}; bump it before merging." >&2
+            exit 1
+          fi
+          echo "version ${base} -> ${head}"
+
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
