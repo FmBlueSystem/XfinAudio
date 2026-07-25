@@ -180,8 +180,10 @@ class ReviewScreen(QWidget):
         self._apply_header_tooltips(self.readiness_table, _READINESS_HEADER_TOOLTIPS)
         layout.addWidget(self.readiness_table, 1)
 
-        # Push nav to bottom; spare space goes to tables above.
-        layout.addStretch(1)
+        # No spacer here: the three tables above already carry stretch 1 and an
+        # Expanding size policy, so they push the nav row down on their own. A
+        # trailing addStretch would compete with them for the free height and
+        # take a quarter of it, leaving each table about two rows tall.
 
         # Navigation
         nav = QHBoxLayout()
