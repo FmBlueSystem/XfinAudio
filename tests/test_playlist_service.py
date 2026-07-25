@@ -836,7 +836,7 @@ def test_target_duration_fills_the_requested_time() -> None:
 
     recommendation = recommend_playlist(tracks, strategy_name="harmonic_journey", target_duration_minutes=30.0)
 
-    total_minutes = sum(t.duration for t in recommendation.ordered_tracks) / 60
+    total_minutes = sum(t.duration or 0.0 for t in recommendation.ordered_tracks) / 60
     assert 25.0 <= total_minutes <= 35.0
     assert len(recommendation.ordered_tracks) == 6
 
