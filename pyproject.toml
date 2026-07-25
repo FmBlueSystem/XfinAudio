@@ -1,6 +1,6 @@
 [project]
 name = "xfinaudio"
-version = "1.2.0"
+version = "1.2.1"
 description = "Metadata-driven DJ playlist assistant discovery prototype."
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -43,6 +43,13 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# The whole suite runs in well under a minute; a single test past 120s is
+# hung, not slow. Twice CI has burned the full 20-minute job timeout with no
+# indication of which test stalled -- this dumps every thread's traceback, so
+# the next occurrence names the culprit instead of leaving a cancelled job.
+# Built into pytest via the stdlib faulthandler; it reports and lets the run
+# continue rather than killing it.
+faulthandler_timeout = "120"
 
 [tool.pyright]
 pythonVersion = "3.11"
