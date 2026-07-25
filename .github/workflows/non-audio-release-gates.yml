@@ -46,6 +46,10 @@ jobs:
             echo "error: pyproject.toml is still ${head}; bump it before merging." >&2
             exit 1
           fi
+          # A bump is two files: uv.lock pins the project's own version as well,
+          # so `uv lock` has to run after it. No check for that here -- the
+          # `uv sync --locked` step below already fails on the mismatch and its
+          # message names the fix.
           echo "version ${base} -> ${head}"
 
       - name: Install uv
