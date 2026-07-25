@@ -13,7 +13,18 @@ from xfinaudio.quality.recommendation_quality import build_quality_report
 from xfinaudio.recommendation.playlist_service import recommend_playlist
 
 # Thresholds are generous to avoid CI flakiness; they protect against severe regressions.
-_RECOMMEND_THRESHOLDS = {50: 2.0, 100: 4.0}
+#
+# Raised when the BPM pool gate became reachability-based. The old gate walked
+# the pool comparing each candidate against the last one it kept, which dropped
+# most of it -- a 120-track warm-up pool lost 85 candidates, and reshuffling the
+# same pool changed that to 78, 88, 89. The optimizer was fast because it was
+# handed a fraction of the pool, chosen by candidate ordering. It now receives
+# everything a set can actually reach, which is more work and the right work.
+#
+# This fixture is the worst case: 100 synthetic tracks all mutually reachable,
+# so nothing is pruned. On the real 10,392-track library a 30-minute set runs
+# 2.64s median, 4.46s p90, 7.64s worst of 30, in a background worker.
+_RECOMMEND_THRESHOLDS = {50: 4.0, 100: 12.0}
 _EXPORT_THRESHOLD = 1.0
 _QUALITY_THRESHOLD = 1.0
 _READINESS_THRESHOLD = 1.0

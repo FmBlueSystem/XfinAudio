@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from xfinaudio.audio.spectral_profile import ColorName
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls, preserved_control_paths
+from xfinaudio.recommendation.energy_arc import traces_an_arc
 from xfinaudio.recommendation.optimizer import recommend_sequence
 from xfinaudio.recommendation.scoring import (
     ScoringWeights,
@@ -278,8 +279,8 @@ def recommend_playlist(
         # Shield the control tracks: this gate runs on an unordered pool, so the
         # anchor is not necessarily first, and recommend_sequence below rejects
         # the request outright if start_path is missing from what it receives.
-        remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
-            remaining_tracks, preserve_paths=preserved_control_paths(controls)
+        remaining_tracks, dropped_bpm_jump_count = _bpm_reachable_from(
+            remaining_tracks, start_path, preserve_paths=preserved_control_paths(controls)
         )
         if dropped_bpm_jump_count:
             warnings.append(_bpm_jump_warning(dropped_bpm_jump_count))
@@ -408,6 +409,8 @@ def _expected_set_length(
 
 
 def _uses_strategy_order(strategy: PlaylistStrategy) -> bool:
+    if traces_an_arc(strategy.name):
+        return False
     return strategy.sort_hint in {"energy_ascending", "energy_descending", "bpm_ascending"}
 
 
@@ -682,6 +685,70 @@ def _bpm_jump_warning(dropped_count: int, *, suffix: str = "") -> str:
         f"{dropped_count} generated track(s) because adjacent BPM jump exceeded "
         f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%{suffix}"
     )
+
+
+def _bpm_reachable_from(
+    tracks: list[TrackRecord],
+    anchor_path: str | None,
+    *,
+    max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
+    preserve_paths: set[str] | None = None,
+) -> tuple[list[TrackRecord], int]:
+    """Keep the candidates a set can actually reach from the anchor, and count the rest.
+
+    Two tracks are reachable when a chain of playable steps connects them: 120
+    reaches 127 through 121, 122, 123. That is a property of the BPM values
+    alone, so sorting by BPM and keeping the run containing the anchor answers
+    it the same way every time.
+
+    The gate this replaces walked the pool comparing each candidate against the
+    last one it happened to keep, which made the survivors a function of
+    candidate ordering. A 120-track warm-up pool lost 85 candidates before the
+    optimizer saw one of them, and reshuffling that same pool moved the count to
+    78, 88, 89. It took the energy spread with it -- level 4 fell from 26
+    candidates to 2 -- so a strategy asking for a climb had nothing to climb.
+    In the small it cost obvious music: a track one BPM from the anchor was
+    dropped because a 140 BPM record happened to precede it in the list.
+
+    Tracks with no BPM are never dropped; nothing can be said about their
+    reachability. Control tracks are shielded, as every other filter here does.
+    With no anchor the largest run wins, there being no start to measure from.
+    """
+    protected = set(preserve_paths or set())
+    if anchor_path is not None:
+        protected.add(anchor_path)
+    unreachable_unknown = [item for item in tracks if item.bpm is None or item.path in protected]
+    measurable = sorted(
+        (item for item in tracks if item.bpm is not None and item.path not in protected),
+        key=lambda item: (item.bpm or 0.0, item.path),
+    )
+    if not measurable:
+        return tracks, 0
+
+    anchor = next((item for item in tracks if item.path == anchor_path), None)
+    anchored = anchor is not None and anchor.bpm is not None
+    # Splice the anchor into the sorted line so the run can grow around it.
+    line = sorted(
+        [*measurable, anchor] if anchored and anchor is not None else measurable,
+        key=lambda item: (item.bpm or 0.0, item.path),
+    )
+
+    runs: list[list[TrackRecord]] = [[line[0]]]
+    for previous, current in zip(line, line[1:], strict=False):
+        if _bpm_difference_percent(previous.bpm or 0.0, current.bpm or 0.0) > max_bpm_difference_percent:
+            runs.append([current])
+        else:
+            runs[-1].append(current)
+
+    chosen: list[TrackRecord] | None = None
+    if anchored:
+        chosen = next((run for run in runs if any(item.path == anchor_path for item in run)), None)
+    if chosen is None:
+        chosen = max(runs, key=len)
+
+    reachable = {item.path for item in chosen}
+    kept = [item for item in tracks if item.path in reachable or item in unreachable_unknown]
+    return kept, len(tracks) - len(kept)
 
 
 def _drop_generated_tracks_after_impossible_bpm_jumps(

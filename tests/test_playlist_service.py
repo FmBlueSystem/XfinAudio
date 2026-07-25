@@ -1027,3 +1027,101 @@ def test_expected_set_length_falls_back_to_the_mean_duration() -> None:
     pool = [track(f"/t{index}.flac").model_copy(update={"duration": 300.0}) for index in range(4)]
 
     assert _expected_set_length(pool, 30.0, None, None) == 6
+
+
+# ---------------------------------------------------------------------------
+# Reachability, not a walk down an arbitrary list.
+# ---------------------------------------------------------------------------
+
+
+def test_reachability_keeps_a_chain_the_pool_order_would_have_broken() -> None:
+    from xfinaudio.recommendation.playlist_service import _bpm_reachable_from
+
+    interleaved = [120.0, 124.0, 121.0, 125.0, 122.0, 126.0, 123.0, 127.0]
+    pool = [track(f"/c{i}.flac", bpm=bpm, camelot_key="8A", energy_level=5) for i, bpm in enumerate(interleaved)]
+
+    kept, dropped = _bpm_reachable_from(pool, "/c0.flac")
+
+    assert dropped == 0, "every track chains to the anchor through 120-121-122..."
+
+
+def test_reachability_drops_what_no_chain_can_reach() -> None:
+    from xfinaudio.recommendation.playlist_service import _bpm_reachable_from
+
+    pool = [
+        track("/anchor.flac", bpm=120.0, camelot_key="8A", energy_level=5),
+        track("/near.flac", bpm=121.0, camelot_key="8A", energy_level=5),
+        track("/island.flac", bpm=190.0, camelot_key="8A", energy_level=5),
+    ]
+
+    kept, dropped = _bpm_reachable_from(pool, "/anchor.flac")
+
+    assert [item.path for item in kept] == ["/anchor.flac", "/near.flac"]
+    assert dropped == 1
+
+
+def test_reachability_does_not_depend_on_candidate_order() -> None:
+    """The whole point: the same pool must give the same answer every time."""
+    import random as _random
+
+    from xfinaudio.recommendation.playlist_service import _bpm_reachable_from
+
+    bpms = [120.0, 121.0, 122.0, 123.0, 160.0, 190.0, 191.0]
+    pool = [track(f"/t{i}.flac", bpm=bpm, camelot_key="8A", energy_level=5) for i, bpm in enumerate(bpms)]
+
+    answers = set()
+    for seed in range(6):
+        shuffled = pool[:]
+        _random.Random(seed).shuffle(shuffled)
+        kept, _ = _bpm_reachable_from(shuffled, "/t0.flac")
+        answers.add(tuple(sorted(item.path for item in kept)))
+
+    assert len(answers) == 1, f"order changed the answer: {answers}"
+
+
+def test_reachability_keeps_tracks_without_a_bpm() -> None:
+    from xfinaudio.recommendation.playlist_service import _bpm_reachable_from
+
+    pool = [
+        track("/anchor.flac", bpm=120.0, camelot_key="8A", energy_level=5),
+        track("/no-bpm.flac", bpm=None, camelot_key="8A", energy_level=5),
+        track("/far.flac", bpm=190.0, camelot_key="8A", energy_level=5),
+    ]
+
+    kept, _ = _bpm_reachable_from(pool, "/anchor.flac")
+
+    assert "/no-bpm.flac" in {item.path for item in kept}
+
+
+def test_a_playable_track_survives_a_fast_one_earlier_in_the_pool() -> None:
+    """The old gate lost this track for its position, not for its tempo."""
+    tracks = [
+        track("/manual.flac", bpm=100.0, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+        track("/too-fast.flac", bpm=140.0, camelot_key="8A", energy_level=2, genre="Disco", tags=["Disco"]),
+        track("/ok.flac", bpm=101.0, camelot_key="8A", energy_level=5, genre="Disco", tags=["Disco"]),
+    ]
+
+    result = recommend_playlist(tracks, "warmup", controls=DJControls(manual_order_paths=["/manual.flac"]))
+
+    assert "/ok.flac" in [item.path for item in result.ordered_tracks]
+
+
+def test_strategies_that_declare_an_arc_go_through_the_optimizer() -> None:
+    """`recommend_sequence` is the only place a shape is applied."""
+    pool = [
+        track(f"/e{index}.flac", bpm=120.0 + index * 0.4, camelot_key="8A", energy_level=level)
+        for index, level in enumerate([7, 2, 6, 3, 5, 4])
+    ]
+
+    for name in ("warmup", "build", "peak_time"):
+        assert recommend_playlist(pool, name).optimizer != "strategy-order", name
+
+
+def test_chill_keeps_its_sort() -> None:
+    """Holding one low level is its whole point; sequencing buys it nothing."""
+    pool = [
+        track(f"/e{index}.flac", bpm=120.0 + index * 0.4, camelot_key="8A", energy_level=level)
+        for index, level in enumerate([7, 2, 6, 3, 5, 4])
+    ]
+
+    assert recommend_playlist(pool, "chill").optimizer == "strategy-order"
