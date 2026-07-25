@@ -23,7 +23,7 @@ from xfinaudio.recommendation.scoring import (
 # for sitting at the wrong energy. Low enough that a harmonically broken pair
 # never wins on shape alone; high enough to break the tie between two equally
 # playable candidates, which is what produced flat sets.
-ARC_WEIGHT = 0.35
+ARC_WEIGHT = 1.0
 
 
 def _arc_bonuses(
@@ -31,11 +31,20 @@ def _arc_bonuses(
     arc_strategy: str | None,
     arc_weight: float,
     start_path: str | None = None,
+    arc_length: int | None = None,
 ) -> list[list[float]] | None:
     """Return per-track, per-slot adherence scores for the target energy shape.
 
     ``None`` when no shape is requested, which keeps the solvers on their
     original scoring path.
+
+    ``arc_length`` is how many tracks the DJ will actually play. The curve has
+    to span THAT, not the pool it is drawn from: the pool runs about 120 and the
+    result is trimmed to the ~15 that fill the slot, so sizing the shape by the
+    pool showed the DJ only its first twelve percent. A warm-up never got to
+    climb, and `harmonic_journey`'s peak -- two thirds through a 120-slot curve
+    -- sat at slot 80, far past the end of the set. Measured on the real
+    library: rho +0.386 sized by the pool against +0.806 sized by the set.
 
     Energy is normalized against the range the pool actually offers, so a set
     drawn from levels 5-8 still traces the full curve inside that band instead
@@ -43,7 +52,16 @@ def _arc_bonuses(
     """
     if arc_strategy is None or arc_weight <= 0 or not tracks:
         return None
-    levels = [track.energy_level for track in tracks if track.energy_level is not None]
+    # Normalized against what the optimizer can choose, which excludes the
+    # anchor: the DJ's pick is regularly outside the strategy's own band, and
+    # one anchor at level 9 over a pool spanning 2-5 stretched the scale to 2-9.
+    # The top of the curve then asked for a level nothing in the pool could
+    # supply, every candidate scored equally far from it, and the term went
+    # inert. Excluding it roughly doubled adherence at every weight tried.
+    choosable = [track for track in tracks if track.path != start_path]
+    levels = [track.energy_level for track in choosable if track.energy_level is not None]
+    if not levels:
+        levels = [track.energy_level for track in tracks if track.energy_level is not None]
     if not levels:
         return None
     lowest, highest = min(levels), max(levels)
@@ -52,13 +70,20 @@ def _arc_bonuses(
         return None
 
     # The anchor holds slot zero, so the shape builds from wherever it sits
-    # rather than asking for an opening the DJ's pick cannot provide.
+    # rather than asking for an opening the DJ's pick cannot provide. Clamped
+    # because it is no longer part of the range it is measured against.
     start_at: float | None = None
     if start_path is not None:
         anchor = next((track for track in tracks if track.path == start_path), None)
         if anchor is not None and anchor.energy_level is not None:
-            start_at = (anchor.energy_level - lowest) / span
-    targets = arc_targets(arc_strategy, length=len(tracks), start_at=start_at)
+            start_at = min(max((anchor.energy_level - lowest) / span, 0.0), 1.0)
+
+    played = max(1, min(arc_length or len(tracks), len(tracks)))
+    shape = arc_targets(arc_strategy, length=played, start_at=start_at)
+    # Slots past the played set keep the closing target: a candidate parked
+    # there is not in the set, so it should not be scored against a curve that
+    # has already ended.
+    targets = [shape[index] if index < len(shape) else shape[-1] for index in range(len(tracks))]
     bonuses: list[list[float]] = []
     for track in tracks:
         if track.energy_level is None:
@@ -91,6 +116,7 @@ def recommend_sequence(
     config: TransitionScoringConfig | None = None,
     arc_strategy: str | None = None,
     arc_weight: float = ARC_WEIGHT,
+    arc_length: int | None = None,
 ) -> SequenceRecommendation:
     """Recommend a deterministic track ordering that maximizes adjacent transition scores.
 
@@ -104,7 +130,7 @@ def recommend_sequence(
     scoring_config = config or DEFAULT_SCORING_CONFIG
     ordered = sorted(tracks, key=lambda track: track.path)
     score_matrix = _score_matrix(ordered, boost_rules, weights, scoring_config, cache)
-    arc = _arc_bonuses(ordered, arc_strategy, arc_weight, start_path)
+    arc = _arc_bonuses(ordered, arc_strategy, arc_weight, start_path, arc_length)
     if len(ordered) <= exact_limit:
         path_indexes = _exact_path(ordered, score_matrix, start_path, end_path, arc)
         optimizer = "exact"

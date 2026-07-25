@@ -175,3 +175,61 @@ def test_arc_changes_the_order_when_a_shape_is_requested() -> None:
 
     assert [t.path for t in without_arc.ordered_tracks] != [t.path for t in with_arc.ordered_tracks]
     assert shaped_spread >= flat_spread
+
+
+# ---------------------------------------------------------------------------
+# The curve has to span the set the DJ plays, not the pool it was drawn from.
+#
+# `_arc_bonuses` sized the shape by `len(tracks)` -- the whole candidate pool,
+# around 120 -- and the result is then trimmed to the ~15 that fill the slot.
+# The DJ saw the first 12% of the curve. Measured on the real library: rho
+# +0.386 sizing by the pool against +0.806 sizing by the set.
+# ---------------------------------------------------------------------------
+
+
+def _energy_pool(levels: list[int]) -> list[TrackRecord]:
+    return [
+        TrackRecord(
+            path=f"/e{index}.flac",
+            title=f"e{index}",
+            bpm=120.0 + index * 0.3,
+            camelot_key="8A",
+            energy_level=level,
+            metadata_status="complete",
+        )
+        for index, level in enumerate(levels)
+    ]
+
+
+def test_arc_is_sized_by_the_set_not_the_pool() -> None:
+    """A warm-up that only ever shows its first slots never gets to climb."""
+    pool = _energy_pool([2, 3, 4, 5, 6, 7] * 6)
+
+    played = recommend_sequence(pool, arc_strategy="warmup", arc_weight=1.4, arc_length=8).ordered_tracks[:8]
+
+    levels = [item.energy_level for item in played if item.energy_level is not None]
+    assert levels[-1] > levels[0], f"did not climb inside the played set: {levels}"
+
+
+def test_arc_length_defaults_to_the_pool() -> None:
+    """Callers that do not know their set length keep the old behaviour."""
+    pool = _energy_pool([2, 4, 6, 3, 5, 7])
+
+    assert recommend_sequence(pool, arc_strategy="warmup").ordered_tracks
+
+
+def test_anchor_is_excluded_from_the_energy_scale() -> None:
+    """The DJ's pick is regularly outside the strategy's own band.
+
+    One anchor at level 9 over a pool spanning 2-5 stretched the scale to 2-9,
+    so the curve's top asked for a level nothing in the pool could supply and
+    every candidate scored equally far from it.
+    """
+    pool = _energy_pool([9, 2, 3, 4, 5, 2, 3, 4, 5])
+
+    played = recommend_sequence(
+        pool, start_path="/e0.flac", arc_strategy="warmup", arc_weight=1.4, arc_length=9
+    ).ordered_tracks
+
+    levels = [item.energy_level for item in played[1:] if item.energy_level is not None]
+    assert levels[-1] > levels[0], f"anchor at 9 flattened the climb: {levels}"
