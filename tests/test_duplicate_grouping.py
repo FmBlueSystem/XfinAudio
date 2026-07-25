@@ -369,7 +369,7 @@ def test_playlist_artist_key_accepts_every_featuring_spelling_in_the_wild() -> N
 
 
 def test_playlist_artist_key_keeps_co_credited_acts_intact() -> None:
-    """"&" and "with" mean both acts are principals, not a featured guest.
+    """ "&" and "with" mean both acts are principals, not a featured guest.
 
     Stripping them would merge genuinely different artists: the library has 471
     names containing "&", including single acts like "Earth, Wind & Fire".
