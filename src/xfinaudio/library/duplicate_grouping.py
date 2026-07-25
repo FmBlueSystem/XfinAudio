@@ -22,6 +22,20 @@ _VERSION_SUFFIX = re.compile(r"\s*\(v\d+\)\s*$")
 
 # Any parenthetical group and its content, e.g. "(Clean)", "(Single Version)".
 _PARENTHETICAL_CONTENT = re.compile(r"\([^)]*\)")
+_BRACKETED_CONTENT = re.compile(r"\[[^\]]*\]")
+# Version markers that DJ pools bolt onto a title with no delimiter at all --
+# "Africa Vm Quick Edit", "Africa Kwikmix By Mark Roberts". Everything from the
+# marker onward is the version, not the song. Anchored on a word boundary so
+# "Mix It Up" and "Remix Your Life" keep their titles: the marker has to open a
+# trailing run, never sit at the start.
+_TRAILING_VERSION_MARKER = re.compile(
+    r"\s+(?:"
+    r"dj\s*edit|dj\s*re-?grid|dj\s*re-?drum|quick\s*edit|quick\s*hit|vm\s*quick\s*edit|"
+    r"kwikmix|kwik\s*mix|re-?drum\s*mix|revibe|ultimix|super\s*short\s*edit|short\s*edit|"
+    r"re-?grid|mix\s+by\s+\S.*|remix|extended\s*mix|radio\s*edit|club\s*mix|clean|dirty|acapella|intro"
+    r")\b.*$",
+    re.IGNORECASE,
+)
 
 
 def _strip_generated_suffixes(text: str) -> str:
@@ -83,8 +97,15 @@ def normalize_title_for_playlist_grouping(title: str) -> str:
     """
     text = _strip_generated_suffixes(title.strip())
     text = _PARENTHETICAL_CONTENT.sub(" ", text)
+    text = _BRACKETED_CONTENT.sub(" ", text)
     text = re.sub(r"\s+", " ", text).strip()
-    return text.casefold()
+    # Repeat: "Africa Scooter Re-Drum Mix Super Short Edit" carries two markers.
+    while True:
+        trimmed = _TRAILING_VERSION_MARKER.sub("", text).strip()
+        if trimmed == text or not trimmed:
+            break
+        text = trimmed
+    return re.sub(r"\s+", " ", text).strip().casefold()
 
 
 def normalize_artist_for_grouping(artist: str) -> str:
