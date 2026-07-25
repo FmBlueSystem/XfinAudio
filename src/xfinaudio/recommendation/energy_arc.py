@@ -56,8 +56,22 @@ def _journey(position: float, start: float = _JOURNEY_START) -> float:
 
 
 def _ascending(position: float, start: float = 0.25) -> float:
-    """Open where the anchor sits and hand over hot, without coming back down."""
-    return start + (1.0 - start) * position
+    """Open where the anchor sits and hand over hot, without coming back down.
+
+    The opening is capped so the curve always has somewhere to climb. An anchor
+    at the top of the pool's range normalizes to 1.0, and ``start + (1.0 -
+    start) * position`` is a constant 1.0 from there: every slot asks for
+    maximum energy, nothing separates the candidates, and the arc term goes
+    inert -- which hands the set back to the transition score, whose favourite
+    move is never changing energy at all. Six warmup sets measured on the real
+    library came out like ``[7, 3, 3, 3, ... 3]``.
+
+    Capping costs nothing where it applies. Slot zero belongs to the anchor
+    whatever this returns, so the cap only shapes the slots actually being
+    chosen.
+    """
+    opening = min(start, 1.0 - _MIN_CLIMB)
+    return opening + (1.0 - opening) * position
 
 
 def _sustained_high(position: float, start: float = 0.85) -> float:
