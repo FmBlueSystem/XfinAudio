@@ -3104,3 +3104,30 @@ def test_spectral_progress_requests_coalesce_into_a_single_render(monkeypatch) -
     controller._sync_timer.timeout.emit()
 
     assert renders == 1
+
+
+def test_sidebar_shows_every_workflow_entry_without_scrolling(tmp_path) -> None:
+    """All seven workflow entries must be reachable without discovering a scrollbar.
+
+    The sidebar was added with stretch factor 0 next to an addStretch(1), so it
+    only ever claimed its size hint (192px) while the panel around it was 730px
+    tall. The seventh entry, Live Assistant, fell behind a scrollbar with 538px
+    of empty space sitting right below it.
+    """
+    ensure_app()
+    window = MainWindow.with_defaults(tmp_path / "db.sqlite3", tmp_path / "settings.json")
+    window.resize(812, 875)
+    window.show()
+    ensure_app().processEvents()
+
+    sidebar = window.workflow_sidebar
+    viewport_height = sidebar.viewport().height()
+    hidden = [
+        sidebar.item(index).text()
+        for index in range(sidebar.count())
+        if sidebar.visualItemRect(sidebar.item(index)).bottom() > viewport_height
+    ]
+
+    assert sidebar.count() == len(window._workflow_labels)
+    assert hidden == [], f"workflow entries not reachable without scrolling: {hidden}"
+    assert sidebar.verticalScrollBar().maximum() == 0
