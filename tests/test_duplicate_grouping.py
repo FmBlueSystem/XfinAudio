@@ -9,6 +9,8 @@ module; `recommendation/candidate_pool.py` calls it directly with
 
 from __future__ import annotations
 
+import pytest
+
 from xfinaudio.library.duplicate_grouping import (
     duplicate_group_key,
     duplicate_representative_sort_key,
@@ -287,3 +289,48 @@ def test_playlist_duplicate_group_key_matches_conservative_artist_normalization(
 def test_playlist_duplicate_group_key_none_when_normalized_title_is_fully_parenthetical():
     assert playlist_duplicate_group_key("(Intro)", "Artist") is None
     assert playlist_duplicate_group_key("(Outro)", "Artist") is None
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Africa (DJ Edit)",
+        "Africa [DJ Re-Grid]",
+        "Africa Vm Quick Edit",
+        "Africa Kwikmix By Mark Roberts",
+        "Africa (Dario Caminita Revibe)",
+    ],
+)
+def test_every_version_of_a_track_shares_one_playlist_key(title: str) -> None:
+    """Nine versions of one song reached a real set three at a time.
+
+    The strict key only handled parentheses, so "(DJ Edit)" collapsed while
+    "[DJ Re-Grid]" and bare suffixes like "Vm Quick Edit" each became their own
+    song. On a 10,392-track library that left 769 duplicates undetected --
+    more than the 574 it caught.
+    """
+    assert normalize_title_for_playlist_grouping(title) == "africa"
+
+
+def test_distinct_songs_are_not_collapsed_by_suffix_stripping() -> None:
+    """Cutting version suffixes must not merge songs that merely share a word."""
+    assert normalize_title_for_playlist_grouping("Africa") != normalize_title_for_playlist_grouping("Out Of Africa")
+    assert normalize_title_for_playlist_grouping("Don't Lie") != normalize_title_for_playlist_grouping("Hips Don't Lie")
+    assert normalize_title_for_playlist_grouping("Mix It Up") == "mix it up"
+
+
+def test_library_display_key_keeps_versions_visible() -> None:
+    """The Library screen still shows distinct versions; only the pool collapses them."""
+    assert normalize_title_for_grouping("Africa Vm Quick Edit") != normalize_title_for_grouping("Africa (DJ Edit)")
+
+
+def test_a_remixer_name_before_the_marker_is_left_alone() -> None:
+    """ "Africa Scooter Re-Drum Mix" keeps "Scooter": it sits between title and marker.
+
+    Stripping it would need to know that "Scooter" is a remixer rather than part
+    of the song, and guessing that cuts real words out of real titles. Six of
+    nine Africa versions collapse; these two stay their own group, which is the
+    safe side of the trade.
+    """
+    assert normalize_title_for_playlist_grouping("Africa Scooter Re-Drum Mix") == "africa scooter"
+    assert normalize_title_for_playlist_grouping("Africa Scooter Re-Drum Mix Super Short Edit") == "africa scooter"

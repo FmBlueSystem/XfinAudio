@@ -18,6 +18,10 @@ TAG_FIELDS = ("genre", "mood", "subgenre", "dj_zone", "genre_category")
 # _casefold_mapping(). Callers retain only these; the rest (Serato overviews,
 # Mixed In Key beatgrids, lyrics) is never read and is dropped after parsing.
 # Keep in sync with _parse_bpm, _parse_camelot_key, _parse_energy and TAG_FIELDS.
+# Deliberately excludes `beatgrid`, which _parse_bpm does read: the parser gets the
+# full untrimmed tag dict, and this set only decides what survives into the persisted
+# `raw_metadata`. The blob embeds every beat onset -- 18 KB median, 189 MB projected
+# across the library, against 5 MB for everything else retained here.
 PARSED_TAG_KEYS = frozenset(
     {
         "title",
@@ -181,6 +185,16 @@ def _first_text(tags: dict[str, tuple[str, Any]], *candidates: str) -> str | Non
 
 
 def _parse_bpm(tags: dict[str, tuple[str, Any]]) -> tuple[float | None, str | None]:
+    # `beatgrid` holds Mixed In Key's own tempo. The flat `bpm` field is fair game
+    # for any other tool in the chain, so it loses to the blob the same way
+    # `energylevel` loses to `energy` in _parse_energy.
+    encoded = _decode_json_tag(_first_text(tags, "beatgrid"))
+    if encoded is not None and str(encoded.get("source", "")).casefold() == "mixedinkey":
+        try:
+            return round(float(encoded["tempo"]), 2), "beatgrid"
+        except (KeyError, TypeError, ValueError):
+            pass
+
     for field_name in ("bpm", "tbpm", "ibpm"):
         value = _first_text(tags, field_name)
         if value is None:

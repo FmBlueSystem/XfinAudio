@@ -183,12 +183,52 @@ def dedupe_recommendation_duplicates(records: list[TrackRecord], controls: DJCon
     return [r for r in records if r.path not in suppressed]
 
 
+def _interleave_by_energy(tracks: list[TrackRecord], limit: int) -> list[TrackRecord]:
+    """Take from each energy level in turn, best-ranked first within each level.
+
+    Similarity ranking alone fills the pool with the anchor's own energy: on a
+    real library an E7 anchor produced a 120-track pool that was 80% level 7,
+    leaving the arc nothing to shape. Round-robin guarantees the ends of the
+    range survive, at the cost of some average transition quality -- a set with
+    no dynamics is the worse trade.
+    """
+    by_level: dict[int, list[TrackRecord]] = {}
+    unknown: list[TrackRecord] = []
+    for candidate in tracks:
+        if candidate.energy_level is None:
+            unknown.append(candidate)
+        else:
+            by_level.setdefault(candidate.energy_level, []).append(candidate)
+
+    interleaved: list[TrackRecord] = []
+    queues = [by_level[level] for level in sorted(by_level)]
+    position = 0
+    while len(interleaved) < limit and any(position < len(queue) for queue in queues):
+        for queue in queues:
+            if position < len(queue):
+                interleaved.append(queue[position])
+                if len(interleaved) >= limit:
+                    break
+        position += 1
+    if len(interleaved) < limit:
+        interleaved.extend(unknown[: limit - len(interleaved)])
+    return interleaved
+
+
 def build_recommendation_pool(
     scanned_records: list[TrackRecord],
     controls: DJControls | None,
     limit: int = _DEFAULT_LIMIT,
+    *,
+    spread_energy: bool = False,
 ) -> list[TrackRecord]:
-    """Return an interactive-size recommendation pool while preserving control tracks at the front."""
+    """Return an interactive-size recommendation pool while preserving control tracks at the front.
+
+    ``spread_energy`` fills the remaining slots by taking from each energy level
+    in turn rather than purely by similarity, so strategies that trace an arc
+    have material at both ends of the range. Off by default: strategies that
+    hold one level want the concentrated pool.
+    """
     complete_records = [r for r in scanned_records if r.metadata_status == "complete"]
 
     priority_paths: list[str] = []
@@ -208,10 +248,14 @@ def build_recommendation_pool(
     remaining_records = [r for r in complete_records if r.path not in priority_set]
 
     if not priority_records or remaining_slots == 0:
+        if spread_energy and remaining_slots:
+            return [*priority_records, *_interleave_by_energy(remaining_records, remaining_slots)]
         return [*priority_records, *remaining_records[:remaining_slots]]
 
     anchor_terms = set().union(*(_track_vibe_terms(r) for r in priority_records))
     if not anchor_terms:
+        if spread_energy:
+            return [*priority_records, *_interleave_by_energy(remaining_records, remaining_slots)]
         return [*priority_records, *remaining_records[:remaining_slots]]
 
     terms_by_path = {r.path: _track_vibe_terms(r) for r in remaining_records}
@@ -220,4 +264,7 @@ def build_recommendation_pool(
     fallback = [r for r in remaining_records if r.path not in compatible_paths]
     compatible = sorted(compatible, key=lambda r: _track_similarity_key(anchor_terms, priority_records, r))
     fallback = sorted(fallback, key=lambda r: _track_similarity_key(anchor_terms, priority_records, r))
+    if spread_energy:
+        ranked = _interleave_by_energy([*compatible, *fallback], remaining_slots)
+        return [*priority_records, *ranked][:limit]
     return [*priority_records, *compatible, *fallback][:limit]

@@ -249,6 +249,7 @@ def recommend_playlist(
             weights=scoring_config.weights,
             cache=_score_cache,
             config=scoring_config,
+            arc_strategy=strategy.name,
         )
         sequenced_tracks = sequenced.ordered_tracks
         optimizer = sequenced.optimizer

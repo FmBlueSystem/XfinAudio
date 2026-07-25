@@ -110,3 +110,68 @@ def test_recommend_sequence_uses_heuristic_for_n_16() -> None:
 
     assert len(result.ordered_tracks) == 16
     assert result.optimizer == "greedy-2opt"
+
+
+def _energy_spread(recommendation) -> int:
+    levels = [t.energy_level for t in recommendation.ordered_tracks if t.energy_level]
+    return max(levels) - min(levels) if levels else 0
+
+
+def test_journey_traces_an_arc_instead_of_holding_one_level() -> None:
+    """Scoring only adjacent pairs makes a flat set optimal; a set needs a shape.
+
+    Energy scores highest when two tracks match, so maximizing the sum of
+    adjacent scores rewards never changing level. On a real library that
+    produced sets spanning 2.2 of 10 levels, one of them 25 tracks all at 7.
+    """
+    tracks = [
+        TrackRecord(
+            path=f"/t{index}.flac",
+            title=f"T{index}",
+            bpm=126.0,
+            camelot_key="8A",
+            energy_level=1 + index % 10,
+            duration=240.0,
+            genre="House",
+            tags=["house"],
+            metadata_status="complete",
+        )
+        for index in range(30)
+    ]
+
+    recommendation = recommend_sequence(tracks, arc_strategy="harmonic_journey")
+    levels = [t.energy_level for t in recommendation.ordered_tracks if t.energy_level is not None]
+
+    assert _energy_spread(recommendation) >= 5, levels
+    peak_index = levels.index(max(levels))
+    assert peak_index >= len(levels) // 2, f"peak at {peak_index} of {len(levels)}: {levels}"
+
+
+def test_arc_changes_the_order_when_a_shape_is_requested() -> None:
+    """Without a strategy the solver keeps its original scoring path.
+
+    Asking for a shape has to change the result, or the arc term is inert.
+    """
+    tracks = [
+        TrackRecord(
+            path=f"/t{index}.flac",
+            title=f"T{index}",
+            bpm=126.0,
+            camelot_key="8A",
+            energy_level=1 + index % 10,
+            duration=240.0,
+            genre="House",
+            tags=["house"],
+            metadata_status="complete",
+        )
+        for index in range(30)
+    ]
+
+    without_arc = recommend_sequence(tracks)
+    with_arc = recommend_sequence(tracks, arc_strategy="harmonic_journey")
+
+    flat_spread = _energy_spread(without_arc)
+    shaped_spread = _energy_spread(with_arc)
+
+    assert [t.path for t in without_arc.ordered_tracks] != [t.path for t in with_arc.ordered_tracks]
+    assert shaped_spread >= flat_spread

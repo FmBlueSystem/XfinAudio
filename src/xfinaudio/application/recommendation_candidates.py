@@ -5,6 +5,7 @@ from __future__ import annotations
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.candidate_pool import build_recommendation_pool, dedupe_recommendation_duplicates
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.energy_arc import traces_an_arc
 from xfinaudio.recommendation.playlist_service import prefilter_strategy_candidates
 
 # How many candidates the optimizer gets per track it will actually place.
@@ -53,7 +54,10 @@ def plan_recommendation_candidates(
     if strategy_name is not None:
         pool_source = prefilter_strategy_candidates(scanned_records, strategy_name, controls)
     pool_source = dedupe_recommendation_duplicates(pool_source, controls)
-    return build_recommendation_pool(pool_source, controls, limit)
+    # A strategy that traces an arc needs candidates at both ends of the energy
+    # range; similarity ranking alone would hand it the anchor's own level.
+    spread = traces_an_arc(strategy_name) if strategy_name is not None else False
+    return build_recommendation_pool(pool_source, controls, limit, spread_energy=spread)
 
 
 __all__ = ["plan_recommendation_candidates"]
