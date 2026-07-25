@@ -93,3 +93,46 @@ def test_start_at_is_ignored_by_flat_shapes() -> None:
     targets = arc_targets("same_energy", length=10, start_at=0.9)
 
     assert max(targets) - min(targets) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# A climbing shape has to leave itself somewhere to climb.
+#
+# Measured on the real library: six warmup sets, none of them ascending. Every
+# one opened on its anchor and then flatlined -- [7, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+# 3, 3, 3, 3, 3]. The anchor sat at the top of the pool's energy range, which
+# normalized to start_at=1.0, and `start + (1.0 - start) * position` is a
+# constant 1.0 from there. Every slot asked for maximum energy, nothing
+# distinguished the candidates, and the arc term went inert -- leaving the
+# transition score, which is happiest never changing energy at all.
+# ---------------------------------------------------------------------------
+
+
+def test_warmup_still_climbs_when_the_anchor_opens_at_the_top() -> None:
+    targets = arc_targets("warmup", length=12, start_at=1.0)
+
+    assert max(targets) - min(targets) >= 0.3, f"flat curve: {targets}"
+    assert targets == sorted(targets)
+    assert targets[-1] > targets[0]
+
+
+def test_warmup_climb_survives_a_nearly_top_anchor() -> None:
+    """0.9 left a span of 0.1 -- technically ascending, practically flat."""
+    targets = arc_targets("warmup", length=12, start_at=0.9)
+
+    assert max(targets) - min(targets) >= 0.3, f"barely moves: {targets}"
+
+
+def test_warmup_still_opens_where_a_low_anchor_sits() -> None:
+    """Capping the opening must not drag a genuinely quiet start upward."""
+    targets = arc_targets("warmup", length=12, start_at=0.1)
+
+    assert targets[0] == pytest.approx(0.1)
+    assert targets[-1] == pytest.approx(1.0)
+
+
+def test_build_gets_the_same_guarantee() -> None:
+    """`build` shares the ascending shape, so it shares the failure."""
+    targets = arc_targets("build", length=12, start_at=1.0)
+
+    assert max(targets) - min(targets) >= 0.3
