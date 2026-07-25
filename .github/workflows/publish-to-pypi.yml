@@ -12,6 +12,9 @@ jobs:
   publish:
     name: Build and publish to PyPI
     runs-on: macos-latest
+    # Same reasoning as the release gates: bound the job so a hung publish
+    # cannot burn six hours of macOS runner time.
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
