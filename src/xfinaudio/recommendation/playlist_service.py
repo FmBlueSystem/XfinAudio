@@ -69,6 +69,47 @@ def recommendation_without_paths(
     )
 
 
+def recommendation_reordered(
+    recommendation: PlaylistRecommendation,
+    ordered_paths: list[str],
+    *,
+    spectral_cohesion: float = 0.0,
+) -> PlaylistRecommendation:
+    """Return a recommendation following *ordered_paths*, with honest adjacency scores.
+
+    The DJ can move tracks by hand before exporting, and the order they leave
+    behind is what gets written to the crate. Carrying the optimizer's original
+    scores forward would show seams that no longer exist, so every adjacency is
+    rescored against the new order.
+
+    *ordered_paths* must be a permutation of the current tracks. Anything else
+    is a caller bug -- honouring it would silently drop or invent tracks, and
+    the exported crate would not match what the screen showed -- so the
+    recommendation is returned unchanged. Removal has its own operation,
+    `recommendation_without_paths`.
+    """
+    current = [track.path for track in recommendation.ordered_tracks]
+    if ordered_paths == current:
+        return recommendation
+    if sorted(ordered_paths) != sorted(current):
+        return recommendation
+
+    by_path = {track.path: track for track in recommendation.ordered_tracks}
+    ordered_tracks = [by_path[path] for path in ordered_paths]
+    scoring_config = TransitionScoringConfig(
+        weights=recommendation.strategy.weights,
+        spectral_cohesion=spectral_cohesion,
+    )
+    transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config)
+    return recommendation.model_copy(
+        update={
+            "ordered_tracks": ordered_tracks,
+            "transition_scores": transition_scores,
+            "total_score": sum(score.total_score for score in transition_scores),
+        }
+    )
+
+
 def recommendation_with_replacement(
     recommendation: PlaylistRecommendation,
     removed_path: str,
@@ -686,5 +727,6 @@ __all__ = [
     "prefilter_strategy_candidates",
     "recommend_playlist",
     "recommendation_with_replacement",
+    "recommendation_reordered",
     "recommendation_without_paths",
 ]

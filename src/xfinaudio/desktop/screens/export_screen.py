@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -15,6 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -22,6 +25,8 @@ from PySide6.QtWidgets import (
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.export_view_model import ExportViewModel
 from xfinaudio.desktop.scan_service import progress_percent, progress_status_text
+
+_TRACK_COLUMNS = ["#", "Title", "Artist", "BPM", "Key", "Energy"]
 
 _HISTORY_COLUMNS = ["Time", "Strategy", "Tracks", "Serato Crate", "Readiness JSON", "Readiness CSV"]
 _HISTORY_HEADER_TOOLTIPS = [
@@ -43,9 +48,12 @@ class ExportScreen(QWidget):
     safe_folder_change_requested = Signal()
     back_requested = Signal()
     software_changed = Signal(str)
+    tracks_reordered = Signal(list)
+    track_removed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._track_paths: list[str] = []
         self._build_ui()
         self._connect_signals()
 
@@ -93,7 +101,44 @@ class ExportScreen(QWidget):
         # Playlist summary
         self.playlist_info_label = QLabel("—")
         self.playlist_info_label.setObjectName("statusLabel")
+        self.playlist_info_label.setMaximumHeight(24)
         layout.addWidget(self.playlist_info_label)
+
+        # The set itself, editable. Before this the screen showed only the
+        # summary above, and the spare height went to it because the history
+        # table below is hidden until the first export -- a window-tall empty
+        # panel where the tracks should have been.
+        self.tracks_table = QTableWidget(0, len(_TRACK_COLUMNS))
+        self.tracks_table.setHorizontalHeaderLabels([self.tr(c) for c in _TRACK_COLUMNS])
+        tracks_header = self.tracks_table.horizontalHeader()
+        # Free width goes to Title and Artist; the rest hold short fixed values.
+        tracks_header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        for name in ("Title", "Artist"):
+            tracks_header.setSectionResizeMode(_TRACK_COLUMNS.index(name), QHeaderView.ResizeMode.Stretch)
+        self.tracks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tracks_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tracks_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tracks_table.verticalHeader().setVisible(False)
+        self.tracks_table.setAlternatingRowColors(True)
+        self.tracks_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.tracks_table, 1)
+
+        # Edit controls
+        edit_row = QHBoxLayout()
+        self.move_up_button = QPushButton(self.tr("↑ Move Up"))
+        self.move_up_button.setObjectName("secondaryAction")
+        self.move_up_button.setMaximumHeight(26)
+        self.move_down_button = QPushButton(self.tr("↓ Move Down"))
+        self.move_down_button.setObjectName("secondaryAction")
+        self.move_down_button.setMaximumHeight(26)
+        self.remove_button = QPushButton(self.tr("Remove"))
+        self.remove_button.setObjectName("secondaryAction")
+        self.remove_button.setMaximumHeight(26)
+        for button in (self.move_up_button, self.move_down_button, self.remove_button):
+            button.setEnabled(False)
+            edit_row.addWidget(button)
+        edit_row.addStretch()
+        layout.addLayout(edit_row)
 
         # Empty-state / guidance label
         self.empty_state_label = QLabel()
@@ -171,6 +216,9 @@ class ExportScreen(QWidget):
             self.preview_button: "Preview the export without writing any files",
             self.export_button: "Write the playlist to your DJ software's crate",
             self.export_readiness_button: "Export the readiness report as JSON and CSV",
+            self.move_up_button: "Move the selected track one place earlier in the set",
+            self.move_down_button: "Move the selected track one place later in the set",
+            self.remove_button: "Drop the selected track from the set before exporting",
             self.back_button: "Return to the Review screen",
         }
         for button, tip in tips.items():
@@ -186,13 +234,21 @@ class ExportScreen(QWidget):
         self.preview_button.setAccessibleName(self.tr("Preview export"))
         self.export_button.setAccessibleName(self.tr("Export recommendation"))
         self.export_readiness_button.setAccessibleName(self.tr("Export readiness report"))
+        self.tracks_table.setAccessibleName(self.tr("Tracks to export"))
+        self.move_up_button.setAccessibleName(self.tr("Move track up"))
+        self.move_down_button.setAccessibleName(self.tr("Move track down"))
+        self.remove_button.setAccessibleName(self.tr("Remove track from the set"))
         self.history_table.setAccessibleName(self.tr("Export history"))
         self.back_button.setAccessibleName(self.tr("Back to review"))
 
     def _setup_tab_order(self) -> None:
         """Define a logical keyboard tab order across primary controls."""
         self.setTabOrder(self.software_selector, self.safe_folder_button)
-        self.setTabOrder(self.safe_folder_button, self.preview_button)
+        self.setTabOrder(self.safe_folder_button, self.tracks_table)
+        self.setTabOrder(self.tracks_table, self.move_up_button)
+        self.setTabOrder(self.move_up_button, self.move_down_button)
+        self.setTabOrder(self.move_down_button, self.remove_button)
+        self.setTabOrder(self.remove_button, self.preview_button)
         self.setTabOrder(self.preview_button, self.export_button)
         self.setTabOrder(self.export_button, self.export_readiness_button)
         self.setTabOrder(self.export_readiness_button, self.history_table)
@@ -205,6 +261,98 @@ class ExportScreen(QWidget):
         self.export_readiness_button.clicked.connect(self.readiness_export_requested)
         self.safe_folder_button.clicked.connect(self.safe_folder_change_requested)
         self.software_selector.currentTextChanged.connect(self._on_software_changed)
+        self.move_up_button.clicked.connect(lambda: self._move_selected(-1))
+        self.move_down_button.clicked.connect(lambda: self._move_selected(1))
+        self.remove_button.clicked.connect(self._remove_selected)
+        self.tracks_table.itemSelectionChanged.connect(self._sync_edit_buttons)
+
+    # ------------------------------------------------------------------
+    # Track list editing
+    # ------------------------------------------------------------------
+
+    def visible_track_paths(self) -> list[str]:
+        """Return the paths in the order the table currently shows them."""
+        return list(self._track_paths)
+
+    def _selected_row(self) -> int:
+        rows = self.tracks_table.selectionModel().selectedRows() if self.tracks_table.selectionModel() else []
+        return rows[0].row() if rows else -1
+
+    def _sync_edit_buttons(self) -> None:
+        row = self._selected_row()
+        selected = 0 <= row < len(self._track_paths)
+        # No wraparound: one click never sends the first track to the bottom.
+        self.move_up_button.setEnabled(selected and row > 0)
+        self.move_down_button.setEnabled(selected and row < len(self._track_paths) - 1)
+        self.remove_button.setEnabled(selected)
+
+    def _move_selected(self, offset: int) -> None:
+        row = self._selected_row()
+        target = row + offset
+        if not (0 <= row < len(self._track_paths) and 0 <= target < len(self._track_paths)):
+            return
+        self._track_paths[row], self._track_paths[target] = self._track_paths[target], self._track_paths[row]
+        self._reorder_rows(row, target)
+        self.tracks_table.selectRow(target)
+        self.tracks_reordered.emit(list(self._track_paths))
+
+    def _reorder_rows(self, row: int, target: int) -> None:
+        """Swap two rendered rows in place.
+
+        Repopulating from the recommendation is not an option here: the state
+        update travels through the controller, so the table would still hold
+        the pre-move order when this returns and the row would visibly snap
+        back.
+        """
+        for column in range(self.tracks_table.columnCount()):
+            left = self.tracks_table.takeItem(row, column)
+            right = self.tracks_table.takeItem(target, column)
+            self.tracks_table.setItem(row, column, right)
+            self.tracks_table.setItem(target, column, left)
+        self._renumber_rows()
+
+    def _renumber_rows(self) -> None:
+        for index in range(self.tracks_table.rowCount()):
+            item = self.tracks_table.item(index, 0)
+            if item is not None:
+                item.setText(str(index + 1))
+
+    def _remove_selected(self) -> None:
+        row = self._selected_row()
+        if not 0 <= row < len(self._track_paths):
+            return
+        path = self._track_paths.pop(row)
+        self.tracks_table.removeRow(row)
+        self._renumber_rows()
+        self._sync_edit_buttons()
+        self.track_removed.emit(path)
+
+    def _populate_tracks_table(self, state: AppState) -> None:
+        recommendation = state.last_recommendation
+        tracks = list(recommendation.ordered_tracks) if recommendation is not None else []
+        paths = [track.path for track in tracks]
+        if paths == self._track_paths:
+            # The controller echoes our own edit back on the next render; leave
+            # the rendered rows and the user's selection alone.
+            return
+        self._track_paths = paths
+        self.tracks_table.setRowCount(0)
+        for index, track in enumerate(tracks):
+            self.tracks_table.insertRow(index)
+            for column, text in enumerate(
+                (
+                    str(index + 1),
+                    track.title or Path(track.path).name,
+                    track.artist or "—",
+                    "—" if track.bpm is None else f"{track.bpm:g}",
+                    track.camelot_key or "—",
+                    "—" if track.energy_level is None else f"E{track.energy_level}",
+                )
+            ):
+                item = QTableWidgetItem(text)
+                item.setToolTip(track.path)
+                self.tracks_table.setItem(index, column, item)
+        self._sync_edit_buttons()
 
     def connect_signals(self, window: Any) -> None:
         self.preview_requested.connect(window.preview_export)
@@ -212,6 +360,30 @@ class ExportScreen(QWidget):
         self.readiness_export_requested.connect(lambda: window.export_dj_readiness_report())
         self.safe_folder_change_requested.connect(window._export_actions.choose_safe_export_folder)
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(2))
+        self.tracks_reordered.connect(lambda paths: self._apply_track_order(window, paths))
+        self.track_removed.connect(lambda path: self._apply_track_removal(window, path))
+
+    @staticmethod
+    def _spectral_cohesion(window: Any) -> float:
+        """Read the cohesion the set was built with, so a rescore matches it."""
+        build_screen = getattr(window, "_build_screen", None)
+        if build_screen is None:
+            return 0.0
+        return build_screen.spectral_cohesion_value() / 100.0
+
+    def _apply_track_order(self, window: Any, paths: list[str]) -> None:
+        from xfinaudio.desktop.app_state_transitions import apply_export_track_order
+
+        window._replace_app_state(
+            apply_export_track_order(window._state, paths, spectral_cohesion=self._spectral_cohesion(window))
+        )
+
+    def _apply_track_removal(self, window: Any, path: str) -> None:
+        from xfinaudio.desktop.app_state_transitions import apply_export_track_removal
+
+        window._replace_app_state(
+            apply_export_track_removal(window._state, path, spectral_cohesion=self._spectral_cohesion(window))
+        )
 
     def _on_software_changed(self, name: str) -> None:
         """Update button labels and emit software selection change."""
@@ -233,6 +405,7 @@ class ExportScreen(QWidget):
         self.variant_label.setText(vm.applied_variant_label(state))
         self.safe_folder_label.setText(vm.safe_folder_label(state))
         self.playlist_info_label.setText(vm.preview_text(state) or "—")
+        self._populate_tracks_table(state)
         self._render_export_progress(state)
         self.export_button.setEnabled(vm.export_enabled(state))
         self.export_readiness_button.setEnabled(vm.export_readiness_enabled(state))

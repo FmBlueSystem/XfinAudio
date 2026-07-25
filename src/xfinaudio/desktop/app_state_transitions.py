@@ -13,7 +13,11 @@ from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
-from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+from xfinaudio.recommendation.playlist_service import (
+    PlaylistRecommendation,
+    recommendation_reordered,
+    recommendation_without_paths,
+)
 from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
 
 
@@ -171,6 +175,36 @@ def apply_prep_copilot_plan_cleared(state: AppState) -> AppState:
     return state.model_copy(update={"last_prep_copilot_plan": None})
 
 
+def apply_export_track_order(state: AppState, ordered_paths: list[str], *, spectral_cohesion: float = 0.0) -> AppState:
+    """Return a new state whose recommendation follows a hand-made running order.
+
+    The crate is written from ``last_recommendation``, so an edit that only
+    moved rows in the table would export the untouched original.
+    """
+    if state.last_recommendation is None:
+        return state
+    return state.model_copy(
+        update={
+            "last_recommendation": recommendation_reordered(
+                state.last_recommendation, ordered_paths, spectral_cohesion=spectral_cohesion
+            )
+        }
+    )
+
+
+def apply_export_track_removal(state: AppState, path: str, *, spectral_cohesion: float = 0.0) -> AppState:
+    """Return a new state with one track dropped from the set about to be exported."""
+    if state.last_recommendation is None:
+        return state
+    return state.model_copy(
+        update={
+            "last_recommendation": recommendation_without_paths(
+                state.last_recommendation, frozenset({path}), spectral_cohesion=spectral_cohesion
+            )
+        }
+    )
+
+
 def apply_saved_playlist_export_recommendation(state: AppState, recommendation: PlaylistRecommendation) -> AppState:
     """Return a new state with a saved-playlist export recommendation applied."""
     return state.model_copy(update={"last_recommendation": recommendation})
@@ -186,6 +220,8 @@ __all__ = [
     "apply_prep_copilot_plan_generated",
     "apply_prep_copilot_variant",
     "apply_recommendation_completion",
+    "apply_export_track_order",
+    "apply_export_track_removal",
     "apply_saved_playlist_export_recommendation",
     "apply_track_constraints_cleared",
     "apply_tracks_excluded",
