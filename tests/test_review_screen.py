@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication, QPushButton
 
-from xfinaudio.desktop.screens.review_screen import ReviewScreen
+from xfinaudio.desktop.screens.review_screen import _TRANSITION_COLUMNS, ReviewScreen
 
 
 def test_all_buttons_have_tooltips(qapp: QApplication) -> None:
@@ -43,3 +43,50 @@ def test_tables_use_the_free_vertical_space(qapp: QApplication) -> None:
 
     assert all(rows >= 4 for rows in visible_rows), f"only {visible_rows} rows visible per table"
     assert sum(table.height() for table in tables) > 0.65 * screen.height()
+
+
+def test_summary_score_is_reported_once(qapp: QApplication) -> None:
+    """Two labels showed the same numbers in different formats, stacked.
+
+    review_summary_label already carries the transition count, warning count and
+    average score, and ten call sites drive it. quality_label restated a subset
+    of that one line below, and nothing outside this screen referenced it.
+    """
+    screen = ReviewScreen()
+
+    assert hasattr(screen, "review_summary_label")
+    assert not hasattr(screen, "quality_label"), "the duplicate summary label is back"
+
+
+def test_transition_columns_give_space_to_track_names_not_scores(qapp: QApplication) -> None:
+    """Every column stretched equally, so scores got as much room as track titles.
+
+    Measured at 1200px: all nine columns landed on ~131px, enough for "Order" to
+    show a single digit while "From"/"To" truncated the titles that make the row
+    readable.
+    """
+    screen = ReviewScreen()
+    screen.resize(1200, 660)
+    screen.show()
+    qapp.processEvents()
+
+    header = screen.transition_table.horizontalHeader()
+    width = {name: header.sectionSize(index) for index, name in enumerate(_TRANSITION_COLUMNS)}
+
+    for score_column in ("Order", "Key Score", "BPM Score", "Energy Score", "Tag Score", "Final Score"):
+        assert width[score_column] < width["From"], f"{score_column} is as wide as the track name column"
+        assert width[score_column] < width["To"], f"{score_column} is as wide as the track name column"
+
+
+def test_readiness_detail_column_gets_the_free_width(qapp: QApplication) -> None:
+    """Check and Status hold short labels; Detail holds the sentence."""
+    screen = ReviewScreen()
+    screen.resize(1200, 660)
+    screen.show()
+    qapp.processEvents()
+
+    header = screen.readiness_table.horizontalHeader()
+    check, status, detail = (header.sectionSize(index) for index in range(3))
+
+    assert detail > check
+    assert detail > status

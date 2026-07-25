@@ -113,15 +113,12 @@ class ReviewScreen(QWidget):
         self.dj_readiness_label.setMaximumHeight(28)
         layout.addWidget(self.dj_readiness_label)
 
-        # Quality summary (set imperatively by main_window)
+        # Quality summary (set imperatively by main_window). This is the only
+        # place the transition score is reported; a second VM-driven label used
+        # to restate a subset of it on the next line.
         self.review_summary_label = QLabel(self.tr("No recommendation is ready for review."))
         self.review_summary_label.setMaximumHeight(28)
         layout.addWidget(self.review_summary_label)
-
-        # VM-driven quality summary
-        self.quality_label = QLabel()
-        self.quality_label.setMaximumHeight(28)
-        layout.addWidget(self.quality_label)
 
         # 3. Recommendation table
         self.recommendation_table = QTableWidget(0, len(_RECOMMENDATION_COLUMNS))
@@ -163,7 +160,14 @@ class ReviewScreen(QWidget):
         # 5. Transition table
         self.transition_table = QTableWidget(0, len(_TRANSITION_COLUMNS))
         self.transition_table.setHorizontalHeaderLabels([self.tr(c) for c in _TRANSITION_COLUMNS])
-        self.transition_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        transition_header = self.transition_table.horizontalHeader()
+        # Free width goes to From/To/Warnings; the rest hold an index or a
+        # four-character score and only need what they show.
+        transition_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        for name in ("Order", "Key Score", "BPM Score", "Energy Score", "Tag Score", "Final Score"):
+            transition_header.setSectionResizeMode(
+                _TRANSITION_COLUMNS.index(name), QHeaderView.ResizeMode.ResizeToContents
+            )
         self.transition_table.setAlternatingRowColors(True)
         self.transition_table.verticalHeader().setVisible(False)
         self.transition_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -173,7 +177,13 @@ class ReviewScreen(QWidget):
         # 6. Readiness checks table (secondary)
         self.readiness_table = QTableWidget(0, len(_READINESS_COLUMNS))
         self.readiness_table.setHorizontalHeaderLabels([self.tr(c) for c in _READINESS_COLUMNS])
-        self.readiness_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        readiness_header = self.readiness_table.horizontalHeader()
+        # Check and Status are short labels; Detail carries the sentence.
+        readiness_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        for name in ("Check", "Status"):
+            readiness_header.setSectionResizeMode(
+                _READINESS_COLUMNS.index(name), QHeaderView.ResizeMode.ResizeToContents
+            )
         self.readiness_table.setAlternatingRowColors(True)
         self.readiness_table.verticalHeader().setVisible(False)
         self.readiness_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -267,7 +277,6 @@ class ReviewScreen(QWidget):
                         (used for non-visible tabs during state sync).
         """
         self.readiness_badge.setText(vm.readiness_badge_text(state))
-        self.quality_label.setText(vm.quality_summary(state))
         self.export_button.setEnabled(vm.can_export(state))
         self.save_to_playlists_button.setEnabled(state.last_recommendation is not None)
         if not lightweight:
