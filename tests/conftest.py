@@ -1,3 +1,4 @@
+import contextlib
 import os
 
 import pytest
@@ -26,6 +27,38 @@ def _disable_spectral_completion_worker(monkeypatch):
             "_start_spectral_completion_worker",
             lambda self, records: None,
         )
+
+
+@pytest.fixture(autouse=True)
+def _release_audio_players(monkeypatch):
+    """Release every AudioPlayer a test creates.
+
+    QMediaPlayer keeps an ffmpeg decode thread alive for as long as a source is
+    attached, so a player left behind outlives its test. The v1.0.2 publish run
+    segfaulted at 83% of the suite with ffmpeg still printing "Duration:" while
+    Python was tearing down, and later runs hung to the 20-minute job timeout
+    with an orphan process at cleanup. Roughly twenty players were created
+    across the suite and none of them released its decoder.
+
+    Patching the constructor keeps the registry out of production code; the
+    players themselves only need the `shutdown()` they should have had anyway.
+    """
+    from xfinaudio.desktop.audio_player import AudioPlayer
+
+    created: list[AudioPlayer] = []
+    original_init = AudioPlayer.__init__
+
+    def _tracking_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        created.append(self)
+
+    monkeypatch.setattr(AudioPlayer, "__init__", _tracking_init)
+    yield
+    for player in created:
+        # The C++ side may already be gone when a parented player's owner was
+        # destroyed during the test.
+        with contextlib.suppress(RuntimeError):
+            player.shutdown()
 
 
 @pytest.fixture(autouse=True, scope="session")

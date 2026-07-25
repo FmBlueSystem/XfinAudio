@@ -142,3 +142,50 @@ class TestSeek:
         player = AudioPlayer()
         with pytest.raises(RuntimeError):
             player.seek(100)
+
+
+# ---------------------------------------------------------------------------
+# shutdown() — release the decoder, not just pause it.
+#
+# `stop()` halts playback but leaves the source attached, so Qt keeps the
+# ffmpeg decode thread alive. On the macOS CI runner that thread outlives the
+# interpreter: the v1.0.2 publish run segfaulted at 83% of the suite with
+# ffmpeg still printing "Duration:" as Python was tearing down, and later runs
+# hung until the 20-minute job timeout with an orphan process at cleanup.
+# ---------------------------------------------------------------------------
+
+
+def test_shutdown_releases_the_media_source(qapp: QApplication) -> None:
+    player = AudioPlayer()
+    player.load(str(FIXTURE_WAV))
+
+    player.shutdown()
+
+    assert player._player.source().isEmpty()
+    assert player.state == PlayerState.IDLE
+
+
+def test_shutdown_is_safe_before_anything_is_loaded(qapp: QApplication) -> None:
+    player = AudioPlayer()
+
+    player.shutdown()
+
+    assert player.state == PlayerState.IDLE
+
+
+def test_shutdown_is_idempotent(qapp: QApplication) -> None:
+    """Called from closeEvent and from a test fixture; both may fire."""
+    player = AudioPlayer()
+    player.load(str(FIXTURE_WAV))
+
+    player.shutdown()
+    player.shutdown()
+
+    assert player._player.source().isEmpty()
+
+
+def test_main_window_releases_the_player_when_it_closes() -> None:
+    """closeEvent stopped playback but left the decoder attached."""
+    source = Path("src/xfinaudio/desktop/main_window.py").read_text()
+
+    assert "self._audio_player.shutdown()" in source

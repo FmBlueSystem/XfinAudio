@@ -98,6 +98,22 @@ class AudioPlayer(QObject):
         self._player.stop()
         self._state_machine.transition("stop")
 
+    def shutdown(self) -> None:
+        """Stop playback and release the media source.
+
+        ``stop()`` halts playback but leaves the source attached, and Qt keeps
+        the ffmpeg decode thread alive behind it. That thread outlives the
+        object: the v1.0.2 publish run segfaulted at 83% of the suite with
+        ffmpeg still printing "Duration:" while Python was tearing down, and
+        later runs hung until the 20-minute job timeout with an orphan process
+        at cleanup. Clearing the source is what actually releases the decoder.
+
+        Idempotent -- ``closeEvent`` and test teardown may both call it, and
+        "stop" is a legal transition from every state including IDLE.
+        """
+        self.stop()
+        self._player.setSource(QUrl())
+
     def seek(self, ms: int) -> None:
         """Seek to *ms* milliseconds."""
         if self._state_machine.state in (PlayerState.IDLE, PlayerState.ERROR):

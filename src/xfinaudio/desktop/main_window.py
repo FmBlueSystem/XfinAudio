@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
         self._sync_state()
 
     def closeEvent(self, event: object) -> None:
-        self._audio_player.stop()
+        self._audio_player.shutdown()
         self._scan_service.cancel()
         if hasattr(self, "_library_controller"):
             self._cancel_spectral_completion_worker()
