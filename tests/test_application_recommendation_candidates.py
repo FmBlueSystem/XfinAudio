@@ -191,3 +191,52 @@ def test_plan_recommendation_candidates_dedupes_before_cap_with_strategy() -> No
     assert len(result) == 25
     duplicate_paths_present = {track.path for track in result} & {"/00-dup-a.mp3", "/00-dup-b.mp3"}
     assert len(duplicate_paths_present) == 1
+
+
+def test_pool_scales_with_the_requested_slot() -> None:
+    """A longer slot needs more candidates, or the set runs out of music.
+
+    With a fixed pool of 50 the track count bottomed out at 11 regardless of
+    slot length, because compatible candidates ran out before the slot filled.
+    Measured on the real library at a 30-minute slot: score 0.8811 at a pool of
+    50, 0.9057 at 120.
+    """
+    from xfinaudio.application.recommendation_candidates import pool_size_for_slot
+
+    assert pool_size_for_slot(slot_minutes=30.0, played_seconds_per_track=120.0) > pool_size_for_slot(
+        slot_minutes=15.0, played_seconds_per_track=120.0
+    )
+    assert pool_size_for_slot(slot_minutes=60.0, played_seconds_per_track=120.0) > pool_size_for_slot(
+        slot_minutes=30.0, played_seconds_per_track=120.0
+    )
+
+
+def test_pool_covers_the_expected_track_count_several_times_over() -> None:
+    """The optimizer needs options, not just enough tracks to fill the slot."""
+    from xfinaudio.application.recommendation_candidates import pool_size_for_slot
+
+    expected_tracks = 30 * 60 / 120  # a 30-minute slot at two minutes each
+
+    pool = pool_size_for_slot(slot_minutes=30.0, played_seconds_per_track=120.0)
+
+    assert pool >= expected_tracks * 4
+
+
+def test_pool_is_capped_so_long_slots_stay_responsive() -> None:
+    """Quality keeps creeping up with pool size, but cost climbs faster.
+
+    Measured: a pool of 160 scored 0.9083 against 0.9057 at 120 -- a third of a
+    percent -- for 2.33s per set against 0.93s.
+    """
+    from xfinaudio.application.recommendation_candidates import pool_size_for_slot
+
+    assert pool_size_for_slot(slot_minutes=240.0, played_seconds_per_track=120.0) <= 150
+
+
+def test_shorter_segments_need_a_bigger_pool() -> None:
+    """Playing less of each track means more tracks in the same slot."""
+    from xfinaudio.application.recommendation_candidates import pool_size_for_slot
+
+    assert pool_size_for_slot(slot_minutes=30.0, played_seconds_per_track=60.0) > pool_size_for_slot(
+        slot_minutes=30.0, played_seconds_per_track=180.0
+    )

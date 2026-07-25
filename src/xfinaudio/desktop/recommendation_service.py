@@ -14,13 +14,8 @@ from xfinaudio.desktop.app_state_transitions import apply_recommendation_complet
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 
-# Two different questions, previously answered by one number.
-#
-# The pool is how many candidates the optimizer gets to choose among. Measured
-# on a 10,367-track library, mean transition score peaks at 50: 0.8716 at a pool
-# of 10, 0.9002 at 50, then back down to 0.8898 at 80 as the greedy path wanders
-# further from the anchor. Beyond that it is also slow -- 200 took 5s per set.
-DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT = 50
+# The pool is derived from the slot rather than fixed: see pool_size_for_slot.
+# A fixed 50 bottomed the track count out at 11 whatever the slot length.
 # The slot length is what a booked DJ actually knows. A fixed track count cannot
 # hit it: on the real library, 10 tracks ran anywhere from 36 to 71 minutes
 # because track lengths vary by nearly a factor of two.

@@ -11,7 +11,7 @@ from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QMainWindow
 
 from xfinaudio.application.playlist_workflow import ScanService
-from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates
+from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates, pool_size_for_slot
 from xfinaudio.config.settings import AppSettings, WindowSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop import rendering as _rendering
@@ -22,7 +22,10 @@ from xfinaudio.desktop.prep_copilot import PrepCopilotController
 from xfinaudio.desktop.recommendation_render import clear_recommendation_review as render_clear_recommendation_review
 from xfinaudio.desktop.recommendation_render import render_recommendation
 from xfinaudio.desktop.recommendation_render import show_transition_review as render_transition_review
-from xfinaudio.desktop.recommendation_service import DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT
+from xfinaudio.desktop.recommendation_service import (
+    DESKTOP_PLAYED_SECONDS_PER_TRACK,
+    DESKTOP_RECOMMENDATION_SET_MINUTES,
+)
 from xfinaudio.desktop.shortcuts import bind_main_window_shortcuts
 from xfinaudio.desktop.table_sorting import connect_table_sorting
 from xfinaudio.desktop.visual_design import apply_visual_design
@@ -473,7 +476,10 @@ class MainWindow(QMainWindow):
         return plan_recommendation_candidates(
             scanned_records=self.scanned_records,
             controls=controls,
-            limit=DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT,
+            limit=pool_size_for_slot(
+                slot_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
+                played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
+            ),
             strategy_name=strategy_name,
         )
 
