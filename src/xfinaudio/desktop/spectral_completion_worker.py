@@ -7,6 +7,7 @@ emits each result back to the UI.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from collections.abc import Sequence
@@ -234,18 +235,29 @@ class SpectralCompletionWorker(QObject):
         if thread is not None and thread.isRunning():
             thread.terminate()
             thread.wait(timeout_ms)
-        if self._runner is not None:
-            self._runner.deleteLater()
-            self._runner = None
+        self._release_runner()
         self._thread = None
         self._cancellation_token = None
+
+    def _release_runner(self) -> None:
+        """Drop the runner, tolerating a C++ side that is already gone.
+
+        The runner lives on the worker thread and can be torn down through
+        several routes (its own deleteLater, thread teardown, interpreter
+        shutdown). Touching a deleted Shiboken wrapper raises RuntimeError, so
+        releasing has to be idempotent whichever route ran first.
+        """
+        runner = self._runner
+        self._runner = None
+        if runner is None:
+            return
+        with contextlib.suppress(RuntimeError):
+            runner.deleteLater()
 
     @Slot()
     def _on_finished(self) -> None:
         self.finished.emit()
-        if self._runner is not None:
-            self._runner.deleteLater()
-        self._runner = None
+        self._release_runner()
 
     @Slot(int, int)
     def _on_progress_updated(self, processed_count: int, total_count: int) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -193,7 +194,7 @@ def test_analyze_spectral_profile_does_not_suppress_other_threads_warnings(
     observed_during_analysis: list[bool] = []
     real_load = librosa.load
 
-    def probing_load(*args: object, **kwargs: object) -> object:
+    def probing_load(*args: Any, **kwargs: Any) -> Any:
         with warnings.catch_warnings(record=True) as caught:
             warnings.warn("probe from another thread", UserWarning, stacklevel=1)
             observed_during_analysis.append(bool(caught))
