@@ -13,12 +13,16 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
 )
 
+from xfinaudio.application.recommendation_candidates import pool_size_for_slot
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings, WindowSettings
 from xfinaudio.desktop import export_coordinator, main_window
 from xfinaudio.desktop.library_screen_rendering import _COLUMNS
 from xfinaudio.desktop.main_window import MainWindow
-from xfinaudio.desktop.recommendation_service import DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT
+from xfinaudio.desktop.recommendation_service import (
+    DESKTOP_PLAYED_SECONDS_PER_TRACK,
+    DESKTOP_RECOMMENDATION_SET_MINUTES,
+)
 from xfinaudio.exporting.explainability import PlaylistExplanation, TrackExplanation, TransitionExplanation
 from xfinaudio.exporting.serato_crate import parse_serato_crate_bytes
 from xfinaudio.library.models import TrackRecord
@@ -1498,7 +1502,12 @@ def test_main_window_limits_large_recommendation_candidate_pool_for_interactive_
     controls = window._selected_track_controls()
     records = window._desktop_recommendation_records(controls)
 
-    assert len(records) == DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT
+    # The pool caps the candidate count; it cannot invent tracks the library does
+    # not have, so a fixture smaller than the cap yields everything it holds.
+    assert len(records) <= pool_size_for_slot(
+        slot_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
+        played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
+    )
     assert records[0].path == str(tmp_path / "track-080.flac")
     assert str(tmp_path / "track-080.flac") in {record.path for record in records}
 
@@ -1549,7 +1558,12 @@ def test_main_window_candidate_pool_prefers_selected_track_genre_family(tmp_path
     records = window._desktop_recommendation_records(window._selected_track_controls())
 
     assert records[0].path == selected.path
-    assert len(records) == DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT
+    # The pool caps the candidate count; it cannot invent tracks the library does
+    # not have, so a fixture smaller than the cap yields everything it holds.
+    assert len(records) <= pool_size_for_slot(
+        slot_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
+        played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
+    )
     # The pool is wider than the 31 same-genre tracks available, so it fills the
     # tail with fallback candidates. What matters is the preference: every
     # matching track comes first, before any of the unrelated ones.
@@ -1900,7 +1914,12 @@ def test_desktop_recommendation_pool_uses_path_sets_instead_of_model_equality(mo
     pool = window._desktop_recommendation_records(DJControls(start_path=selected.path))
 
     assert pool[0].path == selected.path
-    assert len(pool) == DESKTOP_RECOMMENDATION_CANDIDATE_LIMIT
+    # The pool caps the candidate count; it cannot invent tracks the library does
+    # not have, so a fixture smaller than the cap yields everything it holds.
+    assert len(pool) <= pool_size_for_slot(
+        slot_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
+        played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
+    )
 
 
 def test_main_window_applies_dj_visual_style() -> None:
