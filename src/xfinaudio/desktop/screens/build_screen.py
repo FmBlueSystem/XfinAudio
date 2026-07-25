@@ -181,7 +181,12 @@ class BuildScreen(QWidget):
             header_item = self.copilot_table.horizontalHeaderItem(col)
             if header_item is not None:
                 header_item.setToolTip(self.tr(tip))
-        self.copilot_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        copilot_header = self.copilot_table.horizontalHeader()
+        # Free width goes to Description, which holds a sentence; the others
+        # hold a name, a count and a status word.
+        copilot_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        for name in ("Variant", "Tracks", "Readiness"):
+            copilot_header.setSectionResizeMode(_COPILOT_COLUMNS.index(name), QHeaderView.ResizeMode.ResizeToContents)
         self.copilot_table.setAlternatingRowColors(True)
         self.copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -197,8 +202,9 @@ class BuildScreen(QWidget):
         self.apply_variant_button = QPushButton(self.tr("Apply Selected Variant"))
         layout.addWidget(self.apply_variant_button)
 
-        # Push nav to bottom; spare space goes to the copilot table.
-        layout.addStretch(1)
+        # No spacer here: the copilot table above carries the stretch and pushes
+        # the nav row down on its own. A trailing addStretch would compete with
+        # it for the free height, leaving the table about three rows tall.
 
         # Bottom navigation
         nav = QHBoxLayout()

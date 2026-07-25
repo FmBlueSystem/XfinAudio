@@ -139,7 +139,12 @@ class ExportScreen(QWidget):
             header_item = self.history_table.horizontalHeaderItem(col)
             if header_item is not None:
                 header_item.setToolTip(self.tr(tip))
-        self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        history_header = self.history_table.horizontalHeader()
+        # Free width goes to the three path columns; Time, Strategy and Tracks
+        # hold a timestamp, a name and a count.
+        history_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        for name in ("Time", "Strategy", "Tracks"):
+            history_header.setSectionResizeMode(_HISTORY_COLUMNS.index(name), QHeaderView.ResizeMode.ResizeToContents)
         self.history_table.setAlternatingRowColors(True)
         self.history_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.history_table.setMinimumHeight(200)
