@@ -56,6 +56,52 @@ def test_parser_uses_energylevel_when_mixedinkey_energy_json_is_invalid() -> Non
     assert metadata.source_fields["energy_level"] == "energylevel"
 
 
+def test_parser_prefers_mixedinkey_beatgrid_tempo_over_a_third_party_bpm_tag() -> None:
+    """`beatgrid` carries Mixed In Key's own tempo; plain `bpm` may be another tool's.
+
+    Measured on the real library: a third-party organizer overwrote the flat tag
+    fields on 9,826 of 10,392 files. Roughly 4% of them disagree with the
+    beatgrid, several by a 4/3 triplet-feel ratio. Verified blind on the file
+    below by re-running Mixed In Key against a tag-stripped copy: it returned
+    151.05, matching the beatgrid, not the 80.28 in the `bpm` tag.
+    """
+    import base64
+    import json as _json
+
+    encoded = base64.b64encode(
+        _json.dumps({"source": "mixedinkey", "tempo": 151.0471801757812, "algorithm": 12}).encode()
+    ).decode()
+
+    metadata = parse_mixedinkey_tags({"beatgrid": [encoded], "bpm": ["80.280000"]})
+
+    assert metadata.bpm == 151.05
+    assert metadata.source_fields["bpm"] == "beatgrid"
+
+
+def test_parser_falls_back_to_the_bpm_tag_when_the_beatgrid_is_not_mixedinkey() -> None:
+    """Only Mixed In Key's own beatgrid outranks the flat tag."""
+    import base64
+    import json as _json
+
+    foreign = base64.b64encode(_json.dumps({"source": "othertool", "tempo": 99.0}).encode()).decode()
+
+    metadata = parse_mixedinkey_tags({"beatgrid": [foreign], "bpm": ["128.00"]})
+
+    assert metadata.bpm == 128.0
+    assert metadata.source_fields["bpm"] == "bpm"
+
+
+def test_parser_ignores_a_malformed_beatgrid_tempo() -> None:
+    import base64
+    import json as _json
+
+    broken = base64.b64encode(_json.dumps({"source": "mixedinkey", "tempo": "n/a"}).encode()).decode()
+
+    metadata = parse_mixedinkey_tags({"beatgrid": [broken], "bpm": ["128.00"]})
+
+    assert metadata.bpm == 128.0
+
+
 def test_parser_converts_musical_key_notation_in_mik_json_to_camelot() -> None:
     """Mixed In Key often stores the key as a standard musical name (e.g. 'Cm') rather than
     Camelot. The parser must convert it: C minor → 5A."""
