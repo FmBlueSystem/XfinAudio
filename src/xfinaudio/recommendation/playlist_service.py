@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from xfinaudio.audio.spectral_profile import ColorName
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls, preserved_control_paths
+from xfinaudio.recommendation.energy_arc import traces_an_arc
 from xfinaudio.recommendation.optimizer import recommend_sequence
 from xfinaudio.recommendation.scoring import (
     ScoringWeights,
@@ -25,6 +26,17 @@ from xfinaudio.recommendation.strategies import (
 )
 
 MAX_ADJACENT_BPM_DIFFERENCE_PERCENT = 3.0
+# How many candidates the optimizer gets per slot it will fill. The set is ~15
+# tracks; handing the sequencer 120 and trimming the result to 15 is the wrong
+# shape of work, and it is what made a set cost seconds. Cost climbs far faster
+# than quality -- measured per set: 0.035s at 30 candidates, 0.305s at 60,
+# 1.65s at 90, 4.76s at 120, for mean transition scores of 0.814, 0.863, 0.883,
+# 0.894. Four per slot buys the shape without the bill.
+_SEQUENCING_CANDIDATES_PER_SLOT = 4
+_MIN_SEQUENCING_CANDIDATES = 30
+# Used when the caller names no set length. Sits at the measured knee of the
+# cost curve rather than at "everything".
+_UNBOUNDED_SEQUENCING_CANDIDATES = 60
 _COLOR_FILTER_STRATEGIES: frozenset[str] = frozenset({"same_color", "same_color_energy"})
 
 
@@ -184,7 +196,9 @@ def recommend_playlist(
     different question from how many candidates the optimizer gets to choose
     among. Passing a wider pool with a smaller target lets it select rather than
     merely permute: on a real library, a pool of 50 trimmed to 10 scored 0.9002
-    against 0.8716 for a pool of 10. ``None`` returns the whole sequenced pool.
+    against 0.8716 for a pool of 10. ``None`` leaves the result untrimmed, but
+    the optimizer is still handed a bounded shortlist -- sequencing every
+    candidate costs far more than it returns.
 
     ``target_duration_minutes`` expresses the same cap the way a booked DJ
     actually knows it -- a slot length -- and wins over ``target_count`` when
@@ -278,8 +292,13 @@ def recommend_playlist(
         # Shield the control tracks: this gate runs on an unordered pool, so the
         # anchor is not necessarily first, and recommend_sequence below rejects
         # the request outright if start_path is missing from what it receives.
-        remaining_tracks, dropped_bpm_jump_count = _drop_generated_tracks_after_impossible_bpm_jumps(
-            remaining_tracks, preserve_paths=preserved_control_paths(controls)
+        remaining_tracks, dropped_bpm_jump_count = _bpm_reachable_from(
+            remaining_tracks, start_path, preserve_paths=preserved_control_paths(controls)
+        )
+        remaining_tracks = _shortlist_for_sequencing(
+            remaining_tracks,
+            _expected_set_length(remaining_tracks, target_duration_minutes, played_seconds_per_track, target_count),
+            preserve_paths=preserved_control_paths(controls),
         )
         if dropped_bpm_jump_count:
             warnings.append(_bpm_jump_warning(dropped_bpm_jump_count))
@@ -380,6 +399,39 @@ def _manual_prefix_without_terminal_end(manual_prefix: list[TrackRecord], end_pa
     return [track for track in manual_prefix if track.path != end_path]
 
 
+def _shortlist_for_sequencing(
+    tracks: list[TrackRecord],
+    set_length: int | None,
+    *,
+    preserve_paths: set[str] | None = None,
+) -> list[TrackRecord]:
+    """Cap what the optimizer sequences at a few candidates per slot it will fill.
+
+    The pool arrives interleaved by energy, so taking the front of it keeps the
+    spread a shape needs while cutting the sequencing cost, which climbs far
+    faster than the quality it buys. Control tracks are kept whatever the cap.
+
+    A caller that names no set length still gets a cap. `prep_copilot` is one:
+    it sequences three variants off the full pool, so leaving it uncapped cost
+    three times the full sequencing bill for a plan the DJ skims.
+    """
+    limit = (
+        _UNBOUNDED_SEQUENCING_CANDIDATES
+        if set_length is None
+        else max(_MIN_SEQUENCING_CANDIDATES, set_length * _SEQUENCING_CANDIDATES_PER_SLOT)
+    )
+    if len(tracks) <= limit:
+        return tracks
+    protected = preserve_paths or set()
+    kept = [item for item in tracks if item.path in protected]
+    for item in tracks:
+        if len(kept) >= limit:
+            break
+        if item.path not in protected:
+            kept.append(item)
+    return kept
+
+
 def _expected_set_length(
     candidates: list[TrackRecord],
     target_duration_minutes: float | None,
@@ -408,6 +460,8 @@ def _expected_set_length(
 
 
 def _uses_strategy_order(strategy: PlaylistStrategy) -> bool:
+    if traces_an_arc(strategy.name):
+        return False
     return strategy.sort_hint in {"energy_ascending", "energy_descending", "bpm_ascending"}
 
 
@@ -682,6 +736,46 @@ def _bpm_jump_warning(dropped_count: int, *, suffix: str = "") -> str:
         f"{dropped_count} generated track(s) because adjacent BPM jump exceeded "
         f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%{suffix}"
     )
+
+
+def _bpm_reachable_from(
+    tracks: list[TrackRecord],
+    anchor_path: str | None,
+    *,
+    max_bpm_difference_percent: float = MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
+    preserve_paths: set[str] | None = None,
+) -> tuple[list[TrackRecord], int]:
+    """Keep the candidates a set can actually reach from the anchor."""
+    protected = set(preserve_paths or set())
+    if anchor_path is not None:
+        protected.add(anchor_path)
+    passthrough = [item for item in tracks if item.bpm is None or item.path in protected]
+    measurable = sorted(
+        (item for item in tracks if item.bpm is not None and item.path not in protected),
+        key=lambda item: (item.bpm or 0.0, item.path),
+    )
+    if not measurable:
+        return tracks, 0
+    anchor = next((item for item in tracks if item.path == anchor_path), None)
+    anchored = anchor is not None and anchor.bpm is not None
+    line = sorted(
+        [*measurable, anchor] if anchored and anchor is not None else measurable,
+        key=lambda item: (item.bpm or 0.0, item.path),
+    )
+    runs: list[list[TrackRecord]] = [[line[0]]]
+    for previous, current in zip(line, line[1:], strict=False):
+        if _bpm_difference_percent(previous.bpm or 0.0, current.bpm or 0.0) > max_bpm_difference_percent:
+            runs.append([current])
+        else:
+            runs[-1].append(current)
+    chosen: list[TrackRecord] | None = None
+    if anchored:
+        chosen = next((run for run in runs if any(item.path == anchor_path for item in run)), None)
+    if chosen is None:
+        chosen = max(runs, key=len)
+    reachable = {item.path for item in chosen}
+    kept = [item for item in tracks if item.path in reachable or item in passthrough]
+    return kept, len(tracks) - len(kept)
 
 
 def _drop_generated_tracks_after_impossible_bpm_jumps(
