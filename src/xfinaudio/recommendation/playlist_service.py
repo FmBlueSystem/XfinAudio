@@ -34,9 +34,12 @@ MAX_ADJACENT_BPM_DIFFERENCE_PERCENT = 3.0
 # 0.894. Four per slot buys the shape without the bill.
 _SEQUENCING_CANDIDATES_PER_SLOT = 4
 _MIN_SEQUENCING_CANDIDATES = 30
-# Used when the caller names no set length. Sits at the measured knee of the
-# cost curve rather than at "everything".
-_UNBOUNDED_SEQUENCING_CANDIDATES = 60
+# Used when the caller names no set length. `prep_copilot` is the one that does
+# this, and it sequences three variants for the DJ to skim rather than one set
+# to play, so it is bought at the cheap end of the cost curve: 0.035s per
+# sequence against 0.305s at 60, for 0.814 mean transition quality against
+# 0.863.
+_UNBOUNDED_SEQUENCING_CANDIDATES = 30
 _COLOR_FILTER_STRATEGIES: frozenset[str] = frozenset({"same_color", "same_color_energy"})
 
 

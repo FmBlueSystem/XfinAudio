@@ -1118,12 +1118,16 @@ def test_shortlist_scales_with_the_slot_and_always_keeps_controls() -> None:
 
 
 def test_shortlist_caps_a_caller_that_names_no_slot() -> None:
-    """`prep_copilot` sequences three variants off the full pool."""
+    """`prep_copilot` sequences three variants for the DJ to skim, not one set to play.
+
+    Bought at the cheap end of the cost curve: 0.035s per sequence against
+    0.305s at 60 candidates, for 0.814 mean transition quality against 0.863.
+    """
     from xfinaudio.recommendation.playlist_service import _shortlist_for_sequencing
 
     pool = [track(f"/t{index:03d}.flac", bpm=120.0, camelot_key="8A", energy_level=5) for index in range(200)]
 
-    assert len(_shortlist_for_sequencing(pool, None)) == 60
+    assert len(_shortlist_for_sequencing(pool, None)) == 30
 
 
 def test_strategies_that_declare_an_arc_go_through_the_optimizer() -> None:
