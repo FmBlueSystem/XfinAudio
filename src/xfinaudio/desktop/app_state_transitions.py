@@ -9,10 +9,10 @@ from typing import Protocol
 
 from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.desktop.app_state import AppState
-from xfinaudio.exporting.explainability import PlaylistExplanation
+from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.quality.dj_readiness import DjReadinessReport
-from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
+from xfinaudio.quality.dj_readiness import DjReadinessReport, build_dj_readiness_report
+from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
     recommendation_reordered,
@@ -107,9 +107,43 @@ def apply_library_records_loaded(state: AppState, records: Iterable[TrackRecord]
     )
 
 
+def _derived_report_updates(recommendation: PlaylistRecommendation | None) -> dict[str, object]:
+    """Return the review panels rebuilt for *recommendation*.
+
+    The explanation, the quality report and the readiness report are all pure
+    functions of the playlist, but they were built once when it was generated
+    and never again. The Review screen's track table filtered removed paths
+    while the transition table, the readiness checks and the quality summary
+    kept describing the playlist as it was: remove a track and the top of the
+    screen dropped a row while the bottom still counted fifteen.
+    """
+    if recommendation is None:
+        return {
+            "last_playlist_explanation": None,
+            "last_quality_report": None,
+            "last_dj_readiness_report": None,
+        }
+    quality_report = build_quality_report(recommendation)
+    return {
+        "last_playlist_explanation": build_playlist_explanation(recommendation),
+        "last_quality_report": quality_report,
+        "last_dj_readiness_report": build_dj_readiness_report(recommendation, quality_report),
+    }
+
+
 def apply_playlist_track_removed(state: AppState, path: str) -> AppState:
-    """Return a new state with a playlist track marked as removed."""
-    return state.model_copy(update={"playlist_removed_paths": state.playlist_removed_paths | {path}})
+    """Return a new state with a playlist track removed and the panels rebuilt.
+
+    The track leaves ``last_recommendation`` rather than only being marked, so
+    everything derived from the playlist describes the playlist that is left.
+    """
+    recommendation = state.last_recommendation
+    update: dict[str, object] = {"playlist_removed_paths": state.playlist_removed_paths | {path}}
+    if recommendation is not None:
+        recommendation = recommendation_without_paths(recommendation, frozenset({path}))
+        update["last_recommendation"] = recommendation
+        update.update(_derived_report_updates(recommendation))
+    return state.model_copy(update=update)
 
 
 def apply_playlist_track_replaced(state: AppState, *, path: str, recommendation: PlaylistRecommendation) -> AppState:
@@ -118,6 +152,7 @@ def apply_playlist_track_replaced(state: AppState, *, path: str, recommendation:
         update={
             "last_recommendation": recommendation,
             "playlist_removed_paths": state.playlist_removed_paths | {path},
+            **_derived_report_updates(recommendation),
         }
     )
 
@@ -133,6 +168,7 @@ def apply_playlist_track_restored(
     update: dict[str, object] = {"playlist_removed_paths": state.playlist_removed_paths - {path}}
     if recommendation is not None:
         update["last_recommendation"] = recommendation
+        update.update(_derived_report_updates(recommendation))
     return state.model_copy(update=update)
 
 
