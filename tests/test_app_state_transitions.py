@@ -426,3 +426,117 @@ def test_export_edits_are_inert_without_a_recommendation() -> None:
 
     assert apply_export_track_order(empty, ["/a.flac"]) is empty
     assert apply_export_track_removal(empty, "/a.flac") is empty
+
+
+# ---------------------------------------------------------------------------
+# Removing a track has to move the panels that describe the playlist.
+#
+# The Review screen's track table filtered `playlist_removed_paths`, but the
+# transition table, the readiness checks and the quality summary all read
+# reports built once when the recommendation was generated and never rebuilt.
+# Remove a track and the top of the screen dropped a row while the bottom still
+# described fifteen.
+# ---------------------------------------------------------------------------
+
+
+def _reviewed_state(paths: list[str]):
+    from xfinaudio.desktop.app_state import AppState
+    from xfinaudio.exporting.explainability import build_playlist_explanation
+    from xfinaudio.library.models import TrackRecord
+    from xfinaudio.quality.dj_readiness import build_dj_readiness_report
+    from xfinaudio.quality.recommendation_quality import build_quality_report
+    from xfinaudio.recommendation.playlist_service import recommend_playlist
+
+    tracks = [
+        TrackRecord(
+            path=path,
+            title=path.rsplit("/", maxsplit=1)[-1],
+            bpm=120.0 + index * 0.5,
+            camelot_key="8A",
+            energy_level=6,
+            metadata_status="complete",
+        )
+        for index, path in enumerate(paths)
+    ]
+    recommendation = recommend_playlist(tracks, "same_energy")
+    quality = build_quality_report(recommendation)
+    return AppState(
+        last_recommendation=recommendation,
+        last_playlist_explanation=build_playlist_explanation(recommendation),
+        last_quality_report=quality,
+        last_dj_readiness_report=build_dj_readiness_report(recommendation, quality),
+    )
+
+
+def test_removing_a_track_rebuilds_the_transition_explanation() -> None:
+    from xfinaudio.desktop.app_state_transitions import apply_playlist_track_removed
+
+    state = _reviewed_state(["/a.flac", "/b.flac", "/c.flac", "/d.flac"])
+    assert state.last_playlist_explanation is not None
+    before = len(state.last_playlist_explanation.transitions)
+    doomed = state.last_recommendation.ordered_tracks[1].path
+
+    result = apply_playlist_track_removed(state, doomed)
+
+    assert result.last_playlist_explanation is not None
+    assert len(result.last_playlist_explanation.transitions) == before - 1
+    named = {t.left.path for t in result.last_playlist_explanation.transitions} | {
+        t.right.path for t in result.last_playlist_explanation.transitions
+    }
+    assert doomed not in named
+
+
+def test_removing_a_track_rebuilds_the_quality_summary() -> None:
+    from xfinaudio.desktop.app_state_transitions import apply_playlist_track_removed
+
+    state = _reviewed_state(["/a.flac", "/b.flac", "/c.flac", "/d.flac"])
+    before = state.last_quality_report.transition_count
+    doomed = state.last_recommendation.ordered_tracks[1].path
+
+    result = apply_playlist_track_removed(state, doomed)
+
+    assert result.last_quality_report is not None
+    assert result.last_quality_report.transition_count == before - 1
+
+
+def test_removing_a_track_rebuilds_the_readiness_report() -> None:
+    """The playlist-size check counted the tracks it was built with."""
+    from xfinaudio.desktop.app_state_transitions import apply_playlist_track_removed
+
+    state = _reviewed_state(["/a.flac", "/b.flac", "/c.flac", "/d.flac"])
+    doomed = state.last_recommendation.ordered_tracks[1].path
+
+    result = apply_playlist_track_removed(state, doomed)
+
+    assert result.last_dj_readiness_report is not None
+    assert result.last_dj_readiness_report is not state.last_dj_readiness_report
+    details = " ".join(check.detail for check in result.last_dj_readiness_report.checks)
+    assert "4 track" not in details, f"still describing the pre-removal playlist: {details}"
+
+
+def test_a_backfilled_removal_also_rebuilds_the_panels() -> None:
+    from xfinaudio.desktop.app_state_transitions import apply_playlist_track_replaced
+    from xfinaudio.recommendation.playlist_service import recommendation_without_paths
+
+    state = _reviewed_state(["/a.flac", "/b.flac", "/c.flac", "/d.flac"])
+    doomed = state.last_recommendation.ordered_tracks[1].path
+    backfilled = recommendation_without_paths(state.last_recommendation, frozenset({doomed}))
+
+    result = apply_playlist_track_replaced(state, path=doomed, recommendation=backfilled)
+
+    assert result.last_playlist_explanation is not None
+    assert len(result.last_playlist_explanation.transitions) == len(backfilled.ordered_tracks) - 1
+
+
+def test_restoring_a_track_rebuilds_the_panels_too() -> None:
+    from xfinaudio.desktop.app_state_transitions import apply_playlist_track_removed, apply_playlist_track_restored
+
+    state = _reviewed_state(["/a.flac", "/b.flac", "/c.flac", "/d.flac"])
+    original = state.last_recommendation
+    doomed = original.ordered_tracks[1].path
+
+    removed = apply_playlist_track_removed(state, doomed)
+    restored = apply_playlist_track_restored(removed, doomed, original)
+
+    assert restored.last_playlist_explanation is not None
+    assert len(restored.last_playlist_explanation.transitions) == len(original.ordered_tracks) - 1
