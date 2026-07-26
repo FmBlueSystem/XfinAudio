@@ -473,6 +473,7 @@ def test_removing_a_track_rebuilds_the_transition_explanation() -> None:
 
     state = _reviewed_state(["/a.flac", "/b.flac", "/c.flac", "/d.flac"])
     assert state.last_playlist_explanation is not None
+    assert state.last_recommendation is not None
     before = len(state.last_playlist_explanation.transitions)
     doomed = state.last_recommendation.ordered_tracks[1].path
 
@@ -490,6 +491,8 @@ def test_removing_a_track_rebuilds_the_quality_summary() -> None:
     from xfinaudio.desktop.app_state_transitions import apply_playlist_track_removed
 
     state = _reviewed_state(["/a.flac", "/b.flac", "/c.flac", "/d.flac"])
+    assert state.last_quality_report is not None
+    assert state.last_recommendation is not None
     before = state.last_quality_report.transition_count
     doomed = state.last_recommendation.ordered_tracks[1].path
 
@@ -504,6 +507,7 @@ def test_removing_a_track_rebuilds_the_readiness_report() -> None:
     from xfinaudio.desktop.app_state_transitions import apply_playlist_track_removed
 
     state = _reviewed_state(["/a.flac", "/b.flac", "/c.flac", "/d.flac"])
+    assert state.last_recommendation is not None
     doomed = state.last_recommendation.ordered_tracks[1].path
 
     result = apply_playlist_track_removed(state, doomed)
@@ -519,6 +523,7 @@ def test_a_backfilled_removal_also_rebuilds_the_panels() -> None:
     from xfinaudio.recommendation.playlist_service import recommendation_without_paths
 
     state = _reviewed_state(["/a.flac", "/b.flac", "/c.flac", "/d.flac"])
+    assert state.last_recommendation is not None
     doomed = state.last_recommendation.ordered_tracks[1].path
     backfilled = recommendation_without_paths(state.last_recommendation, frozenset({doomed}))
 
@@ -533,6 +538,7 @@ def test_restoring_a_track_rebuilds_the_panels_too() -> None:
 
     state = _reviewed_state(["/a.flac", "/b.flac", "/c.flac", "/d.flac"])
     original = state.last_recommendation
+    assert original is not None
     doomed = original.ordered_tracks[1].path
 
     removed = apply_playlist_track_removed(state, doomed)
