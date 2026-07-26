@@ -184,6 +184,16 @@ def clear_main_scan_dependent_state(self: Any) -> None:
 
 
 def selected_main_track_controls(self: Any) -> DJControls | None:
+    """Return the DJ's controls, carrying the genre chosen for this set."""
+    controls = _selected_track_controls_without_genre(self)
+    if controls is None:
+        return None
+    build_screen = getattr(self, "_build_screen", None)
+    genre = build_screen.selected_genre() if build_screen is not None else None
+    return controls if genre is None else controls.model_copy(update={"genre": genre})
+
+
+def _selected_track_controls_without_genre(self: Any) -> DJControls | None:
     records_by_path = {record.path: record for record in self.scanned_records}
 
     if self._library_selected_paths:

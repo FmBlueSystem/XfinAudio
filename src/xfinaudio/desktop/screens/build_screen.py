@@ -41,6 +41,9 @@ _COPILOT_HEADER_TOOLTIPS = [
 ]
 
 
+ANY_GENRE = "Any genre"
+
+
 class BuildScreen(QWidget):
     """Displays strategy selection and Prep Copilot controls."""
 
@@ -71,6 +74,11 @@ class BuildScreen(QWidget):
         # Strategy row
         strategy_row = QHBoxLayout()
         self.strategy_combo = QComboBox()
+        # Genre sits beside the strategy because they are separate choices: the
+        # shape of a set and the corner of the library it is drawn from. Coupling
+        # them meant a genre-locked set had to give up its energy arc.
+        self.genre_combo = QComboBox()
+        self.genre_combo.addItem(ANY_GENRE)
         self.recommend_button = QPushButton(self.tr("Recommend Playlist"))
         self.recommend_button.setObjectName("primaryAction")
         self.recommend_button.setMinimumHeight(36)
@@ -82,6 +90,7 @@ class BuildScreen(QWidget):
         self.recommend_progress_label = QLabel("")
         self.recommend_progress_label.setVisible(False)
         strategy_row.addWidget(self.strategy_combo)
+        strategy_row.addWidget(self.genre_combo)
         strategy_row.addWidget(self.recommend_button)
         strategy_row.addWidget(self.recommend_progress_bar)
         strategy_row.addWidget(self.recommend_progress_label)
@@ -239,6 +248,7 @@ class BuildScreen(QWidget):
     def _setup_accessibility(self) -> None:
         """Set accessible names for screen readers."""
         self.strategy_combo.setAccessibleName(self.tr("Recommendation strategy"))
+        self.genre_combo.setAccessibleName(self.tr("Genre for this set"))
         self.recommend_button.setAccessibleName(self.tr("Recommend playlist"))
         self.spectral_cohesion_slider.setAccessibleName(self.tr("Spectral cohesion"))
         self.exclude_button.setAccessibleName(self.tr("Exclude selected tracks"))
@@ -254,7 +264,8 @@ class BuildScreen(QWidget):
 
     def _setup_tab_order(self) -> None:
         """Define a logical keyboard tab order across primary controls."""
-        self.setTabOrder(self.strategy_combo, self.recommend_button)
+        self.setTabOrder(self.strategy_combo, self.genre_combo)
+        self.setTabOrder(self.genre_combo, self.recommend_button)
         self.setTabOrder(self.recommend_button, self.spectral_cohesion_slider)
         self.setTabOrder(self.spectral_cohesion_slider, self.exclude_button)
         self.setTabOrder(self.exclude_button, self.lock_button)
@@ -428,3 +439,31 @@ class BuildScreen(QWidget):
             return
         row = self.copilot_table.currentRow()
         self.copilot_variant_applied.emit(row)
+
+    # ------------------------------------------------------------------
+    # Genre selection
+    # ------------------------------------------------------------------
+
+    def set_available_genres(self, genres: list[str]) -> None:
+        """Offer *genres*, keeping whatever the DJ already picked if it survives.
+
+        Re-scanning the library must not silently reset the set being built, so
+        the current choice is restored when it is still on offer and falls back
+        to every genre when it is not.
+        """
+        previous = self.selected_genre()
+        listed = sorted({genre.strip() for genre in genres if genre and genre.strip()})
+        self.genre_combo.blockSignals(True)
+        self.genre_combo.clear()
+        self.genre_combo.addItem(ANY_GENRE)
+        for genre in listed:
+            self.genre_combo.addItem(genre)
+        if previous is not None:
+            index = self.genre_combo.findText(previous)
+            self.genre_combo.setCurrentIndex(max(index, 0))
+        self.genre_combo.blockSignals(False)
+
+    def selected_genre(self) -> str | None:
+        """Return the chosen genre, or None when the whole library is in play."""
+        current = self.genre_combo.currentText()
+        return None if current == ANY_GENRE or not current else current

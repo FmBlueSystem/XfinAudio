@@ -1149,3 +1149,114 @@ def test_chill_keeps_its_sort() -> None:
     ]
 
     assert recommend_playlist(pool, "chill").optimizer == "strategy-order"
+
+
+# ---------------------------------------------------------------------------
+# Genre is a property of the set, not of the strategy.
+#
+# It was only ever inferred from the anchor, and only when `same_genre` was
+# picked -- so locking a set to one genre meant giving up the energy shape.
+# "peak time, but Rock" could not be asked for. The DJ plays 30-minute blocks
+# and changes genre between them, which is exactly the request this refuses.
+# ---------------------------------------------------------------------------
+
+
+def _mixed_genre_pool() -> list[TrackRecord]:
+    return [
+        track(f"/{genre.lower()}-{index}.flac", bpm=120.0 + index * 0.4, camelot_key="8A", energy_level=7, genre=genre)
+        for genre in ("Rock", "House")
+        for index in range(6)
+    ]
+
+
+def test_a_set_can_be_locked_to_a_genre_without_giving_up_its_shape() -> None:
+    recommendation = recommend_playlist(_mixed_genre_pool(), "peak_time", controls=DJControls(genre="Rock"))
+
+    genres = {(item.genre or "") for item in recommendation.ordered_tracks}
+    assert genres == {"Rock"}
+    assert recommendation.optimizer != "strategy-order", "the shape still goes through the optimizer"
+
+
+def test_the_genre_choice_is_reported() -> None:
+    recommendation = recommend_playlist(_mixed_genre_pool(), "peak_time", controls=DJControls(genre="Rock"))
+
+    assert any("Rock" in warning for warning in recommendation.warnings)
+
+
+def test_genre_matching_ignores_case_and_padding() -> None:
+    recommendation = recommend_playlist(_mixed_genre_pool(), "peak_time", controls=DJControls(genre="  rock "))
+
+    assert {(item.genre or "") for item in recommendation.ordered_tracks} == {"Rock"}
+
+
+def test_control_tracks_survive_the_genre_filter() -> None:
+    """The DJ pinned it on purpose; the filter does not overrule that."""
+    pool = _mixed_genre_pool()
+
+    recommendation = recommend_playlist(
+        pool, "peak_time", controls=DJControls(genre="Rock", start_path="/house-0.flac")
+    )
+
+    assert "/house-0.flac" in [item.path for item in recommendation.ordered_tracks]
+
+
+def test_a_genre_with_nothing_in_it_warns_rather_than_returning_an_empty_set() -> None:
+    """Classical holds 27 tracks in the reference library and cannot fill a slot."""
+    recommendation = recommend_playlist(_mixed_genre_pool(), "peak_time", controls=DJControls(genre="Polka"))
+
+    assert recommendation.ordered_tracks, "an unmatchable genre must not silently empty the set"
+    assert any("Polka" in warning for warning in recommendation.warnings)
+
+
+def test_no_genre_asked_for_changes_nothing() -> None:
+    without = recommend_playlist(_mixed_genre_pool(), "peak_time")
+    explicit = recommend_playlist(_mixed_genre_pool(), "peak_time", controls=DJControls())
+
+    assert len(without.ordered_tracks) == len(explicit.ordered_tracks)
+    assert len({(item.genre or "") for item in without.ordered_tracks}) > 1
+
+
+def test_a_genre_too_thin_to_fill_the_slot_says_so() -> None:
+    """Classical holds 27 tracks in the reference library and yields a 2-track set.
+
+    "Genre locked to 'Classical'" is true and useless on its own: the DJ asked
+    for a 30-minute slot and got four minutes, and nothing said why.
+    """
+    pool = [
+        *[
+            track(f"/rock-{i}.flac", bpm=120.0 + i * 0.3, camelot_key="8A", energy_level=7, genre="Rock")
+            for i in range(30)
+        ],
+        *[
+            track(f"/classical-{i}.flac", bpm=120.0 + i * 0.3, camelot_key="8A", energy_level=7, genre="Classical")
+            for i in range(3)
+        ],
+    ]
+
+    recommendation = recommend_playlist(
+        pool,
+        "peak_time",
+        controls=DJControls(genre="Classical"),
+        target_duration_minutes=30.0,
+        played_seconds_per_track=120.0,
+    )
+
+    assert any("Classical" in warning and "short" in warning.lower() for warning in recommendation.warnings), (
+        f"no warning explains the short set: {recommendation.warnings}"
+    )
+
+
+def test_a_genre_that_fills_the_slot_stays_quiet_about_it() -> None:
+    pool = [
+        track(f"/rock-{i}.flac", bpm=120.0 + i * 0.3, camelot_key="8A", energy_level=7, genre="Rock") for i in range(40)
+    ]
+
+    recommendation = recommend_playlist(
+        pool,
+        "peak_time",
+        controls=DJControls(genre="Rock"),
+        target_duration_minutes=30.0,
+        played_seconds_per_track=120.0,
+    )
+
+    assert not any("short" in warning.lower() for warning in recommendation.warnings)

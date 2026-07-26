@@ -19,6 +19,11 @@ class DJControls(BaseModel):
     start_path: str | None = None
     end_path: str | None = None
     manual_order_paths: list[str] = Field(default_factory=list)
+    # The set's genre, chosen per playlist rather than inferred from the anchor.
+    # A DJ playing 30-minute blocks changes genre between them, and locking one
+    # used to mean picking the `same_genre` strategy and giving up the energy
+    # shape with it -- "peak time, but Rock" could not be asked for.
+    genre: str | None = None
 
     @model_validator(mode="after")
     def validate_no_invalid_overlaps(self) -> DJControls:

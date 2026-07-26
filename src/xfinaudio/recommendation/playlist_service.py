@@ -233,7 +233,13 @@ def recommend_playlist(
         complete_tracks, strategy, preserve_paths=preserved_control_paths(controls)
     )
     warnings.extend(filter_warnings)
-    if strategy.name == "same_genre":
+    # The DJ's explicit choice comes first; `same_genre` still infers one from
+    # the anchor when nothing was asked for.
+    filtered_tracks, requested_genre_warnings = _apply_requested_genre(
+        filtered_tracks, controls.genre if controls is not None else None, preserved_control_paths(controls)
+    )
+    warnings.extend(requested_genre_warnings)
+    if strategy.name == "same_genre" and not (controls is not None and controls.genre):
         filtered_tracks, genre_warnings = _apply_genre_filter(
             filtered_tracks, controls, preserve_paths=preserved_control_paths(controls)
         )
@@ -361,6 +367,17 @@ def recommend_playlist(
         )
     elif target_count is not None and len(ordered_tracks) > target_count:
         ordered_tracks = ordered_tracks[:target_count]
+
+    # "Genre locked to 'Classical'" is true and useless on its own when the DJ
+    # asked for thirty minutes and got four. Some genres are simply too small a
+    # corner of the library to fill a slot, and that is worth saying out loud.
+    requested_genre = controls.genre if controls is not None else None
+    expected = _expected_set_length(ordered_tracks, target_duration_minutes, played_seconds_per_track, target_count)
+    if requested_genre and expected is not None and len(ordered_tracks) < expected:
+        warnings.append(
+            f"Genre '{requested_genre.strip()}' left the set short: "
+            f"{len(ordered_tracks)} track(s) for a slot that wants about {expected}"
+        )
     transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config, cache=_score_cache)
     warnings.extend(_spectral_jump_warnings(ordered_tracks))
 
@@ -498,6 +515,29 @@ def _move_path_to_edge(tracks: list[TrackRecord], path: str, *, first: bool) -> 
     return [*matching, *others] if first else [*others, *matching]
 
 
+def _apply_requested_genre(
+    tracks: list[TrackRecord], requested: str | None, preserve_paths: set[str]
+) -> tuple[list[TrackRecord], list[str]]:
+    """Keep only the requested genre, or say why the request could not be met.
+
+    Independent of the strategy on purpose: the shape of a set and the corner of
+    the library it is drawn from are separate choices, and coupling them meant
+    a genre-locked set had to give up its energy arc.
+
+    An unmatchable genre falls back to the unfiltered pool rather than returning
+    nothing -- some genres are simply too small to fill a slot, and a set the DJ
+    can edit beats an empty screen.
+    """
+    wanted = (requested or "").strip().casefold()
+    if not wanted:
+        return tracks, []
+    eligible = [track for track in tracks if _normalized_genre(track) == wanted]
+    if not eligible:
+        return tracks, [f"No candidates in genre '{requested.strip()}'; showing every genre instead"]
+    kept = [track for track in tracks if track.path in preserve_paths or _normalized_genre(track) == wanted]
+    return kept, [f"Genre locked to '{requested.strip()}'"]
+
+
 def _apply_strategy_filters(
     tracks: list[TrackRecord], strategy: PlaylistStrategy, preserve_paths: set[str]
 ) -> tuple[list[TrackRecord], list[str]]:
@@ -597,7 +637,10 @@ def prefilter_strategy_candidates(
     complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
 
     filtered, _ = _apply_strategy_filters(complete_tracks, strategy, preserve_paths=preserve_paths)
-    if strategy.name == "same_genre":
+    # Before the interactive cap, or the 120 slots fill with genres the set will
+    # then filter away, leaving a handful of candidates to sequence.
+    filtered, _ = _apply_requested_genre(filtered, controls.genre, preserve_paths)
+    if strategy.name == "same_genre" and not controls.genre:
         filtered, _ = _apply_genre_filter(filtered, controls, preserve_paths=preserve_paths)
     if strategy.name in _COLOR_FILTER_STRATEGIES:
         filtered, _ = _apply_color_filter(

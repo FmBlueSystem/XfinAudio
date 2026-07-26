@@ -173,6 +173,11 @@ class LibraryController:
         )
         self._state = apply_library_records_loaded(self._state, records)
         self._access.state_setter(self._state)
+        # Offer the genres the library actually holds. The Build screen keeps
+        # whatever was already chosen if it survives the refresh.
+        build_screen = getattr(self._widgets, "build_screen", None)
+        if build_screen is not None and hasattr(build_screen, "set_available_genres"):
+            build_screen.set_available_genres([record.genre or "" for record in records])
         self._access.apply_song_filter(clear_selection=False)
 
     def apply_song_filter(self, query: str | None = None, *, clear_selection: bool = False) -> None:
