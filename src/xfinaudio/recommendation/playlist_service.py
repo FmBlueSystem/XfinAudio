@@ -313,6 +313,9 @@ def recommend_playlist(
             cache=_score_cache,
             config=scoring_config,
             arc_strategy=strategy.name,
+            # A tempo jump the DJ cannot beatmatch is not a bad option, it is not
+            # an option -- the sequencer routes around it instead of pricing it.
+            max_bpm_difference_percent=MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
             # The shape must span the set the DJ plays, not the pool it is drawn
             # from. Sizing it by the pool showed only the opening fraction of the
             # curve, so a warm-up never climbed and a journey's peak sat past the
@@ -323,6 +326,14 @@ def recommend_playlist(
         )
         sequenced_tracks = sequenced.ordered_tracks
         optimizer = sequenced.optimizer
+        # The sequencer orders everything it is handed, so a track with no
+        # playable neighbour still comes back -- parked at an edge, where the
+        # penalty is cheapest. Cut those loose now that the true order is known.
+        sequenced_tracks, unplayable_count = _drop_generated_tracks_after_impossible_bpm_jumps(
+            sequenced_tracks, preserve_paths=preserved_control_paths(controls)
+        )
+        if unplayable_count:
+            dropped_bpm_jump_count += unplayable_count
         # Second gate call: now that the true final order is known, re-validate it seeded
         # with the manual anchor. This can drop more than just the manual->generated seam
         # (it walks the whole chain, same as the pre-existing start_path/anchor pattern), so

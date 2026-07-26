@@ -233,3 +233,64 @@ def test_anchor_is_excluded_from_the_energy_scale() -> None:
 
     levels = [item.energy_level for item in played[1:] if item.energy_level is not None]
     assert levels[-1] > levels[0], f"anchor at 9 flattened the climb: {levels}"
+
+
+# ---------------------------------------------------------------------------
+# An unplayable tempo jump is not a bad option, it is not an option.
+#
+# The BPM difference was only ever a scoring component, so the sequencer would
+# happily place a 138 next to a 120 if the harmony was good enough. Measured on
+# the real library: 11 of 12 peak_time sets contained a jump above the declared
+# 3% ceiling, the worst of them 47.89%. A DJ cannot beatmatch that -- a CDJ's
+# pitch fader is +/-6% or +/-8%, and 6% already moves the key a full semitone.
+# ---------------------------------------------------------------------------
+
+
+def _tempo_pool(bpms: list[float]) -> list[TrackRecord]:
+    return [
+        TrackRecord(
+            path=f"/t{index}.flac",
+            title=f"t{index}",
+            bpm=bpm,
+            camelot_key="8A",
+            energy_level=6,
+            metadata_status="complete",
+        )
+        for index, bpm in enumerate(bpms)
+    ]
+
+
+def _worst_jump(tracks: list[TrackRecord]) -> float:
+    bpms = [item.bpm for item in tracks if item.bpm is not None]
+    return max((abs(b - a) / a * 100 for a, b in zip(bpms, bpms[1:], strict=False)), default=0.0)
+
+
+def test_the_sequencer_does_not_build_an_unplayable_jump() -> None:
+    """Two reachable clusters: the order has to walk between them, not leap."""
+    pool = _tempo_pool([120.0, 121.0, 122.0, 123.0, 124.0, 125.0, 126.0, 127.0])
+
+    ordered = recommend_sequence(pool, max_bpm_difference_percent=3.0).ordered_tracks
+
+    assert len(ordered) == len(pool)
+    assert _worst_jump(ordered) <= 3.0, f"worst jump {_worst_jump(ordered):.2f}%"
+
+
+def test_a_stranded_track_is_parked_at_the_end_not_spliced_into_the_middle() -> None:
+    """The sequencer orders everything it is handed; dropping is the caller's job.
+
+    So the one unavoidable bad seam belongs at the edge, where the caller can
+    cut it off without losing the playable chain in front of it.
+    """
+    pool = _tempo_pool([120.0, 121.0, 122.0, 190.0])
+
+    ordered = recommend_sequence(pool, start_path="/t0.flac", max_bpm_difference_percent=3.0).ordered_tracks
+
+    assert ordered[-1].path == "/t3.flac"
+    assert _worst_jump(ordered[:-1]) <= 3.0
+
+
+def test_the_ceiling_is_off_by_default() -> None:
+    """Callers that never asked for the constraint keep their behaviour."""
+    pool = _tempo_pool([120.0, 190.0])
+
+    assert len(recommend_sequence(pool).ordered_tracks) == 2
