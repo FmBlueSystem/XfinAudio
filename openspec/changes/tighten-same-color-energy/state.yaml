@@ -1,19 +1,20 @@
 schema: gentle-ai.sdd-state.v1
 change: tighten-same-color-energy
 artifact_store: openspec
-status: apply
+status: verify
 created: 2026-08-02
-updated: 2026-08-04
+updated: 2026-08-05
+last_correction: 2026-08-05 (verify findings F1 + F2 closed on PR #334 branch)
 strict_tdd: true
 phases:
   proposal: complete
   specs: complete
   design: complete
   tasks: complete
-  apply: in_progress
-  verify: pending
+  apply: complete
+  verify: complete
   archive: pending
-next_recommended: apply
+next_recommended: archive
 blocked_reasons: []
 delivery:
   strategy: ask-on-risk
@@ -44,3 +45,5 @@ notes:
   - "size:exception ACCEPTED by maintainer 2026-08-03 for the 436-line slice-3 diff, under the blanket approval to complete the remaining work autonomously. Same rationale as slice 2: production 205 lines is inside the 400 budget and the 36-line overage is test coverage only."
   - "Orchestrator gatekeeper verification of slice 3 (independent of the apply agent's report): `git diff --name-only ea79cae HEAD` confirms neither tests/test_playlist_service.py nor tests/test_playlist_strategies.py was touched, so every slice-1 characterization and slice-2 strict test is byte-untouched; the six protected same_color/same_energy characterization tests were re-run in isolation and pass. The recommend() dispatch guard was read directly: `if strategy_name == \"same_color_energy\"` takes the context route and returns, while every other strategy falls through to the unchanged `_desktop_recommendation_records(...)` -> `start_recommendation(records, strategy_name, controls, spectral_cohesion)` call, and both start_recommendation and _start_recommendation_worker default same_color_energy_anchor_path to None. Full suite re-run independently: 1406 passed, pyright 0 errors."
   - "Two test adjustments in slice 3 were declared rather than silent, and both preserve original intent: (a) test_desktop_main_window_imports_application_candidate_boundary was made format-agnostic because adding RecommendationCandidateContext turned the asserted import into a multi-line form — the critical negative assertion that main_window must NOT import from recommendation.candidate_pool is unchanged; (b) test_recommend_reads_strategy_via_current_data moved its capture to the context seam because same_color_energy now dispatches through it, still proving the strategy resolved via currentData() reaches the planner."
+  - "Verify correction (2026-08-05): findings F1 and F2 CLOSED on the PR #334 branch feat/same-color-energy-anchor-transport (no new branch, no new PR — commit pushed so PR #334 updates). F1 (shortage-warning scenario R5 had no asserting test, task 3.6): added tests/test_playlist_service.py::test_same_color_energy_shortage_returns_only_eligible_and_warns — MIXED anchor + 2 strictly eligible generated candidates, target_count=5 with 1 control (4 requested generated slots) drives the shortage branch; asserts eligibility is NEVER relaxed (far MIXED candidate excluded despite unfilled slots; each survivor passes _same_color_energy_eligible + exact anchor energy + MIXED colour) and asserts the exact warning 'same_color_energy: strict eligibility left 2 generated candidate(s) for 4 requested slot(s)'. RED proven by mis-pointing the assertion at the empty-pool branch (fails because pool is non-empty). NO production code changed — behavior pre-existed, only proof was missing. F2 (planning drift): tasks.md checkboxes reconciled to shipped reality — Phase 1 (PR #332), Phases 2-4 (PR #333), Phases 5-7 (PR #334) all [x]; A.1 left [ ] (genuinely unshipped acceptance gate). Six verification commands re-run: pytest 1407 passed, pyright 0 errors, coverage 91.15%, ruff check + format clean, release_gate_check exit 0. Eight slice-1 characterization tests byte-untouched and green (only one test appended, none edited). Changed lines: ~40 test lines + docs; zero production source lines — well inside the 120-line correction budget."
+  - "VERIFY phase complete (2026-08-05): verify-report.md written, verdict PASS WITH WARNINGS. Six commands re-run independently: pytest 1406 passed, pyright 0 errors, coverage 91.16%, ruff check + format clean, release_gate_check exit 0 (with explicit root build/dist absence). All 6 spec requirements (1 ADDED + 5 MODIFIED, 12 scenarios) trace to implementation; 11/12 scenarios have asserting tests. Non-goals confirmed by diff scope (no audio/, no DSP/RMS/exact-key/schema/Serato-write). same_color/same_energy/Camelot byte-preserved. No AppState in-place mutation. Findings: CRITICAL 0, WARNING 2 (F1 shortage-warning branch playlist_service.py:1057-1063 / task 3.6 implemented but has NO asserting test — the one untested spec scenario; F2 tasks.md checkbox + state.yaml drift under-claiming shipped work), SUGGESTION 2 (S1 recurring test-line budget overage; S2 duplicate-version survivors in e2e rows 4/6 & 9/12 are PRE-EXISTING dedupe grouping in candidate_pool.dedupe_recommendation_duplicates keyed on title+artist, NOT a defect of this change). MIXED constants remain calibration-provisional (acceptance gate A.1 open, non-blocking; spec binds rule shape, not literals)."
