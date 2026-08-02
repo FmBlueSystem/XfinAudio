@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.playlist_service import recommend_playlist
 
 
 def _record(path: str, *, genre: str | None = None, tags: list[str] | None = None) -> TrackRecord:
@@ -240,3 +243,142 @@ def test_shorter_segments_need_a_bigger_pool() -> None:
     assert pool_size_for_slot(slot_minutes=30.0, played_seconds_per_track=60.0) > pool_size_for_slot(
         slot_minutes=30.0, played_seconds_per_track=180.0
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 (slice 3) — public list API compatibility + internal context seam
+# for same_color_energy anchor transport.
+# ---------------------------------------------------------------------------
+
+
+def _energy_spectral_record(path: str, color: ColorName, energy_level: int) -> TrackRecord:
+    return _spectral_record(path, color).model_copy(update={"energy_level": energy_level})
+
+
+def test_plan_recommendation_candidates_returns_list_for_combined_strategy() -> None:
+    from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates
+
+    greens = [_energy_spectral_record(f"/g-{index:02d}.mp3", "GREEN", 7) for index in range(5)]
+
+    result = plan_recommendation_candidates(
+        scanned_records=greens,
+        controls=DJControls(start_path="/g-00.mp3"),
+        limit=25,
+        strategy_name="same_color_energy",
+    )
+
+    assert isinstance(result, list)
+    assert all(isinstance(track, TrackRecord) for track in result)
+    # Strict eligibility keeps only the GREEN, energy-7 candidates (anchor is GREEN/7).
+    assert all(track.spectral_profile is not None for track in result)
+    assert {track.spectral_profile.dominant_color for track in result} == {"GREEN"}
+
+
+def test_plan_recommendation_candidates_returns_list_for_ordinary_strategy() -> None:
+    from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates
+
+    greens = [_spectral_record(f"/g-{index:02d}.mp3", "GREEN") for index in range(5)]
+
+    result = plan_recommendation_candidates(
+        scanned_records=greens,
+        controls=DJControls(start_path="/g-00.mp3"),
+        limit=25,
+        strategy_name="same_color",
+    )
+
+    assert isinstance(result, list)
+    assert all(isinstance(track, TrackRecord) for track in result)
+
+
+def test_context_planner_returns_frozen_context_with_bound_anchor_path() -> None:
+    from xfinaudio.application.recommendation_candidates import (
+        RecommendationCandidateContext,
+        _plan_same_color_energy_candidate_context,
+    )
+
+    greens = [_energy_spectral_record(f"/g-{index:02d}.mp3", "GREEN", 7) for index in range(5)]
+
+    context = _plan_same_color_energy_candidate_context(
+        scanned_records=greens,
+        controls=DJControls(start_path="/g-00.mp3"),
+        limit=25,
+    )
+
+    assert isinstance(context, RecommendationCandidateContext)
+    assert context.same_color_energy_anchor_path == "/g-00.mp3"
+    assert isinstance(context.records, list)
+    assert "/g-00.mp3" in {track.path for track in context.records}
+    # Frozen dataclass: attributes cannot be reassigned.
+    import dataclasses
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        context.records = []  # type: ignore[misc]
+
+
+def test_context_anchor_survives_dedupe_and_cap() -> None:
+    """A no-control first-profile anchor with a dedupe-colliding sibling.
+
+    The bound anchor path must survive `dedupe_recommendation_duplicates` (which
+    would otherwise pick the OTHER sibling as representative) and the interactive
+    cap, reaching the returned context. Anchor is never re-resolved after
+    dedupe/cap and never converted to `start_path`.
+    """
+    from xfinaudio.application.recommendation_candidates import _plan_same_color_energy_candidate_context
+
+    # Two dedupe-group siblings; the anchor is the first profiled record but the
+    # representative sort key (shorter title) would otherwise prefer the sibling.
+    anchor = _energy_spectral_record("/00-anchor.mp3", "GREEN", 7).model_copy(
+        update={"title": "Song (Extended Mix)", "artist": "Artist"}
+    )
+    dedupe_sibling = _energy_spectral_record("/00-sibling.mp3", "GREEN", 7).model_copy(
+        update={"title": "Song", "artist": "Artist"}
+    )
+    fillers = [_energy_spectral_record(f"/g-{index:02d}.mp3", "GREEN", 7) for index in range(5)]
+
+    context = _plan_same_color_energy_candidate_context(
+        scanned_records=[anchor, dedupe_sibling, *fillers],
+        controls=None,
+        limit=25,
+    )
+
+    assert context.same_color_energy_anchor_path == "/00-anchor.mp3"
+    assert "/00-anchor.mp3" in {track.path for track in context.records}
+
+
+def test_final_enforcement_uses_bound_anchor_path_when_supplied() -> None:
+    """`recommend_playlist(..., same_color_energy_anchor_path=...)` binds THAT track.
+
+    When the caller supplies a bound path, final enforcement resolves eligibility
+    against that specific anchor rather than re-resolving from the (possibly
+    deduped/capped) pool.
+    """
+    anchor = _energy_spectral_record("/anchor.mp3", "GREEN", 7)
+    matching = _energy_spectral_record("/match.mp3", "GREEN", 7)
+    wrong_energy = _energy_spectral_record("/wrong.mp3", "GREEN", 3)
+
+    recommendation = recommend_playlist(
+        [anchor, matching, wrong_energy],
+        "same_color_energy",
+        controls=DJControls(),
+        same_color_energy_anchor_path="/anchor.mp3",
+    )
+
+    result_paths = {track.path for track in recommendation.ordered_tracks}
+    assert "/wrong.mp3" not in result_paths
+    assert "/match.mp3" in result_paths
+
+
+def test_supplied_missing_anchor_path_fails_closed() -> None:
+    """A supplied path absent from the pool fails closed — never re-resolved."""
+    green = _energy_spectral_record("/g.mp3", "GREEN", 7)
+
+    recommendation = recommend_playlist(
+        [green],
+        "same_color_energy",
+        controls=DJControls(),
+        same_color_energy_anchor_path="/does-not-exist.mp3",
+    )
+
+    # Anchor could not be bound -> prerequisite fails closed -> no generated candidates.
+    assert recommendation.ordered_tracks == []
+    assert any("prerequisite" in warning for warning in recommendation.warnings)

@@ -209,6 +209,7 @@ def recommend_playlist(
     target_count: int | None = None,
     target_duration_minutes: float | None = None,
     played_seconds_per_track: float | None = None,
+    same_color_energy_anchor_path: str | None = None,
 ) -> PlaylistRecommendation:
     """Recommend a playlist using a strategy profile and optional DJ controls.
 
@@ -269,7 +270,17 @@ def recommend_playlist(
     if strategy.name == "same_color_energy":
         preserve_paths = preserved_control_paths(controls)
         before_generated = len([track for track in filtered_tracks if track.path not in preserve_paths])
-        filtered_tracks, bound_anchor = _apply_same_color_energy_filter(filtered_tracks, controls, preserve_paths)
+        supplied_anchor = _bind_supplied_anchor(filtered_tracks, same_color_energy_anchor_path)
+        # A supplied path that cannot be bound fails closed: never re-resolve a
+        # different track. Only re-resolve internally when no path was supplied.
+        resolve_when_unbound = same_color_energy_anchor_path is None
+        filtered_tracks, bound_anchor = _apply_same_color_energy_filter(
+            filtered_tracks,
+            controls,
+            preserve_paths,
+            anchor=supplied_anchor,
+            resolve_when_unbound=resolve_when_unbound,
+        )
         eligible_generated = [track for track in filtered_tracks if track.path not in preserve_paths]
         requested_total = _expected_set_length(
             filtered_tracks, target_duration_minutes, played_seconds_per_track, target_count
@@ -697,6 +708,29 @@ def prefilter_strategy_candidates(
     return filtered
 
 
+def resolve_same_color_energy_anchor_path(
+    tracks: list[TrackRecord],
+    controls: DJControls | None = None,
+    strategy_registry: StrategyRegistry | None = None,
+) -> str | None:
+    """Bind the `same_color_energy` anchor path from the pre-anchor candidate pool.
+
+    Runs the SAME pre-anchor stages `recommend_playlist` applies (completeness,
+    shared strategy/range filters, requested genre) and returns the resolved
+    anchor's path so callers can protect that identity through dedupe/cap before
+    handing it back to `recommend_playlist`. Returns ``None`` when no anchor can
+    be bound (the prerequisite-missing case).
+    """
+    strategy = (strategy_registry or default_strategy_registry()).get("same_color_energy")
+    controls = controls or DJControls()
+    preserve_paths = preserved_control_paths(controls)
+    complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
+    filtered, _ = _apply_strategy_filters(complete_tracks, strategy, preserve_paths=preserve_paths)
+    filtered, _ = _apply_requested_genre(filtered, controls.genre, preserve_paths)
+    anchor = _resolve_same_color_energy_anchor(filtered, controls)
+    return anchor.path if anchor is not None else None
+
+
 def _apply_color_filter(
     tracks: list[TrackRecord], controls: DJControls, preserve_paths: set[str], strategy_name: str
 ) -> tuple[list[TrackRecord], list[str]]:
@@ -857,12 +891,26 @@ def _resolve_same_color_energy_anchor(tracks: list[TrackRecord], controls: DJCon
     return None
 
 
+def _bind_supplied_anchor(tracks: list[TrackRecord], anchor_path: str | None) -> TrackRecord | None:
+    """Resolve a supplied bound anchor path to its track, or ``None`` if absent.
+
+    A supplied path is an already-bound identity from the candidate context seam;
+    it must map to the exact same track through dedupe/cap. When it is missing
+    from the pool the caller fails closed rather than re-resolving a different
+    track.
+    """
+    if anchor_path is None:
+        return None
+    return next((track for track in tracks if track.path == anchor_path), None)
+
+
 def _apply_same_color_energy_filter(
     tracks: list[TrackRecord],
     controls: DJControls,
     preserve_paths: set[str],
     *,
     anchor: TrackRecord | None = None,
+    resolve_when_unbound: bool = True,
 ) -> tuple[list[TrackRecord], TrackRecord | None]:
     """Filter to strict `same_color_energy` eligibility, preserving controls.
 
@@ -872,10 +920,20 @@ def _apply_same_color_energy_filter(
     warningless by design; `recommend_playlist` owns the prerequisite / shortage /
     empty-pool warnings because only it knows the requested count and controls.
 
+    When ``resolve_when_unbound`` is ``False`` and no ``anchor`` is bound, the
+    filter fails closed instead of re-resolving — this is the supplied-but-invalid
+    bound-path case, where re-resolving a different track would violate the
+    immutable-anchor contract.
+
     Returns the filtered tracks and the bound anchor (or ``None`` when no anchor
     could be resolved — the prerequisite-missing case).
     """
-    bound_anchor = anchor if anchor is not None else _resolve_same_color_energy_anchor(tracks, controls)
+    if anchor is not None:
+        bound_anchor: TrackRecord | None = anchor
+    elif resolve_when_unbound:
+        bound_anchor = _resolve_same_color_energy_anchor(tracks, controls)
+    else:
+        bound_anchor = None
     if bound_anchor is None or bound_anchor.spectral_profile is None or bound_anchor.energy_level is None:
         # Prerequisite missing: keep only preserved controls, drop every generated
         # candidate. Never widen to the unfiltered pool.
@@ -1129,6 +1187,7 @@ def _spectral_jump_warnings(tracks: list[TrackRecord]) -> list[str]:
 __all__ = [
     "PlaylistRecommendation",
     "prefilter_strategy_candidates",
+    "resolve_same_color_energy_anchor_path",
     "recommend_playlist",
     "recommendation_with_replacement",
     "recommendation_reordered",

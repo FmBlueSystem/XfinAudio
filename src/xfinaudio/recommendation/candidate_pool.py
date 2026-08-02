@@ -121,7 +121,9 @@ def anchor_preflight_warnings(controls: DJControls | None, scanned_records: list
     return warnings
 
 
-def dedupe_recommendation_duplicates(records: list[TrackRecord], controls: DJControls | None) -> list[TrackRecord]:
+def dedupe_recommendation_duplicates(
+    records: list[TrackRecord], controls: DJControls | None, *, protected_path: str | None = None
+) -> list[TrackRecord]:
     """Collapse near-duplicate title+artist versions to one representative each.
 
     Uses `playlist_duplicate_group_key` (`xfinaudio.library.duplicate_grouping`)
@@ -148,6 +150,12 @@ def dedupe_recommendation_duplicates(records: list[TrackRecord], controls: DJCon
     prevents.
     """
     preserve = preserved_control_paths(controls) if controls is not None else set()
+    # A bound same_color_energy anchor is a protected identity: it must survive
+    # dedupe intact so a duplicate sibling can never become the representative
+    # and silently replace the anchor. It is protected WITHOUT becoming a control
+    # (no start_path conversion, no playlist-order change).
+    if protected_path is not None:
+        preserve = preserve | {protected_path}
 
     groups: dict[tuple[str, str], list[TrackRecord]] = {}
     for record in records:
@@ -221,6 +229,7 @@ def build_recommendation_pool(
     limit: int = _DEFAULT_LIMIT,
     *,
     spread_energy: bool = False,
+    protected_path: str | None = None,
 ) -> list[TrackRecord]:
     """Return an interactive-size recommendation pool while preserving control tracks at the front.
 
@@ -228,7 +237,30 @@ def build_recommendation_pool(
     in turn rather than purely by similarity, so strategies that trace an arc
     have material at both ends of the range. Off by default: strategies that
     hold one level want the concentrated pool.
+
+    ``protected_path`` is a bound same_color_energy anchor that must survive the
+    cap. It is retained WITHOUT being promoted to a control (its playlist-order
+    position is unchanged); it simply cannot be trimmed away by the interactive
+    cap, so downstream final enforcement can still bind it.
     """
+    pool = _build_recommendation_pool(scanned_records, controls, limit, spread_energy=spread_energy)
+    if protected_path is None or any(track.path == protected_path for track in pool):
+        return pool
+    protected = next((track for track in scanned_records if track.path == protected_path), None)
+    if protected is None or protected.metadata_status != "complete":
+        return pool
+    # Keep the anchor by displacing the last trimmable slot, preserving the
+    # existing relative order of everything ahead of it.
+    return [*pool[: max(0, len(pool) - 1)], protected] if pool else [protected]
+
+
+def _build_recommendation_pool(
+    scanned_records: list[TrackRecord],
+    controls: DJControls | None,
+    limit: int = _DEFAULT_LIMIT,
+    *,
+    spread_energy: bool = False,
+) -> list[TrackRecord]:
     complete_records = [r for r in scanned_records if r.metadata_status == "complete"]
 
     priority_paths: list[str] = []
