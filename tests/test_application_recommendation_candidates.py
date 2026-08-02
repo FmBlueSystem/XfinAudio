@@ -95,7 +95,12 @@ def test_application_candidate_pool_keeps_legacy_behavior_without_a_strategy() -
 def test_desktop_main_window_imports_application_candidate_boundary() -> None:
     source = Path("src/xfinaudio/desktop/main_window.py").read_text()
 
-    assert "from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates" in source
+    # main_window imports the candidate pool through the application boundary,
+    # never directly from the recommendation candidate_pool module. The import
+    # may be single- or multi-line (ruff/isort groups same-module symbols), so
+    # assert on the boundary module + symbol rather than an exact one-line form.
+    assert "from xfinaudio.application.recommendation_candidates import" in source
+    assert "plan_recommendation_candidates" in source
     assert "from xfinaudio.recommendation.candidate_pool import build_recommendation_pool" not in source
 
 

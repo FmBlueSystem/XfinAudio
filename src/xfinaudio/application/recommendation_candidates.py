@@ -101,9 +101,7 @@ def _plan_same_color_energy_candidate_context(
     pool_source = prefilter_strategy_candidates(scanned_records, "same_color_energy", controls)
     pool_source = dedupe_recommendation_duplicates(pool_source, controls, protected_path=anchor_path)
     spread = traces_an_arc("same_color_energy")
-    records = build_recommendation_pool(
-        pool_source, controls, limit, spread_energy=spread, protected_path=anchor_path
-    )
+    records = build_recommendation_pool(pool_source, controls, limit, spread_energy=spread, protected_path=anchor_path)
     return RecommendationCandidateContext(records=records, same_color_energy_anchor_path=anchor_path)
 
 
