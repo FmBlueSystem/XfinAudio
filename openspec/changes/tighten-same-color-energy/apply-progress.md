@@ -188,3 +188,119 @@ this change exists to replace:
   that the change's overage is test volume, not production sprawl. Reported to the
   maintainer per `ask-on-risk` before opening the PR rather than silently
   proceeding.
+
+## Slice PR 3 (FINAL) — Phases 5, 6: Public API compatibility, anchor protection, desktop wiring
+
+Scope: transport a bound `same_color_energy` anchor path through dedupe/cap
+(Phase 5) and wire the combined-strategy context seam into the desktop dispatch
+(Phase 6), plus Phase 7 verification. Base branch:
+`fix/same-color-energy-strict-eligibility` (feature-branch-chain, immediate
+previous PR branch — PR #333).
+
+### Completed Tasks
+
+- [x] 5.1 Public list API stays `list[TrackRecord]` for combined AND ordinary strategies
+- [x] 5.2 Anchor stability: bound path survives dedupe (protected against sibling
+      replacement) + cap, reaches final enforcement; never re-resolved, never
+      converted to `start_path`
+- [x] 5.3 Frozen `RecommendationCandidateContext(records, same_color_energy_anchor_path)`
+      + `_plan_same_color_energy_candidate_context(...)`; exported
+      `plan_recommendation_candidates(...) -> list[TrackRecord]` unchanged (its
+      combined branch delegates internally and returns `.records`)
+- [x] 5.4 `candidate_pool.py` dedupe/cap protect the bound anchor via
+      `protected_path` (no `start_path` conversion, no playlist-order change)
+- [x] 5.5 `PlaylistWorkflowService.recommend()` forwards
+      `same_color_energy_anchor_path` to `recommend_playlist(...)`
+- [x] 5.6 REFACTOR Phase 5
+- [x] 6.1 Wiring/dispatch regression (combined-only invocation AND ordinary-path
+      compatibility) in `tests/test_recommendation_service_state.py`
+- [x] 6.2 `_unwired`-initialized `_desktop_same_color_energy_candidate_context`
+      callback + keyword param on `set_actions()`
+- [x] 6.3 `strategy_name == "same_color_energy"` dispatch guard in `recommend()`;
+      forwards `context.records` + bound path; all other strategies keep the
+      byte-identical `_desktop_recommendation_records()` route
+- [x] 6.4 Injected from `wire_main_recommendation_service()`;
+      `MainWindow._desktop_same_color_energy_candidate_context()` delegates to the
+      internal context planner
+- [x] 6.5 REFACTOR Phase 6
+- [x] 7.1-7.6 Verification sequence (see table below)
+
+### Files Changed
+
+| File | Action | What was done |
+|------|--------|---------------|
+| `src/xfinaudio/recommendation/candidate_pool.py` | Modified | `dedupe_recommendation_duplicates(..., protected_path=None)` adds the bound anchor to `preserve`; `build_recommendation_pool(..., protected_path=None)` retains the anchor after the cap by displacing the last trimmable slot (extracted `_build_recommendation_pool` for the unchanged core). No `start_path` conversion, no order change. |
+| `src/xfinaudio/recommendation/playlist_service.py` | Modified | `recommend_playlist(..., same_color_energy_anchor_path=None)`; `_bind_supplied_anchor()`; `_apply_same_color_energy_filter(..., resolve_when_unbound=True)` so a supplied-but-invalid path fails closed (never re-resolves); public `resolve_same_color_energy_anchor_path()` runs the same pre-anchor stages and returns the bound path. |
+| `src/xfinaudio/application/recommendation_candidates.py` | Modified | Frozen `RecommendationCandidateContext`; internal `_plan_same_color_energy_candidate_context(...)`; exported `plan_recommendation_candidates(...)` combined branch delegates and returns `.records`. |
+| `src/xfinaudio/application/playlist_workflow.py` | Modified | `recommend(..., same_color_energy_anchor_path=None)` forwards the bound path to `recommend_playlist(...)`. |
+| `src/xfinaudio/desktop/recommendation_service.py` | Modified | `_unwired`-init callback; `set_actions()` keyword param; `recommend()` dispatch guard; `same_color_energy_anchor_path` threaded through `start_recommendation` -> `_start_recommendation_worker` -> `workflow_service.recommend()`. |
+| `src/xfinaudio/desktop/window_service_wiring.py` | Modified | Inject `desktop_same_color_energy_candidate_context` in `wire_main_recommendation_service()`. |
+| `src/xfinaudio/desktop/main_window.py` | Modified | `_desktop_same_color_energy_candidate_context()` next to `_desktop_recommendation_records()`, delegating to the internal context planner. |
+| `tests/test_application_recommendation_candidates.py` | Modified | 6 new tests (list API for combined + ordinary, frozen context, anchor survives dedupe/cap, bound-path final enforcement, supplied-missing fails closed); made the boundary-import test format-agnostic (ruff/isort groups same-module symbols). |
+| `tests/test_recommendation_service_state.py` | Modified | 2 new dispatch regressions (combined-only vs ordinary-path); wired the new callback into `_wire_service`; adapted `test_recommend_reads_strategy_via_current_data` to the context route (combined strategy now dispatches through the seam). |
+
+### Byte-untouchability of slice-1 / slice-2 tests — status
+
+- Slice 3 did NOT touch `tests/test_playlist_service.py` or
+  `tests/test_playlist_strategies.py` at all (`git diff --name-only ea79cae`
+  confirms). The eight slice-1 characterization tests (`same_color` /
+  `same_energy` `+/-1` band, shared unfiltered fallback + two warnings, verbatim
+  descriptions) and every slice-2 strict-eligibility test are byte-untouched and
+  pass (`1406 passed`).
+- Ordinary desktop path proven unchanged: `recommend()`'s dispatch guard `return`s
+  for `same_color_energy` only; every other strategy falls through to the exact
+  original `records = self._desktop_recommendation_records(...)` -> `start_recommendation(records, strategy_name, controls, spectral_cohesion)`
+  path, and `_start_recommendation_worker` passes `same_color_energy_anchor_path=None`
+  (default), which `recommend_playlist` ignores for non-combined strategies.
+  Regression test `test_recommend_uses_records_route_for_ordinary_strategy`
+  asserts the context callback does NOT fire and no anchor path is forwarded.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 5.1 | `tests/test_application_recommendation_candidates.py` | Unit | ✅ 148/148 | ✅ Written | ✅ Passed | ✅ combined + ordinary | ➖ clean |
+| 5.2-5.5 | `tests/test_application_recommendation_candidates.py` | Unit | ✅ 148/148 | ✅ Written (4 failing: context planner + anchor param) | ✅ Passed | ✅ dedupe survival, final enforcement, fail-closed | ✅ extracted `_build_recommendation_pool`, `_bind_supplied_anchor` |
+| 6.1-6.4 | `tests/test_recommendation_service_state.py` | Unit | ✅ 8/8 (pre-existing) | ✅ Written (7 failing: `set_actions` param + dispatch) | ✅ Passed | ✅ combined-only + ordinary-path | ➖ clean |
+
+### Test Summary
+
+- Total new tests written: 8 (6 candidates + 2 dispatch regressions)
+- Total passing: full suite `1406 passed`
+- Layers used: Unit (8)
+- Approval tests: None — no refactoring-of-existing-behavior tasks (the seam is additive)
+- Pure functions created: `_bind_supplied_anchor`, `resolve_same_color_energy_anchor_path`
+
+### Work Unit Evidence
+
+| Evidence | Value |
+|----------|-------|
+| Focused test command | `uv run pytest -q tests/test_application_recommendation_candidates.py tests/test_recommendation_service_state.py tests/test_candidate_pool.py tests/test_playlist_service.py tests/test_playlist_strategies.py` -> all pass |
+| Runtime harness | N/A — additive application/desktop seam covered by unit-level dispatch and transport tests; no new runtime/DB boundary is crossed. Offscreen MIXED/RGB listening calibration remains post-implementation acceptance gate A.1, not a slice-3 code task. |
+| Rollback boundary | Revert the `protected_path` params in `candidate_pool.py`, the `same_color_energy_anchor_path` param + `_bind_supplied_anchor` + `resolve_when_unbound` + public resolver in `playlist_service.py`, the context dataclass/planner in `recommendation_candidates.py`, the workflow forward, and the desktop callback/dispatch/wiring + slice-3 tests. Slice-1/slice-2 behavior, `same_color` / `same_energy`, and the ordinary desktop path are untouched, so revert removes no unrelated work. |
+
+### Full Verification (exact order)
+
+| # | Command | Result |
+|---|---------|--------|
+| 1 | `uv run pytest -q` | PASS — `1406 passed` |
+| 2 | `uv run pyright src tests` | PASS — `0 errors, 0 warnings, 0 informations` |
+| 3 | `uv run pytest --cov --cov-fail-under=70 -q` | PASS — `Total coverage: 91.12%`, `1406 passed` |
+| 4 | `uv run ruff check .` | PASS — `All checks passed!` |
+| 5 | `uv run ruff format --check .` | PASS — `277 files already formatted` |
+| 6 | `uv run python scripts/release_gate_check.py --run` | PASS — exit 0 |
+
+### Review budget
+
+- Changed lines (src + tests, additions + deletions vs slice-2 HEAD `ea79cae`):
+  **436** (production 205, tests 231) against the 400-line budget.
+- **Over budget by 36 lines**, and above the tasks.md forecast (~182 for Phases
+  5+6). The forecast counted production-leaning estimates; the actual overage is
+  strict-TDD test volume (231 test lines vs 205 production — production is within
+  budget). Same pattern the maintainer accepted for slices 2. Reported prominently
+  in the PR body and this report; no check was weakened to fit the budget.
+- Splitting Phase 5 (transport) from Phase 6 (wiring) into two PRs was rejected:
+  Phase 6's dispatch/wiring tests reference the Phase 5 context seam, so a
+  Phase-6-only PR would test code not present in its base, and a Phase-5-only PR
+  would ship an unused seam — worse review, not better. This is the same
+  strict-TDD splitting criterion applied on slice 2.

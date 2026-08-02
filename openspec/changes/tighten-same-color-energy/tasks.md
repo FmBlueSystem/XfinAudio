@@ -83,29 +83,29 @@ Camelot independence (spec Requirement 1) is verified within PR 2 as a guard, no
 
 ## Phase 5: Public API Compatibility & Anchor Protection Through Dedupe/Cap
 
-- [ ] 5.1 RED public list API: `plan_recommendation_candidates(...)` still returns a `list[TrackRecord]` for the `same_color_energy` strategy AND for an ordinary strategy. `tests/test_application_recommendation_candidates.py`.
-- [ ] 5.2 RED anchor stability: a no-control first-profile anchor with a duplicate sibling that `dedupe_recommendation_duplicates` would otherwise replace — assert the bound anchor path survives dedupe and cap and reaches final enforcement; anchor is never re-resolved after dedupe/cap and never converted to `start_path`. `tests/test_application_recommendation_candidates.py` (+ `tests/test_playlist_service.py` for final-enforcement stability).
-- [ ] 5.3 GREEN add frozen internal `RecommendationCandidateContext(records, same_color_energy_anchor_path)` and `_plan_same_color_energy_candidate_context(...)` in `recommendation_candidates.py`; keep exported `plan_recommendation_candidates(...) -> list[TrackRecord]` unchanged (its combined branch may delegate internally and return `.records`).
-- [ ] 5.4 GREEN protect the bound anchor in `candidate_pool.py` dedupe/cap (accept it as protected without converting to `start_path` or changing playlist-order semantics).
-- [ ] 5.5 GREEN transport the bound path through `PlaylistWorkflowService.recommend()` (`playlist_workflow.py:124`) to `recommend_playlist(..., same_color_energy_anchor_path=None)`.
-- [ ] 5.6 REFACTOR Phase 5; `uv run pytest -q` green.
+- [x] 5.1 RED public list API: `plan_recommendation_candidates(...)` still returns a `list[TrackRecord]` for the `same_color_energy` strategy AND for an ordinary strategy. `tests/test_application_recommendation_candidates.py`.
+- [x] 5.2 RED anchor stability: a no-control first-profile anchor with a duplicate sibling that `dedupe_recommendation_duplicates` would otherwise replace — assert the bound anchor path survives dedupe and cap and reaches final enforcement; anchor is never re-resolved after dedupe/cap and never converted to `start_path`. `tests/test_application_recommendation_candidates.py` (+ `tests/test_playlist_service.py` for final-enforcement stability).
+- [x] 5.3 GREEN add frozen internal `RecommendationCandidateContext(records, same_color_energy_anchor_path)` and `_plan_same_color_energy_candidate_context(...)` in `recommendation_candidates.py`; keep exported `plan_recommendation_candidates(...) -> list[TrackRecord]` unchanged (its combined branch may delegate internally and return `.records`).
+- [x] 5.4 GREEN protect the bound anchor in `candidate_pool.py` dedupe/cap (accept it as protected without converting to `start_path` or changing playlist-order semantics).
+- [x] 5.5 GREEN transport the bound path through `PlaylistWorkflowService.recommend()` (`playlist_workflow.py:124`) to `recommend_playlist(..., same_color_energy_anchor_path=None)`.
+- [x] 5.6 REFACTOR Phase 5; `uv run pytest -q` green.
 
 ## Phase 6: Desktop Wiring & Dispatch (`recommendation_service.py`, `window_service_wiring.py`, `main_window.py`)
 
-- [ ] 6.1 RED wiring/dispatch regression in `tests/test_recommendation_service_state.py`: prove `RecommendationService.recommend()` invokes the new `_desktop_same_color_energy_candidate_context` callback ONLY when `strategy_name == "same_color_energy"`, and routes every other strategy through `_desktop_recommendation_records()` (combined-only dispatch AND ordinary-path compatibility). `tests/test_recommendation_service_state.py`.
-- [ ] 6.2 GREEN add `self._desktop_same_color_energy_candidate_context: Callable[..., RecommendationCandidateContext] = _unwired` in `RecommendationService.__init__` (`recommendation_service.py:46-67`) and the keyword-only param on `set_actions()` (`recommendation_service.py:102-125`), assigned alongside the existing ten callbacks.
-- [ ] 6.3 GREEN add the `strategy_name == "same_color_energy"` dispatch guard in `recommend()` (`recommendation_service.py:148-167`), forwarding `context.records` + the bound path; all other strategies keep calling `self._desktop_recommendation_records(controls, strategy_name)`.
-- [ ] 6.4 GREEN inject `desktop_same_color_energy_candidate_context=self._desktop_same_color_energy_candidate_context` in `wire_main_recommendation_service()` (`window_service_wiring.py:91-102`) and add `_desktop_same_color_energy_candidate_context()` on `MainWindow` next to `_desktop_recommendation_records()` (`main_window.py:473-484`), delegating to the internal context planner.
-- [ ] 6.5 REFACTOR Phase 6; `uv run pytest -q` green.
+- [x] 6.1 RED wiring/dispatch regression in `tests/test_recommendation_service_state.py`: prove `RecommendationService.recommend()` invokes the new `_desktop_same_color_energy_candidate_context` callback ONLY when `strategy_name == "same_color_energy"`, and routes every other strategy through `_desktop_recommendation_records()` (combined-only dispatch AND ordinary-path compatibility). `tests/test_recommendation_service_state.py`.
+- [x] 6.2 GREEN add `self._desktop_same_color_energy_candidate_context: Callable[..., RecommendationCandidateContext] = _unwired` in `RecommendationService.__init__` (`recommendation_service.py:46-67`) and the keyword-only param on `set_actions()` (`recommendation_service.py:102-125`), assigned alongside the existing ten callbacks.
+- [x] 6.3 GREEN add the `strategy_name == "same_color_energy"` dispatch guard in `recommend()` (`recommendation_service.py:148-167`), forwarding `context.records` + the bound path; all other strategies keep calling `self._desktop_recommendation_records(controls, strategy_name)`.
+- [x] 6.4 GREEN inject `desktop_same_color_energy_candidate_context=self._desktop_same_color_energy_candidate_context` in `wire_main_recommendation_service()` (`window_service_wiring.py:91-102`) and add `_desktop_same_color_energy_candidate_context()` on `MainWindow` next to `_desktop_recommendation_records()` (`main_window.py:473-484`), delegating to the internal context planner.
+- [x] 6.5 REFACTOR Phase 6; `uv run pytest -q` green.
 
 ## Phase 7: Verification (exact order — no skipping, no reordering)
 
-- [ ] 7.1 `uv run pytest -q`
-- [ ] 7.2 `uv run pyright src tests`
-- [ ] 7.3 `uv run pytest --cov --cov-fail-under=70 -q`
-- [ ] 7.4 `uv run ruff check .`
-- [ ] 7.5 `uv run ruff format --check .`
-- [ ] 7.6 `uv run python scripts/release_gate_check.py --run`
+- [x] 7.1 `uv run pytest -q`
+- [x] 7.2 `uv run pyright src tests`
+- [x] 7.3 `uv run pytest --cov --cov-fail-under=70 -q`
+- [x] 7.4 `uv run ruff check .`
+- [x] 7.5 `uv run ruff format --check .`
+- [x] 7.6 `uv run python scripts/release_gate_check.py --run`
 
 ## Post-Implementation Acceptance Gate (not a code task)
 
