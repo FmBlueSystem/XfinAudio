@@ -5,6 +5,8 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
+    _apply_color_filter,
+    _apply_energy_tolerance,
     _bpm_jump_warning,
     _drop_generated_tracks_after_impossible_bpm_jumps,
     _spectral_jump_warnings,
@@ -1260,3 +1262,123 @@ def test_a_genre_that_fills_the_slot_stays_quiet_about_it() -> None:
     )
 
     assert not any("short" in warning.lower() for warning in recommendation.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Characterization safety net: pins CURRENT behavior of _apply_energy_tolerance
+# and the shared _apply_color_filter fallback so later slices can prove they
+# did not break the untouched same_color / same_energy strategies. These tests
+# assert today's behavior verbatim; they intentionally add no new behavior.
+# ---------------------------------------------------------------------------
+
+
+def _energy_track(path: str, energy: int | None) -> TrackRecord:
+    return track(path, energy_level=energy)
+
+
+def test_apply_energy_tolerance_keeps_plus_minus_one_band() -> None:
+    strategy = get_strategy("same_energy")
+    candidates = [
+        _energy_track("/e6.flac", 6),
+        _energy_track("/e7.flac", 7),
+        _energy_track("/e8.flac", 8),
+        _energy_track("/e9.flac", 9),
+        _energy_track("/e10.flac", 10),
+    ]
+
+    filtered, warnings = _apply_energy_tolerance(candidates, strategy, anchor_energy=8, preserve_paths=set())
+
+    kept = {t.path for t in filtered}
+    assert kept == {"/e7.flac", "/e8.flac", "/e9.flac"}
+    assert "/e6.flac" not in kept
+    assert "/e10.flac" not in kept
+    assert warnings == ["Filtered 2 track(s) outside same_energy energy tolerance"]
+
+
+def test_apply_energy_tolerance_preserve_paths_bypass_the_band() -> None:
+    strategy = get_strategy("same_energy")
+    candidates = [
+        _energy_track("/anchor.flac", 8),
+        _energy_track("/faraway.flac", 1),
+        _energy_track("/also_far.flac", 10),
+    ]
+
+    filtered, warnings = _apply_energy_tolerance(
+        candidates, strategy, anchor_energy=8, preserve_paths={"/faraway.flac"}
+    )
+
+    kept = {t.path for t in filtered}
+    # /faraway.flac is out of band but preserved; /also_far.flac is dropped.
+    assert "/faraway.flac" in kept
+    assert "/also_far.flac" not in kept
+    assert kept == {"/anchor.flac", "/faraway.flac"}
+    assert warnings == ["Filtered 1 track(s) outside same_energy energy tolerance"]
+
+
+def test_apply_energy_tolerance_none_tolerance_returns_input_unchanged() -> None:
+    # peak_time has no energy_tolerance set (None), which is the bypass case.
+    strategy = get_strategy("peak_time")
+    assert strategy.energy_tolerance is None
+    candidates = [
+        _energy_track("/e1.flac", 1),
+        _energy_track("/e10.flac", 10),
+    ]
+
+    filtered, warnings = _apply_energy_tolerance(candidates, strategy, anchor_energy=5, preserve_paths=set())
+
+    assert filtered is candidates
+    assert warnings == []
+
+
+def test_apply_energy_tolerance_no_removal_emits_no_warning() -> None:
+    strategy = get_strategy("same_energy")
+    candidates = [
+        _energy_track("/e7.flac", 7),
+        _energy_track("/e8.flac", 8),
+        _energy_track("/e9.flac", 9),
+    ]
+
+    filtered, warnings = _apply_energy_tolerance(candidates, strategy, anchor_energy=8, preserve_paths=set())
+
+    assert {t.path for t in filtered} == {"/e7.flac", "/e8.flac", "/e9.flac"}
+    assert warnings == []
+
+
+def test_apply_color_filter_same_color_falls_back_to_unfiltered_pool() -> None:
+    # Anchor color is RED (from the start_path control), but no candidate is RED,
+    # so the eligible pool is empty and the shared helper returns the original,
+    # unfiltered `tracks` list plus the exact fallback warning.
+    anchor = spectral_track("/anchor.flac", "RED")
+    candidates = [
+        anchor,
+        spectral_track("/green.flac", "GREEN"),
+        spectral_track("/blue.flac", "BLUE"),
+    ]
+    controls = DJControls(start_path="/anchor.flac")
+
+    filtered, warnings = _apply_color_filter(
+        candidates, controls, preserve_paths={"/anchor.flac"}, strategy_name="same_color"
+    )
+
+    assert filtered is candidates
+    assert warnings == [
+        "same_color filter applied: RED",
+        "same_color: no candidates match anchor color 'RED'; falling back to unfiltered scoring",
+    ]
+
+
+def test_apply_color_filter_same_color_keeps_matching_candidates() -> None:
+    anchor = spectral_track("/anchor.flac", "RED")
+    candidates = [
+        anchor,
+        spectral_track("/red2.flac", "RED"),
+        spectral_track("/green.flac", "GREEN"),
+    ]
+    controls = DJControls(start_path="/anchor.flac")
+
+    filtered, warnings = _apply_color_filter(
+        candidates, controls, preserve_paths={"/anchor.flac"}, strategy_name="same_color"
+    )
+
+    assert {t.path for t in filtered} == {"/anchor.flac", "/red2.flac"}
+    assert warnings == ["same_color filter applied: RED"]

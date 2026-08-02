@@ -211,3 +211,40 @@ def test_resolve_strategy_name_accepts_display_name() -> None:
 def test_resolve_strategy_name_rejects_unknown_label() -> None:
     with pytest.raises(ValueError, match="Unknown playlist strategy"):
         resolve_strategy_name("Harmonic Journey!!!")
+
+
+# ---------------------------------------------------------------------------
+# Characterization safety net: pin the CURRENT same_color / same_energy
+# descriptions and registration verbatim, so later slices that only touch
+# same_color_energy can prove they left these two untouched.
+# ---------------------------------------------------------------------------
+
+
+def test_same_color_description_is_currently_verbatim() -> None:
+    strategy = get_strategy("same_color")
+
+    assert strategy.description == (
+        "Hard filter: only tracks matching the anchor's spectral color. Energy is weighted but not limited."
+    )
+    assert strategy.display_name == "Same Color"
+    assert strategy.energy_tolerance is None
+    assert strategy.weights == ScoringWeights(harmonic=0.30, bpm=0.20, energy=0.20, tags=0.10, spectral=0.20)
+
+
+def test_same_energy_description_is_currently_verbatim() -> None:
+    strategy = get_strategy("same_energy")
+
+    assert strategy.description == (
+        "Hard limit: only tracks within ±1 energy level of the anchor. Color is weighted but not limited."
+    )
+    assert strategy.display_name == "Same Energy"
+    assert strategy.energy_tolerance == 1
+    assert strategy.weights == ScoringWeights(harmonic=0.20, bpm=0.20, energy=0.50, tags=0.10)
+
+
+def test_same_color_energy_description_is_currently_verbatim() -> None:
+    strategy = get_strategy("same_color_energy")
+
+    assert strategy.description == (
+        "Hard filters: only tracks matching the anchor's color AND within ±1 energy level of the anchor."
+    )
