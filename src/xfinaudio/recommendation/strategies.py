@@ -113,9 +113,8 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
     "same_color_energy": PlaylistStrategy(
         name="same_color_energy",
         display_name="Same Color & Energy",
-        description="Hard filters: only tracks matching the anchor's color AND within ±1 energy level of the anchor.",
+        description="Hard filters: only tracks matching the anchor's color AND the anchor's exact energy level.",
         weights=ScoringWeights(harmonic=0.25, bpm=0.15, energy=0.30, tags=0.10, spectral=0.20),
-        energy_tolerance=1,
     ),
 }
 
