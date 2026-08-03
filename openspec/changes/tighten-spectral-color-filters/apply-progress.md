@@ -68,4 +68,105 @@ Authored code + tests + version bump + predecessor-doc rename = **~293 changed l
 - Phase 3 (version): 3.1 ✅ (1.7.1 → 1.7.2) 3.2 ✅ (`uv lock`, only version changed)
 - Phase 4 (offscreen harness): 🔲 deferred as calibration acceptance gate (see Work Unit Evidence)
 - Phase 5 verification: 5.1 ✅
-- Phase 2 (Slice B): 🔲 out of scope for this PR
+- Phase 2 (Slice B): see the Slice B section below.
+
+---
+
+# Apply Progress: Tighten Spectral Color Filters — Slice B
+
+Branch: `fix/same-color-bounded-gate` → base `fix/same-color-energy-all-colors` (PR #336, slice A)
+Chain strategy: feature-branch-chain. Review budget: 400 changed lines.
+Mode: Strict TDD.
+
+## Scope delivered (Phase 2 Slice B + version bump 1.7.2 → 1.7.3)
+
+`same_color` gets its OWN bounded colour gate rather than widening the shared
+helper. It now fails closed. Slice A (`same_color_energy` gate) is untouched.
+
+## TDD Cycle Evidence
+
+| Task | RED (test written first) | GREEN (implementation) | REFACTOR |
+|------|--------------------------|------------------------|----------|
+| 2.1 declared exception | `test_apply_same_color_filter_empty_strict_pool_fails_closed` failed on import (`_apply_same_color_filter` missing) | Added `_apply_same_color_filter` (fails closed) | — |
+| 2.2 declared exception | `test_apply_same_color_filter_admits_only_candidates_inside_the_gate` failed on import (`_same_color_eligible` missing) | Added `_same_color_eligible` (bounded gate) | — |
+| 2.3 per-colour gate | `test_same_color_eligible_*` (admit/reject-L1/inclusive-bounds/bound+epsilon/other-label/missing-profile/zero-sum/zero-denominator) × RED/GREEN/BLUE/MIXED | GREEN via `_same_color_eligible` reusing `_mixed_profile_close` | — |
+| 2.4 energy still weighted | `test_same_color_eligible_ignores_energy_level`, `test_same_color_candidate_outside_anchor_energy_still_recommended` | GREEN (no energy branch in predicate) | — |
+| 2.5 controls preserved | `test_same_color_preserves_controls_that_fail_the_gate` | GREEN (preserve_paths always survive) | — |
+| 2.6 helpers | driven RED by 2.1–2.5 | `_same_color_eligible` + `_apply_same_color_filter` + `_same_color_warnings` | — |
+| 2.7 dispatch rewire | driven RED by end-to-end tests | Removed `_COLOR_FILTER_STRATEGIES`; `same_color` branch at both call sites | — |
+| 2.8 description verify | verbatim strategy-description test green | `strategies.py:102` unchanged (already true) | — |
+| 2.9 dead-code removal | full suite green after removal | Removed `_apply_color_filter`, `_resolve_anchor_color`, `_track_color`; kept `_dominant_color_value` | Verified call graph before removing |
+| 2.10 same_genre net | `test_apply_genre_filter_fallback_and_warnings_are_byte_identical` | GREEN (helper byte-unchanged) | — |
+| re-authored 6 predecessor same_color e2e tests | RED after dispatch rewire | Re-authored to new bounded-gate/fail-closed contract | Docstrings record the reason |
+
+## Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command + result | `uv run pytest tests/test_playlist_service.py -q -k "same_color and not energy"` → **56 passed, 134 deselected** |
+| Runtime harness | Phase 4 offscreen scratch-DB calibration (4.1/4.2) is a calibration acceptance gate, not a code blocker. **Deferred** — no live/scratch DB in this environment; constants stay provisional. Recorded here and in tasks.md. |
+| Rollback boundary | Reverting the `feat(recommendation)` commit restores `same_color` to `_apply_color_filter` and re-adds the removed helpers, independent of slice A. Version bump + uv.lock revert independently via the `chore(release)` commit. |
+
+## Fate of `_apply_color_filter` (task 2.9 — call-graph verified)
+
+Verified against the real call graph BEFORE removing anything:
+- `_apply_color_filter` was called ONLY at the two `_COLOR_FILTER_STRATEGIES`
+  dispatch sites (`recommend_playlist`, `prefilter_strategy_candidates`). Both
+  were rewired to `_apply_same_color_filter`, so the helper became genuinely
+  orphaned → **removed**.
+- `_resolve_anchor_color` was called only by `_apply_color_filter` → **removed**.
+- `_track_color` was called only by `_apply_color_filter`/`_resolve_anchor_color`
+  → **removed**.
+- `_dominant_color_value` is ALSO called by `_resolve_same_color_energy_anchor`
+  (slice A's live path) → **KEPT**.
+- `_apply_genre_filter` is the genre path (`same_genre`), explicitly out of scope
+  → **byte-unchanged**.
+
+## Untouched strategies still pass byte-identically
+
+Full suite green (1489 passed). `same_genre`'s `_apply_genre_filter` unfiltered
+fallback + exact warning strings pinned directly and end-to-end; `same_energy`
+`±1` band + verbatim description; `same_color_energy` (slice A) full behaviour;
+`harmonic_journey`/`warmup`/`build`/`peak_time`/`chill`/`same_vibe` registered
+descriptions; Camelot independence and `_dominant_color()` classification — all
+unchanged.
+
+## Declared characterization exception — WIDER than the prompt stated
+
+The prompt named two `_apply_color_filter_*` tests. SIX MORE predecessor
+end-to-end `same_color` characterization tests (`:295-381`) pinned the same
+deliberately-replaced contract (the `same_color filter applied: {color}` warning,
+label-only admission, unfiltered fallback). They could not stay green and were
+re-authored (not deleted) to the new contract, each with a docstring recording
+why. Flagged as a deviation in tasks.md per reporting discipline.
+
+## Six-command verification (exact order)
+
+| # | Command | Result |
+|---|---------|--------|
+| 1 | `uv run pytest -q` | **1489 passed** |
+| 2 | `uv run pyright src tests` | **0 errors, 0 warnings, 0 informations** |
+| 3 | `uv run pytest --cov --cov-fail-under=70 -q` | **1489 passed, 91% coverage** |
+| 4 | `uv run ruff check .` | **All checks passed!** |
+| 5 | `uv run ruff format --check .` | **277 files already formatted** |
+| 6 | `uv run python scripts/release_gate_check.py --run` | **PASS** all gates (built as 1.7.3), exit 0 |
+
+## Review budget — over 400, declared size:exception
+
+Authored changed lines vs base `fix/same-color-energy-all-colors`: source
+`playlist_service.py` **99+ / 60−** (159), tests `test_playlist_service.py`
+**388+ / 41−** (429), `pyproject.toml` 1, `uv.lock` 1 → **~590 authored changed
+lines**, OVER the 400 budget. The overflow is entirely per-colour test coverage
+(RED/GREEN/BLUE/MIXED × admit/reject/inclusive/epsilon/label/fail-closed axes) for
+one atomic work unit — the dedicated `same_color` filter and its tests, which the
+work-unit rule keeps together. It cannot split further without separating a filter
+from its own coverage. Recorded as an accepted **`size:exception`** under the
+maintainer's `auto` mandate to complete the whole change; the strategy split (A/B)
+was the planned chaining.
+
+## Tasks status (Slice B)
+
+- Phase 2 (Slice B): 2.1 ✅ 2.2 ✅ 2.3 ✅ 2.4 ✅ 2.5 ✅ 2.6 ✅ 2.7 ✅ 2.8 ✅ 2.9 ✅ 2.10 ✅ 2.11 ✅
+- Phase 3 (version): 3.1 ✅ (1.7.2 → 1.7.3) 3.2 ✅ (`uv lock`, only version changed)
+- Phase 4 (offscreen harness): 🔲 deferred as calibration acceptance gate
+- Phase 5 verification: 5.1 ✅

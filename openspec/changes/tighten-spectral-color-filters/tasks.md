@@ -48,36 +48,54 @@ feature-branch-chain base boundaries: PR 1 base = `feat/tighten-spectral-color-f
 
 ## Phase 2: Slice B — `same_color` bounded colour gate, no energy limit, fails closed (RED → GREEN → REFACTOR)
 
-- [ ] 2.1 RED (declared characterization exception) — re-author `test_apply_color_filter_same_color_falls_back_to_unfiltered_pool` (`tests/test_playlist_service.py:1369`) as a fail-closed test for the new `_apply_same_color_filter`: empty strict pool returns preserved controls only + explicit strict-colour warning, never the unfiltered library. Reason recorded in test docstring: this test pinned the exact fallback-to-unfiltered behaviour this change deliberately replaces — the sole legitimate characterization-edit exception per design §Testing Strategy. `tests/test_playlist_service.py`.
-- [ ] 2.2 RED (declared characterization exception) — re-author `test_apply_color_filter_same_color_keeps_matching_candidates` (`tests/test_playlist_service.py:1392`) as a bounded-gate test: same-label candidate admitted only when inside the gate, rejected when outside `COLOR_RGB_L1_MAX`. Reason recorded in test docstring: it pinned plain label equality, the behaviour this change deliberately replaces with the bounded gate. `tests/test_playlist_service.py`.
-- [ ] 2.3 RED — per-colour gate tests for `same_color` (RED/GREEN/BLUE/MIXED) via `_same_color_eligible`: label equality + inside-gate admitted; outside-gate rejected; inclusive-boundary eligible; each bound + epsilon rejected; degenerate profile / zero denominator fails closed for every colour. `tests/test_playlist_service.py`.
-- [ ] 2.4 RED — energy-still-weighted assertion: a candidate that passes the bounded colour gate but whose `energy_level` differs from the anchor is STILL eligible for `same_color` (no energy check in the predicate). `tests/test_playlist_service.py`.
-- [ ] 2.5 RED — controls preserved: locked/start/end/manual-prefix controls survive `_apply_same_color_filter` even when they fail the gate, in their positions. `tests/test_playlist_service.py`.
-- [ ] 2.6 GREEN — add `_same_color_eligible(anchor, candidate) -> bool` (label equality + `_mixed_profile_close`, NO energy branch), `_apply_same_color_filter(...)` (mirrors `_apply_same_color_energy_filter`: preserved controls always survive, non-controls survive only on `_same_color_eligible`, no unfiltered fallback), and `_same_color_warnings(...)` (prerequisite-missing + strict-empty, never widens). `src/xfinaudio/recommendation/playlist_service.py`.
-- [ ] 2.7 GREEN — rewire `same_color` dispatch off the shared `_apply_color_filter`: remove `same_color` from `_COLOR_FILTER_STRATEGIES` (`playlist_service.py:46`, leaving it empty), and add `same_color` branches at the two call sites (`:265` / `recommend_playlist` and `:691` / `prefilter_strategy_candidates`) shaped like the `same_color_energy` blocks, minus energy/anchor-path transport. Leave `_apply_color_filter` and `_apply_genre_filter` byte-unchanged. `src/xfinaudio/recommendation/playlist_service.py`.
-- [ ] 2.8 GREEN — verify `same_color` description at `strategies.py:102` ("Hard filter … Energy is weighted but not limited.") is now true; change only if wording drifted. `src/xfinaudio/recommendation/strategies.py`.
-- [ ] 2.9 REFACTOR — remove any dead code left by the `same_color` cut (e.g. `_apply_color_filter` now used by no strategy — confirm and remove if truly orphaned, or leave with a comment if `same_genre` still needs the shape; verify against `_apply_genre_filter` being the genre path). `src/xfinaudio/recommendation/playlist_service.py`.
-- [ ] 2.10 REFACTOR — assert `same_genre`/`_apply_genre_filter` fallback and warning strings are byte-identical (safety net from Phase 0 must remain green). `tests/test_playlist_service.py`.
-- [ ] 2.11 VERIFY (slice B) — `uv run pytest tests/test_playlist_service.py -q -k "same_color and not energy"`, then full `uv run pytest -q`.
+- [x] 2.1 RED (declared characterization exception) — re-authored `test_apply_color_filter_same_color_falls_back_to_unfiltered_pool` → `test_apply_same_color_filter_empty_strict_pool_fails_closed`: empty strict pool returns preserved controls only, never the unfiltered library. Reason in test docstring. `tests/test_playlist_service.py`.
+- [x] 2.2 RED (declared characterization exception) — re-authored `test_apply_color_filter_same_color_keeps_matching_candidates` → `test_apply_same_color_filter_admits_only_candidates_inside_the_gate`: same-label candidate admitted only inside the gate, rejected beyond `COLOR_RGB_L1_MAX`. Reason in test docstring. `tests/test_playlist_service.py`.
+- [x] 2.3 RED — per-colour gate tests for `same_color` (RED/GREEN/BLUE/MIXED) via `_same_color_eligible`: label equality + inside-gate admitted; outside-gate rejected; inclusive-boundary eligible; each bound + epsilon rejected; other-label rejected; degenerate profile / zero denominator / zero RGB sum fails closed for every colour. `tests/test_playlist_service.py`.
+- [x] 2.4 RED — energy-still-weighted assertion: `test_same_color_eligible_ignores_energy_level` (predicate) + `test_same_color_candidate_outside_anchor_energy_still_recommended` (end-to-end). Both prove a different-energy candidate stays eligible for `same_color`. `tests/test_playlist_service.py`.
+- [x] 2.5 RED — controls preserved: `test_same_color_preserves_controls_that_fail_the_gate`. `tests/test_playlist_service.py`.
+- [x] 2.6 GREEN — added `_same_color_eligible` (label equality + `_mixed_profile_close`, NO energy branch), `_apply_same_color_filter` (mirrors `_apply_same_color_energy_filter`, no unfiltered fallback), and `_same_color_warnings` (prerequisite-missing + strict-empty). `src/xfinaudio/recommendation/playlist_service.py`.
+- [x] 2.7 GREEN — rewired `same_color` dispatch off the shared helper: `_COLOR_FILTER_STRATEGIES` removed entirely; `same_color` branches added at both call sites (`recommend_playlist`, `prefilter_strategy_candidates`), shaped like the `same_color_energy` blocks minus energy/anchor transport. `_apply_genre_filter` byte-unchanged. `src/xfinaudio/recommendation/playlist_service.py`.
+- [x] 2.8 GREEN — `same_color` description at `strategies.py:102` ("Hard filter … Energy is weighted but not limited.") is now true; unchanged (wording already matches). `src/xfinaudio/recommendation/strategies.py`.
+- [x] 2.9 REFACTOR — call-graph verified: `_apply_color_filter` was called only at the two `_COLOR_FILTER_STRATEGIES` sites, both removed → orphaned → removed. `_resolve_anchor_color` (called only by `_apply_color_filter`) and `_track_color` (called only by those two) → removed. `_dominant_color_value` KEPT (still used by `_resolve_same_color_energy_anchor`). `_apply_genre_filter` is the genre path, out of scope, untouched. `src/xfinaudio/recommendation/playlist_service.py`.
+- [x] 2.10 REFACTOR — `test_apply_genre_filter_fallback_and_warnings_are_byte_identical` asserts the `_apply_genre_filter` unfiltered fallback + exact warning strings directly; the existing end-to-end `same_genre` fallback test stays green. `tests/test_playlist_service.py`.
+- [x] 2.11 VERIFY (slice B) — `uv run pytest tests/test_playlist_service.py -q -k "same_color and not energy"` → **56 passed, 134 deselected**; full `uv run pytest -q` → **1489 passed**.
 
 ## Phase 3: Release Gate — version bump + lock (both slices land)
 
-- [x] 3.1 `chore(release)` — bump `version` in `pyproject.toml:3` above base `main` `1.7.1`. CI gate `Non-audio release gates` fails any PR whose version equals its base branch's; `release_gate_check.py` does NOT catch this locally, only CI does. `pyproject.toml`.
-- [x] 3.2 Regenerate `uv.lock` (`uv lock`) so the project's own pinned version (`uv.lock:1477`) matches the bump. Confirm `git diff uv.lock` shows only the version change. `uv.lock`.
+- [x] 3.1 `chore(release)` — Slice A bumped `1.7.1 → 1.7.2`. Slice B bumps `1.7.2 → 1.7.3` above its own base branch `fix/same-color-energy-all-colors` (1.7.2). CI gate `Non-audio release gates` fails any PR whose version equals its base branch's; `release_gate_check.py` does NOT catch this locally, only CI does. `pyproject.toml`.
+- [x] 3.2 Regenerated `uv.lock` (`uv lock`); `git diff uv.lock` shows only `1.7.2 → 1.7.3`. `uv.lock`.
 
 ## Phase 4: Offscreen End-to-End Harness (scratch DB, never live)
 
-- [ ] 4.1 Copy `~/.xfinaudio/xfinaudio.sqlite3` to a scratch path first (the app writes to whatever DB it opens — see `.agents/skills/verify`). Launch offscreen (`QT_QPA_PLATFORM=offscreen`, `MainWindow.with_defaults(db_path=DB_COPY, settings_path=SCRATCH_SETTINGS)`), pattern from `scripts/screenshot_app_with_colors.py`. NEVER open the live DB.
-- [ ] 4.2 Drive `same_color_energy` AND `same_color` across MIXED, RED, GREEN and BLUE anchors: select anchor row → Build tab → set strategy combo (internal name) → `_sync_state()` → `recommend_button.click()` → poll `last_recommendation`. Reset between runs. For each colour × strategy, measure the admitted L1 spread and record pool sizes and warnings. This is a calibration acceptance-gate measurement, not a code blocker (constants stay provisional). Evidence goes to `verify-report.md`.
+- [ ] 4.1 🔲 DEFERRED (calibration acceptance gate, not a code blocker) — Copy `~/.xfinaudio/xfinaudio.sqlite3` to a scratch path first (the app writes to whatever DB it opens — see `.agents/skills/verify`). Launch offscreen (`QT_QPA_PLATFORM=offscreen`, `MainWindow.with_defaults(db_path=DB_COPY, settings_path=SCRATCH_SETTINGS)`), pattern from `scripts/screenshot_app_with_colors.py`. NEVER open the live DB. Deferred: no live/scratch DB in this environment; constants stay provisional.
+- [ ] 4.2 🔲 DEFERRED — Drive `same_color_energy` AND `same_color` across MIXED, RED, GREEN and BLUE anchors: measure the admitted L1 spread, pool sizes and warnings. Calibration acceptance-gate measurement, not a code blocker. Evidence goes to `verify-report.md` when a real library is available.
 
 ## Phase 5: Verification Sequence (final task — exact order, no skipping or reordering)
 
-- [x] 5.1 Run, in this exact order, all passing:
+- [x] 5.1 Run, in this exact order, all passing (slice B, 1.7.3):
   ```bash
-  uv run pytest -q
-  uv run pyright src tests
-  uv run pytest --cov --cov-fail-under=70 -q
-  uv run ruff check .
-  uv run ruff format --check .
-  uv run python scripts/release_gate_check.py --run
+  uv run pytest -q                                    # 1489 passed
+  uv run pyright src tests                            # 0 errors, 0 warnings
+  uv run pytest --cov --cov-fail-under=70 -q          # 1489 passed, 91% coverage
+  uv run ruff check .                                 # All checks passed!
+  uv run ruff format --check .                        # 277 files already formatted
+  uv run python scripts/release_gate_check.py --run   # PASS all gates (built as 1.7.3), exit 0
   ```
+
+## Deviation from prompt scope (declared, per reporting discipline)
+
+The slice B prompt named exactly TWO characterization tests as the declared
+exception (`test_apply_color_filter_same_color_falls_back_to_unfiltered_pool`,
+`test_apply_color_filter_same_color_keeps_matching_candidates`). In fact SIX MORE
+end-to-end `same_color` characterization tests from the predecessor change
+(`tighten-same-color-energy`, "Task 1: freeze same_color output/warnings before
+dispatch is widened", `tests/test_playlist_service.py:295-381`) pinned the SAME
+deliberately-replaced contract at the pipeline level — the `same_color filter
+applied: {color}` warning, plain label-only admission, and the unfiltered
+fallback. They cannot stay green: the warning no longer exists and the fallback is
+gone by the maintainer's fail-closed decision. They fall under the identical
+principle as the two named tests (a characterization test pinning the exact
+behaviour being deliberately changed), so they were RE-AUTHORED (not deleted) to
+the new bounded-gate / fail-closed contract, each with a docstring recording why.
+The prompt's "only two tests" premise was inaccurate; flagged here rather than
+followed blindly.
