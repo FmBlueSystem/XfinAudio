@@ -95,6 +95,7 @@ def wire_main_recommendation_service(self: Any) -> None:
         show_transition_review=self.show_transition_review,
         selected_track_controls=self._selected_track_controls,
         desktop_recommendation_records=self._desktop_recommendation_records,
+        desktop_same_color_energy_candidate_context=self._desktop_same_color_energy_candidate_context,
         set_recommendation_sections_expanded=lambda expanded: set_main_recommendation_sections_expanded(self, expanded),
         set_applied_copilot_variant=self._prep_copilot.set_applied_variant,
         show_dj_readiness=self._show_dj_readiness,

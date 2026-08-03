@@ -1650,3 +1650,43 @@ def test_same_color_energy_mixed_anchor_admits_only_proximate_candidates() -> No
     paths = {item.path for item in result.ordered_tracks}
     assert "/near.flac" in paths
     assert "/far.flac" not in paths
+
+
+def test_same_color_energy_shortage_returns_only_eligible_and_warns() -> None:
+    # F1 (tighten-same-color-energy verify): spec R5 scenario "Strict pool is
+    # shorter than requested". A MIXED anchor with fewer eligible generated
+    # candidates than requested generated slots must (a) return only strictly
+    # eligible generated candidates -- never relaxing eligibility to fill slots --
+    # and (b) emit a shortage warning naming the shortfall.
+    anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    near_one = _mixed_track("/near_one.flac", red=0.41, green=0.39, blue=0.20, centroid=1010.0, rolloff=2020.0)
+    near_two = _mixed_track("/near_two.flac", red=0.42, green=0.38, blue=0.20, centroid=1020.0, rolloff=2040.0)
+    far = _mixed_track("/far.flac", red=0.20, green=0.20, blue=0.60, centroid=4000.0, rolloff=8000.0)
+
+    # 1 control (start-path anchor) + target_count 5 => 4 requested generated slots,
+    # but only 2 candidates are strictly eligible, so this drives the shortage branch.
+    result = recommend_playlist(
+        [anchor, near_one, near_two, far],
+        "same_color_energy",
+        controls=DJControls(start_path="/anchor.flac"),
+        target_count=5,
+    )
+
+    generated = [item for item in result.ordered_tracks if item.path != "/anchor.flac"]
+    generated_paths = {item.path for item in generated}
+    # A shortage never relaxes eligibility: only the two proximate MIXED candidates
+    # survive; the far one is excluded even though slots remain unfilled.
+    assert generated_paths == {"/near_one.flac", "/near_two.flac"}
+    assert "/far.flac" not in generated_paths
+    # Every returned generated candidate is still strictly eligible against the anchor.
+    for candidate in generated:
+        assert _same_color_energy_eligible(anchor, candidate) is True
+        assert candidate.energy_level == anchor.energy_level
+        assert candidate.spectral_profile is not None
+        assert candidate.spectral_profile.dominant_color == "MIXED"
+
+    # The exact shortage warning the implementation emits (2 eligible, 4 requested).
+    assert any(
+        warning == "same_color_energy: strict eligibility left 2 generated candidate(s) for 4 requested slot(s)"
+        for warning in result.warnings
+    )

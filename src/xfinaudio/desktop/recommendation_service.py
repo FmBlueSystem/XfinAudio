@@ -8,6 +8,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
+from xfinaudio.application.recommendation_candidates import RecommendationCandidateContext
 from xfinaudio.desktop._workers import BackgroundWorker
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.app_state_transitions import apply_recommendation_completion
@@ -61,6 +62,7 @@ class RecommendationService(QObject):
         self._show_transition_review: Callable[[Any], None] = _unwired
         self._selected_track_controls: Callable[[], DJControls | None] = _unwired
         self._desktop_recommendation_records: Callable[..., list[TrackRecord]] = _unwired
+        self._desktop_same_color_energy_candidate_context: Callable[..., RecommendationCandidateContext] = _unwired
         self._set_recommendation_sections_expanded: Callable[[bool], None] = _unwired
         self._set_applied_copilot_variant: Callable[[str | None], None] = _unwired
         self._show_dj_readiness: Callable[..., None] = _unwired
@@ -108,6 +110,7 @@ class RecommendationService(QObject):
         show_transition_review: Callable[[Any], None],
         selected_track_controls: Callable[[], DJControls | None],
         desktop_recommendation_records: Callable[..., list[TrackRecord]],
+        desktop_same_color_energy_candidate_context: Callable[..., RecommendationCandidateContext],
         set_recommendation_sections_expanded: Callable[[bool], None],
         set_applied_copilot_variant: Callable[[str | None], None],
         show_dj_readiness: Callable[..., None],
@@ -119,6 +122,7 @@ class RecommendationService(QObject):
         self._show_transition_review = show_transition_review
         self._selected_track_controls = selected_track_controls
         self._desktop_recommendation_records = desktop_recommendation_records
+        self._desktop_same_color_energy_candidate_context = desktop_same_color_energy_candidate_context
         self._set_recommendation_sections_expanded = set_recommendation_sections_expanded
         self._set_applied_copilot_variant = set_applied_copilot_variant
         self._show_dj_readiness = show_dj_readiness
@@ -130,6 +134,8 @@ class RecommendationService(QObject):
         strategy_name: str,
         controls: DJControls | None = None,
         spectral_cohesion: float = 0.0,
+        *,
+        same_color_energy_anchor_path: str | None = None,
     ) -> None:
         """Start a background recommendation in a worker thread."""
         if self._recommendation_thread is not None and self._recommendation_thread.isRunning():
@@ -137,7 +143,14 @@ class RecommendationService(QObject):
             self._recommendation_thread.wait(500)
         self._current_request_id += 1
         rid = self._current_request_id
-        self._start_recommendation_worker(records, strategy_name, controls, spectral_cohesion, rid)
+        self._start_recommendation_worker(
+            records,
+            strategy_name,
+            controls,
+            spectral_cohesion,
+            rid,
+            same_color_energy_anchor_path=same_color_energy_anchor_path,
+        )
 
     def cancel(self) -> None:
         """Request thread interruption if a recommendation is running."""
@@ -161,8 +174,22 @@ class RecommendationService(QObject):
             self._set_recommendation_sections_expanded(False)
             self._status_label.setText(self._tr("Select at least one complete track before recommending"))
             return
-        records = self._desktop_recommendation_records(controls, strategy_name)
         spectral_cohesion = self._build_screen.spectral_cohesion_value() / 100.0
+        if strategy_name == "same_color_energy":
+            # Combined strategy alone transports a bound anchor path so it survives
+            # dedupe/cap and reaches final enforcement unchanged. Every other
+            # strategy stays on the byte-identical records route below.
+            context = self._desktop_same_color_energy_candidate_context(controls)
+            self._begin_recommendation_state(len(context.records))
+            self.start_recommendation(
+                context.records,
+                strategy_name,
+                controls,
+                spectral_cohesion,
+                same_color_energy_anchor_path=context.same_color_energy_anchor_path,
+            )
+            return
+        records = self._desktop_recommendation_records(controls, strategy_name)
         self._begin_recommendation_state(len(records))
         self.start_recommendation(records, strategy_name, controls, spectral_cohesion)
 
@@ -244,6 +271,8 @@ class RecommendationService(QObject):
         controls: DJControls | None,
         spectral_cohesion: float,
         request_id: int,
+        *,
+        same_color_energy_anchor_path: str | None = None,
     ) -> None:
         thread = QThread(self)
         worker = BackgroundWorker(
@@ -254,6 +283,7 @@ class RecommendationService(QObject):
                 spectral_cohesion=spectral_cohesion,
                 target_duration_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
                 played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
+                same_color_energy_anchor_path=same_color_energy_anchor_path,
             ),
             request_id=request_id,
         )
