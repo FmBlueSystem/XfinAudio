@@ -40,11 +40,6 @@ _MIN_SEQUENCING_CANDIDATES = 30
 # sequence against 0.305s at 60, for 0.814 mean transition quality against
 # 0.863.
 _UNBOUNDED_SEQUENCING_CANDIDATES = 30
-# `same_color_energy` no longer shares `_apply_color_filter`: it has its own
-# strict, fail-closed eligibility path (`_apply_same_color_energy_filter`). The
-# shared helper stays byte-compatible for `same_color` alone.
-_COLOR_FILTER_STRATEGIES: frozenset[str] = frozenset({"same_color"})
-
 # Calibration-provisional proximity bounds applied to EVERY dominant-color label.
 # `_dominant_color()` classifies by crossing per-band thresholds that are
 # unbounded above, so RED/GREEN/BLUE labels are at least as dispersed as MIXED
@@ -263,11 +258,18 @@ def recommend_playlist(
             filtered_tracks, controls, preserve_paths=preserved_control_paths(controls)
         )
         warnings.extend(genre_warnings)
-    if strategy.name in _COLOR_FILTER_STRATEGIES:
-        filtered_tracks, color_warnings = _apply_color_filter(
-            filtered_tracks, controls, preserve_paths=preserved_control_paths(controls), strategy_name=strategy.name
+    if strategy.name == "same_color":
+        preserve_paths = preserved_control_paths(controls)
+        before_generated = len([track for track in filtered_tracks if track.path not in preserve_paths])
+        filtered_tracks, bound_color_anchor = _apply_same_color_filter(filtered_tracks, controls, preserve_paths)
+        eligible_generated = [track for track in filtered_tracks if track.path not in preserve_paths]
+        warnings.extend(
+            _same_color_warnings(
+                bound_anchor=bound_color_anchor,
+                eligible_generated_count=len(eligible_generated),
+                generated_before_filter=before_generated,
+            )
         )
-        warnings.extend(color_warnings)
     if strategy.name == "same_color_energy":
         preserve_paths = preserved_control_paths(controls)
         before_generated = len([track for track in filtered_tracks if track.path not in preserve_paths])
@@ -689,10 +691,10 @@ def prefilter_strategy_candidates(
     filtered, _ = _apply_requested_genre(filtered, controls.genre, preserve_paths)
     if strategy.name == "same_genre" and not controls.genre:
         filtered, _ = _apply_genre_filter(filtered, controls, preserve_paths=preserve_paths)
-    if strategy.name in _COLOR_FILTER_STRATEGIES:
-        filtered, _ = _apply_color_filter(
-            filtered, controls, preserve_paths=preserve_paths, strategy_name=strategy.name
-        )
+    if strategy.name == "same_color":
+        # The prefilter stays warningless (warning ownership is recommend_playlist's);
+        # it only narrows the pool to strict-eligible candidates before the cap.
+        filtered, _ = _apply_same_color_filter(filtered, controls, preserve_paths)
     if strategy.name == "same_color_energy":
         # The prefilter stays warningless (warning ownership is recommend_playlist's);
         # it only narrows the pool to strict-eligible candidates before the cap.
@@ -732,48 +734,6 @@ def resolve_same_color_energy_anchor_path(
     return anchor.path if anchor is not None else None
 
 
-def _apply_color_filter(
-    tracks: list[TrackRecord], controls: DJControls, preserve_paths: set[str], strategy_name: str
-) -> tuple[list[TrackRecord], list[str]]:
-    anchor_color = _resolve_anchor_color(tracks, controls)
-    if anchor_color is None:
-        return tracks, []
-
-    warnings = [f"{strategy_name} filter applied: {anchor_color}"]
-    filtered = [track for track in tracks if track.path in preserve_paths or _track_color(track) == anchor_color]
-    eligible = [track for track in filtered if track.path not in preserve_paths]
-    if not eligible:
-        warnings.append(
-            f"{strategy_name}: no candidates match anchor color '{anchor_color}'; falling back to unfiltered scoring"
-        )
-        return tracks, warnings
-    return filtered, warnings
-
-
-def _resolve_anchor_color(tracks: list[TrackRecord], controls: DJControls) -> ColorName | None:
-    by_path = {track.path: track for track in tracks}
-    if (
-        controls.start_path is not None
-        and (start_track := by_path.get(controls.start_path)) is not None
-        and (start_color := _track_color(start_track)) is not None
-    ):
-        return start_color
-
-    manual_colors: list[ColorName] = [
-        color
-        for path in controls.manual_order_paths
-        if path not in controls.excluded_paths and (manual_track := by_path.get(path)) is not None
-        if (color := _track_color(manual_track)) is not None
-    ]
-    if manual_colors:
-        return _dominant_color_value(manual_colors)
-
-    for candidate in tracks:
-        if (color := _track_color(candidate)) is not None:
-            return color
-    return None
-
-
 def _dominant_color_value(colors: list[ColorName]) -> ColorName:
     first_seen: dict[ColorName, int] = {}
     counts: dict[ColorName, int] = {}
@@ -781,11 +741,6 @@ def _dominant_color_value(colors: list[ColorName]) -> ColorName:
         first_seen.setdefault(color, index)
         counts[color] = counts.get(color, 0) + 1
     return min(counts, key=lambda color: (-counts[color], first_seen[color]))
-
-
-def _track_color(track: TrackRecord) -> ColorName | None:
-    profile = track.spectral_profile
-    return None if profile is None else profile.dominant_color
 
 
 def _is_finite(value: float) -> bool:
@@ -847,6 +802,26 @@ def _same_color_energy_eligible(anchor: TrackRecord, candidate: TrackRecord) -> 
     if anchor_profile is None or candidate_profile is None:
         return False
     if anchor.energy_level is None or candidate.energy_level != anchor.energy_level:
+        return False
+    if candidate_profile.dominant_color != anchor_profile.dominant_color:
+        return False
+    return _mixed_profile_close(anchor_profile, candidate_profile)
+
+
+def _same_color_eligible(anchor: TrackRecord, candidate: TrackRecord) -> bool:
+    """Return whether *candidate* is a strict `same_color` generated match.
+
+    A generated candidate is eligible when it shares the anchor's dominant-color
+    label AND passes the bounded anchor-relative RGB L1 / centroid / rolloff
+    proximity gate. The gate applies to EVERY dominant-color label; label equality
+    is necessary but NOT sufficient. There is deliberately NO energy branch: energy
+    stays a weighted scoring preference for `same_color`, never an eligibility
+    filter (this is what separates it from `same_color_energy`). Any missing
+    prerequisite fails closed.
+    """
+    anchor_profile = anchor.spectral_profile
+    candidate_profile = candidate.spectral_profile
+    if anchor_profile is None or candidate_profile is None:
         return False
     if candidate_profile.dominant_color != anchor_profile.dominant_color:
         return False
@@ -942,6 +917,70 @@ def _apply_same_color_energy_filter(
         track for track in tracks if track.path in preserve_paths or _same_color_energy_eligible(bound_anchor, track)
     ]
     return filtered, bound_anchor
+
+
+def _apply_same_color_filter(
+    tracks: list[TrackRecord],
+    controls: DJControls,
+    preserve_paths: set[str],
+) -> tuple[list[TrackRecord], TrackRecord | None]:
+    """Filter to strict `same_color` eligibility, preserving controls.
+
+    Mirrors `_apply_same_color_energy_filter` for the colour-only path: preserved
+    controls always survive, even when they fail the bounded colour gate; non-control
+    candidates survive only when `_same_color_eligible(anchor, candidate)` holds. The
+    pool NEVER widens to unfiltered scoring — `same_color` fails closed. Energy is
+    never consulted here; it remains a weighted scoring preference downstream.
+
+    Unlike the energy sibling, `same_color` binds no immutable anchor path and takes
+    no supplied anchor, so the anchor is always resolved internally from the pool.
+    This helper is warningless by design; `recommend_playlist` owns the
+    prerequisite / empty-pool warnings via `_same_color_warnings`.
+
+    Returns the filtered tracks and the bound anchor (or ``None`` when no anchor
+    could be resolved — the prerequisite-missing case).
+    """
+    bound_anchor = _resolve_same_color_energy_anchor(tracks, controls)
+    if bound_anchor is None or bound_anchor.spectral_profile is None:
+        # Prerequisite missing: keep only preserved controls, drop every generated
+        # candidate. Never widen to the unfiltered pool.
+        return [track for track in tracks if track.path in preserve_paths], bound_anchor
+
+    filtered = [track for track in tracks if track.path in preserve_paths or _same_color_eligible(bound_anchor, track)]
+    return filtered, bound_anchor
+
+
+def _same_color_warnings(
+    *,
+    bound_anchor: TrackRecord | None,
+    eligible_generated_count: int,
+    generated_before_filter: int,
+) -> list[str]:
+    """Own the strict `same_color` prerequisite / empty-pool warnings.
+
+    A strategy whose registered description claims a "Hard filter" must not silently
+    widen to the whole library on an unmatchable anchor. These warnings explain WHY
+    the pool stayed strict, keeping `same_color` consistent with its fail-closed
+    sibling `same_color_energy`. There is no shortage warning here: `same_color` has
+    no exact-energy prerequisite to under-fill against; the empty-pool case is the
+    honest failure mode a DJ needs to see.
+    """
+    warnings: list[str] = []
+    anchor_usable = bound_anchor is not None and bound_anchor.spectral_profile is not None
+    if not anchor_usable:
+        if generated_before_filter:
+            warnings.append(
+                "same_color: anchor is missing a colour or spectral profile prerequisite; "
+                "no generated candidates were produced"
+            )
+        return warnings
+
+    if eligible_generated_count == 0 and generated_before_filter:
+        warnings.append(
+            "same_color: strict colour eligibility excluded every generated candidate; "
+            "returning only preserved controls without widening to unfiltered scoring"
+        )
+    return warnings
 
 
 def _normalized_genre(track: TrackRecord) -> str | None:
