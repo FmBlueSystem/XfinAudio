@@ -45,19 +45,20 @@ _UNBOUNDED_SEQUENCING_CANDIDATES = 30
 # shared helper stays byte-compatible for `same_color` alone.
 _COLOR_FILTER_STRATEGIES: frozenset[str] = frozenset({"same_color"})
 
-# Calibration-provisional MIXED proximity bounds. MIXED is the ELSE of three
-# independent dominant-color threshold tests, not a spectral region: over the
-# r+g+b=1 simplex it has an L1 diameter of ~0.30 yet holds a large residual
-# share of the library, so dominant-label equality alone constrains nothing.
-# For a MIXED anchor, `same_color_energy` additionally requires each generated
+# Calibration-provisional proximity bounds applied to EVERY dominant-color label.
+# `_dominant_color()` classifies by crossing per-band thresholds that are
+# unbounded above, so RED/GREEN/BLUE labels are at least as dispersed as MIXED
+# (the ELSE of those thresholds); label equality alone constrains none of them.
+# For any anchor colour, `same_color_energy` additionally requires each generated
 # candidate to sit within a bounded anchor-relative distance on RGB ratios (L1),
-# spectral centroid (relative delta), and rolloff (relative delta). Only the
-# RULE SHAPE is normative; these literal magnitudes are PROVISIONAL pending
-# listening calibration and are isolated here so a post-calibration change
-# touches only these definitions, never the rule.
-MIXED_RGB_L1_MAX = 0.08
-MIXED_CENTROID_REL_MAX = 0.15
-MIXED_ROLLOFF_REL_MAX = 0.15
+# spectral centroid (relative delta), and rolloff (relative delta). The names are
+# colour-neutral because the gate no longer applies to MIXED only. Only the RULE
+# SHAPE is normative; these literal magnitudes are PROVISIONAL pending listening
+# calibration and are isolated here so a post-calibration change touches only
+# these definitions, never the rule.
+COLOR_RGB_L1_MAX = 0.08
+COLOR_CENTROID_REL_MAX = 0.15
+COLOR_ROLLOFF_REL_MAX = 0.15
 
 
 class PlaylistRecommendation(BaseModel):
@@ -808,11 +809,12 @@ def _relative_delta(candidate: float, anchor: float) -> float | None:
 
 
 def _mixed_profile_close(anchor: SpectralProfile, candidate: SpectralProfile) -> bool:
-    """Return whether a MIXED candidate sits inside the anchor-relative gate.
+    """Return whether a candidate sits inside the anchor-relative proximity gate.
 
-    MIXED requires finite RGB ratios with a positive sum on both profiles, plus
+    The gate requires finite RGB ratios with a positive sum on both profiles, plus
     finite positive centroid and rolloff on the anchor (the relative-delta
-    denominators). Any degenerate value fails closed.
+    denominators). Any degenerate value fails closed. Applied to every
+    dominant-color label, not only MIXED.
     """
     anchor_rgb = (anchor.red_ratio, anchor.green_ratio, anchor.blue_ratio)
     candidate_rgb = (candidate.red_ratio, candidate.green_ratio, candidate.blue_ratio)
@@ -821,25 +823,24 @@ def _mixed_profile_close(anchor: SpectralProfile, candidate: SpectralProfile) ->
     if sum(anchor_rgb) <= 0.0 or sum(candidate_rgb) <= 0.0:
         return False
     l1 = sum(abs(a - b) for a, b in zip(anchor_rgb, candidate_rgb, strict=True))
-    if l1 > MIXED_RGB_L1_MAX:
+    if l1 > COLOR_RGB_L1_MAX:
         return False
 
     centroid_delta = _relative_delta(candidate.centroid_hz, anchor.centroid_hz)
-    if centroid_delta is None or centroid_delta > MIXED_CENTROID_REL_MAX:
+    if centroid_delta is None or centroid_delta > COLOR_CENTROID_REL_MAX:
         return False
     rolloff_delta = _relative_delta(candidate.rolloff_hz, anchor.rolloff_hz)
-    return rolloff_delta is not None and rolloff_delta <= MIXED_ROLLOFF_REL_MAX
+    return rolloff_delta is not None and rolloff_delta <= COLOR_ROLLOFF_REL_MAX
 
 
 def _same_color_energy_eligible(anchor: TrackRecord, candidate: TrackRecord) -> bool:
     """Return whether *candidate* is a strict `same_color_energy` generated match.
 
     A generated candidate is eligible when it shares the anchor's exact energy
-    level AND dominant-color label. For RED/GREEN/BLUE, label equality plus exact
-    energy is sufficient (no continuous gate). For MIXED, label equality is
-    necessary but not sufficient: the candidate must additionally pass the
-    bounded anchor-relative RGB L1 / centroid / rolloff proximity gate. Any
-    missing prerequisite fails closed.
+    level AND dominant-color label AND passes the bounded anchor-relative RGB L1 /
+    centroid / rolloff proximity gate. The gate applies to EVERY dominant-color
+    label (RED, GREEN, BLUE and MIXED alike): label equality is necessary but not
+    sufficient for any colour. Any missing prerequisite fails closed.
     """
     anchor_profile = anchor.spectral_profile
     candidate_profile = candidate.spectral_profile
@@ -849,8 +850,6 @@ def _same_color_energy_eligible(anchor: TrackRecord, candidate: TrackRecord) -> 
         return False
     if candidate_profile.dominant_color != anchor_profile.dominant_color:
         return False
-    if anchor_profile.dominant_color != "MIXED":
-        return True
     return _mixed_profile_close(anchor_profile, candidate_profile)
 
 
@@ -858,7 +857,7 @@ def _resolve_same_color_energy_anchor(tracks: list[TrackRecord], controls: DJCon
     """Bind the single anchor TRACK for `same_color_energy`.
 
     Unlike `_resolve_anchor_color`, which returns a color, the strict path binds a
-    specific track so anchor-relative eligibility (especially the MIXED gate) has
+    specific track so anchor-relative eligibility (the bounded proximity gate) has
     a concrete profile. Precedence, unchanged from the color resolver: the
     start-path track; else the first manual-prefix record carrying the majority
     manual color; else the first profiled record. Locked controls never select

@@ -1,0 +1,39 @@
+schema: gentle-ai.sdd-state.v1
+change: tighten-spectral-color-filters
+artifact_store: openspec
+status: apply
+created: 2026-08-02
+updated: 2026-08-02
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: in-progress
+  verify: in-progress
+next_recommended: apply
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+slices:
+  A:
+    status: complete
+    branch: fix/same-color-energy-all-colors
+    base: feat/tighten-spectral-color-filters
+    scope: >-
+      same_color_energy bounded proximity gate spans every dominant-color label;
+      COLOR_* constant rename; version bump 1.7.1 -> 1.7.2 + uv.lock.
+  B:
+    status: pending
+    scope: >-
+      same_color dedicated bounded filter + fail-closed; out of scope for this PR.
+notes:
+  - "Slice A implemented on fix/same-color-energy-all-colors (base feat/tighten-spectral-color-filters, feature-branch-chain). Deleted the `dominant_color != \"MIXED\": return True` early return in `_same_color_energy_eligible` so the bounded gate applies to every label. Renamed MIXED_RGB_L1_MAX/MIXED_CENTROID_REL_MAX/MIXED_ROLLOFF_REL_MAX -> COLOR_* (values 0.08/0.15/0.15 unchanged)."
+  - "Blast radius wider than the task line-pointers implied: SpectralProfile defaults centroid_hz=rolloff_hz=0.0, so every test helper that built RGB tracks with zero features (spectral_track, test_application_recommendation_candidates._spectral_record, test_candidate_pool._spectral_record) started failing closed once RGB flowed through the gate. Fixed at the root by giving those helpers finite positive centroid/rolloff (1000.0/2000.0)."
+  - "Phase 0 safety net: existing predecessor coverage already suffices for the must-NOT-change set (same_energy verbatim description + ±1 band, same_genre exact fallback warnings, all 10 registered strategy descriptions). No new characterization tests were needed; task 0.2 adds only what 0.1 proves missing, and nothing was missing."
+  - "Task 1.8 scoped literally to tighten-same-color-energy/design.md:47,92 as instructed. Other predecessor .md artifacts (proposal/spec/verify-report/tasks/state/apply-progress/CONTINUATION) were left as historical record: they reference no Python symbol, break no check, and rewriting a completed change's history would falsify what the predecessor actually shipped."
+  - "same_color path (Slice B) untouched: `_apply_color_filter` and `_COLOR_FILTER_STRATEGIES={same_color}` are byte-unchanged; the two same_color characterization tests (test_apply_color_filter_same_color_* at :1369/:1392 pre-edit) stay green."
