@@ -21,6 +21,12 @@ def _spectral_record(path: str, color: ColorName) -> TrackRecord:
                 red_ratio=1.0 if color == "RED" else 0.0,
                 green_ratio=1.0 if color == "GREEN" else 0.0,
                 blue_ratio=1.0 if color == "BLUE" else 0.0,
+                # Finite positive centroid/rolloff so same-label candidates share
+                # the gate's relative-delta denominators (delta 0) and pass the
+                # bounded proximity gate, which since tighten-spectral-color-filters
+                # spans every dominant-color label, not only MIXED.
+                centroid_hz=1000.0,
+                rolloff_hz=2000.0,
                 dominant_color=color,
             )
         }

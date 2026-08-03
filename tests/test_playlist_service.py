@@ -1,12 +1,14 @@
 from unittest.mock import patch
 
+import pytest
+
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import (
-    MIXED_CENTROID_REL_MAX,
-    MIXED_RGB_L1_MAX,
-    MIXED_ROLLOFF_REL_MAX,
+    COLOR_CENTROID_REL_MAX,
+    COLOR_RGB_L1_MAX,
+    COLOR_ROLLOFF_REL_MAX,
     PlaylistRecommendation,
     _apply_color_filter,
     _apply_energy_tolerance,
@@ -48,12 +50,18 @@ def track(
 
 
 def spectral_track(path: str, color: ColorName) -> TrackRecord:
+    # Finite positive centroid/rolloff so same-label candidates share the gate's
+    # relative-delta denominators (delta 0) and pass the bounded proximity gate,
+    # which since tighten-spectral-color-filters spans every dominant-color label.
+    # `same_color` (label-only via `_apply_color_filter`) is unaffected by these.
     return track(path).model_copy(
         update={
             "spectral_profile": SpectralProfile(
                 red_ratio=1.0 if color == "RED" else 0.0,
                 green_ratio=1.0 if color == "GREEN" else 0.0,
                 blue_ratio=1.0 if color == "BLUE" else 0.0,
+                centroid_hz=1000.0,
+                rolloff_hz=2000.0,
                 dominant_color=color,
             )
         }
@@ -1439,54 +1447,206 @@ def _mixed_track(
     )
 
 
+# RGB band ratios that classify as each dominant color under `_dominant_color`
+# (RED >= 0.45, GREEN >= 0.48, BLUE >= 0.22). Non-MIXED anchors now also flow
+# through the bounded proximity gate, which needs finite positive centroid and
+# rolloff denominators; `spectral_track` leaves both at 0.0, so gate tests use
+# this helper instead.
+_COLOR_RATIOS: dict[ColorName, tuple[float, float, float]] = {
+    "RED": (0.70, 0.20, 0.10),
+    "GREEN": (0.20, 0.70, 0.10),
+    "BLUE": (0.20, 0.20, 0.60),
+}
+
+
+def _colored_track(
+    path: str,
+    color: ColorName,
+    *,
+    energy: int | None = 5,
+    centroid: float = 1000.0,
+    rolloff: float = 2000.0,
+    red: float | None = None,
+    green: float | None = None,
+    blue: float | None = None,
+) -> TrackRecord:
+    base_red, base_green, base_blue = _COLOR_RATIOS[color]
+    return track(path, energy_level=energy).model_copy(
+        update={
+            "spectral_profile": SpectralProfile(
+                red_ratio=base_red if red is None else red,
+                green_ratio=base_green if green is None else green,
+                blue_ratio=base_blue if blue is None else blue,
+                centroid_hz=centroid,
+                rolloff_hz=rolloff,
+                dominant_color=color,
+            )
+        }
+    )
+
+
 def test_same_color_energy_eligible_requires_exact_energy_for_rgb() -> None:
-    anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5})
-    same = spectral_track("/same.flac", "RED").model_copy(update={"energy_level": 5})
-    off_by_one = spectral_track("/off.flac", "RED").model_copy(update={"energy_level": 6})
+    anchor = _colored_track("/anchor.flac", "RED", energy=5)
+    same = _colored_track("/same.flac", "RED", energy=5)
+    off_by_one = _colored_track("/off.flac", "RED", energy=6)
 
     assert _same_color_energy_eligible(anchor, same) is True
     assert _same_color_energy_eligible(anchor, off_by_one) is False
 
 
 def test_same_color_energy_eligible_requires_label_equality_for_rgb() -> None:
-    anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5})
-    other_color = spectral_track("/green.flac", "GREEN").model_copy(update={"energy_level": 5})
+    anchor = _colored_track("/anchor.flac", "RED", energy=5)
+    other_color = _colored_track("/green.flac", "GREEN", energy=5)
 
     assert _same_color_energy_eligible(anchor, other_color) is False
 
 
-def test_same_color_energy_eligible_rgb_ignores_continuous_gate() -> None:
-    # RED/GREEN/BLUE use label equality + exact energy only: a candidate with zero
-    # centroid/rolloff but matching label+energy stays eligible (no continuous gate).
-    anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5})
-    zero_features = track("/red.flac", energy_level=5).model_copy(
-        update={
-            "spectral_profile": SpectralProfile(
-                red_ratio=1.0,
-                green_ratio=0.0,
-                blue_ratio=0.0,
-                centroid_hz=0.0,
-                rolloff_hz=0.0,
-                dominant_color="RED",
-            )
-        }
+def test_color_gate_constants_are_colour_neutral_with_unchanged_values() -> None:
+    # tighten-spectral-color-filters slice A: the gate spans all colours, so the
+    # constants carry colour-neutral names and no MIXED_-prefixed gate constant
+    # remains. Values stay at the calibration-provisional defaults.
+    import xfinaudio.recommendation.playlist_service as service
+
+    assert COLOR_RGB_L1_MAX == 0.08
+    assert COLOR_CENTROID_REL_MAX == 0.15
+    assert COLOR_ROLLOFF_REL_MAX == 0.15
+    assert not hasattr(service, "MIXED_RGB_L1_MAX")
+    assert not hasattr(service, "MIXED_CENTROID_REL_MAX")
+    assert not hasattr(service, "MIXED_ROLLOFF_REL_MAX")
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE"])
+def test_same_color_energy_eligible_admits_proximate_rgb_candidate(color: ColorName) -> None:
+    # tighten-spectral-color-filters slice A: the bounded proximity gate now spans
+    # every dominant-color label. A same-label same-energy candidate INSIDE the gate
+    # is admitted for RED, GREEN and BLUE anchors alike.
+    anchor = _colored_track("/anchor.flac", color, energy=5, centroid=1000.0, rolloff=2000.0)
+    inside = _colored_track("/inside.flac", color, energy=5, centroid=1010.0, rolloff=2020.0)
+
+    assert _same_color_energy_eligible(anchor, inside) is True
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE"])
+def test_same_color_energy_eligible_rejects_rgb_candidate_beyond_rgb_l1(color: ColorName) -> None:
+    # Anchor-relative RGB L1 beyond COLOR_RGB_L1_MAX rejects the candidate even
+    # though it shares the label and exact energy — no longer sufficient for RGB.
+    base_red, base_green, base_blue = _COLOR_RATIOS[color]
+    over = COLOR_RGB_L1_MAX / 2.0 + 0.05
+    anchor = _colored_track("/anchor.flac", color, energy=5, centroid=1000.0, rolloff=2000.0)
+    far = _colored_track(
+        "/far.flac",
+        color,
+        energy=5,
+        centroid=1000.0,
+        rolloff=2000.0,
+        red=base_red + over,
+        green=base_green - over,
+        blue=base_blue,
     )
 
-    assert _same_color_energy_eligible(anchor, zero_features) is True
+    assert _same_color_energy_eligible(anchor, far) is False
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE"])
+def test_same_color_energy_eligible_rgb_centroid_and_rolloff_at_inclusive_bounds(color: ColorName) -> None:
+    # Centroid and rolloff exactly on their bounds are eligible (inclusive) for RGB
+    # anchors. RGB ratios are held equal to the anchor here so the RGB L1 axis is a
+    # clean zero; the RGB-L1 inclusive bound is asserted separately below.
+    anchor = _colored_track("/anchor.flac", color, energy=5, centroid=1000.0, rolloff=2000.0)
+    edge = _colored_track(
+        "/edge.flac",
+        color,
+        energy=5,
+        centroid=1000.0 * (1.0 + COLOR_CENTROID_REL_MAX),
+        rolloff=2000.0 * (1.0 + COLOR_ROLLOFF_REL_MAX),
+    )
+
+    assert _same_color_energy_eligible(anchor, edge) is True
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE"])
+def test_same_color_energy_eligible_rgb_l1_at_inclusive_bound(color: ColorName) -> None:
+    # A candidate whose anchor-relative RGB L1 equals COLOR_RGB_L1_MAX exactly is
+    # eligible (inclusive). Only one band moves, by exactly the constant, so the
+    # computed L1 is bit-identical to the value the gate compares against — no
+    # floating-point overshoot can turn an at-bound case into a just-over one.
+    base_red, base_green, base_blue = _COLOR_RATIOS[color]
+    anchor = _colored_track("/anchor.flac", color, energy=5, centroid=1000.0, rolloff=2000.0)
+    edge = _colored_track(
+        "/edge.flac",
+        color,
+        energy=5,
+        centroid=1000.0,
+        rolloff=2000.0,
+        red=base_red,
+        green=base_green - COLOR_RGB_L1_MAX,
+        blue=base_blue,
+    )
+
+    assert _same_color_energy_eligible(anchor, edge) is True
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE"])
+@pytest.mark.parametrize("axis", ["centroid", "rolloff"])
+def test_same_color_energy_eligible_rgb_rejects_each_bound_plus_epsilon(color: ColorName, axis: str) -> None:
+    # Each bound + epsilon on its own axis rejects the candidate, per colour.
+    anchor = _colored_track("/anchor.flac", color, energy=5, centroid=1000.0, rolloff=2000.0)
+    centroid = 1000.0 * (1.0 + COLOR_CENTROID_REL_MAX + 0.01) if axis == "centroid" else 1000.0
+    rolloff = 2000.0 * (1.0 + COLOR_ROLLOFF_REL_MAX + 0.01) if axis == "rolloff" else 2000.0
+    candidate = _colored_track("/over.flac", color, energy=5, centroid=centroid, rolloff=rolloff)
+
+    assert _same_color_energy_eligible(anchor, candidate) is False
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE"])
+def test_same_color_energy_eligible_rgb_fails_closed_on_missing_profile(color: ColorName) -> None:
+    anchor = _colored_track("/anchor.flac", color, energy=5)
+    no_profile = track("/np.flac", energy_level=5)
+
+    assert _same_color_energy_eligible(anchor, no_profile) is False
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE"])
+def test_same_color_energy_eligible_rgb_fails_closed_on_zero_rgb_sum(color: ColorName) -> None:
+    anchor = _colored_track("/anchor.flac", color, energy=5)
+    zero_sum = _colored_track("/zero.flac", color, energy=5, red=0.0, green=0.0, blue=0.0)
+
+    assert _same_color_energy_eligible(anchor, zero_sum) is False
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE"])
+@pytest.mark.parametrize("axis", ["centroid", "rolloff"])
+def test_same_color_energy_eligible_rgb_fails_closed_on_zero_denominator(color: ColorName, axis: str) -> None:
+    # A zero or non-finite centroid/rolloff denominator on the anchor fails closed
+    # for RGB anchors, not only MIXED.
+    centroid = 0.0 if axis == "centroid" else 1000.0
+    rolloff = 0.0 if axis == "rolloff" else 2000.0
+    anchor = _colored_track("/anchor.flac", color, energy=5, centroid=centroid, rolloff=rolloff)
+    candidate = _colored_track("/c.flac", color, energy=5, centroid=centroid, rolloff=rolloff)
+
+    assert _same_color_energy_eligible(anchor, candidate) is False
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE"])
+def test_same_color_energy_eligible_rgb_fails_closed_on_non_finite_ratio(color: ColorName) -> None:
+    anchor = _colored_track("/anchor.flac", color, energy=5)
+    candidate = _colored_track("/c.flac", color, energy=5, centroid=float("inf"))
+
+    assert _same_color_energy_eligible(anchor, candidate) is False
 
 
 def test_same_color_energy_eligible_mixed_passes_at_inclusive_boundary() -> None:
     anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
-    # Exactly on each inclusive bound: RGB L1 == MIXED_RGB_L1_MAX, centroid rel ==
-    # MIXED_CENTROID_REL_MAX, rolloff rel == MIXED_ROLLOFF_REL_MAX.
-    l1_half = MIXED_RGB_L1_MAX / 2.0
+    # Exactly on each inclusive bound: RGB L1 == COLOR_RGB_L1_MAX, centroid rel ==
+    # COLOR_CENTROID_REL_MAX, rolloff rel == COLOR_ROLLOFF_REL_MAX.
+    l1_half = COLOR_RGB_L1_MAX / 2.0
     candidate = _mixed_track(
         "/edge.flac",
         red=0.40 + l1_half,
         green=0.40 - l1_half,
         blue=0.20,
-        centroid=1000.0 * (1.0 + MIXED_CENTROID_REL_MAX),
-        rolloff=2000.0 * (1.0 + MIXED_ROLLOFF_REL_MAX),
+        centroid=1000.0 * (1.0 + COLOR_CENTROID_REL_MAX),
+        rolloff=2000.0 * (1.0 + COLOR_ROLLOFF_REL_MAX),
     )
 
     assert _same_color_energy_eligible(anchor, candidate) is True
@@ -1494,7 +1654,7 @@ def test_same_color_energy_eligible_mixed_passes_at_inclusive_boundary() -> None
 
 def test_same_color_energy_eligible_mixed_fails_just_over_rgb_l1() -> None:
     anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
-    over = (MIXED_RGB_L1_MAX / 2.0) + 0.001
+    over = (COLOR_RGB_L1_MAX / 2.0) + 0.001
     candidate = _mixed_track(
         "/over.flac",
         red=0.40 + over,
@@ -1514,7 +1674,7 @@ def test_same_color_energy_eligible_mixed_fails_just_over_centroid() -> None:
         red=0.40,
         green=0.40,
         blue=0.20,
-        centroid=1000.0 * (1.0 + MIXED_CENTROID_REL_MAX + 0.01),
+        centroid=1000.0 * (1.0 + COLOR_CENTROID_REL_MAX + 0.01),
         rolloff=2000.0,
     )
 
@@ -1529,7 +1689,7 @@ def test_same_color_energy_eligible_mixed_fails_just_over_rolloff() -> None:
         green=0.40,
         blue=0.20,
         centroid=1000.0,
-        rolloff=2000.0 * (1.0 + MIXED_ROLLOFF_REL_MAX + 0.01),
+        rolloff=2000.0 * (1.0 + COLOR_ROLLOFF_REL_MAX + 0.01),
     )
 
     assert _same_color_energy_eligible(anchor, candidate) is False
