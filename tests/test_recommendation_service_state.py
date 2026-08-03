@@ -6,6 +6,7 @@ from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any, cast
 
+from xfinaudio.application.recommendation_candidates import RecommendationCandidateContext
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.recommendation_service import RecommendationService
 
@@ -94,6 +95,7 @@ def _wire_service(
         show_transition_review=lambda _explanation: None,
         selected_track_controls=lambda: None,
         desktop_recommendation_records=lambda _controls, _strategy=None: [],
+        desktop_same_color_energy_candidate_context=lambda _controls: RecommendationCandidateContext(),
         set_recommendation_sections_expanded=lambda _expanded: None,
         set_applied_copilot_variant=set_applied_copilot_variant,
         show_dj_readiness=lambda *_args: None,
@@ -172,26 +174,24 @@ def test_recommend_reads_strategy_via_current_data() -> None:
     _wire_service(service, build_screen=build_screen)
     service._scanned_records = lambda: [cast(Any, object())]
     service._selected_track_controls = lambda: cast(Any, object())
-    captured_strategies: list[str] = []
+    context_calls: list[Any] = []
 
-    def _fake_desktop_recommendation_records(_controls: Any, _strategy: str | None = None) -> list[Any]:
-        assert _strategy is not None
-        captured_strategies.append(_strategy)
-        return []
+    def _fake_context(_controls: Any) -> RecommendationCandidateContext:
+        # The combined strategy resolved via currentData() reaches the context seam.
+        context_calls.append(_controls)
+        return RecommendationCandidateContext()
 
-    service._desktop_recommendation_records = _fake_desktop_recommendation_records
+    service._desktop_same_color_energy_candidate_context = _fake_context
     started_strategies: list[str] = []
 
-    def _fake_start_recommendation(
-        _records: list[Any], strategy_name: str, controls: Any = None, spectral_cohesion: float = 0.0
-    ) -> None:
+    def _fake_start_recommendation(_records: list[Any], strategy_name: str, *args: Any, **kwargs: Any) -> None:
         started_strategies.append(strategy_name)
 
     service.start_recommendation = _fake_start_recommendation
 
     service.recommend()
 
-    assert captured_strategies == ["same_color_energy"]
+    assert len(context_calls) == 1
     assert started_strategies == ["same_color_energy"]
     assert combo.currentText() != "same_color_energy"
 
@@ -222,3 +222,65 @@ def test_on_recommend_requested_selects_item_via_find_data() -> None:
     assert combo.find_data_calls == ["same_color_energy"]
     assert combo.find_text_calls == []
     assert combo.currentData() == "same_color_energy"
+
+
+def _dispatch_service(strategy_data: str) -> tuple[RecommendationService, dict[str, Any]]:
+    service = RecommendationService(cast(Any, object()))
+    combo = _StrategyCombo([("Display", strategy_data)])
+    build_screen = SimpleNamespace(
+        recommend_button=_Button(),
+        strategy_combo=combo,
+        spectral_cohesion_value=lambda: 50,
+    )
+    _wire_service(service, build_screen=build_screen)
+    service._scanned_records = lambda: [cast(Any, object())]
+    service._selected_track_controls = lambda: cast(Any, object())
+
+    calls: dict[str, Any] = {"records_route": 0, "context_route": 0, "started": []}
+
+    def _records_route(_controls: Any, _strategy: str | None = None) -> list[Any]:
+        calls["records_route"] += 1
+        return []
+
+    def _context_route(_controls: Any) -> RecommendationCandidateContext:
+        calls["context_route"] += 1
+        return RecommendationCandidateContext(records=[], same_color_energy_anchor_path="/anchor.flac")
+
+    service._desktop_recommendation_records = _records_route
+    service._desktop_same_color_energy_candidate_context = _context_route
+
+    def _fake_start(records: list[Any], strategy_name: str, *args: Any, **kwargs: Any) -> None:
+        calls["started"].append((strategy_name, kwargs.get("same_color_energy_anchor_path")))
+
+    service.start_recommendation = _fake_start
+    return service, calls
+
+
+def test_recommend_uses_context_callback_only_for_combined_strategy() -> None:
+    """Combined strategy takes the context seam; the records route is not called.
+
+    Slice-3 dispatch guard: `strategy_name == "same_color_energy"` forwards the
+    bound anchor path through the context callback.
+    """
+    service, calls = _dispatch_service("same_color_energy")
+
+    service.recommend()
+
+    assert calls["context_route"] == 1
+    assert calls["records_route"] == 0
+    assert calls["started"] == [("same_color_energy", "/anchor.flac")]
+
+
+def test_recommend_uses_records_route_for_ordinary_strategy() -> None:
+    """Every non-combined strategy keeps going through `_desktop_recommendation_records`.
+
+    Slice-3 dispatch guard: the ordinary path is byte-identical to today — the
+    context callback must NOT fire, and no anchor path is forwarded.
+    """
+    service, calls = _dispatch_service("same_color")
+
+    service.recommend()
+
+    assert calls["records_route"] == 1
+    assert calls["context_route"] == 0
+    assert calls["started"] == [("same_color", None)]
