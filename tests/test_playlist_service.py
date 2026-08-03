@@ -10,10 +10,11 @@ from xfinaudio.recommendation.playlist_service import (
     COLOR_RGB_L1_MAX,
     COLOR_ROLLOFF_REL_MAX,
     PlaylistRecommendation,
-    _apply_color_filter,
     _apply_energy_tolerance,
+    _apply_same_color_filter,
     _bpm_jump_warning,
     _drop_generated_tracks_after_impossible_bpm_jumps,
+    _same_color_eligible,
     _same_color_energy_eligible,
     _spectral_jump_warnings,
     prefilter_strategy_candidates,
@@ -292,6 +293,14 @@ def test_same_genre_falls_back_when_no_eligible_candidate_matches_anchor_genre()
 
 
 def test_same_color_filters_candidates_to_selected_start_color() -> None:
+    # tighten-spectral-color-filters slice B: re-authored from a predecessor
+    # label-only characterization test. It pinned `same_color filter applied: RED`
+    # (a warning `same_color` no longer emits) and plain label equality — the exact
+    # behaviour this slice replaces with the bounded gate. Re-authored (not deleted)
+    # to the NEW contract: same-label candidates INSIDE the gate are admitted, and
+    # `same_color` emits no per-anchor "filter applied" warning when the pool is
+    # non-empty. `spectral_track` gives every same-label track identical RGB, so the
+    # RED candidate sits at L1 0 inside the gate.
     tracks = [
         spectral_track("/anchor.flac", "RED"),
         spectral_track("/red.flac", "RED"),
@@ -303,10 +312,13 @@ def test_same_color_filters_candidates_to_selected_start_color() -> None:
     result = recommend_playlist(tracks, "same_color", controls=DJControls(start_path="/anchor.flac"))
 
     assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/red.flac"}
-    assert "same_color filter applied: RED" in result.warnings
+    assert not any(warning.startswith("same_color") for warning in result.warnings)
 
 
 def test_same_color_uses_manual_prefix_color_when_start_path_is_absent() -> None:
+    # Re-authored predecessor characterization test (see above): anchor resolution
+    # via the manual prefix still binds the GREEN anchor; the gate then admits the
+    # same-label GREEN candidate. No "filter applied" warning under the new contract.
     tracks = [
         spectral_track("/manual.flac", "GREEN"),
         spectral_track("/green.flac", "GREEN"),
@@ -317,10 +329,13 @@ def test_same_color_uses_manual_prefix_color_when_start_path_is_absent() -> None
 
     assert [item.path for item in result.ordered_tracks[:1]] == ["/manual.flac"]
     assert {item.path for item in result.ordered_tracks} == {"/manual.flac", "/green.flac"}
-    assert "same_color filter applied: GREEN" in result.warnings
+    assert not any(warning.startswith("same_color") for warning in result.warnings)
 
 
 def test_same_color_preserves_controlled_paths_even_when_color_differs() -> None:
+    # Re-authored predecessor characterization test (see above): controls survive
+    # the bounded gate even when their colour differs from the anchor; the only
+    # behavioural change is that the "filter applied" warning is gone.
     tracks = [
         spectral_track("/anchor.flac", "RED"),
         spectral_track("/red.flac", "RED"),
@@ -337,10 +352,18 @@ def test_same_color_preserves_controlled_paths_even_when_color_differs() -> None
         "/locked-green.flac",
         "/end-blue.flac",
     }
-    assert "same_color filter applied: RED" in result.warnings
+    assert not any(warning.startswith("same_color") for warning in result.warnings)
 
 
-def test_same_color_falls_back_when_no_eligible_candidate_matches_anchor_color() -> None:
+def test_same_color_fails_closed_when_no_eligible_candidate_matches_anchor_color() -> None:
+    # DECLARED CHARACTERIZATION EXCEPTION (tighten-spectral-color-filters slice B).
+    # This predecessor test pinned `same_color`'s unfiltered fallback: when nothing
+    # matched the anchor colour it returned the WHOLE library plus the two
+    # "falling back to unfiltered scoring" warnings. That is the exact behaviour the
+    # maintainer decided to replace with fail-closed. Re-authored (not deleted) so
+    # the strategy keeps its empty-pool coverage: an unmatchable RED anchor now
+    # returns ONLY the preserved control plus an explicit strict-colour warning, and
+    # never widens to the unfiltered library.
     tracks = [
         spectral_track("/anchor.flac", "RED"),
         spectral_track("/green.flac", "GREEN"),
@@ -349,22 +372,50 @@ def test_same_color_falls_back_when_no_eligible_candidate_matches_anchor_color()
 
     result = recommend_playlist(tracks, "same_color", controls=DJControls(start_path="/anchor.flac"))
 
-    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/green.flac", "/blue.flac"}
-    assert "same_color filter applied: RED" in result.warnings
-    assert "same_color: no candidates match anchor color 'RED'; falling back to unfiltered scoring" in result.warnings
+    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac"}
+    assert any(
+        warning
+        == (
+            "same_color: strict colour eligibility excluded every generated candidate; "
+            "returning only preserved controls without widening to unfiltered scoring"
+        )
+        for warning in result.warnings
+    )
+    assert not any("falling back to unfiltered scoring" in warning for warning in result.warnings)
 
 
 def test_same_color_skips_filter_when_no_track_has_a_profile() -> None:
+    # Re-authored predecessor characterization test: with no profiled track no anchor
+    # can be bound, so the prerequisite is missing. Under the new fail-closed
+    # contract, generated candidates would normally drop — but here every track is a
+    # control-free unprofiled candidate, so the "no generated candidates were
+    # produced" prerequisite warning is emitted and the tracks that survive are the
+    # unprofiled ones (they are not gate-eligible, but with no bound anchor the
+    # generated pool is emptied). We assert the honest new behaviour.
     tracks = [track("/a.flac"), track("/b.flac")]
 
     result = recommend_playlist(tracks, "same_color")
 
-    assert {item.path for item in result.ordered_tracks} == {"/a.flac", "/b.flac"}
-    assert not any(warning.startswith("same_color") for warning in result.warnings)
+    # No profiled anchor => prerequisite missing => generated pool emptied, and the
+    # prerequisite warning explains why. The strategy never widens.
+    assert {item.path for item in result.ordered_tracks} == set()
+    assert any(
+        warning
+        == (
+            "same_color: anchor is missing a colour or spectral profile prerequisite; "
+            "no generated candidates were produced"
+        )
+        for warning in result.warnings
+    )
 
 
-def test_same_color_output_and_warnings_are_stable_after_seam_widening() -> None:
-    """Characterization baseline (Task 1): freeze same_color output/warnings before dispatch is widened."""
+def test_same_color_output_and_warnings_are_the_new_bounded_gate_contract() -> None:
+    # DECLARED CHARACTERIZATION EXCEPTION (tighten-spectral-color-filters slice B).
+    # This predecessor "stable after seam widening" test froze the EXACT warning list
+    # `["same_color filter applied: RED"]` and label-only admission. Both are the
+    # behaviour this slice deliberately replaces. Re-authored (not deleted) to pin
+    # the new contract: same-label candidates inside the gate are admitted and
+    # `same_color` emits NO warning when a non-empty strict pool is produced.
     tracks = [
         spectral_track("/anchor.flac", "RED"),
         spectral_track("/red-a.flac", "RED"),
@@ -377,7 +428,7 @@ def test_same_color_output_and_warnings_are_stable_after_seam_widening() -> None
     result = recommend_playlist(tracks, "same_color", controls=DJControls(start_path="/anchor.flac"))
 
     assert [item.path for item in result.ordered_tracks] == ["/anchor.flac", "/red-a.flac", "/red-b.flac"]
-    assert result.warnings == ["same_color filter applied: RED"]
+    assert result.warnings == []
 
 
 def test_same_energy_output_and_warnings_are_stable_after_seam_widening() -> None:
@@ -1374,44 +1425,66 @@ def test_apply_energy_tolerance_no_removal_emits_no_warning() -> None:
     assert warnings == []
 
 
-def test_apply_color_filter_same_color_falls_back_to_unfiltered_pool() -> None:
-    # Anchor color is RED (from the start_path control), but no candidate is RED,
-    # so the eligible pool is empty and the shared helper returns the original,
-    # unfiltered `tracks` list plus the exact fallback warning.
-    anchor = spectral_track("/anchor.flac", "RED")
+def test_apply_same_color_filter_empty_strict_pool_fails_closed() -> None:
+    # DECLARED CHARACTERIZATION EXCEPTION (tighten-spectral-color-filters slice B).
+    # This test previously pinned `filtered is candidates` (unfiltered widen) plus
+    # the two "falling back to unfiltered scoring" warnings emitted by the shared
+    # `_apply_color_filter`. That is the EXACT behaviour this slice deliberately
+    # replaces: `same_color` now has its own dedicated `_apply_same_color_filter`
+    # that fails closed. Re-authored (not deleted) so the strategy never loses its
+    # empty-pool coverage — a warning gap is how the original defect survived.
+    #
+    # Here the anchor is RED but no non-control candidate sits inside the bounded
+    # colour gate, so the strict generated pool is empty. The filter MUST return
+    # only preserved controls and MUST NOT widen to the unfiltered library.
+    anchor = _colored_track("/anchor.flac", "RED", energy=5)
     candidates = [
         anchor,
-        spectral_track("/green.flac", "GREEN"),
-        spectral_track("/blue.flac", "BLUE"),
+        _colored_track("/green.flac", "GREEN", energy=5),
+        _colored_track("/blue.flac", "BLUE", energy=5),
     ]
     controls = DJControls(start_path="/anchor.flac")
 
-    filtered, warnings = _apply_color_filter(
-        candidates, controls, preserve_paths={"/anchor.flac"}, strategy_name="same_color"
+    filtered, bound_anchor = _apply_same_color_filter(candidates, controls, preserve_paths={"/anchor.flac"})
+
+    # Fails closed: only the preserved control survives, the unfiltered library is
+    # NOT returned.
+    assert {t.path for t in filtered} == {"/anchor.flac"}
+    assert filtered is not candidates
+    assert bound_anchor is not None
+    assert bound_anchor.path == "/anchor.flac"
+
+
+def test_apply_same_color_filter_admits_only_candidates_inside_the_gate() -> None:
+    # DECLARED CHARACTERIZATION EXCEPTION (tighten-spectral-color-filters slice B).
+    # This test previously pinned plain label equality ({/anchor.flac, /red2.flac})
+    # via the shared `_apply_color_filter`. That behaviour is deliberately replaced
+    # by the bounded proximity gate: a same-label candidate is admitted ONLY when it
+    # also sits inside the anchor-relative RGB L1 / centroid / rolloff bounds.
+    anchor = _colored_track("/anchor.flac", "RED", energy=5, centroid=1000.0, rolloff=2000.0)
+    inside = _colored_track("/inside.flac", "RED", energy=5, centroid=1010.0, rolloff=2020.0)
+    base_red, base_green, base_blue = _COLOR_RATIOS["RED"]
+    over = COLOR_RGB_L1_MAX / 2.0 + 0.05
+    outside = _colored_track(
+        "/outside.flac",
+        "RED",
+        energy=5,
+        centroid=1000.0,
+        rolloff=2000.0,
+        red=base_red + over,
+        green=base_green - over,
+        blue=base_blue,
     )
-
-    assert filtered is candidates
-    assert warnings == [
-        "same_color filter applied: RED",
-        "same_color: no candidates match anchor color 'RED'; falling back to unfiltered scoring",
-    ]
-
-
-def test_apply_color_filter_same_color_keeps_matching_candidates() -> None:
-    anchor = spectral_track("/anchor.flac", "RED")
-    candidates = [
-        anchor,
-        spectral_track("/red2.flac", "RED"),
-        spectral_track("/green.flac", "GREEN"),
-    ]
     controls = DJControls(start_path="/anchor.flac")
 
-    filtered, warnings = _apply_color_filter(
-        candidates, controls, preserve_paths={"/anchor.flac"}, strategy_name="same_color"
+    filtered, bound_anchor = _apply_same_color_filter(
+        [anchor, inside, outside], controls, preserve_paths={"/anchor.flac"}
     )
 
-    assert {t.path for t in filtered} == {"/anchor.flac", "/red2.flac"}
-    assert warnings == ["same_color filter applied: RED"]
+    # Same label alone is no longer sufficient: /outside.flac is RED but beyond the
+    # gate, so it is rejected; /inside.flac shares the label AND sits inside.
+    assert {t.path for t in filtered} == {"/anchor.flac", "/inside.flac"}
+    assert bound_anchor is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1850,3 +1923,277 @@ def test_same_color_energy_shortage_returns_only_eligible_and_warns() -> None:
         warning == "same_color_energy: strict eligibility left 2 generated candidate(s) for 4 requested slot(s)"
         for warning in result.warnings
     )
+
+
+# ---------------------------------------------------------------------------
+# tighten-spectral-color-filters slice B: `same_color` dedicated bounded gate.
+# `_same_color_eligible(anchor, candidate)` = dominant-color label equality PLUS
+# the bounded anchor-relative RGB L1 / centroid / rolloff proximity gate, with NO
+# energy check. `same_color` fails closed on an empty strict pool (controls-only,
+# never widen). Energy stays a weighted preference, never a filter. These assert
+# the NEW behaviour this slice introduces.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE", "MIXED"])
+def test_same_color_eligible_admits_proximate_candidate(color: ColorName) -> None:
+    if color == "MIXED":
+        anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+        inside = _mixed_track("/inside.flac", red=0.41, green=0.39, blue=0.20, centroid=1010.0, rolloff=2020.0)
+    else:
+        anchor = _colored_track("/anchor.flac", color, centroid=1000.0, rolloff=2000.0)
+        inside = _colored_track("/inside.flac", color, centroid=1010.0, rolloff=2020.0)
+
+    assert _same_color_eligible(anchor, inside) is True
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE", "MIXED"])
+def test_same_color_eligible_rejects_candidate_beyond_rgb_l1(color: ColorName) -> None:
+    over = COLOR_RGB_L1_MAX / 2.0 + 0.05
+    if color == "MIXED":
+        anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+        far = _mixed_track("/far.flac", red=0.40 + over, green=0.40 - over, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    else:
+        base_red, base_green, base_blue = _COLOR_RATIOS[color]
+        anchor = _colored_track("/anchor.flac", color, centroid=1000.0, rolloff=2000.0)
+        far = _colored_track(
+            "/far.flac",
+            color,
+            centroid=1000.0,
+            rolloff=2000.0,
+            red=base_red + over,
+            green=base_green - over,
+            blue=base_blue,
+        )
+
+    assert _same_color_eligible(anchor, far) is False
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE", "MIXED"])
+def test_same_color_eligible_centroid_and_rolloff_at_inclusive_bounds(color: ColorName) -> None:
+    if color == "MIXED":
+        anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+        edge = _mixed_track(
+            "/edge.flac",
+            red=0.40,
+            green=0.40,
+            blue=0.20,
+            centroid=1000.0 * (1.0 + COLOR_CENTROID_REL_MAX),
+            rolloff=2000.0 * (1.0 + COLOR_ROLLOFF_REL_MAX),
+        )
+    else:
+        anchor = _colored_track("/anchor.flac", color, centroid=1000.0, rolloff=2000.0)
+        edge = _colored_track(
+            "/edge.flac",
+            color,
+            centroid=1000.0 * (1.0 + COLOR_CENTROID_REL_MAX),
+            rolloff=2000.0 * (1.0 + COLOR_ROLLOFF_REL_MAX),
+        )
+
+    assert _same_color_eligible(anchor, edge) is True
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE"])
+def test_same_color_eligible_rgb_l1_at_inclusive_bound(color: ColorName) -> None:
+    # Only one RGB band moves, by exactly the constant, so the computed L1 is
+    # bit-identical to the bound — no floating-point overshoot flips at-bound to
+    # just-over.
+    base_red, base_green, base_blue = _COLOR_RATIOS[color]
+    anchor = _colored_track("/anchor.flac", color, centroid=1000.0, rolloff=2000.0)
+    edge = _colored_track(
+        "/edge.flac",
+        color,
+        centroid=1000.0,
+        rolloff=2000.0,
+        red=base_red,
+        green=base_green - COLOR_RGB_L1_MAX,
+        blue=base_blue,
+    )
+
+    assert _same_color_eligible(anchor, edge) is True
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE", "MIXED"])
+@pytest.mark.parametrize("axis", ["centroid", "rolloff"])
+def test_same_color_eligible_rejects_each_bound_plus_epsilon(color: ColorName, axis: str) -> None:
+    centroid = 1000.0 * (1.0 + COLOR_CENTROID_REL_MAX + 0.01) if axis == "centroid" else 1000.0
+    rolloff = 2000.0 * (1.0 + COLOR_ROLLOFF_REL_MAX + 0.01) if axis == "rolloff" else 2000.0
+    if color == "MIXED":
+        anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+        candidate = _mixed_track("/over.flac", red=0.40, green=0.40, blue=0.20, centroid=centroid, rolloff=rolloff)
+    else:
+        anchor = _colored_track("/anchor.flac", color, centroid=1000.0, rolloff=2000.0)
+        candidate = _colored_track("/over.flac", color, centroid=centroid, rolloff=rolloff)
+
+    assert _same_color_eligible(anchor, candidate) is False
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE", "MIXED"])
+def test_same_color_eligible_rejects_other_label(color: ColorName) -> None:
+    # Label equality is necessary: a candidate with a different dominant-color
+    # label is rejected even when its RGB/centroid/rolloff sit inside the gate.
+    other: ColorName = "GREEN" if color != "GREEN" else "RED"
+    if color == "MIXED":
+        anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    else:
+        anchor = _colored_track("/anchor.flac", color, centroid=1000.0, rolloff=2000.0)
+    candidate = _colored_track("/other.flac", other, centroid=1000.0, rolloff=2000.0)
+
+    assert _same_color_eligible(anchor, candidate) is False
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE", "MIXED"])
+def test_same_color_eligible_fails_closed_on_missing_profile(color: ColorName) -> None:
+    if color == "MIXED":
+        anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    else:
+        anchor = _colored_track("/anchor.flac", color, centroid=1000.0, rolloff=2000.0)
+    no_profile = track("/np.flac")
+
+    assert _same_color_eligible(anchor, no_profile) is False
+    assert _same_color_eligible(no_profile, anchor) is False
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE", "MIXED"])
+def test_same_color_eligible_fails_closed_on_zero_rgb_sum(color: ColorName) -> None:
+    if color == "MIXED":
+        anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+        zero_sum = _mixed_track("/zero.flac", red=0.0, green=0.0, blue=0.0, centroid=1000.0, rolloff=2000.0)
+    else:
+        anchor = _colored_track("/anchor.flac", color, centroid=1000.0, rolloff=2000.0)
+        zero_sum = _colored_track("/zero.flac", color, red=0.0, green=0.0, blue=0.0)
+
+    assert _same_color_eligible(anchor, zero_sum) is False
+
+
+@pytest.mark.parametrize("color", ["RED", "GREEN", "BLUE", "MIXED"])
+@pytest.mark.parametrize("axis", ["centroid", "rolloff"])
+def test_same_color_eligible_fails_closed_on_zero_denominator(color: ColorName, axis: str) -> None:
+    centroid = 0.0 if axis == "centroid" else 1000.0
+    rolloff = 0.0 if axis == "rolloff" else 2000.0
+    if color == "MIXED":
+        anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=centroid, rolloff=rolloff)
+        candidate = _mixed_track("/c.flac", red=0.40, green=0.40, blue=0.20, centroid=centroid, rolloff=rolloff)
+    else:
+        anchor = _colored_track("/anchor.flac", color, centroid=centroid, rolloff=rolloff)
+        candidate = _colored_track("/c.flac", color, centroid=centroid, rolloff=rolloff)
+
+    assert _same_color_eligible(anchor, candidate) is False
+
+
+def test_same_color_eligible_ignores_energy_level() -> None:
+    # THE property that separates `same_color` from `same_color_energy`: a candidate
+    # inside the bounded colour gate whose energy level DIFFERS from the anchor is
+    # STILL eligible. There is no energy branch in `_same_color_eligible`.
+    anchor = _colored_track("/anchor.flac", "RED", energy=5, centroid=1000.0, rolloff=2000.0)
+    off_energy = _colored_track("/off.flac", "RED", energy=10, centroid=1010.0, rolloff=2020.0)
+
+    assert _same_color_eligible(anchor, off_energy) is True
+    # Same fixtures under the energy sibling ARE rejected — energy matters there.
+    assert _same_color_energy_eligible(anchor, off_energy) is False
+
+
+def test_same_color_candidate_outside_anchor_energy_still_recommended() -> None:
+    # End-to-end: a same-colour candidate at a different energy level survives the
+    # `same_color` pipeline (energy only weights its score, never gates it).
+    anchor = _colored_track("/anchor.flac", "RED", energy=5, centroid=1000.0, rolloff=2000.0)
+    diff_energy = _colored_track("/friend.flac", "RED", energy=10, centroid=1010.0, rolloff=2020.0)
+
+    result = recommend_playlist([anchor, diff_energy], "same_color", controls=DJControls(start_path="/anchor.flac"))
+
+    assert "/friend.flac" in {item.path for item in result.ordered_tracks}
+
+
+def test_same_color_empty_strict_pool_fails_closed_with_warning() -> None:
+    # An unmatchable anchor no longer hands the DJ the whole library back. The
+    # strict colour pool is empty, so only the preserved control survives and an
+    # explicit strict-colour-constraint warning is emitted; the unfiltered library
+    # is NOT returned.
+    anchor = _colored_track("/anchor.flac", "RED", energy=5)
+    green = _colored_track("/green.flac", "GREEN", energy=5)
+    blue = _colored_track("/blue.flac", "BLUE", energy=5)
+
+    result = recommend_playlist([anchor, green, blue], "same_color", controls=DJControls(start_path="/anchor.flac"))
+
+    paths = {item.path for item in result.ordered_tracks}
+    assert paths == {"/anchor.flac"}
+    assert "/green.flac" not in paths
+    assert "/blue.flac" not in paths
+    assert any(
+        warning
+        == (
+            "same_color: strict colour eligibility excluded every generated candidate; "
+            "returning only preserved controls without widening to unfiltered scoring"
+        )
+        for warning in result.warnings
+    )
+
+
+def test_same_color_preserves_controls_that_fail_the_gate() -> None:
+    # Controls (locked/start/end/manual) pass through the bounded colour gate
+    # unchanged, keeping their positions even when they fail the strict gate.
+    tracks = [
+        _colored_track("/anchor.flac", "RED", energy=5, centroid=1000.0, rolloff=2000.0),
+        _colored_track("/red.flac", "RED", energy=5, centroid=1010.0, rolloff=2020.0),
+        _colored_track("/locked-green.flac", "GREEN", energy=9),
+        _colored_track("/end-blue.flac", "BLUE", energy=1),
+    ]
+    controls = DJControls(start_path="/anchor.flac", end_path="/end-blue.flac", locked_paths={"/locked-green.flac"})
+
+    result = recommend_playlist(tracks, "same_color", controls=controls)
+
+    assert {item.path for item in result.ordered_tracks} == {
+        "/anchor.flac",
+        "/red.flac",
+        "/locked-green.flac",
+        "/end-blue.flac",
+    }
+
+
+def test_same_color_admits_only_proximate_candidates_end_to_end() -> None:
+    # Every generated `same_color` candidate must satisfy label AND the bounded
+    # proximity gate. A near same-label candidate passes; a far one is excluded.
+    anchor = _colored_track("/anchor.flac", "RED", energy=5, centroid=1000.0, rolloff=2000.0)
+    near = _colored_track("/near.flac", "RED", energy=5, centroid=1010.0, rolloff=2020.0)
+    base_red, base_green, base_blue = _COLOR_RATIOS["RED"]
+    over = COLOR_RGB_L1_MAX / 2.0 + 0.05
+    far = _colored_track(
+        "/far.flac",
+        "RED",
+        energy=5,
+        centroid=1000.0,
+        rolloff=2000.0,
+        red=base_red + over,
+        green=base_green - over,
+        blue=base_blue,
+    )
+
+    result = recommend_playlist([anchor, near, far], "same_color", controls=DJControls(start_path="/anchor.flac"))
+
+    paths = {item.path for item in result.ordered_tracks}
+    assert "/near.flac" in paths
+    assert "/far.flac" not in paths
+
+
+def test_apply_genre_filter_fallback_and_warnings_are_byte_identical() -> None:
+    # Safety net (task 2.10): `same_genre` keeps its unfiltered fallback and exact
+    # warning strings — explicitly OUT of scope for this slice. Asserting the
+    # `_apply_genre_filter` helper directly proves the shared filter/fallback SHAPE
+    # was not disturbed when `same_color` stopped sharing it.
+    from xfinaudio.recommendation.playlist_service import _apply_genre_filter
+
+    tracks = [
+        track("/anchor.flac", genre="World & Latin"),
+        track("/rock.flac", genre="Rock"),
+        track("/house.flac", genre="House"),
+    ]
+    controls = DJControls(start_path="/anchor.flac")
+
+    filtered, warnings = _apply_genre_filter(tracks, controls, preserve_paths={"/anchor.flac"})
+
+    # Unfiltered fallback: the original list is returned unchanged.
+    assert filtered is tracks
+    assert warnings == [
+        "same_genre filter applied: world & latin",
+        "same_genre: no candidates match anchor genre 'world & latin'; falling back to unfiltered scoring",
+    ]

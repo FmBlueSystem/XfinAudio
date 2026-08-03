@@ -4,6 +4,7 @@ artifact_store: openspec
 status: apply
 created: 2026-08-02
 updated: 2026-08-02
+# slice B applied 2026-08-02
 strict_tdd: true
 phases:
   proposal: complete
@@ -28,12 +29,23 @@ slices:
       same_color_energy bounded proximity gate spans every dominant-color label;
       COLOR_* constant rename; version bump 1.7.1 -> 1.7.2 + uv.lock.
   B:
-    status: pending
+    status: complete
+    branch: fix/same-color-bounded-gate
+    base: fix/same-color-energy-all-colors
     scope: >-
-      same_color dedicated bounded filter + fail-closed; out of scope for this PR.
+      same_color dedicated bounded filter (_same_color_eligible +
+      _apply_same_color_filter + _same_color_warnings), fails closed on an empty
+      strict pool; dispatch rewired off the removed _COLOR_FILTER_STRATEGIES;
+      orphaned _apply_color_filter/_resolve_anchor_color/_track_color removed;
+      version bump 1.7.2 -> 1.7.3 + uv.lock.
 notes:
   - "Slice A implemented on fix/same-color-energy-all-colors (base feat/tighten-spectral-color-filters, feature-branch-chain). Deleted the `dominant_color != \"MIXED\": return True` early return in `_same_color_energy_eligible` so the bounded gate applies to every label. Renamed MIXED_RGB_L1_MAX/MIXED_CENTROID_REL_MAX/MIXED_ROLLOFF_REL_MAX -> COLOR_* (values 0.08/0.15/0.15 unchanged)."
   - "Blast radius wider than the task line-pointers implied: SpectralProfile defaults centroid_hz=rolloff_hz=0.0, so every test helper that built RGB tracks with zero features (spectral_track, test_application_recommendation_candidates._spectral_record, test_candidate_pool._spectral_record) started failing closed once RGB flowed through the gate. Fixed at the root by giving those helpers finite positive centroid/rolloff (1000.0/2000.0)."
   - "Phase 0 safety net: existing predecessor coverage already suffices for the must-NOT-change set (same_energy verbatim description + ±1 band, same_genre exact fallback warnings, all 10 registered strategy descriptions). No new characterization tests were needed; task 0.2 adds only what 0.1 proves missing, and nothing was missing."
   - "Task 1.8 scoped literally to tighten-same-color-energy/design.md:47,92 as instructed. Other predecessor .md artifacts (proposal/spec/verify-report/tasks/state/apply-progress/CONTINUATION) were left as historical record: they reference no Python symbol, break no check, and rewriting a completed change's history would falsify what the predecessor actually shipped."
-  - "same_color path (Slice B) untouched: `_apply_color_filter` and `_COLOR_FILTER_STRATEGIES={same_color}` are byte-unchanged; the two same_color characterization tests (test_apply_color_filter_same_color_* at :1369/:1392 pre-edit) stay green."
+  - "same_color path (Slice B) untouched during slice A: `_apply_color_filter` and `_COLOR_FILTER_STRATEGIES={same_color}` were byte-unchanged there."
+  - "Slice B implemented on fix/same-color-bounded-gate (base fix/same-color-energy-all-colors PR #336, feature-branch-chain). Added _same_color_eligible (label equality + _mixed_profile_close, NO energy branch), _apply_same_color_filter (mirrors _apply_same_color_energy_filter, fails closed, no unfiltered fallback), _same_color_warnings (prerequisite + strict-empty). Rewired same_color dispatch off _COLOR_FILTER_STRATEGIES (constant removed entirely). same_color now FAILS CLOSED on an empty strict pool — the maintainer decision in the same-color-strategy delta spec; a DJ with an unmatchable anchor now gets an honest empty result + warning instead of the whole library."
+  - "Task 2.9 dead-code removal, call-graph verified before removing: _apply_color_filter (only the two removed dispatch sites called it), _resolve_anchor_color and _track_color removed as genuinely orphaned; _dominant_color_value KEPT (still used by _resolve_same_color_energy_anchor); _apply_genre_filter (genre path) byte-unchanged."
+  - "Declared characterization exception WIDER than the slice B prompt: besides the two named _apply_color_filter_* tests, SIX predecessor end-to-end same_color characterization tests (test_playlist_service.py:295-381 from tighten-same-color-energy Task 1) pinned the same deliberately-replaced contract and were re-authored (not deleted) to the new bounded-gate/fail-closed contract, each with a docstring reason. Flagged in tasks.md and apply-progress.md."
+  - "Review budget: slice B is ~590 authored changed lines (source 159, tests 429), over the 400 budget. Overflow is entirely per-colour test coverage for one atomic work unit (dedicated filter + its tests kept together). Recorded as an accepted size:exception under the maintainer's auto mandate; the A/B strategy split was the planned chaining."
+  - "Version bumped 1.7.2 -> 1.7.3 (slice B base fix/same-color-energy-all-colors is at 1.7.2; CI Non-audio release gates fails a PR whose version equals its base). uv.lock diff is version-only."
