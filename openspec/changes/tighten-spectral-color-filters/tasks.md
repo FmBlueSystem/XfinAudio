@@ -29,22 +29,22 @@ feature-branch-chain base boundaries: PR 1 base = `feat/tighten-spectral-color-f
 
 ## Phase 0: Safety Net — Characterize What Must NOT Change (do FIRST, all colours)
 
-- [ ] 0.1 RED — inventory existing predecessor coverage: identify which `tests/test_playlist_service.py` tests already pin `same_energy`'s `±1` band + verbatim description, `same_genre`'s `_apply_genre_filter` unfiltered fallback + exact warning strings, and the registered descriptions of `harmonic_journey`/`warmup`/`build`/`peak_time`/`chill`/`same_vibe`. Record the test names that already suffice; do NOT duplicate them. `tests/test_playlist_service.py`.
-- [ ] 0.2 RED — where the blast radius of THIS change reaches an untouched strategy without existing coverage, add a characterization test asserting byte-identical behaviour: `same_genre` warning strings compared exactly, `same_energy` ordered candidates + description compared exactly. Only add what 0.1 proved missing. `tests/test_playlist_service.py`.
-- [ ] 0.3 GREEN — confirm the full safety-net suite is green on the pre-change tree before any behaviour change: `uv run pytest tests/test_playlist_service.py -q`.
+- [x] 0.1 RED — inventory existing predecessor coverage: identify which `tests/test_playlist_service.py` tests already pin `same_energy`'s `±1` band + verbatim description, `same_genre`'s `_apply_genre_filter` unfiltered fallback + exact warning strings, and the registered descriptions of `harmonic_journey`/`warmup`/`build`/`peak_time`/`chill`/`same_vibe`. Record the test names that already suffice; do NOT duplicate them. `tests/test_playlist_service.py`.
+- [x] 0.2 RED — where the blast radius of THIS change reaches an untouched strategy without existing coverage, add a characterization test asserting byte-identical behaviour: `same_genre` warning strings compared exactly, `same_energy` ordered candidates + description compared exactly. Only add what 0.1 proved missing. `tests/test_playlist_service.py`.
+- [x] 0.3 GREEN — confirm the full safety-net suite is green on the pre-change tree before any behaviour change: `uv run pytest tests/test_playlist_service.py -q`.
 
 ## Phase 1: Slice A — `same_color_energy` gate spans all colours (RED → GREEN → REFACTOR)
 
-- [ ] 1.1 RED — add per-colour gate tests for `same_color_energy` via `_same_color_energy_eligible`: for RED, GREEN and BLUE anchors, a same-label same-energy candidate inside the gate is admitted; one whose anchor-relative RGB L1 exceeds the bound is rejected. `tests/test_playlist_service.py`.
-- [ ] 1.2 RED — inclusive-boundary + just-over cases per colour (RED/GREEN/BLUE): candidate exactly at `COLOR_RGB_L1_MAX`, `COLOR_CENTROID_REL_MAX`, `COLOR_ROLLOFF_REL_MAX` is eligible; each bound + epsilon on its own axis is rejected. `tests/test_playlist_service.py`.
-- [ ] 1.3 RED — fail-closed per colour: missing/non-finite RGB ratios, non-positive RGB sum, and zero/non-finite centroid or rolloff denominator each reject the candidate for RED/GREEN/BLUE anchors (not only MIXED). `tests/test_playlist_service.py`.
-- [ ] 1.4 GREEN — delete the `if anchor_profile.dominant_color != "MIXED": return True` early return at `playlist_service.py:852-853` so the bounded gate applies to every dominant-colour label. `src/xfinaudio/recommendation/playlist_service.py`.
-- [ ] 1.5 RED — assert no `MIXED_`-prefixed gate constant remains and that `COLOR_RGB_L1_MAX`/`COLOR_CENTROID_REL_MAX`/`COLOR_ROLLOFF_REL_MAX` exist with unchanged values `0.08`/`0.15`/`0.15`. `tests/test_playlist_service.py`.
-- [ ] 1.6 GREEN — rename constants `MIXED_RGB_L1_MAX`→`COLOR_RGB_L1_MAX`, `MIXED_CENTROID_REL_MAX`→`COLOR_CENTROID_REL_MAX`, `MIXED_ROLLOFF_REL_MAX`→`COLOR_ROLLOFF_REL_MAX` at `playlist_service.py:58-60` and every reference (`:824`, `:828`, `:831`). `src/xfinaudio/recommendation/playlist_service.py`.
-- [ ] 1.7 GREEN — move the rename into the test imports/refs at `tests/test_playlist_service.py:7-9` and `:1480-1532`. `tests/test_playlist_service.py`.
-- [ ] 1.8 GREEN — propagate the rename coherently into predecessor artifacts so `ruff`/`pyright` and predecessor tests stay green: `openspec/changes/tighten-same-color-energy/design.md:47,92` (any other in-repo `MIXED_*` gate-constant references surfaced by search). Do NOT alter the predecessor's frozen behaviour, only the constant name. `openspec/changes/tighten-same-color-energy/design.md`.
-- [ ] 1.9 REFACTOR — verify `same_color_energy` description at `strategies.py:116` still matches behaviour (label + exact energy + gate); adjust only if wording drifted. `src/xfinaudio/recommendation/strategies.py`.
-- [ ] 1.10 VERIFY (slice A) — `uv run pytest tests/test_playlist_service.py -q -k "same_color_energy or constant"`, then full `uv run pytest -q`.
+- [x] 1.1 RED — add per-colour gate tests for `same_color_energy` via `_same_color_energy_eligible`: for RED, GREEN and BLUE anchors, a same-label same-energy candidate inside the gate is admitted; one whose anchor-relative RGB L1 exceeds the bound is rejected. `tests/test_playlist_service.py`.
+- [x] 1.2 RED — inclusive-boundary + just-over cases per colour (RED/GREEN/BLUE): candidate exactly at `COLOR_RGB_L1_MAX`, `COLOR_CENTROID_REL_MAX`, `COLOR_ROLLOFF_REL_MAX` is eligible; each bound + epsilon on its own axis is rejected. `tests/test_playlist_service.py`.
+- [x] 1.3 RED — fail-closed per colour: missing/non-finite RGB ratios, non-positive RGB sum, and zero/non-finite centroid or rolloff denominator each reject the candidate for RED/GREEN/BLUE anchors (not only MIXED). `tests/test_playlist_service.py`.
+- [x] 1.4 GREEN — delete the `if anchor_profile.dominant_color != "MIXED": return True` early return at `playlist_service.py:852-853` so the bounded gate applies to every dominant-colour label. `src/xfinaudio/recommendation/playlist_service.py`.
+- [x] 1.5 RED — assert no `MIXED_`-prefixed gate constant remains and that `COLOR_RGB_L1_MAX`/`COLOR_CENTROID_REL_MAX`/`COLOR_ROLLOFF_REL_MAX` exist with unchanged values `0.08`/`0.15`/`0.15`. `tests/test_playlist_service.py`.
+- [x] 1.6 GREEN — rename constants `MIXED_RGB_L1_MAX`→`COLOR_RGB_L1_MAX`, `MIXED_CENTROID_REL_MAX`→`COLOR_CENTROID_REL_MAX`, `MIXED_ROLLOFF_REL_MAX`→`COLOR_ROLLOFF_REL_MAX` at `playlist_service.py:58-60` and every reference (`:824`, `:828`, `:831`). `src/xfinaudio/recommendation/playlist_service.py`.
+- [x] 1.7 GREEN — move the rename into the test imports/refs at `tests/test_playlist_service.py:7-9` and `:1480-1532`. `tests/test_playlist_service.py`.
+- [x] 1.8 GREEN — propagate the rename coherently into predecessor artifacts so `ruff`/`pyright` and predecessor tests stay green: `openspec/changes/tighten-same-color-energy/design.md:47,92` (any other in-repo `MIXED_*` gate-constant references surfaced by search). Do NOT alter the predecessor's frozen behaviour, only the constant name. `openspec/changes/tighten-same-color-energy/design.md`.
+- [x] 1.9 REFACTOR — verify `same_color_energy` description at `strategies.py:116` still matches behaviour (label + exact energy + gate); adjust only if wording drifted. `src/xfinaudio/recommendation/strategies.py`.
+- [x] 1.10 VERIFY (slice A) — `uv run pytest tests/test_playlist_service.py -q -k "same_color_energy or constant"`, then full `uv run pytest -q`.
 
 ## Phase 2: Slice B — `same_color` bounded colour gate, no energy limit, fails closed (RED → GREEN → REFACTOR)
 
@@ -62,8 +62,8 @@ feature-branch-chain base boundaries: PR 1 base = `feat/tighten-spectral-color-f
 
 ## Phase 3: Release Gate — version bump + lock (both slices land)
 
-- [ ] 3.1 `chore(release)` — bump `version` in `pyproject.toml:3` above base `main` `1.7.1`. CI gate `Non-audio release gates` fails any PR whose version equals its base branch's; `release_gate_check.py` does NOT catch this locally, only CI does. `pyproject.toml`.
-- [ ] 3.2 Regenerate `uv.lock` (`uv lock`) so the project's own pinned version (`uv.lock:1477`) matches the bump. Confirm `git diff uv.lock` shows only the version change. `uv.lock`.
+- [x] 3.1 `chore(release)` — bump `version` in `pyproject.toml:3` above base `main` `1.7.1`. CI gate `Non-audio release gates` fails any PR whose version equals its base branch's; `release_gate_check.py` does NOT catch this locally, only CI does. `pyproject.toml`.
+- [x] 3.2 Regenerate `uv.lock` (`uv lock`) so the project's own pinned version (`uv.lock:1477`) matches the bump. Confirm `git diff uv.lock` shows only the version change. `uv.lock`.
 
 ## Phase 4: Offscreen End-to-End Harness (scratch DB, never live)
 
@@ -72,7 +72,7 @@ feature-branch-chain base boundaries: PR 1 base = `feat/tighten-spectral-color-f
 
 ## Phase 5: Verification Sequence (final task — exact order, no skipping or reordering)
 
-- [ ] 5.1 Run, in this exact order, all passing:
+- [x] 5.1 Run, in this exact order, all passing:
   ```bash
   uv run pytest -q
   uv run pyright src tests
