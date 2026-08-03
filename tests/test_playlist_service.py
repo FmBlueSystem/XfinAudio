@@ -4,11 +4,15 @@ from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import (
+    MIXED_CENTROID_REL_MAX,
+    MIXED_RGB_L1_MAX,
+    MIXED_ROLLOFF_REL_MAX,
     PlaylistRecommendation,
     _apply_color_filter,
     _apply_energy_tolerance,
     _bpm_jump_warning,
     _drop_generated_tracks_after_impossible_bpm_jumps,
+    _same_color_energy_eligible,
     _spectral_jump_warnings,
     prefilter_strategy_candidates,
     recommend_playlist,
@@ -408,7 +412,11 @@ def test_same_color_energy_filters_candidates_to_anchor_color() -> None:
         assert profile.dominant_color == "RED"
 
 
-def test_same_color_energy_enforces_energy_tolerance() -> None:
+def test_same_color_energy_enforces_exact_anchor_energy() -> None:
+    # Behavior changed by tighten-same-color-energy: same_color_energy now requires
+    # EXACT anchor energy for generated candidates, not the old anchor +/-1 band.
+    # The E4 (near_low) and E6 (near_high) neighbours that the +/-1 band admitted
+    # are now excluded; only the E5 match survives alongside the anchor.
     tracks = [
         spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5}),
         spectral_track("/near_low.flac", "RED").model_copy(update={"energy_level": 4}),
@@ -420,18 +428,26 @@ def test_same_color_energy_enforces_energy_tolerance() -> None:
 
     result = recommend_playlist(tracks, "same_color_energy", controls=DJControls(start_path="/anchor.flac"))
 
-    paths = [item.path for item in result.ordered_tracks]
+    paths = {item.path for item in result.ordered_tracks}
+    # Anchor (control) plus the only exact-energy RED match remain.
+    assert paths == {"/anchor.flac", "/near_same.flac"}
+    # The old +/-1 band neighbours are now excluded.
+    assert "/near_low.flac" not in paths
+    assert "/near_high.flac" not in paths
     assert "/too_low.flac" not in paths
     assert "/too_high.flac" not in paths
-    assert {"/anchor.flac", "/near_low.flac", "/near_same.flac", "/near_high.flac"}.issubset(set(paths))
 
 
-def test_same_color_energy_composes_color_and_energy_simultaneously() -> None:
+def test_same_color_energy_composes_color_and_exact_energy_simultaneously() -> None:
+    # Behavior changed by tighten-same-color-energy: a candidate must match BOTH
+    # the anchor color AND the anchor's EXACT energy. Under the old +/-1 band a
+    # RED E6 candidate (/near_energy) counted as "both"; now only RED E5 does.
     tracks = [
         spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5}),
         spectral_track("/color-only.flac", "RED").model_copy(update={"energy_level": 9}),
         spectral_track("/energy-only.flac", "GREEN").model_copy(update={"energy_level": 5}),
-        spectral_track("/both.flac", "RED").model_copy(update={"energy_level": 6}),
+        spectral_track("/near_energy.flac", "RED").model_copy(update={"energy_level": 6}),
+        spectral_track("/both.flac", "RED").model_copy(update={"energy_level": 5}),
         spectral_track("/neither.flac", "GREEN").model_copy(update={"energy_level": 9}),
     ]
 
@@ -460,7 +476,10 @@ def test_same_color_energy_preserves_control_paths() -> None:
     }
 
 
-def test_same_color_energy_falls_back_on_empty_color_pool_with_named_warning() -> None:
+def test_same_color_energy_empty_strict_pool_fails_closed_without_widening() -> None:
+    # Behavior changed by tighten-same-color-energy: an empty strict pool no longer
+    # widens to unfiltered scoring. Only preserved controls survive, and a
+    # strict-constraint warning is emitted instead of the old fallback warning.
     tracks = [
         spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5}),
         spectral_track("/green.flac", "GREEN").model_copy(update={"energy_level": 5}),
@@ -469,22 +488,25 @@ def test_same_color_energy_falls_back_on_empty_color_pool_with_named_warning() -
 
     result = recommend_playlist(tracks, "same_color_energy", controls=DJControls(start_path="/anchor.flac"))
 
-    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac", "/green.flac", "/blue.flac"}
-    assert "same_color_energy filter applied: RED" in result.warnings
-    assert (
-        "same_color_energy: no candidates match anchor color 'RED'; falling back to unfiltered scoring"
-        in result.warnings
-    )
+    # The non-matching candidates are NOT reintroduced; only the anchor control remains.
+    assert {item.path for item in result.ordered_tracks} == {"/anchor.flac"}
+    # No widening: the old unfiltered-fallback warning must never appear.
+    assert not any("falling back to unfiltered scoring" in warning for warning in result.warnings)
+    assert any("same_color_energy" in warning and "strict" in warning.lower() for warning in result.warnings)
 
 
-def test_prefilter_strategy_candidates_applies_color_and_energy_for_same_color_energy() -> None:
+def test_prefilter_strategy_candidates_applies_color_and_exact_energy_for_same_color_energy() -> None:
+    # Behavior changed by tighten-same-color-energy: the prefilter now enforces
+    # EXACT anchor energy for same_color_energy (no +/-1 band). A RED E6 candidate
+    # that the old band admitted is now excluded; only the RED E5 match survives.
     anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5})
-    both = spectral_track("/both.flac", "RED").model_copy(update={"energy_level": 6})
+    near_energy = spectral_track("/near_energy.flac", "RED").model_copy(update={"energy_level": 6})
+    both = spectral_track("/both.flac", "RED").model_copy(update={"energy_level": 5})
     color_only = spectral_track("/color-only.flac", "RED").model_copy(update={"energy_level": 9})
     energy_only = spectral_track("/energy-only.flac", "GREEN").model_copy(update={"energy_level": 5})
 
     result = prefilter_strategy_candidates(
-        [anchor, both, color_only, energy_only],
+        [anchor, near_energy, both, color_only, energy_only],
         "same_color_energy",
         controls=DJControls(start_path="/anchor.flac"),
     )
@@ -1382,3 +1404,249 @@ def test_apply_color_filter_same_color_keeps_matching_candidates() -> None:
 
     assert {t.path for t in filtered} == {"/anchor.flac", "/red2.flac"}
     assert warnings == ["same_color filter applied: RED"]
+
+
+# ---------------------------------------------------------------------------
+# tighten-same-color-energy Phase 2/3: strict combined eligibility.
+# _same_color_energy_eligible(anchor, candidate) — exact energy + label equality
+# for RED/GREEN/BLUE, and label equality PLUS a bounded RGB L1 / centroid /
+# rolloff proximity gate for MIXED. Empty strict pools fail closed; controls are
+# always preserved. These assert the NEW behavior this change introduces.
+# ---------------------------------------------------------------------------
+
+
+def _mixed_track(
+    path: str,
+    *,
+    energy: int | None = 5,
+    red: float,
+    green: float,
+    blue: float,
+    centroid: float,
+    rolloff: float,
+) -> TrackRecord:
+    return track(path, energy_level=energy).model_copy(
+        update={
+            "spectral_profile": SpectralProfile(
+                red_ratio=red,
+                green_ratio=green,
+                blue_ratio=blue,
+                centroid_hz=centroid,
+                rolloff_hz=rolloff,
+                dominant_color="MIXED",
+            )
+        }
+    )
+
+
+def test_same_color_energy_eligible_requires_exact_energy_for_rgb() -> None:
+    anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5})
+    same = spectral_track("/same.flac", "RED").model_copy(update={"energy_level": 5})
+    off_by_one = spectral_track("/off.flac", "RED").model_copy(update={"energy_level": 6})
+
+    assert _same_color_energy_eligible(anchor, same) is True
+    assert _same_color_energy_eligible(anchor, off_by_one) is False
+
+
+def test_same_color_energy_eligible_requires_label_equality_for_rgb() -> None:
+    anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5})
+    other_color = spectral_track("/green.flac", "GREEN").model_copy(update={"energy_level": 5})
+
+    assert _same_color_energy_eligible(anchor, other_color) is False
+
+
+def test_same_color_energy_eligible_rgb_ignores_continuous_gate() -> None:
+    # RED/GREEN/BLUE use label equality + exact energy only: a candidate with zero
+    # centroid/rolloff but matching label+energy stays eligible (no continuous gate).
+    anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5})
+    zero_features = track("/red.flac", energy_level=5).model_copy(
+        update={
+            "spectral_profile": SpectralProfile(
+                red_ratio=1.0,
+                green_ratio=0.0,
+                blue_ratio=0.0,
+                centroid_hz=0.0,
+                rolloff_hz=0.0,
+                dominant_color="RED",
+            )
+        }
+    )
+
+    assert _same_color_energy_eligible(anchor, zero_features) is True
+
+
+def test_same_color_energy_eligible_mixed_passes_at_inclusive_boundary() -> None:
+    anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    # Exactly on each inclusive bound: RGB L1 == MIXED_RGB_L1_MAX, centroid rel ==
+    # MIXED_CENTROID_REL_MAX, rolloff rel == MIXED_ROLLOFF_REL_MAX.
+    l1_half = MIXED_RGB_L1_MAX / 2.0
+    candidate = _mixed_track(
+        "/edge.flac",
+        red=0.40 + l1_half,
+        green=0.40 - l1_half,
+        blue=0.20,
+        centroid=1000.0 * (1.0 + MIXED_CENTROID_REL_MAX),
+        rolloff=2000.0 * (1.0 + MIXED_ROLLOFF_REL_MAX),
+    )
+
+    assert _same_color_energy_eligible(anchor, candidate) is True
+
+
+def test_same_color_energy_eligible_mixed_fails_just_over_rgb_l1() -> None:
+    anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    over = (MIXED_RGB_L1_MAX / 2.0) + 0.001
+    candidate = _mixed_track(
+        "/over.flac",
+        red=0.40 + over,
+        green=0.40 - over,
+        blue=0.20,
+        centroid=1000.0,
+        rolloff=2000.0,
+    )
+
+    assert _same_color_energy_eligible(anchor, candidate) is False
+
+
+def test_same_color_energy_eligible_mixed_fails_just_over_centroid() -> None:
+    anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    candidate = _mixed_track(
+        "/over.flac",
+        red=0.40,
+        green=0.40,
+        blue=0.20,
+        centroid=1000.0 * (1.0 + MIXED_CENTROID_REL_MAX + 0.01),
+        rolloff=2000.0,
+    )
+
+    assert _same_color_energy_eligible(anchor, candidate) is False
+
+
+def test_same_color_energy_eligible_mixed_fails_just_over_rolloff() -> None:
+    anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    candidate = _mixed_track(
+        "/over.flac",
+        red=0.40,
+        green=0.40,
+        blue=0.20,
+        centroid=1000.0,
+        rolloff=2000.0 * (1.0 + MIXED_ROLLOFF_REL_MAX + 0.01),
+    )
+
+    assert _same_color_energy_eligible(anchor, candidate) is False
+
+
+def test_same_color_energy_eligible_mixed_fails_closed_on_zero_rgb_sum() -> None:
+    anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    zero_sum = _mixed_track("/zero.flac", red=0.0, green=0.0, blue=0.0, centroid=1000.0, rolloff=2000.0)
+
+    assert _same_color_energy_eligible(anchor, zero_sum) is False
+
+
+def test_same_color_energy_eligible_mixed_fails_closed_on_zero_centroid_denominator() -> None:
+    # Anchor centroid is the denominator of the relative delta; zero fails closed.
+    anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=0.0, rolloff=2000.0)
+    candidate = _mixed_track("/c.flac", red=0.40, green=0.40, blue=0.20, centroid=0.0, rolloff=2000.0)
+
+    assert _same_color_energy_eligible(anchor, candidate) is False
+
+
+def test_same_color_energy_eligible_mixed_fails_closed_on_zero_rolloff_denominator() -> None:
+    anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=0.0)
+    candidate = _mixed_track("/c.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=0.0)
+
+    assert _same_color_energy_eligible(anchor, candidate) is False
+
+
+def test_same_color_energy_eligible_mixed_fails_closed_when_candidate_profile_missing() -> None:
+    anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    no_profile = track("/np.flac", energy_level=5)
+
+    assert _same_color_energy_eligible(anchor, no_profile) is False
+
+
+def test_same_color_energy_applies_strict_filter_before_capping() -> None:
+    # A candidate that would survive the pool cap on scan order but fails strict
+    # eligibility must be excluded BEFORE capping, not merely trimmed afterwards.
+    # Build many eligible RED E5 tracks plus one ineligible GREEN E5, and assert
+    # the GREEN one never appears regardless of where the cap lands.
+    anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5})
+    reds = [spectral_track(f"/red-{i}.flac", "RED").model_copy(update={"energy_level": 5}) for i in range(40)]
+    ineligible = spectral_track("/green.flac", "GREEN").model_copy(update={"energy_level": 5})
+    pool = [anchor, ineligible, *reds]
+
+    result = recommend_playlist(pool, "same_color_energy", controls=DJControls(start_path="/anchor.flac"))
+
+    paths = {item.path for item in result.ordered_tracks}
+    assert "/green.flac" not in paths
+    for item in result.ordered_tracks:
+        if item.path == "/anchor.flac":
+            continue
+        profile = item.spectral_profile
+        assert profile is not None
+        assert profile.dominant_color == "RED"
+        assert item.energy_level == 5
+
+
+def test_same_color_energy_compatible_different_key_stays_eligible() -> None:
+    # Spec Requirement 1: Camelot independence. A strict-eligible candidate whose
+    # key is compatible-but-different from the anchor is NOT excluded on key.
+    anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5, "camelot_key": "8A"})
+    compatible_diff_key = spectral_track("/friend.flac", "RED").model_copy(
+        update={"energy_level": 5, "camelot_key": "9A"}
+    )
+
+    result = recommend_playlist(
+        [anchor, compatible_diff_key], "same_color_energy", controls=DJControls(start_path="/anchor.flac")
+    )
+
+    assert "/friend.flac" in {item.path for item in result.ordered_tracks}
+
+
+def test_same_color_energy_preserves_controls_that_fail_strict_eligibility() -> None:
+    # Controls (locked/start/end/manual) pass through strict filtering unchanged,
+    # keeping their positions even when they fail strict generated eligibility.
+    tracks = [
+        spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5}),
+        spectral_track("/red.flac", "RED").model_copy(update={"energy_level": 5}),
+        spectral_track("/locked-green.flac", "GREEN").model_copy(update={"energy_level": 9}),
+        spectral_track("/end-blue.flac", "BLUE").model_copy(update={"energy_level": 1}),
+    ]
+    controls = DJControls(start_path="/anchor.flac", end_path="/end-blue.flac", locked_paths={"/locked-green.flac"})
+
+    result = recommend_playlist(tracks, "same_color_energy", controls=controls)
+
+    assert {item.path for item in result.ordered_tracks} == {
+        "/anchor.flac",
+        "/red.flac",
+        "/locked-green.flac",
+        "/end-blue.flac",
+    }
+
+
+def test_same_color_energy_missing_anchor_energy_fails_closed_with_prerequisite_warning() -> None:
+    # Anchor lacks an energy level: generated candidates must be empty and a
+    # prerequisite warning is emitted (no widening to unfiltered scoring).
+    anchor = spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": None})
+    other = spectral_track("/red.flac", "RED").model_copy(update={"energy_level": 5})
+
+    result = recommend_playlist([anchor, other], "same_color_energy", controls=DJControls(start_path="/anchor.flac"))
+
+    paths = {item.path for item in result.ordered_tracks}
+    assert "/red.flac" not in paths
+    assert any("same_color_energy" in warning and "prerequisite" in warning.lower() for warning in result.warnings)
+
+
+def test_same_color_energy_mixed_anchor_admits_only_proximate_candidates() -> None:
+    # Spec scenario: every generated MIXED candidate must satisfy the label AND the
+    # bounded proximity gate. A near MIXED candidate passes; a far one is excluded.
+    anchor = _mixed_track("/anchor.flac", red=0.40, green=0.40, blue=0.20, centroid=1000.0, rolloff=2000.0)
+    near = _mixed_track("/near.flac", red=0.41, green=0.39, blue=0.20, centroid=1010.0, rolloff=2020.0)
+    far = _mixed_track("/far.flac", red=0.20, green=0.20, blue=0.60, centroid=4000.0, rolloff=8000.0)
+
+    result = recommend_playlist(
+        [anchor, near, far], "same_color_energy", controls=DJControls(start_path="/anchor.flac")
+    )
+
+    paths = {item.path for item in result.ordered_tracks}
+    assert "/near.flac" in paths
+    assert "/far.flac" not in paths

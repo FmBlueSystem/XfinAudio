@@ -84,17 +84,24 @@ def test_same_vibe_requires_tags_or_genre_and_can_degrade() -> None:
 
 
 def test_same_color_energy_registers_with_expected_profile() -> None:
+    # Behavior changed by tighten-same-color-energy: same_color_energy no longer
+    # carries the +/-1 energy_tolerance; exact anchor energy is enforced by the
+    # dedicated strict eligibility path in playlist_service, not by the shared
+    # _apply_energy_tolerance band.
     strategy = get_strategy("same_color_energy")
 
     assert strategy.display_name == "Same Color & Energy"
-    assert strategy.energy_tolerance == 1
+    assert strategy.energy_tolerance is None
     assert strategy.weights == ScoringWeights(harmonic=0.25, bpm=0.15, energy=0.30, tags=0.10, spectral=0.20)
 
 
 def test_strategy_descriptions_state_guarantees() -> None:
+    # Behavior changed by tighten-same-color-energy: same_color_energy now states
+    # hard anchor-color filtering AND exact anchor energy (no +/-1 band).
     same_color_energy_description = get_strategy("same_color_energy").description.lower()
     assert "color" in same_color_energy_description
-    assert "±1" in same_color_energy_description or "+/-1" in same_color_energy_description
+    assert "exact" in same_color_energy_description
+    assert "±1" not in same_color_energy_description and "+/-1" not in same_color_energy_description
 
     same_color_description = get_strategy("same_color").description.lower()
     assert "only tracks matching" in same_color_description
@@ -243,8 +250,11 @@ def test_same_energy_description_is_currently_verbatim() -> None:
 
 
 def test_same_color_energy_description_is_currently_verbatim() -> None:
+    # Behavior changed by tighten-same-color-energy: this pins same_color_energy's
+    # OWN new description (hard anchor-color filtering AND exact anchor energy).
+    # The old +/-1 wording is the behavior this change exists to replace.
     strategy = get_strategy("same_color_energy")
 
     assert strategy.description == (
-        "Hard filters: only tracks matching the anchor's color AND within ±1 energy level of the anchor."
+        "Hard filters: only tracks matching the anchor's color AND the anchor's exact energy level."
     )
