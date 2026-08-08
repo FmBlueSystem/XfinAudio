@@ -5,6 +5,7 @@ from __future__ import annotations
 from xfinaudio.library.duplicate_grouping import duplicate_representative_sort_key, playlist_duplicate_group_key
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
+from xfinaudio.recommendation.scoring import normalized_bpm_pair
 
 _DEFAULT_LIMIT = 25
 
@@ -59,7 +60,7 @@ def _track_similarity_key(
     terms = _track_vibe_terms(track)
     overlap_count = len(anchor_terms & terms)
     bpm_distance = min(
-        (abs((track.bpm or 0.0) - (a.bpm or 0.0)) for a in anchor_tracks if a.bpm is not None),
+        (_bpm_distance(track.bpm or 0.0, a.bpm or 0.0) for a in anchor_tracks if a.bpm is not None),
         default=9999.0,
     )
     energy_distance = min(
@@ -84,6 +85,11 @@ def _track_similarity_key(
         key_bucket = 2
 
     return (bpm_bucket, key_bucket, -overlap_count, float(energy_distance), bpm_distance, track.path)
+
+
+def _bpm_distance(left_bpm: float, right_bpm: float) -> float:
+    left_bpm, right_bpm = normalized_bpm_pair(left_bpm, right_bpm)
+    return abs(left_bpm - right_bpm)
 
 
 def anchor_preflight_warnings(controls: DJControls | None, scanned_records: list[TrackRecord]) -> list[str]:

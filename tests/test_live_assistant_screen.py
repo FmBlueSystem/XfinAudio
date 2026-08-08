@@ -184,3 +184,13 @@ def test_elapsed_timer_idle_until_a_track_is_loaded(qapp: QApplication, track_a:
     screen.set_current_track(track_a)
 
     assert screen._elapsed_timer.isActive()
+
+
+def test_double_time_candidate_does_not_trigger_bpm_jump_alert(qapp: QApplication, track_a: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    screen.set_current_track(track_a)
+    candidate = track_a.model_copy(update={"path": "/double.flac", "bpm": 256.0})
+
+    alerts = screen._generate_alerts(candidate)
+
+    assert not any(alert.startswith("BPM ") for alert in alerts)

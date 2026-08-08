@@ -15,6 +15,7 @@ from xfinaudio.recommendation.scoring import (
     ScoringWeights,
     TransitionScore,
     TransitionScoringConfig,
+    bpm_difference_percent,
     score_transition,
 )
 
@@ -214,7 +215,9 @@ def _pair_score(
     ).total_score
     if max_bpm_difference_percent is None or left.bpm is None or right.bpm is None or not left.bpm:
         return score
-    if abs(right.bpm - left.bpm) / left.bpm * 100.0 > max_bpm_difference_percent:
+    # Fold 2:1 pairs and use the lower BPM as the symmetric denominator,
+    # matching the transition scorer's continuity calculation.
+    if bpm_difference_percent(left.bpm, right.bpm) > max_bpm_difference_percent:
         return score + UNPLAYABLE_TRANSITION_PENALTY
     return score
 

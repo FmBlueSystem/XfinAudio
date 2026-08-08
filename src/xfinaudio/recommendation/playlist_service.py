@@ -17,7 +17,7 @@ from xfinaudio.recommendation.scoring import (
     ScoringWeights,
     TransitionScore,
     TransitionScoringConfig,
-    _bpm_difference_percent,
+    bpm_difference_percent,
     score_transition,
 )
 from xfinaudio.recommendation.strategies import (
@@ -1117,7 +1117,7 @@ def _bpm_reachable_from(
     )
     runs: list[list[TrackRecord]] = [[line[0]]]
     for previous, current in zip(line, line[1:], strict=False):
-        if _bpm_difference_percent(previous.bpm or 0.0, current.bpm or 0.0) > max_bpm_difference_percent:
+        if bpm_difference_percent(previous.bpm or 0.0, current.bpm or 0.0) > max_bpm_difference_percent:
             runs.append([current])
         else:
             runs[-1].append(current)
@@ -1158,7 +1158,7 @@ def _drop_generated_tracks_after_impossible_bpm_jumps(
         if candidate.bpm is None or kept[-1].bpm is None:
             kept.append(candidate)
             continue
-        if _bpm_difference_percent(kept[-1].bpm, candidate.bpm) > max_bpm_difference_percent:
+        if bpm_difference_percent(kept[-1].bpm, candidate.bpm) > max_bpm_difference_percent:
             dropped_count += 1
             continue
         kept.append(candidate)

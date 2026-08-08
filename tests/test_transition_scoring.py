@@ -11,6 +11,8 @@ from xfinaudio.recommendation.scoring import (
     TransitionScore,
     TransitionScoringConfig,
     _bpm_difference_percent,
+    bpm_difference_percent,
+    normalized_bpm_pair,
     score_transition,
 )
 
@@ -372,6 +374,19 @@ def test_spectral_cohesion_out_of_range_is_rejected() -> None:
 def test_bpm_difference_percent_treats_exact_double_time_pairs_as_compatible() -> None:
     assert _bpm_difference_percent(128.0, 64.0) == pytest.approx(0.0, abs=1e-6)
     assert _bpm_difference_percent(64.0, 128.0) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_public_bpm_difference_percent_normalizes_near_double_time_pair() -> None:
+    assert bpm_difference_percent(84.6, 169.0) < 1.0
+
+
+def test_normalized_bpm_pair_folds_double_time_and_preserves_non_double_time() -> None:
+    assert normalized_bpm_pair(128.0, 64.0) == (64.0, 64.0)
+    assert normalized_bpm_pair(100.0, 130.0) == (100.0, 130.0)
+
+
+def test_private_bpm_difference_percent_is_backward_compatible_alias() -> None:
+    assert _bpm_difference_percent is bpm_difference_percent
 
 
 def test_bpm_difference_percent_non_half_time_pair_is_unaffected() -> None:

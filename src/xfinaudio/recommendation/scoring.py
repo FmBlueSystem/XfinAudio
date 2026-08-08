@@ -165,7 +165,7 @@ def score_transition(
     }
     explanations = [
         f"Harmonic compatibility score is {component_scores['harmonic']:.2f}",
-        f"BPM difference is {_bpm_difference_percent(left.bpm or 0.0, right.bpm or 0.0):.2f}%",
+        f"BPM difference is {bpm_difference_percent(left.bpm or 0.0, right.bpm or 0.0):.2f}%",
         f"Energy level difference is {abs((left.energy_level or 0) - (right.energy_level or 0))}",
     ]
     explanations.extend(
@@ -244,17 +244,29 @@ def _invalid_camelot_warnings(left: TrackRecord, right: TrackRecord) -> list[str
 HALF_TIME_RATIO_TOLERANCE = 0.02
 
 
-def _bpm_difference_percent(left_bpm: float, right_bpm: float) -> float:
+def normalized_bpm_pair(left_bpm: float, right_bpm: float) -> tuple[float, float]:
+    """Return a BPM pair with a half-time/double-time side folded down."""
+    if left_bpm <= 0 or right_bpm <= 0:
+        return left_bpm, right_bpm
+    ratio = max(left_bpm, right_bpm) / min(left_bpm, right_bpm)
+    if abs(ratio - 2.0) > HALF_TIME_RATIO_TOLERANCE * 2.0:
+        return left_bpm, right_bpm
+    if left_bpm > right_bpm:
+        return left_bpm / 2.0, right_bpm
+    return left_bpm, right_bpm / 2.0
+
+
+def bpm_difference_percent(left_bpm: float, right_bpm: float) -> float:
+    """Return the symmetric BPM difference after half-time normalization."""
+    left_bpm, right_bpm = normalized_bpm_pair(left_bpm, right_bpm)
     lower = min(left_bpm, right_bpm)
     upper = max(left_bpm, right_bpm)
     if lower <= 0:
         return 100.0
-    ratio = upper / lower
-    if abs(ratio - 2.0) <= HALF_TIME_RATIO_TOLERANCE * 2.0:
-        # Exact half-time/double-time pair (e.g. 128 vs 64): normalize before diffing
-        # so it scores as compatible instead of a ~100% jump.
-        upper = upper / 2.0
     return abs(upper - lower) / lower * 100
+
+
+_bpm_difference_percent = bpm_difference_percent
 
 
 def _shifted_key(camelot_key: str, semitones: int) -> str:
@@ -277,7 +289,7 @@ def _key_shift_explanations(
 
 
 def _score_bpm(left_bpm: float, right_bpm: float, config: TransitionScoringConfig) -> float:
-    delta = _bpm_difference_percent(left_bpm, right_bpm)
+    delta = bpm_difference_percent(left_bpm, right_bpm)
     if config.score_curve == "fuzzy":
         return _score_fuzzy(delta, config.bpm_thresholds)
     return _score_threshold(delta, config.bpm_thresholds)

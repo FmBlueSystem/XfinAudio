@@ -294,3 +294,17 @@ def test_the_ceiling_is_off_by_default() -> None:
     pool = _tempo_pool([120.0, 190.0])
 
     assert len(recommend_sequence(pool).ordered_tracks) == 2
+
+
+def test_half_time_pair_does_not_receive_unplayable_transition_penalty() -> None:
+    score = optimizer._pair_score(
+        track("/left.flac", bpm=84.6),
+        track("/right.flac", bpm=169.0),
+        None,
+        optimizer.DEFAULT_WEIGHTS,
+        optimizer.DEFAULT_SCORING_CONFIG,
+        {},
+        3.0,
+    )
+
+    assert score >= 0.0
