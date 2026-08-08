@@ -221,6 +221,8 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "BPM Score",
         "Energy Score",
         "Tag Score",
+        "Fit",
+        "Blend",
         "Final Score",
         "Warnings",
     ]
@@ -1233,11 +1235,13 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
         "BPM Score",
         "Energy Score",
         "Tag Score",
+        "Fit",
+        "Blend",
         "Final Score",
         "Warnings",
     ]
     assert window._review_screen.transition_table.rowCount() == 1
-    row_values = [_table_item_text(window._review_screen.transition_table, 0, column) for column in range(9)]
+    row_values = [_table_item_text(window._review_screen.transition_table, 0, column) for column in range(11)]
     assert row_values[0] == "1"
     assert row_values[1] == "A"
     assert row_values[2] == "B"
@@ -1246,7 +1250,9 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
     assert row_values[5] != ""
     assert row_values[6] == ""
     assert row_values[7] != ""
-    assert row_values[8] == main_window.format_recommendation_warning(
+    assert row_values[8] != ""
+    assert row_values[9] != ""
+    assert row_values[10] == main_window.format_recommendation_warning(
         "Tag score unavailable; both tracks have no tags or genre"
     )
 

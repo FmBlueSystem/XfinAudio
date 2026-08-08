@@ -73,9 +73,36 @@ def test_transition_columns_give_space_to_track_names_not_scores(qapp: QApplicat
     header = screen.transition_table.horizontalHeader()
     width = {name: header.sectionSize(index) for index, name in enumerate(_TRANSITION_COLUMNS)}
 
-    for score_column in ("Order", "Key Score", "BPM Score", "Energy Score", "Tag Score", "Final Score"):
+    for score_column in ("Order", "Key Score", "BPM Score", "Energy Score", "Tag Score", "Fit", "Blend", "Final Score"):
         assert width[score_column] < width["From"], f"{score_column} is as wide as the track name column"
         assert width[score_column] < width["To"], f"{score_column} is as wide as the track name column"
+
+
+def test_transition_table_exposes_fit_and_blend_headers(qapp: QApplication) -> None:
+    screen = ReviewScreen()
+    table = screen.transition_table
+
+    assert table.columnCount() == 11
+    assert [table.horizontalHeaderItem(column).text() for column in range(11)] == [
+        "Order",
+        "From",
+        "To",
+        "Key Score",
+        "BPM Score",
+        "Energy Score",
+        "Tag Score",
+        "Fit",
+        "Blend",
+        "Final Score",
+        "Warnings",
+    ]
+    assert table.horizontalHeaderItem(7).toolTip() == (
+        "Do these tracks belong in the same set? Harmony, tags, danceability and spectral colour."
+    )
+    assert table.horizontalHeaderItem(8).toolTip() == (
+        "Can these tracks be joined? Tempo and the energy handoff from the outgoing to the incoming section."
+    )
+    assert table.horizontalHeaderItem(9).toolTip() == ("Weighted average: 60% Key + 20% BPM + 15% Energy + 5% Tags")
 
 
 def test_readiness_detail_column_gets_the_free_width(qapp: QApplication) -> None:

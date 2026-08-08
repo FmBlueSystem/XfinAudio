@@ -35,6 +35,8 @@ _TRANSITION_COLUMNS = [
     "BPM Score",
     "Energy Score",
     "Tag Score",
+    "Fit",
+    "Blend",
     "Final Score",
     "Warnings",
 ]
@@ -51,8 +53,10 @@ _TRANSITION_HEADER_TOOLTIPS = {
     4: "BPM similarity. 1.0 = ≤2% difference, drops as the gap grows",
     5: "Energy level similarity. 1.0 = same energy, drops as levels diverge",
     6: "Genre/tag overlap. Higher = more shared tags or genres",
-    7: "Weighted average: 60% Key + 20% BPM + 15% Energy + 5% Tags",
-    8: "Alerts about potential issues in this transition",
+    7: "Do these tracks belong in the same set? Harmony, tags, danceability and spectral colour.",
+    8: "Can these tracks be joined? Tempo and the energy handoff from the outgoing to the incoming section.",
+    9: "Weighted average: 60% Key + 20% BPM + 15% Energy + 5% Tags",
+    10: "Alerts about potential issues in this transition",
 }
 
 _READINESS_HEADER_TOOLTIPS = {
@@ -164,7 +168,7 @@ class ReviewScreen(QWidget):
         # Free width goes to From/To/Warnings; the rest hold an index or a
         # four-character score and only need what they show.
         transition_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        for name in ("Order", "Key Score", "BPM Score", "Energy Score", "Tag Score", "Final Score"):
+        for name in ("Order", "Key Score", "BPM Score", "Energy Score", "Tag Score", "Fit", "Blend", "Final Score"):
             transition_header.setSectionResizeMode(
                 _TRANSITION_COLUMNS.index(name), QHeaderView.ResizeMode.ResizeToContents
             )
