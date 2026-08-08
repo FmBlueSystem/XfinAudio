@@ -12,7 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 CAMELot_RE = re.compile(r"^(?:1[0-2]|[1-9])[AB]$")
 ENERGY_TEXT_RE = re.compile(r"Energy\s+([1-9]|10)\b", re.IGNORECASE)
-COMMENT_ENERGY_RE = re.compile(r"⚡️?\s*([1-9]|10)")
 TAG_FIELDS = ("genre", "mood", "subgenre", "dj_zone", "genre_category")
 
 # Mirrors recommendation.scoring.HALF_TIME_RATIO_TOLERANCE without importing
@@ -23,11 +22,12 @@ MIN_GRID_ONSETS = 16
 # Every tag key parse_mixedinkey_tags() can consult, casefolded to match
 # _casefold_mapping(). Callers retain only these; the rest (Serato overviews,
 # Mixed In Key beatgrids, lyrics) is never read and is dropped after parsing.
-# Keep in sync with _parse_bpm, _parse_camelot_key, _parse_energy and TAG_FIELDS.
-# Deliberately excludes `beatgrid`, which _parse_bpm does read: the parser gets the
-# full untrimmed tag dict, and this set only decides what survives into the persisted
-# `raw_metadata`. The blob embeds every beat onset -- 18 KB median, 189 MB projected
-# across the library, against 5 MB for everything else retained here.
+# Keep in sync with the scalar parsers and TAG_FIELDS. Deliberately excludes
+# `beatgrid` and `cuepoints`, which _parse_bpm and _parse_energy_cues do read:
+# parsing receives the full untrimmed tag dict, and this set only decides what
+# survives into the persisted `raw_metadata`. The beatgrid blob embeds every beat
+# onset -- 18 KB median, 189 MB projected across the library, against 5 MB for
+# everything else retained here -- so only the derived scalars are stored.
 PARSED_TAG_KEYS = frozenset(
     {
         "title",
@@ -43,9 +43,6 @@ PARSED_TAG_KEYS = frozenset(
         "tkey",
         "energy",
         "energylevel",
-        "grouping",
-        "publisher",
-        "comment",
         *TAG_FIELDS,
     }
 )
@@ -263,18 +260,14 @@ def _parse_energy(tags: dict[str, tuple[str, Any]], title: str | None) -> tuple[
         if candidate is not None:
             return candidate, "energy"
 
-    for field_name in ("energylevel", "grouping"):
+    for field_name in ("energylevel",):
         candidate = _normalize_energy(_first_text(tags, field_name))
         if candidate is not None:
             return candidate, _source_key(tags, field_name)
 
-    for field_name in ("publisher", "comment"):
-        text = _first_text(tags, field_name)
-        if text is None:
-            continue
-        match = ENERGY_TEXT_RE.search(text) or COMMENT_ENERGY_RE.search(text)
-        if match is not None:
-            return int(match.group(1)), _source_key(tags, field_name)
+    # Grouping disagrees with MIK energy on 23.5% of the measured library and
+    # stale comments on 28.1%; publisher is likewise unowned. Wrong transition
+    # input is worse than missing input, which scoring treats neutrally.
 
     if title is not None:
         match = ENERGY_TEXT_RE.search(title)

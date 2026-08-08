@@ -63,6 +63,82 @@ def test_parser_uses_energylevel_when_mixedinkey_energy_json_is_invalid() -> Non
     assert metadata.source_fields["energy_level"] == "energylevel"
 
 
+@pytest.mark.parametrize(
+    ("raw_tags", "field_name"),
+    [
+        ({"grouping": ["2"]}, "grouping"),
+        ({"comment": ["5A - [⚡️7 | 💃0.75]"]}, "comment"),
+        ({"publisher": ["Energy 7"]}, "publisher"),
+    ],
+)
+def test_parser_does_not_fabricate_energy_from_unreliable_fields(
+    raw_tags: dict[str, list[str]], field_name: str
+) -> None:
+    metadata = parse_mixedinkey_tags(raw_tags)
+
+    assert metadata.energy_level is None, field_name
+
+
+def test_parser_energylevel_outranks_unreliable_energy_fields() -> None:
+    metadata = parse_mixedinkey_tags(
+        {
+            "energylevel": ["6"],
+            "grouping": ["2"],
+            "comment": ["5A - [⚡️7 | 💃0.75]"],
+            "publisher": ["Energy 8"],
+        }
+    )
+
+    assert metadata.energy_level == 6
+    assert metadata.source_fields["energy_level"] == "energylevel"
+
+
+def test_parser_uses_mixedinkey_energy_blob_as_primary_energy_source() -> None:
+    energy = encode_tag_json({"source": "mixedinkey", "energyLevel": 9})
+
+    metadata = parse_mixedinkey_tags({"energy": [energy]})
+
+    assert metadata.energy_level == 9
+    assert metadata.source_fields["energy_level"] == "energy"
+
+
+def test_parser_uses_plain_energylevel_when_energy_blob_is_absent() -> None:
+    metadata = parse_mixedinkey_tags({"energylevel": ["4"]})
+
+    assert metadata.energy_level == 4
+    assert metadata.source_fields["energy_level"] == "energylevel"
+
+
+def test_parser_uses_title_as_final_energy_fallback() -> None:
+    metadata = parse_mixedinkey_tags({"title": ["Track - Energy 8"]})
+
+    assert metadata.energy_level == 8
+    assert metadata.source_fields["energy_level"] == "title"
+
+
+def test_parsed_tag_keys_exclude_unreliable_energy_fields() -> None:
+    assert {
+        "title",
+        "tit2",
+        "artist",
+        "tpe1",
+        "tcon",
+        "bpm",
+        "tbpm",
+        "ibpm",
+        "key",
+        "initialkey",
+        "tkey",
+        "energy",
+        "energylevel",
+        "genre",
+        "mood",
+        "subgenre",
+        "dj_zone",
+        "genre_category",
+    } == PARSED_TAG_KEYS
+
+
 def test_parser_prefers_mixedinkey_beatgrid_tempo_over_a_third_party_bpm_tag() -> None:
     """`beatgrid` carries Mixed In Key's own tempo; plain `bpm` may be another tool's.
 

@@ -362,6 +362,9 @@ def test_scan_folder_keeps_only_parsed_tags_in_raw_metadata() -> None:
             "bpm": ["116.0"],
             "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiIxMUIiLCJzb3VyY2UiOiJtaXhlZGlua2V5In0="],
             "energy": ["eyJhbGdvcml0aG0iOjEzLCJlbmVyZ3lMZXZlbCI6Nywic291cmNlIjoibWl4ZWRpbmtleSJ9"],
+            "grouping": ["2"],
+            "publisher": ["Energy 3"],
+            "comment": ["5A - [⚡️4 | 💃0.75]"],
             "genre": ["Disco"],
             "beatgrid": ["A" * 100_000],
             "serato_overview": ["B" * 50_000],
@@ -374,7 +377,15 @@ def test_scan_folder_keeps_only_parsed_tags_in_raw_metadata() -> None:
     raw = records[0].raw_metadata
     assert raw["title"] == ["Track One"]
     assert raw["genre"] == ["Disco"]
-    for dropped in ("beatgrid", "serato_overview", "lyrics", "cuepoints"):
+    for dropped in (
+        "beatgrid",
+        "serato_overview",
+        "lyrics",
+        "cuepoints",
+        "grouping",
+        "publisher",
+        "comment",
+    ):
         assert dropped not in raw
     # Parsing must be unaffected: it runs before the record is built.
     assert records[0].bpm == 116.0
