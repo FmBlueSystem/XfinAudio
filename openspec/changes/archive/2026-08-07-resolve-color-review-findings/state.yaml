@@ -1,0 +1,49 @@
+schema: gentle-ai.sdd-state.v1
+change: resolve-color-review-findings
+artifact_store: openspec
+status: archived
+state: archived
+step: archive
+review_status: approved
+created: 2026-08-07
+updated: 2026-08-08
+archived: 2026-08-08
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  review: complete
+  archive: complete
+next_recommended: none
+blocked_reasons: []
+delivery:
+  strategy: direct
+  chained_prs_recommended: false
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 400
+archive:
+  location: openspec/changes/archive/2026-08-07-resolve-color-review-findings/
+  spec_synced: false
+  main_spec_target: null
+  archive_report_exists: true
+  follow_up_items:
+    - id: a
+      title: Prep Copilot planned colour sets unanchored
+      status: closed
+      action_taken: shipped as prep-copilot-color-anchor (PR #340)
+    - id: b
+      title: duplicated candidate-route branch across the two desktop entry points
+      status: closed
+      action_taken: extracted to desktop/candidate_routes.py::resolve_candidate_route on chore/color-anchor-followups
+notes:
+  - "Artifacts authored RETROACTIVELY on 2026-08-08 from the merged commit 201e001 (branch commit f7dd244, PR #339). AGENTS.md requires durable openspec/ artifacts for every non-trivial change and the PR shipped without them. Same precedent as 2026-07-18-recommendation-scoring-correctness-fixes. They record the change; they did not steer it, so there is no RED-first TDD ledger."
+  - "Closed eight findings from a two-axis (Standards + Spec) review of the bounded colour gate shipped by tighten-spectral-color-filters slices A and B (PRs #336, #337)."
+  - "Central decision: a colour anchor is bound ONCE, from the pre-anchor pool, and carried through prefilter/dedupe/cap into final enforcement. A supplied path that is absent from the pool FAILS CLOSED rather than re-resolving a different anchor -- absence (color_anchor_path=None) and invalidity are deliberately different facts."
+  - "same_color and same_color_energy collapsed behind frozen _ColorGate records in _COLOR_GATES; COLOR_FILTER_STRATEGIES = frozenset(_COLOR_GATES) became the single dispatch answer at all four sites (recommend_playlist, prefilter_strategy_candidates, application candidate planning, desktop routing)."
+  - "One test re-authored, not deleted: test_recommend_uses_context_callback_for_every_colour_strategy previously pinned same_color on the plain records route, the exact contract F2 replaces. Reason recorded inline in its docstring."
+  - "Delta spec NOT synced to openspec/specs/. The durable behaviour belongs to the same-color-strategy / same-color-energy-strategy capabilities, whose delta specs sit in the still-active openspec/changes/tighten-spectral-color-filters/; R1-R8 should be folded in when THAT change is archived."
+  - "Verification at merge: 1499 passed, pyright 0 errors, ruff clean, CI green. Version 1.7.3 -> 1.7.4 with a version-only uv.lock diff."

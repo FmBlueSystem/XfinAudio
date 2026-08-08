@@ -19,8 +19,12 @@ from xfinaudio.desktop.app_state_transitions import (
     apply_prep_copilot_plan_generated,
     apply_prep_copilot_variant,
 )
+from xfinaudio.desktop.candidate_routes import (
+    ColorAnchorContextRoute,
+    RecommendationRecordsRoute,
+    resolve_candidate_route,
+)
 from xfinaudio.desktop.rendering import format_quality_summary
-from xfinaudio.recommendation.playlist_service import COLOR_FILTER_STRATEGIES
 from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
 from xfinaudio.recommendation.strategies import resolve_strategy_name
 
@@ -44,8 +48,8 @@ def _internal_strategy_name(combo_value: object) -> str:
 
     ``currentData()`` is empty for combos populated without user data, so the caller
     falls back to the display label. A display label is not an internal strategy name,
-    so testing it against `COLOR_FILTER_STRATEGIES` would silently skip the colour
-    branch and plan the set unanchored. Genuinely unknown text is passed through
+    so handing it to `resolve_candidate_route` would silently skip the colour branch
+    and plan the set unanchored. Genuinely unknown text is passed through
     untouched: it already fails downstream in `recommend_playlist`, and raising here
     would turn a deep, reported error into an unhandled one in the UI.
     """
@@ -66,6 +70,8 @@ class PrepCopilotController:
         workflow_service: Any,
         on_state_changed: Callable[[], None],
         on_status_message: Callable[[str], None],
+        desktop_recommendation_records: RecommendationRecordsRoute,
+        desktop_color_anchor_candidate_context: ColorAnchorContextRoute,
         variant_application_builder: VariantApplicationBuilder = build_prep_copilot_variant_application,
         plan_generation_builder: PlanGenerationBuilder = generate_prep_copilot_plan,
     ) -> None:
@@ -75,6 +81,11 @@ class PrepCopilotController:
         self._workflow_service = workflow_service
         self._on_state_changed = on_state_changed
         self._on_status_message = on_status_message
+        # Injected rather than reached for through `_state`: the candidate routes are
+        # collaborators this controller calls, not window state it reads, and the
+        # recommendation service already takes them the same way.
+        self._desktop_recommendation_records = desktop_recommendation_records
+        self._desktop_color_anchor_candidate_context = desktop_color_anchor_candidate_context
         self._variant_application_builder = variant_application_builder
         self._plan_generation_builder = plan_generation_builder
 
@@ -94,17 +105,14 @@ class PrepCopilotController:
             return
         strategy_combo = self._build_screen.strategy_combo
         strategy_name = _internal_strategy_name(strategy_combo.currentData() or strategy_combo.currentText())
-        if strategy_name in COLOR_FILTER_STRATEGIES:
-            # The colour strategies transport a bound anchor path so every variant
-            # gates against the same track the pool was planned for. A variant filter
-            # that drops it then fails closed instead of rebinding a different anchor.
-            # Every other strategy stays on the byte-identical records route below.
-            context = self._state._desktop_color_anchor_candidate_context(controls, strategy_name)
-            records = context.records
-            color_anchor_path = context.color_anchor_path
-        else:
-            records = self._state._desktop_recommendation_records(controls, strategy_name)
-            color_anchor_path = None
+        # A variant that filters the bound anchor away then fails closed instead of
+        # rebinding a different one -- see `resolve_candidate_route`.
+        records, color_anchor_path = resolve_candidate_route(
+            controls,
+            strategy_name,
+            records_route=self._desktop_recommendation_records,
+            color_anchor_context_route=self._desktop_color_anchor_candidate_context,
+        )
         genre_focus = self._build_screen.genre_focus_input.text().strip() or None
         request = PrepCopilotGenerationRequest(
             strategy=strategy_name,

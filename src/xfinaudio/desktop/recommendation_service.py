@@ -12,9 +12,9 @@ from xfinaudio.application.recommendation_candidates import RecommendationCandid
 from xfinaudio.desktop._workers import BackgroundWorker
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.app_state_transitions import apply_recommendation_completion
+from xfinaudio.desktop.candidate_routes import resolve_candidate_route
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
-from xfinaudio.recommendation.playlist_service import COLOR_FILTER_STRATEGIES
 
 # The pool is derived from the slot rather than fixed: see pool_size_for_slot.
 # A fixed 50 bottomed the track count out at 11 whatever the slot length.
@@ -176,23 +176,20 @@ class RecommendationService(QObject):
             self._status_label.setText(self._tr("Select at least one complete track before recommending"))
             return
         spectral_cohesion = self._build_screen.spectral_cohesion_value() / 100.0
-        if strategy_name in COLOR_FILTER_STRATEGIES:
-            # The colour strategies transport a bound anchor path so it survives
-            # dedupe/cap and reaches final enforcement unchanged. Every other
-            # strategy stays on the byte-identical records route below.
-            context = self._desktop_color_anchor_candidate_context(controls, strategy_name)
-            self._begin_recommendation_state(len(context.records))
-            self.start_recommendation(
-                context.records,
-                strategy_name,
-                controls,
-                spectral_cohesion,
-                color_anchor_path=context.color_anchor_path,
-            )
-            return
-        records = self._desktop_recommendation_records(controls, strategy_name)
+        records, color_anchor_path = resolve_candidate_route(
+            controls,
+            strategy_name,
+            records_route=self._desktop_recommendation_records,
+            color_anchor_context_route=self._desktop_color_anchor_candidate_context,
+        )
         self._begin_recommendation_state(len(records))
-        self.start_recommendation(records, strategy_name, controls, spectral_cohesion)
+        self.start_recommendation(
+            records,
+            strategy_name,
+            controls,
+            spectral_cohesion,
+            color_anchor_path=color_anchor_path,
+        )
 
     def _begin_recommendation_state(self, candidate_count: int) -> None:
         """Disable recommendation controls while the optimizer runs."""

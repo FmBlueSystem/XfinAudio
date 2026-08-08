@@ -96,6 +96,8 @@ class MainWindow(QMainWindow):
             workflow_service=self.workflow_service,
             on_state_changed=self._sync_state,
             on_status_message=self.status_label.setText,
+            desktop_recommendation_records=self._desktop_recommendation_records,
+            desktop_color_anchor_candidate_context=self._desktop_color_anchor_candidate_context,
         )
         wire_services(self._wire_scan_service, self._wire_recommendation_service)
 
