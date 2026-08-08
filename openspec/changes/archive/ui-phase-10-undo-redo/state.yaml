@@ -1,10 +1,10 @@
 schema: gentle-ai.sdd-state.v1
 change: ui-phase-10-undo-redo
 artifact_store: openspec
-status: active
-state: verifying
-step: verify
-review_status: pending
+status: completed
+state: completed
+step: archive
+review_status: completed
 created: 2026-06-14
 updated: 2026-06-15
 strict_tdd: true
@@ -23,4 +23,8 @@ delivery:
   chained_prs_recommended: false
   chain_strategy: feature-branch
   review_budget_changed_lines: 250
-notes: Phase 10 of UI improvement roadmap - add undo/redo for destructive actions.
+notes: >-
+  Phase 10 of UI improvement roadmap - add undo/redo for destructive actions.
+  Shipped in commit 1f8d960 (PR #65); the archived record was left at status
+  active/verifying by a copy-instead-of-move archive step and is corrected here
+  to match the other archived UI phases.

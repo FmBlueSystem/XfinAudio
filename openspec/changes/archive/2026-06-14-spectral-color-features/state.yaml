@@ -1,0 +1,45 @@
+schema: gentle-ai.sdd-state.v1
+change: spectral-color-features
+artifact_store: openspec
+status: completed
+state: completed
+step: archive
+review_status: completed
+created: 2026-06-14
+updated: 2026-06-14
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 400
+notes:
+  - >-
+    This record was rewritten on 2026-08-08. The previous file was malformed: 5
+    lines with no schema, status, created, updated, phases, delivery or
+    next_recommended key, and a non-standard "phase:" key in place of the
+    "phases:" map. Content preserved from it - state completed, step verify,
+    review_status completed - is carried forward unchanged in meaning.
+  - >-
+    Shipped in commit 7a52cdc (Release v1.0.2, 2026-06-14). This change owns the
+    spectral ANALYZER - src/xfinaudio/audio/spectral_profile.py, the
+    spectral_profile_json persistence column, the spectral scoring component and
+    the colour badge helper.
+  - >-
+    Not superseded by the colour-strategy work archived on 2026-08-08.
+    openspec/specs/same-color-strategy/ is a downstream CONSUMER of the analyzer
+    output this change produces, not a replacement for it.
+  - >-
+    tasks.md has all 10 task groups unchecked while this change's own
+    verify-report.md records 769 tests PASS and "Outstanding work: None". The
+    task history is deliberately left unrewritten; the contradiction is
+    documented in apply-progress.md and archive-report.md.
