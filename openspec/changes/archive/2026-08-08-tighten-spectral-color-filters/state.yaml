@@ -1,0 +1,85 @@
+schema: gentle-ai.sdd-state.v1
+change: tighten-spectral-color-filters
+artifact_store: openspec
+status: archived
+state: archived
+step: archive
+review_status: approved
+created: 2026-08-02
+updated: 2026-08-08
+archived: 2026-08-08
+# slice B applied 2026-08-02; calibration gate closed and change archived 2026-08-08
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  archive: complete
+next_recommended: none
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+archive:
+  location: openspec/changes/archive/2026-08-08-tighten-spectral-color-filters/
+  spec_synced: true
+  main_spec_targets:
+    - openspec/specs/same-color-energy-strategy/spec.md
+    - openspec/specs/same-color-strategy/spec.md
+  archive_report_exists: true
+  predecessor: tighten-same-color-energy
+  acceptance_gate:
+    id: "4.1/4.2"
+    status: closed
+    closed: 2026-08-08
+    outcome: constants retained unchanged
+  shipped:
+    - pr: 336
+      commit: c9f38c8
+      scope: slice A - bounded spectral gate spans every anchor colour, COLOR_* rename
+    - pr: 337
+      commit: 60ffaf8
+      scope: slice B - same_color bounded gate, fails closed
+slices:
+  A:
+    status: complete
+    branch: fix/same-color-energy-all-colors
+    base: feat/tighten-spectral-color-filters
+    scope: >-
+      same_color_energy bounded proximity gate spans every dominant-color label;
+      COLOR_* constant rename; version bump 1.7.1 -> 1.7.2 + uv.lock.
+  B:
+    status: complete
+    branch: fix/same-color-bounded-gate
+    base: fix/same-color-energy-all-colors
+    scope: >-
+      same_color dedicated bounded filter (_same_color_eligible +
+      _apply_same_color_filter + _same_color_warnings), fails closed on an empty
+      strict pool; dispatch rewired off the removed _COLOR_FILTER_STRATEGIES;
+      orphaned _apply_color_filter/_resolve_anchor_color/_track_color removed;
+      version bump 1.7.2 -> 1.7.3 + uv.lock.
+notes:
+  - "Slice A implemented on fix/same-color-energy-all-colors (base feat/tighten-spectral-color-filters, feature-branch-chain). Deleted the `dominant_color != \"MIXED\": return True` early return in `_same_color_energy_eligible` so the bounded gate applies to every label. Renamed MIXED_RGB_L1_MAX/MIXED_CENTROID_REL_MAX/MIXED_ROLLOFF_REL_MAX -> COLOR_* (values 0.08/0.15/0.15 unchanged)."
+  - "Blast radius wider than the task line-pointers implied: SpectralProfile defaults centroid_hz=rolloff_hz=0.0, so every test helper that built RGB tracks with zero features (spectral_track, test_application_recommendation_candidates._spectral_record, test_candidate_pool._spectral_record) started failing closed once RGB flowed through the gate. Fixed at the root by giving those helpers finite positive centroid/rolloff (1000.0/2000.0)."
+  - "Phase 0 safety net: existing predecessor coverage already suffices for the must-NOT-change set (same_energy verbatim description + ±1 band, same_genre exact fallback warnings, all 10 registered strategy descriptions). No new characterization tests were needed; task 0.2 adds only what 0.1 proves missing, and nothing was missing."
+  - "Task 1.8 scoped literally to tighten-same-color-energy/design.md:47,92 as instructed. Other predecessor .md artifacts (proposal/spec/verify-report/tasks/state/apply-progress/CONTINUATION) were left as historical record: they reference no Python symbol, break no check, and rewriting a completed change's history would falsify what the predecessor actually shipped."
+  - "same_color path (Slice B) untouched during slice A: `_apply_color_filter` and `_COLOR_FILTER_STRATEGIES={same_color}` were byte-unchanged there."
+  - "Slice B implemented on fix/same-color-bounded-gate (base fix/same-color-energy-all-colors PR #336, feature-branch-chain). Added _same_color_eligible (label equality + _mixed_profile_close, NO energy branch), _apply_same_color_filter (mirrors _apply_same_color_energy_filter, fails closed, no unfiltered fallback), _same_color_warnings (prerequisite + strict-empty). Rewired same_color dispatch off _COLOR_FILTER_STRATEGIES (constant removed entirely). same_color now FAILS CLOSED on an empty strict pool — the maintainer decision in the same-color-strategy delta spec; a DJ with an unmatchable anchor now gets an honest empty result + warning instead of the whole library."
+  - "Task 2.9 dead-code removal, call-graph verified before removing: _apply_color_filter (only the two removed dispatch sites called it), _resolve_anchor_color and _track_color removed as genuinely orphaned; _dominant_color_value KEPT (still used by _resolve_same_color_energy_anchor); _apply_genre_filter (genre path) byte-unchanged."
+  - "Declared characterization exception WIDER than the slice B prompt: besides the two named _apply_color_filter_* tests, SIX predecessor end-to-end same_color characterization tests (test_playlist_service.py:295-381 from tighten-same-color-energy Task 1) pinned the same deliberately-replaced contract and were re-authored (not deleted) to the new bounded-gate/fail-closed contract, each with a docstring reason. Flagged in tasks.md and apply-progress.md."
+  - "Review budget: slice B is ~590 authored changed lines (source 159, tests 429), over the 400 budget. Overflow is entirely per-colour test coverage for one atomic work unit (dedicated filter + its tests kept together). Recorded as an accepted size:exception under the maintainer's auto mandate; the A/B strategy split was the planned chaining."
+  - "Version bumped 1.7.2 -> 1.7.3 (slice B base fix/same-color-energy-all-colors is at 1.7.2; CI Non-audio release gates fails a PR whose version equals its base). uv.lock diff is version-only."
+  - "VERIFY phase complete (2026-08-08): verify-report.md written against main 4603d24 (1.7.6), verdict PASS. Six commands re-run independently: pytest 1510 passed (180 warnings, 52.21s), pyright 0 errors/0 warnings/0 informations, coverage 91.21% (floor 70), ruff check clean, ruff format 279 files already formatted, release_gate_check PASS (PyInstaller check-only; project-root build/ and dist/ absent). All 7 requirements across the two delta specs (same-color-strategy 3 ADDED + 1 MODIFIED; same-color-energy-strategy 2 MODIFIED + 1 ADDED, 18 scenarios total) trace to implementation and 18/18 have asserting tests. Findings: CRITICAL 0, WARNING 0, SUGGESTION 2."
+  - "Verify-time discovery worth carrying: the helper names this change SHIPPED (_same_color_eligible / _apply_same_color_filter / _same_color_warnings, beside the predecessor's _same_color_energy_* trio) no longer exist on main. resolve-color-review-findings (PR #339, 201e001) unified both trios into ONE gate parameterized by the frozen _ColorGate dataclass: _color_eligible(anchor, candidate, match_energy=...), _apply_color_filter(..., gate=...), _color_filter_warnings(..., gate=...), with COLOR_FILTER_STRATEGIES = frozenset(_COLOR_GATES) as the single dispatch answer. The requirements are behavioural and all still hold; only the internal factoring moved. design.md and apply-progress.md keep the shipped-then names as historical record; verify-report.md is the bridge. Note the trap: _apply_color_filter exists AGAIN under its old name with a DIFFERENT contract (gate-parameterized, fails closed) -- it is not the label-only helper this change removed."
+  - "CALIBRATION CLOSURE (2026-08-08): tasks 4.1 and 4.2, deferred at apply because no library was reachable, are now DONE. Read-only sweep over a scratch copy of the real library (~/.xfinaudio/xfinaudio.sqlite3 -> /tmp/xfin-calib/scratch.sqlite3; the live DB was NEVER opened): 10,367 tracks with metadata_status='complete' and a non-null spectral profile (10,392 total), 40 anchors per dominant-color label, seed 20260808, BOTH same_color and same_color_energy pools, across MIXED/RED/GREEN/BLUE. Ran as a direct sweep over the pure predicate rather than an offscreen MainWindow: the gate is a pure function of cached profile values, so this measures exactly what a UI run would, with no Qt surface and no write path. OUTCOME: COLOR_RGB_L1_MAX=0.08, COLOR_CENTROID_REL_MAX=0.15, COLOR_ROLLOFF_REL_MAX=0.15 RETAINED UNCHANGED -- zero production source change."
+  - "Calibration findings: (1) no pool collapse -- median same_color pools MIXED 725 / GREEN 522 / BLUE 258 / RED 152, and 1 of 160 sampled anchors produced an empty same_color pool. (2) RGB L1 is the BINDING axis for every colour: 18-34% of the label-equal base pool passes L1 alone against 44-81% for centroid and rolloff, and dropping L1 multiplies every pool 3-4x while dropping either relative-delta axis barely moves it. (3) The two relative-delta bounds at 0.15 are near-saturated -- raising either to 0.50 changes the pool under 6% in every colour -- so they are a cheap backstop against spectral outliers, not the primary filter; lowering them to 0.10 WOULD bite (~15-20%), so 0.15 sits just past the saturation knee. (4) RED is intrinsically thin (979 tracks vs 3342 MIXED), so short RED sets are an honest library property, not a gate defect. (5) The three anchors with pool <= 2 are spectral outliers (centroid 3398-5626 Hz and rolloff 6931-9078 Hz against library-typical ~1300/~2400 Hz); the gate fails closed CORRECTLY for them because no neighbours exist in that spectral region."
+  - "Calibration scope limit recorded honestly: this is a POOL-GEOMETRY measurement, not a listening test. The maintainer signed off on the measured evidence without a separate listening pass. Stated plainly rather than letting 'calibration closed' imply a listening test that never happened."
+  - "Method note for future calibrations: measuring 'percentage passing each axis ALONE' together with 'pool size if this axis is DROPPED' identifies the binding constraint reliably; single-anchor spot checks do not. An earlier narrower measurement had misidentified GREEN as centroid/rolloff-bound when it is in fact L1-bound like every other colour."
+  - "Calibration scripts live in /tmp/xfin-calib/ and are deliberately NOT added to the repo: the declared post-calibration change surface is constants plus artifacts only, and the outcome is that the constants do not change."
+  - "ARCHIVE 2026-08-08: artifacts moved to openspec/changes/archive/2026-08-08-tighten-spectral-color-filters/ via git mv (history preserved). archive-report.md written. No spec.md at the archive root: this change carries TWO capability deltas, and the repo convention for multi-capability archives (2026-07-20-strategy-ux-clarity-and-dedupe, qa-manual-mik-evidence, xfinaudio-audio-preview) is specs/<capability>/spec.md only. SPEC SYNC DONE -- this pays the spec_synced:false debt carried by 2026-08-07-resolve-color-review-findings and 2026-08-08-prep-copilot-color-anchor, both of which named this change as the place to fold the durable behaviour in. Order applied: predecessor tighten-same-color-energy FIRST, then this change on top (it is the successor and overrides). openspec/specs/same-color-energy-strategy/spec.md REWRITTEN to current shipped behaviour under the COLOR_* names; openspec/specs/same-color-strategy/spec.md CREATED from this change's delta."
+  - "Spec-sync adaptations, disclosed rather than silent (delta text was carried VERBATIM everywhere else). (1) In openspec/specs/same-color-energy-strategy/spec.md the durable requirement 'Existing Strategies Are Unaffected' was REPLACED by this change's ADDED 'Untouched Sibling Strategies': the old one asserted 'same_color output is unchanged', which is now FALSE -- same_color's output deliberately changed and is governed by the new same-color-strategy capability. (2) All '(Previously: ...)' delta annotations were stripped; durable specs in this repo carry none. (3) Two 'before and after this change' scenario phrasings were rewritten to steady-state equivalents ('exactly what they were before the bounded colour gate existed'), because a durable spec has no 'this change'. (4) 'except where a separate delta for same_color modifies it' became 'and same_color's is governed by the same-color-strategy capability'. (5) The predecessor's 'Locked controls do not determine anchor' and 'Strict pool is shorter than requested' scenarios were CARRIED FORWARD onto the successor's overriding requirement bodies, because both are shipped, tested behaviour (_resolve_color_anchor skips locked paths; _color_filter_warnings emits the shortage warning under gate.reports_shortage). (6) openspec/specs/same-color-strategy/spec.md gained one scenario NOT present in the delta -- 'Missing anchor prerequisite fails closed' -- because the prerequisite branch is shipped, warned and tested (test_same_color_prerequisite_warning_is_emitted_without_generated_candidates, test_same_color_skips_filter_when_no_track_has_a_profile) and a durable spec that omitted it would under-describe the capability."

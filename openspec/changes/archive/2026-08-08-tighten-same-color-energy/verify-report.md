@@ -150,3 +150,99 @@ The MIXED numeric constants `MIXED_RGB_L1_MAX` (0.08), `MIXED_CENTROID_REL_MAX` 
 ## Verdict
 
 **PASS (both WARNINGs CLOSED 2026-08-05).** All six verification commands pass independently (`1407 passed` after the F1 test was added); every requirement traces to implementation; **all 12 scenarios now have asserting tests** (F1 shortage-warning test added); non-goals and safety constraints are respected. F1 (untested shortage branch) and F2 (artifact checkbox/state drift) are both closed on the PR #334 branch with no new PR — see the Findings section and `apply-progress.md` "Verify Correction (2026-08-05)". The only residual item is the open MIXED calibration acceptance gate (A.1), which is non-blocking and binds only the three provisional constants, not the rule shape.
+
+---
+
+# Calibration Closure (2026-08-08) — Acceptance Gate A.1 CLOSED
+
+**Everything above this line is the 2026-08-05 record and is unchanged.** That
+verdict, its findings, and its open-gate wording stand as the historical state of
+this change on that date. This section adds only what happened afterwards: the
+acceptance gate it left open has now been closed by measurement.
+
+## Constant lineage — read this before the numbers
+
+The 2026-08-05 report names the constants `MIXED_RGB_L1_MAX`,
+`MIXED_CENTROID_REL_MAX` and `MIXED_ROLLOFF_REL_MAX`. The successor change
+`tighten-spectral-color-filters` (PR #336, commit `c9f38c8`) **renamed** them to
+`COLOR_RGB_L1_MAX`, `COLOR_CENTROID_REL_MAX` and `COLOR_ROLLOFF_REL_MAX` — the
+`MIXED_` prefix became a lie once the same gate started applying to every
+dominant-color label. **The values did not change with the rename**
+(`0.08` / `0.15` / `0.15`), so the calibration below measures the same three
+numbers this change introduced, under their current names at
+`src/xfinaudio/recommendation/playlist_service.py:56-58`.
+
+## What was measured
+
+Read-only sweep over a scratch copy of the real library:
+`~/.xfinaudio/xfinaudio.sqlite3` copied to `/tmp/xfin-calib/scratch.sqlite3`; the
+live DB was **never** opened. Corpus: 10,367 tracks with
+`metadata_status = 'complete'` and a non-null spectral profile (of 10,392 total).
+40 anchors sampled per dominant-color label, seed `20260808`. Both the
+`same_color` and `same_color_energy` pools were measured. Library colour
+distribution: GREEN 4784, MIXED 3342, BLUE 1262, RED 979.
+
+Median pool per anchor at the current constants:
+
+| Colour | peers | `same_color` | `same_color_energy` | empty `same_color` pools |
+|---|---:|---:|---:|---|
+| MIXED | 3342 | 725 | 206 | 0/40 |
+| GREEN | 4784 | 522 | 96 | 0/40 |
+| BLUE | 1262 | 258 | 94 | 1/40 |
+| RED | 979 | 152 | 62 | 0/40 |
+
+The complete per-axis pass rates, one-axis-dropped pools, three bound sweeps,
+admitted-spread percentiles, and the three spectral-outlier anchors are recorded
+once, in the successor's report:
+`openspec/changes/tighten-spectral-color-filters/verify-report.md`
+§ Calibration Evidence. They are not duplicated here.
+
+## Finding that matters to THIS change's constants
+
+The MIXED-only reasoning this change shipped on — that MIXED needed a bounded
+gate because label equality constrains nothing inside a bucket of L1 diameter
+`0.30` — is confirmed, and the gate's binding axis is identified: **RGB L1 is the
+tightest axis for MIXED as for every other colour** (34% of the label-equal
+MIXED base pool passes L1 alone, against 64% for centroid and 62% for rolloff),
+and dropping L1 entirely multiplies the median MIXED pool from 725 to 1758.
+`MIXED_CENTROID_REL_MAX` / `MIXED_ROLLOFF_REL_MAX` at `0.15` are near-saturated:
+raising either to `0.50` moves the MIXED pool by under 6% (725 → 766 and
+725 → 828 respectively). They are a cheap backstop against spectral outliers,
+not the primary filter. Lowering them to `0.10` would bite (725 → 546 and
+725 → 518), so `0.15` is not an arbitrary ceiling — it sits just past the
+saturation knee.
+
+## Outcome
+
+**`COLOR_RGB_L1_MAX = 0.08`, `COLOR_CENTROID_REL_MAX = 0.15`,
+`COLOR_ROLLOFF_REL_MAX = 0.15` are RETAINED UNCHANGED.** The provisional
+literals this change introduced are hereby **confirmed by measurement**. The
+delta spec's MUST attaches to the rule shape, not the literals, and the rule
+shape is unchanged. **No production source change results from this
+calibration.**
+
+## Scope limit, stated honestly
+
+This is a **pool-geometry measurement, not a listening test**. Task A.1 as
+written asked for a listening pass around the MIXED thresholds; that listening
+pass did **not** happen. The maintainer signed off on the measured evidence
+instead. Recording that plainly is preferable to letting "A.1 closed" imply a
+listening test that was never run.
+
+## Verification re-run at closure (main, 1.7.6, commit `4603d24`)
+
+| # | Command | Result |
+|---|---------|--------|
+| 1 | `uv run pytest -q` | **PASS** — `1510 passed, 180 warnings in 52.21s` |
+| 2 | `uv run pyright src tests` | **PASS** — `0 errors, 0 warnings, 0 informations` |
+| 3 | `uv run pytest --cov --cov-fail-under=70 -q` | **PASS** — `1510 passed`, total coverage `91.21%` |
+| 4 | `uv run ruff check .` | **PASS** — `All checks passed!` |
+| 5 | `uv run ruff format --check .` | **PASS** — `279 files already formatted` |
+| 6 | `uv run python scripts/release_gate_check.py --run` | **PASS** — PyInstaller check-only; root artifact hygiene (project-root `build/` and `dist/` absent) |
+
+## Amended verdict
+
+**PASS — no residual items.** The 2026-08-05 verdict is unchanged on its own
+terms; the single acceptance gate it left open (A.1) is now **CLOSED by
+measurement with the constants retained**. `tasks.md` item A.1 is checked
+accordingly.
