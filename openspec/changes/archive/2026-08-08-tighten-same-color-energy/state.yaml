@@ -1,9 +1,13 @@
 schema: gentle-ai.sdd-state.v1
 change: tighten-same-color-energy
 artifact_store: openspec
-status: verify
+status: archived
+state: archived
+step: archive
+review_status: approved
 created: 2026-08-02
-updated: 2026-08-05
+updated: 2026-08-08
+archived: 2026-08-08
 last_correction: 2026-08-05 (verify findings F1 + F2 closed on PR #334 branch)
 strict_tdd: true
 phases:
@@ -13,14 +17,35 @@ phases:
   tasks: complete
   apply: complete
   verify: complete
-  archive: pending
-next_recommended: archive
+  archive: complete
+next_recommended: none
 blocked_reasons: []
 delivery:
   strategy: ask-on-risk
   chained_prs_recommended: true
   chain_strategy: feature-branch-chain
   review_budget_changed_lines: 400
+archive:
+  location: openspec/changes/archive/2026-08-08-tighten-same-color-energy/
+  spec_synced: true
+  main_spec_target: openspec/specs/same-color-energy-strategy/spec.md
+  archive_report_exists: true
+  successor: tighten-spectral-color-filters
+  acceptance_gate:
+    id: A.1
+    status: closed
+    closed: 2026-08-08
+    outcome: constants retained unchanged
+  shipped:
+    - pr: 332
+      commit: 1ac66c3
+      scope: slice 1 - characterization safety net
+    - pr: 333
+      commit: 5fce223
+      scope: slice 2 - strict color-and-exact-energy eligibility
+    - pr: 334
+      commit: a32d515
+      scope: slice 3 - anchor transport through dedupe, cap and the desktop route
 notes:
   - "Root cause (verified against source, not inferred): MIXED is not a spectral region. `_dominant_color()` (audio/spectral_profile.py:177-194) returns MIXED from its `if not eligible:` branch — the ELSE of three threshold tests (RED >= 0.45, GREEN >= 0.48, BLUE >= 0.22). Measured over the r+g+b=1 simplex, the MIXED bucket has an L1 diameter of 0.30 and covers only 2.21% of the simplex, yet holds 44% of the library's E8 tracks (305/691). The provisional bound MIXED_RGB_L1_MAX=0.08 is ~3.75x tighter than the bucket's own diameter, which is why label equality on MIXED constrains nothing."
   - "Second defect: `same_color_energy` composes two filters designed for OTHER strategies — `_apply_color_filter()` (label equality, built for same_color) and `_apply_energy_tolerance(tolerance=1)` (a sequencing-comfort band, built for same_energy). The two loosenesses are independent, so they multiply."
@@ -47,3 +72,7 @@ notes:
   - "Two test adjustments in slice 3 were declared rather than silent, and both preserve original intent: (a) test_desktop_main_window_imports_application_candidate_boundary was made format-agnostic because adding RecommendationCandidateContext turned the asserted import into a multi-line form — the critical negative assertion that main_window must NOT import from recommendation.candidate_pool is unchanged; (b) test_recommend_reads_strategy_via_current_data moved its capture to the context seam because same_color_energy now dispatches through it, still proving the strategy resolved via currentData() reaches the planner."
   - "Verify correction (2026-08-05): findings F1 and F2 CLOSED on the PR #334 branch feat/same-color-energy-anchor-transport (no new branch, no new PR — commit pushed so PR #334 updates). F1 (shortage-warning scenario R5 had no asserting test, task 3.6): added tests/test_playlist_service.py::test_same_color_energy_shortage_returns_only_eligible_and_warns — MIXED anchor + 2 strictly eligible generated candidates, target_count=5 with 1 control (4 requested generated slots) drives the shortage branch; asserts eligibility is NEVER relaxed (far MIXED candidate excluded despite unfilled slots; each survivor passes _same_color_energy_eligible + exact anchor energy + MIXED colour) and asserts the exact warning 'same_color_energy: strict eligibility left 2 generated candidate(s) for 4 requested slot(s)'. RED proven by mis-pointing the assertion at the empty-pool branch (fails because pool is non-empty). NO production code changed — behavior pre-existed, only proof was missing. F2 (planning drift): tasks.md checkboxes reconciled to shipped reality — Phase 1 (PR #332), Phases 2-4 (PR #333), Phases 5-7 (PR #334) all [x]; A.1 left [ ] (genuinely unshipped acceptance gate). Six verification commands re-run: pytest 1407 passed, pyright 0 errors, coverage 91.15%, ruff check + format clean, release_gate_check exit 0. Eight slice-1 characterization tests byte-untouched and green (only one test appended, none edited). Changed lines: ~40 test lines + docs; zero production source lines — well inside the 120-line correction budget."
   - "VERIFY phase complete (2026-08-05): verify-report.md written, verdict PASS WITH WARNINGS. Six commands re-run independently: pytest 1406 passed, pyright 0 errors, coverage 91.16%, ruff check + format clean, release_gate_check exit 0 (with explicit root build/dist absence). All 6 spec requirements (1 ADDED + 5 MODIFIED, 12 scenarios) trace to implementation; 11/12 scenarios have asserting tests. Non-goals confirmed by diff scope (no audio/, no DSP/RMS/exact-key/schema/Serato-write). same_color/same_energy/Camelot byte-preserved. No AppState in-place mutation. Findings: CRITICAL 0, WARNING 2 (F1 shortage-warning branch playlist_service.py:1057-1063 / task 3.6 implemented but has NO asserting test — the one untested spec scenario; F2 tasks.md checkbox + state.yaml drift under-claiming shipped work), SUGGESTION 2 (S1 recurring test-line budget overage; S2 duplicate-version survivors in e2e rows 4/6 & 9/12 are PRE-EXISTING dedupe grouping in candidate_pool.dedupe_recommendation_duplicates keyed on title+artist, NOT a defect of this change). MIXED constants remain calibration-provisional (acceptance gate A.1 open, non-blocking; spec binds rule shape, not literals)."
+  - "CALIBRATION CLOSURE (2026-08-08): acceptance gate A.1 is CLOSED by measurement. Read-only sweep over a scratch copy of the real library (~/.xfinaudio/xfinaudio.sqlite3 -> /tmp/xfin-calib/scratch.sqlite3; the live DB was NEVER opened): 10,367 tracks with metadata_status='complete' and a non-null spectral profile (10,392 total), 40 anchors sampled per dominant-color label, seed 20260808, both same_color and same_color_energy pools measured. OUTCOME: the three constants -- renamed COLOR_RGB_L1_MAX / COLOR_CENTROID_REL_MAX / COLOR_ROLLOFF_REL_MAX by the successor change, values unchanged -- are RETAINED UNCHANGED at 0.08 / 0.15 / 0.15. The provisional literals this change introduced are CONFIRMED by measurement; no production source change results. Key findings: no pool collapse (1 of 160 sampled anchors gave an empty same_color pool, and it is a spectral outlier at centroid 5626 Hz vs the library-typical ~1300 Hz); RGB L1 is the binding axis for EVERY colour including MIXED (34% of the label-equal MIXED base pool passes L1 alone vs 64% centroid / 62% rolloff, and dropping L1 takes the median MIXED pool 725 -> 1758); the two relative-delta bounds at 0.15 are near-saturated (raising either to 0.50 moves the MIXED pool under 6%, lowering to 0.10 costs ~15-20%), so 0.15 sits just past the saturation knee rather than being an arbitrary ceiling."
+  - "Calibration scope limit recorded honestly: this is a POOL-GEOMETRY measurement, not a listening test. Task A.1 as written asked for a listening pass around the MIXED thresholds; that pass did NOT happen. The maintainer signed off on the measured evidence instead. Stated plainly in verify-report.md rather than letting 'A.1 closed' imply a listening test that was never run."
+  - "Verification re-run at closure on main 4603d24 (1.7.6): pytest 1510 passed (180 warnings, 52.21s), pyright 0 errors/0 warnings/0 informations, coverage 91.21% (floor 70), ruff check clean, ruff format 279 files already formatted, release_gate_check PASS (PyInstaller check-only; project-root build/ and dist/ absent)."
+  - "ARCHIVE 2026-08-08: artifacts moved to openspec/changes/archive/2026-08-08-tighten-same-color-energy/ via git mv (history preserved). archive-report.md written; spec.md added at the archive root as a copy of specs/same-color-energy-strategy/spec.md, matching the single-capability archive convention. SPEC SYNC DONE (the spec_synced:false debt left open by 2026-08-07-resolve-color-review-findings and 2026-08-08-prep-copilot-color-anchor is now paid): this change's delta was folded into openspec/specs/same-color-energy-strategy/spec.md FIRST, then the successor tighten-spectral-color-filters was applied on top, so the durable spec describes current shipped behaviour under the current COLOR_* constant names."
