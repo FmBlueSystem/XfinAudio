@@ -386,3 +386,20 @@ def test_energy_spread_still_fills_the_pool() -> None:
     pool = build_recommendation_pool([anchor, *crowd], DJControls(start_path="/anchor.flac"), 40, spread_energy=True)
 
     assert len(pool) == 40
+
+
+def test_protected_anchor_never_displaces_a_control_track() -> None:
+    """Anchor retention must never cost a control its slot.
+
+    Controls MUST remain present in their existing positions. When the pool has
+    no trimmable (non-control) slot, displacing "the last slot" evicts a control
+    and `apply_controls` then rejects the whole request downstream. Not retaining
+    the anchor is the honest outcome -- the colour gate already fails closed on a
+    missing anchor.
+    """
+    controls = DJControls(start_path="/start.flac", end_path="/end.flac", locked_paths={"/locked.flac"})
+    records = [track("/start.flac"), track("/end.flac"), track("/locked.flac"), track("/anchor.flac")]
+
+    pool = build_recommendation_pool(records, controls, 3, protected_path="/anchor.flac")
+
+    assert {item.path for item in pool} == {"/start.flac", "/end.flac", "/locked.flac"}

@@ -304,19 +304,20 @@ def test_plan_recommendation_candidates_returns_list_for_ordinary_strategy() -> 
 def test_context_planner_returns_frozen_context_with_bound_anchor_path() -> None:
     from xfinaudio.application.recommendation_candidates import (
         RecommendationCandidateContext,
-        _plan_same_color_energy_candidate_context,
+        plan_recommendation_candidate_context,
     )
 
     greens = [_energy_spectral_record(f"/g-{index:02d}.mp3", "GREEN", 7) for index in range(5)]
 
-    context = _plan_same_color_energy_candidate_context(
+    context = plan_recommendation_candidate_context(
         scanned_records=greens,
         controls=DJControls(start_path="/g-00.mp3"),
         limit=25,
+        strategy_name="same_color_energy",
     )
 
     assert isinstance(context, RecommendationCandidateContext)
-    assert context.same_color_energy_anchor_path == "/g-00.mp3"
+    assert context.color_anchor_path == "/g-00.mp3"
     assert isinstance(context.records, list)
     assert "/g-00.mp3" in {track.path for track in context.records}
     # Frozen dataclass: attributes cannot be reassigned.
@@ -334,7 +335,7 @@ def test_context_anchor_survives_dedupe_and_cap() -> None:
     cap, reaching the returned context. Anchor is never re-resolved after
     dedupe/cap and never converted to `start_path`.
     """
-    from xfinaudio.application.recommendation_candidates import _plan_same_color_energy_candidate_context
+    from xfinaudio.application.recommendation_candidates import plan_recommendation_candidate_context
 
     # Two dedupe-group siblings; the anchor is the first profiled record but the
     # representative sort key (shorter title) would otherwise prefer the sibling.
@@ -346,18 +347,19 @@ def test_context_anchor_survives_dedupe_and_cap() -> None:
     )
     fillers = [_energy_spectral_record(f"/g-{index:02d}.mp3", "GREEN", 7) for index in range(5)]
 
-    context = _plan_same_color_energy_candidate_context(
+    context = plan_recommendation_candidate_context(
         scanned_records=[anchor, dedupe_sibling, *fillers],
         controls=None,
         limit=25,
+        strategy_name="same_color_energy",
     )
 
-    assert context.same_color_energy_anchor_path == "/00-anchor.mp3"
+    assert context.color_anchor_path == "/00-anchor.mp3"
     assert "/00-anchor.mp3" in {track.path for track in context.records}
 
 
 def test_final_enforcement_uses_bound_anchor_path_when_supplied() -> None:
-    """`recommend_playlist(..., same_color_energy_anchor_path=...)` binds THAT track.
+    """`recommend_playlist(..., color_anchor_path=...)` binds THAT track.
 
     When the caller supplies a bound path, final enforcement resolves eligibility
     against that specific anchor rather than re-resolving from the (possibly
@@ -371,7 +373,7 @@ def test_final_enforcement_uses_bound_anchor_path_when_supplied() -> None:
         [anchor, matching, wrong_energy],
         "same_color_energy",
         controls=DJControls(),
-        same_color_energy_anchor_path="/anchor.mp3",
+        color_anchor_path="/anchor.mp3",
     )
 
     result_paths = {track.path for track in recommendation.ordered_tracks}
@@ -387,9 +389,65 @@ def test_supplied_missing_anchor_path_fails_closed() -> None:
         [green],
         "same_color_energy",
         controls=DJControls(),
-        same_color_energy_anchor_path="/does-not-exist.mp3",
+        color_anchor_path="/does-not-exist.mp3",
     )
 
     # Anchor could not be bound -> prerequisite fails closed -> no generated candidates.
+    assert recommendation.ordered_tracks == []
+    assert any("prerequisite" in warning for warning in recommendation.warnings)
+
+
+def test_context_planner_binds_an_anchor_for_same_color_too() -> None:
+    """`same_color` gets the same immutable anchor identity as its energy sibling.
+
+    The bounded gate runs once in the prefilter and again in `recommend_playlist`.
+    Re-resolving from the reshaped pool lets the second pass gate against a
+    different anchor than the pool was narrowed for, which empties a pool that had
+    already passed. Binding the identity once is what makes the two passes agree.
+    """
+    from xfinaudio.application.recommendation_candidates import plan_recommendation_candidate_context
+
+    reds = [_spectral_record(f"/r-{index:02d}.mp3", "RED") for index in range(5)]
+
+    context = plan_recommendation_candidate_context(
+        scanned_records=reds,
+        controls=DJControls(start_path="/r-00.mp3"),
+        limit=25,
+        strategy_name="same_color",
+    )
+
+    assert context.color_anchor_path == "/r-00.mp3"
+    assert "/r-00.mp3" in {track.path for track in context.records}
+
+
+def test_final_enforcement_uses_bound_anchor_path_for_same_color() -> None:
+    """A supplied path binds THAT track for `same_color`, not whatever the pool resolves.
+
+    `/a-green.mp3` sorts first, so an unbound run would anchor on GREEN and drop
+    both RED tracks. The supplied RED identity is what keeps the passed pool alive.
+    """
+    recommendation = recommend_playlist(
+        [
+            _spectral_record("/z-anchor.mp3", "RED"),
+            _spectral_record("/z-match.mp3", "RED"),
+            _spectral_record("/a-green.mp3", "GREEN"),
+        ],
+        "same_color",
+        controls=DJControls(),
+        color_anchor_path="/z-anchor.mp3",
+    )
+
+    assert {track.path for track in recommendation.ordered_tracks} == {"/z-anchor.mp3", "/z-match.mp3"}
+
+
+def test_supplied_missing_anchor_path_fails_closed_for_same_color() -> None:
+    """A supplied `same_color` path absent from the pool fails closed — never re-resolved."""
+    recommendation = recommend_playlist(
+        [_spectral_record("/r.mp3", "RED")],
+        "same_color",
+        controls=DJControls(),
+        color_anchor_path="/does-not-exist.mp3",
+    )
+
     assert recommendation.ordered_tracks == []
     assert any("prerequisite" in warning for warning in recommendation.warnings)

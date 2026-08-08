@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QMainWindow
 from xfinaudio.application.playlist_workflow import ScanService
 from xfinaudio.application.recommendation_candidates import (
     RecommendationCandidateContext,
-    _plan_same_color_energy_candidate_context,
+    plan_recommendation_candidate_context,
     plan_recommendation_candidates,
     pool_size_for_slot,
 )
@@ -488,16 +488,17 @@ class MainWindow(QMainWindow):
             strategy_name=strategy_name,
         )
 
-    def _desktop_same_color_energy_candidate_context(
-        self, controls: DJControls | None
+    def _desktop_color_anchor_candidate_context(
+        self, controls: DJControls | None, strategy_name: str
     ) -> RecommendationCandidateContext:
-        return _plan_same_color_energy_candidate_context(
+        return plan_recommendation_candidate_context(
             scanned_records=self.scanned_records,
             controls=controls,
             limit=pool_size_for_slot(
                 slot_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
                 played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
             ),
+            strategy_name=strategy_name,
         )
 
     def show_recommendation(

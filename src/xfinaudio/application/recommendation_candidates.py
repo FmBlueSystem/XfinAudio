@@ -9,8 +9,9 @@ from xfinaudio.recommendation.candidate_pool import build_recommendation_pool, d
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.energy_arc import traces_an_arc
 from xfinaudio.recommendation.playlist_service import (
+    COLOR_FILTER_STRATEGIES,
     prefilter_strategy_candidates,
-    resolve_same_color_energy_anchor_path,
+    resolve_color_anchor_path,
 )
 
 # How many candidates the optimizer gets per track it will actually place.
@@ -28,16 +29,16 @@ _MIN_POOL = 25
 
 @dataclass(frozen=True)
 class RecommendationCandidateContext:
-    """Candidate pool plus the bound `same_color_energy` anchor identity.
+    """Candidate pool plus the bound colour-gate anchor identity.
 
     The exported `plan_recommendation_candidates` keeps returning a plain list for
-    every caller and strategy. Only the desktop combined-strategy path needs the
-    bound anchor path transported alongside the records, so it goes through this
-    internal seam instead of changing the public list contract.
+    every caller and strategy. Only the colour strategies need the bound anchor
+    path transported alongside the records, so it goes through this seam instead
+    of changing the public list contract.
     """
 
     records: list[TrackRecord] = field(default_factory=list)
-    same_color_energy_anchor_path: str | None = None
+    color_anchor_path: str | None = None
 
 
 def pool_size_for_slot(*, slot_minutes: float, played_seconds_per_track: float) -> int:
@@ -69,9 +70,9 @@ def plan_recommendation_candidates(
     the capped pool spends its slots on distinct versions instead of
     duplicates. Control tracks are never removed by this step.
     """
-    if strategy_name == "same_color_energy":
-        return _plan_same_color_energy_candidate_context(
-            scanned_records=scanned_records, controls=controls, limit=limit
+    if strategy_name in COLOR_FILTER_STRATEGIES:
+        return plan_recommendation_candidate_context(
+            scanned_records=scanned_records, controls=controls, limit=limit, strategy_name=strategy_name
         ).records
     pool_source = scanned_records
     if strategy_name is not None:
@@ -83,29 +84,32 @@ def plan_recommendation_candidates(
     return build_recommendation_pool(pool_source, controls, limit, spread_energy=spread)
 
 
-def _plan_same_color_energy_candidate_context(
+def plan_recommendation_candidate_context(
     *,
     scanned_records: list[TrackRecord],
     controls: DJControls | None,
     limit: int,
+    strategy_name: str,
 ) -> RecommendationCandidateContext:
-    """Plan the combined-strategy pool and bind an immutable anchor identity.
+    """Plan a colour-strategy pool and bind an immutable anchor identity.
 
     The anchor path is resolved from the pre-anchor pool ONCE and protected
     through dedupe and the interactive cap, so a duplicate sibling can never
     replace it and the cap can never trim it. `recommend_playlist` then binds that
     exact path in final enforcement instead of re-resolving from the reshaped
-    pool.
+    pool — which is what stops the second gate pass emptying a pool the first pass
+    had already narrowed for a different anchor.
     """
-    anchor_path = resolve_same_color_energy_anchor_path(scanned_records, controls)
-    pool_source = prefilter_strategy_candidates(scanned_records, "same_color_energy", controls)
+    anchor_path = resolve_color_anchor_path(scanned_records, strategy_name, controls)
+    pool_source = prefilter_strategy_candidates(scanned_records, strategy_name, controls)
     pool_source = dedupe_recommendation_duplicates(pool_source, controls, protected_path=anchor_path)
-    spread = traces_an_arc("same_color_energy")
+    spread = traces_an_arc(strategy_name)
     records = build_recommendation_pool(pool_source, controls, limit, spread_energy=spread, protected_path=anchor_path)
-    return RecommendationCandidateContext(records=records, same_color_energy_anchor_path=anchor_path)
+    return RecommendationCandidateContext(records=records, color_anchor_path=anchor_path)
 
 
 __all__ = [
     "RecommendationCandidateContext",
+    "plan_recommendation_candidate_context",
     "plan_recommendation_candidates",
 ]

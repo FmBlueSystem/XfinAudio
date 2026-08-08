@@ -130,7 +130,7 @@ class PlaylistWorkflowService:
         target_count: int | None = None,
         target_duration_minutes: float | None = None,
         played_seconds_per_track: float | None = None,
-        same_color_energy_anchor_path: str | None = None,
+        color_anchor_path: str | None = None,
     ) -> RecommendationWorkflowResult:
         """Build a recommendation plus explanation and quality report for UI rendering.
 
@@ -146,7 +146,7 @@ class PlaylistWorkflowService:
             target_count=target_count,
             target_duration_minutes=target_duration_minutes,
             played_seconds_per_track=played_seconds_per_track,
-            same_color_energy_anchor_path=same_color_energy_anchor_path,
+            color_anchor_path=color_anchor_path,
         )
         explanation = build_playlist_explanation(recommendation)
         quality_report = build_quality_report(recommendation)

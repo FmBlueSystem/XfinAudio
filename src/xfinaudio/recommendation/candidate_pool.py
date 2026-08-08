@@ -150,7 +150,7 @@ def dedupe_recommendation_duplicates(
     prevents.
     """
     preserve = preserved_control_paths(controls) if controls is not None else set()
-    # A bound same_color_energy anchor is a protected identity: it must survive
+    # A bound colour-gate anchor is a protected identity: it must survive
     # dedupe intact so a duplicate sibling can never become the representative
     # and silently replace the anchor. It is protected WITHOUT becoming a control
     # (no start_path conversion, no playlist-order change).
@@ -238,7 +238,7 @@ def build_recommendation_pool(
     have material at both ends of the range. Off by default: strategies that
     hold one level want the concentrated pool.
 
-    ``protected_path`` is a bound same_color_energy anchor that must survive the
+    ``protected_path`` is a bound colour-gate anchor that must survive the
     cap. It is retained WITHOUT being promoted to a control (its playlist-order
     position is unchanged); it simply cannot be trimmed away by the interactive
     cap, so downstream final enforcement can still bind it.
@@ -249,9 +249,19 @@ def build_recommendation_pool(
     protected = next((track for track in scanned_records if track.path == protected_path), None)
     if protected is None or protected.metadata_status != "complete":
         return pool
-    # Keep the anchor by displacing the last trimmable slot, preserving the
-    # existing relative order of everything ahead of it.
-    return [*pool[: max(0, len(pool) - 1)], protected] if pool else [protected]
+    if not pool:
+        return [protected]
+    # Keep the anchor by displacing the last TRIMMABLE slot, preserving the existing
+    # relative order of everything else. A pool made entirely of controls has no
+    # such slot: controls must remain present, and evicting one would make
+    # `apply_controls` reject the request downstream. The anchor simply is not
+    # retained then -- the colour gate already fails closed on a missing anchor.
+    preserve = preserved_control_paths(controls) if controls is not None else set()
+    trimmable = [index for index, record in enumerate(pool) if record.path not in preserve]
+    if not trimmable:
+        return pool
+    displaced = trimmable[-1]
+    return [*pool[:displaced], *pool[displaced + 1 :], protected]
 
 
 def _build_recommendation_pool(
