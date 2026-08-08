@@ -6,6 +6,9 @@ from xfinaudio.config.settings import AppSettings
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.playlist_service import recommend_playlist
 from xfinaudio.recommendation.scoring import (
+    COMPATIBILITY_COMPONENTS,
+    MIXABILITY_COMPONENTS,
+    SCORED_COMPONENTS,
     KeyShiftConfig,
     ScoringWeights,
     ThresholdScore,
@@ -156,6 +159,8 @@ def test_score_transition_warns_and_returns_zero_when_required_metadata_is_incom
     )
 
     assert result.total_score == 0.0
+    assert result.compatibility_score is None
+    assert result.mixability_score is None
     assert "left missing required metadata: camelot_key" in result.warnings
 
 
@@ -168,6 +173,10 @@ def test_score_transition_combines_weighted_component_scores() -> None:
     # (0.4 + 0.902344*0.25 + 0.555556*0.25 + 0.5*0.1 + 0.5*0.1) / 1.10, where the
     # trailing 0.5 is the neutral score for the absent spectral component.
     assert result.total_score == pytest.approx(0.785886)
+    expected_compatibility = (1.0 * 0.40 + 0.5 * 0.10 + 0.5 * 0.0 + 0.5 * 0.10) / (0.40 + 0.10 + 0.0 + 0.10)
+    expected_mixability = (0.902344 * 0.25 + 0.555556 * 0.25) / (0.25 + 0.25)
+    assert result.compatibility_score == pytest.approx(expected_compatibility)
+    assert result.mixability_score == pytest.approx(expected_mixability)
     # component_scores still reports only what could actually be measured.
     assert result.component_scores == {
         "harmonic": 1.0,
@@ -177,11 +186,91 @@ def test_score_transition_combines_weighted_component_scores() -> None:
     }
 
 
+def test_score_transition_splits_fully_populated_pair_into_informative_axes() -> None:
+    profile = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    weights = ScoringWeights(danceability=0.2)
+    left = track(
+        "left",
+        bpm=120.0,
+        energy_level=4,
+        tags=["Peak", "Vocal"],
+        spectral_profile=profile,
+        danceability_profile=danceability(0.8),
+    )
+    right = track(
+        "right",
+        bpm=123.0,
+        energy_level=6,
+        tags=["Peak", "Deep"],
+        spectral_profile=profile,
+        danceability_profile=danceability(0.3),
+    )
+
+    result = score_transition(left, right, weights=weights)
+
+    expected_compatibility = (1.0 * 0.40 + 0.5 * 0.10 + 0.5 * 0.20 + 1.0 * 0.10) / (0.40 + 0.10 + 0.20 + 0.10)
+    expected_mixability = (0.902344 * 0.25 + 0.555556 * 0.25) / (0.25 + 0.25)
+    assert result.compatibility_score == pytest.approx(expected_compatibility)
+    assert result.mixability_score == pytest.approx(expected_mixability)
+    assert result.total_score == pytest.approx(0.780365)
+
+
 def test_score_transition_warns_and_returns_zero_for_invalid_camelot_key() -> None:
     result = score_transition(track("left", camelot_key="not-a-key"), track("right"))
 
     assert result.total_score == 0.0
+    assert result.compatibility_score is None
+    assert result.mixability_score is None
     assert "left has invalid Camelot key: not-a-key" in result.warnings
+
+
+def test_transition_score_axes_default_to_none_for_existing_constructors() -> None:
+    score = TransitionScore(
+        left_path="left",
+        right_path="right",
+        total_score=0.5,
+        component_scores={"harmonic": 0.5},
+        explanations=[],
+        warnings=[],
+    )
+
+    assert score.compatibility_score is None
+    assert score.mixability_score is None
+
+
+def test_transition_score_axis_components_partition_all_scored_components() -> None:
+    compatibility = set(COMPATIBILITY_COMPONENTS)
+    mixability = set(MIXABILITY_COMPONENTS)
+
+    assert compatibility.isdisjoint(mixability)
+    assert compatibility | mixability == set(SCORED_COMPONENTS)
+
+
+def test_transition_score_axis_is_none_when_all_its_weights_are_zero() -> None:
+    compatibility_disabled = ScoringWeights(
+        harmonic=0.0,
+        bpm=0.5,
+        energy=0.5,
+        tags=0.0,
+        spectral=0.0,
+        danceability=0.0,
+    )
+    mixability_disabled = ScoringWeights(
+        harmonic=0.5,
+        bpm=0.0,
+        energy=0.0,
+        tags=0.5,
+        spectral=0.0,
+        danceability=0.0,
+    )
+
+    compatibility_none = score_transition(track("left-c"), track("right-c"), weights=compatibility_disabled)
+    mixability_none = score_transition(track("left-m"), track("right-m"), weights=mixability_disabled)
+
+    assert compatibility_none.compatibility_score is None
+    assert compatibility_none.mixability_score is not None
+    assert mixability_none.compatibility_score is not None
+    assert mixability_none.mixability_score is None
 
 
 def test_score_transition_accepts_controlled_boost_rules() -> None:
@@ -380,6 +469,13 @@ def test_spectral_cohesion_penalizes_different_dominant_colors() -> None:
     high_cohesion = score_transition(left, right, config=TransitionScoringConfig(spectral_cohesion=1.0))
 
     assert high_cohesion.total_score < no_cohesion.total_score
+    expected_compatibility = (
+        high_cohesion.component_scores["harmonic"] * 0.40
+        + high_cohesion.component_scores["tags"] * 0.10
+        + 0.5 * 0.0
+        + high_cohesion.component_scores["spectral"] * 0.20
+    ) / (0.40 + 0.10 + 0.0 + 0.20)
+    assert high_cohesion.compatibility_score == pytest.approx(expected_compatibility)
     assert "Spectral color penalty applied" in " ".join(high_cohesion.warnings)
 
 

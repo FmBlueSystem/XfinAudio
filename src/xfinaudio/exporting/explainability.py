@@ -36,6 +36,8 @@ class TransitionExplanation(BaseModel):
     tag_score: float | None = None
     component_scores: dict[str, float]
     final_score: float
+    compatibility_score: float | None = None
+    mixability_score: float | None = None
     warnings: list[str]
     explanations: list[str]
 
@@ -71,6 +73,8 @@ def build_playlist_explanation(recommendation: PlaylistRecommendation) -> Playli
                 tag_score=component_scores.get("tags"),
                 component_scores=component_scores,
                 final_score=transition_score.total_score,
+                compatibility_score=transition_score.compatibility_score,
+                mixability_score=transition_score.mixability_score,
                 warnings=list(transition_score.warnings),
                 explanations=list(transition_score.explanations),
             )

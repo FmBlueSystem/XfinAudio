@@ -48,6 +48,8 @@ class TransitionScore(BaseModel):
     left_path: str
     right_path: str
     total_score: float
+    compatibility_score: float | None = None
+    mixability_score: float | None = None
     component_scores: dict[str, float]
     explanations: list[str]
     warnings: list[str]
@@ -95,6 +97,11 @@ class TransitionScoringConfig(BaseModel):
 
 # Every component _weighted_total accounts for, present or not.
 SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral", "danceability")
+# Compatibility asks whether tracks belong in the same set; mixability asks
+# whether they can be joined. The latter already has hand-rolled checks in
+# quality/dj_readiness.py's _bpm_continuity_check/_energy_continuity_check.
+COMPATIBILITY_COMPONENTS = ("harmonic", "tags", "danceability", "spectral")
+MIXABILITY_COMPONENTS = ("bpm", "energy")
 # Score for a component that cannot be evaluated: midway between a known
 # mismatch (0.0) and a known match (1.0), so absent metadata neither rewards
 # nor punishes.
@@ -217,12 +224,17 @@ def score_transition(
         )
 
     total_score = _weighted_total(component_scores, effective_weights)
+    compatibility_score = _axis_total(component_scores, effective_weights, COMPATIBILITY_COMPONENTS)
+    mixability_score = _axis_total(component_scores, effective_weights, MIXABILITY_COMPONENTS)
+    # Spectral color is a whole-transition penalty, not part of either informative axis.
     total_score = max(0.0, min(1.0, total_score - spectral_penalty))
     return _store(
         TransitionScore(
             left_path=left.path,
             right_path=right.path,
             total_score=round(total_score, 6),
+            compatibility_score=None if compatibility_score is None else round(compatibility_score, 6),
+            mixability_score=None if mixability_score is None else round(mixability_score, 6),
             component_scores=component_scores,
             explanations=explanations,
             warnings=warnings,
@@ -401,5 +413,17 @@ def _weighted_total(component_scores: dict[str, float], weights: ScoringWeights)
         return 0.0
     return (
         sum(component_scores.get(name, NEUTRAL_COMPONENT_SCORE) * weight for name, weight in all_weights.items())
+        / total_weight
+    )
+
+
+def _axis_total(component_scores: dict[str, float], weights: ScoringWeights, names: tuple[str, ...]) -> float | None:
+    """Combine one informative axis, treating unevaluable components as neutral."""
+    axis_weights = {name: getattr(weights, name) for name in names}
+    total_weight = sum(axis_weights.values())
+    if total_weight <= 0:
+        return None
+    return (
+        sum(component_scores.get(name, NEUTRAL_COMPONENT_SCORE) * weight for name, weight in axis_weights.items())
         / total_weight
     )

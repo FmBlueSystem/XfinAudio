@@ -45,6 +45,8 @@ def test_build_playlist_explanation_includes_transition_components_and_track_con
     assert first.left.path == recommendation.transition_scores[0].left_path
     assert first.right.path == recommendation.transition_scores[0].right_path
     assert first.final_score == recommendation.transition_scores[0].total_score
+    assert first.compatibility_score == recommendation.transition_scores[0].compatibility_score
+    assert first.mixability_score == recommendation.transition_scores[0].mixability_score
     assert set(first.component_scores) >= {"harmonic", "bpm", "energy", "tags"}
     assert first.explanations
     assert first.warnings == recommendation.transition_scores[0].warnings
@@ -65,3 +67,5 @@ def test_playlist_explanation_is_json_serializable_and_deterministic() -> None:
     assert first == second
     encoded = json.dumps(first, sort_keys=True)
     assert '"final_score"' in encoded
+    assert first["transitions"][0]["compatibility_score"] == recommendation.transition_scores[0].compatibility_score
+    assert first["transitions"][0]["mixability_score"] == recommendation.transition_scores[0].mixability_score
