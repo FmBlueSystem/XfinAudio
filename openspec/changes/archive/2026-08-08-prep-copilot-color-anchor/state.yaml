@@ -1,0 +1,52 @@
+schema: gentle-ai.sdd-state.v1
+change: prep-copilot-color-anchor
+artifact_store: openspec
+status: archived
+state: archived
+step: archive
+review_status: approved
+created: 2026-08-08
+updated: 2026-08-08
+archived: 2026-08-08
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  review: complete
+  archive: complete
+next_recommended: none
+blocked_reasons: []
+delivery:
+  strategy: direct
+  chained_prs_recommended: false
+  chain_strategy: feature-branch
+  review_budget_changed_lines: 400
+archive:
+  location: openspec/changes/archive/2026-08-08-prep-copilot-color-anchor/
+  spec_synced: false
+  main_spec_target: null
+  archive_report_exists: true
+  predecessor: resolve-color-review-findings
+  follow_up_items:
+    - id: a
+      title: duplicated candidate-route branch across the two desktop entry points
+      status: closed
+      action_taken: extracted to desktop/candidate_routes.py::resolve_candidate_route on chore/color-anchor-followups
+    - id: b
+      title: PrepCopilotController reached MainWindow privates through _state
+      status: closed
+      action_taken: converted to injected constructor callables wired in main_window.py on chore/color-anchor-followups
+notes:
+  - "Artifacts authored RETROACTIVELY on 2026-08-08 from the merged commit 53d68a6 (branch commit 2c2bd0d, PR #340). AGENTS.md requires durable openspec/ artifacts for every non-trivial change and the PR shipped without them. They record the change; they did not steer it, so there is no RED-first TDD ledger."
+  - "Closes follow-up (a) of resolve-color-review-findings: Prep Copilot took the plain records route for EVERY strategy, so each of the three variants re-resolved its own colour anchor from its own filtered track list."
+  - "Central decision: color_anchor_path travels as an explicit keyword through generate_prep_copilot_plan -> build_prep_copilot_plan -> _build_variant -> recommend_playlist, and is deliberately NOT a field on DJSetIntent or PrepCopilotGenerationRequest -- those model what the DJ asked for, the anchor is machine-bound identity."
+  - "A variant whose filter removes the bound anchor FAILS CLOSED (empty result + warning) rather than rebinding a different one; that is recommend_playlist's existing supplied-but-absent behaviour, inherited rather than reinvented. color_anchor_path=None stays a different fact: it flows through so recommend_playlist resolves internally."
+  - "Combo display labels are normalised via resolve_strategy_name before the colour membership test. currentData() is empty for combos populated without user data, so the caller falls back to the display label ('Same Color'), which is not an internal strategy name and silently skipped the colour branch. Unresolvable text passes through untouched -- it already fails downstream as a REPORTED error."
+  - "PlanBuilder and PlanGenerationBuilder retyped from Callable to Protocols spelling the keyword contract; the positional Callable form cannot express a keyword-only parameter, so the failure would have surfaced as a runtime TypeError."
+  - "Test helper note: spectral_track gives RGB tracks finite positive centroid_hz/rolloff_hz (1000.0/2000.0). SpectralProfile defaults both to 0.0, which fails the bounded gate closed and would make these tests vacuously empty."
+  - "Delta spec NOT synced to openspec/specs/, same reason as the predecessor: the durable behaviour belongs to same-color-strategy / same-color-energy-strategy, whose delta specs sit in the still-active openspec/changes/tighten-spectral-color-filters/."
+  - "Verification at merge: 1505 passed (1499 + 6 new), pyright 0 errors, ruff clean, CI green. Version 1.7.4 -> 1.7.5 with a version-only uv.lock diff."

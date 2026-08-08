@@ -28,6 +28,11 @@ def _label() -> Any:
     return SimpleNamespace(text="", tooltip="", setText=lambda text: None, setToolTip=lambda text: None)
 
 
+def _unrouted(*_args: Any, **_kwargs: Any) -> Any:
+    """Candidate route that must never be reached in the test that injects it."""
+    raise AssertionError("this candidate route must not be reached")
+
+
 class _State:
     def __init__(self, variant: Any) -> None:
         self._state = object()
@@ -95,6 +100,8 @@ def test_controller_delegates_selected_variant_application_to_injected_boundary(
         workflow_service=object(),
         on_state_changed=on_state_changed,
         on_status_message=status_messages.append,
+        desktop_recommendation_records=_unrouted,
+        desktop_color_anchor_candidate_context=_unrouted,
         variant_application_builder=lambda variant_arg: builder_calls.append(variant_arg) or application_result,
     )
 
@@ -135,7 +142,7 @@ class _Combo:
 
 def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) -> None:
     controls = SimpleNamespace(start_path="/music/start.flac", manual_order_paths=["/music/start.flac"])
-    records = [object()]
+    records: list[Any] = [object()]
     generated_plan = SimpleNamespace(variants=[object(), object()])
     build_screen = SimpleNamespace(
         copilot_table=SimpleNamespace(
@@ -153,7 +160,6 @@ def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) 
         _state=initial_state,
         tr=lambda text: text,
         _selected_track_controls=lambda: controls,
-        _desktop_recommendation_records=lambda controls_arg, _strategy=None: records,
         _replace_app_state=lambda updated_state: None,
     )
     generation_calls: list[tuple[Any, Any]] = []
@@ -190,6 +196,8 @@ def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) 
         workflow_service=object(),
         on_state_changed=on_state_changed,
         on_status_message=status_messages.append,
+        desktop_recommendation_records=lambda controls_arg, _strategy=None: records,
+        desktop_color_anchor_candidate_context=_unrouted,
         plan_generation_builder=generate_plan,
     )
 
@@ -240,10 +248,6 @@ def test_controller_routes_colour_strategies_through_the_bound_anchor_context(mo
         _state=object(),
         tr=lambda text: text,
         _selected_track_controls=lambda: controls,
-        _desktop_recommendation_records=lambda controls_arg, _strategy=None: (
-            plain_route_calls.append(controls_arg) or []
-        ),
-        _desktop_color_anchor_candidate_context=context_route,
         _replace_app_state=lambda updated_state: None,
     )
 
@@ -263,6 +267,10 @@ def test_controller_routes_colour_strategies_through_the_bound_anchor_context(mo
         workflow_service=object(),
         on_state_changed=lambda: None,
         on_status_message=lambda message: None,
+        desktop_recommendation_records=lambda controls_arg, _strategy=None: (
+            plain_route_calls.append(controls_arg) or []
+        ),
+        desktop_color_anchor_candidate_context=context_route,
         plan_generation_builder=generate_plan,
     )
 
@@ -307,10 +315,6 @@ def test_controller_routes_colour_display_labels_through_the_bound_anchor_contex
         _state=object(),
         tr=lambda text: text,
         _selected_track_controls=lambda: controls,
-        _desktop_recommendation_records=lambda controls_arg, _strategy=None: (
-            plain_route_calls.append(controls_arg) or []
-        ),
-        _desktop_color_anchor_candidate_context=context_route,
         _replace_app_state=lambda updated_state: None,
     )
 
@@ -330,6 +334,10 @@ def test_controller_routes_colour_display_labels_through_the_bound_anchor_contex
         workflow_service=object(),
         on_state_changed=lambda: None,
         on_status_message=lambda message: None,
+        desktop_recommendation_records=lambda controls_arg, _strategy=None: (
+            plain_route_calls.append(controls_arg) or []
+        ),
+        desktop_color_anchor_candidate_context=context_route,
         plan_generation_builder=generate_plan,
     )
 
@@ -373,9 +381,6 @@ def test_controller_lets_an_unbound_colour_anchor_fall_back_to_internal_resoluti
         _state=object(),
         tr=lambda text: text,
         _selected_track_controls=lambda: controls,
-        _desktop_color_anchor_candidate_context=lambda controls_arg, strategy_arg: RecommendationCandidateContext(
-            records=records, color_anchor_path=None
-        ),
         _replace_app_state=lambda updated_state: None,
     )
 
@@ -392,6 +397,10 @@ def test_controller_lets_an_unbound_colour_anchor_fall_back_to_internal_resoluti
         workflow_service=object(),
         on_state_changed=lambda: None,
         on_status_message=lambda message: None,
+        desktop_recommendation_records=_unrouted,
+        desktop_color_anchor_candidate_context=lambda controls_arg, strategy_arg: RecommendationCandidateContext(
+            records=records, color_anchor_path=None
+        ),
     )
 
     controller.generate()
