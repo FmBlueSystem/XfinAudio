@@ -90,16 +90,16 @@ def test_transition_table_exposes_fit_and_blend_headers(qapp: QApplication) -> N
         "Key Score",
         "BPM Score",
         "Energy Score",
-        "Tag Score",
         "Fit",
         "Blend",
+        "Tag Score",
         "Final Score",
         "Warnings",
     ]
-    assert table.horizontalHeaderItem(7).toolTip() == (
+    assert table.horizontalHeaderItem(6).toolTip() == (
         "Do these tracks belong in the same set? Harmony, tags, danceability and spectral colour."
     )
-    assert table.horizontalHeaderItem(8).toolTip() == (
+    assert table.horizontalHeaderItem(7).toolTip() == (
         "Can these tracks be joined? Tempo and the energy handoff from the outgoing to the incoming section."
     )
     assert table.horizontalHeaderItem(9).toolTip() == ("Weighted average: 60% Key + 20% BPM + 15% Energy + 5% Tags")

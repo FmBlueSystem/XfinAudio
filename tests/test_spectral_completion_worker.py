@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QEventLoop, QTimer
@@ -312,3 +313,44 @@ def test_worker_shutdown_is_safe_before_start_and_twice() -> None:
     worker.shutdown()
 
     assert not worker.is_running()
+
+
+def test_cancelling_mid_run_cancels_pending_futures_without_raising(tmp_path: Path) -> None:
+    """Regression: `Future.cancel()` takes no arguments.
+
+    The cancel path called `pending.cancel(False)`, which raised TypeError
+    inside the runner, aborted the completion and left the QThread running.
+    Only a real ThreadPoolExecutor reaches that line, so fakes never caught it.
+    """
+    ensure_app()
+    token = ScanCancellationToken()
+    records = [
+        TrackRecord(path=str(tmp_path / f"track-{index}.flac"), metadata_status="complete") for index in range(6)
+    ]
+
+    def analyze(path: Path) -> SpectralProfile:
+        token.cancel()
+        return SpectralProfile(
+            red_ratio=0.5,
+            green_ratio=0.3,
+            blue_ratio=0.2,
+            dominant_color="RED",
+            analysis_version=CURRENT_ANALYSIS_VERSION,
+        )
+
+    runner = _SpectralCompletionRunner(
+        records,
+        _FakeRepository(),
+        cancellation_token=token,
+        max_workers=2,
+        spectral_analyzer=SimpleNamespace(analyze=analyze),
+    )
+
+    failures: list[object] = []
+    runner.failed.connect(failures.append)
+
+    runner.run()
+
+    # run() swallows exceptions into the `failed` signal, so a bare
+    # "did not raise" assertion would pass even with the bug present.
+    assert failures == []

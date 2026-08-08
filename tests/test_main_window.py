@@ -220,9 +220,9 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "Key Score",
         "BPM Score",
         "Energy Score",
-        "Tag Score",
         "Fit",
         "Blend",
+        "Tag Score",
         "Final Score",
         "Warnings",
     ]
@@ -1234,9 +1234,9 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
         "Key Score",
         "BPM Score",
         "Energy Score",
-        "Tag Score",
         "Fit",
         "Blend",
+        "Tag Score",
         "Final Score",
         "Warnings",
     ]
@@ -1248,9 +1248,9 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
     assert row_values[3] != ""
     assert row_values[4] != ""
     assert row_values[5] != ""
-    assert row_values[6] == ""
-    assert row_values[7] != ""
-    assert row_values[8] != ""
+    assert row_values[6] != ""  # Fit
+    assert row_values[7] != ""  # Blend
+    assert row_values[8] == ""  # Tag Score: unavailable, hence the warning below
     assert row_values[9] != ""
     assert row_values[10] == main_window.format_recommendation_warning(
         "Tag score unavailable; both tracks have no tags or genre"

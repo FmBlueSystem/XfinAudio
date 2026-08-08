@@ -34,9 +34,9 @@ _TRANSITION_COLUMNS = [
     "Key Score",
     "BPM Score",
     "Energy Score",
-    "Tag Score",
     "Fit",
     "Blend",
+    "Tag Score",
     "Final Score",
     "Warnings",
 ]
@@ -52,9 +52,9 @@ _TRANSITION_HEADER_TOOLTIPS = {
     ),
     4: "BPM similarity. 1.0 = ≤2% difference, drops as the gap grows",
     5: "Energy level similarity. 1.0 = same energy, drops as levels diverge",
-    6: "Genre/tag overlap. Higher = more shared tags or genres",
-    7: "Do these tracks belong in the same set? Harmony, tags, danceability and spectral colour.",
-    8: "Can these tracks be joined? Tempo and the energy handoff from the outgoing to the incoming section.",
+    6: "Do these tracks belong in the same set? Harmony, tags, danceability and spectral colour.",
+    7: "Can these tracks be joined? Tempo and the energy handoff from the outgoing to the incoming section.",
+    8: "Genre/tag overlap. Higher = more shared tags or genres",
     9: "Weighted average: 60% Key + 20% BPM + 15% Energy + 5% Tags",
     10: "Alerts about potential issues in this transition",
 }

@@ -106,7 +106,7 @@ class _DanceabilityCompletionRunner(QObject):
             for future in as_completed(future_to_path):
                 if _is_cancelled(self._cancellation_token):
                     for pending in future_to_path:
-                        pending.cancel(False)
+                        pending.cancel()
                     break
                 path = future_to_path[future]
                 try:

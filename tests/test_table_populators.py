@@ -342,10 +342,12 @@ def test_populate_transition_review_table_renders_scores_and_warnings(tmp_path) 
     assert row_values[0] == "1"
     assert "Left Track" in row_values[1]
     assert "Right Track" in row_values[2]
-    assert row_values[7:10] == ["0.840", "0.720", "0.750"]
+    # cols 6/7 are the Fit and Blend axes, col 9 the unchanged final score
+    assert row_values[6:8] == ["0.840", "0.720"]
+    assert row_values[9] == "0.750"
     assert "timing concern" in row_values[10]
     assert "timing concern" in table.item(0, 10).toolTip()
-    for column in (7, 8):
+    for column in (6, 7):
         assert table.item(0, column).background().style() != Qt.BrushStyle.NoBrush
     # numeric sort value on col 9 (final score) should be a float, not a string
     final_score_item = table.item(0, 9)

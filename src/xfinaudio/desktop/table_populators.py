@@ -211,22 +211,22 @@ def _score_color_and_tooltip(
         for exp in transition.explanations:
             if "energy" in exp.lower():
                 tips.append(exp)
-    elif column_index == 6:  # Tag Score
-        if raw_score >= 0.7:
-            tips.append(QCoreApplication.translate("TablePopulators", "Tracks share many tags/genres"))
-        elif raw_score >= 0.4:
-            tips.append(QCoreApplication.translate("TablePopulators", "Some tag/genre overlap"))
-        else:
-            tips.append(QCoreApplication.translate("TablePopulators", "Different genres/tags — musical contrast"))
-    elif column_index == 7:  # Fit
+    elif column_index == 6:  # Fit
         tips.append(
             QCoreApplication.translate(
                 "TablePopulators",
                 "Fit: harmony, tags, danceability and spectral colour",
             )
         )
-    elif column_index == 8:  # Blend
+    elif column_index == 7:  # Blend
         tips.append(QCoreApplication.translate("TablePopulators", "Blend: tempo and energy handoff"))
+    elif column_index == 8:  # Tag Score
+        if raw_score >= 0.7:
+            tips.append(QCoreApplication.translate("TablePopulators", "Tracks share many tags/genres"))
+        elif raw_score >= 0.4:
+            tips.append(QCoreApplication.translate("TablePopulators", "Some tag/genre overlap"))
+        else:
+            tips.append(QCoreApplication.translate("TablePopulators", "Different genres/tags — musical contrast"))
     elif column_index == 9:  # Final Score
         tips.append(QCoreApplication.translate("TablePopulators", "Weighted average of all components"))
         tips.append(QCoreApplication.translate("TablePopulators", "60% Key + 20% BPM + 15% Energy + 5% Tags"))
@@ -257,9 +257,9 @@ def populate_transition_review_table(
             component_score(transition, "key_score", "harmonic"),
             component_score(transition, "bpm_score", "bpm"),
             component_score(transition, "energy_score", "energy"),
-            component_score(transition, "tag_score", "tags"),
             transition.compatibility_score,
             transition.mixability_score,
+            component_score(transition, "tag_score", "tags"),
             transition.final_score,
             None,
         ]
