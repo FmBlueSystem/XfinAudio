@@ -3,6 +3,7 @@ import sqlite3
 
 import pytest
 
+from xfinaudio.audio.danceability import CURRENT_DANCEABILITY_VERSION, DanceabilityProfile
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.track_repository import (
@@ -504,3 +505,133 @@ def test_track_repository_load_spectral_profile_cache_returns_empty_for_missing_
     cache = repository.load_spectral_profile_cache(["/nonexistent/track.flac"])
 
     assert cache == {}
+
+
+def _danceability_profile(*, analysis_version: int = CURRENT_DANCEABILITY_VERSION) -> DanceabilityProfile:
+    return DanceabilityProfile(
+        score=0.72,
+        pulse_clarity=0.8,
+        tempo_confidence=0.9,
+        percussive_ratio=0.6,
+        analysis_version=analysis_version,
+    )
+
+
+def test_track_repository_round_trips_danceability_profile_for_full_and_display_reads(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    profile = _danceability_profile()
+    original = TrackRecord(
+        path="/music/track.flac",
+        title="Track One",
+        metadata_status="complete",
+        danceability_profile=profile,
+    )
+
+    repository.save_scan_results([original])
+
+    assert repository.list_tracks()[0].danceability_profile == profile
+    assert repository.list_display_tracks()[0].danceability_profile == profile
+
+
+def test_track_repository_tolerates_corrupt_danceability_profile_json(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    repository.save_scan_results([TrackRecord(path="/music/track.flac")])
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute(
+            "UPDATE tracks SET danceability_profile_json = ? WHERE path = ?",
+            ("not-json", "/music/track.flac"),
+        )
+
+    assert repository.list_tracks()[0].danceability_profile is None
+
+
+def test_save_scan_results_preserves_danceability_profile_when_file_identity_matches(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("unchanged")
+    profile = _danceability_profile()
+    repository.save_scan_results([TrackRecord(path=str(audio_file), title="Old", danceability_profile=profile)])
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file), title="Refreshed")])
+
+    restored = repository.list_tracks()[0]
+    assert restored.title == "Refreshed"
+    assert restored.danceability_profile == profile
+
+
+def test_save_scan_results_drops_danceability_profile_when_file_identity_changes(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("before")
+    profile = _danceability_profile()
+    repository.save_scan_results([TrackRecord(path=str(audio_file), danceability_profile=profile)])
+    audio_file.write_text("after with changed size")
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file))])
+
+    assert repository.list_tracks()[0].danceability_profile is None
+
+
+def test_update_danceability_profile_returns_whether_path_exists(tmp_path) -> None:
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    repository.save_scan_results([TrackRecord(path=str(audio_file))])
+    profile = _danceability_profile()
+
+    assert repository.update_danceability_profile(str(audio_file), profile) is True
+    assert repository.update_danceability_profile("/music/missing.flac", profile) is False
+    assert repository.list_tracks()[0].danceability_profile == profile
+
+
+def test_load_danceability_profile_cache_returns_current_profiles_with_identity(tmp_path) -> None:
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    profile = _danceability_profile()
+    repository.save_scan_results([TrackRecord(path=str(audio_file), danceability_profile=profile)])
+
+    cache = repository.load_danceability_profile_cache([str(audio_file), "/music/missing.flac"])
+
+    stat = audio_file.stat()
+    assert cache == {str(audio_file): (stat.st_mtime_ns, stat.st_size, profile)}
+
+
+@pytest.mark.parametrize(
+    "analysis_version",
+    [CURRENT_DANCEABILITY_VERSION + 1, CURRENT_DANCEABILITY_VERSION + 2],
+)
+def test_load_danceability_profile_cache_excludes_non_current_profiles(tmp_path, analysis_version: int) -> None:
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    profile = _danceability_profile(analysis_version=analysis_version)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), danceability_profile=profile)])
+
+    assert repository.load_danceability_profile_cache([str(audio_file)]) == {}
+    assert repository.list_tracks()[0].danceability_profile == profile
+
+
+def test_track_repository_adds_danceability_column_to_existing_schema(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    TrackRepository(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("ALTER TABLE tracks RENAME TO tracks_old")
+        connection.execute(
+            """
+            CREATE TABLE tracks AS
+            SELECT path, title, artist, bpm, camelot_key, energy_level,
+                   energy_in, energy_out, energy_peak, duration, genre, tags_json,
+                   metadata_status, missing_required_fields_json, source_fields_json,
+                   raw_metadata_json, spectral_profile_json, file_mtime_ns, file_size_bytes
+            FROM tracks_old
+            """
+        )
+        connection.execute("DROP TABLE tracks_old")
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    TrackRepository(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
+    assert "danceability_profile_json" in columns

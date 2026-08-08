@@ -158,7 +158,7 @@ def _pulse_clarity(onset_envelope: np.ndarray, librosa) -> float:  # noqa: ANN00
     return float(np.clip(np.max(normalized[_MIN_BEAT_LAG:upper]), 0.0, 1.0))
 
 
-def _tempo_confidence(onset_envelope: np.ndarray, sample_rate: int, librosa) -> float:  # noqa: ANN001
+def _tempo_confidence(onset_envelope: np.ndarray, sample_rate: float, librosa) -> float:  # noqa: ANN001
     """How much of the onset energy the dominant tempo accounts for."""
     tempogram = librosa.feature.tempogram(onset_envelope=onset_envelope, sr=sample_rate, hop_length=_HOP_LENGTH).mean(
         axis=1
