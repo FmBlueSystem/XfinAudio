@@ -59,6 +59,7 @@ def test_peak_time_prefers_high_energy() -> None:
 
     assert strategy.energy_range == (7, 10)
     assert strategy.weights.energy >= strategy.weights.bpm
+    assert strategy.weights.danceability == 0.10
 
 
 def test_chill_prefers_lower_energy_and_bpm() -> None:
@@ -246,7 +247,7 @@ def test_same_energy_description_is_currently_verbatim() -> None:
     )
     assert strategy.display_name == "Same Energy"
     assert strategy.energy_tolerance == 1
-    assert strategy.weights == ScoringWeights(harmonic=0.20, bpm=0.20, energy=0.50, tags=0.10)
+    assert strategy.weights == ScoringWeights(harmonic=0.20, bpm=0.20, energy=0.50, tags=0.10, danceability=0.10)
 
 
 def test_same_color_energy_description_is_currently_verbatim() -> None:

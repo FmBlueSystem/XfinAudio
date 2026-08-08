@@ -1,5 +1,6 @@
 import pytest
 
+from xfinaudio.audio.danceability import DanceabilityProfile
 from xfinaudio.audio.spectral_profile import SpectralProfile, dominant_color_for_ratios
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.library.models import TrackRecord
@@ -30,6 +31,7 @@ def track(
     tags: list[str] | None = None,
     missing_required_fields: list[str] | None = None,
     spectral_profile: SpectralProfile | None = None,
+    danceability_profile: DanceabilityProfile | None = None,
 ) -> TrackRecord:
     return TrackRecord(
         path=path,
@@ -44,6 +46,16 @@ def track(
         metadata_status="complete" if missing_required_fields is None else "incomplete",
         missing_required_fields=missing_required_fields or [],
         spectral_profile=spectral_profile,
+        danceability_profile=danceability_profile,
+    )
+
+
+def danceability(score: float) -> DanceabilityProfile:
+    return DanceabilityProfile(
+        score=score,
+        pulse_clarity=score,
+        tempo_confidence=score,
+        percussive_ratio=score,
     )
 
 
@@ -182,12 +194,58 @@ def test_score_transition_accepts_controlled_boost_rules() -> None:
 
 def test_scoring_weights_reject_non_positive_total_weight() -> None:
     with pytest.raises(ValueError, match="total weight must be greater than zero"):
-        ScoringWeights(harmonic=0.0, bpm=0.0, energy=0.0, tags=0.0, spectral=0.0)
+        ScoringWeights(harmonic=0.0, bpm=0.0, energy=0.0, tags=0.0, spectral=0.0, danceability=0.0)
 
 
 def test_scoring_weights_reject_negative_component_weights() -> None:
     with pytest.raises(ValueError, match="component weights cannot be negative"):
-        ScoringWeights(harmonic=1.0, bpm=-0.1, energy=0.0, tags=0.0)
+        ScoringWeights(harmonic=1.0, bpm=0.0, energy=0.0, tags=0.0, spectral=0.0, danceability=-0.1)
+
+
+def test_score_transition_scores_danceability_and_includes_it_in_total() -> None:
+    weights = ScoringWeights(harmonic=0.0, bpm=0.0, energy=0.0, tags=0.0, spectral=0.0, danceability=0.2)
+    left = track("left", danceability_profile=danceability(0.8))
+    right = track("right", danceability_profile=danceability(0.3))
+
+    result = score_transition(left, right, weights=weights)
+
+    assert result.component_scores["danceability"] == pytest.approx(0.5)
+    assert result.total_score == pytest.approx(0.5)
+    assert "Danceability similarity is 0.50" in result.explanations
+
+
+def test_absent_danceability_scores_between_clash_and_match() -> None:
+    weights = ScoringWeights(harmonic=0.0, bpm=0.0, energy=0.0, tags=0.0, spectral=0.0, danceability=0.2)
+    clashing = score_transition(
+        track("cl", danceability_profile=danceability(0.0)),
+        track("cr", danceability_profile=danceability(1.0)),
+        weights=weights,
+    )
+    unknown = score_transition(
+        track("ul", danceability_profile=danceability(0.5)),
+        track("ur"),
+        weights=weights,
+    )
+    matching = score_transition(
+        track("ml", danceability_profile=danceability(0.7)),
+        track("mr", danceability_profile=danceability(0.7)),
+        weights=weights,
+    )
+
+    assert "danceability" not in unknown.component_scores
+    assert clashing.total_score < unknown.total_score < matching.total_score
+
+
+def test_score_transition_distinguishes_omitted_weights_from_explicit_defaults() -> None:
+    config = TransitionScoringConfig(weights=ScoringWeights(harmonic=0.0, bpm=0.0, energy=1.0, tags=0.0, spectral=0.0))
+    left = track("left", energy_level=4)
+    right = track("right", energy_level=6)
+
+    implicit = score_transition(left, right, config=config)
+    explicit = score_transition(left, right, weights=ScoringWeights(), config=config)
+
+    assert implicit.total_score == implicit.component_scores["energy"]
+    assert explicit.total_score != implicit.total_score
 
 
 def test_score_transition_uses_custom_bpm_thresholds() -> None:

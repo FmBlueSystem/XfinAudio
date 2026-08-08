@@ -27,13 +27,15 @@ class ScoringWeights(BaseModel):
     energy: float = 0.25
     tags: float = 0.10
     spectral: float = 0.10
+    danceability: float = 0.0
 
     @model_validator(mode="after")
     def validate_weights(self) -> ScoringWeights:
         """Ensure weights are non-negative and at least one component is enabled."""
-        if any(weight < 0 for weight in (self.harmonic, self.bpm, self.energy, self.tags, self.spectral)):
+        weights = tuple(getattr(self, name) for name in type(self).model_fields)
+        if any(weight < 0 for weight in weights):
             raise ValueError("component weights cannot be negative")
-        if self.harmonic + self.bpm + self.energy + self.tags + self.spectral <= 0:
+        if sum(weights) <= 0:
             raise ValueError("total weight must be greater than zero")
         return self
 
@@ -92,7 +94,7 @@ class TransitionScoringConfig(BaseModel):
 
 
 # Every component _weighted_total accounts for, present or not.
-SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral")
+SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral", "danceability")
 # Score for a component that cannot be evaluated: midway between a known
 # mismatch (0.0) and a known match (1.0), so absent metadata neither rewards
 # nor punishes.
@@ -106,7 +108,7 @@ REQUIRED_FIELDS = DEFAULT_SCORING_CONFIG.required_fields
 def score_transition(
     left: TrackRecord,
     right: TrackRecord,
-    weights: ScoringWeights = DEFAULT_WEIGHTS,
+    weights: ScoringWeights | None = None,
     boost_rules: Collection[BoostRule] | None = None,
     config: TransitionScoringConfig | None = None,
     cache: dict[tuple, TransitionScore] | None = None,
@@ -201,6 +203,11 @@ def score_transition(
     if spectral_score is not None:
         component_scores["spectral"] = spectral_score
         explanations.append(f"Spectral similarity is {spectral_score:.2f}")
+
+    danceability_score = _score_danceability(left, right)
+    if danceability_score is not None:
+        component_scores["danceability"] = danceability_score
+        explanations.append(f"Danceability similarity is {danceability_score:.2f}")
 
     spectral_penalty = _spectral_color_penalty(left, right, scoring_config.spectral_cohesion)
     if spectral_penalty:
@@ -352,9 +359,16 @@ def _score_spectral(left: TrackRecord, right: TrackRecord) -> float | None:
     return score_spectral_similarity(left.spectral_profile, right.spectral_profile)
 
 
-def _effective_weights(weights: ScoringWeights, config: TransitionScoringConfig) -> ScoringWeights:
+def _score_danceability(left: TrackRecord, right: TrackRecord) -> float | None:
+    if left.danceability_profile is None or right.danceability_profile is None:
+        return None
+    score = 1.0 - abs(left.danceability_profile.score - right.danceability_profile.score)
+    return min(max(score, 0.0), 1.0)
+
+
+def _effective_weights(weights: ScoringWeights | None, config: TransitionScoringConfig) -> ScoringWeights:
     """Return weights with spectral weight scaled by spectral cohesion."""
-    base = config.weights if weights == DEFAULT_WEIGHTS else weights
+    base = config.weights if weights is None else weights
     return base.model_copy(update={"spectral": base.spectral * (1.0 + config.spectral_cohesion)})
 
 

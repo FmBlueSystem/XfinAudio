@@ -67,7 +67,8 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
         name="peak_time",
         display_name="Peak Time",
         description="Focus the recommendation on high-energy records.",
-        weights=ScoringWeights(harmonic=0.35, bpm=0.20, energy=0.35, tags=0.10),
+        # Full-floor strategy: "does the floor keep moving" matters; neutral 0.5 protects unanalyzed tracks.
+        weights=ScoringWeights(harmonic=0.35, bpm=0.20, energy=0.35, tags=0.10, danceability=0.10),
         energy_range=(7, 10),
         sort_hint="energy_descending",
     ),
@@ -84,7 +85,8 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
         name="same_energy",
         display_name="Same Energy",
         description="Hard limit: only tracks within ±1 energy level of the anchor. Color is weighted but not limited.",
-        weights=ScoringWeights(harmonic=0.20, bpm=0.20, energy=0.50, tags=0.10),
+        # Full-floor strategy: "does the floor keep moving" matters; neutral 0.5 protects unanalyzed tracks.
+        weights=ScoringWeights(harmonic=0.20, bpm=0.20, energy=0.50, tags=0.10, danceability=0.10),
         energy_tolerance=1,
     ),
     "same_vibe": PlaylistStrategy(
