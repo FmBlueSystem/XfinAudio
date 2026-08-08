@@ -48,14 +48,16 @@ class TrackRepository:
         with self._connect() as connection:
             # Energy cues are cheap tag-derived values, so a rescan replaces
             # them directly rather than preserving stale values like a profile.
+            # The mtime branch alone discarded 1,266 byte-identical files on a
+            # real re-scan, so prefer the FLAC audio checksum when available.
             connection.executemany(
                 """
                 INSERT INTO tracks (
                     path, title, artist, bpm, camelot_key, energy_level,
                     energy_in, energy_out, energy_peak, duration, genre, tags_json,
                     metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
-                    spectral_profile_json, danceability_profile_json, file_mtime_ns, file_size_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    audio_md5, spectral_profile_json, danceability_profile_json, file_mtime_ns, file_size_bytes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     title = excluded.title,
                     artist = excluded.artist,
@@ -72,8 +74,12 @@ class TrackRepository:
                     missing_required_fields_json = excluded.missing_required_fields_json,
                     source_fields_json = excluded.source_fields_json,
                     raw_metadata_json = excluded.raw_metadata_json,
+                    audio_md5 = excluded.audio_md5,
                     spectral_profile_json = CASE
                         WHEN excluded.spectral_profile_json IS NOT NULL THEN excluded.spectral_profile_json
+                        WHEN tracks.audio_md5 IS NOT NULL
+                             AND tracks.audio_md5 = excluded.audio_md5
+                            THEN tracks.spectral_profile_json
                         WHEN tracks.file_mtime_ns = excluded.file_mtime_ns
                              AND tracks.file_size_bytes = excluded.file_size_bytes
                             THEN tracks.spectral_profile_json
@@ -82,6 +88,9 @@ class TrackRepository:
                     danceability_profile_json = CASE
                         WHEN excluded.danceability_profile_json IS NOT NULL
                             THEN excluded.danceability_profile_json
+                        WHEN tracks.audio_md5 IS NOT NULL
+                             AND tracks.audio_md5 = excluded.audio_md5
+                            THEN tracks.danceability_profile_json
                         WHEN tracks.file_mtime_ns = excluded.file_mtime_ns
                              AND tracks.file_size_bytes = excluded.file_size_bytes
                             THEN tracks.danceability_profile_json
@@ -101,7 +110,7 @@ class TrackRepository:
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
                        energy_in, energy_out, energy_peak, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
-                       spectral_profile_json, danceability_profile_json
+                       audio_md5, spectral_profile_json, danceability_profile_json
                 FROM tracks
                 ORDER BY path
                 """
@@ -116,7 +125,7 @@ class TrackRepository:
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
                        energy_in, energy_out, energy_peak, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json, spectral_profile_json,
-                       danceability_profile_json
+                       danceability_profile_json, audio_md5
                 FROM tracks
                 ORDER BY path
                 """
@@ -321,6 +330,7 @@ class TrackRepository:
                 missing_required_fields_json TEXT NOT NULL DEFAULT '[]',
                 source_fields_json TEXT NOT NULL DEFAULT '{}',
                 raw_metadata_json TEXT NOT NULL DEFAULT '{}',
+                audio_md5 TEXT,
                 spectral_profile_json TEXT,
                 danceability_profile_json TEXT,
                 file_mtime_ns INTEGER,
@@ -345,6 +355,8 @@ class TrackRepository:
             connection.execute("ALTER TABLE tracks ADD COLUMN file_mtime_ns INTEGER")
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN file_size_bytes INTEGER")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN audio_md5 TEXT")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_tracks_metadata_status ON tracks (metadata_status)")
 
     def _connect(self) -> sqlite3.Connection:
@@ -379,6 +391,7 @@ class TrackRepository:
             json.dumps(record.missing_required_fields, sort_keys=True),
             json.dumps(record.source_fields, sort_keys=True),
             json.dumps(record.raw_metadata, sort_keys=True),
+            record.audio_md5,
             _serialize_profile(record.spectral_profile),
             _serialize_danceability_profile(record.danceability_profile),
             mtime_ns,
@@ -404,6 +417,7 @@ class TrackRepository:
             missing_required_fields=json.loads(row["missing_required_fields_json"]),
             source_fields=json.loads(row["source_fields_json"]),
             raw_metadata=json.loads(row["raw_metadata_json"]),
+            audio_md5=row["audio_md5"],
             spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
             danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"]),
         )
@@ -425,6 +439,7 @@ class TrackRepository:
             tags=json.loads(row["tags_json"]),
             metadata_status=row["metadata_status"],
             missing_required_fields=json.loads(row["missing_required_fields_json"]),
+            audio_md5=row["audio_md5"],
             spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
             danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"]),
         )

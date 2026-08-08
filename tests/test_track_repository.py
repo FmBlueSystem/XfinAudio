@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 
 import pytest
@@ -55,6 +56,17 @@ def test_track_repository_round_trips_energy_curve_for_full_and_display_reads(tm
     assert repository.list_display_tracks()[0].energy_in == 4
     assert repository.list_display_tracks()[0].energy_out == 8
     assert repository.list_display_tracks()[0].energy_peak == 9
+
+
+def test_track_repository_round_trips_audio_md5_for_full_and_display_reads(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    checksum = "0123456789abcdef0123456789abcdef"
+    original = TrackRecord(path="/music/track.flac", title="Track One", audio_md5=checksum)
+
+    repository.save_scan_results([original])
+
+    assert repository.list_tracks()[0].audio_md5 == checksum
+    assert repository.list_display_tracks()[0].audio_md5 == checksum
 
 
 def test_track_repository_replaces_existing_record_for_same_path(tmp_path) -> None:
@@ -342,6 +354,32 @@ def test_track_repository_adds_nullable_energy_curve_columns_to_existing_schema(
     assert {"energy_in", "energy_out", "energy_peak"} <= columns
 
 
+def test_track_repository_adds_audio_md5_column_to_existing_schema(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    TrackRepository(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("ALTER TABLE tracks RENAME TO tracks_old")
+        connection.execute(
+            """
+            CREATE TABLE tracks AS
+            SELECT path, title, artist, bpm, camelot_key, energy_level,
+                   energy_in, energy_out, energy_peak, duration, genre, tags_json,
+                   metadata_status, missing_required_fields_json, source_fields_json,
+                   raw_metadata_json, spectral_profile_json, danceability_profile_json,
+                   file_mtime_ns, file_size_bytes
+            FROM tracks_old
+            """
+        )
+        connection.execute("DROP TABLE tracks_old")
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    TrackRepository(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
+    assert "audio_md5" in columns
+
+
 def test_save_scan_results_overwrites_derived_energy_curve_on_rescan(tmp_path) -> None:
     repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
     repository.save_scan_results([TrackRecord(path="/music/curve.flac", energy_in=4, energy_out=8, energy_peak=9)])
@@ -496,6 +534,140 @@ def test_save_scan_results_drops_profile_when_file_identity_changes(tmp_path) ->
     repository.save_scan_results([TrackRecord(path=str(audio_file))])
 
     assert repository.list_tracks()[0].spectral_profile is None
+
+
+def test_save_scan_results_preserves_expensive_profiles_when_audio_md5_matches_despite_mtime_change(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "retagged.flac"
+    audio_file.write_text("unchanged audio")
+    checksum = "0123456789abcdef0123456789abcdef"
+    spectral = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    danceability = _danceability_profile()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                title="Old",
+                audio_md5=checksum,
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+            )
+        ]
+    )
+    stat = audio_file.stat()
+    os.utime(audio_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file), title="Refreshed", audio_md5=checksum)])
+
+    restored = repository.list_tracks()[0]
+    assert restored.title == "Refreshed"
+    assert restored.spectral_profile == spectral
+    assert restored.danceability_profile == danceability
+
+
+def test_save_scan_results_drops_expensive_profiles_when_audio_md5_and_fallback_identity_change(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "changed.flac"
+    audio_file.write_text("same size bytes")
+    spectral = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    danceability = _danceability_profile()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                audio_md5="0123456789abcdef0123456789abcdef",
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+            )
+        ]
+    )
+    stat = audio_file.stat()
+    os.utime(audio_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file), audio_md5="fedcba9876543210fedcba9876543210")])
+
+    restored = repository.list_tracks()[0]
+    assert restored.spectral_profile is None
+    assert restored.danceability_profile is None
+
+
+@pytest.mark.parametrize(
+    ("stored_audio_md5", "incoming_audio_md5"),
+    [(None, "0123456789abcdef0123456789abcdef"), ("0123456789abcdef0123456789abcdef", None)],
+)
+@pytest.mark.parametrize("fallback_identity_matches", [True, False])
+def test_save_scan_results_uses_mtime_size_fallback_when_either_audio_md5_is_missing(
+    tmp_path,
+    stored_audio_md5: str | None,
+    incoming_audio_md5: str | None,
+    fallback_identity_matches: bool,
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "fallback.flac"
+    audio_file.write_text("unchanged audio")
+    spectral = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    danceability = _danceability_profile()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                audio_md5=stored_audio_md5,
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+            )
+        ]
+    )
+    if not fallback_identity_matches:
+        stat = audio_file.stat()
+        os.utime(audio_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file), audio_md5=incoming_audio_md5)])
+
+    restored = repository.list_tracks()[0]
+    expected_spectral = spectral if fallback_identity_matches else None
+    expected_danceability = danceability if fallback_identity_matches else None
+    assert restored.spectral_profile == expected_spectral
+    assert restored.danceability_profile == expected_danceability
+
+
+def test_save_scan_results_prefers_incoming_expensive_profiles_over_preserved_values(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "reanalyzed.flac"
+    audio_file.write_text("audio")
+    old_spectral = SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED")
+    new_spectral = SpectralProfile(red_ratio=0.05, green_ratio=0.9, blue_ratio=0.05, dominant_color="GREEN")
+    old_danceability = _danceability_profile()
+    new_danceability = DanceabilityProfile(
+        score=0.91,
+        pulse_clarity=0.92,
+        tempo_confidence=0.93,
+        percussive_ratio=0.94,
+    )
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                audio_md5="0123456789abcdef0123456789abcdef",
+                spectral_profile=old_spectral,
+                danceability_profile=old_danceability,
+            )
+        ]
+    )
+
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                audio_md5="fedcba9876543210fedcba9876543210",
+                spectral_profile=new_spectral,
+                danceability_profile=new_danceability,
+            )
+        ]
+    )
+
+    restored = repository.list_tracks()[0]
+    assert restored.spectral_profile == new_spectral
+    assert restored.danceability_profile == new_danceability
 
 
 def test_track_repository_load_spectral_profile_cache_returns_empty_for_missing_file(tmp_path) -> None:

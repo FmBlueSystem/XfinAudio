@@ -33,5 +33,6 @@ class TrackRecord(BaseModel):
     missing_required_fields: list[str] = Field(default_factory=list)
     source_fields: dict[str, str] = Field(default_factory=dict)
     raw_metadata: dict[str, Any] = Field(default_factory=dict)
+    audio_md5: str | None = None
     spectral_profile: SpectralProfile | None = None
     danceability_profile: DanceabilityProfile | None = None
