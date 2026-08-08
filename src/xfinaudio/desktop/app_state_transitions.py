@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from xfinaudio.audio.danceability import DanceabilityProfile
-from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.library.models import TrackRecord
@@ -81,6 +81,22 @@ def apply_danceability_profile(state: AppState, *, path: str, profile: Danceabil
             "records_by_path": records_by_path,
         }
     )
+
+
+def apply_edge_spectral_profile(state: AppState, *, path: str, profile: EdgeSpectralProfile) -> AppState:
+    """Return a new state with intro/outro spectral profiles applied immutably."""
+    scanned_records = list(state.scanned_records)
+    records_by_path = dict(state.records_by_path)
+
+    for index, record in enumerate(scanned_records):
+        if record.path == path:
+            scanned_records[index] = record.model_copy(update={"edge_spectral_profile": profile})
+            break
+
+    if path in records_by_path:
+        records_by_path[path] = records_by_path[path].model_copy(update={"edge_spectral_profile": profile})
+
+    return state.model_copy(update={"scanned_records": scanned_records, "records_by_path": records_by_path})
 
 
 def apply_recommendation_completion(state: AppState, result: CompletedRecommendationResult) -> AppState:
@@ -272,6 +288,7 @@ __all__ = [
     "CompletedRecommendationResult",
     "PrepCopilotVariantApplication",
     "apply_danceability_profile",
+    "apply_edge_spectral_profile",
     "apply_playlist_track_removed",
     "apply_playlist_track_replaced",
     "apply_playlist_track_restored",

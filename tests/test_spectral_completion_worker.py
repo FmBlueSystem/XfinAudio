@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QEventLoop, QTimer
@@ -328,22 +327,25 @@ def test_cancelling_mid_run_cancels_pending_futures_without_raising(tmp_path: Pa
         TrackRecord(path=str(tmp_path / f"track-{index}.flac"), metadata_status="complete") for index in range(6)
     ]
 
-    def analyze(path: Path) -> SpectralProfile:
-        token.cancel()
-        return SpectralProfile(
-            red_ratio=0.5,
-            green_ratio=0.3,
-            blue_ratio=0.2,
-            dominant_color="RED",
-            analysis_version=CURRENT_ANALYSIS_VERSION,
-        )
+    class _CancellingAnalyzer:
+        """Cancels on the first analysis so the runner hits its cancel path."""
+
+        def analyze(self, path: Path) -> SpectralProfile | None:
+            token.cancel()
+            return SpectralProfile(
+                red_ratio=0.5,
+                green_ratio=0.3,
+                blue_ratio=0.2,
+                dominant_color="RED",
+                analysis_version=CURRENT_ANALYSIS_VERSION,
+            )
 
     runner = _SpectralCompletionRunner(
         records,
         _FakeRepository(),
         cancellation_token=token,
         max_workers=2,
-        spectral_analyzer=SimpleNamespace(analyze=analyze),
+        spectral_analyzer=_CancellingAnalyzer(),
     )
 
     failures: list[object] = []

@@ -13,12 +13,13 @@ from PySide6.QtWidgets import QFileDialog, QLabel, QWidget
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.audio.danceability import CURRENT_DANCEABILITY_VERSION
-from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, CURRENT_EDGE_ANALYSIS_VERSION
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.app_state_transitions import (
     apply_danceability_profile,
+    apply_edge_spectral_profile,
     apply_library_folder_selected,
     apply_library_records_loaded,
     apply_playlist_track_removed,
@@ -32,6 +33,7 @@ from xfinaudio.desktop.app_state_transitions import (
 )
 from xfinaudio.desktop.audio_player import AudioPlayer
 from xfinaudio.desktop.danceability_completion_worker import DanceabilityCompletionWorker
+from xfinaudio.desktop.edge_spectral_completion_worker import EdgeSpectralCompletionWorker
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.rendering import (
     _format_missing_metadata,
@@ -128,6 +130,8 @@ class LibraryController:
         self._spectral_completion_worker: SpectralCompletionWorker | None = None
         self._danceability_completion_worker: DanceabilityCompletionWorker | None = None
         self._danceability_completion_records: list[TrackRecord] = []
+        self._edge_spectral_completion_worker: EdgeSpectralCompletionWorker | None = None
+        self._edge_spectral_completion_records: list[TrackRecord] = []
         self._active_song_search_query = ""
         # Ensure analysis workers are shut down before this controller is
         # destroyed. Otherwise their QThreads outlive the
@@ -142,6 +146,10 @@ class LibraryController:
     @property
     def danceability_completion_worker(self) -> DanceabilityCompletionWorker | None:
         return self._danceability_completion_worker
+
+    @property
+    def edge_spectral_completion_worker(self) -> EdgeSpectralCompletionWorker | None:
+        return self._edge_spectral_completion_worker
 
     def choose_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self._parent, self._tr("Choose music folder"))
@@ -398,7 +406,9 @@ class LibraryController:
     def start_spectral_completion_worker(self, records: list[TrackRecord]) -> None:
         self.cancel_spectral_completion_worker()
         self.cancel_danceability_completion_worker()
+        self.cancel_edge_spectral_completion_worker()
         self._danceability_completion_records = records
+        self._edge_spectral_completion_records = records
         missing = [
             record
             for record in records
@@ -419,7 +429,7 @@ class LibraryController:
         worker = SpectralCompletionWorker(parent=self._parent)
         worker.progress.connect(self.on_spectral_profile_ready)
         worker.progress_updated.connect(self.on_spectral_progress_updated)
-        worker.finished.connect(self.on_spectral_completion_finished)
+        worker.finished.connect(lambda worker=worker: self.on_spectral_completion_finished(worker))
         worker.failed.connect(lambda error: self._log.error("Spectral completion failed: %s", error))
         self._spectral_completion_worker = worker
         worker.start(missing, self._workflow_service.repository)
@@ -455,6 +465,10 @@ class LibraryController:
         self._danceability_completion_worker = None
         if danceability_worker is not None:
             danceability_worker.shutdown()
+        edge_worker = self._edge_spectral_completion_worker
+        self._edge_spectral_completion_worker = None
+        if edge_worker is not None:
+            edge_worker.shutdown()
 
     def _dispose_spectral_completion_worker(self) -> None:
         """Ask the worker to stop and release it once it actually does.
@@ -500,11 +514,12 @@ class LibraryController:
         # this asks for is only needed to refresh the other screens.
         self._request_sync()
 
-    @Slot()
-    def on_spectral_completion_finished(self) -> None:
+    def on_spectral_completion_finished(self, completed_worker: SpectralCompletionWorker | None = None) -> None:
         # Normal completion: the worker itself signalled us, so we are inside its
         # own signal chain. Never wait on or terminate its thread from here (that
         # segfaults) -- just release it so it stops living as a MainWindow child.
+        if completed_worker is not None and completed_worker is not self._spectral_completion_worker:
+            return
         worker = self._spectral_completion_worker
         self._spectral_completion_worker = None
         if worker is not None:
@@ -525,6 +540,7 @@ class LibraryController:
             self._danceability_completion_records = records
             return
         self.cancel_danceability_completion_worker()
+        self._edge_spectral_completion_records = records
         missing = [
             record
             for record in records
@@ -532,10 +548,11 @@ class LibraryController:
             or record.danceability_profile.analysis_version != CURRENT_DANCEABILITY_VERSION
         ]
         if not missing:
+            self.start_edge_spectral_completion_worker(records)
             return
         worker = DanceabilityCompletionWorker(parent=self._parent)
         worker.progress.connect(self.on_danceability_profile_ready)
-        worker.finished.connect(self.on_danceability_completion_finished)
+        worker.finished.connect(lambda worker=worker: self.on_danceability_completion_finished(worker))
         worker.failed.connect(lambda error: self._log.error("Danceability completion failed: %s", error))
         self._danceability_completion_worker = worker
         worker.start(missing, self._workflow_service.repository)
@@ -555,10 +572,58 @@ class LibraryController:
         self._access.state_setter(self._state)
         self._request_sync()
 
-    @Slot()
-    def on_danceability_completion_finished(self) -> None:
+    def on_danceability_completion_finished(self, completed_worker: DanceabilityCompletionWorker | None = None) -> None:
+        if completed_worker is not None and completed_worker is not self._danceability_completion_worker:
+            return
         worker = self._danceability_completion_worker
         self._danceability_completion_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        self.start_edge_spectral_completion_worker(self._edge_spectral_completion_records)
+
+    def start_edge_spectral_completion_worker(self, records: list[TrackRecord]) -> None:
+        """Start edge analysis only after mid-track and danceability workers finish."""
+        if self._spectral_completion_worker is not None or self._danceability_completion_worker is not None:
+            self._edge_spectral_completion_records = records
+            return
+        self.cancel_edge_spectral_completion_worker()
+        missing = [
+            record
+            for record in records
+            if record.edge_spectral_profile is None
+            or record.edge_spectral_profile.analysis_version != CURRENT_EDGE_ANALYSIS_VERSION
+        ]
+        if not missing:
+            return
+        worker = EdgeSpectralCompletionWorker(parent=self._parent)
+        worker.progress.connect(self.on_edge_spectral_profile_ready)
+        worker.finished.connect(lambda worker=worker: self.on_edge_spectral_completion_finished(worker))
+        worker.failed.connect(lambda error: self._log.error("Edge spectral completion failed: %s", error))
+        self._edge_spectral_completion_worker = worker
+        worker.start(missing, self._workflow_service.repository)
+
+    def cancel_edge_spectral_completion_worker(self) -> None:
+        """Cancel edge spectral completion without blocking the UI thread."""
+        worker = self._edge_spectral_completion_worker
+        if worker is None:
+            return
+        self._edge_spectral_completion_worker = None
+        worker.cancel()
+        worker.dispose_when_idle()
+
+    @Slot(str, object)
+    def on_edge_spectral_profile_ready(self, path: str, profile: object) -> None:
+        self._state = apply_edge_spectral_profile(self._state, path=path, profile=profile)  # type: ignore[arg-type]
+        self._access.state_setter(self._state)
+        self._request_sync()
+
+    def on_edge_spectral_completion_finished(
+        self, completed_worker: EdgeSpectralCompletionWorker | None = None
+    ) -> None:
+        if completed_worker is not None and completed_worker is not self._edge_spectral_completion_worker:
+            return
+        worker = self._edge_spectral_completion_worker
+        self._edge_spectral_completion_worker = None
         if worker is not None:
             worker.deleteLater()
 

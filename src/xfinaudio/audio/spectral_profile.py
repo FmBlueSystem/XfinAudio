@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ColorName = Literal["RED", "GREEN", "BLUE", "MIXED"]
 CURRENT_ANALYSIS_VERSION = 2
+CURRENT_EDGE_ANALYSIS_VERSION = 1
 
 _COLOR_BADGES: dict[ColorName, str] = {
     "RED": "🔴 RED",
@@ -36,6 +37,8 @@ _N_MELS = 64
 _N_FFT = 1024
 _HOP_LENGTH = 512
 _ANALYSIS_WINDOW_SECONDS = 30.0
+_EDGE_WINDOW_SECONDS = 30.0
+_MIN_EDGE_TRACK_SECONDS = 65.0
 
 # librosa emits these on every load that falls back from soundfile to audioread.
 # Registered once, at import, rather than per call: warnings.catch_warnings()
@@ -63,6 +66,16 @@ class SpectralProfile(BaseModel):
     rms: float = Field(default=0.0, ge=0.0)
     dominant_color: ColorName
     analysis_version: int = Field(default=1, ge=1)
+
+
+class EdgeSpectralProfile(BaseModel):
+    """Spectral color fingerprints for the blendable edges of a track."""
+
+    model_config = ConfigDict(frozen=True)
+
+    intro: SpectralProfile
+    outro: SpectralProfile
+    analysis_version: int = CURRENT_EDGE_ANALYSIS_VERSION
 
 
 def format_spectral_color(profile: SpectralProfile | None, *, emoji_only: bool = False) -> str:
@@ -117,59 +130,98 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
                 mono=True,
                 duration=_ANALYSIS_WINDOW_SECONDS,
             )
-        if y.size == 0:
+        return _profile_from_samples(y, sr, librosa)
+    except Exception:
+        return None
+
+
+def _profile_from_samples(y: np.ndarray, sr: int | float, librosa: object) -> SpectralProfile | None:
+    """Build a spectral profile from decoded mono samples."""
+    if y.size == 0:
+        return None
+
+    # Compute the STFT once and share it across all four feature calls.
+    stft = librosa.stft(y=y, n_fft=_N_FFT, hop_length=_HOP_LENGTH)  # type: ignore[attr-defined]
+    magnitude = np.abs(stft)
+
+    # Pass magnitude with power=1.0; classification depends only on ratios.
+    mel_spec = librosa.feature.melspectrogram(  # type: ignore[attr-defined]
+        S=magnitude,
+        sr=sr,
+        n_mels=_N_MELS,
+        n_fft=_N_FFT,
+        hop_length=_HOP_LENGTH,
+        power=1.0,
+    )
+    mel_energies = mel_spec.sum(axis=1)
+    mel_freqs = librosa.mel_frequencies(n_mels=_N_MELS, fmin=0.0, fmax=sr / 2.0)  # type: ignore[attr-defined]
+
+    red_energy = mel_energies[mel_freqs <= _RED_MAX_HZ].sum()
+    green_energy = mel_energies[(mel_freqs > _RED_MAX_HZ) & (mel_freqs <= _GREEN_MAX_HZ)].sum()
+    blue_energy = mel_energies[mel_freqs > _GREEN_MAX_HZ].sum()
+    total_energy = red_energy + green_energy + blue_energy
+    if total_energy <= 0:
+        return None
+
+    red_ratio = float(red_energy / total_energy)
+    green_ratio = float(green_energy / total_energy)
+    blue_ratio = float(blue_energy / total_energy)
+
+    centroid = librosa.feature.spectral_centroid(  # type: ignore[attr-defined]
+        S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH
+    )
+    rolloff = librosa.feature.spectral_rolloff(  # type: ignore[attr-defined]
+        S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH, roll_percent=0.85
+    )
+    rms = librosa.feature.rms(  # type: ignore[attr-defined]
+        S=magnitude, frame_length=_N_FFT, hop_length=_HOP_LENGTH
+    )
+
+    return SpectralProfile(
+        red_ratio=red_ratio,
+        green_ratio=green_ratio,
+        blue_ratio=blue_ratio,
+        centroid_hz=float(centroid.mean()),
+        rolloff_hz=float(rolloff.mean()),
+        rms=float(rms.mean()),
+        dominant_color=_dominant_color(red_ratio, green_ratio, blue_ratio),
+        analysis_version=CURRENT_ANALYSIS_VERSION,
+    )
+
+
+def analyze_edge_spectral_profile(path: Path | str) -> EdgeSpectralProfile | None:
+    """Return fixed-window intro and outro spectral profiles for ``path``."""
+    try:
+        import librosa
+    except Exception:
+        return None
+
+    try:
+        audio_path = Path(path)
+        duration = float(librosa.get_duration(path=audio_path))
+        if duration < _MIN_EDGE_TRACK_SECONDS:
             return None
-
-        # Compute the STFT once and share it across all four feature
-        # calls. Without sharing, librosa would run the same FFT three
-        # extra times internally (once each for melspectrogram,
-        # spectral_centroid, and spectral_rolloff), which is the dominant
-        # cost of the analyzer on a real DJ library.
-        stft = librosa.stft(y=y, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
-        magnitude = np.abs(stft)
-
-        # melspectrogram defaults to power=2.0 (expects |STFT|²). Pass
-        # the magnitude directly with power=1.0 to skip squaring; color
-        # classification only depends on the ratio of band energies,
-        # which is scale-invariant.
-        mel_spec = librosa.feature.melspectrogram(
-            S=magnitude,
-            sr=sr,
-            n_mels=_N_MELS,
-            n_fft=_N_FFT,
-            hop_length=_HOP_LENGTH,
-            power=1.0,
+        # Fixed windows avoid another tag read; persisted cue points are the
+        # upgrade path when precise musical boundaries become available.
+        intro_samples, intro_sr = librosa.load(
+            audio_path,
+            sr=_ANALYSIS_SAMPLE_RATE,
+            mono=True,
+            offset=0.0,
+            duration=_EDGE_WINDOW_SECONDS,
         )
-        mel_energies = mel_spec.sum(axis=1)
-        mel_freqs = librosa.mel_frequencies(n_mels=_N_MELS, fmin=0.0, fmax=sr / 2.0)
-
-        red_energy = mel_energies[mel_freqs <= _RED_MAX_HZ].sum()
-        green_energy = mel_energies[(mel_freqs > _RED_MAX_HZ) & (mel_freqs <= _GREEN_MAX_HZ)].sum()
-        blue_energy = mel_energies[mel_freqs > _GREEN_MAX_HZ].sum()
-        total_energy = red_energy + green_energy + blue_energy
-        if total_energy <= 0:
+        outro_samples, outro_sr = librosa.load(
+            audio_path,
+            sr=_ANALYSIS_SAMPLE_RATE,
+            mono=True,
+            offset=duration - _EDGE_WINDOW_SECONDS,
+            duration=_EDGE_WINDOW_SECONDS,
+        )
+        intro = _profile_from_samples(intro_samples, intro_sr, librosa)
+        outro = _profile_from_samples(outro_samples, outro_sr, librosa)
+        if intro is None or outro is None:
             return None
-
-        red_ratio = float(red_energy / total_energy)
-        green_ratio = float(green_energy / total_energy)
-        blue_ratio = float(blue_energy / total_energy)
-
-        centroid = librosa.feature.spectral_centroid(S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
-        rolloff = librosa.feature.spectral_rolloff(
-            S=magnitude, sr=sr, n_fft=_N_FFT, hop_length=_HOP_LENGTH, roll_percent=0.85
-        )
-        rms = librosa.feature.rms(S=magnitude, frame_length=_N_FFT, hop_length=_HOP_LENGTH)
-
-        return SpectralProfile(
-            red_ratio=red_ratio,
-            green_ratio=green_ratio,
-            blue_ratio=blue_ratio,
-            centroid_hz=float(centroid.mean()),
-            rolloff_hz=float(rolloff.mean()),
-            rms=float(rms.mean()),
-            dominant_color=_dominant_color(red_ratio, green_ratio, blue_ratio),
-            analysis_version=CURRENT_ANALYSIS_VERSION,
-        )
+        return EdgeSpectralProfile(intro=intro, outro=outro)
     except Exception:
         return None
 

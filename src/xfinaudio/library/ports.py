@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from typing import Protocol
 
 from xfinaudio.audio.danceability import DanceabilityProfile
-from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_models import Playlist, PlaylistSummary
 
@@ -65,6 +65,25 @@ class TrackDanceabilityProfileCachePort(TrackDanceabilityProfileCacheReaderPort,
         ...
 
 
+class TrackEdgeSpectralProfileCacheReaderPort(Protocol):
+    """Contract for reading cached intro/outro spectral profiles."""
+
+    def load_edge_spectral_profile_cache(
+        self,
+        paths: Iterable[str],
+    ) -> dict[str, tuple[int, int, EdgeSpectralProfile]]:
+        """Return cached edge spectral profiles keyed by track path."""
+        ...
+
+
+class TrackEdgeSpectralProfileCachePort(TrackEdgeSpectralProfileCacheReaderPort, Protocol):
+    """Contract for cached intro/outro spectral profile persistence."""
+
+    def update_edge_spectral_profile(self, path: str, profile: EdgeSpectralProfile) -> bool:
+        """Persist an edge spectral profile for a single track."""
+        ...
+
+
 class PlaylistRepositoryPort(Protocol):
     """Contract for saved-playlist persistence."""
 
@@ -102,6 +121,8 @@ __all__ = [
     "TrackDanceabilityProfileCachePort",
     "TrackDanceabilityProfileCacheReaderPort",
     "TrackDisplayRepositoryPort",
+    "TrackEdgeSpectralProfileCachePort",
+    "TrackEdgeSpectralProfileCacheReaderPort",
     "TrackRepositoryPort",
     "TrackSpectralProfileCachePort",
     "TrackSpectralProfileCacheReaderPort",

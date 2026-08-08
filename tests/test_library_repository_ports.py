@@ -6,6 +6,7 @@ from pathlib import Path
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.audio.danceability import DanceabilityProfile
+from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_repository import PlaylistRepository
 from xfinaudio.library.ports import (
@@ -13,6 +14,8 @@ from xfinaudio.library.ports import (
     TrackDanceabilityProfileCachePort,
     TrackDanceabilityProfileCacheReaderPort,
     TrackDisplayRepositoryPort,
+    TrackEdgeSpectralProfileCachePort,
+    TrackEdgeSpectralProfileCacheReaderPort,
     TrackRepositoryPort,
 )
 from xfinaudio.library.track_repository import TrackRepository
@@ -72,3 +75,15 @@ def test_concrete_repository_satisfies_danceability_profile_ports(tmp_path: Path
 
     assert writer.update_danceability_profile("/music/track.flac", profile) is True
     assert reader.load_danceability_profile_cache(["/music/track.flac"]) == {}
+
+
+def test_concrete_repository_satisfies_edge_spectral_profile_ports(tmp_path: Path) -> None:
+    repository = TrackRepository(tmp_path / "tracks.db")
+    reader: TrackEdgeSpectralProfileCacheReaderPort = repository
+    writer: TrackEdgeSpectralProfileCachePort = repository
+    edge = SpectralProfile(red_ratio=1.0, green_ratio=0.0, blue_ratio=0.0, dominant_color="RED")
+    profile = EdgeSpectralProfile(intro=edge, outro=edge)
+    repository.save_scan_results([TrackRecord(path="/music/track.flac")])
+
+    assert writer.update_edge_spectral_profile("/music/track.flac", profile) is True
+    assert reader.load_edge_spectral_profile_cache(["/music/track.flac"]) == {}

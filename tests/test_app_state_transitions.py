@@ -6,10 +6,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from xfinaudio.audio.danceability import DanceabilityProfile
-from xfinaudio.audio.spectral_profile import SpectralProfile
+from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
 from xfinaudio.desktop import app_state_transitions
 from xfinaudio.desktop.app_state import AppState
-from xfinaudio.desktop.app_state_transitions import apply_danceability_profile, apply_spectral_profile
+from xfinaudio.desktop.app_state_transitions import (
+    apply_danceability_profile,
+    apply_edge_spectral_profile,
+    apply_spectral_profile,
+)
 from xfinaudio.library.models import TrackRecord
 
 
@@ -86,6 +90,22 @@ def test_apply_danceability_profile_updates_both_track_collections_immutably() -
     assert updated.records_by_path[track.path].danceability_profile == profile
     assert state.scanned_records[0].danceability_profile is None
     assert state.records_by_path[track.path].danceability_profile is None
+
+
+def test_apply_edge_spectral_profile_updates_both_track_collections_immutably() -> None:
+    track = _track()
+    state = AppState(scanned_records=[track], records_by_path={track.path: track})
+    profile = EdgeSpectralProfile(intro=_profile(), outro=_profile())
+
+    updated = apply_edge_spectral_profile(state, path=track.path, profile=profile)
+
+    assert updated is not state
+    assert updated.scanned_records is not state.scanned_records
+    assert updated.records_by_path is not state.records_by_path
+    assert updated.scanned_records[0].edge_spectral_profile == profile
+    assert updated.records_by_path[track.path].edge_spectral_profile == profile
+    assert state.scanned_records[0].edge_spectral_profile is None
+    assert state.records_by_path[track.path].edge_spectral_profile is None
 
 
 def test_apply_recommendation_completion_returns_new_state_without_mutating_original() -> None:

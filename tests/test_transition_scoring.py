@@ -1,7 +1,12 @@
 import pytest
 
 from xfinaudio.audio.danceability import DanceabilityProfile
-from xfinaudio.audio.spectral_profile import SpectralProfile, dominant_color_for_ratios
+from xfinaudio.audio.spectral_profile import (
+    EdgeSpectralProfile,
+    SpectralProfile,
+    dominant_color_for_ratios,
+    score_spectral_similarity,
+)
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.playlist_service import recommend_playlist
@@ -35,6 +40,7 @@ def track(
     missing_required_fields: list[str] | None = None,
     spectral_profile: SpectralProfile | None = None,
     danceability_profile: DanceabilityProfile | None = None,
+    edge_spectral_profile: EdgeSpectralProfile | None = None,
 ) -> TrackRecord:
     return TrackRecord(
         path=path,
@@ -50,6 +56,7 @@ def track(
         missing_required_fields=missing_required_fields or [],
         spectral_profile=spectral_profile,
         danceability_profile=danceability_profile,
+        edge_spectral_profile=edge_spectral_profile,
     )
 
 
@@ -59,6 +66,15 @@ def danceability(score: float) -> DanceabilityProfile:
         pulse_clarity=score,
         tempo_confidence=score,
         percussive_ratio=score,
+    )
+
+
+def spectral(red: float, green: float, blue: float, color: str) -> SpectralProfile:
+    return SpectralProfile(
+        red_ratio=red,
+        green_ratio=green,
+        blue_ratio=blue,
+        dominant_color=color,  # type: ignore[arg-type]
     )
 
 
@@ -244,6 +260,64 @@ def test_transition_score_axis_components_partition_all_scored_components() -> N
 
     assert compatibility.isdisjoint(mixability)
     assert compatibility | mixability == set(SCORED_COMPONENTS)
+    assert "spectral_edge" in MIXABILITY_COMPONENTS
+
+
+def test_edge_spectral_score_compares_left_outro_to_right_intro() -> None:
+    red = spectral(0.9, 0.05, 0.05, "RED")
+    green = spectral(0.05, 0.9, 0.05, "GREEN")
+    blue = spectral(0.05, 0.05, 0.9, "BLUE")
+    left_edge = EdgeSpectralProfile(intro=red, outro=green)
+    right_edge = EdgeSpectralProfile(intro=blue, outro=red)
+    weights = ScoringWeights(spectral_edge=0.2)
+
+    result = score_transition(
+        track("left", edge_spectral_profile=left_edge),
+        track("right", edge_spectral_profile=right_edge),
+        weights=weights,
+    )
+
+    assert result.component_scores["spectral_edge"] == score_spectral_similarity(left_edge.outro, right_edge.intro)
+
+
+def test_edge_spectral_score_is_directional() -> None:
+    red = spectral(0.9, 0.05, 0.05, "RED")
+    green = spectral(0.05, 0.9, 0.05, "GREEN")
+    blue = spectral(0.05, 0.05, 0.9, "BLUE")
+    left = track("left", edge_spectral_profile=EdgeSpectralProfile(intro=red, outro=green))
+    right = track("right", edge_spectral_profile=EdgeSpectralProfile(intro=blue, outro=red))
+    weights = ScoringWeights(spectral_edge=0.2)
+
+    forward = score_transition(left, right, weights=weights)
+    reverse = score_transition(right, left, weights=weights)
+
+    assert forward.component_scores["spectral_edge"] != reverse.component_scores["spectral_edge"]
+
+
+@pytest.mark.parametrize("missing_side", ["left", "right"])
+def test_missing_edge_profile_is_absent_and_scores_neutral(missing_side: str) -> None:
+    red = spectral(0.9, 0.05, 0.05, "RED")
+    edge = EdgeSpectralProfile(intro=red, outro=red)
+    left = track("left", edge_spectral_profile=None if missing_side == "left" else edge)
+    right = track("right", edge_spectral_profile=None if missing_side == "right" else edge)
+    weights = ScoringWeights(
+        harmonic=0.0,
+        bpm=0.0,
+        energy=0.0,
+        tags=0.0,
+        spectral=0.0,
+        danceability=0.0,
+        spectral_edge=0.2,
+    )
+
+    result = score_transition(left, right, weights=weights)
+
+    assert "spectral_edge" not in result.component_scores
+    assert result.total_score == 0.5
+
+
+def test_edge_spectral_default_weight_is_disabled() -> None:
+    assert ScoringWeights().spectral_edge == 0.0
 
 
 def test_transition_score_axis_is_none_when_all_its_weights_are_zero() -> None:

@@ -1,0 +1,265 @@
+"""Background worker that completes edge_spectral profiles after a metadata scan.
+
+The metadata scan returns tracks immediately (BPM, key, energy, status) while
+this worker computes edge_spectral values progressively in a background thread and
+emits each result back to the UI.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import logging
+import os
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
+
+from PySide6.QtCore import QObject, QThread, Signal, Slot
+
+from xfinaudio.audio.analyzer import EdgeSpectralAnalyzer, LibrosaEdgeSpectralAnalyzer
+from xfinaudio.audio.spectral_profile import CURRENT_EDGE_ANALYSIS_VERSION, EdgeSpectralProfile
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.scan_service import ScanCancellationToken
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _is_cancelled(token: ScanCancellationToken | None) -> bool:
+    """Return True if cancellation has been requested."""
+    if token is not None and token.is_cancelled:
+        return True
+    thread = QThread.currentThread()
+    return thread is not None and thread.isInterruptionRequested()
+
+
+def _default_max_workers_for_analysis(cpu_count: int | None = None) -> int:
+    """Return the default analysis pool size while reserving one CPU core."""
+    return max(1, (cpu_count or os.cpu_count() or 4) - 1)
+
+
+class _EdgeSpectralCompletionRunner(QObject):
+    """Internal runner that lives on a background QThread."""
+
+    progress = Signal(str, object)  # path, EdgeSpectralProfile | None
+    progress_updated = Signal(int, int)  # processed_count, total_count
+    finished = Signal()
+    failed = Signal(object)
+
+    def __init__(
+        self,
+        records: Sequence[TrackRecord],
+        repository: Any,
+        cancellation_token: ScanCancellationToken | None = None,
+        max_workers: int | None = None,
+        edge_spectral_analyzer: EdgeSpectralAnalyzer | None = None,
+    ) -> None:
+        super().__init__()
+        self._records = records
+        self._repository = repository
+        self._cancellation_token = cancellation_token
+        self._max_workers = max_workers if max_workers is not None else _default_max_workers_for_analysis()
+        self._edge_spectral_analyzer = edge_spectral_analyzer or LibrosaEdgeSpectralAnalyzer()
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self._run_completion()
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.exception("EdgeSpectral completion runner failed")
+            self.failed.emit(exc)
+        finally:
+            self.finished.emit()
+
+    def _run_completion(self) -> None:
+        paths = [
+            record.path
+            for record in self._records
+            if record.edge_spectral_profile is None
+            or record.edge_spectral_profile.analysis_version != CURRENT_EDGE_ANALYSIS_VERSION
+        ]
+        if not paths or _is_cancelled(self._cancellation_token):
+            return
+        total_count = len(paths)
+        processed_count = 0
+
+        # Reuse any persistent cache entries first.
+        cached_profiles: dict[str, EdgeSpectralProfile] = {}
+        if hasattr(self._repository, "load_edge_spectral_profile_cache"):
+            cache = self._repository.load_edge_spectral_profile_cache(paths)
+            for path in paths:
+                entry = cache.get(path)
+                if entry is not None and entry[2].analysis_version == CURRENT_EDGE_ANALYSIS_VERSION:
+                    cached_profiles[path] = entry[2]
+                    self.progress.emit(path, entry[2])
+                    processed_count += 1
+                    self.progress_updated.emit(processed_count, total_count)
+
+        pending_paths = [Path(path) for path in paths if path not in cached_profiles]
+        if not pending_paths:
+            return
+
+        with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
+            future_to_path: dict[Any, Path] = {
+                pool.submit(self._edge_spectral_analyzer.analyze, path): path for path in pending_paths
+            }
+            for future in as_completed(future_to_path):
+                if _is_cancelled(self._cancellation_token):
+                    for pending in future_to_path:
+                        pending.cancel()
+                    break
+                path = future_to_path[future]
+                try:
+                    profile = future.result()
+                except Exception:
+                    LOGGER.exception("EdgeSpectral analysis failed for %s", path)
+                    profile = None
+                if _is_cancelled(self._cancellation_token):
+                    break
+                if profile is not None and hasattr(self._repository, "update_edge_spectral_profile"):
+                    try:
+                        self._repository.update_edge_spectral_profile(str(path), profile)
+                    except Exception:
+                        LOGGER.exception("Failed to persist edge_spectral profile for %s", path)
+                self.progress.emit(str(path), profile)
+                processed_count += 1
+                self.progress_updated.emit(processed_count, total_count)
+
+
+class EdgeSpectralCompletionWorker(QObject):
+    """Public controller for lazy edge_spectral profile completion.
+
+    Usage:
+        worker = EdgeSpectralCompletionWorker()
+        worker.progress.connect(handle_profile)
+        worker.finished.connect(handle_done)
+        worker.start(records, repository)
+    """
+
+    progress = Signal(str, object)  # path, EdgeSpectralProfile | None
+    progress_updated = Signal(int, int)  # processed_count, total_count
+    finished = Signal()
+    failed = Signal(object)
+
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        *,
+        edge_spectral_analyzer: EdgeSpectralAnalyzer | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._thread: QThread | None = None
+        self._runner: _EdgeSpectralCompletionRunner | None = None
+        self._cancellation_token: ScanCancellationToken | None = None
+        self._edge_spectral_analyzer = edge_spectral_analyzer
+
+    def start(
+        self,
+        records: Sequence[TrackRecord],
+        repository: Any,
+        cancellation_token: ScanCancellationToken | None = None,
+        max_workers: int | None = None,
+    ) -> None:
+        """Start completing missing edge_spectral profiles in a background thread."""
+        self.cancel()
+        self._cancellation_token = cancellation_token
+        thread = QThread(self)
+        runner = _EdgeSpectralCompletionRunner(
+            records,
+            repository,
+            cancellation_token,
+            max_workers,
+            self._edge_spectral_analyzer,
+        )
+        runner.moveToThread(thread)
+        thread.started.connect(runner.run)
+        runner.progress.connect(self.progress)
+        runner.progress_updated.connect(self._on_progress_updated)
+        runner.finished.connect(self._on_finished)
+        runner.failed.connect(self.failed)
+        runner.finished.connect(thread.quit)
+        thread.finished.connect(thread.deleteLater)
+        self._thread = thread
+        self._runner = runner
+        thread.start()
+
+    def cancel(self, timeout_ms: int = 500) -> None:
+        """Request cancellation and wait for the background thread to finish."""
+        if self._cancellation_token is not None:
+            self._cancellation_token.cancel()
+        if self._thread is not None and self._thread.isRunning():
+            self._thread.requestInterruption()
+            self._thread.wait(timeout_ms)
+
+    def wait(self, timeout_ms: int = 5000) -> bool:
+        """Wait for the background thread to finish.
+
+        Returns True if the thread finished within the timeout.
+        """
+        if self._thread is None:
+            return True
+        return self._thread.wait(timeout_ms)
+
+    def is_running(self) -> bool:
+        """Return whether the background thread is still executing."""
+        return self._thread is not None and self._thread.isRunning()
+
+    def dispose_when_idle(self) -> None:
+        """Release this worker as soon as its thread stops running.
+
+        ``cancel()`` is cooperative and librosa does not interrupt mid-file, so a
+        cancelled worker can still be analyzing. Deleting it now would destroy a
+        running QThread (it is the thread's parent) and abort the process, and
+        blocking on ``wait()`` would freeze the UI. Deferring to ``finished``
+        releases the runner -- and every TrackRecord it holds -- without either.
+
+        Safe to call before ``start()`` and more than once.
+        """
+        thread = self._thread
+        if thread is None or not thread.isRunning():
+            self.deleteLater()
+            return
+        thread.finished.connect(self.deleteLater)
+
+    def shutdown(self, timeout_ms: int = 200) -> None:
+        """Force the thread to stop and release the runner.
+
+        Only for application teardown, where the process is going away anyway:
+        ``terminate()`` kills the thread at an arbitrary point, which is unsafe
+        while it is inside librosa or numpy. For ordinary cancellation use
+        ``cancel()`` followed by ``dispose_when_idle()``.
+
+        Safe to call before ``start()`` and more than once.
+        """
+        self.cancel(timeout_ms)
+        thread = self._thread
+        if thread is not None and thread.isRunning():
+            thread.terminate()
+            thread.wait(timeout_ms)
+        self._release_runner()
+        self._thread = None
+        self._cancellation_token = None
+
+    def _release_runner(self) -> None:
+        """Drop the runner, tolerating a C++ side that is already gone.
+
+        The runner lives on the worker thread and can be torn down through
+        several routes (its own deleteLater, thread teardown, interpreter
+        shutdown). Touching a deleted Shiboken wrapper raises RuntimeError, so
+        releasing has to be idempotent whichever route ran first.
+        """
+        runner = self._runner
+        self._runner = None
+        if runner is None:
+            return
+        with contextlib.suppress(RuntimeError):
+            runner.deleteLater()
+
+    @Slot()
+    def _on_finished(self) -> None:
+        self.finished.emit()
+        self._release_runner()
+
+    @Slot(int, int)
+    def _on_progress_updated(self, processed_count: int, total_count: int) -> None:
+        self.progress_updated.emit(processed_count, total_count)

@@ -5,7 +5,12 @@ import sqlite3
 import pytest
 
 from xfinaudio.audio.danceability import CURRENT_DANCEABILITY_VERSION, DanceabilityProfile
-from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
+from xfinaudio.audio.spectral_profile import (
+    CURRENT_ANALYSIS_VERSION,
+    CURRENT_EDGE_ANALYSIS_VERSION,
+    EdgeSpectralProfile,
+    SpectralProfile,
+)
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.track_repository import (
     SCHEMA_VERSION,
@@ -689,6 +694,14 @@ def _danceability_profile(*, analysis_version: int = CURRENT_DANCEABILITY_VERSIO
     )
 
 
+def _edge_spectral_profile(*, analysis_version: int = CURRENT_EDGE_ANALYSIS_VERSION) -> EdgeSpectralProfile:
+    return EdgeSpectralProfile(
+        intro=SpectralProfile(red_ratio=0.9, green_ratio=0.05, blue_ratio=0.05, dominant_color="RED"),
+        outro=SpectralProfile(red_ratio=0.05, green_ratio=0.05, blue_ratio=0.9, dominant_color="BLUE"),
+        analysis_version=analysis_version,
+    )
+
+
 def test_track_repository_round_trips_danceability_profile_for_full_and_display_reads(tmp_path) -> None:
     repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
     profile = _danceability_profile()
@@ -807,3 +820,114 @@ def test_track_repository_adds_danceability_column_to_existing_schema(tmp_path) 
     with sqlite3.connect(db_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
     assert "danceability_profile_json" in columns
+
+
+def test_track_repository_round_trips_edge_profile_for_full_and_display_reads(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    profile = _edge_spectral_profile()
+    repository.save_scan_results([TrackRecord(path="/music/track.flac", edge_spectral_profile=profile)])
+
+    assert repository.list_tracks()[0].edge_spectral_profile == profile
+    assert repository.list_display_tracks()[0].edge_spectral_profile == profile
+
+
+def test_track_repository_tolerates_corrupt_edge_profile_json(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    repository.save_scan_results([TrackRecord(path="/music/track.flac")])
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute(
+            "UPDATE tracks SET edge_spectral_profile_json = ? WHERE path = ?",
+            ("not-json", "/music/track.flac"),
+        )
+
+    assert repository.list_tracks()[0].edge_spectral_profile is None
+
+
+def test_edge_profile_preservation_uses_checksum_then_mtime_size_fallback(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "retagged.flac"
+    audio_file.write_text("audio")
+    profile = _edge_spectral_profile()
+    checksum = "0123456789abcdef0123456789abcdef"
+    repository.save_scan_results([TrackRecord(path=str(audio_file), audio_md5=checksum, edge_spectral_profile=profile)])
+    stat = audio_file.stat()
+    os.utime(audio_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file), audio_md5=checksum)])
+    assert repository.list_tracks()[0].edge_spectral_profile == profile
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file), audio_md5=None)])
+    assert repository.list_tracks()[0].edge_spectral_profile == profile
+
+    stat = audio_file.stat()
+    os.utime(audio_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+    repository.save_scan_results([TrackRecord(path=str(audio_file), audio_md5=None)])
+    assert repository.list_tracks()[0].edge_spectral_profile is None
+
+
+def test_save_scan_results_prefers_incoming_edge_profile(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    path = "/music/track.flac"
+    old = _edge_spectral_profile()
+    new = EdgeSpectralProfile(intro=old.outro, outro=old.intro)
+    repository.save_scan_results([TrackRecord(path=path, edge_spectral_profile=old)])
+
+    repository.save_scan_results([TrackRecord(path=path, edge_spectral_profile=new)])
+
+    assert repository.list_tracks()[0].edge_spectral_profile == new
+
+
+def test_update_edge_profile_returns_whether_path_exists(tmp_path) -> None:
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    repository.save_scan_results([TrackRecord(path=str(audio_file))])
+    profile = _edge_spectral_profile()
+
+    assert repository.update_edge_spectral_profile(str(audio_file), profile) is True
+    assert repository.update_edge_spectral_profile("/music/missing.flac", profile) is False
+    assert repository.list_tracks()[0].edge_spectral_profile == profile
+
+
+def test_load_edge_profile_cache_filters_version_and_chunks_queries(tmp_path) -> None:
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    current = _edge_spectral_profile()
+    repository.save_scan_results([TrackRecord(path=str(audio_file), edge_spectral_profile=current)])
+    paths = [f"/music/missing-{index}.flac" for index in range(901)] + [str(audio_file)]
+
+    cache = repository.load_edge_spectral_profile_cache(paths)
+
+    stat = audio_file.stat()
+    assert cache == {str(audio_file): (stat.st_mtime_ns, stat.st_size, current)}
+
+    stale = _edge_spectral_profile(analysis_version=CURRENT_EDGE_ANALYSIS_VERSION + 1)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), edge_spectral_profile=stale)])
+    assert repository.load_edge_spectral_profile_cache([str(audio_file)]) == {}
+
+
+def test_track_repository_adds_edge_profile_column_to_existing_schema(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    TrackRepository(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("ALTER TABLE tracks RENAME TO tracks_old")
+        connection.execute(
+            """
+            CREATE TABLE tracks AS
+            SELECT path, title, artist, bpm, camelot_key, energy_level,
+                   energy_in, energy_out, energy_peak, duration, genre, tags_json,
+                   metadata_status, missing_required_fields_json, source_fields_json,
+                   raw_metadata_json, audio_md5, spectral_profile_json,
+                   danceability_profile_json, file_mtime_ns, file_size_bytes
+            FROM tracks_old
+            """
+        )
+        connection.execute("DROP TABLE tracks_old")
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    TrackRepository(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
+    assert "edge_spectral_profile_json" in columns

@@ -28,6 +28,7 @@ class ScoringWeights(BaseModel):
     tags: float = 0.10
     spectral: float = 0.10
     danceability: float = 0.0
+    spectral_edge: float = 0.0
 
     @model_validator(mode="after")
     def validate_weights(self) -> ScoringWeights:
@@ -96,12 +97,12 @@ class TransitionScoringConfig(BaseModel):
 
 
 # Every component _weighted_total accounts for, present or not.
-SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral", "danceability")
+SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral", "danceability", "spectral_edge")
 # Compatibility asks whether tracks belong in the same set; mixability asks
 # whether they can be joined. The latter already has hand-rolled checks in
 # quality/dj_readiness.py's _bpm_continuity_check/_energy_continuity_check.
 COMPATIBILITY_COMPONENTS = ("harmonic", "tags", "danceability", "spectral")
-MIXABILITY_COMPONENTS = ("bpm", "energy")
+MIXABILITY_COMPONENTS = ("bpm", "energy", "spectral_edge")
 # Score for a component that cannot be evaluated: midway between a known
 # mismatch (0.0) and a known match (1.0), so absent metadata neither rewards
 # nor punishes.
@@ -210,6 +211,11 @@ def score_transition(
     if spectral_score is not None:
         component_scores["spectral"] = spectral_score
         explanations.append(f"Spectral similarity is {spectral_score:.2f}")
+
+    spectral_edge_score = _score_spectral_edge(left, right)
+    if spectral_edge_score is not None:
+        component_scores["spectral_edge"] = spectral_edge_score
+        explanations.append(f"Edge spectral similarity (out→in) is {spectral_edge_score:.2f}")
 
     danceability_score = _score_danceability(left, right)
     if danceability_score is not None:
@@ -369,6 +375,12 @@ def _score_spectral(left: TrackRecord, right: TrackRecord) -> float | None:
     if left.spectral_profile is None or right.spectral_profile is None:
         return None
     return score_spectral_similarity(left.spectral_profile, right.spectral_profile)
+
+
+def _score_spectral_edge(left: TrackRecord, right: TrackRecord) -> float | None:
+    if left.edge_spectral_profile is None or right.edge_spectral_profile is None:
+        return None
+    return score_spectral_similarity(left.edge_spectral_profile.outro, right.edge_spectral_profile.intro)
 
 
 def _score_danceability(left: TrackRecord, right: TrackRecord) -> float | None:

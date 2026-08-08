@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Protocol
 
 from xfinaudio.audio.danceability import DanceabilityProfile, analyze_danceability
-from xfinaudio.audio.spectral_profile import SpectralProfile, analyze_spectral_profile
+from xfinaudio.audio.spectral_profile import (
+    EdgeSpectralProfile,
+    SpectralProfile,
+    analyze_edge_spectral_profile,
+    analyze_spectral_profile,
+)
 
 
 class SpectralAnalyzer(Protocol):
@@ -42,9 +47,27 @@ class LibrosaDanceabilityAnalyzer:
         return analyze_danceability(path)
 
 
+class EdgeSpectralAnalyzer(Protocol):
+    """Contract for read-only intro/outro spectral analysis."""
+
+    def analyze(self, path: Path) -> EdgeSpectralProfile | None:
+        """Return edge profiles without mutating the source file."""
+        ...
+
+
+@dataclass(frozen=True)
+class LibrosaEdgeSpectralAnalyzer:
+    """Default adapter for the librosa-backed edge analyzer."""
+
+    def analyze(self, path: Path) -> EdgeSpectralProfile | None:
+        return analyze_edge_spectral_profile(path)
+
+
 __all__ = [
     "DanceabilityAnalyzer",
+    "EdgeSpectralAnalyzer",
     "LibrosaDanceabilityAnalyzer",
+    "LibrosaEdgeSpectralAnalyzer",
     "LibrosaSpectralAnalyzer",
     "SpectralAnalyzer",
 ]

@@ -74,8 +74,12 @@ For larger playlists, the optimizer uses deterministic greedy initialization fol
 - The heuristic optimizer for playlists above `exact_limit` is deterministic but not guaranteed globally optimal.
 - Exact optimization has exponential memory/time growth and should stay limited to small playlists. Local probe on this machine: 20 complete tracks routed through exact optimization in about 36 seconds, so future UI work should run exact optimization in a background worker with progress/cancel or lower `exact_limit` for interactive use.
 
-## Future: intro/outro spectral profiles
+## Intro/outro spectral profiles
 
-This is not implemented. A future pass could locate opening and closing windows with the first and last cue points, analyze them, persist them like the existing profile, and feed the mixability axis by comparing `outro(A)` with `intro(B)` — the same shape as the energy handoff.
+Each track also carries a profile of its two blendable edges: a 30-second window from the start of the file and one ending at the end. The `spectral_edge` component scores `outro(A)` against `intro(B)` — the same shape as the energy handoff — and belongs to the mixability axis. Unlike the mid-track colour, it is directional: A into B and B into A are different questions and get different scores.
 
-Today there is one spectral profile per track, measured from a 30-second window at the track's MIDDLE: the one region a DJ never mixes through.
+Its default weight is `0.0` and no strategy enables it yet, so it is inert until switched on. A track with no edge profile leaves the component out, which scores neutral.
+
+Windows are fixed rather than cue-aligned. Cue points would locate the musical boundaries more precisely, but their timestamps are not persisted — only `energy_in/out/peak` are derived from them — so using them would need a schema change or a second tag read. Tracks under 65 seconds return no edge profile at all rather than analyzing two overlapping windows.
+
+The original mid-track profile is unchanged and still feeds the `spectral` component: one 30-second window at the track's MIDDLE, which is the one region a DJ never mixes through. That is precisely why the edges were added — on Under Pressure the middle reads GREEN while the intro, which is the bass figure alone, reads MIXED.
