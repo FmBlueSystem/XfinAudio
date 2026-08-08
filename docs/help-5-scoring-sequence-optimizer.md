@@ -46,7 +46,9 @@ Tag scoring uses normalized Jaccard overlap across `tags` plus `genre`. An unava
 
 Danceability is measured from the audio as pulse clarity × tempo confidence × a percussive gate. Its default weight is `0.0`, so it is opt-in; `peak_time` and `same_energy` enable it at `0.10`. If either track has no danceability profile, the component is neutral, never a penalty.
 
-Mixed In Key beatgrid onsets also correct a known half-time tempo case. With at least 16 strictly ascending onsets that imply double the declared `tempo`, the measured grid wins; malformed grids fall back to the declared tempo. BPM comparisons fold 2:1 pairs consistently across the scorer, optimizer gate, quality report, candidate pool, and live assistant.
+BPM comparisons fold exact 2:1 pairs consistently across the scorer, optimizer gate, quality report, candidate pool, and live assistant, so a track read at 84.6 and one read at 169 are treated as compatible rather than as a 100% jump.
+
+Stored BPM values are never rewritten to "fix" a half-time reading. An attempt to do so from the Mixed In Key beatgrid was reverted: in slow material the grid marks the subdivision rather than the beat, so a grid-to-declared ratio of 2.0 does not mean the declared tempo is wrong. Measured over 118 random tracks, every track showing that ratio sat between 80 and 99 declared BPM, where the declared value is the correct one. Folding the comparison, rather than editing the data, handles the ambiguity without risking the canonical field.
 
 Every successful transition also exposes two informative axes:
 
