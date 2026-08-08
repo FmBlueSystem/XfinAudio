@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+from statistics import median
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,6 +14,11 @@ CAMELot_RE = re.compile(r"^(?:1[0-2]|[1-9])[AB]$")
 ENERGY_TEXT_RE = re.compile(r"Energy\s+([1-9]|10)\b", re.IGNORECASE)
 COMMENT_ENERGY_RE = re.compile(r"⚡️?\s*([1-9]|10)")
 TAG_FIELDS = ("genre", "mood", "subgenre", "dj_zone", "genre_category")
+
+# Mirrors recommendation.scoring.HALF_TIME_RATIO_TOLERANCE without importing
+# across the metadata/recommendation layer boundary; both accept ratios 1.96-2.04.
+GRID_HALF_TIME_RATIO_BAND = 0.04
+MIN_GRID_ONSETS = 16
 
 # Every tag key parse_mixedinkey_tags() can consult, casefolded to match
 # _casefold_mapping(). Callers retain only these; the rest (Serato overviews,
@@ -191,7 +197,25 @@ def _parse_bpm(tags: dict[str, tuple[str, Any]]) -> tuple[float | None, str | No
     encoded = _decode_json_tag(_first_text(tags, "beatgrid"))
     if encoded is not None and str(encoded.get("source", "")).casefold() == "mixedinkey":
         try:
-            return round(float(encoded["tempo"]), 2), "beatgrid"
+            tempo = float(encoded["tempo"])
+            beats = encoded.get("beats")
+            if (
+                tempo > 0
+                and isinstance(beats, list)
+                and len(beats) >= MIN_GRID_ONSETS
+                and all(isinstance(onset, int | float) and not isinstance(onset, bool) for onset in beats)
+                and all(current < following for current, following in zip(beats, beats[1:], strict=False))
+            ):
+                median_spacing = median(
+                    following - current for current, following in zip(beats, beats[1:], strict=False)
+                )
+                onset_bpm = 60.0 / median_spacing
+                ratio = onset_bpm / tempo
+                if abs(ratio - 2.0) <= GRID_HALF_TIME_RATIO_BAND:
+                    # Beat onsets are measured; the declared tempo is the value
+                    # Mixed In Key sometimes halves, so the grid wins here.
+                    return round(onset_bpm, 2), "beatgrid"
+            return round(tempo, 2), "beatgrid"
         except (KeyError, TypeError, ValueError):
             pass
 

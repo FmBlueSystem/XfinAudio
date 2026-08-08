@@ -1,5 +1,8 @@
+import base64
 import json
 from pathlib import Path
+
+import pytest
 
 from xfinaudio.metadata.mixedinkey_contract import parse_mixedinkey_tags
 
@@ -8,6 +11,10 @@ FIXTURES = Path(__file__).parent / "fixtures" / "mixedinkey_tag_variants.json"
 
 def load_fixture(name: str) -> dict[str, list[str]]:
     return json.loads(FIXTURES.read_text())[name]
+
+
+def encode_beatgrid(payload: dict[str, object]) -> str:
+    return base64.b64encode(json.dumps(payload).encode()).decode()
 
 
 def test_parser_prefers_mixedinkey_json_key_and_energy_over_other_fields() -> None:
@@ -100,6 +107,73 @@ def test_parser_ignores_a_malformed_beatgrid_tempo() -> None:
     metadata = parse_mixedinkey_tags({"beatgrid": [broken], "bpm": ["128.00"]})
 
     assert metadata.bpm == 128.0
+
+
+def test_parser_corrects_half_time_mixedinkey_tempo_from_beat_onsets() -> None:
+    spacing = 0.35475
+    beatgrid = encode_beatgrid(
+        {
+            "source": "mixedinkey",
+            "tempo": 84.59,
+            "algorithm": 12,
+            "beats": [index * spacing for index in range(32)],
+        }
+    )
+
+    metadata = parse_mixedinkey_tags({"beatgrid": [beatgrid]})
+
+    assert metadata.bpm == round(60 / spacing, 2)
+    assert metadata.source_fields["bpm"] == "beatgrid"
+
+
+def test_parser_keeps_normal_mixedinkey_tempo_with_matching_beat_onsets() -> None:
+    spacing = 0.46875
+    beatgrid = encode_beatgrid(
+        {
+            "source": "mixedinkey",
+            "tempo": 128.0,
+            "beats": [index * spacing for index in range(32)],
+        }
+    )
+
+    metadata = parse_mixedinkey_tags({"beatgrid": [beatgrid]})
+
+    assert metadata.bpm == 128.0
+
+
+def test_parser_keeps_mixedinkey_tempo_when_onset_ratio_is_out_of_band() -> None:
+    spacing = 0.4
+    beatgrid = encode_beatgrid(
+        {
+            "source": "mixedinkey",
+            "tempo": 100.0,
+            "beats": [index * spacing for index in range(32)],
+        }
+    )
+
+    metadata = parse_mixedinkey_tags({"beatgrid": [beatgrid]})
+
+    assert metadata.bpm == 100.0
+
+
+@pytest.mark.parametrize(
+    "beats",
+    [
+        None,
+        [index * 0.35475 for index in range(15)],
+        [0.0, *[index * 0.35475 for index in range(1, 15)], 14 * 0.35475],
+        [*range(15), "invalid"],
+    ],
+    ids=["missing", "too-few", "not-increasing", "non-numeric"],
+)
+def test_parser_keeps_declared_tempo_for_malformed_beat_onsets(beats: object) -> None:
+    payload: dict[str, object] = {"source": "mixedinkey", "tempo": 84.59}
+    if beats is not None:
+        payload["beats"] = beats
+
+    metadata = parse_mixedinkey_tags({"beatgrid": [encode_beatgrid(payload)]})
+
+    assert metadata.bpm == 84.59
 
 
 def test_parser_converts_musical_key_notation_in_mik_json_to_camelot() -> None:
