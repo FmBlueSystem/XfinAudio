@@ -23,6 +23,9 @@ def track(
     bpm: float | None = 120.0,
     camelot_key: str | None = "8A",
     energy_level: int | None = 5,
+    energy_in: int | None = None,
+    energy_out: int | None = None,
+    energy_peak: int | None = None,
     genre: str | None = "House",
     tags: list[str] | None = None,
     missing_required_fields: list[str] | None = None,
@@ -33,6 +36,9 @@ def track(
         bpm=bpm,
         camelot_key=camelot_key,
         energy_level=energy_level,
+        energy_in=energy_in,
+        energy_out=energy_out,
+        energy_peak=energy_peak,
         genre=genre,
         tags=["Peak", "Vocal"] if tags is None else tags,
         metadata_status="complete" if missing_required_fields is None else "incomplete",
@@ -59,6 +65,27 @@ def test_score_transition_scores_energy_compatibility() -> None:
 
     assert result.component_scores["energy"] == pytest.approx(0.555556)
     assert "Energy level difference is 2" in result.explanations
+
+
+def test_score_transition_uses_out_to_in_energy_handoff_when_both_are_available() -> None:
+    result = score_transition(
+        track("left", energy_level=4, energy_out=8),
+        track("right", energy_level=8, energy_in=8),
+    )
+
+    assert result.component_scores["energy"] == 1.0
+    assert "Energy handoff (out→in) difference is 0" in result.explanations
+
+
+def test_score_transition_falls_back_to_scalar_energy_when_one_handoff_side_is_missing() -> None:
+    result = score_transition(
+        track("left", energy_level=4, energy_out=8),
+        track("right", energy_level=8),
+    )
+
+    assert result.component_scores["energy"] == 0.0
+    assert "Energy level difference is 4" in result.explanations
+    assert not any("Energy handoff" in explanation for explanation in result.explanations)
 
 
 def test_score_transition_scores_tag_overlap_with_genre() -> None:

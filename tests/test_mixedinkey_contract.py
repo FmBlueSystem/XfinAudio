@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from xfinaudio.metadata.mixedinkey_contract import parse_mixedinkey_tags
+from xfinaudio.metadata.mixedinkey_contract import PARSED_TAG_KEYS, parse_mixedinkey_tags
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mixedinkey_tag_variants.json"
 
@@ -13,7 +13,7 @@ def load_fixture(name: str) -> dict[str, list[str]]:
     return json.loads(FIXTURES.read_text())[name]
 
 
-def encode_beatgrid(payload: dict[str, object]) -> str:
+def encode_tag_json(payload: dict[str, object]) -> str:
     return base64.b64encode(json.dumps(payload).encode()).decode()
 
 
@@ -111,7 +111,7 @@ def test_parser_ignores_a_malformed_beatgrid_tempo() -> None:
 
 def test_parser_corrects_half_time_mixedinkey_tempo_from_beat_onsets() -> None:
     spacing = 0.35475
-    beatgrid = encode_beatgrid(
+    beatgrid = encode_tag_json(
         {
             "source": "mixedinkey",
             "tempo": 84.59,
@@ -128,7 +128,7 @@ def test_parser_corrects_half_time_mixedinkey_tempo_from_beat_onsets() -> None:
 
 def test_parser_keeps_normal_mixedinkey_tempo_with_matching_beat_onsets() -> None:
     spacing = 0.46875
-    beatgrid = encode_beatgrid(
+    beatgrid = encode_tag_json(
         {
             "source": "mixedinkey",
             "tempo": 128.0,
@@ -143,7 +143,7 @@ def test_parser_keeps_normal_mixedinkey_tempo_with_matching_beat_onsets() -> Non
 
 def test_parser_keeps_mixedinkey_tempo_when_onset_ratio_is_out_of_band() -> None:
     spacing = 0.4
-    beatgrid = encode_beatgrid(
+    beatgrid = encode_tag_json(
         {
             "source": "mixedinkey",
             "tempo": 100.0,
@@ -171,7 +171,7 @@ def test_parser_keeps_declared_tempo_for_malformed_beat_onsets(beats: object) ->
     if beats is not None:
         payload["beats"] = beats
 
-    metadata = parse_mixedinkey_tags({"beatgrid": [encode_beatgrid(payload)]})
+    metadata = parse_mixedinkey_tags({"beatgrid": [encode_tag_json(payload)]})
 
     assert metadata.bpm == 84.59
 
@@ -208,3 +208,83 @@ def test_parser_handles_enharmonic_and_unicode_sharp_flat() -> None:
 def test_parser_still_accepts_native_camelot_notation() -> None:
     metadata = parse_mixedinkey_tags({"initialkey": ["8A"]})
     assert metadata.camelot_key == "8A"
+
+
+@pytest.mark.parametrize(
+    "cues",
+    [
+        [
+            {"name": "Energy 5", "time": 15000},
+            {"name": "Energy 8", "time": 120000},
+            {"name": "Energy 6", "time": 210000},
+        ],
+        [
+            {"name": "Energy 6", "time": 210000},
+            {"name": "Energy 5", "time": 15000},
+            {"name": "Energy 8", "time": 120000},
+        ],
+    ],
+    ids=["chronological", "out-of-order"],
+)
+def test_parser_derives_energy_curve_from_chronologically_ordered_cues(cues: list[dict[str, object]]) -> None:
+    metadata = parse_mixedinkey_tags({"cuepoints": [encode_tag_json({"cues": cues})]})
+
+    assert (metadata.energy_in, metadata.energy_out, metadata.energy_peak) == (5, 6, 8)
+
+
+def test_parser_uses_single_energy_cue_for_the_entire_curve() -> None:
+    cuepoints = encode_tag_json({"cues": [{"name": "Energy 7", "time": 234844.11}]})
+
+    metadata = parse_mixedinkey_tags({"cuepoints": [cuepoints]})
+
+    assert (metadata.energy_in, metadata.energy_out, metadata.energy_peak) == (7, 7, 7)
+
+
+def test_parser_ignores_non_energy_and_out_of_range_cues() -> None:
+    cuepoints = encode_tag_json(
+        {
+            "cues": [
+                {"name": "Drop", "time": 1000},
+                {"name": "Energy 0", "time": 2000},
+                {"name": "Energy 11", "time": 3000},
+                {"name": "Intro", "time": 4000},
+            ]
+        }
+    )
+
+    metadata = parse_mixedinkey_tags({"cuepoints": [cuepoints]})
+
+    assert (metadata.energy_in, metadata.energy_out, metadata.energy_peak) == (None, None, None)
+
+
+@pytest.mark.parametrize(
+    "cuepoints",
+    [
+        "not-base64",
+        base64.b64encode(b"not-json").decode(),
+        encode_tag_json({}),
+        encode_tag_json({"cues": "not-a-list"}),
+        encode_tag_json({"cues": [{"name": "Energy 5", "time": "soon"}]}),
+        encode_tag_json({"cues": ["not-a-dict"]}),
+    ],
+    ids=["corrupt-base64", "not-json", "missing-cues", "cues-not-list", "non-numeric-time", "cue-not-dict"],
+)
+def test_parser_returns_empty_energy_curve_for_malformed_cuepoints(cuepoints: str) -> None:
+    metadata = parse_mixedinkey_tags({"cuepoints": [cuepoints]})
+
+    assert (metadata.energy_in, metadata.energy_out, metadata.energy_peak) == (None, None, None)
+
+
+def test_parser_energy_curve_is_optional_and_cuepoint_blob_is_not_persisted() -> None:
+    metadata = parse_mixedinkey_tags(
+        {
+            "bpm": ["128"],
+            "initialkey": ["8A"],
+            "energylevel": ["7"],
+        }
+    )
+
+    assert (metadata.energy_in, metadata.energy_out, metadata.energy_peak) == (None, None, None)
+    assert metadata.missing_required_fields == []
+    assert metadata.is_complete is True
+    assert "cuepoints" not in PARSED_TAG_KEYS

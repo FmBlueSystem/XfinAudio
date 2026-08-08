@@ -42,19 +42,25 @@ class TrackRepository:
     def save_scan_results(self, records: Iterable[TrackRecord]) -> None:
         """Upsert scanned track records by absolute file path."""
         with self._connect() as connection:
+            # Energy cues are cheap tag-derived values, so a rescan replaces
+            # them directly rather than preserving stale values like a profile.
             connection.executemany(
                 """
                 INSERT INTO tracks (
-                    path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
+                    path, title, artist, bpm, camelot_key, energy_level,
+                    energy_in, energy_out, energy_peak, duration, genre, tags_json,
                     metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                     spectral_profile_json, file_mtime_ns, file_size_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     title = excluded.title,
                     artist = excluded.artist,
                     bpm = excluded.bpm,
                     camelot_key = excluded.camelot_key,
                     energy_level = excluded.energy_level,
+                    energy_in = excluded.energy_in,
+                    energy_out = excluded.energy_out,
+                    energy_peak = excluded.energy_peak,
                     duration = excluded.duration,
                     genre = excluded.genre,
                     tags_json = excluded.tags_json,
@@ -80,7 +86,8 @@ class TrackRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
+                SELECT path, title, artist, bpm, camelot_key, energy_level,
+                       energy_in, energy_out, energy_peak, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                        spectral_profile_json
                 FROM tracks
@@ -94,7 +101,8 @@ class TrackRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT path, title, artist, bpm, camelot_key, energy_level, duration, genre, tags_json,
+                SELECT path, title, artist, bpm, camelot_key, energy_level,
+                       energy_in, energy_out, energy_peak, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json, spectral_profile_json
                 FROM tracks
                 ORDER BY path
@@ -236,6 +244,9 @@ class TrackRepository:
                 bpm REAL,
                 camelot_key TEXT,
                 energy_level INTEGER,
+                energy_in INTEGER,
+                energy_out INTEGER,
+                energy_peak INTEGER,
                 duration REAL,
                 genre TEXT,
                 tags_json TEXT NOT NULL DEFAULT '[]',
@@ -252,6 +263,12 @@ class TrackRepository:
         # Gracefully add columns introduced after the initial schema
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN duration REAL")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN energy_in INTEGER")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN energy_out INTEGER")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN energy_peak INTEGER")
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN spectral_profile_json TEXT")
         with contextlib.suppress(sqlite3.OperationalError):
@@ -282,6 +299,9 @@ class TrackRepository:
             record.bpm,
             record.camelot_key,
             record.energy_level,
+            record.energy_in,
+            record.energy_out,
+            record.energy_peak,
             record.duration,
             record.genre,
             json.dumps(record.tags, sort_keys=True),
@@ -303,6 +323,9 @@ class TrackRepository:
             bpm=row["bpm"],
             camelot_key=row["camelot_key"],
             energy_level=row["energy_level"],
+            energy_in=row["energy_in"],
+            energy_out=row["energy_out"],
+            energy_peak=row["energy_peak"],
             duration=row["duration"],
             genre=row["genre"],
             tags=json.loads(row["tags_json"]),
@@ -322,6 +345,9 @@ class TrackRepository:
             bpm=row["bpm"],
             camelot_key=row["camelot_key"],
             energy_level=row["energy_level"],
+            energy_in=row["energy_in"],
+            energy_out=row["energy_out"],
+            energy_peak=row["energy_peak"],
             duration=row["duration"],
             genre=row["genre"],
             tags=json.loads(row["tags_json"]),

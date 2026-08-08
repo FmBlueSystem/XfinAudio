@@ -1,3 +1,5 @@
+import base64
+import json
 import logging
 from pathlib import Path
 
@@ -43,6 +45,28 @@ def test_scan_folder_recursively_reads_supported_audio_metadata() -> None:
     assert records[0].metadata_status == "complete"
     assert records[0].raw_metadata["title"] == ["Track One"]
     assert records[0].source_fields["camelot_key"] == "key"
+
+
+def test_scan_folder_derives_energy_curve_from_cuepoint_tag() -> None:
+    cuepoints = base64.b64encode(
+        json.dumps(
+            {
+                "cues": [
+                    {"name": "Energy 4", "time": 15000},
+                    {"name": "Energy 9", "time": 120000},
+                    {"name": "Energy 7", "time": 210000},
+                ]
+            }
+        ).encode()
+    ).decode()
+
+    records = scan_folder(
+        Path("/library"),
+        list_paths=lambda folder: [folder / "track.flac"],
+        read_tags=lambda path: {"cuepoints": [cuepoints]},
+    )
+
+    assert (records[0].energy_in, records[0].energy_out, records[0].energy_peak) == (4, 7, 9)
 
 
 def test_scan_folder_reads_duplicate_lister_candidates_once() -> None:

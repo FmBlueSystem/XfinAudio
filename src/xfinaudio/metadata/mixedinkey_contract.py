@@ -104,6 +104,9 @@ class MixedInKeyMetadata(BaseModel):
     bpm: float | None = None
     camelot_key: str | None = None
     energy_level: int | None = None
+    energy_in: int | None = None
+    energy_out: int | None = None
+    energy_peak: int | None = None
     genre: str | None = None
     tags: list[str] = Field(default_factory=list)
     source_fields: dict[str, str] = Field(default_factory=dict)
@@ -144,6 +147,8 @@ def parse_mixedinkey_tags(raw_tags: dict[str, Any]) -> MixedInKeyMetadata:
     if energy_level is not None and energy_source is not None:
         source_fields["energy_level"] = energy_source
 
+    energy_in, energy_out, energy_peak = _parse_energy_cues(tags)
+
     normalized_tags = _parse_tags(tags)
     missing_required_fields = [
         field_name
@@ -157,6 +162,9 @@ def parse_mixedinkey_tags(raw_tags: dict[str, Any]) -> MixedInKeyMetadata:
         bpm=bpm,
         camelot_key=camelot_key,
         energy_level=energy_level,
+        energy_in=energy_in,
+        energy_out=energy_out,
+        energy_peak=energy_peak,
         genre=genre,
         tags=normalized_tags,
         source_fields=source_fields,
@@ -273,6 +281,43 @@ def _parse_energy(tags: dict[str, tuple[str, Any]], title: str | None) -> tuple[
         if match is not None:
             return int(match.group(1)), "title"
     return None, None
+
+
+def _parse_energy_cues(
+    tags: dict[str, tuple[str, Any]],
+) -> tuple[int | None, int | None, int | None]:
+    encoded = _decode_json_tag(_first_text(tags, "cuepoints"))
+    if encoded is None:
+        return None, None, None
+
+    try:
+        cues = encoded["cues"]
+        if not isinstance(cues, list):
+            return None, None, None
+
+        energy_cues: list[tuple[float, int]] = []
+        for cue in cues:
+            if not isinstance(cue, dict):
+                continue
+            cue_time = cue.get("time")
+            if not isinstance(cue_time, int | float) or isinstance(cue_time, bool):
+                continue
+            match = ENERGY_TEXT_RE.search(str(cue.get("name", "")))
+            if match is None:
+                continue
+            level = _normalize_energy(match.group(1))
+            if level is not None:
+                # Mixed In Key stores cue times in milliseconds. Their scale is
+                # irrelevant here; chronological ordering is the contract.
+                energy_cues.append((float(cue_time), level))
+
+        if not energy_cues:
+            return None, None, None
+        energy_cues.sort(key=lambda cue: cue[0])
+        levels = [level for _, level in energy_cues]
+        return levels[0], levels[-1], max(levels)
+    except (KeyError, TypeError, ValueError):
+        return None, None, None
 
 
 def _parse_tags(tags: dict[str, tuple[str, Any]]) -> list[str]:

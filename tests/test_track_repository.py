@@ -36,6 +36,26 @@ def test_track_repository_persists_and_round_trips_scan_records(tmp_path) -> Non
     assert repository.list_tracks() == [original]
 
 
+def test_track_repository_round_trips_energy_curve_for_full_and_display_reads(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    original = TrackRecord(
+        path="/music/curve.flac",
+        energy_level=7,
+        energy_in=4,
+        energy_out=8,
+        energy_peak=9,
+    )
+
+    repository.save_scan_results([original])
+
+    assert repository.list_tracks()[0].energy_in == 4
+    assert repository.list_tracks()[0].energy_out == 8
+    assert repository.list_tracks()[0].energy_peak == 9
+    assert repository.list_display_tracks()[0].energy_in == 4
+    assert repository.list_display_tracks()[0].energy_out == 8
+    assert repository.list_display_tracks()[0].energy_peak == 9
+
+
 def test_track_repository_replaces_existing_record_for_same_path(tmp_path) -> None:
     db_path = tmp_path / "xfinaudio.sqlite3"
     repository = TrackRepository(db_path)
@@ -279,6 +299,56 @@ def test_track_repository_migrates_v1_database_to_current_schema(tmp_path) -> No
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     assert repository.list_tracks() == []
+
+
+def test_track_repository_adds_nullable_energy_curve_columns_to_existing_schema(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE tracks (
+                path TEXT PRIMARY KEY,
+                title TEXT,
+                artist TEXT,
+                bpm REAL,
+                camelot_key TEXT,
+                energy_level INTEGER,
+                duration REAL,
+                genre TEXT,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                metadata_status TEXT NOT NULL CHECK(metadata_status IN ('complete', 'incomplete')),
+                missing_required_fields_json TEXT NOT NULL DEFAULT '[]',
+                source_fields_json TEXT NOT NULL DEFAULT '{}',
+                raw_metadata_json TEXT NOT NULL DEFAULT '{}',
+                spectral_profile_json TEXT,
+                file_mtime_ns INTEGER,
+                file_size_bytes INTEGER
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO tracks (path, metadata_status) VALUES (?, ?)",
+            ("/music/old.flac", "incomplete"),
+        )
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    repository = TrackRepository(db_path)
+
+    record = repository.list_tracks()[0]
+    assert (record.energy_in, record.energy_out, record.energy_peak) == (None, None, None)
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
+    assert {"energy_in", "energy_out", "energy_peak"} <= columns
+
+
+def test_save_scan_results_overwrites_derived_energy_curve_on_rescan(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    repository.save_scan_results([TrackRecord(path="/music/curve.flac", energy_in=4, energy_out=8, energy_peak=9)])
+
+    repository.save_scan_results([TrackRecord(path="/music/curve.flac", energy_in=2, energy_out=3, energy_peak=5)])
+
+    record = repository.list_tracks()[0]
+    assert (record.energy_in, record.energy_out, record.energy_peak) == (2, 3, 5)
 
 
 def test_track_repository_list_display_tracks_includes_spectral_profile(tmp_path) -> None:

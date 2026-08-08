@@ -158,15 +158,20 @@ def score_transition(
             )
         )
 
+    energy_delta, used_energy_handoff = _effective_energy_delta(left, right)
     component_scores = {
         "harmonic": harmonic_score,
         "bpm": _score_bpm(left.bpm or 0.0, right.bpm or 0.0, scoring_config),
-        "energy": _score_energy(left.energy_level or 0, right.energy_level or 0, scoring_config),
+        "energy": _score_energy(energy_delta, scoring_config),
     }
     explanations = [
         f"Harmonic compatibility score is {component_scores['harmonic']:.2f}",
         f"BPM difference is {bpm_difference_percent(left.bpm or 0.0, right.bpm or 0.0):.2f}%",
-        f"Energy level difference is {abs((left.energy_level or 0) - (right.energy_level or 0))}",
+        (
+            f"Energy handoff (out→in) difference is {energy_delta:g}"
+            if used_energy_handoff
+            else f"Energy level difference is {energy_delta:g}"
+        ),
     ]
     explanations.extend(
         _key_shift_explanations(
@@ -295,8 +300,15 @@ def _score_bpm(left_bpm: float, right_bpm: float, config: TransitionScoringConfi
     return _score_threshold(delta, config.bpm_thresholds)
 
 
-def _score_energy(left_energy: int, right_energy: int, config: TransitionScoringConfig) -> float:
-    delta = float(abs(left_energy - right_energy))
+def _effective_energy_delta(left: TrackRecord, right: TrackRecord) -> tuple[float, bool]:
+    if left.energy_out is not None and right.energy_in is not None:
+        # A transition joins the outgoing section to the incoming section; the
+        # whole-track scalar is only a fallback when either boundary is absent.
+        return float(abs(left.energy_out - right.energy_in)), True
+    return float(abs((left.energy_level or 0) - (right.energy_level or 0))), False
+
+
+def _score_energy(delta: float, config: TransitionScoringConfig) -> float:
     if config.score_curve == "fuzzy":
         return _score_fuzzy(delta, config.energy_thresholds)
     return _score_threshold(delta, config.energy_thresholds)
