@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -15,7 +14,18 @@ from xfinaudio.quality.recommendation_quality import build_quality_report as _bu
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, PrepCopilotPlan, build_prep_copilot_plan
 
-PlanBuilder = Callable[[list[TrackRecord], DJSetIntent], PrepCopilotPlan]
+
+class PlanBuilder(Protocol):
+    """Seam that turns candidate tracks plus a set intent into a Prep Copilot plan.
+
+    Spelled as a Protocol rather than `Callable[..., PrepCopilotPlan]` so the bound
+    colour anchor is part of the contract: an injected builder that cannot accept it
+    is a type error here instead of a `TypeError` at generation time.
+    """
+
+    def __call__(
+        self, tracks: list[TrackRecord], intent: DJSetIntent, *, color_anchor_path: str | None = None
+    ) -> PrepCopilotPlan: ...
 
 
 @dataclass(frozen=True)
@@ -34,8 +44,16 @@ def generate_prep_copilot_plan(
     request: PrepCopilotGenerationRequest,
     *,
     plan_builder: PlanBuilder = build_prep_copilot_plan,
+    color_anchor_path: str | None = None,
 ) -> PrepCopilotPlan:
-    """Generate a Prep Copilot plan from UI-derived generation parameters."""
+    """Generate a Prep Copilot plan from UI-derived generation parameters.
+
+    ``color_anchor_path`` is kept off `PrepCopilotGenerationRequest` on purpose: the
+    request carries what the DJ typed into the UI, while the anchor path is an
+    identity the candidate-planning seam bound for the colour strategies. It is
+    always forwarded: `None` is what tells the builder to resolve an anchor itself,
+    which is exactly what the non-colour route wants.
+    """
     intent = DJSetIntent(
         name="Desktop Prep Copilot",
         strategy=request.strategy,
@@ -44,7 +62,7 @@ def generate_prep_copilot_plan(
         required_paths=request.required_paths,
         genre_focus=request.genre_focus,
     )
-    return plan_builder(records, intent)
+    return plan_builder(records, intent, color_anchor_path=color_anchor_path)
 
 
 class PrepCopilotVariantLike(Protocol):

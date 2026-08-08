@@ -43,8 +43,8 @@ def test_application_prep_copilot_generation_builds_intent_and_delegates() -> No
     generated_plan: Any = object()
     calls: list[tuple[Any, Any]] = []
 
-    def fake_plan_builder(records_arg: Any, intent_arg: Any) -> Any:
-        calls.append((records_arg, intent_arg))
+    def fake_plan_builder(tracks: Any, intent: Any, *, color_anchor_path: str | None = None) -> Any:
+        calls.append((tracks, intent))
         return generated_plan
 
     request = PrepCopilotGenerationRequest(

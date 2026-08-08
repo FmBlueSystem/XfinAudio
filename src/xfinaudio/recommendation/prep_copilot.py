@@ -60,20 +60,31 @@ class PrepCopilotPlan(BaseModel):
     variants: list[PrepCopilotVariant]
 
 
-def build_prep_copilot_plan(tracks: list[TrackRecord], intent: DJSetIntent) -> PrepCopilotPlan:
-    """Build safe, balanced, and adventurous playlist variants for one DJ set intent."""
+def build_prep_copilot_plan(
+    tracks: list[TrackRecord], intent: DJSetIntent, *, color_anchor_path: str | None = None
+) -> PrepCopilotPlan:
+    """Build safe, balanced, and adventurous playlist variants for one DJ set intent.
+
+    ``color_anchor_path`` is the colour-gate anchor identity already bound by the
+    candidate-planning seam. It stays a parameter rather than a `DJSetIntent` field:
+    the intent models what the human asked for, the anchor path is machine-bound
+    identity. Every variant gates against that exact track, so a variant filter that
+    removes it fails closed instead of rebinding a different anchor.
+    """
     from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
 
     PrepCopilotVariant.model_rebuild()
     variants = [
-        _build_variant("safe", tracks, intent),
-        _build_variant("balanced", tracks, intent),
-        _build_variant("adventurous", tracks, intent),
+        _build_variant("safe", tracks, intent, color_anchor_path=color_anchor_path),
+        _build_variant("balanced", tracks, intent, color_anchor_path=color_anchor_path),
+        _build_variant("adventurous", tracks, intent, color_anchor_path=color_anchor_path),
     ]
     return PrepCopilotPlan(intent=intent, variants=variants)
 
 
-def _build_variant(name: PrepVariantName, tracks: list[TrackRecord], intent: DJSetIntent) -> PrepCopilotVariant:
+def _build_variant(
+    name: PrepVariantName, tracks: list[TrackRecord], intent: DJSetIntent, *, color_anchor_path: str | None = None
+) -> PrepCopilotVariant:
     from xfinaudio.quality.dj_readiness import build_dj_readiness_report
     from xfinaudio.quality.recommendation_quality import build_quality_report
 
@@ -84,7 +95,9 @@ def _build_variant(name: PrepVariantName, tracks: list[TrackRecord], intent: DJS
         manual_order_paths=_manual_order_paths(intent),
         excluded_paths=intent.excluded_paths,
     )
-    recommendation = recommend_playlist(variant_tracks, intent.strategy, controls=controls)
+    recommendation = recommend_playlist(
+        variant_tracks, intent.strategy, controls=controls, color_anchor_path=color_anchor_path
+    )
     recommendation = _limit_recommendation(recommendation, intent.target_track_count)
     readiness = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
     readiness = _add_required_track_gate(readiness, recommendation, intent)

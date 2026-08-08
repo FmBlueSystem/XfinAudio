@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 from PySide6.QtWidgets import QTableWidgetItem
 
@@ -20,9 +20,40 @@ from xfinaudio.desktop.app_state_transitions import (
     apply_prep_copilot_variant,
 )
 from xfinaudio.desktop.rendering import format_quality_summary
+from xfinaudio.recommendation.playlist_service import COLOR_FILTER_STRATEGIES
+from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
+from xfinaudio.recommendation.strategies import resolve_strategy_name
 
 VariantApplicationBuilder = Callable[..., Any]
-PlanGenerationBuilder = Callable[..., Any]
+
+
+class PlanGenerationBuilder(Protocol):
+    """Seam that turns candidate records plus UI-derived parameters into a plan.
+
+    The bound colour anchor is keyword-only with a default so the non-colour route
+    can forward ``None`` through the same call shape instead of branching on it.
+    """
+
+    def __call__(
+        self, records: list[Any], request: PrepCopilotGenerationRequest, *, color_anchor_path: str | None = None
+    ) -> PrepCopilotPlan: ...
+
+
+def _internal_strategy_name(combo_value: object) -> str:
+    """Normalise whatever the strategy combo yields to an internal strategy name.
+
+    ``currentData()`` is empty for combos populated without user data, so the caller
+    falls back to the display label. A display label is not an internal strategy name,
+    so testing it against `COLOR_FILTER_STRATEGIES` would silently skip the colour
+    branch and plan the set unanchored. Genuinely unknown text is passed through
+    untouched: it already fails downstream in `recommend_playlist`, and raising here
+    would turn a deep, reported error into an unhandled one in the UI.
+    """
+    name = str(combo_value)
+    try:
+        return resolve_strategy_name(name)
+    except ValueError:
+        return name
 
 
 class PrepCopilotController:
@@ -62,8 +93,18 @@ class PrepCopilotController:
             self._on_status_message(self._state.tr("Select at least one complete track before generating Prep Copilot"))
             return
         strategy_combo = self._build_screen.strategy_combo
-        strategy_name = strategy_combo.currentData() or strategy_combo.currentText()
-        records = self._state._desktop_recommendation_records(controls, strategy_name)
+        strategy_name = _internal_strategy_name(strategy_combo.currentData() or strategy_combo.currentText())
+        if strategy_name in COLOR_FILTER_STRATEGIES:
+            # The colour strategies transport a bound anchor path so every variant
+            # gates against the same track the pool was planned for. A variant filter
+            # that drops it then fails closed instead of rebinding a different anchor.
+            # Every other strategy stays on the byte-identical records route below.
+            context = self._state._desktop_color_anchor_candidate_context(controls, strategy_name)
+            records = context.records
+            color_anchor_path = context.color_anchor_path
+        else:
+            records = self._state._desktop_recommendation_records(controls, strategy_name)
+            color_anchor_path = None
         genre_focus = self._build_screen.genre_focus_input.text().strip() or None
         request = PrepCopilotGenerationRequest(
             strategy=strategy_name,
@@ -72,7 +113,7 @@ class PrepCopilotController:
             required_paths=controls.manual_order_paths,
             genre_focus=genre_focus,
         )
-        plan = self._plan_generation_builder(records, request)
+        plan = self._plan_generation_builder(records, request, color_anchor_path=color_anchor_path)
         self._replace_state(apply_prep_copilot_plan_generated(self._state._state, plan))
         self._build_screen.apply_variant_button.setEnabled(True)
         self._on_status_message(self._state.tr("Generated {0} Prep Copilot variant(s)").format(len(plan.variants)))
