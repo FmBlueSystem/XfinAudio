@@ -217,13 +217,13 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "Order",
         "From",
         "To",
-        "Key Score",
-        "BPM Score",
-        "Energy Score",
+        "Key",
+        "BPM",
+        "Energy",
         "Fit",
         "Blend",
-        "Tag Score",
-        "Final Score",
+        "Tag",
+        "Final",
         "Warnings",
     ]
     assert _table_headers(window._export_screen.history_table) == [
@@ -1154,7 +1154,7 @@ def test_main_window_recommend_action_exposes_transition_explanation_table_data(
     assert window._review_screen.recommendation_table.rowCount() == 2
     assert window._review_screen.transition_table.rowCount() >= 1
     transition_headers = _table_headers(window._review_screen.transition_table)
-    score_item = window._review_screen.transition_table.item(0, transition_headers.index("Final Score"))
+    score_item = window._review_screen.transition_table.item(0, transition_headers.index("Final"))
     warnings_item = window._review_screen.transition_table.item(0, transition_headers.index("Warnings"))
     assert score_item is not None
     assert score_item.text() != ""
@@ -1231,13 +1231,13 @@ def test_main_window_recommend_action_populates_transition_review_table(tmp_path
         "Order",
         "From",
         "To",
-        "Key Score",
-        "BPM Score",
-        "Energy Score",
+        "Key",
+        "BPM",
+        "Energy",
         "Fit",
         "Blend",
-        "Tag Score",
-        "Final Score",
+        "Tag",
+        "Final",
         "Warnings",
     ]
     assert window._review_screen.transition_table.rowCount() == 1
@@ -1355,7 +1355,7 @@ def test_recommendation_table_formats_warning_cells_without_mutating_raw_explana
     assert window._review_screen.recommendation_table.isHidden() is False
     assert window._review_screen.recommendation_table.rowCount() == 2
     transition_headers = _table_headers(window._review_screen.transition_table)
-    score_item = window._review_screen.transition_table.item(0, transition_headers.index("Final Score"))
+    score_item = window._review_screen.transition_table.item(0, transition_headers.index("Final"))
     warnings_item = window._review_screen.transition_table.item(0, transition_headers.index("Warnings"))
     assert score_item is not None
     assert warnings_item is not None

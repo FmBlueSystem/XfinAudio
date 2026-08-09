@@ -74,12 +74,15 @@ class LibraryScreenRenderingMixin:
         self._apply_playing_highlight()
 
     def _render_empty_state(self, state: AppState) -> None:
-        if state.selected_folder is None:
-            text = self.tr("🎵 No library yet — choose a music folder to get started.")
-        elif not state.scanned_records:
-            text = self.tr("📂 Folder selected — scan metadata to load your tracks.")
-        else:
+        # Records first: a library restored from the database has tracks but no
+        # selected folder, and checking the folder alone announced "No library
+        # yet" above thousands of listed tracks.
+        if state.scanned_records:
             text = ""
+        elif state.selected_folder is None:
+            text = self.tr("🎵 No library yet — choose a music folder to get started.")
+        else:
+            text = self.tr("📂 Folder selected — scan metadata to load your tracks.")
         self.empty_state_label.setText(text)
         self.empty_state_label.setVisible(bool(text))
 
