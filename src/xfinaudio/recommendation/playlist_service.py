@@ -201,10 +201,29 @@ def recommendation_with_replacement(
         return recommendation
 
     playlist_paths = set(paths)
+    index = paths.index(removed_path)
+    left_neighbor = recommendation.ordered_tracks[index - 1] if index > 0 else None
+    right_neighbor = recommendation.ordered_tracks[index + 1] if index + 1 < len(paths) else None
+
+    def _is_mixable(candidate: TrackRecord) -> bool:
+        """Hold a replacement to the same tempo gate the generation path enforces.
+
+        Scoring alone cannot express this: the optimizer prices an unreachable
+        BPM out with UNPLAYABLE_TRANSITION_PENALTY, so a candidate that is
+        perfect harmonically could otherwise win a slot at a tempo nobody can
+        beatmatch.
+        """
+        for neighbor in (left_neighbor, right_neighbor):
+            if neighbor is None or neighbor.bpm is None or candidate.bpm is None:
+                continue
+            if bpm_difference_percent(neighbor.bpm, candidate.bpm) > MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:
+                return False
+        return True
+
     eligible = [
         candidate
         for candidate in candidates
-        if candidate.path not in playlist_paths and candidate.metadata_status == "complete"
+        if candidate.path not in playlist_paths and candidate.metadata_status == "complete" and _is_mixable(candidate)
     ]
     if not eligible:
         return recommendation_without_paths(
@@ -215,9 +234,8 @@ def recommendation_with_replacement(
         weights=recommendation.strategy.weights,
         spectral_cohesion=spectral_cohesion,
     )
-    index = paths.index(removed_path)
-    left = recommendation.ordered_tracks[index - 1] if index > 0 else None
-    right = recommendation.ordered_tracks[index + 1] if index + 1 < len(paths) else None
+    left = left_neighbor
+    right = right_neighbor
 
     def _slot_fit(candidate: TrackRecord) -> float:
         fit = 0.0
