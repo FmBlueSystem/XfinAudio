@@ -23,6 +23,7 @@ from xfinaudio.desktop.recommendation_service import (
     DESKTOP_PLAYED_SECONDS_PER_TRACK,
     DESKTOP_RECOMMENDATION_SET_MINUTES,
 )
+from xfinaudio.desktop.screens.build_screen import ANY_GENRE
 from xfinaudio.exporting.explainability import PlaylistExplanation, TrackExplanation, TransitionExplanation
 from xfinaudio.exporting.serato_crate import parse_serato_crate_bytes
 from xfinaudio.library.models import TrackRecord
@@ -2062,6 +2063,9 @@ def test_main_window_shows_dj_readiness_after_recommendation(tmp_path) -> None:
     window.scanned_records = records
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
+    any_genre_index = window._build_screen.genre_combo.findText(ANY_GENRE)
+    window._build_screen.genre_combo.setCurrentIndex(any_genre_index)
+    window._build_screen.genre_combo.activated.emit(any_genre_index)
     window.recommend_playlist()
     _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 

@@ -182,3 +182,17 @@ def test_shutdown_tears_down_all_completion_workers() -> None:
     assert window._library_controller._spectral_completion_worker is None
     assert window._library_controller._danceability_completion_worker is None
     assert window._library_controller._edge_spectral_completion_worker is None
+
+
+def test_library_anchor_selection_suggests_its_genre_on_build_screen() -> None:
+    _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    records = [
+        TrackRecord(path="/music/house.flac", genre="House", metadata_status="complete"),
+        TrackRecord(path="/music/rock.flac", genre="Rock", metadata_status="complete"),
+    ]
+    window._library_controller.populate_track_table(records)
+
+    window._library_controller.on_library_selection_changed([records[0].path])
+
+    assert window._build_screen.genre_combo.currentText() == "House"

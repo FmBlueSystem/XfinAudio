@@ -76,6 +76,55 @@ def test_prep_copilot_returns_three_comparable_variants_with_same_intent() -> No
     assert all(variant.readiness.status == "ready" for variant in plan.variants)
 
 
+def test_prep_copilot_wide_library_does_not_collapse_every_variant_to_one_track() -> None:
+    anchor = track("/music/anchor.flac", bpm=128, key="8A", energy=5, genre="House")
+    scattered_bpms = [60 * 1.04**index for index in range(30)]
+    scattered = [
+        track(f"/music/scattered-{index}.flac", bpm=bpm, key="8A", energy=5, genre="House")
+        for index, bpm in enumerate(scattered_bpms)
+        if not 124 <= bpm <= 132
+    ]
+    bridge = [
+        track(f"/music/bridge-{index}.flac", bpm=60 + index * 0.7, key="8A", energy=5, genre="House")
+        for index in range(160)
+    ]
+    anchor_cluster = [
+        track(f"/music/cluster-{index}.flac", bpm=127 + index % 3, key="8A", energy=5, genre="House")
+        for index in range(40)
+    ]
+    intent = DJSetIntent(
+        name="Wide library",
+        strategy="harmonic_journey",
+        start_path=anchor.path,
+        target_track_count=25,
+        genre_focus="House",
+    )
+
+    plan = build_prep_copilot_plan([anchor, *scattered, *bridge, *anchor_cluster], intent)
+
+    assert all(len(variant.recommendation.ordered_tracks) >= 10 for variant in plan.variants)
+    assert all(len(variant.recommendation.ordered_tracks) <= intent.target_track_count for variant in plan.variants)
+    assert all(variant.recommendation.ordered_tracks[0].path == anchor.path for variant in plan.variants)
+
+
+def test_prep_copilot_tiny_library_returns_available_tracks_without_raising() -> None:
+    tracks = [
+        track("/music/anchor.flac", bpm=128),
+        track("/music/two.flac", bpm=128),
+        track("/music/three.flac", bpm=129),
+    ]
+    intent = DJSetIntent(
+        name="Tiny library",
+        strategy="harmonic_journey",
+        start_path=tracks[0].path,
+        target_track_count=25,
+    )
+
+    plan = build_prep_copilot_plan(tracks, intent)
+
+    assert all(len(variant.recommendation.ordered_tracks) == len(tracks) for variant in plan.variants)
+
+
 def test_safe_variant_keeps_focused_genre_while_adventurous_can_bridge_outside_it() -> None:
     tracks = [
         track("/music/start.flac", bpm=100, key="8A", energy=4, genre="Disco"),
