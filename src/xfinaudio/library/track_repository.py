@@ -45,8 +45,14 @@ class TrackRepository:
         self.db_path = Path(db_path)
         self._initialize()
 
-    def save_scan_results(self, records: Iterable[TrackRecord]) -> None:
-        """Upsert scanned track records by absolute file path."""
+    def save_scan_results(
+        self,
+        records: Iterable[TrackRecord],
+        *,
+        pruned_root: Path | str | None = None,
+    ) -> None:
+        """Upsert scanned tracks and optionally prune absent rows below one root."""
+        record_list = list(records)
         with self._connect() as connection:
             # Energy cues are cheap tag-derived values, so a rescan replaces
             # them directly rather than preserving stale values like a profile.
@@ -113,8 +119,20 @@ class TrackRepository:
                     file_mtime_ns = excluded.file_mtime_ns,
                     file_size_bytes = excluded.file_size_bytes
                 """,
-                [self._record_to_row(record) for record in records],
+                [self._record_to_row(record) for record in record_list],
             )
+            if pruned_root is not None:
+                # Pruning is opt-in and scoped because an unscoped delete would
+                # erase every other folder the DJ has scanned. Compare only with
+                # scan-returned paths—not current disk existence—so a missing or
+                # temporarily unmounted path is not rejected here.
+                root = Path(pruned_root)
+                returned_paths = {Path(record.path) for record in record_list}
+                stored_paths = (Path(row["path"]) for row in connection.execute("SELECT path FROM tracks"))
+                pruned_paths = [
+                    str(path) for path in stored_paths if path.is_relative_to(root) and path not in returned_paths
+                ]
+                connection.executemany("DELETE FROM tracks WHERE path = ?", [(path,) for path in pruned_paths])
 
     def list_tracks(self) -> list[TrackRecord]:
         """Return persisted tracks ordered deterministically by path."""

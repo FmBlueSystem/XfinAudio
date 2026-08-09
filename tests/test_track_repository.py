@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -84,6 +85,107 @@ def test_track_repository_replaces_existing_record_for_same_path(tmp_path) -> No
     repository.save_scan_results([second])
 
     assert repository.list_tracks() == [second]
+
+
+def test_rescan_forgets_ghost_track_missing_from_scan_results(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    root = Path("/music/80s")
+    kept = TrackRecord(path=str(root / "kept.flac"), title="Kept")
+    ghost = TrackRecord(path=str(root / "gone.flac"), title="Gone")
+    repository.save_scan_results([kept, ghost])
+
+    repository.save_scan_results([kept], pruned_root=root)
+
+    assert repository.list_tracks() == [kept]
+
+
+def test_pruned_rescan_preserves_tracks_under_different_root(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    scanned_root = Path("/music/80s")
+    inside = TrackRecord(path=str(scanned_root / "gone.flac"))
+    outside = TrackRecord(path="/music/90s/stays.flac")
+    repository.save_scan_results([inside, outside])
+
+    repository.save_scan_results([], pruned_root=scanned_root)
+
+    assert repository.list_tracks() == [outside]
+
+
+@pytest.mark.parametrize(
+    ("pruned_root", "sibling_root"),
+    [
+        (Path("/music/80s"), Path("/music/80s-live")),
+        (Path("/music/80s-live"), Path("/music/80s")),
+    ],
+)
+def test_pruned_rescan_does_not_match_sibling_root_names(tmp_path, pruned_root, sibling_root) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    inside = TrackRecord(path=str(pruned_root / "gone.flac"))
+    sibling = TrackRecord(path=str(sibling_root / "stays.flac"))
+    repository.save_scan_results([inside, sibling])
+
+    repository.save_scan_results([], pruned_root=pruned_root)
+
+    assert repository.list_tracks() == [sibling]
+
+
+def test_save_scan_results_without_pruned_root_keeps_missing_records(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    first = TrackRecord(path="/music/80s/first.flac")
+    second = TrackRecord(path="/music/80s/second.flac")
+    repository.save_scan_results([first, second])
+
+    repository.save_scan_results([first])
+
+    assert repository.list_tracks() == [first, second]
+
+
+def test_pruning_removes_expensive_analysis_and_readding_starts_from_scratch(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    root = Path("/music/80s")
+    profile = SpectralProfile(
+        red_ratio=0.1,
+        green_ratio=0.8,
+        blue_ratio=0.1,
+        centroid_hz=500.0,
+        rolloff_hz=1200.0,
+        rms=0.05,
+        dominant_color="GREEN",
+    )
+    analyzed = TrackRecord(path=str(root / "track.flac"), spectral_profile=profile)
+    repository.save_scan_results([analyzed])
+
+    repository.save_scan_results([], pruned_root=root)
+
+    assert repository.list_tracks() == []
+
+    repository.save_scan_results([TrackRecord(path=analyzed.path)], pruned_root=root)
+
+    assert repository.list_tracks()[0].spectral_profile is None
+
+
+def test_empty_pruned_rescan_deletes_only_tracks_inside_named_root(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    root = Path("/music/80s")
+    inside = [TrackRecord(path=str(root / "a.flac")), TrackRecord(path=str(root / "b.flac"))]
+    outside = TrackRecord(path="/music/90s/stays.flac")
+    repository.save_scan_results([*inside, outside])
+
+    repository.save_scan_results([], pruned_root=root)
+
+    assert repository.list_tracks() == [outside]
+
+
+def test_pruned_rescan_uses_returned_records_without_checking_disk_existence(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    root = tmp_path / "unmounted-library"
+    returned = TrackRecord(path=str(root / "track.flac"), title="Still returned")
+    repository.save_scan_results([returned])
+    assert not Path(returned.path).exists()
+
+    repository.save_scan_results([returned], pruned_root=root)
+
+    assert repository.list_tracks() == [returned]
 
 
 def test_track_repository_trims_legacy_raw_metadata_blobs_on_upgrade(tmp_path) -> None:

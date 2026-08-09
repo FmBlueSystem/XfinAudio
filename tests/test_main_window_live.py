@@ -12,7 +12,7 @@ class _FakeScanService:
 
 
 class _FakeRepository:
-    def save_scan_results(self, records):
+    def save_scan_results(self, records, *, pruned_root=None):
         pass
 
 

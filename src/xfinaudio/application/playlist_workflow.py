@@ -101,7 +101,7 @@ class PlaylistWorkflowService:
                 cancelled=True,
             )
 
-        self.repository.save_scan_results(records)
+        self.repository.save_scan_results(records, pruned_root=folder)
         if _supports_stored_track_read(self.repository):
             stored_profiles = {
                 record.path: record.spectral_profile
