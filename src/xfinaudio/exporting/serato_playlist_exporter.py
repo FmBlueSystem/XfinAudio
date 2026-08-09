@@ -320,13 +320,12 @@ def _generated_crate_name(
     *,
     generated_at: datetime | None = None,
 ) -> str:
-    generated_at = generated_at or datetime.now()
-    timestamp = generated_at.strftime("%Y%m%d-%H%M%S")
-    anchor = _anchor_name(recommendation)
-    count = len(recommendation.ordered_tracks)
-    track_word = "track" if count == 1 else "tracks"
     strategy_group = _strategy_group_folder_name(recommendation)
-    leaf_name = _sanitize_name(f"{timestamp} - {recommendation.strategy.name} - {anchor} - {count} {track_word}")
+    leaf_name = _crate_leaf_name(
+        anchor=_anchor_name(recommendation),
+        count=len(recommendation.ordered_tracks),
+        generated_at=generated_at,
+    )
     return f"{strategy_group}%%{leaf_name}"
 
 
@@ -336,18 +335,14 @@ def _copilot_variant_crate_name(
     *,
     generated_at: datetime | None = None,
 ) -> str:
-    generated_at = generated_at or datetime.now()
-    timestamp = generated_at.strftime("%Y%m%d-%H%M%S")
-    safe_variant = _sanitize_name(variant_name.casefold())
     display_variant = _sanitize_name(variant_name.replace("_", " ").title())
-    anchor = _anchor_name(recommendation)
-    count = len(recommendation.ordered_tracks)
-    track_word = "track" if count == 1 else "tracks"
     group = _sanitize_name(
         f"{GENERATED_CRATE_ROOT}%%Prep Copilot%%{recommendation.strategy.display_name}%%{display_variant}"
     )
-    leaf_name = _sanitize_name(
-        f"{timestamp} - {recommendation.strategy.name} - {safe_variant} - {anchor} - {count} {track_word}"
+    leaf_name = _crate_leaf_name(
+        anchor=_anchor_name(recommendation),
+        count=len(recommendation.ordered_tracks),
+        generated_at=generated_at,
     )
     return f"{group}%%{leaf_name}"
 
@@ -358,12 +353,9 @@ def _metadata_status_crate_name(
     *,
     generated_at: datetime | None = None,
 ) -> str:
-    generated_at = generated_at or datetime.now()
-    timestamp = generated_at.strftime("%Y%m%d-%H%M%S")
     display_status = status.capitalize()
-    track_word = "track" if count == 1 else "tracks"
     group = _sanitize_name(f"{GENERATED_CRATE_ROOT}%%Metadata%%{display_status}")
-    leaf_name = _sanitize_name(f"{timestamp} - {status} metadata - {count} {track_word}")
+    leaf_name = _crate_leaf_name(anchor=None, count=count, generated_at=generated_at)
     return f"{group}%%{leaf_name}"
 
 
@@ -373,14 +365,35 @@ def _metadata_missing_field_crate_name(
     *,
     generated_at: datetime | None = None,
 ) -> str:
-    generated_at = generated_at or datetime.now()
-    timestamp = generated_at.strftime("%Y%m%d-%H%M%S")
     display_field = _metadata_field_display_name(missing_field)
-    slug_field = display_field.casefold()
-    track_word = "track" if count == 1 else "tracks"
     group = _sanitize_name(f"{GENERATED_CRATE_ROOT}%%Metadata%%Missing {display_field}")
-    leaf_name = _sanitize_name(f"{timestamp} - missing {slug_field} - {count} {track_word}")
+    leaf_name = _crate_leaf_name(anchor=None, count=count, generated_at=generated_at)
     return f"{group}%%{leaf_name}"
+
+
+def _crate_leaf_name(
+    *,
+    anchor: str | None,
+    count: int,
+    generated_at: datetime | None,
+) -> str:
+    generated_at = generated_at or datetime.now()
+    stamp = generated_at.strftime("%m%d-%H%M")
+    track_word = "track" if count == 1 else "tracks"
+
+    # Lead with the anchor because it distinguishes generated crates in narrow
+    # panels; never repeat strategy, variant, status, or field already in folders.
+    if anchor is None:
+        distinctive_part = f"{count} {track_word}"
+    else:
+        safe_anchor = _sanitize_name(anchor)
+        if len(safe_anchor) > 40:
+            shortened = safe_anchor[:40]
+            nearby_boundary = shortened.rfind(" ")
+            safe_anchor = shortened[:nearby_boundary] if nearby_boundary >= 30 else shortened
+        distinctive_part = f"{safe_anchor} · {count}"
+
+    return _sanitize_name(f"{distinctive_part} · {stamp}")
 
 
 def _metadata_field_display_name(field_name: str) -> str:
