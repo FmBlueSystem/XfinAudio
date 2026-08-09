@@ -102,7 +102,11 @@ def test_transition_table_exposes_fit_and_blend_headers(qapp: QApplication) -> N
     assert table.horizontalHeaderItem(7).toolTip() == (
         "Can these tracks be joined? Tempo and the energy handoff from the outgoing to the incoming section."
     )
-    assert table.horizontalHeaderItem(9).toolTip() == ("Weighted average: 60% Key + 20% BPM + 15% Energy + 5% Tags")
+    # Deliberately strategy-agnostic: the old text pinned harmonic_journey's
+    # weights but was shown for every strategy.
+    final_tooltip = table.horizontalHeaderItem(9).toolTip()
+    assert final_tooltip.startswith("Weighted average")
+    assert "depend on the selected strategy" in final_tooltip
 
 
 def test_readiness_detail_column_gets_the_free_width(qapp: QApplication) -> None:
