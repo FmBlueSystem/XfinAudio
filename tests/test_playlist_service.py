@@ -2279,3 +2279,29 @@ def test_same_color_energy_emits_the_filter_applied_informational_warning() -> N
     result = recommend_playlist(tracks, "same_color_energy", controls=DJControls(start_path="/anchor.flac"))
 
     assert "same_color_energy filter applied: GREEN" in result.warnings
+
+
+def test_recommendation_with_replacement_refuses_an_unmixable_bpm() -> None:
+    """The optimizer prices an impossible BPM jump out with a -1000 penalty.
+
+    Replacement only summed transition scores, so a candidate that is perfect
+    harmonically and on energy could win the slot at a tempo nobody can beatmatch
+    — the one thing the generation path treats as a hard gate.
+    """
+    recommendation = _three_track_recommendation()
+    unmixable = track("/unmixable.flac", bpm=175.0, camelot_key="9A", energy_level=5)
+
+    result = recommendation_with_replacement(recommendation, "/removed.flac", [unmixable])
+
+    assert "/unmixable.flac" not in [item.path for item in result.ordered_tracks]
+
+
+def test_recommendation_with_replacement_prefers_a_mixable_candidate_over_a_better_scoring_one() -> None:
+    """A slightly worse fit that can actually be mixed beats a perfect one that cannot."""
+    recommendation = _three_track_recommendation()
+    unmixable_perfect = track("/unmixable.flac", bpm=175.0, camelot_key="9A", energy_level=5)
+    mixable_ok = track("/mixable.flac", bpm=121.0, camelot_key="4A", energy_level=5)
+
+    result = recommendation_with_replacement(recommendation, "/removed.flac", [unmixable_perfect, mixable_ok])
+
+    assert [item.path for item in result.ordered_tracks] == ["/left.flac", "/mixable.flac", "/right.flac"]
