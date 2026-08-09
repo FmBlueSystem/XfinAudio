@@ -229,7 +229,7 @@ def _score_color_and_tooltip(
             tips.append(QCoreApplication.translate("TablePopulators", "Different genres/tags — musical contrast"))
     elif column_index == 9:  # Final Score
         tips.append(QCoreApplication.translate("TablePopulators", "Weighted average of all components"))
-        tips.append(QCoreApplication.translate("TablePopulators", "60% Key + 20% BPM + 15% Energy + 5% Tags"))
+        tips.append(QCoreApplication.translate("TablePopulators", "Component weights depend on the selected strategy"))
         tips.extend(transition.explanations)
 
     return bg, fg, "\n".join(tips)

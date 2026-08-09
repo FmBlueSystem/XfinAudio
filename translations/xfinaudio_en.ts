@@ -1257,7 +1257,7 @@
     </message>
     <message>
         <location filename="../src/xfinaudio/desktop/table_populators.py" line="202"/>
-        <source>60% Key + 20% BPM + 15% Energy + 5% Tags</source>
+        <source>Component weights depend on the selected strategy</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

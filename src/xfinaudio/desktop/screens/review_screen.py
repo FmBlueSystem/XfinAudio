@@ -55,7 +55,7 @@ _TRANSITION_HEADER_TOOLTIPS = {
     6: "Do these tracks belong in the same set? Harmony, tags, danceability and spectral colour.",
     7: "Can these tracks be joined? Tempo and the energy handoff from the outgoing to the incoming section.",
     8: "Genre/tag overlap. Higher = more shared tags or genres",
-    9: "Weighted average: 60% Key + 20% BPM + 15% Energy + 5% Tags",
+    9: "Weighted average of all components. Component weights depend on the selected strategy",
     10: "Alerts about potential issues in this transition",
 }
 

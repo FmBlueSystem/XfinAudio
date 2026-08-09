@@ -172,7 +172,7 @@ TRANSLATIONS: dict[str, str] = {
     "Same energy — smooth transition": "Misma energía — transición suave",
     "Different genres/tags — musical contrast": "Géneros/tags diferentes — contraste musical",
     "DJ boost rule — marked as compatible": "Regla DJ boost — marcado como compatible",
-    "60% Key + 20% BPM + 15% Energy + 5% Tags": "60% Key + 20% BPM + 15% Energía + 5% Tags",
+    "Component weights depend on the selected strategy": "Los pesos de cada componente dependen de la estrategia elegida",
     # Build screen
     "Recommend Playlist": "Recomendar Playlist",
     "Exclude Selected": "Excluir Seleccionados",
