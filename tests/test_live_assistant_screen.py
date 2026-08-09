@@ -216,3 +216,25 @@ def test_energy_alert_falls_back_to_scalar_without_boundaries(qapp: QApplication
     alerts = screen._generate_alerts(candidate)
 
     assert "Energy jump" in alerts
+
+
+def test_diagonal_key_does_not_trigger_key_clash_alert(qapp: QApplication, track_a: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    current = track_a.model_copy(update={"camelot_key": "7A"})
+    candidate = track_a.model_copy(update={"path": "/diagonal.flac", "camelot_key": "8B"})
+    screen.set_current_track(current)
+
+    alerts = screen._generate_alerts(candidate)
+
+    assert "Key clash" not in alerts
+
+
+def test_incompatible_key_still_triggers_key_clash_alert(qapp: QApplication, track_a: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    current = track_a.model_copy(update={"camelot_key": "7A"})
+    candidate = track_a.model_copy(update={"path": "/clash.flac", "camelot_key": "11B"})
+    screen.set_current_track(current)
+
+    alerts = screen._generate_alerts(candidate)
+
+    assert "Key clash" in alerts

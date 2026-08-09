@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.camelot import score_camelot_transition
 from xfinaudio.recommendation.scoring import bpm_difference_percent, effective_energy_delta
 
 
@@ -332,7 +333,7 @@ class LiveAssistantScreen(QWidget):
         if (
             current.camelot_key
             and candidate.camelot_key
-            and not _camelot_compatible(current.camelot_key, candidate.camelot_key)
+            and not (score_camelot_transition(current.camelot_key, candidate.camelot_key) > 0)
         ):
             alerts.append("Key clash")
 
@@ -344,19 +345,3 @@ class LiveAssistantScreen(QWidget):
             alerts.append("Energy jump")
 
         return alerts
-
-
-def _camelot_compatible(left: str, right: str) -> bool:
-    """Check if two Camelot keys are harmonically compatible."""
-    if left == right:
-        return True
-    if len(left) < 2 or len(right) < 2:
-        return False
-    left_num = int(left[:-1])
-    left_letter = left[-1]
-    right_num = int(right[:-1])
-    right_letter = right[-1]
-    if left_letter == right_letter:
-        diff = abs(left_num - right_num)
-        return diff == 1 or diff == 11
-    return left_num == right_num and left_letter != right_letter
