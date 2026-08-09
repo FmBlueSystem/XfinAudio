@@ -24,6 +24,8 @@ from xfinaudio.library.scan_service import ScanCancellationToken
 
 LOGGER = logging.getLogger(__name__)
 
+_IN_FLIGHT_WORKERS: set[SpectralCompletionWorker] = set()
+
 
 def _is_cancelled(token: ScanCancellationToken | None) -> bool:
     """Return True if cancellation has been requested."""
@@ -177,9 +179,11 @@ class SpectralCompletionWorker(QObject):
         runner.finished.connect(self._on_finished)
         runner.failed.connect(self.failed)
         runner.finished.connect(thread.quit)
+        thread.finished.connect(self._on_thread_finished)
         thread.finished.connect(thread.deleteLater)
         self._thread = thread
         self._runner = runner
+        _IN_FLIGHT_WORKERS.add(self)
         thread.start()
 
     def cancel(self, timeout_ms: int = 500) -> None:
@@ -235,9 +239,8 @@ class SpectralCompletionWorker(QObject):
         if thread is not None and thread.isRunning():
             thread.terminate()
             thread.wait(timeout_ms)
-        self._release_runner()
-        self._thread = None
-        self._cancellation_token = None
+        if thread is None or not thread.isRunning():
+            self._on_thread_finished()
 
     def _release_runner(self) -> None:
         """Drop the runner, tolerating a C++ side that is already gone.
@@ -257,7 +260,13 @@ class SpectralCompletionWorker(QObject):
     @Slot()
     def _on_finished(self) -> None:
         self.finished.emit()
+
+    @Slot()
+    def _on_thread_finished(self) -> None:
         self._release_runner()
+        self._thread = None
+        self._cancellation_token = None
+        _IN_FLIGHT_WORKERS.discard(self)
 
     @Slot(int, int)
     def _on_progress_updated(self, processed_count: int, total_count: int) -> None:
