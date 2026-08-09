@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         TransitionScore,
         TransitionScoringConfig,
         bpm_difference_percent,
+        effective_energy_delta,
         normalized_bpm_pair,
         score_transition,
     )
@@ -53,6 +54,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "TransitionScoringConfig": ("xfinaudio.recommendation.scoring", "TransitionScoringConfig"),
     "apply_controls": ("xfinaudio.recommendation.controls", "apply_controls"),
     "bpm_difference_percent": ("xfinaudio.recommendation.scoring", "bpm_difference_percent"),
+    "effective_energy_delta": ("xfinaudio.recommendation.scoring", "effective_energy_delta"),
     "build_prep_copilot_plan": ("xfinaudio.recommendation.prep_copilot", "build_prep_copilot_plan"),
     "available_strategies": ("xfinaudio.recommendation.strategies", "available_strategies"),
     "default_strategy_registry": ("xfinaudio.recommendation.strategies", "default_strategy_registry"),
@@ -84,6 +86,7 @@ __all__ = [
     "TransitionScoringConfig",
     "apply_controls",
     "bpm_difference_percent",
+    "effective_energy_delta",
     "build_prep_copilot_plan",
     "available_strategies",
     "default_strategy_registry",

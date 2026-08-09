@@ -20,7 +20,9 @@ from xfinaudio.recommendation.scoring import (
     TransitionScore,
     TransitionScoringConfig,
     _bpm_difference_percent,
+    _effective_energy_delta,
     bpm_difference_percent,
+    effective_energy_delta,
     normalized_bpm_pair,
     score_transition,
 )
@@ -106,6 +108,19 @@ def test_score_transition_uses_out_to_in_energy_handoff_when_both_are_available(
 
     assert result.component_scores["energy"] == 1.0
     assert "Energy handoff (out→in) difference is 0" in result.explanations
+
+
+def test_effective_energy_delta_returns_handoff_delta_and_usage() -> None:
+    result = effective_energy_delta(
+        track("left", energy_level=4, energy_out=8),
+        track("right", energy_level=8, energy_in=8),
+    )
+
+    assert result == (0.0, True)
+
+
+def test_private_effective_energy_delta_is_public_helper_alias() -> None:
+    assert _effective_energy_delta is effective_energy_delta
 
 
 def test_score_transition_falls_back_to_scalar_energy_when_one_handoff_side_is_missing() -> None:

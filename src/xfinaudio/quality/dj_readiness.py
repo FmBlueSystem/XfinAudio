@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from xfinaudio.exporting.serato_crate import SeratoExportPlan, validate_serato_crate_file
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import MAX_ADJACENT_BPM_DIFFERENCE_PERCENT, PlaylistRecommendation
-from xfinaudio.recommendation.scoring import bpm_difference_percent
+from xfinaudio.recommendation.scoring import bpm_difference_percent, effective_energy_delta
 
 LOGGER = logging.getLogger(__name__)
 
@@ -225,9 +225,10 @@ def _bpm_continuity_check(recommendation: PlaylistRecommendation) -> DjReadiness
 
 
 def _max_energy_jump(recommendation: PlaylistRecommendation) -> int:
+    # Two answers to the same transition question are worse than either one.
     return max(
         (
-            abs(left.energy_level - right.energy_level)
+            int(effective_energy_delta(left, right)[0])
             for left, right in zip(recommendation.ordered_tracks, recommendation.ordered_tracks[1:], strict=False)
             if left.energy_level is not None and right.energy_level is not None
         ),

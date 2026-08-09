@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.recommendation.scoring import bpm_difference_percent
+from xfinaudio.recommendation.scoring import bpm_difference_percent, effective_energy_delta
 
 
 class _CandidateRow(QWidget):
@@ -339,7 +339,7 @@ class LiveAssistantScreen(QWidget):
         if (
             current.energy_level is not None
             and candidate.energy_level is not None
-            and abs(candidate.energy_level - current.energy_level) > 2
+            and effective_energy_delta(current, candidate)[0] > 2
         ):
             alerts.append("Energy jump")
 

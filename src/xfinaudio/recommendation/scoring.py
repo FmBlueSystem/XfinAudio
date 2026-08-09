@@ -168,7 +168,7 @@ def score_transition(
             )
         )
 
-    energy_delta, used_energy_handoff = _effective_energy_delta(left, right)
+    energy_delta, used_energy_handoff = effective_energy_delta(left, right)
     component_scores = {
         "harmonic": harmonic_score,
         "bpm": _score_bpm(left.bpm or 0.0, right.bpm or 0.0, scoring_config),
@@ -325,12 +325,16 @@ def _score_bpm(left_bpm: float, right_bpm: float, config: TransitionScoringConfi
     return _score_threshold(delta, config.bpm_thresholds)
 
 
-def _effective_energy_delta(left: TrackRecord, right: TrackRecord) -> tuple[float, bool]:
+def effective_energy_delta(left: TrackRecord, right: TrackRecord) -> tuple[float, bool]:
+    """Compare energy_out(A) to energy_in(B), falling back to track energy levels."""
     if left.energy_out is not None and right.energy_in is not None:
         # A transition joins the outgoing section to the incoming section; the
         # whole-track scalar is only a fallback when either boundary is absent.
         return float(abs(left.energy_out - right.energy_in)), True
     return float(abs((left.energy_level or 0) - (right.energy_level or 0))), False
+
+
+_effective_energy_delta = effective_energy_delta
 
 
 def _score_energy(delta: float, config: TransitionScoringConfig) -> float:

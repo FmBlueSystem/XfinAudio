@@ -10,6 +10,8 @@ def complete_track(
     energy: int,
     key: str = "8A",
     spectral_profile: SpectralProfile | None = None,
+    energy_in: int | None = None,
+    energy_out: int | None = None,
 ) -> TrackRecord:
     return TrackRecord(
         path=path,
@@ -17,6 +19,8 @@ def complete_track(
         bpm=bpm,
         camelot_key=key,
         energy_level=energy,
+        energy_in=energy_in,
+        energy_out=energy_out,
         metadata_status="complete",
         spectral_profile=spectral_profile,
     )
@@ -54,6 +58,34 @@ def test_build_quality_report_folds_half_time_bpm_jump() -> None:
     report = build_quality_report(recommendation)
 
     assert report.bpm_jumps == [0.0]
+
+
+def test_build_quality_report_uses_energy_handoff_delta() -> None:
+    recommendation = recommend_playlist(
+        [
+            complete_track("/music/a.flac", 128.0, 4, energy_out=8),
+            complete_track("/music/b.flac", 128.0, 8, energy_in=8),
+        ],
+        "harmonic_journey",
+    )
+
+    report = build_quality_report(recommendation)
+
+    assert report.energy_jumps == [0]
+
+
+def test_build_quality_report_energy_jump_falls_back_to_scalar() -> None:
+    recommendation = recommend_playlist(
+        [
+            complete_track("/music/a.flac", 128.0, 4),
+            complete_track("/music/b.flac", 128.0, 8),
+        ],
+        "harmonic_journey",
+    )
+
+    report = build_quality_report(recommendation)
+
+    assert report.energy_jumps == [4]
 
 
 def test_build_quality_report_compares_manual_path_sequence() -> None:

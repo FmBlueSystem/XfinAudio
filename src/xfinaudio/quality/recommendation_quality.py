@@ -7,7 +7,7 @@ import logging
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
-from xfinaudio.recommendation.scoring import normalized_bpm_pair
+from xfinaudio.recommendation.scoring import effective_energy_delta, normalized_bpm_pair
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,8 +35,7 @@ def build_quality_report(
     tracks = recommendation.ordered_tracks
     bpm_jumps = [_bpm_jump(left.bpm or 0.0, right.bpm or 0.0) for left, right in zip(tracks, tracks[1:], strict=False)]
     energy_jumps = [
-        abs((right.energy_level or 0) - (left.energy_level or 0))
-        for left, right in zip(tracks, tracks[1:], strict=False)
+        int(effective_energy_delta(left, right)[0]) for left, right in zip(tracks, tracks[1:], strict=False)
     ]
     transition_count = len(recommendation.transition_scores)
     average_transition_score = round(recommendation.total_score / transition_count, 6) if transition_count else 0.0
