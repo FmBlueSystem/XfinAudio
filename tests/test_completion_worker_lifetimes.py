@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import gc
 import threading
 import time
@@ -107,6 +108,38 @@ def _pump_events_until(predicate: Any, timeout: float = 5.0) -> bool:
 
 def _make_worker(worker_class: type[Any], analyzer_argument: str, analyzer: _BlockingAnalyzer) -> Any:
     return worker_class(**{analyzer_argument: analyzer})
+
+
+def _in_flight_registries() -> list[set[Any]]:
+    from xfinaudio.desktop import (
+        danceability_completion_worker,
+        edge_spectral_completion_worker,
+        spectral_completion_worker,
+    )
+
+    return [
+        spectral_completion_worker._IN_FLIGHT_WORKERS,
+        danceability_completion_worker._IN_FLIGHT_WORKERS,
+        edge_spectral_completion_worker._IN_FLIGHT_WORKERS,
+    ]
+
+
+@pytest.fixture(autouse=True)
+def _no_worker_outlives_its_test() -> Any:
+    """Stop every worker this test started before the next module runs.
+
+    A thread that survives its own test is not this test's problem — it is the
+    next one's, and it shows up as a segfault in an unrelated module. Draining
+    the in-flight registries here keeps a lifetime failure attributable to the
+    test that caused it.
+    """
+    yield
+    for registry in _in_flight_registries():
+        for worker in list(registry):
+            with contextlib.suppress(RuntimeError):
+                worker.shutdown()
+        registry.clear()
+    _pump_events_until(lambda: True, timeout=0.05)
 
 
 @pytest.mark.parametrize(("worker_class", "analyzer_argument", "profile_factory"), WORKER_CASES)
@@ -216,3 +249,34 @@ def test_shutdown_stops_running_worker_and_is_idempotent(
     release_timer.join()
     assert analyzer.completed.is_set()
     assert not worker.is_running()
+
+
+@pytest.mark.parametrize(("worker_class", "analyzer_argument", "profile_factory"), WORKER_CASES)
+def test_deleting_a_worker_mid_run_does_not_abort_on_a_live_thread(
+    tmp_path: Path,
+    worker_class: type[Any],
+    analyzer_argument: str,
+    profile_factory: Any,
+) -> None:
+    """Regression: a parented QThread is destroyed with its owner.
+
+    `~QObject` calls `deleteChildren()`, and `~QThread` calls qFatal — which
+    aborts the process, not merely warns — when the thread is still running.
+    A crash report showed exactly that stack on the main thread while another
+    QThread sat in `QThread::exec()`.
+    """
+    analyzer = _BlockingAnalyzer(profile_factory())
+    worker = _make_worker(worker_class, analyzer_argument, analyzer)
+    worker.start([TrackRecord(path=str(tmp_path / "track.flac"))], _FakeRepository(), max_workers=1)
+    assert analyzer.started.wait(2)
+    thread = worker._thread
+    assert thread is not None and thread.isRunning()
+
+    # The thread must not be a Qt child: that parentage is what turns an
+    # ordinary deleteLater into an abort.
+    assert not [child for child in worker.children() if child is thread]
+
+    worker.deleteLater()
+    threading.Timer(0.02, analyzer.release.set).start()
+
+    assert _pump_events_until(lambda: not thread.isRunning())
