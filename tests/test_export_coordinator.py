@@ -544,7 +544,10 @@ def test_plan_serato_export_uses_generated_strategy_name_when_no_variant(tmp_pat
         generated_at=fixed_dt,
     )
 
-    assert "20240310" in plan.crate_name
+    folder, leaf = plan.crate_name.rsplit("%%", 1)
+    assert folder == "XfinAudio%%Build"
+    assert leaf == "track · 1 · 0310-0800"
+    assert "build" not in leaf.casefold()
     assert plan.target_path.suffix == ".crate"
     assert library.serato_folder == serato_folder
 

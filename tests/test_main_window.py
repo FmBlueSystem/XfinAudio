@@ -1868,7 +1868,12 @@ def test_main_window_default_serato_export_uses_strategy_grouped_generated_crate
     target_folder = serato_folder / "Subcrates"
     exported = list(target_folder.glob("XfinAudio%%Build%%*.crate"))
     assert len(exported) == 1
-    assert "build - Track - 1 track" in exported[0].stem
+    folder, leaf = exported[0].stem.rsplit("%%", 1)
+    anchor, count, stamp = leaf.split(" · ")
+    assert folder == "XfinAudio%%Build"
+    assert (anchor, count) == ("Track", "1")
+    assert len(stamp) == 9 and stamp[:4].isdigit() and stamp[4] == "-" and stamp[5:].isdigit()
+    assert "build" not in leaf.casefold()
     assert "Exported Serato crate" in window.status_label.text()
 
 
@@ -2462,10 +2467,7 @@ def test_main_window_exports_applied_prep_copilot_variant_with_variant_crate_nam
         generated_at=datetime(2026, 6, 6, 14, 30, 0),
     )
 
-    expected_name = (
-        "XfinAudio%%Prep Copilot%%Harmonic Journey%%Balanced%%"
-        "20260606-143000 - harmonic_journey - balanced - Start - 2 tracks.crate"
-    )
+    expected_name = "XfinAudio%%Prep Copilot%%Harmonic Journey%%Balanced%%Start · 2 · 0606-1430.crate"
     expected = serato_folder / "Subcrates" / expected_name
     assert expected.exists()
     assert str(expected) in window.status_label.text()
@@ -2521,10 +2523,7 @@ def test_main_window_previews_applied_copilot_serato_export_without_writing(tmp_
         generated_at=datetime(2026, 6, 6, 14, 30, 0),
     )
 
-    expected_name = (
-        "XfinAudio%%Prep Copilot%%Harmonic Journey%%Balanced%%"
-        "20260606-143000 - harmonic_journey - balanced - Start - 2 tracks.crate"
-    )
+    expected_name = "XfinAudio%%Prep Copilot%%Harmonic Journey%%Balanced%%Start · 2 · 0606-1430.crate"
     expected = serato_folder / "Subcrates" / expected_name
     assert not expected.exists()
     assert window.status_label.text() == f"Serato export preview: {expected}"
@@ -2540,7 +2539,7 @@ def test_main_window_previews_collision_suffix_without_overwriting(tmp_path) -> 
     serato_folder = volume_root / "_Serato_"
     target_folder = serato_folder / "Subcrates"
     target_folder.mkdir(parents=True)
-    existing_name = "XfinAudio%%Build%%20260606-143000 - build - Start - 2 tracks.crate"
+    existing_name = "XfinAudio%%Build%%Start · 2 · 0606-1430.crate"
     existing = target_folder / existing_name
     existing.write_bytes(b"existing")
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
@@ -2570,7 +2569,7 @@ def test_main_window_previews_collision_suffix_without_overwriting(tmp_path) -> 
         generated_at=datetime(2026, 6, 6, 14, 30, 0),
     )
 
-    expected = target_folder / "XfinAudio%%Build%%20260606-143000 - build - Start - 2 tracks-2.crate"
+    expected = target_folder / "XfinAudio%%Build%%Start · 2 · 0606-1430-2.crate"
     assert existing.read_bytes() == b"existing"
     assert not expected.exists()
     assert window.status_label.text() == f"Serato export preview: {expected}"
@@ -2618,10 +2617,7 @@ def test_main_window_exports_dj_readiness_sidecar_reports_with_serato_crate(tmp_
         generated_at=datetime(2026, 6, 6, 14, 30, 0),
     )
 
-    crate_name = (
-        "XfinAudio%%Prep Copilot%%Harmonic Journey%%Balanced%%"
-        "20260606-143000 - harmonic_journey - balanced - Start - 2 tracks.crate"
-    )
+    crate_name = "XfinAudio%%Prep Copilot%%Harmonic Journey%%Balanced%%Start · 2 · 0606-1430.crate"
     crate_path = serato_folder / "Subcrates" / crate_name
     json_path = crate_path.with_suffix(".dj-readiness.json")
     csv_path = crate_path.with_suffix(".dj-readiness.csv")
