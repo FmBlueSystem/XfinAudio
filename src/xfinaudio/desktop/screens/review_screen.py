@@ -27,17 +27,20 @@ from xfinaudio.desktop.review_view_model import (
 
 _READINESS_COLUMNS = ["Check", "Status", "Detail"]
 _RECOMMENDATION_COLUMNS = ["#", "Title", "Artist", "BPM", "Key", "Energy", "Color"]
+# Score headers are deliberately short: each cell holds five characters, and
+# longer titles ("Energy Score") sized their columns off the header instead,
+# starving the stretched Warnings column. The tooltips carry the full meaning.
 _TRANSITION_COLUMNS = [
     "Order",
     "From",
     "To",
-    "Key Score",
-    "BPM Score",
-    "Energy Score",
+    "Key",
+    "BPM",
+    "Energy",
     "Fit",
     "Blend",
-    "Tag Score",
-    "Final Score",
+    "Tag",
+    "Final",
     "Warnings",
 ]
 
@@ -166,9 +169,11 @@ class ReviewScreen(QWidget):
         self.transition_table.setHorizontalHeaderLabels([self.tr(c) for c in _TRANSITION_COLUMNS])
         transition_header = self.transition_table.horizontalHeader()
         # Free width goes to From/To/Warnings; the rest hold an index or a
-        # four-character score and only need what they show.
+        # five-character score and only need what they show. Final widths come
+        # from theme._REVIEW_TABLE_COLUMN_WIDTHS, applied later by
+        # apply_compact_table_columns.
         transition_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        for name in ("Order", "Key Score", "BPM Score", "Energy Score", "Tag Score", "Fit", "Blend", "Final Score"):
+        for name in ("Order", "Key", "BPM", "Energy", "Tag", "Fit", "Blend", "Final"):
             transition_header.setSectionResizeMode(
                 _TRANSITION_COLUMNS.index(name), QHeaderView.ResizeMode.ResizeToContents
             )

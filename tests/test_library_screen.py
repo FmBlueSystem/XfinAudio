@@ -205,6 +205,20 @@ def test_empty_state_shows_no_library_then_no_tracks(qapp: QApplication) -> None
     assert screen.empty_state_label.isHidden() is True
 
 
+def test_empty_state_stays_hidden_for_a_restored_library_without_a_folder(qapp: QApplication) -> None:
+    """A library restored from the database has records but no selected folder.
+
+    The empty state only looked at `selected_folder`, so reopening the app
+    announced "No library yet" above thousands of listed tracks.
+    """
+    screen = LibraryScreen()
+    restored = _state_with_tracks().model_copy(update={"selected_folder": None})
+
+    screen.render(LibraryViewModel(), restored, lightweight=True)
+
+    assert screen.empty_state_label.isHidden() is True
+
+
 def test_all_buttons_have_tooltips(qapp: QApplication) -> None:
     """Every QPushButton on the screen exposes a non-empty tooltip (R1)."""
     from PySide6.QtWidgets import QPushButton

@@ -8,7 +8,11 @@ _COMPACT_TABLE_ROW_HEIGHT = 24
 
 _TRACK_TABLE_COLUMN_WIDTHS = (160, 145, 70, 70, 76, 90, 150, 130, 140, 86, 70, 220)
 _RECOMMENDATION_TABLE_COLUMN_WIDTHS = (160, 150, 72, 70, 82, 130, 145, 92, 180, 120, 150)
-_REVIEW_TABLE_COLUMN_WIDTHS = (70, 170, 170, 100, 100, 112, 100, 110, 180)
+# Order, From, To, then seven five-character score columns, then Warnings.
+# Must stay the same length as review_screen._TRANSITION_COLUMNS: the widths are
+# applied positionally, so a short tuple shifts every column and starves the
+# last ones. Guarded by tests/test_review_screen.py.
+_REVIEW_TABLE_COLUMN_WIDTHS = (56, 210, 210, 62, 62, 68, 62, 68, 62, 68, 240)
 _SERATO_EXPORT_HISTORY_COLUMN_WIDTHS = (86, 110, 70, 260, 260, 260)
 _DJ_READINESS_TABLE_COLUMN_WIDTHS = (180, 112, 520)
 
