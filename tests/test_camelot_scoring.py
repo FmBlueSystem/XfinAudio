@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from xfinaudio.recommendation.camelot import (
@@ -7,6 +9,16 @@ from xfinaudio.recommendation.camelot import (
     parse_camelot_key,
     score_camelot_transition,
 )
+
+
+def test_no_module_defines_a_second_camelot_compatibility_rule() -> None:
+    source_root = Path(__file__).parents[1] / "src"
+
+    matches = [
+        path for path in source_root.rglob("*.py") if "def _camelot_compatible" in path.read_text(encoding="utf-8")
+    ]
+
+    assert matches == []
 
 
 def test_parse_camelot_key_accepts_valid_key_case_insensitively() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from xfinaudio.library.duplicate_grouping import duplicate_representative_sort_key, playlist_duplicate_group_key
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.camelot import score_camelot_transition
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
 from xfinaudio.recommendation.scoring import normalized_bpm_pair
 
@@ -18,38 +19,29 @@ def _track_vibe_terms(track: TrackRecord) -> set[str]:
     return {v.strip().casefold() for v in values if v.strip()}
 
 
-def _camelot_compatible(track_key: str | None, anchor_key: str | None) -> bool:
-    if track_key is None or anchor_key is None:
-        return False
-    if track_key == anchor_key:
-        return True
-    parsed_track = _parse_camelot_key(track_key)
-    parsed_anchor = _parse_camelot_key(anchor_key)
-    if parsed_track is None or parsed_anchor is None:
-        return False
-    track_num, track_letter = parsed_track
-    anchor_num, anchor_letter = parsed_anchor
-    direct_delta = abs(track_num - anchor_num)
-    circular_delta = min(direct_delta, 12 - direct_delta)
-    return (track_letter == anchor_letter and circular_delta <= 1) or (
-        track_num == anchor_num and track_letter != anchor_letter
-    )
+def _camelot_key_bucket(track_key: str | None, anchor_tracks: list[TrackRecord]) -> int:
+    if track_key is None:
+        return 5
 
+    scores: list[float] = []
+    for anchor in anchor_tracks:
+        if anchor.camelot_key is None:
+            continue
+        try:
+            scores.append(score_camelot_transition(anchor.camelot_key, track_key))
+        except ValueError:
+            continue
 
-def _parse_camelot_key(key: str) -> tuple[int, str] | None:
-    if len(key) < 2:
-        return None
-    number_text = key[:-1]
-    letter = key[-1]
-    if letter not in {"A", "B"}:
-        return None
-    try:
-        number = int(number_text)
-    except ValueError:
-        return None
-    if not 1 <= number <= 12:
-        return None
-    return number, letter
+    score = max(scores, default=0.0)
+    if score >= 0.90:
+        return 0
+    if score >= 0.85:
+        return 1
+    if score >= 0.70:
+        return 2
+    if score >= 0.60:
+        return 3
+    return 4
 
 
 def _track_similarity_key(
@@ -75,14 +67,7 @@ def _track_similarity_key(
     else:
         bpm_bucket = 2
 
-    if track.camelot_key is not None and any(
-        _camelot_compatible(track.camelot_key, a.camelot_key) for a in anchor_tracks if a.camelot_key is not None
-    ):
-        key_bucket = 0
-    elif track.camelot_key is not None:
-        key_bucket = 1
-    else:
-        key_bucket = 2
+    key_bucket = _camelot_key_bucket(track.camelot_key, anchor_tracks)
 
     return (bpm_bucket, key_bucket, -overlap_count, float(energy_distance), bpm_distance, track.path)
 

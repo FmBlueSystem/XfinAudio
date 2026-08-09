@@ -391,6 +391,64 @@ def test_half_time_candidate_lands_in_closest_bpm_bucket() -> None:
     assert similarity_key[0] == 0
 
 
+def test_diagonal_key_reaches_default_pool_despite_adjacent_key_crowd() -> None:
+    anchor = track("/anchor.flac").model_copy(update={"camelot_key": "7A"})
+    diagonal = track("/00-diagonal.flac").model_copy(update={"camelot_key": "8B"})
+    adjacent = [track(f"/adjacent-{index:02d}.flac").model_copy(update={"camelot_key": "8A"}) for index in range(25)]
+
+    pool = build_recommendation_pool(
+        [anchor, *adjacent, diagonal],
+        DJControls(start_path=anchor.path),
+    )
+
+    assert diagonal in pool
+
+
+def test_candidate_pool_orders_camelot_score_bands() -> None:
+    anchor = track("/anchor.flac").model_copy(update={"camelot_key": "7A"})
+    candidates = [
+        track("/a-same.flac").model_copy(update={"camelot_key": "7A"}),
+        track("/b-diagonal.flac").model_copy(update={"camelot_key": "8B"}),
+        track("/c-relative.flac").model_copy(update={"camelot_key": "7B"}),
+        track("/d-energy-boost.flac").model_copy(update={"camelot_key": "9A"}),
+        track("/e-semitone-lift.flac").model_copy(update={"camelot_key": "2A"}),
+        track("/f-incompatible.flac").model_copy(update={"camelot_key": "11B"}),
+        track("/g-no-key.flac").model_copy(update={"camelot_key": None}),
+    ]
+
+    pool = build_recommendation_pool(
+        [anchor, *reversed(candidates)],
+        DJControls(start_path=anchor.path),
+    )
+
+    assert pool == [anchor, *candidates]
+
+
+def test_candidate_without_camelot_key_sorts_last_but_remains_in_pool() -> None:
+    anchor = track("/anchor.flac").model_copy(update={"camelot_key": "7A"})
+    no_key = track("/a-no-key.flac").model_copy(update={"camelot_key": None})
+    incompatible = track("/z-incompatible.flac").model_copy(update={"camelot_key": "11B"})
+
+    pool = build_recommendation_pool(
+        [anchor, no_key, incompatible],
+        DJControls(start_path=anchor.path),
+    )
+
+    assert pool == [anchor, incompatible, no_key]
+
+
+def test_candidate_pool_default_limit_remains_unchanged() -> None:
+    anchor = track("/anchor.flac")
+    candidates = [track(f"/candidate-{index:02d}.flac") for index in range(30)]
+
+    pool = build_recommendation_pool(
+        [anchor, *candidates],
+        DJControls(start_path=anchor.path),
+    )
+
+    assert len(pool) == 25
+
+
 def test_energy_spread_still_fills_the_pool() -> None:
     """Spreading must not shrink the pool the optimizer gets."""
     anchor = track("/anchor.flac", energy_level=6)
