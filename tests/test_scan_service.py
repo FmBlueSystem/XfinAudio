@@ -1,5 +1,8 @@
+import base64
+import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +12,7 @@ from xfinaudio.library.scan_service import (
     ScanCancelledError,
     _coerce_tag_value,
     _lookup_previous_profile,
+    read_mutagen_tags,
     scan_folder,
 )
 
@@ -43,6 +47,58 @@ def test_scan_folder_recursively_reads_supported_audio_metadata() -> None:
     assert records[0].metadata_status == "complete"
     assert records[0].raw_metadata["title"] == ["Track One"]
     assert records[0].source_fields["camelot_key"] == "key"
+
+
+def test_scan_folder_threads_audio_md5_from_tag_reader() -> None:
+    root = Path("/library")
+    checksum = "0123456789abcdef0123456789abcdef"
+
+    records = scan_folder(
+        root,
+        list_paths=lambda folder: [folder / "track.flac"],
+        read_tags=lambda path: {"title": ["Track One"], "__audio_md5__": checksum},
+        resolve_spectral_profiles=False,
+    )
+
+    assert records[0].audio_md5 == checksum
+    assert records[0].title == "Track One"
+
+
+def test_scan_folder_defaults_audio_md5_to_none_when_tag_reader_omits_it() -> None:
+    root = Path("/library")
+
+    records = scan_folder(
+        root,
+        list_paths=lambda folder: [folder / "track.flac"],
+        read_tags=lambda path: {"title": ["Track One"]},
+        resolve_spectral_profiles=False,
+    )
+
+    assert records[0].audio_md5 is None
+    assert records[0].title == "Track One"
+    assert records[0].raw_metadata == {"title": ["Track One"]}
+
+
+def test_scan_folder_derives_energy_curve_from_cuepoint_tag() -> None:
+    cuepoints = base64.b64encode(
+        json.dumps(
+            {
+                "cues": [
+                    {"name": "Energy 4", "time": 15000},
+                    {"name": "Energy 9", "time": 120000},
+                    {"name": "Energy 7", "time": 210000},
+                ]
+            }
+        ).encode()
+    ).decode()
+
+    records = scan_folder(
+        Path("/library"),
+        list_paths=lambda folder: [folder / "track.flac"],
+        read_tags=lambda path: {"cuepoints": [cuepoints]},
+    )
+
+    assert (records[0].energy_in, records[0].energy_out, records[0].energy_peak) == (4, 7, 9)
 
 
 def test_scan_folder_reads_duplicate_lister_candidates_once() -> None:
@@ -331,18 +387,22 @@ def test_scan_folder_keeps_only_parsed_tags_in_raw_metadata() -> None:
     """
     root = Path("/library")
 
-    def read_tags(path: Path) -> dict[str, list[str]]:
+    def read_tags(path: Path) -> dict[str, object]:
         return {
             "title": ["Track One"],
             "artist": ["Artist One"],
             "bpm": ["116.0"],
             "key": ["eyJhbGdvcml0aG0iOjk0LCJrZXkiOiIxMUIiLCJzb3VyY2UiOiJtaXhlZGlua2V5In0="],
             "energy": ["eyJhbGdvcml0aG0iOjEzLCJlbmVyZ3lMZXZlbCI6Nywic291cmNlIjoibWl4ZWRpbmtleSJ9"],
+            "grouping": ["2"],
+            "publisher": ["Energy 3"],
+            "comment": ["5A - [⚡️4 | 💃0.75]"],
             "genre": ["Disco"],
             "beatgrid": ["A" * 100_000],
             "serato_overview": ["B" * 50_000],
             "lyrics": ["C" * 10_000],
             "cuepoints": ["D" * 5_000],
+            "__audio_md5__": "0123456789abcdef0123456789abcdef",
         }
 
     records = scan_folder(root, list_paths=lambda folder: [root / "track.flac"], read_tags=read_tags)
@@ -350,13 +410,71 @@ def test_scan_folder_keeps_only_parsed_tags_in_raw_metadata() -> None:
     raw = records[0].raw_metadata
     assert raw["title"] == ["Track One"]
     assert raw["genre"] == ["Disco"]
-    for dropped in ("beatgrid", "serato_overview", "lyrics", "cuepoints"):
+    for dropped in (
+        "beatgrid",
+        "serato_overview",
+        "lyrics",
+        "cuepoints",
+        "grouping",
+        "publisher",
+        "comment",
+        "__audio_md5__",
+    ):
         assert dropped not in raw
     # Parsing must be unaffected: it runs before the record is built.
     assert records[0].bpm == 116.0
     assert records[0].camelot_key == "11B"
     assert records[0].energy_level == 7
     assert records[0].metadata_status == "complete"
+
+
+def test_read_mutagen_tags_formats_nonzero_audio_md5(monkeypatch) -> None:
+    audio = SimpleNamespace(
+        tags={"title": ["Track One"]},
+        info=SimpleNamespace(length=123.0, md5_signature=0xABC),
+    )
+    monkeypatch.setattr("xfinaudio.library.scan_service.MutagenFile", lambda path, easy: audio)
+
+    tags = read_mutagen_tags(Path("/library/track.flac"))
+
+    assert tags is not None
+    assert tags["title"] == ["Track One"]
+    assert tags["__duration__"] == 123.0
+    assert tags["__audio_md5__"] == "00000000000000000000000000000abc"
+
+
+@pytest.mark.parametrize(
+    "info",
+    [SimpleNamespace(length=123.0, md5_signature=0), SimpleNamespace(length=123.0)],
+)
+def test_read_mutagen_tags_omits_absent_audio_md5(monkeypatch, info) -> None:
+    audio = SimpleNamespace(tags={"title": ["Track One"]}, info=info)
+    monkeypatch.setattr("xfinaudio.library.scan_service.MutagenFile", lambda path, easy: audio)
+
+    tags = read_mutagen_tags(Path("/library/track.flac"))
+
+    assert tags is not None
+    assert tags["title"] == ["Track One"]
+    assert "__audio_md5__" not in tags
+
+
+def test_read_mutagen_tags_ignores_audio_md5_read_errors(monkeypatch) -> None:
+    class FaultyInfo:
+        length = 123.0
+
+        @property
+        def md5_signature(self) -> int:
+            raise RuntimeError("unreadable checksum")
+
+    audio = SimpleNamespace(tags={"title": ["Track One"]}, info=FaultyInfo())
+    monkeypatch.setattr("xfinaudio.library.scan_service.MutagenFile", lambda path, easy: audio)
+
+    tags = read_mutagen_tags(Path("/library/track.flac"))
+
+    assert tags is not None
+    assert tags["title"] == ["Track One"]
+    assert tags["__duration__"] == 123.0
+    assert "__audio_md5__" not in tags
 
 
 def test_coerce_tag_value_summarizes_binary_frames_without_expanding_them() -> None:

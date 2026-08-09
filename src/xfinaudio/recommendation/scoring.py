@@ -27,13 +27,16 @@ class ScoringWeights(BaseModel):
     energy: float = 0.25
     tags: float = 0.10
     spectral: float = 0.10
+    danceability: float = 0.0
+    spectral_edge: float = 0.0
 
     @model_validator(mode="after")
     def validate_weights(self) -> ScoringWeights:
         """Ensure weights are non-negative and at least one component is enabled."""
-        if any(weight < 0 for weight in (self.harmonic, self.bpm, self.energy, self.tags, self.spectral)):
+        weights = tuple(getattr(self, name) for name in type(self).model_fields)
+        if any(weight < 0 for weight in weights):
             raise ValueError("component weights cannot be negative")
-        if self.harmonic + self.bpm + self.energy + self.tags + self.spectral <= 0:
+        if sum(weights) <= 0:
             raise ValueError("total weight must be greater than zero")
         return self
 
@@ -46,6 +49,8 @@ class TransitionScore(BaseModel):
     left_path: str
     right_path: str
     total_score: float
+    compatibility_score: float | None = None
+    mixability_score: float | None = None
     component_scores: dict[str, float]
     explanations: list[str]
     warnings: list[str]
@@ -92,7 +97,12 @@ class TransitionScoringConfig(BaseModel):
 
 
 # Every component _weighted_total accounts for, present or not.
-SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral")
+SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral", "danceability", "spectral_edge")
+# Compatibility asks whether tracks belong in the same set; mixability asks
+# whether they can be joined. The latter already has hand-rolled checks in
+# quality/dj_readiness.py's _bpm_continuity_check/_energy_continuity_check.
+COMPATIBILITY_COMPONENTS = ("harmonic", "tags", "danceability", "spectral")
+MIXABILITY_COMPONENTS = ("bpm", "energy", "spectral_edge")
 # Score for a component that cannot be evaluated: midway between a known
 # mismatch (0.0) and a known match (1.0), so absent metadata neither rewards
 # nor punishes.
@@ -106,7 +116,7 @@ REQUIRED_FIELDS = DEFAULT_SCORING_CONFIG.required_fields
 def score_transition(
     left: TrackRecord,
     right: TrackRecord,
-    weights: ScoringWeights = DEFAULT_WEIGHTS,
+    weights: ScoringWeights | None = None,
     boost_rules: Collection[BoostRule] | None = None,
     config: TransitionScoringConfig | None = None,
     cache: dict[tuple, TransitionScore] | None = None,
@@ -158,15 +168,20 @@ def score_transition(
             )
         )
 
+    energy_delta, used_energy_handoff = _effective_energy_delta(left, right)
     component_scores = {
         "harmonic": harmonic_score,
         "bpm": _score_bpm(left.bpm or 0.0, right.bpm or 0.0, scoring_config),
-        "energy": _score_energy(left.energy_level or 0, right.energy_level or 0, scoring_config),
+        "energy": _score_energy(energy_delta, scoring_config),
     }
     explanations = [
         f"Harmonic compatibility score is {component_scores['harmonic']:.2f}",
-        f"BPM difference is {_bpm_difference_percent(left.bpm or 0.0, right.bpm or 0.0):.2f}%",
-        f"Energy level difference is {abs((left.energy_level or 0) - (right.energy_level or 0))}",
+        f"BPM difference is {bpm_difference_percent(left.bpm or 0.0, right.bpm or 0.0):.2f}%",
+        (
+            f"Energy handoff (out→in) difference is {energy_delta:g}"
+            if used_energy_handoff
+            else f"Energy level difference is {energy_delta:g}"
+        ),
     ]
     explanations.extend(
         _key_shift_explanations(
@@ -197,6 +212,16 @@ def score_transition(
         component_scores["spectral"] = spectral_score
         explanations.append(f"Spectral similarity is {spectral_score:.2f}")
 
+    spectral_edge_score = _score_spectral_edge(left, right)
+    if spectral_edge_score is not None:
+        component_scores["spectral_edge"] = spectral_edge_score
+        explanations.append(f"Edge spectral similarity (out→in) is {spectral_edge_score:.2f}")
+
+    danceability_score = _score_danceability(left, right)
+    if danceability_score is not None:
+        component_scores["danceability"] = danceability_score
+        explanations.append(f"Danceability similarity is {danceability_score:.2f}")
+
     spectral_penalty = _spectral_color_penalty(left, right, scoring_config.spectral_cohesion)
     if spectral_penalty:
         warnings.append(
@@ -205,12 +230,17 @@ def score_transition(
         )
 
     total_score = _weighted_total(component_scores, effective_weights)
+    compatibility_score = _axis_total(component_scores, effective_weights, COMPATIBILITY_COMPONENTS)
+    mixability_score = _axis_total(component_scores, effective_weights, MIXABILITY_COMPONENTS)
+    # Spectral color is a whole-transition penalty, not part of either informative axis.
     total_score = max(0.0, min(1.0, total_score - spectral_penalty))
     return _store(
         TransitionScore(
             left_path=left.path,
             right_path=right.path,
             total_score=round(total_score, 6),
+            compatibility_score=None if compatibility_score is None else round(compatibility_score, 6),
+            mixability_score=None if mixability_score is None else round(mixability_score, 6),
             component_scores=component_scores,
             explanations=explanations,
             warnings=warnings,
@@ -244,17 +274,29 @@ def _invalid_camelot_warnings(left: TrackRecord, right: TrackRecord) -> list[str
 HALF_TIME_RATIO_TOLERANCE = 0.02
 
 
-def _bpm_difference_percent(left_bpm: float, right_bpm: float) -> float:
+def normalized_bpm_pair(left_bpm: float, right_bpm: float) -> tuple[float, float]:
+    """Return a BPM pair with a half-time/double-time side folded down."""
+    if left_bpm <= 0 or right_bpm <= 0:
+        return left_bpm, right_bpm
+    ratio = max(left_bpm, right_bpm) / min(left_bpm, right_bpm)
+    if abs(ratio - 2.0) > HALF_TIME_RATIO_TOLERANCE * 2.0:
+        return left_bpm, right_bpm
+    if left_bpm > right_bpm:
+        return left_bpm / 2.0, right_bpm
+    return left_bpm, right_bpm / 2.0
+
+
+def bpm_difference_percent(left_bpm: float, right_bpm: float) -> float:
+    """Return the symmetric BPM difference after half-time normalization."""
+    left_bpm, right_bpm = normalized_bpm_pair(left_bpm, right_bpm)
     lower = min(left_bpm, right_bpm)
     upper = max(left_bpm, right_bpm)
     if lower <= 0:
         return 100.0
-    ratio = upper / lower
-    if abs(ratio - 2.0) <= HALF_TIME_RATIO_TOLERANCE * 2.0:
-        # Exact half-time/double-time pair (e.g. 128 vs 64): normalize before diffing
-        # so it scores as compatible instead of a ~100% jump.
-        upper = upper / 2.0
     return abs(upper - lower) / lower * 100
+
+
+_bpm_difference_percent = bpm_difference_percent
 
 
 def _shifted_key(camelot_key: str, semitones: int) -> str:
@@ -277,14 +319,21 @@ def _key_shift_explanations(
 
 
 def _score_bpm(left_bpm: float, right_bpm: float, config: TransitionScoringConfig) -> float:
-    delta = _bpm_difference_percent(left_bpm, right_bpm)
+    delta = bpm_difference_percent(left_bpm, right_bpm)
     if config.score_curve == "fuzzy":
         return _score_fuzzy(delta, config.bpm_thresholds)
     return _score_threshold(delta, config.bpm_thresholds)
 
 
-def _score_energy(left_energy: int, right_energy: int, config: TransitionScoringConfig) -> float:
-    delta = float(abs(left_energy - right_energy))
+def _effective_energy_delta(left: TrackRecord, right: TrackRecord) -> tuple[float, bool]:
+    if left.energy_out is not None and right.energy_in is not None:
+        # A transition joins the outgoing section to the incoming section; the
+        # whole-track scalar is only a fallback when either boundary is absent.
+        return float(abs(left.energy_out - right.energy_in)), True
+    return float(abs((left.energy_level or 0) - (right.energy_level or 0))), False
+
+
+def _score_energy(delta: float, config: TransitionScoringConfig) -> float:
     if config.score_curve == "fuzzy":
         return _score_fuzzy(delta, config.energy_thresholds)
     return _score_threshold(delta, config.energy_thresholds)
@@ -328,9 +377,22 @@ def _score_spectral(left: TrackRecord, right: TrackRecord) -> float | None:
     return score_spectral_similarity(left.spectral_profile, right.spectral_profile)
 
 
-def _effective_weights(weights: ScoringWeights, config: TransitionScoringConfig) -> ScoringWeights:
+def _score_spectral_edge(left: TrackRecord, right: TrackRecord) -> float | None:
+    if left.edge_spectral_profile is None or right.edge_spectral_profile is None:
+        return None
+    return score_spectral_similarity(left.edge_spectral_profile.outro, right.edge_spectral_profile.intro)
+
+
+def _score_danceability(left: TrackRecord, right: TrackRecord) -> float | None:
+    if left.danceability_profile is None or right.danceability_profile is None:
+        return None
+    score = 1.0 - abs(left.danceability_profile.score - right.danceability_profile.score)
+    return min(max(score, 0.0), 1.0)
+
+
+def _effective_weights(weights: ScoringWeights | None, config: TransitionScoringConfig) -> ScoringWeights:
     """Return weights with spectral weight scaled by spectral cohesion."""
-    base = config.weights if weights == DEFAULT_WEIGHTS else weights
+    base = config.weights if weights is None else weights
     return base.model_copy(update={"spectral": base.spectral * (1.0 + config.spectral_cohesion)})
 
 
@@ -363,5 +425,17 @@ def _weighted_total(component_scores: dict[str, float], weights: ScoringWeights)
         return 0.0
     return (
         sum(component_scores.get(name, NEUTRAL_COMPONENT_SCORE) * weight for name, weight in all_weights.items())
+        / total_weight
+    )
+
+
+def _axis_total(component_scores: dict[str, float], weights: ScoringWeights, names: tuple[str, ...]) -> float | None:
+    """Combine one informative axis, treating unevaluable components as neutral."""
+    axis_weights = {name: getattr(weights, name) for name in names}
+    total_weight = sum(axis_weights.values())
+    if total_weight <= 0:
+        return None
+    return (
+        sum(component_scores.get(name, NEUTRAL_COMPONENT_SCORE) * weight for name, weight in axis_weights.items())
         / total_weight
     )

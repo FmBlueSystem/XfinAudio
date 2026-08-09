@@ -42,6 +42,20 @@ def test_build_quality_report_summarizes_transition_metrics() -> None:
     assert report.warning_count == sum(len(score.warnings) for score in recommendation.transition_scores)
 
 
+def test_build_quality_report_folds_half_time_bpm_jump() -> None:
+    recommendation = recommend_playlist(
+        [
+            complete_track("/music/a.flac", 128.0, 5),
+            complete_track("/music/b.flac", 64.0, 5),
+        ],
+        "harmonic_journey",
+    )
+
+    report = build_quality_report(recommendation)
+
+    assert report.bpm_jumps == [0.0]
+
+
 def test_build_quality_report_compares_manual_path_sequence() -> None:
     recommendation = recommend_playlist(
         [

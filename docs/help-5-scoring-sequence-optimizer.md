@@ -1,6 +1,6 @@
 # HELP-5 Scoring and Sequence Optimizer
 
-HELP-5 adds the first deterministic recommendation core for XfinAudio. It uses scanned `TrackRecord` metadata only; it does not inspect, mutate, render, mix, export, or analyze audio.
+HELP-5 adds the first deterministic recommendation core for XfinAudio. It uses scanned `TrackRecord` metadata plus persisted, read-only audio profiles; it does not mutate, render, mix, or export audio.
 
 ## Camelot scoring
 
@@ -23,6 +23,8 @@ Configured boosts are passed as a collection of `(from_key, to_key)` tuples. Key
 - BPM: `0.25`
 - energy: `0.25`
 - tags: `0.10`
+- spectral: `0.10`
+- danceability: `0.0` (opt-in)
 
 BPM scoring compares percentage difference using the lower BPM as the denominator:
 
@@ -31,14 +33,29 @@ BPM scoring compares percentage difference using the lower BPM as the denominato
 - `<= 8%`: `0.5`
 - otherwise: `0.0`
 
-Energy scoring compares absolute `energy_level` difference:
+Energy scoring compares absolute energy difference:
 
 - `<= 1`: `1.0`
 - `<= 2`: `0.7`
 - `<= 3`: `0.4`
 - otherwise: `0.0`
 
-Tag scoring uses normalized Jaccard overlap across `tags` plus `genre`. If both tracks lack tags and genre, tag scoring is unavailable and its weight is redistributed over the available components.
+When cue-derived boundary values exist on both sides, energy compares `energy_out(A)` with `energy_in(B)`: the sections that actually touch during a mix. If either boundary value is absent, scoring falls back to the whole-track `energy_level` scalars.
+
+Tag scoring uses normalized Jaccard overlap across `tags` plus `genre`. An unavailable component scores the neutral `NEUTRAL_COMPONENT_SCORE = 0.5` and stays in the denominator. Its weight is not redistributed: redistribution inflated totals for poorly described tracks, so the optimizer systematically preferred the least-documented material. Neutral scoring preserves the intended ordering: clash < unknown < match.
+
+Danceability is measured from the audio as pulse clarity × tempo confidence × a percussive gate. Its default weight is `0.0`, so it is opt-in; `peak_time` and `same_energy` enable it at `0.10`. If either track has no danceability profile, the component is neutral, never a penalty.
+
+BPM comparisons fold exact 2:1 pairs consistently across the scorer, optimizer gate, quality report, candidate pool, and live assistant, so a track read at 84.6 and one read at 169 are treated as compatible rather than as a 100% jump.
+
+Stored BPM values are never rewritten to "fix" a half-time reading. An attempt to do so from the Mixed In Key beatgrid was reverted: in slow material the grid marks the subdivision rather than the beat, so a grid-to-declared ratio of 2.0 does not mean the declared tempo is wrong. Measured over 118 random tracks, every track showing that ratio sat between 80 and 99 declared BPM, where the declared value is the correct one. Folding the comparison, rather than editing the data, handles the ambiguity without risking the canonical field.
+
+Every successful transition also exposes two informative axes:
+
+- `compatibility_score`: harmonic, tags, danceability, and spectral — do these tracks belong in the same set?
+- `mixability_score`: BPM and energy handoff — can these tracks be joined?
+
+These axes explain the transition; they do not replace or alter `total_score`. The optimizer still maximizes `total_score`.
 
 Required recommendation metadata is `camelot_key`, `bpm`, and `energy_level`. If either track lacks required metadata or carries an invalid Camelot key, the transition returns `0.0` with warnings. Scoring weights must be non-negative and at least one component must be enabled.
 
@@ -52,7 +69,17 @@ For larger playlists, the optimizer uses deterministic greedy initialization fol
 
 ## Non-goals and limitations
 
-- No DSP, key detection, BPM detection, beat tracking, rendering, mixing, exports, Serato integration, or UI work.
-- Scores are metadata-driven and only as reliable as the scanned metadata.
+- No key detection, general BPM detection, rendering, mixing, exports, Serato integration, or UI surfacing of the informative axes.
+- Scores are only as reliable as the scanned metadata and persisted audio profiles.
 - The heuristic optimizer for playlists above `exact_limit` is deterministic but not guaranteed globally optimal.
 - Exact optimization has exponential memory/time growth and should stay limited to small playlists. Local probe on this machine: 20 complete tracks routed through exact optimization in about 36 seconds, so future UI work should run exact optimization in a background worker with progress/cancel or lower `exact_limit` for interactive use.
+
+## Intro/outro spectral profiles
+
+Each track also carries a profile of its two blendable edges: a 30-second window from the start of the file and one ending at the end. The `spectral_edge` component scores `outro(A)` against `intro(B)` — the same shape as the energy handoff — and belongs to the mixability axis. Unlike the mid-track colour, it is directional: A into B and B into A are different questions and get different scores.
+
+Its default weight is `0.0` and no strategy enables it yet, so it is inert until switched on. A track with no edge profile leaves the component out, which scores neutral.
+
+Windows are fixed rather than cue-aligned. Cue points would locate the musical boundaries more precisely, but their timestamps are not persisted — only `energy_in/out/peak` are derived from them — so using them would need a schema change or a second tag read. Tracks under 65 seconds return no edge profile at all rather than analyzing two overlapping windows.
+
+The original mid-track profile is unchanged and still feeds the `spectral` component: one 30-second window at the track's MIDDLE, which is the one region a DJ never mixes through. That is precisely why the edges were added — on Under Pressure the middle reads GREEN while the intro, which is the bass figure alone, reads MIXED.

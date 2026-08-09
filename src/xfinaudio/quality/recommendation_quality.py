@@ -7,6 +7,7 @@ import logging
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+from xfinaudio.recommendation.scoring import normalized_bpm_pair
 
 LOGGER = logging.getLogger(__name__)
 
@@ -32,9 +33,7 @@ def build_quality_report(
 ) -> RecommendationQualityReport:
     """Build deterministic quality metrics for a playlist recommendation."""
     tracks = recommendation.ordered_tracks
-    bpm_jumps = [
-        round(abs((right.bpm or 0.0) - (left.bpm or 0.0)), 6) for left, right in zip(tracks, tracks[1:], strict=False)
-    ]
+    bpm_jumps = [_bpm_jump(left.bpm or 0.0, right.bpm or 0.0) for left, right in zip(tracks, tracks[1:], strict=False)]
     energy_jumps = [
         abs((right.energy_level or 0) - (left.energy_level or 0))
         for left, right in zip(tracks, tracks[1:], strict=False)
@@ -61,6 +60,11 @@ def build_quality_report(
         manual_overlap_ratio=manual_overlap_ratio,
         manual_order_match_prefix_count=manual_order_match_prefix_count,
     )
+
+
+def _bpm_jump(left_bpm: float, right_bpm: float) -> float:
+    left_bpm, right_bpm = normalized_bpm_pair(left_bpm, right_bpm)
+    return round(abs(right_bpm - left_bpm), 6)
 
 
 def _overlap_ratio(generated_paths: list[str], manual_paths: list[str]) -> float:

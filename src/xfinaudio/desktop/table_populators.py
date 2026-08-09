@@ -211,16 +211,25 @@ def _score_color_and_tooltip(
         for exp in transition.explanations:
             if "energy" in exp.lower():
                 tips.append(exp)
-    elif column_index == 6:  # Tag Score
+    elif column_index == 6:  # Fit
+        tips.append(
+            QCoreApplication.translate(
+                "TablePopulators",
+                "Fit: harmony, tags, danceability and spectral colour",
+            )
+        )
+    elif column_index == 7:  # Blend
+        tips.append(QCoreApplication.translate("TablePopulators", "Blend: tempo and energy handoff"))
+    elif column_index == 8:  # Tag Score
         if raw_score >= 0.7:
             tips.append(QCoreApplication.translate("TablePopulators", "Tracks share many tags/genres"))
         elif raw_score >= 0.4:
             tips.append(QCoreApplication.translate("TablePopulators", "Some tag/genre overlap"))
         else:
             tips.append(QCoreApplication.translate("TablePopulators", "Different genres/tags — musical contrast"))
-    elif column_index == 7:  # Final Score
+    elif column_index == 9:  # Final Score
         tips.append(QCoreApplication.translate("TablePopulators", "Weighted average of all components"))
-        tips.append(QCoreApplication.translate("TablePopulators", "60% Key + 20% BPM + 15% Energy + 5% Tags"))
+        tips.append(QCoreApplication.translate("TablePopulators", "Component weights depend on the selected strategy"))
         tips.extend(transition.explanations)
 
     return bg, fg, "\n".join(tips)
@@ -239,7 +248,7 @@ def populate_transition_review_table(
 ) -> None:
     """Populate the transition review table with component scores and warnings."""
     table.setRowCount(len(explanation.transitions))
-    _SCORE_COLUMNS = {3, 4, 5, 6, 7}
+    _SCORE_COLUMNS = {3, 4, 5, 6, 7, 8, 9}
     for row_index, transition in enumerate(explanation.transitions):
         raw_scores = [
             None,
@@ -248,6 +257,8 @@ def populate_transition_review_table(
             component_score(transition, "key_score", "harmonic"),
             component_score(transition, "bpm_score", "bpm"),
             component_score(transition, "energy_score", "energy"),
+            transition.compatibility_score,
+            transition.mixability_score,
             component_score(transition, "tag_score", "tags"),
             transition.final_score,
             None,
@@ -261,6 +272,8 @@ def populate_transition_review_table(
             format_review_score(raw_scores[5]),
             format_review_score(raw_scores[6]),
             format_review_score(raw_scores[7]),
+            format_review_score(raw_scores[8]),
+            format_review_score(raw_scores[9]),
             "; ".join(format_warning(warning) for warning in transition.warnings),
         ]
         sort_values: list[object] = [
@@ -272,7 +285,9 @@ def populate_transition_review_table(
             score_sort_value(raw_scores[5]),
             score_sort_value(raw_scores[6]),
             score_sort_value(raw_scores[7]),
-            values[8].casefold(),
+            score_sort_value(raw_scores[8]),
+            score_sort_value(raw_scores[9]),
+            values[10].casefold(),
         ]
         for column_index, value in enumerate(values):
             item = item_factory(value, sort_values[column_index])
@@ -284,7 +299,7 @@ def populate_transition_review_table(
                     item.setForeground(fg)
                 if tip:
                     item.setToolTip(tip)
-            if column_index == 8 and transition.warnings:
+            if column_index == 10 and transition.warnings:
                 item.setToolTip("\n".join(format_warning(w) for w in transition.warnings))
             table.setItem(row_index, column_index, item)
 

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.scoring import bpm_difference_percent
 
 
 class _CandidateRow(QWidget):
@@ -324,9 +325,9 @@ class LiveAssistantScreen(QWidget):
 
         current = self._current_track
         if current.bpm and candidate.bpm and current.bpm > 0:
-            diff = abs(candidate.bpm - current.bpm) / current.bpm
-            if diff > 0.03:
-                alerts.append(f"BPM +{diff * 100:.1f}%")
+            diff_percent = bpm_difference_percent(current.bpm, candidate.bpm)
+            if diff_percent > 3.0:
+                alerts.append(f"BPM +{diff_percent:.1f}%")
 
         if (
             current.camelot_key

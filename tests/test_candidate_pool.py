@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.recommendation.candidate_pool import build_recommendation_pool, dedupe_recommendation_duplicates
+from xfinaudio.recommendation.candidate_pool import (
+    _track_similarity_key,
+    build_recommendation_pool,
+    dedupe_recommendation_duplicates,
+)
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import recommend_playlist
 
@@ -376,6 +380,15 @@ def test_energy_spread_is_off_by_default() -> None:
     pool = build_recommendation_pool([anchor, *crowd, *sparse], DJControls(start_path="/anchor.flac"), 20)
 
     assert _energy_levels(pool) == {7}
+
+
+def test_half_time_candidate_lands_in_closest_bpm_bucket() -> None:
+    anchor = track("/anchor.flac").model_copy(update={"bpm": 84.6})
+    candidate = track("/candidate.flac").model_copy(update={"bpm": 169.0})
+
+    similarity_key = _track_similarity_key(set(), [anchor], candidate)
+
+    assert similarity_key[0] == 0
 
 
 def test_energy_spread_still_fills_the_pool() -> None:

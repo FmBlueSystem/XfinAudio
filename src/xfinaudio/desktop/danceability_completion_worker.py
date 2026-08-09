@@ -1,7 +1,7 @@
-"""Background worker that completes spectral profiles after a metadata scan.
+"""Background worker that completes danceability profiles after a metadata scan.
 
 The metadata scan returns tracks immediately (BPM, key, energy, status) while
-this worker computes spectral colors progressively in a background thread and
+this worker computes danceability values progressively in a background thread and
 emits each result back to the UI.
 """
 
@@ -17,8 +17,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
-from xfinaudio.audio.analyzer import LibrosaSpectralAnalyzer, SpectralAnalyzer
-from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
+from xfinaudio.audio.analyzer import DanceabilityAnalyzer, LibrosaDanceabilityAnalyzer
+from xfinaudio.audio.danceability import CURRENT_DANCEABILITY_VERSION, DanceabilityProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken
 
@@ -38,10 +38,10 @@ def _default_max_workers_for_analysis(cpu_count: int | None = None) -> int:
     return max(1, (cpu_count or os.cpu_count() or 4) - 1)
 
 
-class _SpectralCompletionRunner(QObject):
+class _DanceabilityCompletionRunner(QObject):
     """Internal runner that lives on a background QThread."""
 
-    progress = Signal(str, object)  # path, SpectralProfile | None
+    progress = Signal(str, object)  # path, DanceabilityProfile | None
     progress_updated = Signal(int, int)  # processed_count, total_count
     finished = Signal()
     failed = Signal(object)
@@ -52,21 +52,21 @@ class _SpectralCompletionRunner(QObject):
         repository: Any,
         cancellation_token: ScanCancellationToken | None = None,
         max_workers: int | None = None,
-        spectral_analyzer: SpectralAnalyzer | None = None,
+        danceability_analyzer: DanceabilityAnalyzer | None = None,
     ) -> None:
         super().__init__()
         self._records = records
         self._repository = repository
         self._cancellation_token = cancellation_token
         self._max_workers = max_workers if max_workers is not None else _default_max_workers_for_analysis()
-        self._spectral_analyzer = spectral_analyzer or LibrosaSpectralAnalyzer()
+        self._danceability_analyzer = danceability_analyzer or LibrosaDanceabilityAnalyzer()
 
     @Slot()
     def run(self) -> None:
         try:
             self._run_completion()
         except Exception as exc:  # pragma: no cover - defensive
-            LOGGER.exception("Spectral completion runner failed")
+            LOGGER.exception("Danceability completion runner failed")
             self.failed.emit(exc)
         finally:
             self.finished.emit()
@@ -75,7 +75,8 @@ class _SpectralCompletionRunner(QObject):
         paths = [
             record.path
             for record in self._records
-            if record.spectral_profile is None or record.spectral_profile.analysis_version != CURRENT_ANALYSIS_VERSION
+            if record.danceability_profile is None
+            or record.danceability_profile.analysis_version != CURRENT_DANCEABILITY_VERSION
         ]
         if not paths or _is_cancelled(self._cancellation_token):
             return
@@ -83,12 +84,12 @@ class _SpectralCompletionRunner(QObject):
         processed_count = 0
 
         # Reuse any persistent cache entries first.
-        cached_profiles: dict[str, SpectralProfile] = {}
-        if hasattr(self._repository, "load_spectral_profile_cache"):
-            cache = self._repository.load_spectral_profile_cache(paths)
+        cached_profiles: dict[str, DanceabilityProfile] = {}
+        if hasattr(self._repository, "load_danceability_profile_cache"):
+            cache = self._repository.load_danceability_profile_cache(paths)
             for path in paths:
                 entry = cache.get(path)
-                if entry is not None and entry[2].analysis_version == CURRENT_ANALYSIS_VERSION:
+                if entry is not None and entry[2].analysis_version == CURRENT_DANCEABILITY_VERSION:
                     cached_profiles[path] = entry[2]
                     self.progress.emit(path, entry[2])
                     processed_count += 1
@@ -100,7 +101,7 @@ class _SpectralCompletionRunner(QObject):
 
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
             future_to_path: dict[Any, Path] = {
-                pool.submit(self._spectral_analyzer.analyze, path): path for path in pending_paths
+                pool.submit(self._danceability_analyzer.analyze, path): path for path in pending_paths
             }
             for future in as_completed(future_to_path):
                 if _is_cancelled(self._cancellation_token):
@@ -111,31 +112,31 @@ class _SpectralCompletionRunner(QObject):
                 try:
                     profile = future.result()
                 except Exception:
-                    LOGGER.exception("Spectral analysis failed for %s", path)
+                    LOGGER.exception("Danceability analysis failed for %s", path)
                     profile = None
                 if _is_cancelled(self._cancellation_token):
                     break
-                if profile is not None and hasattr(self._repository, "update_spectral_profile"):
+                if profile is not None and hasattr(self._repository, "update_danceability_profile"):
                     try:
-                        self._repository.update_spectral_profile(str(path), profile)
+                        self._repository.update_danceability_profile(str(path), profile)
                     except Exception:
-                        LOGGER.exception("Failed to persist spectral profile for %s", path)
+                        LOGGER.exception("Failed to persist danceability profile for %s", path)
                 self.progress.emit(str(path), profile)
                 processed_count += 1
                 self.progress_updated.emit(processed_count, total_count)
 
 
-class SpectralCompletionWorker(QObject):
-    """Public controller for lazy spectral profile completion.
+class DanceabilityCompletionWorker(QObject):
+    """Public controller for lazy danceability profile completion.
 
     Usage:
-        worker = SpectralCompletionWorker()
+        worker = DanceabilityCompletionWorker()
         worker.progress.connect(handle_profile)
         worker.finished.connect(handle_done)
         worker.start(records, repository)
     """
 
-    progress = Signal(str, object)  # path, SpectralProfile | None
+    progress = Signal(str, object)  # path, DanceabilityProfile | None
     progress_updated = Signal(int, int)  # processed_count, total_count
     finished = Signal()
     failed = Signal(object)
@@ -144,13 +145,13 @@ class SpectralCompletionWorker(QObject):
         self,
         parent: QObject | None = None,
         *,
-        spectral_analyzer: SpectralAnalyzer | None = None,
+        danceability_analyzer: DanceabilityAnalyzer | None = None,
     ) -> None:
         super().__init__(parent)
         self._thread: QThread | None = None
-        self._runner: _SpectralCompletionRunner | None = None
+        self._runner: _DanceabilityCompletionRunner | None = None
         self._cancellation_token: ScanCancellationToken | None = None
-        self._spectral_analyzer = spectral_analyzer
+        self._danceability_analyzer = danceability_analyzer
 
     def start(
         self,
@@ -159,16 +160,16 @@ class SpectralCompletionWorker(QObject):
         cancellation_token: ScanCancellationToken | None = None,
         max_workers: int | None = None,
     ) -> None:
-        """Start completing missing spectral profiles in a background thread."""
+        """Start completing missing danceability profiles in a background thread."""
         self.cancel()
         self._cancellation_token = cancellation_token
         thread = QThread(self)
-        runner = _SpectralCompletionRunner(
+        runner = _DanceabilityCompletionRunner(
             records,
             repository,
             cancellation_token,
             max_workers,
-            self._spectral_analyzer,
+            self._danceability_analyzer,
         )
         runner.moveToThread(thread)
         thread.started.connect(runner.run)

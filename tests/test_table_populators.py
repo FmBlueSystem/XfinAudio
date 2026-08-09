@@ -291,7 +291,7 @@ def test_populate_dj_readiness_table_colors_status_cells() -> None:
 def test_populate_transition_review_table_renders_scores_and_warnings(tmp_path) -> None:
     ensure_app()
     table = QTableWidget()
-    table.setColumnCount(9)
+    table.setColumnCount(11)
 
     left = TrackExplanation(path=str(tmp_path / "left.flac"), title="Left Track", metadata_status="complete")
     right = TrackExplanation(path=str(tmp_path / "right.flac"), title="Right Track", metadata_status="complete")
@@ -308,6 +308,8 @@ def test_populate_transition_review_table_renders_scores_and_warnings(tmp_path) 
                 left=left,
                 right=right,
                 component_scores={"key_score": 0.9, "bpm_score": 0.8, "energy_score": 0.7, "tag_score": 0.6},
+                compatibility_score=0.84,
+                mixability_score=0.72,
                 final_score=0.75,
                 warnings=["timing concern"],
                 explanations=[],
@@ -335,17 +337,72 @@ def test_populate_transition_review_table_renders_scores_and_warnings(tmp_path) 
     )
 
     assert table.rowCount() == 1
-    row_values = [table.item(0, col).text() for col in range(9)]
-    # col 0: order; col 1: left name; col 2: right name; col 8: warnings
+    row_values = [table.item(0, col).text() for col in range(11)]
+    # col 0: order; col 1: left name; col 2: right name; col 10: warnings
     assert row_values[0] == "1"
     assert "Left Track" in row_values[1]
     assert "Right Track" in row_values[2]
-    # col 8: formatted warning text
-    assert "timing concern" in row_values[8]
-    # numeric sort value on col 7 (final score) should be a float, not a string
-    final_score_item = table.item(0, 7)
+    # cols 6/7 are the Fit and Blend axes, col 9 the unchanged final score
+    assert row_values[6:8] == ["0.840", "0.720"]
+    assert row_values[9] == "0.750"
+    assert "timing concern" in row_values[10]
+    assert "timing concern" in table.item(0, 10).toolTip()
+    for column in (6, 7):
+        assert table.item(0, column).background().style() != Qt.BrushStyle.NoBrush
+    # numeric sort value on col 9 (final score) should be a float, not a string
+    final_score_item = table.item(0, 9)
     assert final_score_item is not None
     assert hasattr(final_score_item, "sort_value")
+
+
+def test_populate_transition_review_table_renders_unavailable_axes_as_empty(tmp_path) -> None:
+    ensure_app()
+    table = QTableWidget()
+    table.setColumnCount(11)
+    left = TrackExplanation(path=str(tmp_path / "left.flac"), title="Left", metadata_status="complete")
+    right = TrackExplanation(path=str(tmp_path / "right.flac"), title="Right", metadata_status="complete")
+    explanation = PlaylistExplanation(
+        strategy="harmonic_journey",
+        optimizer="greedy",
+        track_count=2,
+        transition_count=1,
+        total_score=0.75,
+        warnings=[],
+        transitions=[
+            TransitionExplanation(
+                order=1,
+                left=left,
+                right=right,
+                component_scores={},
+                compatibility_score=None,
+                mixability_score=None,
+                final_score=0.75,
+                warnings=[],
+                explanations=[],
+            )
+        ],
+    )
+
+    from xfinaudio.desktop.rendering import (
+        _component_score,
+        _format_review_score,
+        _score_sort_value,
+        _track_review_name,
+        format_recommendation_warning,
+    )
+
+    populate_transition_review_table(
+        table,
+        explanation,
+        item_factory=item_factory,
+        format_review_score=_format_review_score,
+        component_score=_component_score,
+        score_sort_value=_score_sort_value,
+        track_review_name=_track_review_name,
+        format_warning=format_recommendation_warning,
+    )
+
+    assert [table.item(0, column).text() for column in (7, 8)] == ["", ""]
 
 
 def test_populate_prep_copilot_table_colors_readiness_status(tmp_path) -> None:

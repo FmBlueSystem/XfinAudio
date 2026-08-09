@@ -150,11 +150,20 @@ def scan_folder(
     metadata_by_path: dict[Path, Any] = {}
     raw_metadata_by_path: dict[Path, dict[str, Any]] = {}
     durations: dict[Path, float | None] = {}
+    audio_md5s: dict[Path, str | None] = {}
     skipped_paths: list[Path] = []
     for path in supported_paths:
         if cancellation_token is not None and cancellation_token.is_cancelled:
             raise ScanCancelledError(
-                _build_records(metadata_by_path, raw_metadata_by_path, durations, {}, skipped_paths, supported_paths)
+                _build_records(
+                    metadata_by_path,
+                    raw_metadata_by_path,
+                    durations,
+                    audio_md5s,
+                    {},
+                    skipped_paths,
+                    supported_paths,
+                )
             )
         try:
             raw_metadata = tag_reader(path)
@@ -166,13 +175,23 @@ def scan_folder(
             skipped_paths.append(path)
             continue
         duration = raw_metadata.pop("__duration__", None) if raw_metadata else None
+        audio_md5 = raw_metadata.pop("__audio_md5__", None) if raw_metadata else None
         durations[path] = duration
+        audio_md5s[path] = audio_md5
         raw_metadata_by_path[path] = raw_metadata
         metadata_by_path[path] = parse_mixedinkey_tags(raw_metadata)
 
     if cancellation_token is not None and cancellation_token.is_cancelled:
         raise ScanCancelledError(
-            _build_records(metadata_by_path, raw_metadata_by_path, durations, {}, skipped_paths, supported_paths)
+            _build_records(
+                metadata_by_path,
+                raw_metadata_by_path,
+                durations,
+                audio_md5s,
+                {},
+                skipped_paths,
+                supported_paths,
+            )
         )
 
     # Phase 2: resolve spectral profiles (cache, parallel batch, sequential, or skip).
@@ -191,6 +210,7 @@ def scan_folder(
         metadata_by_path,
         raw_metadata_by_path,
         durations,
+        audio_md5s,
         profiles_by_path,
         skipped_paths,
         supported_paths,
@@ -209,6 +229,7 @@ def _build_records(
     metadata_by_path: dict[Path, Any],
     raw_metadata_by_path: dict[Path, dict[str, Any]],
     durations: dict[Path, float | None],
+    audio_md5s: dict[Path, str | None],
     profiles_by_path: dict[Path, SpectralProfile | None],
     skipped_paths: list[Path],
     supported_paths: list[Path],
@@ -228,6 +249,9 @@ def _build_records(
                 bpm=metadata.bpm,
                 camelot_key=metadata.camelot_key,
                 energy_level=metadata.energy_level,
+                energy_in=metadata.energy_in,
+                energy_out=metadata.energy_out,
+                energy_peak=metadata.energy_peak,
                 duration=durations[path],
                 genre=metadata.genre,
                 tags=metadata.tags,
@@ -235,6 +259,7 @@ def _build_records(
                 missing_required_fields=metadata.missing_required_fields,
                 source_fields=metadata.source_fields,
                 raw_metadata=_retained_raw_metadata(raw_metadata_by_path[path]),
+                audio_md5=audio_md5s[path],
                 spectral_profile=spectral_profile,
             )
         )
@@ -343,6 +368,12 @@ def read_mutagen_tags(path: Path) -> dict[str, Any] | None:
     tags = {str(key): _coerce_tag_value(value) for key, value in audio.tags.items()}
     if audio.info is not None and hasattr(audio.info, "length"):
         tags["__duration__"] = audio.info.length
+    try:
+        signature = getattr(audio.info, "md5_signature", 0)
+        if signature:
+            tags["__audio_md5__"] = format(signature, "032x")
+    except Exception:
+        pass
     return tags
 
 

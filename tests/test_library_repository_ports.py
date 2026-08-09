@@ -5,9 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
+from xfinaudio.audio.danceability import DanceabilityProfile
+from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_repository import PlaylistRepository
-from xfinaudio.library.ports import PlaylistRepositoryPort, TrackDisplayRepositoryPort, TrackRepositoryPort
+from xfinaudio.library.ports import (
+    PlaylistRepositoryPort,
+    TrackDanceabilityProfileCachePort,
+    TrackDanceabilityProfileCacheReaderPort,
+    TrackDisplayRepositoryPort,
+    TrackEdgeSpectralProfileCachePort,
+    TrackEdgeSpectralProfileCacheReaderPort,
+    TrackRepositoryPort,
+)
 from xfinaudio.library.track_repository import TrackRepository
 
 
@@ -48,3 +58,32 @@ def test_playlist_workflow_accepts_track_repository_port(tmp_path: Path) -> None
     workflow = PlaylistWorkflowService(scan_service=FakeScanService(), repository=repository)
 
     assert workflow.repository is repository
+
+
+def test_concrete_repository_satisfies_danceability_profile_ports(tmp_path: Path) -> None:
+    repository = TrackRepository(tmp_path / "tracks.db")
+    reader: TrackDanceabilityProfileCacheReaderPort = repository
+    writer: TrackDanceabilityProfileCachePort = repository
+    profile = DanceabilityProfile(
+        score=0.72,
+        pulse_clarity=0.8,
+        tempo_confidence=0.9,
+        percussive_ratio=0.6,
+    )
+
+    repository.save_scan_results([TrackRecord(path="/music/track.flac")])
+
+    assert writer.update_danceability_profile("/music/track.flac", profile) is True
+    assert reader.load_danceability_profile_cache(["/music/track.flac"]) == {}
+
+
+def test_concrete_repository_satisfies_edge_spectral_profile_ports(tmp_path: Path) -> None:
+    repository = TrackRepository(tmp_path / "tracks.db")
+    reader: TrackEdgeSpectralProfileCacheReaderPort = repository
+    writer: TrackEdgeSpectralProfileCachePort = repository
+    edge = SpectralProfile(red_ratio=1.0, green_ratio=0.0, blue_ratio=0.0, dominant_color="RED")
+    profile = EdgeSpectralProfile(intro=edge, outro=edge)
+    repository.save_scan_results([TrackRecord(path="/music/track.flac")])
+
+    assert writer.update_edge_spectral_profile("/music/track.flac", profile) is True
+    assert reader.load_edge_spectral_profile_cache(["/music/track.flac"]) == {}

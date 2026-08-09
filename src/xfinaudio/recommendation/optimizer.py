@@ -11,11 +11,14 @@ from xfinaudio.recommendation.camelot import BoostRule
 from xfinaudio.recommendation.energy_arc import arc_targets
 from xfinaudio.recommendation.scoring import (
     DEFAULT_SCORING_CONFIG,
-    DEFAULT_WEIGHTS,
     ScoringWeights,
     TransitionScore,
     TransitionScoringConfig,
+    bpm_difference_percent,
     score_transition,
+)
+from xfinaudio.recommendation.scoring import (
+    DEFAULT_WEIGHTS as DEFAULT_WEIGHTS,
 )
 
 # How much the shape of the set weighs against the quality of each transition.
@@ -111,7 +114,7 @@ def recommend_sequence(
     end_path: str | None = None,
     exact_limit: int = 15,
     boost_rules: Collection[BoostRule] | None = None,
-    weights: ScoringWeights = DEFAULT_WEIGHTS,
+    weights: ScoringWeights | None = None,
     cache: dict[tuple, TransitionScore] | None = None,
     config: TransitionScoringConfig | None = None,
     arc_strategy: str | None = None,
@@ -172,7 +175,7 @@ UNPLAYABLE_TRANSITION_PENALTY = -1000.0
 def _score_matrix(
     tracks: list[TrackRecord],
     boost_rules: Collection[BoostRule] | None,
-    weights: ScoringWeights,
+    weights: ScoringWeights | None,
     config: TransitionScoringConfig,
     cache: dict[tuple, TransitionScore] | None = None,
     max_bpm_difference_percent: float | None = None,
@@ -204,7 +207,7 @@ def _pair_score(
     left: TrackRecord,
     right: TrackRecord,
     boost_rules: Collection[BoostRule] | None,
-    weights: ScoringWeights,
+    weights: ScoringWeights | None,
     config: TransitionScoringConfig,
     cache: dict[tuple, TransitionScore] | None,
     max_bpm_difference_percent: float | None,
@@ -214,7 +217,9 @@ def _pair_score(
     ).total_score
     if max_bpm_difference_percent is None or left.bpm is None or right.bpm is None or not left.bpm:
         return score
-    if abs(right.bpm - left.bpm) / left.bpm * 100.0 > max_bpm_difference_percent:
+    # Fold 2:1 pairs and use the lower BPM as the symmetric denominator,
+    # matching the transition scorer's continuity calculation.
+    if bpm_difference_percent(left.bpm, right.bpm) > max_bpm_difference_percent:
         return score + UNPLAYABLE_TRANSITION_PENALTY
     return score
 

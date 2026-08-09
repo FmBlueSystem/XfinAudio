@@ -11,17 +11,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 CAMELot_RE = re.compile(r"^(?:1[0-2]|[1-9])[AB]$")
 ENERGY_TEXT_RE = re.compile(r"Energy\s+([1-9]|10)\b", re.IGNORECASE)
-COMMENT_ENERGY_RE = re.compile(r"⚡️?\s*([1-9]|10)")
 TAG_FIELDS = ("genre", "mood", "subgenre", "dj_zone", "genre_category")
 
 # Every tag key parse_mixedinkey_tags() can consult, casefolded to match
 # _casefold_mapping(). Callers retain only these; the rest (Serato overviews,
 # Mixed In Key beatgrids, lyrics) is never read and is dropped after parsing.
-# Keep in sync with _parse_bpm, _parse_camelot_key, _parse_energy and TAG_FIELDS.
-# Deliberately excludes `beatgrid`, which _parse_bpm does read: the parser gets the
-# full untrimmed tag dict, and this set only decides what survives into the persisted
-# `raw_metadata`. The blob embeds every beat onset -- 18 KB median, 189 MB projected
-# across the library, against 5 MB for everything else retained here.
+# Keep in sync with the scalar parsers and TAG_FIELDS. Deliberately excludes
+# `beatgrid` and `cuepoints`, which _parse_bpm and _parse_energy_cues do read:
+# parsing receives the full untrimmed tag dict, and this set only decides what
+# survives into the persisted `raw_metadata`. The beatgrid blob embeds every beat
+# onset -- 18 KB median, 189 MB projected across the library, against 5 MB for
+# everything else retained here -- so only the derived scalars are stored.
 PARSED_TAG_KEYS = frozenset(
     {
         "title",
@@ -37,9 +37,6 @@ PARSED_TAG_KEYS = frozenset(
         "tkey",
         "energy",
         "energylevel",
-        "grouping",
-        "publisher",
-        "comment",
         *TAG_FIELDS,
     }
 )
@@ -98,6 +95,9 @@ class MixedInKeyMetadata(BaseModel):
     bpm: float | None = None
     camelot_key: str | None = None
     energy_level: int | None = None
+    energy_in: int | None = None
+    energy_out: int | None = None
+    energy_peak: int | None = None
     genre: str | None = None
     tags: list[str] = Field(default_factory=list)
     source_fields: dict[str, str] = Field(default_factory=dict)
@@ -138,6 +138,8 @@ def parse_mixedinkey_tags(raw_tags: dict[str, Any]) -> MixedInKeyMetadata:
     if energy_level is not None and energy_source is not None:
         source_fields["energy_level"] = energy_source
 
+    energy_in, energy_out, energy_peak = _parse_energy_cues(tags)
+
     normalized_tags = _parse_tags(tags)
     missing_required_fields = [
         field_name
@@ -151,6 +153,9 @@ def parse_mixedinkey_tags(raw_tags: dict[str, Any]) -> MixedInKeyMetadata:
         bpm=bpm,
         camelot_key=camelot_key,
         energy_level=energy_level,
+        energy_in=energy_in,
+        energy_out=energy_out,
+        energy_peak=energy_peak,
         genre=genre,
         tags=normalized_tags,
         source_fields=source_fields,
@@ -231,24 +236,57 @@ def _parse_energy(tags: dict[str, tuple[str, Any]], title: str | None) -> tuple[
         if candidate is not None:
             return candidate, "energy"
 
-    for field_name in ("energylevel", "grouping"):
+    for field_name in ("energylevel",):
         candidate = _normalize_energy(_first_text(tags, field_name))
         if candidate is not None:
             return candidate, _source_key(tags, field_name)
 
-    for field_name in ("publisher", "comment"):
-        text = _first_text(tags, field_name)
-        if text is None:
-            continue
-        match = ENERGY_TEXT_RE.search(text) or COMMENT_ENERGY_RE.search(text)
-        if match is not None:
-            return int(match.group(1)), _source_key(tags, field_name)
+    # Grouping disagrees with MIK energy on 23.5% of the measured library and
+    # stale comments on 28.1%; publisher is likewise unowned. Wrong transition
+    # input is worse than missing input, which scoring treats neutrally.
 
     if title is not None:
         match = ENERGY_TEXT_RE.search(title)
         if match is not None:
             return int(match.group(1)), "title"
     return None, None
+
+
+def _parse_energy_cues(
+    tags: dict[str, tuple[str, Any]],
+) -> tuple[int | None, int | None, int | None]:
+    encoded = _decode_json_tag(_first_text(tags, "cuepoints"))
+    if encoded is None:
+        return None, None, None
+
+    try:
+        cues = encoded["cues"]
+        if not isinstance(cues, list):
+            return None, None, None
+
+        energy_cues: list[tuple[float, int]] = []
+        for cue in cues:
+            if not isinstance(cue, dict):
+                continue
+            cue_time = cue.get("time")
+            if not isinstance(cue_time, int | float) or isinstance(cue_time, bool):
+                continue
+            match = ENERGY_TEXT_RE.search(str(cue.get("name", "")))
+            if match is None:
+                continue
+            level = _normalize_energy(match.group(1))
+            if level is not None:
+                # Mixed In Key stores cue times in milliseconds. Their scale is
+                # irrelevant here; chronological ordering is the contract.
+                energy_cues.append((float(cue_time), level))
+
+        if not energy_cues:
+            return None, None, None
+        energy_cues.sort(key=lambda cue: cue[0])
+        levels = [level for _, level in energy_cues]
+        return levels[0], levels[-1], max(levels)
+    except (KeyError, TypeError, ValueError):
+        return None, None, None
 
 
 def _parse_tags(tags: dict[str, tuple[str, Any]]) -> list[str]:
