@@ -23,7 +23,7 @@ class FakeRepository:
     def __init__(self) -> None:
         self.db_path = Path(tempfile.mkdtemp()) / "tracks.db"
 
-    def save_scan_results(self, records: list[TrackRecord]) -> None:
+    def save_scan_results(self, records: list[TrackRecord], *, pruned_root=None) -> None:
         pass
 
     def list_display_tracks(self) -> list[TrackRecord]:

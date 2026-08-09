@@ -26,9 +26,16 @@ class FakeScanService:
 class FakeRepository:
     def __init__(self) -> None:
         self.saved_records: list[TrackRecord] = []
+        self.pruned_root: Path | str | None = None
 
-    def save_scan_results(self, records: list[TrackRecord]) -> None:
+    def save_scan_results(
+        self,
+        records: list[TrackRecord],
+        *,
+        pruned_root: Path | str | None = None,
+    ) -> None:
         self.saved_records = list(records)
+        self.pruned_root = pruned_root
 
 
 def test_playlist_workflow_scan_folder_returns_counts_and_persists_records(tmp_path) -> None:
@@ -41,6 +48,7 @@ def test_playlist_workflow_scan_folder_returns_counts_and_persists_records(tmp_p
     assert result.complete_count == 1
     assert result.incomplete_count == 1
     assert result.cancelled is False
+    assert repository.pruned_root == tmp_path
 
 
 def test_playlist_workflow_scan_keeps_identity_matched_stale_profile_attached(tmp_path) -> None:
