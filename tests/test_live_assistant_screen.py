@@ -194,3 +194,25 @@ def test_double_time_candidate_does_not_trigger_bpm_jump_alert(qapp: QApplicatio
     alerts = screen._generate_alerts(candidate)
 
     assert not any(alert.startswith("BPM ") for alert in alerts)
+
+
+def test_smooth_energy_handoff_does_not_trigger_energy_alert(qapp: QApplication, track_a: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    current = track_a.model_copy(update={"energy_level": 4, "energy_out": 8})
+    candidate = track_a.model_copy(update={"path": "/handoff.flac", "energy_level": 8, "energy_in": 8})
+    screen.set_current_track(current)
+
+    alerts = screen._generate_alerts(candidate)
+
+    assert "Energy jump" not in alerts
+
+
+def test_energy_alert_falls_back_to_scalar_without_boundaries(qapp: QApplication, track_a: TrackRecord) -> None:
+    screen = LiveAssistantScreen()
+    current = track_a.model_copy(update={"energy_level": 4})
+    candidate = track_a.model_copy(update={"path": "/fallback.flac", "energy_level": 8})
+    screen.set_current_track(current)
+
+    alerts = screen._generate_alerts(candidate)
+
+    assert "Energy jump" in alerts

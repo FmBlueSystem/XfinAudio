@@ -16,6 +16,8 @@ def track(
     bpm: float = 120.0,
     key: str = "8A",
     energy: int = 5,
+    energy_in: int | None = None,
+    energy_out: int | None = None,
     genre: str | None = "House",
     tags: list[str] | None = None,
 ) -> TrackRecord:
@@ -26,6 +28,8 @@ def track(
         bpm=bpm,
         camelot_key=key,
         energy_level=energy,
+        energy_in=energy_in,
+        energy_out=energy_out,
         genre=genre,
         tags=["Peak"] if tags is None else tags,
         metadata_status="complete",
@@ -287,6 +291,19 @@ def test_dj_readiness_accepts_gradual_energy_progression() -> None:
             track("/music/a.flac", bpm=128, key="8A", energy=4),
             track("/music/b.flac", bpm=128, key="8A", energy=5),
             track("/music/c.flac", bpm=128, key="8A", energy=6),
+        ]
+    )
+
+    report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
+
+    assert any(check.label == "Energy continuity" and check.status == "ready" for check in report.checks)
+
+
+def test_dj_readiness_uses_smooth_energy_handoff_for_continuity() -> None:
+    recommendation = manual_recommendation(
+        [
+            track("/music/a.flac", bpm=128, key="8A", energy=4, energy_out=8),
+            track("/music/b.flac", bpm=128, key="8A", energy=8, energy_in=8),
         ]
     )
 
