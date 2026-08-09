@@ -164,7 +164,12 @@ class SpectralCompletionWorker(QObject):
         """Start completing missing spectral profiles in a background thread."""
         self.cancel()
         self._cancellation_token = cancellation_token
-        thread = QThread(self)
+        # Unparented on purpose. A QThread child is destroyed by
+        # QObject::deleteChildren() when the worker is deleted, and ~QThread
+        # calls qFatal -- which aborts the process -- if the thread is still
+        # running. `_IN_FLIGHT_WORKERS` and `self._thread` hold the reference,
+        # and `thread.finished -> thread.deleteLater` below still reaps it.
+        thread = QThread()
         runner = _SpectralCompletionRunner(
             records,
             repository,
