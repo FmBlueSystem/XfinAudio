@@ -40,3 +40,22 @@ def test_gitignore_excludes_local_and_backup_artifacts() -> None:
     assert "apiJira.txt" in gitignore
     assert "context.md" in gitignore
     assert ".release-evidence/" in gitignore
+
+
+def test_pyinstaller_spec_stamps_the_project_version_on_the_bundle() -> None:
+    """Regression: the bundle reported 0.0.0 regardless of pyproject.
+
+    macOS shows CFBundleShortVersionString in Get Info and stamps it on every
+    crash report, so a hardcoded 0.0.0 makes two builds indistinguishable at
+    the exact moment you need to tell them apart.
+    """
+    import tomllib
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    spec = (root / "packaging" / "pyinstaller" / "xfinaudio.spec").read_text(encoding="utf-8")
+    project_version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+
+    assert "version=app_version" in spec, "BUNDLE must receive a version"
+    assert 'tomllib.loads((project_root / "pyproject.toml")' in spec, "version must come from pyproject, not a literal"
+    assert project_version not in spec, "the version must be read, never pasted into the spec"

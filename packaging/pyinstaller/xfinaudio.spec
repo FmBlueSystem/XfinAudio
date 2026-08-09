@@ -1,8 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import tomllib
 from pathlib import Path
 
 project_root = Path(SPECPATH).parents[1]
+
+# Without this the bundle reports CFBundleShortVersionString 0.0.0, which is
+# what macOS shows in Get Info and what every crash report carries -- making
+# builds indistinguishable exactly when you need to tell them apart.
+app_version = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 
 block_cipher = None
 
@@ -84,4 +90,5 @@ app = BUNDLE(
     name="XfinAudio.app",
     icon=str(icon_path) if icon_path.exists() else None,
     bundle_identifier="com.bluesystemio.xfinaudio",
+    version=app_version,
 )
