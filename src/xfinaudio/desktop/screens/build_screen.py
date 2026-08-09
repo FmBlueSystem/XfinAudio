@@ -59,6 +59,7 @@ class BuildScreen(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._last_vm: BuildViewModel | None = None
+        self._genre_chosen_by_dj = False
         self._build_ui()
         self._connect_signals()
 
@@ -288,6 +289,7 @@ class BuildScreen(QWidget):
         self.clear_constraints_button.clicked.connect(self.clear_constraints_requested)
         self.spectral_cohesion_slider.valueChanged.connect(self._on_spectral_cohesion_changed)
         self.strategy_combo.currentIndexChanged.connect(self._on_strategy_changed)
+        self.genre_combo.activated.connect(self._on_genre_activated)
 
     def connect_signals(self, window: Any) -> None:
         self.copilot_table.itemDoubleClicked.connect(window._apply_prep_copilot_item)
@@ -443,6 +445,17 @@ class BuildScreen(QWidget):
     # ------------------------------------------------------------------
     # Genre selection
     # ------------------------------------------------------------------
+
+    def _on_genre_activated(self, _index: int) -> None:
+        self._genre_chosen_by_dj = True
+
+    def suggest_genre_from_anchor(self, genre: str | None) -> None:
+        """Follow an anchor's offered genre until the DJ makes an explicit choice."""
+        if self._genre_chosen_by_dj or genre is None:
+            return
+        index = self.genre_combo.findText(genre.strip())
+        if index >= 0:
+            self.genre_combo.setCurrentIndex(index)
 
     def set_available_genres(self, genres: list[str]) -> None:
         """Offer *genres*, keeping whatever the DJ already picked if it survives.

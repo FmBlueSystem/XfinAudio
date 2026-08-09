@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation import candidate_pool
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
 from xfinaudio.recommendation.strategies import StrategyName
@@ -95,8 +96,15 @@ def _build_variant(
         manual_order_paths=_manual_order_paths(intent),
         excluded_paths=intent.excluded_paths,
     )
+    # Without an anchor-narrowed pool, the optimizer receives a scattered BPM
+    # sample and the 3% adjacency gate can leave only the anchor behind.
+    recommendation_pool = candidate_pool.build_recommendation_pool(
+        variant_tracks,
+        controls,
+        protected_path=color_anchor_path,
+    )
     recommendation = recommend_playlist(
-        variant_tracks, intent.strategy, controls=controls, color_anchor_path=color_anchor_path
+        recommendation_pool, intent.strategy, controls=controls, color_anchor_path=color_anchor_path
     )
     recommendation = _limit_recommendation(recommendation, intent.target_track_count)
     readiness = build_dj_readiness_report(recommendation, build_quality_report(recommendation))

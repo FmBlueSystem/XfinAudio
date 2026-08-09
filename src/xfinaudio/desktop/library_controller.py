@@ -250,6 +250,10 @@ class LibraryController:
 
     def on_library_selection_changed(self, paths: list[str]) -> None:
         self._access.selected_paths[:] = paths
+        if paths:
+            anchor = self._state.records_by_path.get(paths[0])
+            if anchor is not None:
+                self._widgets.build_screen.suggest_genre_from_anchor(anchor.genre)
         self.refresh_idle_action_state()
         if self._audio_player._source_path is not None and self._audio_player._source_path not in paths:
             self._audio_player.stop()

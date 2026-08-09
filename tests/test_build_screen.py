@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QApplication, QFrame
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.build_view_model import BuildViewModel
-from xfinaudio.desktop.screens.build_screen import _COPILOT_COLUMNS, BuildScreen
+from xfinaudio.desktop.screens.build_screen import _COPILOT_COLUMNS, ANY_GENRE, BuildScreen
 
 
 def test_recommend_progress_bar_shows_eta_and_hides_when_complete(qapp: QApplication) -> None:
@@ -197,3 +197,46 @@ def test_copilot_description_column_is_wider_than_the_count_column(qapp: QApplic
     # A plain ">" would pass on the 294 vs 293 rounding of an even split.
     assert width["Description"] > 2 * width["Tracks"]
     assert width["Description"] > width["Readiness"]
+
+
+def test_anchor_genre_suggestion_selects_an_offered_genre(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    screen.set_available_genres(["House", "Rock"])
+
+    screen.suggest_genre_from_anchor("House")
+
+    assert screen.genre_combo.currentText() == "House"
+
+
+def test_anchor_genre_suggestion_leaves_selection_for_unavailable_or_missing_genre(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    screen.set_available_genres(["House", "Rock"])
+    screen.genre_combo.setCurrentText("Rock")
+
+    screen.suggest_genre_from_anchor("Techno")
+    assert screen.genre_combo.currentText() == "Rock"
+
+    screen.suggest_genre_from_anchor(None)
+    assert screen.genre_combo.currentText() == "Rock"
+
+
+def test_programmatic_anchor_suggestions_do_not_count_as_a_dj_choice(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    screen.set_available_genres(["House", "Rock"])
+
+    screen.suggest_genre_from_anchor("House")
+    screen.suggest_genre_from_anchor("Rock")
+
+    assert screen.genre_combo.currentText() == "Rock"
+
+
+def test_dj_genre_choice_wins_over_later_anchor_suggestions(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    screen.set_available_genres(["House", "Rock"])
+    any_genre_index = screen.genre_combo.findText(ANY_GENRE)
+    screen.genre_combo.setCurrentIndex(any_genre_index)
+    screen.genre_combo.activated.emit(any_genre_index)
+
+    screen.suggest_genre_from_anchor("House")
+
+    assert screen.genre_combo.currentText() == ANY_GENRE
