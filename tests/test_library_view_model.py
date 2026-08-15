@@ -33,6 +33,27 @@ def test_scan_settings_review_text_includes_field_mappings() -> None:
     assert "COMM:Songs-DB_Custom1" in text or "comments" in text.lower()
 
 
+def test_rescan_button_visible_when_changes_detected_and_not_scanning() -> None:
+    """The rescan affordance shows once a settled filesystem change is detected."""
+    vm = LibraryViewModel()
+    state = AppState(selected_folder=Path("/music"), changes_detected_since_scan=True)
+
+    assert vm.rescan_button_visible(state) is True
+
+
+def test_rescan_button_hidden_when_scanning_or_no_changes() -> None:
+    """The rescan affordance stays hidden while scanning, and when nothing changed."""
+    vm = LibraryViewModel()
+
+    assert vm.rescan_button_visible(AppState(selected_folder=Path("/music"))) is False
+    assert (
+        vm.rescan_button_visible(
+            AppState(selected_folder=Path("/music"), changes_detected_since_scan=True, is_scanning=True)
+        )
+        is False
+    )
+
+
 def test_status_text_shows_active_spectral_completion_progress() -> None:
     """Spectral completion progress takes priority over the normal library summary."""
     vm = LibraryViewModel()

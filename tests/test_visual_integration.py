@@ -98,6 +98,14 @@ def test_library_screen_scan_requested_triggers_scan(qapp, window, monkeypatch):
     assert called == [True]
 
 
+def test_library_screen_rescan_requested_triggers_scan(qapp, window, monkeypatch):
+    """rescan_requested signal must invoke scan_selected_folder on the window, identically to scan_requested."""
+    called: list[bool] = []
+    monkeypatch.setattr(window, "scan_selected_folder", lambda: called.append(True))
+    window._library_screen.rescan_requested.emit()
+    assert called == [True]
+
+
 def test_library_screen_cancel_scan_requested_cancels(qapp, window, monkeypatch):
     """cancel_scan_requested signal must invoke cancel_scan on the window."""
     called: list[bool] = []

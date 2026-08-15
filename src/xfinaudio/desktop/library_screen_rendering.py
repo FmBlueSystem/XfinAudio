@@ -57,6 +57,7 @@ class LibraryScreenRenderingMixin:
         self._last_state = state
         self.scan_button.setEnabled(vm.scan_button_enabled(state))
         self.cancel_button.setVisible(vm.cancel_button_visible(state))
+        self.rescan_button.setVisible(vm.rescan_button_visible(state))
         self.scan_settings_label.setText(vm.scan_settings_review_text(state))
         self.status_label.setText(vm.status_text(state))
         self._render_scan_progress(state)

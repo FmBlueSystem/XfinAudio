@@ -10,6 +10,7 @@ from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal, Slot
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.desktop._workers import ScanWorker
+from xfinaudio.desktop.library_watch_service import LibraryWatchService
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken, ScanProgress
 
@@ -61,6 +62,7 @@ class ScanService(QObject):
         self._current_token: ScanCancellationToken | None = None
         self._current_request_id: int = 0
         self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
+        self._watch_service: LibraryWatchService | None = None
         self._selected_folder: Callable[[], Path | None] = _unwired
         self._scanned_records: Callable[[], list[TrackRecord]] = _unwired
         self._set_scanned_records: Callable[[list[TrackRecord]], None] = _unwired
@@ -91,6 +93,10 @@ class ScanService(QObject):
         self._scanned_records = scanned_records
         self._set_scanned_records = set_scanned_records
         self._state = state
+
+    def set_watch_service(self, watch_service: LibraryWatchService | None) -> None:
+        """Wire the optional filesystem-change watcher this service pauses/resumes."""
+        self._watch_service = watch_service
 
     def set_ui(
         self,
@@ -178,6 +184,8 @@ class ScanService(QObject):
         """Prepare synchronous scan state and enable cooperative cancellation."""
         self._require_wired()
         self.current_scan_cancellation_token = ScanCancellationToken()
+        if self._watch_service is not None:
+            self._watch_service.pause()
         self._library_screen.scan_button.setEnabled(False)
         self._build_screen.recommend_button.setEnabled(False)
         self._library_screen.cancel_button.setEnabled(True)
@@ -189,6 +197,8 @@ class ScanService(QObject):
     def _end_scan_state(self) -> None:
         self.current_scan_cancellation_token = None
         self._state.scan_progress_count = 0
+        if self._watch_service is not None:
+            self._watch_service.resume()
         self._refresh_idle_action_state()
         self._sync_state()
 
@@ -203,6 +213,11 @@ class ScanService(QObject):
             self._recommendation_guidance_label.setText(self._tr("Scan metadata before recommending a playlist."))
             return
         self._set_scanned_records(result.records)
+        self._state = self._state.model_copy(update={"changes_detected_since_scan": False})
+        if self._watch_service is not None:
+            folder = self._selected_folder()
+            if folder is not None:
+                self._watch_service.start(folder)
         self._sync_state()
         self._show_tracks(result.records, result.complete_count, result.incomplete_count)
         self._end_scan_state()

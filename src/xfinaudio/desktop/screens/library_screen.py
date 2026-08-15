@@ -45,6 +45,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
     folder_change_requested = Signal()
     scan_requested = Signal()
     cancel_scan_requested = Signal()
+    rescan_requested = Signal()
     selection_changed = Signal(list)
     metadata_screen_requested = Signal()
     settings_requested = Signal()
@@ -76,6 +77,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
             self.folder_button: "Choose the music folder XfinAudio should scan",
             self.scan_button: "Read metadata (BPM, key, energy) from your tracks",
             self.cancel_button: "Stop the metadata scan currently in progress",
+            self.rescan_button: "Rescan the folder because files changed since the last scan",
             self.missing_column_button: "Show or hide the column listing missing metadata",
             self.clear_filters_button: "Clear all active quick filters",
             self.settings_button: "Open scan and application settings",
@@ -125,6 +127,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
         self.folder_button.setAccessibleName(self.tr("Choose music folder"))
         self.scan_button.setAccessibleName(self.tr("Scan metadata"))
         self.cancel_button.setAccessibleName(self.tr("Cancel scan"))
+        self.rescan_button.setAccessibleName(self.tr("Rescan for detected changes"))
         self.missing_column_button.setAccessibleName(self.tr("Show or hide missing metadata column"))
         self.search_input.setAccessibleName(self.tr("Search songs"))
         self.search_input.setAccessibleDescription(
@@ -138,7 +141,8 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
         """Define a logical keyboard tab order across primary controls."""
         self.setTabOrder(self.folder_button, self.scan_button)
         self.setTabOrder(self.scan_button, self.cancel_button)
-        self.setTabOrder(self.cancel_button, self.missing_column_button)
+        self.setTabOrder(self.cancel_button, self.rescan_button)
+        self.setTabOrder(self.rescan_button, self.missing_column_button)
         self.setTabOrder(self.missing_column_button, self.search_input)
         self.setTabOrder(self.search_input, self.tracks_table)
         self.setTabOrder(self.tracks_table, self.settings_button)
@@ -148,6 +152,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
         self.folder_button.clicked.connect(self.folder_change_requested)
         self.scan_button.clicked.connect(self.scan_requested)
         self.cancel_button.clicked.connect(self.cancel_scan_requested)
+        self.rescan_button.clicked.connect(self.rescan_requested)
         self.missing_column_button.clicked.connect(self._toggle_missing_column)
         self.tracks_table.itemSelectionChanged.connect(self._on_selection_changed)
         self.tracks_table.itemDoubleClicked.connect(self._on_track_double_clicked)
@@ -169,6 +174,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
         self.search_input.textChanged.connect(window._search_debounce.start)
         self.folder_change_requested.connect(window.choose_folder)
         self.scan_requested.connect(window.scan_selected_folder)
+        self.rescan_requested.connect(window.scan_selected_folder)
         self.cancel_scan_requested.connect(window.cancel_scan)
         self.selection_changed.connect(window._on_library_selection_changed)
         self.metadata_screen_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(5))
