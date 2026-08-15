@@ -1,0 +1,35 @@
+schema: gentle-ai.sdd-state.v1
+change: library-file-watcher-rescan
+artifact_store: openspec
+status: applied
+created: 2026-08-15
+updated: 2026-08-15
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: ask-on-risk
+  chained_prs_recommended: true
+  chain_strategy: stacked-to-main
+  review_budget_changed_lines: 400
+  pr_split:
+    - pr: 1a
+      scope: src/xfinaudio/library/folder_watcher.py + tests/test_folder_watcher.py
+      changed_lines: 166
+    - pr: 1b
+      scope: src/xfinaudio/desktop/library_watch_service.py + tests/test_library_watch_service.py + watchdog dependency pin
+      changed_lines: 358
+    - pr: 2
+      scope: scan_service.py integration, AppState field, Library screen rescan_button affordance, lifecycle edge-case tests
+      changed_lines: 278
+notes:
+  - Passive filesystem-change detection for the currently scanned folder via watchdog; never auto-rescans, always surfaces a user-clicked "Changes detected — Rescan" affordance that calls the existing scan_selected_folder() pipeline unchanged.
+  - Full verification suite (pytest, pyright, ruff check/format, coverage >=70%, release_gate_check.py) passes clean on the combined working tree; nothing committed yet per explicit no-auto-commit policy.
+  - One flaky QThread teardown exit-134 observed on a release_gate_check.py rerun, unrelated to this change's content — confirmed non-blocking via a clean rerun (exit 0). Worth tracking separately as test-suite hygiene debt.

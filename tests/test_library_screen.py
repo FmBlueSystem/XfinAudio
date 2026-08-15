@@ -172,6 +172,36 @@ def test_scan_progress_bar_shows_spectral_completion_progress(qapp: QApplication
     assert screen.scan_progress_label.text() == ""
 
 
+def test_rescan_button_hidden_by_default(qapp: QApplication) -> None:
+    """The rescan affordance is not visible until a change is detected and rendered."""
+    screen = LibraryScreen()
+
+    assert screen.rescan_button.isHidden() is True
+
+
+def test_rescan_button_visibility_follows_render(qapp: QApplication) -> None:
+    """Rendering shows/hides the rescan affordance per the view-model predicate."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+
+    screen.render(vm, AppState(selected_folder=Path("/music"), changes_detected_since_scan=True), lightweight=True)
+    assert screen.rescan_button.isHidden() is False
+
+    screen.render(vm, AppState(selected_folder=Path("/music")), lightweight=True)
+    assert screen.rescan_button.isHidden() is True
+
+
+def test_rescan_button_click_emits_rescan_requested(qapp: QApplication) -> None:
+    """Clicking the rescan affordance emits rescan_requested, mirroring scan_button."""
+    screen = LibraryScreen()
+    emitted: list[bool] = []
+    screen.rescan_requested.connect(lambda: emitted.append(True))
+
+    screen.rescan_button.click()
+
+    assert emitted == [True]
+
+
 def test_primary_and_secondary_action_buttons_have_visual_hierarchy(qapp: QApplication) -> None:
     """Scan is a larger primary action; Settings is a smaller muted secondary action."""
     screen = LibraryScreen()
