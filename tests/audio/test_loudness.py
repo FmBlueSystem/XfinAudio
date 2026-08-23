@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -98,88 +99,246 @@ def test_short_material_keeps_integrated_lufs_but_omits_lra_and_true_peak() -> N
     assert profile.true_peak_dbtp is None
 
 
-class _BasicProcess:
-    def __init__(self, stderr: str, *, times_out: bool = False) -> None:
+class _FakeProcess:
+    def __init__(self, stderr: str, *, timeout: bool = False, on_communicate: Any = None) -> None:
         self.stderr = stderr
-        self.times_out = times_out
+        self.timeout = timeout
+        self.on_communicate = on_communicate
+        self.pid = 4242
         self.returncode: int | None = None
         self.timeouts: list[float | None] = []
 
     def communicate(self, *, timeout: float | None = None) -> tuple[str, str]:
         self.timeouts.append(timeout)
-        if self.times_out:
+        if self.on_communicate is not None:
+            self.on_communicate()
+        if self.timeout and len(self.timeouts) == 1:
             raise subprocess.TimeoutExpired("ffmpeg", timeout or 0.0)
         return "", self.stderr
 
 
-def test_preflight_requires_executable_successful_probes_and_structured_true_peak(tmp_path: Path) -> None:
+def test_preflight_requires_bundled_binary_ebur128_filter_and_true_peak(tmp_path: Path) -> None:
+    executable = tmp_path / "bundle" / "ffmpeg"
+    executable.parent.mkdir()
+    executable.touch(mode=0o755)
+    probes: list[tuple[str, ...]] = []
+
+    def probe(command: tuple[str, ...]) -> FfmpegProbeResult:
+        probes.append(command)
+        output = " T.. ebur128 A->N EBU R128" if command[-1] == "-filters" else "  peak <int>\n     true 2"
+        return FfmpegProbeResult(returncode=0, output=output)
+
+    adapter = FfmpegLoudnessAdapter(executable, engine_fingerprint="ffmpeg-8.0.1-ebur128")
+
+    adapter.preflight(probe=probe)
+
+    assert probes == [
+        (str(executable), "-hide_banner", "-filters"),
+        (str(executable), "-hide_banner", "-h", "filter=ebur128"),
+    ]
+
+
+def test_preflight_rejects_missing_filter_or_true_peak_capability(tmp_path: Path) -> None:
+    executable = tmp_path / "bundle" / "ffmpeg"
+    executable.parent.mkdir()
+    executable.touch(mode=0o755)
+    adapter = FfmpegLoudnessAdapter(executable, engine_fingerprint="ffmpeg-8.0.1-ebur128")
+
+    with pytest.raises(FfmpegCapabilityError, match="ebur128"):
+        adapter.preflight(probe=lambda _command: FfmpegProbeResult(returncode=0, output=""))
+
+    def no_true_peak(command: tuple[str, ...]) -> FfmpegProbeResult:
+        output = " T.. ebur128 A->N EBU R128" if command[-1] == "-filters" else "  peak <int>\n     sample 1"
+        return FfmpegProbeResult(returncode=0, output=output)
+
+    with pytest.raises(FfmpegCapabilityError, match="true peak"):
+        adapter.preflight(probe=no_true_peak)
+
+
+def test_analyze_uses_injected_shell_free_process_with_devnull_and_parses_output(tmp_path: Path) -> None:
+    executable = tmp_path / "bundle" / "ffmpeg"
+    audio_file = tmp_path / "cover-art.flac"
+    process = _FakeProcess((FIXTURES / "synthetic_tone_1khz_ebu.stderr").read_text())
+    launches: list[tuple[tuple[str, ...], dict[str, Any]]] = []
+
+    def process_factory(command: tuple[str, ...], **kwargs: Any) -> _FakeProcess:
+        launches.append((command, kwargs))
+        return process
+
+    adapter = FfmpegLoudnessAdapter(
+        executable,
+        engine_fingerprint="ffmpeg-8.0.1-ebur128",
+        process_factory=process_factory,
+        timeout_seconds=9.5,
+    )
+
+    profile = adapter.analyze(audio_file, duration_seconds=3.0)
+
+    assert profile.status is LoudnessStatus.MEASURED
+    assert process.timeouts == [9.5]
+    assert launches == [
+        (
+            adapter.build_command(audio_file),
+            {
+                "stdin": subprocess.DEVNULL,
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.PIPE,
+                "text": True,
+                "shell": False,
+                "start_new_session": True,
+            },
+        )
+    ]
+
+
+def test_timeout_and_shutdown_kill_the_live_process_group_and_return_transient_failure(tmp_path: Path) -> None:
+    executable = tmp_path / "bundle" / "ffmpeg"
+    audio_file = tmp_path / "timed-out.flac"
+    killed: list[int] = []
+    process = _FakeProcess("", timeout=True)
+
+    def process_factory(_command: tuple[str, ...], **_kwargs: Any) -> _FakeProcess:
+        return process
+
+    adapter = FfmpegLoudnessAdapter(
+        executable,
+        engine_fingerprint="ffmpeg-8.0.1-ebur128",
+        process_factory=process_factory,
+        kill_process_group=lambda pid: killed.append(pid),
+    )
+
+    profile = adapter.analyze(audio_file, duration_seconds=3.0)
+
+    assert profile.status is LoudnessStatus.TRANSIENT_FAILURE
+    assert profile.lufs_integrated is None
+    assert killed == [process.pid]
+
+
+def test_preflight_requires_an_executable_and_successful_structured_probes(tmp_path: Path) -> None:
     executable = tmp_path / "bundle" / "ffmpeg"
     executable.parent.mkdir()
     executable.touch(mode=0o755)
     adapter = FfmpegLoudnessAdapter(executable, engine_fingerprint="ffmpeg-8.0.1-ebur128")
 
     def valid_probe(command: tuple[str, ...]) -> FfmpegProbeResult:
-        output = " T.. ebur128 A->N EBU R128" if command[-1] == "-filters" else "  peak <int>\n     true 2"
-        return FfmpegProbeResult(returncode=0, output=output)
+        if command[-1] == "-filters":
+            return FfmpegProbeResult(0, " T.. ebur128 A->N EBU R128")
+        return FfmpegProbeResult(0, "  peak <int> set peak mode\n     none 0\n     true 2")
 
     adapter.preflight(probe=valid_probe)
+
     executable.chmod(0o644)
     with pytest.raises(FfmpegCapabilityError, match="executable"):
         adapter.preflight(probe=valid_probe)
+
     executable.chmod(0o755)
     with pytest.raises(FfmpegCapabilityError, match="probe"):
-        adapter.preflight(probe=lambda _command: FfmpegProbeResult(returncode=1, output="unused"))
+        adapter.preflight(probe=lambda _command: FfmpegProbeResult(1, " T.. ebur128 A->N EBU R128"))
 
 
-def test_preflight_rejects_unrelated_true_peak_words(tmp_path: Path) -> None:
+def test_preflight_rejects_unrelated_peak_and_true_words(tmp_path: Path) -> None:
     executable = tmp_path / "bundle" / "ffmpeg"
     executable.parent.mkdir()
     executable.touch(mode=0o755)
     adapter = FfmpegLoudnessAdapter(executable, engine_fingerprint="ffmpeg-8.0.1-ebur128")
 
     def misleading_probe(command: tuple[str, ...]) -> FfmpegProbeResult:
-        output = " T.. ebur128 A->N EBU R128" if command[-1] == "-filters" else "peak detection is true elsewhere"
-        return FfmpegProbeResult(returncode=0, output=output)
+        if command[-1] == "-filters":
+            return FfmpegProbeResult(0, " T.. ebur128 A->N EBU R128")
+        return FfmpegProbeResult(0, "peak detection is true for another filter")
 
     with pytest.raises(FfmpegCapabilityError, match="true peak"):
         adapter.preflight(probe=misleading_probe)
 
 
-def test_analyze_injects_shell_free_process_and_classifies_timeout(tmp_path: Path) -> None:
-    process = _BasicProcess((FIXTURES / "synthetic_tone_1khz_ebu.stderr").read_text())
-    launches: list[dict[str, Any]] = []
+class _TimeoutReapingProcess:
+    pid = 5252
+    returncode: int | None = None
 
-    def process_factory(_command: tuple[str, ...], **kwargs: Any) -> _BasicProcess:
-        launches.append(kwargs)
+    def __init__(self) -> None:
+        self.communicate_timeouts: list[float | None] = []
+        self.reaped = False
+
+    def communicate(self, *, timeout: float | None = None) -> tuple[str, str]:
+        self.communicate_timeouts.append(timeout)
+        if len(self.communicate_timeouts) == 1:
+            raise subprocess.TimeoutExpired("ffmpeg", timeout or 0.0)
+        self.reaped = True
+        return "", ""
+
+
+def test_timeout_kills_the_group_then_reaps_the_owner_process(tmp_path: Path) -> None:
+    process = _TimeoutReapingProcess()
+    killed: list[int] = []
+    adapter = FfmpegLoudnessAdapter(
+        tmp_path / "bundle" / "ffmpeg",
+        engine_fingerprint="ffmpeg-8.0.1-ebur128",
+        process_factory=lambda _command, **_kwargs: process,
+        kill_process_group=killed.append,
+    )
+
+    profile = adapter.analyze(tmp_path / "timed-out.flac", duration_seconds=3.0)
+
+    assert profile.status is LoudnessStatus.TRANSIENT_FAILURE
+    assert killed == [process.pid]
+    assert process.communicate_timeouts == [120.0, None]
+    assert process.reaped is True
+
+
+class _RaceProcess:
+    pid = 6262
+    returncode: int | None = None
+
+    def __init__(self, fixture_stderr: str) -> None:
+        self._fixture_stderr = fixture_stderr
+        self.killed = threading.Event()
+        self.reaped = threading.Event()
+
+    def communicate(self, *, timeout: float | None = None) -> tuple[str, str]:
+        del timeout
+        assert self.killed.wait(timeout=1.0)
+        self.reaped.set()
+        return "", self._fixture_stderr
+
+
+@pytest.mark.parametrize("action_name", ["cancel", "shutdown"])
+def test_cancel_and_shutdown_cover_spawn_registration_race_and_wait_for_reaping(
+    tmp_path: Path, action_name: str
+) -> None:
+    factory_entered = threading.Event()
+    release_factory = threading.Event()
+    action_done = threading.Event()
+    process = _RaceProcess((FIXTURES / "synthetic_tone_1khz_ebu.stderr").read_text())
+    killed: list[int] = []
+
+    def process_factory(_command: tuple[str, ...], **_kwargs: Any) -> _RaceProcess:
+        factory_entered.set()
+        assert release_factory.wait(timeout=1.0)
         return process
+
+    def kill_process_group(pid: int) -> None:
+        killed.append(pid)
+        process.killed.set()
 
     adapter = FfmpegLoudnessAdapter(
         tmp_path / "bundle" / "ffmpeg",
         engine_fingerprint="ffmpeg-8.0.1-ebur128",
         process_factory=process_factory,
-        timeout_seconds=9.5,
+        kill_process_group=kill_process_group,
     )
+    analysis = threading.Thread(target=lambda: adapter.analyze(tmp_path / "race.flac", duration_seconds=3.0))
+    action = threading.Thread(target=lambda: (getattr(adapter, action_name)(), action_done.set()))
+    analysis.start()
+    assert factory_entered.wait(timeout=1.0)
+    action.start()
+    try:
+        assert action_done.wait(timeout=0.1) is False
+    finally:
+        release_factory.set()
+    analysis.join(timeout=1.0)
+    action.join(timeout=1.0)
 
-    profile = adapter.analyze(tmp_path / "track.flac", duration_seconds=3.0)
-
-    assert profile.status is LoudnessStatus.MEASURED
-    assert process.timeouts == [9.5]
-    assert launches == [
-        {
-            "stdin": subprocess.DEVNULL,
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.PIPE,
-            "text": True,
-            "shell": False,
-            "start_new_session": True,
-        }
-    ]
-    timeout_adapter = FfmpegLoudnessAdapter(
-        tmp_path / "bundle" / "ffmpeg",
-        engine_fingerprint="ffmpeg-8.0.1-ebur128",
-        process_factory=lambda _command, **_kwargs: _BasicProcess("", times_out=True),
-    )
-    assert (
-        timeout_adapter.analyze(tmp_path / "timeout.flac", duration_seconds=3.0).status
-        is LoudnessStatus.TRANSIENT_FAILURE
-    )
+    assert analysis.is_alive() is False
+    assert action.is_alive() is False
+    assert killed == [process.pid]
+    assert process.reaped.is_set()

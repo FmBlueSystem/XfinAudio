@@ -56,3 +56,8 @@ does not implement or execute a tag write.
 
 - Preflight requires an absolute executable file with execute permission, checks successful typed probe results, and parses the FFmpeg filter listing and `peak` option structurally rather than accepting unrelated words.
 - The initial execution boundary remains shell-free with `stdin=DEVNULL`, `start_new_session=True`, and typed timeout failure. Process-group lifecycle safety follows in task 1.5.
+
+
+## add-loudness-module WU1b task 1.5 correction
+
+- `killpg` is followed by owner `communicate(timeout=None)`; a condition lock makes spawn/registration/cancel/unregister atomic and makes shutdown wait for each registered owner to reap.

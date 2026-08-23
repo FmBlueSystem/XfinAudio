@@ -1,11 +1,14 @@
-"""FFmpeg EBU R128 preflight, execution, and parsing for loudness analysis."""
+"""FFmpeg EBU R128 execution, capability checks, and parsing for loudness analysis."""
 
 from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
+import threading
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -60,6 +63,7 @@ class FfmpegProbeResult:
 
 
 class _RunningProcess(Protocol):
+    pid: int
     returncode: int | None
 
     def communicate(self, *, timeout: float | None = None) -> tuple[str, str]:
@@ -69,11 +73,12 @@ class _RunningProcess(Protocol):
 
 ProcessFactory = Callable[..., _RunningProcess]
 CapabilityProbe = Callable[[tuple[str, ...]], FfmpegProbeResult]
+ProcessGroupKiller = Callable[[int], None]
 
 
 @runtime_checkable
 class LoudnessAnalyzer(Protocol):
-    """Pinned FFmpeg loudness boundary including process execution."""
+    """Pinned FFmpeg loudness boundary including lifecycle-safe process execution."""
 
     def build_command(self, path: Path | str) -> tuple[str, ...]:
         """Return the exact FFmpeg argument vector for one audio file."""
@@ -91,6 +96,14 @@ class LoudnessAnalyzer(Protocol):
         """Parse a pinned-build EBU R128 summary into a typed profile."""
         ...
 
+    def cancel(self) -> None:
+        """Cancel every live FFmpeg process group."""
+        ...
+
+    def shutdown(self) -> None:
+        """Reap every live FFmpeg process group during application teardown."""
+        ...
+
 
 class FfmpegLoudnessAdapter:
     """Run the pinned FFmpeg `ebur128=peak=true` contract without a shell."""
@@ -101,12 +114,18 @@ class FfmpegLoudnessAdapter:
         *,
         engine_fingerprint: str,
         process_factory: ProcessFactory = subprocess.Popen,
+        kill_process_group: ProcessGroupKiller | None = None,
         timeout_seconds: float = 120.0,
     ) -> None:
         self._executable = Path(executable)
         self._engine_fingerprint = engine_fingerprint
         self._process_factory = process_factory
+        self._kill_process_group = kill_process_group or _kill_process_group
         self._timeout_seconds = timeout_seconds
+        self._lifecycle = threading.Condition(threading.RLock())
+        self._live_processes: dict[int, _RunningProcess] = {}
+        self._cancelled_process_ids: set[int] = set()
+        self._shutdown_requested = False
 
     def build_command(self, path: Path | str) -> tuple[str, ...]:
         """Build a shell-free command that always selects the first audio stream."""
@@ -127,7 +146,7 @@ class FfmpegLoudnessAdapter:
         )
 
     def preflight(self, *, probe: CapabilityProbe | None = None) -> None:
-        """Fail closed unless this executable exposes the required FFmpeg features."""
+        """Fail closed unless this executable exposes the exact required FFmpeg features."""
         executable_is_valid = (
             self._executable.is_absolute() and self._executable.is_file() and os.access(self._executable, os.X_OK)
         )
@@ -144,26 +163,67 @@ class FfmpegLoudnessAdapter:
             raise FfmpegCapabilityError("Bundled FFmpeg ebur128 filter does not support true peak")
 
     def analyze(self, path: Path | str, *, duration_seconds: float) -> LoudnessProfile:
-        """Execute one shell-free FFmpeg process and classify timeout failures."""
-        process = self._process_factory(
-            self.build_command(path),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            shell=False,
-            start_new_session=True,
-        )
+        """Execute one shell-free FFmpeg process and classify lifecycle failures."""
+        with self._lifecycle:
+            if self._shutdown_requested:
+                return self._failure(LoudnessStatus.TRANSIENT_FAILURE)
+            process = self._process_factory(
+                self.build_command(path),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                shell=False,
+                start_new_session=True,
+            )
+            self._live_processes[process.pid] = process
         try:
             _stdout, stderr = process.communicate(timeout=self._timeout_seconds)
+            with self._lifecycle:
+                cancelled = process.pid in self._cancelled_process_ids
+            if cancelled:
+                return self._failure(LoudnessStatus.TRANSIENT_FAILURE)
+            if process.returncode not in (None, 0):
+                return self._failure(LoudnessStatus.UNMEASURABLE)
+            try:
+                return self.parse_stderr(stderr, duration_seconds=duration_seconds)
+            except LoudnessParseError:
+                return self._failure(LoudnessStatus.UNMEASURABLE)
         except subprocess.TimeoutExpired:
+            self._terminate_process_group(process)
+            self._reap_owner(process)
             return self._failure(LoudnessStatus.TRANSIENT_FAILURE)
-        if process.returncode not in (None, 0):
-            return self._failure(LoudnessStatus.UNMEASURABLE)
-        try:
-            return self.parse_stderr(stderr, duration_seconds=duration_seconds)
-        except LoudnessParseError:
-            return self._failure(LoudnessStatus.UNMEASURABLE)
+        finally:
+            self._unregister(process)
+
+    def cancel(self) -> None:
+        """Cancel every live analysis and wait until its owner process is reaped."""
+        self.shutdown()
+
+    def shutdown(self) -> None:
+        """Kill every registered process group and wait for their owner analyses to reap."""
+        with self._lifecycle:
+            self._shutdown_requested = True
+            processes = tuple(self._live_processes.values())
+            self._cancelled_process_ids.update(process.pid for process in processes)
+            for process in processes:
+                self._terminate_process_group(process)
+            while self._live_processes:
+                self._lifecycle.wait()
+
+    def _terminate_process_group(self, process: _RunningProcess) -> None:
+        if process.returncode is None:
+            self._kill_process_group(process.pid)
+
+    @staticmethod
+    def _reap_owner(process: _RunningProcess) -> None:
+        process.communicate(timeout=None)
+
+    def _unregister(self, process: _RunningProcess) -> None:
+        with self._lifecycle:
+            self._live_processes.pop(process.pid, None)
+            self._cancelled_process_ids.discard(process.pid)
+            self._lifecycle.notify_all()
 
     def _failure(self, status: LoudnessStatus) -> LoudnessProfile:
         return LoudnessProfile(
@@ -185,10 +245,12 @@ class FfmpegLoudnessAdapter:
                 status=LoudnessStatus.TOO_SHORT,
                 engine_fingerprint=self._engine_fingerprint,
             )
+        loudness_range_lra = _required_summary_value(stderr, "LRA", "LU")
+        true_peak_dbtp = _required_summary_value(stderr, "Peak", "dBFS")
         return LoudnessProfile(
             lufs_integrated=integrated_lufs,
-            loudness_range_lra=_required_summary_value(stderr, "LRA", "LU"),
-            true_peak_dbtp=_required_summary_value(stderr, "Peak", "dBFS"),
+            loudness_range_lra=loudness_range_lra,
+            true_peak_dbtp=true_peak_dbtp,
             status=LoudnessStatus.MEASURED,
             engine_fingerprint=self._engine_fingerprint,
         )
@@ -196,7 +258,12 @@ class FfmpegLoudnessAdapter:
 
 def _default_capability_probe(command: tuple[str, ...]) -> FfmpegProbeResult:
     result = subprocess.run(
-        command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
     )
     return FfmpegProbeResult(returncode=result.returncode, output=result.stdout or "")
 
@@ -213,7 +280,10 @@ def _has_ebur128_filter(output: str) -> bool:
 
 def _supports_true_peak(output: str) -> bool:
     lines = output.splitlines()
-    peak_option = next((index for index, line in enumerate(lines) if re.match(r"^\s{2,}peak\s+<[^>]+>", line)), None)
+    peak_option = next(
+        (index for index, line in enumerate(lines) if re.match(r"^\s{2,}peak\s+<[^>]+>", line)),
+        None,
+    )
     if peak_option is None:
         return False
     for line in lines[peak_option + 1 :]:
@@ -222,6 +292,11 @@ def _supports_true_peak(output: str) -> bool:
         if re.match(r"^\s{5,}true\s+\d+\b", line):
             return True
     return False
+
+
+def _kill_process_group(pid: int) -> None:
+    with suppress(ProcessLookupError):
+        os.killpg(pid, signal.SIGKILL)
 
 
 def _required_summary_value(stderr: str, label: str, unit: str) -> float:
