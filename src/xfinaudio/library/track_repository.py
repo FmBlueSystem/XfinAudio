@@ -447,6 +447,15 @@ class TrackRepository:
             )
         return cursor.rowcount > 0
 
+    def update_loudness_profile(self, path: str, profile: LoudnessProfile) -> bool:
+        """Persist one caller-stamped loudness result without rescanning metadata."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE tracks SET loudness_profile_json = ? WHERE path = ?",
+                (_serialize_loudness_profile(profile), path),
+            )
+        return cursor.rowcount > 0
+
     def load_loudness_profile_cache(
         self,
         paths: Iterable[str],

@@ -82,6 +82,14 @@ The maintainer constrained this objective to **330 text changed lines**, includi
 | Runtime harness | Temporary MP3, FLAC, WAV, and AIFF-named files simulate a metadata-only size/mtime change; no tags are written. |
 | Rollback boundary | Revert the WU2c commit to remove only the post-metadata identity refresh helper and its regression coverage. |
 
+## WU2d Task 2.5 Core Evidence
+
+| Task slice | Safety net | RED | GREEN |
+|---|---|---|---|
+| Headless core | New focused service test | Collection failed: `ModuleNotFoundError: xfinaudio.audio.loudness_completion` | `uv run pytest -q tests/audio/test_loudness_completion.py` — 4 passed in 0.30s. |
+
+The core uses a fixed two-worker cap for external-drive FFmpeg decoding, replays valid cache entries, fresh-stamps profiles after analysis (no tag write exists yet), and directly persists every result. Task 2.5 remains unchecked until Qt/controller/runtime wiring is complete.
+
 ## Authorized Governance Reorder (4.6)
 
 - [x] 4.6 The repository rules and README/CONTRIBUTING English/Spanish sections state that scanning remains read-only except for explicit loudness-tag writing. No WU3 behavior is implemented here.

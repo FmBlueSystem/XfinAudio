@@ -115,3 +115,8 @@ No WU2 actor or harness was launched after this native stop.
 
 - `TrackRepository.refresh_post_metadata_identity` accepts only supported MP3/FLAC/WAV/AIFF suffixes, fresh-stats the existing path, and atomically updates only shared `file_mtime_ns` and `file_size_bytes`. It deliberately preserves the existing spectral, danceability, and edge JSON columns unchanged.
 - It returns `False` before issuing SQL when `stat()` fails and is a post-tag-write boundary, not an arbitrary-audio-replacement API. WU3 remains responsible for ordering any tag write before this refresh.
+
+## add-loudness-module WU2d task 2.5 core
+
+- The headless completion core fixes its FFmpeg pool at **two workers**: native decode is external-drive I/O plus CPU work, so the existing CPU-derived worker count would cause avoidable disk contention.
+- Until WU3 adds tag writing, each completed profile is fresh-stamped after analysis and persisted through `update_loudness_profile`; Qt/controller/runtime composition remains deliberately absent.

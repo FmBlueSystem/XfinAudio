@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from typing import Protocol
 
 from xfinaudio.audio.danceability import DanceabilityProfile
+from xfinaudio.audio.loudness import LoudnessProfile
 from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_models import Playlist, PlaylistSummary
@@ -84,6 +85,16 @@ class TrackEdgeSpectralProfileCachePort(TrackEdgeSpectralProfileCacheReaderPort,
         ...
 
 
+class TrackLoudnessProfileCachePort(Protocol):
+    """Contract for versioned loudness cache replay and immediate persistence."""
+
+    def load_loudness_profile_cache(
+        self, paths: Iterable[str], *, engine_fingerprint: str, force_reanalyze: bool = False
+    ) -> dict[str, LoudnessProfile]: ...
+
+    def update_loudness_profile(self, path: str, profile: LoudnessProfile) -> bool: ...
+
+
 class PlaylistRepositoryPort(Protocol):
     """Contract for saved-playlist persistence."""
 
@@ -123,6 +134,7 @@ __all__ = [
     "TrackDisplayRepositoryPort",
     "TrackEdgeSpectralProfileCachePort",
     "TrackEdgeSpectralProfileCacheReaderPort",
+    "TrackLoudnessProfileCachePort",
     "TrackRepositoryPort",
     "TrackSpectralProfileCachePort",
     "TrackSpectralProfileCacheReaderPort",
