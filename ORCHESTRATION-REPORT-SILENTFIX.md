@@ -191,8 +191,10 @@ Build identity, `shasum -a 256` of `Contents/MacOS/XfinAudio`:
 | `out/XfinAudio-1.8.2.dmg` (11:55) | `1a8a9f85…` | fixed, superseded |
 | installed `/Applications/XfinAudio.app` | `813710cc…` | fixed, includes `db17c0a` |
 
-The 10:32 DMG in `~/Documents` still installs the broken build and was left in place for
-the owner to remove.
+On owner instruction every superseded image was removed, leaving exactly one on the
+machine: `~/Documents/xfinaudio-local-main/out/XfinAudio-1.8.2.dmg`, whose executable
+hashes identically to the installed app. Deleted: the 10:32 broken build, plus
+`XfinAudio-1.0.2-unsigned.dmg` and `XfinAudio.dmg` from 2026-07-19 on the Desktop.
 
 ## Disk hygiene
 
