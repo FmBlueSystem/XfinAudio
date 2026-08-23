@@ -96,3 +96,10 @@ gentle-ai sdd-attempt reset --cwd <repo> --change add-loudness-module \
 ```
 
 No WU2 actor or harness was launched after this native stop.
+
+
+## add-loudness-module WU2a task 2.1
+
+- `loudness_profile_json` follows the repository's nullable-column migration pattern: `_ensure_schema` adds it even when `PRAGMA user_version` already equals `SCHEMA_VERSION`. Therefore this additive column does **not** bump `SCHEMA_VERSION`.
+- `save_scan_results` supplies `NULL` for the new column until later WU2 tasks own loudness writes/loads; its explicit `CASE` preserves an already-stored payload during ordinary metadata rescans.
+- Maintainer budget: this task is constrained to 330 text changed lines including tests and artifacts, reserving correction margin.

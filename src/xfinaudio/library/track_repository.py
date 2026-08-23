@@ -65,8 +65,8 @@ class TrackRepository:
                     energy_in, energy_out, energy_peak, duration, genre, tags_json,
                     metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                     audio_md5, spectral_profile_json, danceability_profile_json,
-                    edge_spectral_profile_json, file_mtime_ns, file_size_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    edge_spectral_profile_json, loudness_profile_json, file_mtime_ns, file_size_bytes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     title = excluded.title,
                     artist = excluded.artist,
@@ -115,6 +115,10 @@ class TrackRepository:
                              AND tracks.file_size_bytes = excluded.file_size_bytes
                             THEN tracks.edge_spectral_profile_json
                         ELSE NULL
+                    END,
+                    loudness_profile_json = CASE
+                        WHEN excluded.loudness_profile_json IS NOT NULL THEN excluded.loudness_profile_json
+                        ELSE tracks.loudness_profile_json
                     END,
                     file_mtime_ns = excluded.file_mtime_ns,
                     file_size_bytes = excluded.file_size_bytes
@@ -508,6 +512,7 @@ class TrackRepository:
                 spectral_profile_json TEXT,
                 danceability_profile_json TEXT,
                 edge_spectral_profile_json TEXT,
+                loudness_profile_json TEXT,
                 file_mtime_ns INTEGER,
                 file_size_bytes INTEGER
             )
@@ -528,6 +533,8 @@ class TrackRepository:
             connection.execute("ALTER TABLE tracks ADD COLUMN danceability_profile_json TEXT")
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN edge_spectral_profile_json TEXT")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN loudness_profile_json TEXT")
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN file_mtime_ns INTEGER")
         with contextlib.suppress(sqlite3.OperationalError):
@@ -572,6 +579,7 @@ class TrackRepository:
             _serialize_profile(record.spectral_profile),
             _serialize_danceability_profile(record.danceability_profile),
             _serialize_edge_spectral_profile(record.edge_spectral_profile),
+            None,
             mtime_ns,
             size_bytes,
         )

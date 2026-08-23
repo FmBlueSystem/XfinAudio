@@ -2,14 +2,15 @@
 
 ## Status
 
-WU1 is complete under strict TDD. The next implementation boundary is WU2 persistence and
-pipeline integration. The executor did not settle the supplied native runtime token.
+WU1 and WU2a task 2.1 are complete under strict TDD. WU2 cache identity, sibling preservation,
+retry policy, and pipeline integration remain pending. The executor did not settle the supplied native runtime token.
 
 ## Completed Tasks
 
 - [x] 1.1–1.3, 1.6–1.7 — Loudness port/profile, command/parser, conformance fixtures, and duration floor.
 - [x] 1.4 — Capability preflight requires an absolute executable file with execute permission, successful typed probes, an `ebur128` filter entry, and the `true` value of the `peak` option.
 - [x] 1.5 — Timeout kills then reaps the owner process; cancellation/shutdown synchronize spawn, registration, kill, and owner reaping.
+- [x] 2.1 — Nullable `loudness_profile_json` migration and explicit scan upsert `CASE` preserve an existing payload on ordinary rescans.
 
 ## TDD Cycle Evidence
 
@@ -28,9 +29,25 @@ pipeline integration. The executor did not settle the supplied native runtime to
 | Runtime harness | Deterministic probe/process fakes plus real Python threads exercised the factory-registration cancellation race, owner reaping, timeout classification, and process-group kill. No real FFmpeg executable ran. |
 | Rollback boundary | Revert commits `a90056c` and this task-1.5 commit together to remove the WU1 runtime boundary without touching WU2+. |
 
+## WU2a Task 2.1 Evidence
+
+| Task | Safety net | RED | GREEN | Refactor |
+|---|---|---|---|---|
+| 2.1 | `uv run pytest -q tests/test_track_repository.py` → 75 passed in 0.67s | Same command → 2 failed, 75 passed: missing column blocked direct payload seed and current-version migration | Same command → 77 passed in 0.58s | Existing nullable-column migration pattern retained; no `SCHEMA_VERSION` bump. |
+
+| Evidence | Result |
+|---|---|
+| Focused tests | `uv run pytest -q tests/test_track_repository.py` — 77 passed in 0.58s. |
+| Runtime harness | SQLite file integration: seed a profile JSON directly, run `save_scan_results`, then read the same column back. |
+| Rollback boundary | Revert the WU2a commit to remove only the nullable column and scan-upsert preservation branch. |
+
+## WU2a Maintainer Budget
+
+The maintainer constrained this objective to **330 text changed lines**, including tests and SDD artifacts, to reserve correction margin. This slice is limited to task 2.1; it deliberately does not load/cache loudness profiles or implement identity, retry, pipeline, tag, strategy, or UI behavior.
+
 ## Remaining Tasks
 
-- [ ] WU2 persistence and pipeline integration.
+- [ ] WU2 tasks 2.2–2.5: cache identity, sibling preservation, retry policy, and pipeline integration.
 - [ ] WU3 target-band filter, strategy, and tag write-back.
 - [ ] WU4 settings, UI surface, packaging, and full verification, except completed governance task 4.6.
 

@@ -17,7 +17,7 @@
 
 ## WU2 — Persistence and pipeline integration
 
-- [ ] 2.1 Add `loudness_profile_json` column; include explicitly in `save_scan_results`
+- [x] 2.1 Add `loudness_profile_json` column; include explicitly in `save_scan_results`
       INSERT/CASE (regression test first: column omitted → wiped)
 - [ ] 2.2 Cache validity from identity stored inside the profile, captured AFTER tag write;
       never consult shared tracks identity columns for loudness

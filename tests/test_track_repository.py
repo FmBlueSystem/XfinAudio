@@ -1240,3 +1240,45 @@ def test_track_repository_adds_edge_profile_column_to_existing_schema(tmp_path) 
     with sqlite3.connect(db_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
     assert "edge_spectral_profile_json" in columns
+
+
+def test_save_scan_results_preserves_existing_loudness_profile_json_on_ordinary_rescan(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    path = "/music/loudness.flac"
+    payload = '{"status":"measured","lufs_integrated":-10.0}'
+    repository.save_scan_results([TrackRecord(path=path, title="Original")])
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute("UPDATE tracks SET loudness_profile_json = ? WHERE path = ?", (payload, path))
+
+    repository.save_scan_results([TrackRecord(path=path, title="Rescanned")])
+
+    with sqlite3.connect(repository.db_path) as connection:
+        stored = connection.execute("SELECT loudness_profile_json FROM tracks WHERE path = ?", (path,)).fetchone()[0]
+    assert stored == payload
+
+
+def test_track_repository_adds_loudness_column_to_current_version_schema(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    TrackRepository(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("ALTER TABLE tracks RENAME TO tracks_old")
+        connection.execute(
+            """
+            CREATE TABLE tracks AS
+            SELECT path, title, artist, bpm, camelot_key, energy_level,
+                   energy_in, energy_out, energy_peak, duration, genre, tags_json,
+                   metadata_status, missing_required_fields_json, source_fields_json,
+                   raw_metadata_json, audio_md5, spectral_profile_json,
+                   danceability_profile_json, edge_spectral_profile_json,
+                   file_mtime_ns, file_size_bytes
+            FROM tracks_old
+            """
+        )
+        connection.execute("DROP TABLE tracks_old")
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    TrackRepository(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
+    assert "loudness_profile_json" in columns
