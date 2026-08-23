@@ -196,3 +196,17 @@ All requested gates passed on 2026-08-22 in order (exact combined stdout/stderr 
 - Full pytest: 1762 passed, 264 warnings in 52.29s; wall 55.444s; exit 0; `sha256:e1fba8a18b6c073f9d8ffd3732ed083cd5f8dccf2a0d8ce9f590311213585723`.
 - Pyright: 0 errors/warnings/informations; wall 5.281s; `sha256:3c1a00ce86bcdce1ef7ba97d18d9c5b4e7026f49a5dc61a23382ed7345e02316`; Ruff check passed in 0.101s (`sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18`); Ruff format confirmed 300 files in 0.053s (`sha256:f5e0fe29dfc2d201142550a21657ce32f991da5c51e48495bf92d526b257e2c7`).
 - Drift: restored sole transient `uv.lock` version change; review doc remained `sha256:cca5dfd5a0111d59c5280fee9913fbcb40badf6f9c4ac2603b772a19e0e0fdb9`; no source/tests changed; root `build/` and `dist/` absent.
+
+## WU4a Task 4.1 Settings-model foundation (partial)
+
+Task 4.1 remains unchecked: settings UI, runtime scheduling, and translations are intentionally deferred to later WU4 slices.
+
+| Task slice | Safety net | RED | GREEN | Refactor |
+|---|---|---|---|---|
+| Frozen loudness settings and v1 persistence | `uv run pytest -q tests/test_settings.py tests/test_settings_repository.py` — 17 passed | Same command — collection failed: `ImportError: cannot import name 'LoudnessSettings'` | `uv run pytest -q tests/test_settings.py tests/test_settings_repository.py` — 24 passed in 0.30s | Reused strategy-policy defaults instead of duplicating `−10.0` and `2.0`. |
+
+| Evidence | Result |
+|---|---|
+| Focused type/lint/format | `uv run pyright src/xfinaudio/config/settings.py tests/test_settings.py tests/test_settings_repository.py` — 0 errors; `uv run ruff check …` — passed; `uv run ruff format --check …` — 3 files already formatted. |
+| Runtime harness | N/A — this is a frozen Pydantic model and JSON repository contract with no runtime process boundary. |
+| Rollback boundary | Revert `LoudnessSettings`, its AppSettings field/export, tests, and WU4a notes; no UI, scheduler, tag-write, or schema behavior is included. |

@@ -161,3 +161,9 @@ All requested gates passed on 2026-08-22: focused WU2 tests 112 passed in 3.01s 
 ## add-loudness-module WU3 self-verification at `f4bebe5`
 
 After stale-count correction `b155d39`, lifecycle hardening `f4bebe5`, and termination of a separate 2h47m pytest process, the final exact gates passed: focused 386 tests (`sha256:8b672bcb479232a4d698d74b8f7ec5d7995db51abc38cc484ab5b6040b1d4717`), full 1762 tests with exit 0 (`sha256:e1fba8a18b6c073f9d8ffd3732ed083cd5f8dccf2a0d8ce9f590311213585723`), Pyright/Ruff/format green. Prior exit-134 teardown messages and later green runs establish sequence, not a proven thread root cause. Transient `uv.lock` drift was restored; review/source/tests/build/dist remained unchanged.
+
+## add-loudness-module WU4a settings-model foundation
+
+- `LoudnessSettings.enabled` controls whether a later WU4 wiring step schedules **new** loudness analysis. It is deliberately not a write-back preference: fresh measured profiles continue through the always-on, idempotent WU3 tag writer once analysis is scheduled.
+- The persisted defaults reuse the strategy policy (`−10.0 LUFS`, `±2.0 LU`). Targets are constrained to `−30.0..0.0 LUFS` and tolerances to `0.0..10.0 LU`, preventing implausible settings while retaining exact-band and broad-library use cases.
+- `CURRENT_SETTINGS_VERSION` remains `1`: the frozen AppSettings default factory lets existing v1 JSON without `loudness` load and deterministically round-trip the new defaults, while the existing hard future-version rejection remains unchanged.
