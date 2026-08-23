@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-_CHECKED_FILTER_BUTTON_STYLE = "QPushButton:checked { background: #00d4ff; color: #061018; border-color: #00d4ff; }"
+_CHECKED_FILTER_BUTTON_STYLE = "QPushButton:checked { background: #2ce8f5; color: #04121a; border-color: #2ce8f5; }"
 
 
 def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int) -> None:
@@ -160,6 +161,34 @@ def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int
     # Hide Missing column by default — useful on demand, but cramped during browsing.
     screen.tracks_table.setColumnHidden(missing_column, True)
     layout.addWidget(screen.tracks_table)
+
+    screen.loudness_detail_pane = QFrame()
+    screen.loudness_detail_pane.setObjectName("loudnessDetailPane")
+    screen.loudness_detail_pane.setAccessibleName(
+        QCoreApplication.translate("LibraryScreen", "Selected track loudness details")
+    )
+    detail_layout = QHBoxLayout(screen.loudness_detail_pane)
+    screen.loudness_detail_label = QLabel("")
+    screen.loudness_detail_label.setObjectName("loudnessDetail")
+    screen.loudness_detail_label.setAccessibleName(
+        QCoreApplication.translate("LibraryScreen", "Selected track loudness measurements")
+    )
+    screen.true_peak_badge = QLabel("")
+    screen.true_peak_badge.setObjectName("truePeakBadge")
+    screen.true_peak_badge.setAccessibleName(QCoreApplication.translate("LibraryScreen", "True peak status"))
+    screen.reanalyze_loudness_button = QPushButton(QCoreApplication.translate("LibraryScreen", "Reanalyze loudness"))
+    screen.reanalyze_loudness_button.setObjectName("reanalyzeLoudnessButton")
+    screen.reanalyze_loudness_button.setAccessibleName(
+        QCoreApplication.translate("LibraryScreen", "Reanalyze loudness")
+    )
+    screen.reanalyze_loudness_button.setEnabled(False)
+    detail_layout.addWidget(screen.loudness_detail_label)
+    detail_layout.addWidget(screen.true_peak_badge)
+    detail_layout.addWidget(screen.reanalyze_loudness_button)
+    detail_layout.addStretch()
+    screen.loudness_detail_pane.setVisible(False)
+    screen.true_peak_badge.setVisible(False)
+    layout.addWidget(screen.loudness_detail_pane)
 
     # Bottom row
     bottom = QHBoxLayout()

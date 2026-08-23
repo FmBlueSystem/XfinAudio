@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation import candidate_pool
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
 from xfinaudio.recommendation.strategies import StrategyName
 
@@ -62,7 +63,11 @@ class PrepCopilotPlan(BaseModel):
 
 
 def build_prep_copilot_plan(
-    tracks: list[TrackRecord], intent: DJSetIntent, *, color_anchor_path: str | None = None
+    tracks: list[TrackRecord],
+    intent: DJSetIntent,
+    *,
+    color_anchor_path: str | None = None,
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
 ) -> PrepCopilotPlan:
     """Build safe, balanced, and adventurous playlist variants for one DJ set intent.
 
@@ -76,15 +81,20 @@ def build_prep_copilot_plan(
 
     PrepCopilotVariant.model_rebuild()
     variants = [
-        _build_variant("safe", tracks, intent, color_anchor_path=color_anchor_path),
-        _build_variant("balanced", tracks, intent, color_anchor_path=color_anchor_path),
-        _build_variant("adventurous", tracks, intent, color_anchor_path=color_anchor_path),
+        _build_variant("safe", tracks, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band),
+        _build_variant("balanced", tracks, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band),
+        _build_variant("adventurous", tracks, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band),
     ]
     return PrepCopilotPlan(intent=intent, variants=variants)
 
 
 def _build_variant(
-    name: PrepVariantName, tracks: list[TrackRecord], intent: DJSetIntent, *, color_anchor_path: str | None = None
+    name: PrepVariantName,
+    tracks: list[TrackRecord],
+    intent: DJSetIntent,
+    *,
+    color_anchor_path: str | None = None,
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
 ) -> PrepCopilotVariant:
     from xfinaudio.quality.dj_readiness import build_dj_readiness_report
     from xfinaudio.quality.recommendation_quality import build_quality_report
@@ -104,7 +114,11 @@ def _build_variant(
         protected_path=color_anchor_path,
     )
     recommendation = recommend_playlist(
-        recommendation_pool, intent.strategy, controls=controls, color_anchor_path=color_anchor_path
+        recommendation_pool,
+        intent.strategy,
+        controls=controls,
+        color_anchor_path=color_anchor_path,
+        loudness_band=loudness_band,
     )
     recommendation = _limit_recommendation(recommendation, intent.target_track_count)
     readiness = build_dj_readiness_report(recommendation, build_quality_report(recommendation))

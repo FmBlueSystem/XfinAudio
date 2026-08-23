@@ -20,6 +20,7 @@ StrategyName = Literal[
     "same_color",
     "same_genre",
     "same_color_energy",
+    "consistent_loudness",
 ]
 SortHint = Literal["path", "energy_ascending", "energy_descending", "bpm_ascending"]
 
@@ -36,6 +37,7 @@ class PlaylistStrategy(BaseModel):
     energy_range: tuple[int, int] | None = None
     bpm_range: tuple[float, float] | None = None
     energy_tolerance: int | None = None
+    loudness_band: bool = False
     sort_hint: SortHint = "path"
     requires_vibe_metadata: bool = False
     degrade_without_vibe_metadata: bool = False
@@ -119,6 +121,13 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
         display_name="Same Color & Energy",
         description="Hard filters: only tracks matching the anchor's color AND the anchor's exact energy level.",
         weights=ScoringWeights(harmonic=0.25, bpm=0.15, energy=0.30, tags=0.10, spectral=0.20),
+    ),
+    "consistent_loudness": PlaylistStrategy(
+        name="consistent_loudness",
+        display_name="Consistent Loudness",
+        description="Hard filter: measured tracks must stay within the configured integrated loudness band.",
+        weights=ScoringWeights(harmonic=0.30, bpm=0.20, energy=0.30, tags=0.20),
+        loudness_band=True,
     ),
 }
 

@@ -85,6 +85,28 @@ def test_contributing_sets_dev_workflow_tdd_and_safety_boundaries() -> None:
         assert fragment in text
 
 
+def test_loudness_is_the_single_explicitly_configured_audio_write_exception() -> None:
+    exception = (
+        "The loudness module is the single documented exception and may write loudness tags only through its explicit "
+        "setting."
+    )
+    assert (
+        "Scanning remains read-only. The loudness module is the single documented exception and may write loudness "
+        "tags only through its explicit setting."
+    ) in read(AGENTS)
+    assert (
+        "Scanning remains read-only. The loudness module is the single documented exception and may write loudness "
+        "tags only through its explicit setting."
+    ) in read(CONTRIBUTING)
+    readme = read(README)
+    assert exception in readme
+    assert exception in read(SECURITY)
+    assert (
+        "El módulo de loudness es la única excepción documentada y puede escribir tags de loudness solo mediante su "
+        "ajuste explícito."
+    ) in readme
+
+
 def test_security_sets_disclosure_placeholder_scope_and_dependency_caveats() -> None:
     text = read(SECURITY)
 
@@ -93,7 +115,7 @@ def test_security_sets_disclosure_placeholder_scope_and_dependency_caveats() -> 
         "Responsible disclosure",
         "Do not include private audio libraries",
         "No live Serato writes by design",
-        "does not mutate audio files",
+        "does not mutate audio files outside the loudness module's explicit tag-write setting",
         "PySide6/Qt",
         "mutagen",
         "third-party dependencies",

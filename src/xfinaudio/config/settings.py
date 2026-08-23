@@ -7,6 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from xfinaudio.library.scan_planning import SUPPORTED_AUDIO_EXTENSIONS
+from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_TARGET_LUFS, DEFAULT_LOUDNESS_TOLERANCE_LU
 from xfinaudio.recommendation.scoring import DEFAULT_WEIGHTS, ScoringWeights
 
 CURRENT_SETTINGS_VERSION = 1
@@ -69,6 +70,16 @@ class AudioSettings(BaseModel):
     preview_volume: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
+class LoudnessSettings(BaseModel):
+    """Configuration for optional loudness-analysis scheduling."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = True
+    target_lufs: float = Field(default=DEFAULT_LOUDNESS_TARGET_LUFS, ge=-30.0, le=0.0)
+    tolerance_lu: float = Field(default=DEFAULT_LOUDNESS_TOLERANCE_LU, ge=0.0, le=10.0)
+
+
 class WindowSettings(BaseModel):
     """Persisted main-window geometry, restored on launch."""
 
@@ -93,6 +104,7 @@ class AppSettings(BaseModel):
     export: ExportSettings = Field(default_factory=ExportSettings)
     ui: UiSettings = Field(default_factory=UiSettings)
     audio: AudioSettings = Field(default_factory=AudioSettings)
+    loudness: LoudnessSettings = Field(default_factory=LoudnessSettings)
     window: WindowSettings = Field(default_factory=WindowSettings)
 
     @field_validator("settings_version")
@@ -110,6 +122,7 @@ __all__ = [
     "CURRENT_SETTINGS_VERSION",
     "ExportSettings",
     "LibrarySettings",
+    "LoudnessSettings",
     "OptimizerSettings",
     "ScanSettings",
     "ScoringSettings",

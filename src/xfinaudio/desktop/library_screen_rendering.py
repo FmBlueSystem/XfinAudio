@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import QTableWidgetItem
 
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_filter import _RowInfo, suppressed_duplicate_paths
 from xfinaudio.desktop.library_filter_state import library_filters_from_flags, row_matches_query
@@ -22,9 +23,9 @@ from xfinaudio.desktop.library_view_model import (
 from xfinaudio.desktop.scan_service import progress_percent, progress_status_text
 
 _EMPTY = QTableWidgetItem("")
-_ROW_COLOR_EVEN = QColor("#101820")
-_ROW_COLOR_ODD = QColor("#14202a")
-_ROW_COLOR_SELECTED = QColor("#0078b4")
+_ROW_COLOR_EVEN = QColor("#0e161e")
+_ROW_COLOR_ODD = QColor("#121d27")
+_ROW_COLOR_SELECTED = QColor("#5a4be0")
 _MISSING_COLUMN = 7
 _COLUMNS = [
     "Title",
@@ -106,9 +107,74 @@ class LibraryScreenRenderingMixin:
             self.scan_progress_bar.setVisible(True)
             self.scan_progress_label.setVisible(True)
             return
+        if state.is_completing_loudness and state.loudness_total_count > 0:
+            self.scan_progress_bar.setValue(progress_percent(state.loudness_progress_count, state.loudness_total_count))
+            self.scan_progress_label.setText(
+                QCoreApplication.translate("LibraryScreen", "Analyzing loudness {0:,}/{1:,}").format(
+                    state.loudness_progress_count, state.loudness_total_count
+                )
+            )
+            self.scan_progress_bar.setVisible(True)
+            self.scan_progress_label.setVisible(True)
+            return
         self.scan_progress_bar.setVisible(False)
         self.scan_progress_label.setVisible(False)
         self.scan_progress_label.setText("")
+
+    def set_loudness_details(self, profile: LoudnessProfile | None, *, visible: bool) -> None:
+        """Render the selected track's loudness summary and true-peak status."""
+        self.loudness_detail_pane.setVisible(visible)
+        if not visible:
+            self.loudness_detail_label.setText("")
+            self.true_peak_badge.setText("")
+            self.true_peak_badge.setVisible(False)
+            return
+        self.true_peak_badge.setText("")
+        self.true_peak_badge.setVisible(False)
+        if profile is None:
+            self.loudness_detail_label.setText(QCoreApplication.translate("LibraryScreen", "Loudness: not measured"))
+            return
+        if profile.status is LoudnessStatus.TOO_SHORT:
+            if profile.lufs_integrated is None:
+                self.loudness_detail_label.setText(
+                    QCoreApplication.translate("LibraryScreen", "Loudness: unavailable (too short)")
+                )
+            else:
+                self.loudness_detail_label.setText(
+                    QCoreApplication.translate(
+                        "LibraryScreen", "LUFS: {0:.1f} · LRA: unavailable · True peak: unavailable (too short)"
+                    ).format(profile.lufs_integrated)
+                )
+            return
+        if (
+            profile.status is not LoudnessStatus.MEASURED
+            or profile.lufs_integrated is None
+            or profile.loudness_range_lra is None
+            or profile.true_peak_dbtp is None
+        ):
+            if profile.status is LoudnessStatus.UNMEASURABLE:
+                text = QCoreApplication.translate("LibraryScreen", "Loudness: unmeasurable")
+            elif profile.status is LoudnessStatus.TRANSIENT_FAILURE:
+                text = QCoreApplication.translate("LibraryScreen", "Loudness: temporarily unavailable")
+            elif profile.status is LoudnessStatus.UNSUPPORTED:
+                text = QCoreApplication.translate("LibraryScreen", "Loudness: unsupported")
+            else:
+                text = QCoreApplication.translate("LibraryScreen", "Loudness: incomplete measurement")
+            self.loudness_detail_label.setText(text)
+            return
+        self.loudness_detail_label.setText(
+            QCoreApplication.translate(
+                "LibraryScreen", "LUFS: {0:.1f} · LRA: {1:.1f} · True peak: {2:.1f} dBTP"
+            ).format(profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp)
+        )
+        if profile.true_peak_dbtp >= 0.0:
+            badge = QCoreApplication.translate("LibraryScreen", "True peak clipping")
+        elif profile.true_peak_dbtp > -1.0:
+            badge = QCoreApplication.translate("LibraryScreen", "True peak warning")
+        else:
+            badge = ""
+        self.true_peak_badge.setText(badge)
+        self.true_peak_badge.setVisible(bool(badge))
 
     def _populate_table(self, rows: list[TrackDisplayRow]) -> None:
         # Preserve selected paths so sorting does not lose selection.

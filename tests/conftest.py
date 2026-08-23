@@ -1,5 +1,6 @@
 import contextlib
 import os
+from unittest.mock import Mock
 
 # Before PySide6 is imported, not after: Qt has to learn it is headless while
 # it still matters. Twice the CI job burned its full 20-minute timeout inside
@@ -22,16 +23,20 @@ def qapp():
 
 
 @pytest.fixture(autouse=True)
-def _disable_spectral_completion_worker(monkeypatch):
+def _disable_spectral_completion_worker(monkeypatch, request):
     """Prevent background spectral workers from leaking QThreads in widget tests."""
-    from xfinaudio.desktop import main_window as mw_module
+    if request.node.get_closest_marker("uses_spectral_completion_worker"):
+        return
 
-    if hasattr(mw_module, "MainWindow"):
-        monkeypatch.setattr(
-            mw_module.MainWindow,
-            "_start_spectral_completion_worker",
-            lambda self, records: None,
-        )
+    from xfinaudio.desktop import library_controller
+
+    worker = Mock()
+    worker._thread = None
+    monkeypatch.setattr(
+        library_controller,
+        "SpectralCompletionWorker",
+        Mock(return_value=worker),
+    )
 
 
 @pytest.fixture(autouse=True)

@@ -13,6 +13,7 @@ from xfinaudio.audio.danceability import (
     CURRENT_DANCEABILITY_VERSION,
     DanceabilityProfile,
 )
+from xfinaudio.audio.loudness import CURRENT_LOUDNESS_VERSION, LoudnessProfile
 from xfinaudio.audio.spectral_profile import (
     CURRENT_ANALYSIS_VERSION,
     CURRENT_EDGE_ANALYSIS_VERSION,
@@ -28,6 +29,7 @@ SCHEMA_VERSION = 4
 # Bound placeholders per IN (...) clause. Modern SQLite allows 32766, older
 # builds only 999; 900 stays safe everywhere and keeps queries small.
 _MAX_QUERY_VARIABLES = 900
+_METADATA_REFRESH_SUFFIXES = frozenset({".mp3", ".flac", ".wav", ".aif", ".aiff", ".m4a"})
 
 
 class DatabaseSchemaError(RuntimeError):
@@ -65,8 +67,8 @@ class TrackRepository:
                     energy_in, energy_out, energy_peak, duration, genre, tags_json,
                     metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                     audio_md5, spectral_profile_json, danceability_profile_json,
-                    edge_spectral_profile_json, file_mtime_ns, file_size_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    edge_spectral_profile_json, loudness_profile_json, file_mtime_ns, file_size_bytes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     title = excluded.title,
                     artist = excluded.artist,
@@ -116,6 +118,10 @@ class TrackRepository:
                             THEN tracks.edge_spectral_profile_json
                         ELSE NULL
                     END,
+                    loudness_profile_json = CASE
+                        WHEN tracks.loudness_profile_json IS NULL THEN excluded.loudness_profile_json
+                        ELSE tracks.loudness_profile_json
+                    END,
                     file_mtime_ns = excluded.file_mtime_ns,
                     file_size_bytes = excluded.file_size_bytes
                 """,
@@ -143,7 +149,7 @@ class TrackRepository:
                        energy_in, energy_out, energy_peak, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                        audio_md5, spectral_profile_json, danceability_profile_json,
-                       edge_spectral_profile_json
+                       edge_spectral_profile_json, loudness_profile_json
                 FROM tracks
                 ORDER BY path
                 """
@@ -158,7 +164,8 @@ class TrackRepository:
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
                        energy_in, energy_out, energy_peak, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json, spectral_profile_json,
-                       danceability_profile_json, edge_spectral_profile_json, audio_md5
+                       danceability_profile_json, edge_spectral_profile_json, loudness_profile_json, audio_md5,
+                       file_mtime_ns, file_size_bytes
                 FROM tracks
                 ORDER BY path
                 """
@@ -187,11 +194,40 @@ class TrackRepository:
                 """
                 UPDATE tracks
                 SET spectral_profile_json = ?,
+                    danceability_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN danceability_profile_json
+                        ELSE NULL
+                    END,
+                    edge_spectral_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN edge_spectral_profile_json
+                        ELSE NULL
+                    END,
                     file_mtime_ns = ?,
                     file_size_bytes = ?
                 WHERE path = ?
                 """,
-                (_serialize_profile(profile), mtime_ns, size_bytes, path),
+                (
+                    _serialize_profile(profile),
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    path,
+                ),
             )
             return cursor.rowcount > 0
 
@@ -244,12 +280,41 @@ class TrackRepository:
             cursor = connection.execute(
                 """
                 UPDATE tracks
-                SET danceability_profile_json = ?,
+                SET spectral_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN spectral_profile_json
+                        ELSE NULL
+                    END,
+                    danceability_profile_json = ?,
+                    edge_spectral_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN edge_spectral_profile_json
+                        ELSE NULL
+                    END,
                     file_mtime_ns = ?,
                     file_size_bytes = ?
                 WHERE path = ?
                 """,
-                (_serialize_danceability_profile(profile), mtime_ns, size_bytes, path),
+                (
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    _serialize_danceability_profile(profile),
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    path,
+                ),
             )
             return cursor.rowcount > 0
 
@@ -298,12 +363,41 @@ class TrackRepository:
             cursor = connection.execute(
                 """
                 UPDATE tracks
-                SET edge_spectral_profile_json = ?,
+                SET spectral_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN spectral_profile_json
+                        ELSE NULL
+                    END,
+                    danceability_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN danceability_profile_json
+                        ELSE NULL
+                    END,
+                    edge_spectral_profile_json = ?,
                     file_mtime_ns = ?,
                     file_size_bytes = ?
                 WHERE path = ?
                 """,
-                (_serialize_edge_spectral_profile(profile), mtime_ns, size_bytes, path),
+                (
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    _serialize_edge_spectral_profile(profile),
+                    mtime_ns,
+                    size_bytes,
+                    path,
+                ),
             )
             return cursor.rowcount > 0
 
@@ -332,6 +426,66 @@ class TrackRepository:
                     profile = _deserialize_edge_spectral_profile(row["edge_spectral_profile_json"])
                     if profile is not None and profile.analysis_version == CURRENT_EDGE_ANALYSIS_VERSION:
                         cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
+        return cache
+
+    def refresh_post_metadata_identity(self, path: str) -> bool:
+        """Refresh shared identity after a supported-format metadata write without touching profiles.
+
+        This is a post-tag-write boundary only; callers must not use it after replacing audio
+        content. The single UPDATE is atomic and leaves every derived profile JSON untouched.
+        """
+        audio_path = Path(path)
+        if audio_path.suffix.casefold() not in _METADATA_REFRESH_SUFFIXES:
+            return False
+        try:
+            stat = audio_path.stat()
+        except OSError:
+            return False
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE tracks SET file_mtime_ns = ?, file_size_bytes = ? WHERE path = ?",
+                (stat.st_mtime_ns, stat.st_size, path),
+            )
+        return cursor.rowcount > 0
+
+    def update_loudness_profile(self, path: str, profile: LoudnessProfile) -> bool:
+        """Persist one caller-stamped loudness result without rescanning metadata."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE tracks SET loudness_profile_json = ? WHERE path = ?",
+                (_serialize_loudness_profile(profile), path),
+            )
+        return cursor.rowcount > 0
+
+    def load_loudness_profile_cache(
+        self,
+        paths: Iterable[str],
+        *,
+        engine_fingerprint: str,
+        force_reanalyze: bool = False,
+    ) -> dict[str, LoudnessProfile]:
+        """Return current loudness profiles whose own post-write identity still matches disk."""
+        path_list = list(paths)
+        if force_reanalyze or not path_list:
+            return {}
+        cache: dict[str, LoudnessProfile] = {}
+        with self._connect() as connection:
+            for start in range(0, len(path_list), _MAX_QUERY_VARIABLES):
+                chunk = path_list[start : start + _MAX_QUERY_VARIABLES]
+                placeholders = ",".join("?" * len(chunk))
+                query = f"SELECT path, loudness_profile_json FROM tracks WHERE path IN ({placeholders})"
+                for row in connection.execute(query, chunk):
+                    profile = _deserialize_loudness_profile(row["loudness_profile_json"])
+                    if profile is None or profile.analysis_version != CURRENT_LOUDNESS_VERSION:
+                        continue
+                    if profile.engine_fingerprint != engine_fingerprint:
+                        continue
+                    try:
+                        stat = Path(row["path"]).stat()
+                    except OSError:
+                        continue
+                    if (profile.source_mtime_ns, profile.source_size_bytes) == (stat.st_mtime_ns, stat.st_size):
+                        cache[row["path"]] = profile
         return cache
 
     def _initialize(self) -> None:
@@ -421,6 +575,7 @@ class TrackRepository:
                 spectral_profile_json TEXT,
                 danceability_profile_json TEXT,
                 edge_spectral_profile_json TEXT,
+                loudness_profile_json TEXT,
                 file_mtime_ns INTEGER,
                 file_size_bytes INTEGER
             )
@@ -441,6 +596,8 @@ class TrackRepository:
             connection.execute("ALTER TABLE tracks ADD COLUMN danceability_profile_json TEXT")
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN edge_spectral_profile_json TEXT")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN loudness_profile_json TEXT")
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN file_mtime_ns INTEGER")
         with contextlib.suppress(sqlite3.OperationalError):
@@ -485,6 +642,7 @@ class TrackRepository:
             _serialize_profile(record.spectral_profile),
             _serialize_danceability_profile(record.danceability_profile),
             _serialize_edge_spectral_profile(record.edge_spectral_profile),
+            _serialize_loudness_profile(record.loudness_profile),
             mtime_ns,
             size_bytes,
         )
@@ -512,6 +670,7 @@ class TrackRepository:
             spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
             danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"]),
             edge_spectral_profile=_deserialize_edge_spectral_profile(row["edge_spectral_profile_json"]),
+            loudness_profile=_deserialize_loudness_profile(row["loudness_profile_json"]),
         )
 
     @staticmethod
@@ -535,6 +694,11 @@ class TrackRepository:
             spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
             danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"]),
             edge_spectral_profile=_deserialize_edge_spectral_profile(row["edge_spectral_profile_json"]),
+            loudness_profile=_deserialize_current_loudness_profile(
+                row["loudness_profile_json"],
+                source_mtime_ns=row["file_mtime_ns"],
+                source_size_bytes=row["file_size_bytes"],
+            ),
         )
 
 
@@ -587,3 +751,30 @@ def _deserialize_edge_spectral_profile(value: str | None) -> EdgeSpectralProfile
         return EdgeSpectralProfile.model_validate(json.loads(value))
     except Exception:
         return None
+
+
+def _serialize_loudness_profile(profile: LoudnessProfile | None) -> str | None:
+    return profile.model_dump_json() if profile is not None else None
+
+
+def _deserialize_loudness_profile(value: str | None) -> LoudnessProfile | None:
+    if value is None:
+        return None
+    try:
+        return LoudnessProfile.model_validate_json(value)
+    except Exception:
+        return None
+
+
+def _deserialize_current_loudness_profile(
+    value: str | None,
+    *,
+    source_mtime_ns: int | None,
+    source_size_bytes: int | None,
+) -> LoudnessProfile | None:
+    profile = _deserialize_loudness_profile(value)
+    if profile is None:
+        return None
+    if (profile.source_mtime_ns, profile.source_size_bytes) != (source_mtime_ns, source_size_bytes):
+        return None
+    return profile

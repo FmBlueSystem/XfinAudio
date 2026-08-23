@@ -64,14 +64,14 @@ class Menu:
             parent,
             host.tr("About XfinAudio"),
             "<h2 style='margin-bottom:2px;'>XfinAudio</h2>"
-            "<p style='margin-top:0px; color:#8a9bb0; font-size:12px;'>" + host.tr("Version 1.0") + "</p>"
+            "<p style='margin-top:0px; color:#93aac4; font-size:12px;'>" + host.tr("Version 1.0") + "</p>"
             "<p style='margin-top:12px;'>"
             + host.tr(
                 "XfinAudio is a metadata-driven DJ playlist assistant that helps DJs "
                 "build harmonically coherent playlists from existing track metadata."
             )
             + "</p>"
-            "<p style='margin-top:8px; font-size:12px; color:#8a9bb0;'>"
+            "<p style='margin-top:8px; font-size:12px; color:#93aac4;'>"
             "© 2025 <b>BlueSystem.io</b> — "
             + host.tr("Audio Division")
             + ". "
@@ -79,11 +79,11 @@ class Menu:
             + "<br>"
             + host.tr("Developed by Freddy Molina.")
             + "</p>"
-            "<p style='margin-top:8px; font-size:11px; color:#8a9bb0;'>"
+            "<p style='margin-top:8px; font-size:11px; color:#93aac4;'>"
             + host.tr("This software is open-source and distributed under the GNU General Public License v3.0.")
             + "</p>"
             "<hr>"
-            "<p style='font-size:10px; color:#8a9bb0; line-height:1.4;'>"
+            "<p style='font-size:10px; color:#93aac4; line-height:1.4;'>"
             + host.tr(
                 "Mixed In Key®, Camelot®, and Camelot System® are trademarks of Mixed In Key LLC. "
                 "Serato™ and Serato DJ Pro™ are trademarks of Serato Limited. "

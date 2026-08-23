@@ -1,11 +1,13 @@
 from pathlib import Path
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import SpectralProfile
 from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken, ScanCancelledError, ScanProgress
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 
 
@@ -36,6 +38,23 @@ class FakeRepository:
     ) -> None:
         self.saved_records = list(records)
         self.pruned_root = pruned_root
+
+
+def loudness_record(path: str, lufs: float) -> TrackRecord:
+    return TrackRecord(
+        path=path,
+        bpm=124.0,
+        camelot_key="8A",
+        energy_level=5,
+        metadata_status="complete",
+        loudness_profile=LoudnessProfile(
+            lufs_integrated=lufs,
+            loudness_range_lra=4.0,
+            true_peak_dbtp=-1.0,
+            status=LoudnessStatus.MEASURED,
+            engine_fingerprint="ffmpeg-test",
+        ),
+    )
 
 
 def test_playlist_workflow_scan_folder_returns_counts_and_persists_records(tmp_path) -> None:
@@ -139,3 +158,12 @@ def test_playlist_workflow_recommend_returns_recommendation_explanation_and_qual
     assert isinstance(result.quality_report, RecommendationQualityReport)
     assert result.explanation.track_count == 2
     assert result.quality_report.track_count == 2
+
+
+def test_playlist_workflow_applies_supplied_loudness_band_at_strategy_boundary() -> None:
+    records = [loudness_record("/warmup.flac", -14.0), loudness_record("/peak.flac", -10.0)]
+    workflow = PlaylistWorkflowService(scan_service=FakeScanService(), repository=FakeRepository())
+
+    result = workflow.recommend(records, "consistent_loudness", loudness_band=LoudnessBand(-14.0, 0.5))
+
+    assert [record.path for record in result.recommendation.ordered_tracks] == ["/warmup.flac"]

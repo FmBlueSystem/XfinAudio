@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from xfinaudio.config.settings import AppSettings, ExportSettings
+from xfinaudio.config.settings import AppSettings, ExportSettings, LoudnessSettings
 from xfinaudio.desktop.main_window import MainWindow, SettingsPersistence
 
 
@@ -67,3 +67,18 @@ def test_apply_persists_custom_settings(host: _MockHost) -> None:
 
     assert host.settings == new_settings
     assert host.settings_repository.saved[-1] == new_settings
+
+
+def test_apply_persists_an_immutable_loudness_policy(host: _MockHost) -> None:
+    original = host.settings
+    new_settings = original.model_copy(
+        update={"loudness": LoudnessSettings(enabled=False, target_lufs=-14.0, tolerance_lu=1.5)}
+    )
+
+    MainWindow._apply_settings(host, new_settings)  # type: ignore[arg-type]
+
+    assert host.settings is new_settings
+    assert host.settings_repository.saved[-1].loudness == LoudnessSettings(
+        enabled=False, target_lufs=-14.0, tolerance_lu=1.5
+    )
+    assert original.loudness == LoudnessSettings()

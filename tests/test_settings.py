@@ -8,6 +8,7 @@ from xfinaudio.config.settings import (
     AudioSettings,
     ExportSettings,
     LibrarySettings,
+    LoudnessSettings,
     ScoringSettings,
     WindowSettings,
 )
@@ -96,3 +97,26 @@ def test_app_settings_window_geometry_round_trips_through_json() -> None:
     assert restored.window.height == 800
     assert restored.window.x == 40
     assert restored.window.y == 60
+
+
+def test_app_settings_defaults_to_enabled_loudness_analysis_policy() -> None:
+    settings = AppSettings()
+
+    assert settings.loudness == LoudnessSettings()
+    assert settings.loudness.enabled is True
+    assert settings.loudness.target_lufs == pytest.approx(-10.0)
+    assert settings.loudness.tolerance_lu == pytest.approx(2.0)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("target_lufs", -30.1, "greater than or equal to -30"),
+        ("target_lufs", 0.1, "less than or equal to 0"),
+        ("tolerance_lu", -0.1, "greater than or equal to 0"),
+        ("tolerance_lu", 10.1, "less than or equal to 10"),
+    ],
+)
+def test_loudness_settings_rejects_out_of_band_policy_values(field: str, value: float, message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        LoudnessSettings.model_validate({field: value})

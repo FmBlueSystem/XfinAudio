@@ -26,3 +26,10 @@ def test_list_strategy_catalog_includes_same_color_energy() -> None:
     matching = [entry for entry in entries if entry.name == "same_color_energy"]
     assert len(matching) == 1
     assert matching[0].display_name == "Same Color & Energy"
+
+
+def test_list_strategy_catalog_includes_consistent_loudness_once() -> None:
+    matching = [entry for entry in list_strategy_catalog() if entry.name == "consistent_loudness"]
+
+    assert len(matching) == 1
+    assert matching[0].display_name == "Consistent Loudness"

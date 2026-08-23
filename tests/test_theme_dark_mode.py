@@ -11,7 +11,27 @@ import re
 
 from xfinaudio.desktop.theme import _DJ_VISUAL_STYLESHEET
 
-_BACKGROUND = "#0b0f14"
+_BACKGROUND = "#080c12"
+
+# Spectrum palette key colors. Pinned so a future refresh is a deliberate edit
+# here, not an accident somewhere in the stylesheet.
+_PALETTE = {
+    "window background": "#080c12",
+    "panel surface": "#0f1721",
+    "elevated surface": "#151f2b",
+    "table background": "#0e161e",
+    "table alternate row": "#121d27",
+    "primary text": "#eaf4ff",
+    "secondary text": "#cfe0f0",
+    "muted text": "#93aac4",
+    "signal cyan accent": "#2ce8f5",
+    "primary sweep start": "#3ef0d2",
+    "primary sweep end": "#00c2e6",
+    "selection highlight": "#463ac4",
+    "active selection highlight": "#5a4be0",
+    "header text": "#63d3d8",
+    "warm status amber": "#ffb000",
+}
 
 
 def _relative_luminance(hex_color: str) -> float:
@@ -86,4 +106,17 @@ def test_r4_focusable_elements_have_focus_outline() -> None:
         assert focus_selectors, f"missing :focus for {control}"
         assert any("outline" in blocks[sel] for sel in focus_selectors), f"{control}:focus has no outline"
         assert all("outline: none" not in blocks[sel] for sel in focus_selectors), f"{control}:focus disables outline"
-        assert any("#00d4ff" in blocks[sel] for sel in focus_selectors), f"{control}:focus lacks visible outline color"
+        assert any(_PALETTE["signal cyan accent"] in blocks[sel] for sel in focus_selectors), (
+            f"{control}:focus lacks visible outline color"
+        )
+
+
+def test_r5_spectrum_palette_key_colors_are_present() -> None:
+    for role, hex_color in _PALETTE.items():
+        assert hex_color in _DJ_VISUAL_STYLESHEET, f"palette lost its {role} ({hex_color})"
+
+
+def test_r5_selection_highlights_meet_wcag_aa() -> None:
+    for selection in ("selection highlight", "active selection highlight"):
+        ratio = _contrast_ratio("#ffffff", _PALETTE[selection])
+        assert ratio >= 4.5, f"{selection}: white text only {ratio:.2f}:1"

@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
 from PySide6.QtCore import QItemSelectionModel
 from PySide6.QtGui import QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
@@ -161,7 +162,11 @@ def test_main_window_constructs_desktop_scanning_skeleton() -> None:
     assert window.windowTitle() == "XfinAudio"
     assert window._library_screen.folder_button.text() == "Choose Folder"
     assert window._library_screen.scan_button.text() == "Scan Metadata"
-    assert window._build_screen.strategy_combo.count() == 10
+    assert window._build_screen.strategy_combo.count() == 11
+    assert "Consistent Loudness" in [
+        window._build_screen.strategy_combo.itemText(index)
+        for index in range(window._build_screen.strategy_combo.count())
+    ]
     assert window._build_screen.recommend_button.text() == "Recommend Playlist"
     assert _library_tracks_table(window).columnCount() >= 7
     assert window._review_screen.recommendation_table.columnCount() >= 6
@@ -559,6 +564,22 @@ def test_main_window_rejects_safe_export_folder_equal_to_audio_scan_folder(tmp_p
     assert "must be outside the selected audio folder" in window.status_label.text()
 
 
+def test_widget_scan_guard_replaces_controller_spectral_completion_thread(tmp_path) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+
+    try:
+        window.set_selected_folder(tmp_path)
+        window.scan_selected_folder()
+        _process_events_until(lambda: window.current_scan_cancellation_token is None)
+
+        worker = window._library_controller.spectral_completion_worker
+        assert worker is not None
+        assert worker._thread is None
+    finally:
+        window.close()
+
+
 def test_main_window_scan_action_populates_table_and_status_counts(tmp_path) -> None:
     ensure_app()
     scan_service = FakeScanService()
@@ -863,6 +884,7 @@ def test_main_window_spectral_completion_finished_clears_progress_state() -> Non
     assert window._state.spectral_total_count == 0
 
 
+@pytest.mark.uses_spectral_completion_worker
 def test_main_window_starts_spectral_completion_for_non_current_profiles(monkeypatch) -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
@@ -1938,7 +1960,7 @@ def test_main_window_applies_dj_visual_style() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert "#00d4ff" in window.styleSheet()
+    assert "#2ce8f5" in window.styleSheet()
     assert "#ffb000" in window.styleSheet()
     assert window._export_screen.export_button.objectName() == "seratoExportButton"
     assert window._build_screen.recommend_button.objectName() == "primaryAction"
@@ -3084,6 +3106,7 @@ def test_playlist_reorder_is_undoable_and_redoable(monkeypatch) -> None:
     assert editor._track_paths == reordered
 
 
+@pytest.mark.uses_spectral_completion_worker
 def test_repeated_spectral_worker_cancellation_does_not_accumulate_children(tmp_path) -> None:
     """Each re-scan cancels the previous worker; those must not pile up on the window.
 

@@ -36,7 +36,9 @@ Paste relevant terminal output, screenshots, or non-private file names. Do not a
 
 Confirm what the report involves:
 
-- [ ] No audio mutation occurred or is requested.
+The loudness module is the single documented exception and may write loudness tags only through its explicit setting.
+
+- [ ] No audio mutation occurred or is requested outside the loudness module's explicit tag-write setting.
 - [ ] No live Serato database V2 mutation occurred or is requested.
 - [ ] Any writes are limited to app-owned database, settings, or export files.
 - [ ] I removed private paths, playlists, and user data from logs/evidence where needed.
