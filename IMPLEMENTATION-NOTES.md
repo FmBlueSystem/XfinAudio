@@ -157,3 +157,7 @@ All requested gates passed on 2026-08-22: focused WU2 tests 112 passed in 3.01s 
 
 - Recovery accepts only the exact v1 `lufs/lra/dbtp/v/engine` structured payload and never COMMENT or ReplayGain/R128. It fresh-stamps filesystem identity and FLAC MD5 when available.
 - `save_scan_results` treats recovered values as bootstrap-only: it inserts them into NULL loudness rows but preserves any existing database profile.
+
+## add-loudness-module WU3 self-verification at `f4bebe5`
+
+After stale-count correction `b155d39`, lifecycle hardening `f4bebe5`, and termination of a separate 2h47m pytest process, the final exact gates passed: focused 386 tests (`sha256:8b672bcb479232a4d698d74b8f7ec5d7995db51abc38cc484ab5b6040b1d4717`), full 1762 tests with exit 0 (`sha256:e1fba8a18b6c073f9d8ffd3732ed083cd5f8dccf2a0d8ce9f590311213585723`), Pyright/Ruff/format green. Prior exit-134 teardown messages and later green runs establish sequence, not a proven thread root cause. Transient `uv.lock` drift was restored; review/source/tests/build/dist remained unchanged.

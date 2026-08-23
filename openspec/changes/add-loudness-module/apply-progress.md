@@ -188,3 +188,11 @@ All requested gates passed on 2026-08-22 in order (exact combined stdout/stderr 
 | Capability map | MP3/FLAC/WAV/AIFF recover only app-owned v1 structured tags; M4A and unknown suffixes are unsupported. |
 | DB precedence | Scan-upsert writes recovered JSON only when the stored JSON is NULL; an existing DB profile wins. |
 | Rollback boundary | Revert parser, scan attachment, and nullable-row CASE without changing write-back ordering. |
+
+## WU3 Self-Verification — HEAD `f4bebe5`
+
+- History: the first full-suite RED was the stale 10-vs-11 strategy count; `b155d39` corrected and behavior-pinned it. Later full runs completed all tests but exited 134 with a QThread teardown message; `f4bebe5` hardened lifecycle ownership/reaping. A separate 2h47m pytest process was then terminated. Subsequent green runs correlate with that cleanup but do not prove a thread root cause.
+- Focused WU3: 386 passed, 30 warnings in 4.28s; wall 5.346s; `sha256:8b672bcb479232a4d698d74b8f7ec5d7995db51abc38cc484ab5b6040b1d4717`.
+- Full pytest: 1762 passed, 264 warnings in 52.29s; wall 55.444s; exit 0; `sha256:e1fba8a18b6c073f9d8ffd3732ed083cd5f8dccf2a0d8ce9f590311213585723`.
+- Pyright: 0 errors/warnings/informations; wall 5.281s; `sha256:3c1a00ce86bcdce1ef7ba97d18d9c5b4e7026f49a5dc61a23382ed7345e02316`; Ruff check passed in 0.101s (`sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18`); Ruff format confirmed 300 files in 0.053s (`sha256:f5e0fe29dfc2d201142550a21657ce32f991da5c51e48495bf92d526b257e2c7`).
+- Drift: restored sole transient `uv.lock` version change; review doc remained `sha256:cca5dfd5a0111d59c5280fee9913fbcb40badf6f9c4ac2603b772a19e0e0fdb9`; no source/tests changed; root `build/` and `dist/` absent.
