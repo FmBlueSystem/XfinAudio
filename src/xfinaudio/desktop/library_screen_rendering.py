@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import QTableWidgetItem
 
@@ -109,7 +109,7 @@ class LibraryScreenRenderingMixin:
         if state.is_completing_loudness and state.loudness_total_count > 0:
             self.scan_progress_bar.setValue(progress_percent(state.loudness_progress_count, state.loudness_total_count))
             self.scan_progress_label.setText(
-                self.tr("Analyzing loudness {0:,}/{1:,}").format(
+                QCoreApplication.translate("LibraryScreen", "Analyzing loudness {0:,}/{1:,}").format(
                     state.loudness_progress_count, state.loudness_total_count
                 )
             )
@@ -131,16 +131,18 @@ class LibraryScreenRenderingMixin:
         self.true_peak_badge.setText("")
         self.true_peak_badge.setVisible(False)
         if profile is None:
-            self.loudness_detail_label.setText(self.tr("Loudness: not measured"))
+            self.loudness_detail_label.setText(QCoreApplication.translate("LibraryScreen", "Loudness: not measured"))
             return
         if profile.status is LoudnessStatus.TOO_SHORT:
             if profile.lufs_integrated is None:
-                self.loudness_detail_label.setText(self.tr("Loudness: unavailable (too short)"))
+                self.loudness_detail_label.setText(
+                    QCoreApplication.translate("LibraryScreen", "Loudness: unavailable (too short)")
+                )
             else:
                 self.loudness_detail_label.setText(
-                    self.tr("LUFS: {0:.1f} · LRA: unavailable · True peak: unavailable (too short)").format(
-                        profile.lufs_integrated
-                    )
+                    QCoreApplication.translate(
+                        "LibraryScreen", "LUFS: {0:.1f} · LRA: unavailable · True peak: unavailable (too short)"
+                    ).format(profile.lufs_integrated)
                 )
             return
         if (
@@ -150,24 +152,24 @@ class LibraryScreenRenderingMixin:
             or profile.true_peak_dbtp is None
         ):
             if profile.status is LoudnessStatus.UNMEASURABLE:
-                text = self.tr("Loudness: unmeasurable")
+                text = QCoreApplication.translate("LibraryScreen", "Loudness: unmeasurable")
             elif profile.status is LoudnessStatus.TRANSIENT_FAILURE:
-                text = self.tr("Loudness: temporarily unavailable")
+                text = QCoreApplication.translate("LibraryScreen", "Loudness: temporarily unavailable")
             elif profile.status is LoudnessStatus.UNSUPPORTED:
-                text = self.tr("Loudness: unsupported")
+                text = QCoreApplication.translate("LibraryScreen", "Loudness: unsupported")
             else:
-                text = self.tr("Loudness: incomplete measurement")
+                text = QCoreApplication.translate("LibraryScreen", "Loudness: incomplete measurement")
             self.loudness_detail_label.setText(text)
             return
         self.loudness_detail_label.setText(
-            self.tr("LUFS: {0:.1f} · LRA: {1:.1f} · True peak: {2:.1f} dBTP").format(
-                profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp
-            )
+            QCoreApplication.translate(
+                "LibraryScreen", "LUFS: {0:.1f} · LRA: {1:.1f} · True peak: {2:.1f} dBTP"
+            ).format(profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp)
         )
         if profile.true_peak_dbtp >= 0.0:
-            badge = self.tr("True peak clipping")
+            badge = QCoreApplication.translate("LibraryScreen", "True peak clipping")
         elif profile.true_peak_dbtp > -1.0:
-            badge = self.tr("True peak warning")
+            badge = QCoreApplication.translate("LibraryScreen", "True peak warning")
         else:
             badge = ""
         self.true_peak_badge.setText(badge)

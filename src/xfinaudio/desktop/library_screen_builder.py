@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -159,14 +160,18 @@ def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int
 
     screen.loudness_detail_pane = QFrame()
     screen.loudness_detail_pane.setObjectName("loudnessDetailPane")
-    screen.loudness_detail_pane.setAccessibleName(screen.tr("Selected track loudness details"))
+    screen.loudness_detail_pane.setAccessibleName(
+        QCoreApplication.translate("LibraryScreen", "Selected track loudness details")
+    )
     detail_layout = QHBoxLayout(screen.loudness_detail_pane)
     screen.loudness_detail_label = QLabel("")
     screen.loudness_detail_label.setObjectName("loudnessDetail")
-    screen.loudness_detail_label.setAccessibleName(screen.tr("Selected track loudness measurements"))
+    screen.loudness_detail_label.setAccessibleName(
+        QCoreApplication.translate("LibraryScreen", "Selected track loudness measurements")
+    )
     screen.true_peak_badge = QLabel("")
     screen.true_peak_badge.setObjectName("truePeakBadge")
-    screen.true_peak_badge.setAccessibleName(screen.tr("True peak status"))
+    screen.true_peak_badge.setAccessibleName(QCoreApplication.translate("LibraryScreen", "True peak status"))
     detail_layout.addWidget(screen.loudness_detail_label)
     detail_layout.addWidget(screen.true_peak_badge)
     detail_layout.addStretch()

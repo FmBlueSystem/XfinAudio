@@ -183,3 +183,8 @@ After stale-count correction `b155d39`, lifecycle hardening `f4bebe5`, and termi
 
 - The library adds a selection-bound detail pane rather than a thirteenth table column. It reports one-decimal LUFS/LRA/dBTP only for complete measured profiles and explicitly reports missing, failed, unsupported, and too-short states.
 - True-peak semantics are exact: `>= 0.0 dBTP` is clipping; `> -1.0 dBTP` and `< 0.0 dBTP` is warning; exactly `-1.0 dBTP` and lower has no badge. WU4.4 owns translations for the new source strings.
+
+## add-loudness-module WU4e tasks 4.1 and 4.4
+
+- Loudness strategy labels/descriptions use `BuildViewModel` translation calls; builder/mixin strings use the explicit `LibraryScreen` context so lupdate extracts and Qt resolves the same catalog keys.
+- A full project lupdate revealed unrelated historical catalog churn. The committed catalogs retain only the twenty loudness entries per language, then regenerate both QM files from those TS sources.

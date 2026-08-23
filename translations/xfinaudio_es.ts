@@ -86,6 +86,8 @@
 </context>
 <context>
     <name>BuildViewModel</name>
+    <message><source>Consistent Loudness</source><translation>Sonoridad consistente</translation></message>
+    <message><source>Hard filter: measured tracks must stay within the configured integrated loudness band.</source><translation>Filtro estricto: las pistas medidas deben mantenerse dentro de la banda de sonoridad integrada configurada.</translation></message>
     <message>
         <location filename="../src/xfinaudio/desktop/build_view_model.py" line="83"/>
         <source>Active: {0}</source>
@@ -242,6 +244,20 @@
 </context>
 <context>
     <name>LibraryScreen</name>
+    <message><source>Analyzing loudness {0:,}/{1:,}</source><translation>Analizando sonoridad {0:,}/{1:,}</translation></message>
+    <message><source>Selected track loudness details</source><translation>Detalles de sonoridad de la pista seleccionada</translation></message>
+    <message><source>Selected track loudness measurements</source><translation>Mediciones de sonoridad de la pista seleccionada</translation></message>
+    <message><source>True peak status</source><translation>Estado del pico verdadero</translation></message>
+    <message><source>Loudness: not measured</source><translation>Sonoridad: sin medir</translation></message>
+    <message><source>Loudness: unavailable (too short)</source><translation>Sonoridad: no disponible (demasiado corta)</translation></message>
+    <message><source>LUFS: {0:.1f} · LRA: unavailable · True peak: unavailable (too short)</source><translation>LUFS: {0:.1f} · LRA: no disponible · Pico verdadero: no disponible (demasiado corta)</translation></message>
+    <message><source>Loudness: unmeasurable</source><translation>Sonoridad: no medible</translation></message>
+    <message><source>Loudness: temporarily unavailable</source><translation>Sonoridad: temporalmente no disponible</translation></message>
+    <message><source>Loudness: unsupported</source><translation>Sonoridad: no compatible</translation></message>
+    <message><source>Loudness: incomplete measurement</source><translation>Sonoridad: medición incompleta</translation></message>
+    <message><source>LUFS: {0:.1f} · LRA: {1:.1f} · True peak: {2:.1f} dBTP</source><translation>LUFS: {0:.1f} · LRA: {1:.1f} · Pico verdadero: {2:.1f} dBTP</translation></message>
+    <message><source>True peak clipping</source><translation>Pico verdadero con recorte</translation></message>
+    <message><source>True peak warning</source><translation>Advertencia de pico verdadero</translation></message>
     <message>
         <location filename="../src/xfinaudio/desktop/screens/library_screen.py" line="92"/>
         <source>Choose Folder</source>
@@ -1122,6 +1138,10 @@
 </context>
 <context>
     <name>SettingsDialog</name>
+    <message><source>Loudness Settings</source><translation>Configuración de sonoridad</translation></message>
+    <message><source>Enable loudness analysis</source><translation>Activar análisis de sonoridad</translation></message>
+    <message><source>Target LUFS:</source><translation>LUFS objetivo:</translation></message>
+    <message><source>Tolerance LU:</source><translation>Tolerancia LU:</translation></message>
     <message>
         <location filename="../src/xfinaudio/desktop/settings_dialog.py" line="33"/>
         <source>Settings</source>

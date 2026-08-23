@@ -249,3 +249,15 @@ Task 4.1 remains unchecked pending WU4.4 translation catalog updates.
 | UI behavior | A selection-bound, accessible pane reports one-decimal LUFS/LRA/dBTP, missing/non-measured/too-short states, and exact true-peak boundaries. Profile completion refreshes the selected pane; clearing selection hides it. |
 | Table contract | The existing 12-column library table is unchanged. |
 | Focused type/lint/format | `uv run pyright src tests` — 0 errors; `uv run ruff check .` — passed; `uv run ruff format --check .` — 300 files already formatted. |
+
+## WU4e Tasks 4.1 and 4.4 Localization completion
+
+| Task | RED | GREEN | Refactor |
+|---|---|---|---|
+| 4.1, 4.4 | `uv run pytest -q tests/test_loudness_translations.py` — 2 failed: `Consistent Loudness` absent from TS catalogs | `uv run pytest -q tests/test_loudness_translations.py tests/test_build_view_model.py tests/test_settings_dialog.py tests/test_library_screen.py` — 66 passed | Replaced mixin/builder `tr` calls with explicit `LibraryScreen` translation context. |
+
+| Evidence | Result |
+|---|---|
+| Catalogs | Finished source-equivalent English and neutral Spanish entries cover strategy, settings, progress, details, badges, and missing states in both TS/QM pairs. Placeholder strings are byte-identical between source and translation. |
+| Churn control | Full `update_translations.py` exposed 245 unrelated stale entries; its TS/QM output was reverted, then the affected source catalog was merged and both QM files regenerated with `pyside6-lrelease`. |
+| Focused type/lint/format | `uv run pyright src tests` — 0 errors; `uv run ruff check .` — passed; `uv run ruff format --check .` — 301 files already formatted. |
