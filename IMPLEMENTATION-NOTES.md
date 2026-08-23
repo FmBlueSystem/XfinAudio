@@ -120,3 +120,8 @@ No WU2 actor or harness was launched after this native stop.
 
 - The headless completion core fixes its FFmpeg pool at **two workers**: native decode is external-drive I/O plus CPU work, so the existing CPU-derived worker count would cause avoidable disk contention.
 - Until WU3 adds tag writing, each completed profile is fresh-stamped after analysis and persisted through `update_loudness_profile`; Qt/controller/runtime composition remains deliberately absent.
+
+## add-loudness-module WU2e task 2.5 lifecycle
+
+- A compact generic `BackgroundCompletionStage` replaces a copied fourth worker; it starts after edge completion, cancels with a new chain, and shuts down with the controller.
+- Runtime composition remains deferred: `LibraryController` accepts the service injection, but no window-factory FFmpeg service is created before WU4.

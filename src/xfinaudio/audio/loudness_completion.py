@@ -46,6 +46,11 @@ class LoudnessCompletionService:
         self._analyzer = analyzer
         self._engine_fingerprint = engine_fingerprint
 
+    def cancel(self) -> None:
+        """Forward lifecycle cancellation when the concrete analyzer supports it."""
+        if (cancel := getattr(self._analyzer, "cancel", None)) is not None:
+            cancel()
+
     def complete(
         self,
         records: Sequence[TrackRecord],

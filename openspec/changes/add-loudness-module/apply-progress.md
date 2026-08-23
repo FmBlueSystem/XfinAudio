@@ -120,3 +120,9 @@ fresh-context correction made the final WU1b candidate 560 changed lines against
 303 and 399 changed text lines. Further runtime work is stopped at ledger revision
 `sha256:d941ab0d243c9804d1f79fc3aa845bc725019a2f34af87a20dfcad2f139718c6` pending the exact
 maintainer reset documented in `IMPLEMENTATION-NOTES.md`.
+
+## WU2e Task 2.5 Lifecycle Evidence
+
+- RED: `uv run pytest -q tests/test_loudness_completion_stage.py` failed at collection because the generic completion stage did not exist.
+- GREEN: `uv run pytest -q tests/test_loudness_completion_stage.py tests/audio/test_loudness_completion.py` — 6 passed in 0.66s.
+- Generic Qt lifecycle wiring follows edge completion, applies results immutably, and supplies selected → recommendation → visible priorities. Task 2.5 remains unchecked: runtime FFmpeg composition is WU4 scope.
