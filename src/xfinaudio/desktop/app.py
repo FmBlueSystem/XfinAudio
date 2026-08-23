@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import multiprocessing
 import os
 import sys
 from collections.abc import Callable
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -71,6 +73,30 @@ def default_settings_path() -> Path:
     return Path.home() / ".xfinaudio" / "settings.json"
 
 
+def default_log_path() -> Path:
+    """Return the application-controlled log path."""
+    return Path.home() / ".xfinaudio" / "xfinaudio.log"
+
+
+def configure_logging(log_path: Path | None = None) -> Path:
+    """Send application logs to a durable file.
+
+    A frozen .app launched from Finder has no usable stderr, so without this every
+    warning — including a whole analysis stage disabling itself — is written nowhere.
+    """
+    path = log_path or default_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    target = os.path.abspath(path)  # exactly how FileHandler normalizes baseFilename
+    if any(getattr(handler, "baseFilename", None) == target for handler in root.handlers):
+        return path
+    handler = RotatingFileHandler(path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root.addHandler(handler)
+    return path
+
+
 def package_smoke_enabled() -> bool:
     """Return whether the desktop app should exit after smoke initialization."""
     return os.environ.get("XFINAUDIO_PACKAGE_SMOKE") == "1"
@@ -125,6 +151,7 @@ def main(*, macos_configurator: Callable[[str, Path | None], None] | None = None
     install_translator(lang)
     if package_smoke_enabled():
         return 0
+    configure_logging()
     if macos_configurator is None:
         macos_configurator = _configure_macos_app
     macos_configurator("XfinAudio", icon_path)

@@ -689,7 +689,19 @@ class LibraryController:
     def start_loudness_completion(self, records: list[TrackRecord], *, force_reanalyze: bool = False) -> None:
         """Start the disk-bound stage only after all three existing stages finish."""
         service = self._loudness_completion_service
-        if service is None or self._completion_chain_active() or not self._access.settings_getter().loudness.enabled:
+        if service is None:
+            self._log.warning(
+                "Skipping the loudness stage for %d track(s): the loudness engine is unavailable", len(records)
+            )
+            return
+        if not self._access.settings_getter().loudness.enabled:
+            self._log.warning(
+                "Skipping the loudness stage for %d track(s): loudness analysis is turned off in settings", len(records)
+            )
+            return
+        if self._completion_chain_active():
+            # Deferred, not skipped: the chain restarts this stage when it drains.
+            self._log.debug("Deferring the loudness stage for %d track(s): completion chain still active", len(records))
             return
         self.cancel_loudness_completion()
         stage = BackgroundCompletionStage(parent=self._parent)
