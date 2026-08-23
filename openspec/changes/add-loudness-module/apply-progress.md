@@ -32,7 +32,7 @@ attempt ledger pending an explicit maintainer reset; WU1b and WU2-WU4 remain pen
 
 - [ ] 1.4 Capability preflight.
 - [ ] 1.5 Timeout, cancellation, process-group handling, and orphan reaping.
-- [ ] WU2–WU4.
+- [ ] WU2–WU4, except the maintainer-authorized governance reorder recorded below.
 
 ## Scope Notes
 
@@ -42,6 +42,21 @@ attempt ledger pending an explicit maintainer reset; WU1b and WU2-WU4 remain pen
 - Native attempt `WU1` settled as passed but exceeded its ledger budget because the recovered
   354-line contract import occurred after acquisition. Revision and reset requirements are
   recorded in `IMPLEMENTATION-NOTES.md`; no automatic reset was performed.
-- WU3 audio tag writes conflict with the active root `AGENTS.md` no-audio-mutation rule. The
-  design schedules governance amendment in WU4, after the prohibited mutation, so write-back
-  cannot proceed in the mandated order without a prior governance decision.
+- The prior WU3 audio-mutation governance conflict is resolved by the maintainer-authorized
+  task 4.6 reorder below. Future tag writes remain limited to the loudness module's explicit
+  setting and are not part of this slice.
+
+## Authorized Governance Reorder (4.6)
+
+Maintainer approval moved task 4.6 ahead of WU3 so the active repository rules explicitly
+authorize the only planned audio-file mutation before tag write-back is implemented.
+
+- [x] 4.6 Amended `AGENTS.md`, `CONTRIBUTING.md`, and README English/Spanish sections:
+  scanning remains read-only; the loudness module is the single documented exception and
+  may write loudness tags only through its explicit setting.
+
+| Task | RED | GREEN | Focused proof |
+|---|---|---|---|
+| 4.6 | `uv run pytest -q tests/test_public_open_source_docs.py` → 1 failed, 6 passed; missing governance sentence in `AGENTS.md` | Documentation amendment | Same command → 7 passed in 0.43s; focused Ruff/format and Pyright passed |
+
+No tag-write code or other WU3 behavior was implemented in this slice.

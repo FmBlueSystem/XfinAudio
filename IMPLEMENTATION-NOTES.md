@@ -36,8 +36,17 @@ gentle-ai sdd-attempt reset --cwd <repo> --change add-loudness-module \
 
 ### Audio-mutation governance
 
-WU3 tasks 3.3-3.5 require writing COMMENT and `XFINAUDIO_LOUDNESS` tags, while the current
-root `AGENTS.md` makes "No audio mutation" non-negotiable. WU4 task 4.6 proposes amending
-that rule only after WU3, so the specified order cannot be executed without violating the
-active repository instructions. Section 14 records product approval but does not itself
-amend the active governance contract. This blocker must be resolved before WU3 write-back.
+Before this reorder, WU3 tasks 3.3-3.5 required writing COMMENT and `XFINAUDIO_LOUDNESS`
+tags while the root `AGENTS.md` made "No audio mutation" non-negotiable. WU4 task 4.6 was
+scheduled after WU3, so the original order could not execute without violating active repository
+instructions. Section 14 recorded product approval but did not amend the governance contract.
+The maintainer-authorized task 4.6 reorder below resolves this ordering blocker before any WU3
+write-back.
+
+## Authorized Governance Reorder (WU4.6 before WU3)
+
+The maintainer approved completing governance task 4.6 before any WU3 tag-write work.
+`AGENTS.md`, `CONTRIBUTING.md`, and README English/Spanish now state that scanning remains
+read-only and that the loudness module is the single documented exception, permitted to write
+loudness tags only through its explicit setting. This authorizes the future WU3 boundary; it
+does not implement or execute a tag write.
