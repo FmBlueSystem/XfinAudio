@@ -41,3 +41,21 @@ pipeline integration. The executor did not settle the supplied native runtime to
 ## Authorized Governance Reorder (4.6)
 
 - [x] 4.6 The repository rules and README/CONTRIBUTING English/Spanish sections state that scanning remains read-only except for explicit loudness-tag writing. No WU3 behavior is implemented here.
+
+## WU1 Self-Verification — HEAD `202f6fc`
+
+Read-only self-verification completed on 2026-08-22. All requested WU1 gates passed in order; coverage and the release gate were intentionally not run.
+
+| Command | Exit | Pytest/tool result | Wall time | Exact combined-output SHA-256 |
+|---|---:|---|---:|---|
+| `uv run pytest -q tests/audio/test_loudness.py` | 0 | 14 passed in 1.81s | 3.413s | `sha256:7289061d73e890a291aae88043005e2f17f001fce8381fc6cc7840586dfca78c` |
+| `uv run pytest -q` | 0 | 1706 passed, 266 warnings in 32.00s | 35.190s | `sha256:ab3c020f50be511745b388161ef1084af6c3aa26ab2499ac23a6a58fc6a1e449` |
+| `uv run pyright src tests` | 0 | 0 errors, 0 warnings, 0 informations | 5.244s | `sha256:3c1a00ce86bcdce1ef7ba97d18d9c5b4e7026f49a5dc61a23382ed7345e02316` |
+| `uv run ruff check .` | 0 | All checks passed | 0.115s | `sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18` |
+| `uv run ruff format --check .` | 0 | 290 files already formatted | 0.054s | `sha256:aed20c5cdfe9f925fe3d0e35cc2b37455ed39da2dab16a5441a0d6530c2e51af` |
+
+Verification file-drift audit:
+
+- `uv run` transiently changed only the editable-project version in `uv.lock` from 1.8.0 to 1.8.2; the verifier restored that version-only drift to HEAD.
+- `docs/reviews/loudness-module-review.md` remained untracked and byte-identical at `sha256:cca5dfd5a0111d59c5280fee9913fbcb40badf6f9c4ac2603b772a19e0e0fdb9`.
+- No source or test file changed during self-verification, and project-root `build/` and `dist/` remained absent.

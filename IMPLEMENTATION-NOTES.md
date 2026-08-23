@@ -61,3 +61,15 @@ does not implement or execute a tag write.
 ## add-loudness-module WU1b task 1.5 correction
 
 - `killpg` is followed by owner `communicate(timeout=None)`; a condition lock makes spawn/registration/cancel/unregister atomic and makes shutdown wait for each registered owner to reap.
+
+## add-loudness-module WU1 self-verification at `202f6fc`
+
+All requested WU1 verification gates passed on 2026-08-22 in the required order:
+
+- `uv run pytest -q tests/audio/test_loudness.py` — 14 passed in 1.81s; wall 3.413s; output `sha256:7289061d73e890a291aae88043005e2f17f001fce8381fc6cc7840586dfca78c`.
+- `uv run pytest -q` — 1706 passed, 266 warnings in 32.00s; wall 35.190s; output `sha256:ab3c020f50be511745b388161ef1084af6c3aa26ab2499ac23a6a58fc6a1e449`.
+- `uv run pyright src tests` — 0 errors, 0 warnings, 0 informations; wall 5.244s; output `sha256:3c1a00ce86bcdce1ef7ba97d18d9c5b4e7026f49a5dc61a23382ed7345e02316`.
+- `uv run ruff check .` — all checks passed; wall 0.115s; output `sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18`.
+- `uv run ruff format --check .` — 290 files already formatted; wall 0.054s; output `sha256:aed20c5cdfe9f925fe3d0e35cc2b37455ed39da2dab16a5441a0d6530c2e51af`.
+
+Coverage and the release gate were intentionally not run. `uv run` caused only the known editable-project version drift in `uv.lock`; it was restored to HEAD. The untracked loudness review remained byte-identical, no source/tests changed, and root `build/`/`dist/` remained absent.
