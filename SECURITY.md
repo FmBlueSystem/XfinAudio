@@ -24,7 +24,8 @@ Relevant reports include unsafe file writes, export path traversal, dependency v
 Not expected by design:
 
 - No live Serato writes by design.
-- XfinAudio does not mutate audio files.
+- XfinAudio does not mutate audio files outside the loudness module's explicit tag-write setting.
+- The loudness module is the single documented exception and may write loudness tags only through its explicit setting.
 - XfinAudio does not mutate live Serato database V2 files.
 - The app writes only app-owned database, settings, and export files, plus explicit user-requested exports.
 

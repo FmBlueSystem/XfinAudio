@@ -29,7 +29,9 @@ What should XfinAudio do?
 
 ## Safety impact
 
-- [ ] No audio mutation is required.
+The loudness module is the single documented exception and may write loudness tags only through its explicit setting.
+
+- [ ] No audio mutation is required outside the loudness module's explicit tag-write setting.
 - [ ] No live Serato database V2 mutation is required.
 - [ ] Writes remain limited to app-owned database, settings, or export files.
 - [ ] The change is compatible with GPL-3.0-only public open-source distribution.

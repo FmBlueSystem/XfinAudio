@@ -22,7 +22,9 @@ Check every command you ran and paste failures if any:
 
 ## Safety checklist
 
-- [ ] No audio mutation.
+The loudness module is the single documented exception and may write loudness tags only through its explicit setting.
+
+- [ ] No audio mutation outside the loudness module's explicit tag-write setting.
 - [ ] No live Serato database V2 mutation.
 - [ ] Writes are limited to app-owned database, settings, or export files.
 - [ ] No private audio files, private library databases, or sensitive local paths are included.

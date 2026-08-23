@@ -210,3 +210,9 @@ After stale-count correction `b155d39`, lifecycle hardening `f4bebe5`, and termi
 - **N1b:** M4A writes overwrite `©cmt` and the exact app-owned UTF-8 freeform atom while preserving unrelated atoms; scan coercion retains only that atom's native value for recovery, and non-UTF-8/binary/foreign values are rejected.
 - **N1c:** `LoudnessCompletionService` gates each run with a synchronized cancellation/commit boundary: cancellation before commit skips writer, refresh, persistence, and result callbacks; cancellation during commit waits through write/restat/refresh/persist, then skips later commits. `tests/audio/test_loudness_completion.py` covers late analyzer return, blocked commit, and subsequent reuse.
 - Final evidence for commits `e9e5802`, `a12dac8`, and `fc8972e`: focused N1 suite 82 passed; full suite 1,816 passed; coverage 91.27%; Pyright and Ruff passed; release gate passed. The actual rebuilt and bundled FFmpeg proof remains byte-identical at SHA-256 `d17355d15b1dc107d7e8669a9e911b999fdfc86607432ee9e0941265d931a9aa`.
+
+## POST-MERGE DEBT FIXES
+
+- **N2:** display reads now compare the persisted loudness profile's owned mtime/size with the scan-refreshed track identity. Replaced audio therefore renders as unmeasured until fresh analysis persists a matching profile; the stored JSON remains available to the existing cache/recovery lifecycle.
+- **B9 residual:** `SECURITY.md` and every GitHub issue/PR template now state the same explicit loudness tag write-back exception already documented in `README.md`, `AGENTS.md`, and `CONTRIBUTING.md`; governance tests pin the wording across all surfaces.
+- Verification: focused repository regression 11 passed; focused governance suite 11 passed; full suite 1,819 passed with 45 existing warnings; the final release gate reported 91.28% coverage; Pyright reported 0 errors/warnings/informations; Ruff check and format passed; the release gate passed.

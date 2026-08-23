@@ -9,6 +9,10 @@ BUG_REPORT = PROJECT_ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.md"
 FEATURE_REQUEST = PROJECT_ROOT / ".github" / "ISSUE_TEMPLATE" / "feature_request.md"
 PULL_REQUEST_TEMPLATE = PROJECT_ROOT / ".github" / "pull_request_template.md"
 COMMUNITY_TEMPLATES = [BUG_REPORT, FEATURE_REQUEST, PULL_REQUEST_TEMPLATE]
+LOUDNESS_WRITEBACK_EXCEPTION = (
+    "The loudness module is the single documented exception and may write loudness tags only through its explicit "
+    "setting."
+)
 
 
 def read(path: Path) -> str:
@@ -25,6 +29,7 @@ def assert_contains_all(text: str, fragments: list[str]) -> None:
 def test_github_community_templates_exist() -> None:
     for path in COMMUNITY_TEMPLATES:
         assert path.exists(), f"Missing GitHub community template: {path.relative_to(PROJECT_ROOT)}"
+        assert LOUDNESS_WRITEBACK_EXCEPTION in read(path)
 
 
 def test_bug_report_template_requests_reproduction_environment_and_safety_evidence() -> None:
