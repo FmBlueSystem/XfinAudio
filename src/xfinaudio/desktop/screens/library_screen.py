@@ -18,9 +18,9 @@ from xfinaudio.desktop.library_screen_rendering import LibraryScreenRenderingMix
 from xfinaudio.desktop.library_view_model import LibraryViewModel
 
 _EMPTY = QTableWidgetItem("")
-_ROW_COLOR_EVEN = QColor("#101820")
-_ROW_COLOR_ODD = QColor("#14202a")
-_ROW_COLOR_SELECTED = QColor("#0078b4")
+_ROW_COLOR_EVEN = QColor("#0e161e")
+_ROW_COLOR_ODD = QColor("#121d27")
+_ROW_COLOR_SELECTED = QColor("#5a4be0")
 
 _COLUMNS = [
     "Title",

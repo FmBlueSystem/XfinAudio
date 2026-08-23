@@ -121,7 +121,7 @@ class TestSetPlayingRow:
         preview_col = _preview_column_index(screen)
         item = screen.tracks_table.item(0, preview_col)
         assert item is not None
-        assert item.background().color().name() == "#0078b4"
+        assert item.background().color().name() == "#5a4be0"
 
     def test_set_playing_row_for_missing_path_is_noop(self, qapp: QApplication) -> None:
         screen = LibraryScreen()

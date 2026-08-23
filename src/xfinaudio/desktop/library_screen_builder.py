@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-_CHECKED_FILTER_BUTTON_STYLE = "QPushButton:checked { background: #00d4ff; color: #061018; border-color: #00d4ff; }"
+_CHECKED_FILTER_BUTTON_STYLE = "QPushButton:checked { background: #2ce8f5; color: #04121a; border-color: #2ce8f5; }"
 
 
 def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int) -> None:
