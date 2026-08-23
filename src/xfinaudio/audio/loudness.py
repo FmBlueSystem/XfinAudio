@@ -276,7 +276,8 @@ def _require_successful_probe(result: FfmpegProbeResult) -> str:
 
 
 def _has_ebur128_filter(output: str) -> bool:
-    return any(re.match(r"^\s*[.A-Z]{3}\s+ebur128\s+\S+", line) for line in output.splitlines())
+    # FFmpeg 7.x prints three filter-flag characters, FFmpeg 8 prints two.
+    return any(re.match(r"^\s*[.A-Z]{2,3}\s+ebur128\s+\S+", line) for line in output.splitlines())
 
 
 def _supports_true_peak(output: str) -> bool:
@@ -290,7 +291,10 @@ def _supports_true_peak(output: str) -> bool:
     for line in lines[peak_option + 1 :]:
         if re.match(r"^\s{2,}\w+\s+<[^>]+>", line):
             break
-        if re.match(r"^\s{5,}true\s+\d+\b", line):
+        # `peak` is a <flags> option, so FFmpeg prints its enum rows without a numeric
+        # constant; requiring one rejected every real build. The trailing flags column
+        # keeps this anchored to an option row instead of prose.
+        if re.match(r"^\s{5,}true(?:\s+-?\d+)?\s+[.A-Z]{4,}\s", line):
             return True
     return False
 

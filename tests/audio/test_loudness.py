@@ -33,6 +33,19 @@ from xfinaudio.audio.loudness_runtime import resolve_ffmpeg
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "loudness"
 
+# Shaped like real `ffmpeg -h filter=ebur128` output: `peak` is a <flags> option, so its
+# enum rows carry a flags column and no numeric constant.
+PEAK_HELP_WITH_TRUE = (
+    "   peak              <flags>      ..F.A...... set peak mode (default 0)\n"
+    "     none                         ..F.A...... disable any peak mode\n"
+    "     sample                       ..F.A...... enable peak-sample mode\n"
+    "     true                         ..F.A...... enable true-peak mode\n"
+    "   dualmono          <boolean>    ..F.A...... treat mono input files as dual-mono\n"
+)
+PEAK_HELP_WITHOUT_TRUE = "\n".join(
+    line for line in PEAK_HELP_WITH_TRUE.splitlines() if not line.strip().startswith("true ")
+)
+
 
 def test_profile_carries_versioned_post_write_identity() -> None:
     profile = LoudnessProfile(
@@ -181,7 +194,7 @@ def test_preflight_requires_bundled_binary_ebur128_filter_and_true_peak(tmp_path
 
     def probe(command: tuple[str, ...]) -> FfmpegProbeResult:
         probes.append(command)
-        output = " T.. ebur128 A->N EBU R128" if command[-1] == "-filters" else "  peak <int>\n     true 2"
+        output = " T.. ebur128 A->N EBU R128" if command[-1] == "-filters" else PEAK_HELP_WITH_TRUE
         return FfmpegProbeResult(returncode=0, output=output)
 
     adapter = FfmpegLoudnessAdapter(executable, engine_fingerprint="ffmpeg-8.0.1-ebur128")
@@ -204,7 +217,7 @@ def test_preflight_rejects_missing_filter_or_true_peak_capability(tmp_path: Path
         adapter.preflight(probe=lambda _command: FfmpegProbeResult(returncode=0, output=""))
 
     def no_true_peak(command: tuple[str, ...]) -> FfmpegProbeResult:
-        output = " T.. ebur128 A->N EBU R128" if command[-1] == "-filters" else "  peak <int>\n     sample 1"
+        output = " T.. ebur128 A->N EBU R128" if command[-1] == "-filters" else PEAK_HELP_WITHOUT_TRUE
         return FfmpegProbeResult(returncode=0, output=output)
 
     with pytest.raises(FfmpegCapabilityError, match="true peak"):
@@ -279,7 +292,7 @@ def test_preflight_requires_an_executable_and_successful_structured_probes(tmp_p
     def valid_probe(command: tuple[str, ...]) -> FfmpegProbeResult:
         if command[-1] == "-filters":
             return FfmpegProbeResult(0, " T.. ebur128 A->N EBU R128")
-        return FfmpegProbeResult(0, "  peak <int> set peak mode\n     none 0\n     true 2")
+        return FfmpegProbeResult(0, PEAK_HELP_WITH_TRUE)
 
     adapter.preflight(probe=valid_probe)
 
@@ -427,3 +440,57 @@ def test_frozen_resolved_ffmpeg_measures_real_synthetic_m4a(fixture_name: str, t
     assert -80.0 < lufs < 0.0
     assert 0.0 <= lra < 80.0
     assert -80.0 < true_peak <= 10.0
+
+
+def _real_probe(filters: str, filter_help: str) -> Any:
+    def probe(command: tuple[str, ...]) -> FfmpegProbeResult:
+        output = filters if command[-1] == "-filters" else filter_help
+        return FfmpegProbeResult(returncode=0, output=output)
+
+    return probe
+
+
+def test_preflight_accepts_the_real_bundled_ffmpeg_capability_output(tmp_path: Path) -> None:
+    """Real FFmpeg prints ebur128 `peak` as <flags>, whose enum rows carry no numeric constant."""
+    executable = tmp_path / "bundle" / "ffmpeg"
+    executable.parent.mkdir()
+    executable.touch(mode=0o755)
+    adapter = FfmpegLoudnessAdapter(executable, engine_fingerprint="ffmpeg-7.1.1-ebur128")
+
+    adapter.preflight(
+        probe=_real_probe(
+            (FIXTURES / "ffmpeg_7_1_1_filters.txt").read_text(),
+            (FIXTURES / "ffmpeg_7_1_1_ebur128_help.txt").read_text(),
+        )
+    )
+
+
+def test_preflight_accepts_the_two_column_filter_flags_of_ffmpeg_8(tmp_path: Path) -> None:
+    """FFmpeg 8 emits two filter-flag characters where 7.x emitted three."""
+    executable = tmp_path / "bundle" / "ffmpeg"
+    executable.parent.mkdir()
+    executable.touch(mode=0o755)
+    adapter = FfmpegLoudnessAdapter(executable, engine_fingerprint="ffmpeg-8.0.1-ebur128")
+
+    adapter.preflight(
+        probe=_real_probe(
+            (FIXTURES / "ffmpeg_8_0_1_filters.txt").read_text(),
+            (FIXTURES / "ffmpeg_7_1_1_ebur128_help.txt").read_text(),
+        )
+    )
+
+
+def test_preflight_still_rejects_a_build_whose_ebur128_lacks_true_peak(tmp_path: Path) -> None:
+    """The capability gate must stay real: a peak option without a true row is refused."""
+    executable = tmp_path / "bundle" / "ffmpeg"
+    executable.parent.mkdir()
+    executable.touch(mode=0o755)
+    adapter = FfmpegLoudnessAdapter(executable, engine_fingerprint="ffmpeg-7.1.1-ebur128")
+    without_true = "\n".join(
+        line
+        for line in (FIXTURES / "ffmpeg_7_1_1_ebur128_help.txt").read_text().splitlines()
+        if not line.strip().startswith("true ")
+    )
+
+    with pytest.raises(FfmpegCapabilityError, match="true peak"):
+        adapter.preflight(probe=_real_probe((FIXTURES / "ffmpeg_7_1_1_filters.txt").read_text(), without_true))
