@@ -51,6 +51,7 @@ pythonpath = ["src"]
 # Built into pytest via the stdlib faulthandler; it reports and lets the run
 # continue rather than killing it.
 faulthandler_timeout = "120"
+markers = ["uses_spectral_completion_worker: exercise the real controller start boundary"]
 
 [tool.pyright]
 pythonVersion = "3.11"

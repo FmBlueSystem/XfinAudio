@@ -280,3 +280,13 @@ Task 4.1 remains unchecked pending WU4.4 translation catalog updates.
 - RED: `uv run pytest -q tests/test_pyinstaller_packaging.py` — 2 failed, 16 passed: missing exact build-surface provenance and version rejection.
 - GREEN: `uv run pytest -q tests/test_pyinstaller_packaging.py tests/test_open_source_license_docs.py tests/test_third_party_license_inventory.py` — 33 passed.
 - Added a fake executable/tool validator regression for rejected non-7.1.1 output; the inventory now mirrors every enabled/disabled build flag and defines corresponding-source retention or durable-offer terms.
+
+## WU4 Final Verification — spectral QThread teardown remediation
+
+| Stage | Evidence |
+|---|---|
+| RED | `uv run pytest -q tests/test_main_window.py -k widget_scan_guard` — 1 failed: the stale guard still allowed `SpectralCompletionWorker.start()` to run. |
+| GREEN | `uv run pytest -q tests/test_main_window.py -k 'widget_scan_guard or starts_spectral_completion or repeated_spectral_worker'` — 3 passed; controller/lifecycle suites — 30 passed; main-window/scan suite — 144 passed. |
+| Stability | `uv run pytest -q` twice from clean processes — 1797 passed, 45 warnings in 60.06s and 54.62s, both exit 0 without a QThread teardown abort. |
+
+The test-wide guard had remained attached to the legacy `MainWindow._start_spectral_completion_worker`, while scan completion now calls `LibraryController.start_spectral_completion_worker` directly. The guard now substitutes only the spectral QThread factory with a signal-compatible fake, preserving controller state transitions; explicit lifecycle tests opt in to the real worker. Rollback: revert this guard/test change.
