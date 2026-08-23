@@ -2,8 +2,7 @@
 
 ## Status
 
-WU1 and WU2 tasks 2.1–2.4 are complete under strict TDD. Pipeline integration remains pending.
-The executor did not settle the supplied native runtime token.
+All WU1–WU4 tasks are complete under strict TDD; final apply gates passed and dedicated verification remains pending.
 
 ## Completed Tasks
 
@@ -62,9 +61,7 @@ The maintainer constrained this objective to **330 text changed lines**, includi
 
 ## Remaining Tasks
 
-- [ ] WU2 task 2.5: pipeline integration.
-- [ ] WU3 target-band filter, strategy, and tag write-back.
-- [ ] WU4 settings, UI surface, packaging, and full verification, except completed governance task 4.6.
+- None — all implementation tasks are complete; dedicated verification owns the remaining phase.
 
 ## Scope Notes
 
@@ -310,3 +307,9 @@ The test-wide guard had remained attached to the legacy `MainWindow._start_spect
 - Mechanism: retain the required Analysis binary declaration, then reclassify only that exact resolved `ffmpeg` BINARY TOC entry as executable DATA for COLLECT/BUNDLE, which avoids PyInstaller's Mach-O processing/thinning while retaining the bundle-root Frameworks symlink.
 - Smoke: temp builds now validate the collected executable, 7.1.1, universal2 architectures, ebur128, and true peak before optional launch.
 - Rollback: revert the spec reclassification, smoke validator, and packing regressions together.
+
+## WU4 Final Apply Completion
+
+- Settings/UI/i18n/governance: WU4a–WU4e strict-TDD regressions passed; final candidate passed.
+- FFmpeg packaging: source/config, capability, lipo-order, and no-thinning corrections passed; actual universal2 build and bundle/launch validation passed.
+- Reliability: QThread and coverage corrections passed; 1801 tests, 91.14% coverage, Pyright/Ruff, and release gate passed. All WU4 checkboxes are complete; dedicated verify owns `verify-report.md`.

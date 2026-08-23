@@ -55,4 +55,4 @@
       license inventory entry
 - [x] 4.6 Governance: amend read-only contract text in README (EN/ES), AGENTS.md,
       CONTRIBUTING.md + tests pinning the amended sentences
-- [ ] 4.7 Full suite green; coverage ≥ baseline 91.14%; release gate pass
+- [x] 4.7 Full suite green; coverage ≥ baseline 91.14%; release gate pass

@@ -188,3 +188,10 @@ After stale-count correction `b155d39`, lifecycle hardening `f4bebe5`, and termi
 
 - Loudness strategy labels/descriptions use `BuildViewModel` translation calls; builder/mixin strings use the explicit `LibraryScreen` context so lupdate extracts and Qt resolves the same catalog keys.
 - A full project lupdate revealed unrelated historical catalog churn. The committed catalogs retain only the twenty loudness entries per language, then regenerate both QM files from those TS sources.
+
+## add-loudness-module WU4 final apply summary
+
+- WU4 commits `067d078`–`f3f264c` establish validated settings, policy forwarding, immutable progress/detail UI, and translations. `6f8a781` separately authorizes the read-only governance exception. `a8a8cef`/`a574a42` add the pinned LGPL FFmpeg source/build, bundle contract, and provenance; `eb78a07`, `3d189cd`, `3c716c7`, and `179400d` close final lifecycle, coverage, lipo-order, and universal2 preservation defects.
+- Final apply evidence: 1,801 tests passed; coverage met the 91.14% baseline; Pyright and Ruff were clean; the release gate passed. The real FFmpeg source build, PyInstaller temporary bundle, collected universal2 CLI capability validation, and package launch all passed.
+- Build environment deviation: Homebrew NASM 3.02 supplied the required assembler; no opaque/prebuilt FFmpeg was used. PyInstaller reported 466 optional/platform missing-module warnings; they are recorded as non-blocking rather than suppressed.
+- Native accounting treats all commits acquired in one objective as one combined candidate. Future work units must keep that combined additions-plus-deletions total below 400, including SDD evidence/docs while acquired.
