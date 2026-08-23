@@ -2,8 +2,8 @@
 
 ## Status
 
-WU1 and WU2a task 2.1 are complete under strict TDD. WU2 cache identity, sibling preservation,
-retry policy, and pipeline integration remain pending. The executor did not settle the supplied native runtime token.
+WU1 and WU2 tasks 2.1, 2.2, and 2.4 are complete under strict TDD. Sibling preservation and
+pipeline integration remain pending. The executor did not settle the supplied native runtime token.
 
 ## Completed Tasks
 
@@ -11,6 +11,8 @@ retry policy, and pipeline integration remain pending. The executor did not sett
 - [x] 1.4 — Capability preflight requires an absolute executable file with execute permission, successful typed probes, an `ebur128` filter entry, and the `true` value of the `peak` option.
 - [x] 1.5 — Timeout kills then reaps the owner process; cancellation/shutdown synchronize spawn, registration, kill, and owner reaping.
 - [x] 2.1 — Nullable `loudness_profile_json` migration and explicit scan upsert `CASE` preserve an existing payload on ordinary rescans.
+- [x] 2.2 — Versioned profile JSON cache checks its own post-write mtime/size against disk, not shared track identity.
+- [x] 2.4 — Typed failures persist/cache on unchanged inputs; explicit force reanalysis bypasses the cache.
 
 ## TDD Cycle Evidence
 
@@ -45,9 +47,21 @@ retry policy, and pipeline integration remain pending. The executor did not sett
 
 The maintainer constrained this objective to **330 text changed lines**, including tests and SDD artifacts, to reserve correction margin. This slice is limited to task 2.1; it deliberately does not load/cache loudness profiles or implement identity, retry, pipeline, tag, strategy, or UI behavior.
 
+## WU2b Tasks 2.2 and 2.4 Evidence
+
+| Tasks | Safety net | RED | GREEN | Refactor |
+|---|---|---|---|---|
+| 2.2, 2.4 | `uv run pytest -q tests/test_track_repository.py` → 77 passed in 0.62s | Same command → 5 failed, 77 passed: no loudness cache API | Same command → 82 passed in 0.65s | Shared serializer/deserializer keeps malformed JSON fail-closed. |
+
+| Evidence | Result |
+|---|---|
+| Focused tests | `uv run pytest -q tests/test_track_repository.py` — 82 passed in 0.65s. |
+| Runtime harness | SQLite cache tests use a real temporary file, mutate only shared DB identity, and prove profile-owned identity remains decisive. |
+| Rollback boundary | Revert the WU2b commit to remove `TrackRecord.loudness_profile` and repository cache behavior without affecting WU2a schema migration. |
+
 ## Remaining Tasks
 
-- [ ] WU2 tasks 2.2–2.5: cache identity, sibling preservation, retry policy, and pipeline integration.
+- [ ] WU2 tasks 2.3 and 2.5: sibling preservation and pipeline integration.
 - [ ] WU3 target-band filter, strategy, and tag write-back.
 - [ ] WU4 settings, UI surface, packaging, and full verification, except completed governance task 4.6.
 

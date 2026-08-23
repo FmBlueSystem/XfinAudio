@@ -103,3 +103,10 @@ No WU2 actor or harness was launched after this native stop.
 - `loudness_profile_json` follows the repository's nullable-column migration pattern: `_ensure_schema` adds it even when `PRAGMA user_version` already equals `SCHEMA_VERSION`. Therefore this additive column does **not** bump `SCHEMA_VERSION`.
 - `save_scan_results` supplies `NULL` for the new column until later WU2 tasks own loudness writes/loads; its explicit `CASE` preserves an already-stored payload during ordinary metadata rescans.
 - Maintainer budget: this task is constrained to 330 text changed lines including tests and artifacts, reserving correction margin.
+
+
+## add-loudness-module WU2b tasks 2.2 and 2.4
+
+- `load_loudness_profile_cache` validates the profile JSON, current analysis version, requested engine fingerprint, and the profile's own source mtime/size against a fresh file stat. It never reads shared `tracks.file_mtime_ns/file_size_bytes` for loudness validity.
+- Typed statuses, including `transient_failure`, are returned from that cache for unchanged inputs so pipeline callers can avoid retry loops; `force_reanalyze=True` returns no cache entries.
+- The supplied profile's post-write identity is serialized unchanged. Tag-write timing remains the caller's WU3 responsibility.

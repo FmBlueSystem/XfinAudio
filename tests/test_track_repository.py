@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from xfinaudio.audio.danceability import CURRENT_DANCEABILITY_VERSION, DanceabilityProfile
+from xfinaudio.audio.loudness import CURRENT_LOUDNESS_VERSION, LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import (
     CURRENT_ANALYSIS_VERSION,
     CURRENT_EDGE_ANALYSIS_VERSION,
@@ -1282,3 +1283,84 @@ def test_track_repository_adds_loudness_column_to_current_version_schema(tmp_pat
     with sqlite3.connect(db_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
     assert "loudness_profile_json" in columns
+
+
+def _loudness_profile(
+    path: Path,
+    *,
+    status: LoudnessStatus = LoudnessStatus.MEASURED,
+    version: int = 1,
+    fingerprint: str = "ffmpeg-8",
+) -> LoudnessProfile:
+    stat = path.stat()
+    return LoudnessProfile(
+        lufs_integrated=-12.0 if status is LoudnessStatus.MEASURED else None,
+        loudness_range_lra=4.0 if status is LoudnessStatus.MEASURED else None,
+        true_peak_dbtp=-1.0 if status is LoudnessStatus.MEASURED else None,
+        status=status,
+        analysis_version=version,
+        engine_fingerprint=fingerprint,
+        source_mtime_ns=stat.st_mtime_ns,
+        source_size_bytes=stat.st_size,
+    )
+
+
+def test_loudness_cache_uses_profile_identity_not_shared_track_identity(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "retagged.flac"
+    audio_file.write_text("audio")
+    profile = _loudness_profile(audio_file)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), loudness_profile=profile)])
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute(
+            "UPDATE tracks SET file_mtime_ns = 1, file_size_bytes = 1 WHERE path = ?",
+            (str(audio_file),),
+        )
+
+    cache = repository.load_loudness_profile_cache([str(audio_file)], engine_fingerprint="ffmpeg-8")
+
+    assert cache == {str(audio_file): profile}
+
+
+def test_loudness_cache_keeps_typed_failures_and_force_reanalyze_bypasses_them(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "timeout.flac"
+    audio_file.write_text("audio")
+    failure = _loudness_profile(audio_file, status=LoudnessStatus.TRANSIENT_FAILURE)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), loudness_profile=failure)])
+
+    assert repository.load_loudness_profile_cache([str(audio_file)], engine_fingerprint="ffmpeg-8") == {
+        str(audio_file): failure
+    }
+    assert (
+        repository.load_loudness_profile_cache([str(audio_file)], engine_fingerprint="ffmpeg-8", force_reanalyze=True)
+        == {}
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "engine_fingerprint"),
+    [
+        ("not-json", "ffmpeg-8"),
+        (None, "ffmpeg-9"),
+        (None, "ffmpeg-8"),
+    ],
+)
+def test_loudness_cache_rejects_malformed_or_stale_version_or_engine(
+    tmp_path, payload: str | None, engine_fingerprint: str
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "stale.flac"
+    audio_file.write_text("audio")
+    version = (
+        CURRENT_LOUDNESS_VERSION + 1
+        if engine_fingerprint == "ffmpeg-8" and payload is None
+        else CURRENT_LOUDNESS_VERSION
+    )
+    profile = _loudness_profile(audio_file, version=version)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), loudness_profile=profile)])
+    if payload is not None:
+        with sqlite3.connect(repository.db_path) as connection:
+            connection.execute("UPDATE tracks SET loudness_profile_json = ? WHERE path = ?", (payload, str(audio_file)))
+
+    assert repository.load_loudness_profile_cache([str(audio_file)], engine_fingerprint=engine_fingerprint) == {}

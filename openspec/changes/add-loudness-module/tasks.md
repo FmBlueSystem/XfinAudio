@@ -19,12 +19,12 @@
 
 - [x] 2.1 Add `loudness_profile_json` column; include explicitly in `save_scan_results`
       INSERT/CASE (regression test first: column omitted → wiped)
-- [ ] 2.2 Cache validity from identity stored inside the profile, captured AFTER tag write;
+- [x] 2.2 Cache validity from identity stored inside the profile, captured AFTER tag write;
       never consult shared tracks identity columns for loudness
 - [ ] 2.3 Post-write sibling preservation via shared identity helper from
       fix-derived-profile-cache-identity (RED regression: tag write must not wipe
       spectral/danceability/edge on any format)
-- [ ] 2.4 Persist typed failures; retry only on version/fingerprint bump or explicit
+- [x] 2.4 Persist typed failures; retry only on version/fingerprint bump or explicit
       reanalyze
 - [ ] 2.5 Serialize into existing lazy completion lifecycle; disk-bound concurrency cap
       (2–3); priority queue (selected → candidates → visible folder → rest); per-result
