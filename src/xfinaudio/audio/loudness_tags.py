@@ -11,12 +11,15 @@ from typing import Any
 
 from mutagen._file import File as MutagenFile
 from mutagen.id3 import COMM, TXXX
+from mutagen.mp4 import AtomDataType, MP4FreeForm
 
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 
 _LOUDNESS_TAG = "XFINAUDIO_LOUDNESS"
 _ID3_SUFFIXES = frozenset({".mp3", ".wav", ".aif", ".aiff"})
 _FLAC_SUFFIX = ".flac"
+_MP4_SUFFIXES = frozenset({".m4a"})
+MP4_LOUDNESS_TAG = f"----:com.bluesystemio.xfinaudio:{_LOUDNESS_TAG}"
 
 AudioLoader = Callable[[Path], Any | None]
 AudioSaver = Callable[[Any], None]
@@ -56,6 +59,8 @@ def write_loudness_tags(
     changed = (
         _apply_flac_tags(tags, comment, payload)
         if target.suffix.lower() == _FLAC_SUFFIX
+        else _apply_mp4_tags(tags, comment, payload)
+        if target.suffix.lower() in _MP4_SUFFIXES
         else _apply_id3_tags(tags, comment, payload)
     )
     if not changed:
@@ -70,11 +75,21 @@ def recover_loudness_profile(
     """Recover only this app's v1 structured tag, stamped from current disk identity."""
     target = Path(path)
     family = _tag_family(target)
-    expected_key = _LOUDNESS_TAG if family == "vorbis" else f"TXXX:{_LOUDNESS_TAG}" if family == "id3" else None
-    if expected_key is None:
+    if family == "vorbis":
+        expected_key = _LOUDNESS_TAG
+    elif family == "id3":
+        expected_key = f"TXXX:{_LOUDNESS_TAG}"
+    elif family == "mp4":
+        expected_key = MP4_LOUDNESS_TAG
+    else:
         return None
     payload = next(
-        (_tag_text(value) for key, value in tags.items() if str(key).casefold() == expected_key.casefold()), None
+        (
+            _mp4_utf8_text(value) if family == "mp4" else _tag_text(value)
+            for key, value in tags.items()
+            if _matches_loudness_key(key, expected_key, family)
+        ),
+        None,
     )
     if payload is None or (values := _parse_payload(payload)) is None:
         return None
@@ -93,6 +108,10 @@ def recover_loudness_profile(
         source_size_bytes=stat.st_size,
         source_audio_md5=audio_md5 if family == "vorbis" else None,
     )
+
+
+def _matches_loudness_key(key: Any, expected_key: str, family: str) -> bool:
+    return str(key) == expected_key if family == "mp4" else str(key).casefold() == expected_key.casefold()
 
 
 def _tag_text(value: Any) -> str | None:
@@ -134,6 +153,8 @@ def _tag_family(path: Path) -> str | None:
     suffix = path.suffix.lower()
     if suffix == _FLAC_SUFFIX:
         return "vorbis"
+    if suffix in _MP4_SUFFIXES:
+        return "mp4"
     if suffix in _ID3_SUFFIXES:
         return "id3"
     return None
@@ -175,6 +196,26 @@ def _apply_flac_tags(tags: Any, comment: str, payload: str) -> bool:
     tags["COMMENT"] = [comment]
     tags[_LOUDNESS_TAG] = [payload]
     return True
+
+
+def _apply_mp4_tags(tags: Any, comment: str, payload: str) -> bool:
+    if tags.get("©cmt") == [comment] and _mp4_utf8_text(tags.get(MP4_LOUDNESS_TAG)) == payload:
+        return False
+    tags["©cmt"] = [comment]
+    tags[MP4_LOUDNESS_TAG] = [MP4FreeForm(payload.encode("utf-8"), dataformat=AtomDataType.UTF8)]
+    return True
+
+
+def _mp4_utf8_text(value: Any) -> str | None:
+    if not isinstance(value, list | tuple) or len(value) != 1:
+        return None
+    atom = value[0]
+    if not isinstance(atom, MP4FreeForm) or atom.dataformat != AtomDataType.UTF8:
+        return None
+    try:
+        return bytes(atom).decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def _apply_id3_tags(tags: Any, comment: str, payload: str) -> bool:

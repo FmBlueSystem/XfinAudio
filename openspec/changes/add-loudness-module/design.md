@@ -117,8 +117,8 @@ Per owner decisions ([OWNER], dissent registered in §14):
   historically, external tooling writes) recorded in §14.
 - Structured custom tag `XFINAUDIO_LOUDNESS=lufs=…;lra=…;dbtp=…;v=1;engine=…` enables
   best-effort measurement recovery from tags if the DB is lost (no re-decode). DB remains
-  source of truth; recovery completeness varies by format (strong: MP3 TXXX / FLAC Vorbis;
-  weak: WAV/AIFF). [OWNER-approved dual write; GROK R13 limits]
+  source of truth; recovery completeness varies by format (strong: MP3 TXXX / FLAC Vorbis /
+  M4A `----:com.bluesystemio.xfinaudio:XFINAUDIO_LOUDNESS`; weak: WAV/AIFF). [OWNER-approved dual write; GROK R13 limits]
 - Round-trip stability: fixed decimal formatting prevents comment rewrite churn from
   float noise. [GROK N3]
 

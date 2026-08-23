@@ -207,4 +207,4 @@ After stale-count correction `b155d39`, lifecycle hardening `f4bebe5`, and termi
 - The minimal LGPL FFmpeg surface now includes MOV demuxing plus AAC and ALAC decoding for existing M4A inputs. Source-build, PyInstaller pre-build, and post-bundle smoke probes fail closed unless all three capabilities are reported.
 - Committed 3-second AAC-LC and ALAC M4A fixtures use the existing synthetic WAV with recorded commands and SHA-256 provenance in `tests/fixtures/loudness/README.md`; frozen-path coverage resolves the bundle-relative executable and executes a real decoder.
 - Actual FFmpeg 7.1.1 universal2 build and PyInstaller collection passed with byte-identical SHA-256 `d17355d15b1dc107d7e8669a9e911b999fdfc86607432ee9e0941265d931a9aa`; both source and bundled adapters measured AAC-LC (`-20.0 LUFS`) and ALAC (`-20.0 LUFS`) fixtures through frozen resolution.
-- N1b/N1c remain pending.
+- **N1b:** M4A writes overwrite `©cmt` and the exact app-owned UTF-8 freeform atom while preserving unrelated atoms; scan coercion retains only that atom's native value for recovery, and non-UTF-8/binary/foreign values are rejected. N1c remains pending.

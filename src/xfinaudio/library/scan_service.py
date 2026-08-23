@@ -12,7 +12,7 @@ from mutagen._file import File as MutagenFile
 
 from xfinaudio.audio.analyzer import LibrosaSpectralAnalyzer, SpectralAnalyzer
 from xfinaudio.audio.batch_analyzer import analyze_paths
-from xfinaudio.audio.loudness_tags import recover_loudness_profile
+from xfinaudio.audio.loudness_tags import MP4_LOUDNESS_TAG, recover_loudness_profile
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_planning import (
@@ -367,7 +367,7 @@ def read_mutagen_tags(path: Path) -> dict[str, Any] | None:
     audio = MutagenFile(path, easy=False)
     if audio is None or audio.tags is None:
         return None
-    tags = {str(key): _coerce_tag_value(value) for key, value in audio.tags.items()}
+    tags = {str(key): _coerce_tag_value(value, key=str(key)) for key, value in audio.tags.items()}
     if audio.info is not None and hasattr(audio.info, "length"):
         tags["__duration__"] = audio.info.length
     try:
@@ -383,7 +383,9 @@ def _recursive_paths(folder: Path) -> Iterable[Path]:
     return folder.rglob("*")
 
 
-def _coerce_tag_value(value: Any) -> Any:
+def _coerce_tag_value(value: Any, *, key: str = "") -> Any:
+    if key == MP4_LOUDNESS_TAG and isinstance(value, list | tuple):
+        return list(value)
     text_values = getattr(value, "text", None)
     if text_values is not None:
         return [str(item) for item in text_values]

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from shutil import copyfile
 
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.loudness_completion import LoudnessCompletionService, prioritize_records
-from xfinaudio.audio.loudness_tags import LoudnessTagWriteResult, LoudnessTagWriteStatus
+from xfinaudio.audio.loudness_tags import LoudnessTagWriteResult, LoudnessTagWriteStatus, write_loudness_tags
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.track_repository import TrackRepository
 
@@ -242,3 +243,18 @@ def test_tag_write_failure_restamps_and_refreshes_before_persisting_typed_failur
     assert events == ["write", "refresh", "persist"]
     assert repository.updated[str(path)].status is LoudnessStatus.TRANSIENT_FAILURE
     assert repository.updated[str(path)].source_size_bytes == path.stat().st_size
+
+
+def test_m4a_writer_exception_becomes_typed_transient_failure(tmp_path: Path) -> None:
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "loudness" / "synthetic_tone_1khz_aac.m4a"
+    path = tmp_path / "track.m4a"
+    copyfile(fixture, path)
+
+    def failing_writer(target: Path, profile: LoudnessProfile) -> LoudnessTagWriteResult:
+        return write_loudness_tags(target, profile, save_audio=lambda _: (_ for _ in ()).throw(OSError("disk full")))
+
+    repository = _Repository()
+    service = LoudnessCompletionService(_Analyzer(), engine_fingerprint="ffmpeg-test", tag_writer=failing_writer)
+    result = service.complete([TrackRecord(path=str(path), duration=8.0)], repository)
+
+    assert result[str(path)].status is LoudnessStatus.TRANSIENT_FAILURE

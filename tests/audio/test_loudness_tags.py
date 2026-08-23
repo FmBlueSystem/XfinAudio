@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from shutil import copyfile
 
 import pytest
 from mutagen.id3 import COMM, TXXX
+from mutagen.mp4 import MP4, AtomDataType, MP4FreeForm
 
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
-from xfinaudio.audio.loudness_tags import LoudnessTagWriteStatus, write_loudness_tags
+from xfinaudio.audio.loudness_tags import LoudnessTagWriteResult, LoudnessTagWriteStatus, write_loudness_tags
 
 
 @dataclass
@@ -109,7 +111,7 @@ def test_flac_uses_vorbis_comment_and_custom_value() -> None:
     assert audio.save_count == 1
 
 
-@pytest.mark.parametrize(("suffix", "supported"), [(".aiff", True), (".m4a", False), (".ogg", False)])
+@pytest.mark.parametrize(("suffix", "supported"), [(".aiff", True), (".ogg", False)])
 def test_format_capability_map_is_explicit(suffix: str, supported: bool) -> None:
     audio = FakeAudio(FakeID3Tags())
     result = write_loudness_tags(
@@ -139,3 +141,32 @@ def test_measured_profile_with_missing_metric_is_not_writable() -> None:
 
     assert result.status is LoudnessTagWriteStatus.UNSUPPORTED
     assert audio.save_count == 0
+
+
+_M4A_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "loudness" / "synthetic_tone_1khz_aac.m4a"
+_M4A_LOUDNESS_KEY = "----:com.bluesystemio.xfinaudio:XFINAUDIO_LOUDNESS"
+
+
+def test_m4a_write_round_trips_exact_app_atoms_preserves_unrelated_and_is_idempotent(tmp_path: Path) -> None:
+    path = tmp_path / "track.m4a"
+    copyfile(_M4A_FIXTURE, path)
+    audio = MP4(path)
+    assert audio.tags is not None
+    audio.tags["©nam"] = ["Keep this title"]
+    audio.tags["----:com.example:UNRELATED"] = [MP4FreeForm(b"keep", dataformat=AtomDataType.UTF8)]
+    audio.save()
+
+    assert write_loudness_tags(path, measured_profile()).status is LoudnessTagWriteStatus.CHANGED
+    reloaded = MP4(path)
+    assert reloaded.tags is not None
+    assert reloaded.tags["©cmt"] == ["-9.8 LUFS · 4.2 LRA · -0.7 dBTP"]
+    freeform = reloaded.tags[_M4A_LOUDNESS_KEY]
+    assert len(freeform) == 1
+    assert bytes(freeform[0]) == b"lufs=-9.8;lra=4.2;dbtp=-0.7;v=1;engine=ffmpeg-test"
+    assert freeform[0].dataformat == AtomDataType.UTF8
+    assert reloaded.tags["©nam"] == ["Keep this title"]
+    assert bytes(reloaded.tags["----:com.example:UNRELATED"][0]) == b"keep"
+
+    assert write_loudness_tags(path, measured_profile(), save_audio=lambda _: pytest.fail("must not save")) == (
+        LoudnessTagWriteResult(LoudnessTagWriteStatus.UNCHANGED)
+    )

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from shutil import copyfile
 
 import pytest
+from mutagen.mp4 import MP4, AtomDataType, MP4FreeForm
 
-from xfinaudio.audio.loudness_tags import recover_loudness_profile
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
+from xfinaudio.audio.loudness_tags import LoudnessTagWriteStatus, recover_loudness_profile, write_loudness_tags
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import scan_folder
 from xfinaudio.library.track_repository import TrackRepository
 
 _PAYLOAD = "lufs=-9.8;lra=4.2;dbtp=-0.7;v=1;engine=ffmpeg-test"
+_M4A_LOUDNESS_KEY = "----:com.bluesystemio.xfinaudio:XFINAUDIO_LOUDNESS"
 
 
 @pytest.mark.parametrize(
@@ -98,3 +102,63 @@ def test_malformed_recovery_tag_never_fails_scan(tmp_path: Path) -> None:
     )
 
     assert records[0].loudness_profile is None
+
+
+def test_m4a_scan_recovers_only_app_owned_utf8_freeform_atom(tmp_path: Path) -> None:
+    fixture = Path(__file__).resolve().parent / "fixtures" / "loudness" / "synthetic_tone_1khz_aac.m4a"
+    path = tmp_path / "track.m4a"
+    copyfile(fixture, path)
+    profile = LoudnessProfile(
+        lufs_integrated=-9.8,
+        loudness_range_lra=4.2,
+        true_peak_dbtp=-0.7,
+        status=LoudnessStatus.MEASURED,
+        engine_fingerprint="ffmpeg-test",
+    )
+    assert write_loudness_tags(path, profile).status is LoudnessTagWriteStatus.CHANGED
+
+    records = scan_folder(tmp_path, resolve_spectral_profiles=False)
+    assert records[0].loudness_profile is not None
+    assert records[0].loudness_profile.engine_fingerprint == "ffmpeg-test"
+
+    audio = MP4(path)
+    assert audio.tags is not None
+    audio.tags[_M4A_LOUDNESS_KEY] = [MP4FreeForm(b"foreign", dataformat=AtomDataType.IMPLICIT)]
+    audio.tags["©cmt"] = [_PAYLOAD]
+    audio.save()
+    assert recover_loudness_profile(path, {"©cmt": [_PAYLOAD]}) is None
+    assert recover_loudness_profile(path, {_M4A_LOUDNESS_KEY: audio.tags[_M4A_LOUDNESS_KEY]}) is None
+    assert recover_loudness_profile(path, {"----:com.example:XFINAUDIO_LOUDNESS": [_PAYLOAD]}) is None
+
+    repository = TrackRepository(tmp_path / "library.sqlite3")
+    repository.save_scan_results(records)
+    existing = records[0].loudness_profile.model_copy(update={"engine_fingerprint": "ffmpeg-db"})
+    repository.update_loudness_profile(records[0].path, existing)
+    repository.save_scan_results(records)
+    assert repository.list_tracks()[0].loudness_profile == existing
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        {
+            "----:com.bluesystemio.xfinaudio:xfinaudio_loudness": [
+                MP4FreeForm(_PAYLOAD.encode(), dataformat=AtomDataType.UTF8)
+            ]
+        },
+        {_M4A_LOUDNESS_KEY: [MP4FreeForm(b"\xff", dataformat=AtomDataType.UTF8)]},
+        {
+            _M4A_LOUDNESS_KEY: [
+                MP4FreeForm(_PAYLOAD.encode(), dataformat=AtomDataType.UTF8),
+                MP4FreeForm(_PAYLOAD.encode(), dataformat=AtomDataType.UTF8),
+            ]
+        },
+    ],
+)
+def test_m4a_recovery_rejects_case_variants_invalid_utf8_and_multiple_values(
+    tmp_path: Path, tags: dict[str, list[MP4FreeForm]]
+) -> None:
+    path = tmp_path / "track.m4a"
+    path.write_text("audio")
+
+    assert recover_loudness_profile(path, tags) is None
