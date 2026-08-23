@@ -50,8 +50,11 @@ CONFIGURE_FLAGS = (
     "--enable-demuxer=aiff",
     "--enable-demuxer=flac",
     "--enable-demuxer=mp3",
+    "--enable-demuxer=mov",
     "--enable-demuxer=wav",
     "--enable-decoder=flac",
+    "--enable-decoder=aac",
+    "--enable-decoder=alac",
     "--enable-decoder=mp3",
     "--enable-decoder=pcm_s16be",
     "--enable-decoder=pcm_s16le",
@@ -129,6 +132,18 @@ def _validate_binary(binary: Path, run: Run) -> None:
     )
     if re.search(r"\bpeak\b.*\btrue\b|\btrue\b.*\bpeak\b", help_output.stdout.lower()) is None:
         raise BuildError("FFmpeg ebur128 lacks true-peak support")
+    demuxers = _checked(run, (str(binary), "-hide_banner", "-demuxers"), binary.parent, "FFmpeg demuxer probe")
+    decoders = _checked(run, (str(binary), "-hide_banner", "-decoders"), binary.parent, "FFmpeg decoder probe")
+    if not _has_m4a_decode_capabilities(demuxers.stdout, decoders.stdout):
+        raise BuildError("FFmpeg lacks required M4A MOV/AAC/ALAC decoding")
+
+
+def _has_m4a_decode_capabilities(demuxers: str, decoders: str) -> bool:
+    return bool(
+        re.search(r"^\s*D\s+mov(?:,|$)", demuxers, re.MULTILINE)
+        and re.search(r"^\s*[A-Z.]{6}\s+aac(?:\s|$)", decoders, re.MULTILINE)
+        and re.search(r"^\s*[A-Z.]{6}\s+alac(?:\s|$)", decoders, re.MULTILINE)
+    )
 
 
 def build_universal_ffmpeg(

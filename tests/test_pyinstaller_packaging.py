@@ -322,7 +322,11 @@ def test_temp_bundle_validator_requires_unthinned_capable_ffmpeg(
 
     def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         commands.append(command)
-        output = "ffmpeg version 7.1.1" if command[-1] == "-version" else "ebur128 peak true"
+        output = {
+            "-version": "ffmpeg version 7.1.1",
+            "-demuxers": " D  mov,mp4,m4a,3gp,3g2,mj2 QuickTime / MOV",
+            "-decoders": " A....D aac AAC\n A....D alac ALAC",
+        }.get(command[-1], "ebur128 peak true")
         return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
 
     monkeypatch.setattr(pyinstaller_build_smoke.subprocess, "run", fake_run)
@@ -333,6 +337,8 @@ def test_temp_bundle_validator_requires_unthinned_capable_ffmpeg(
         [str(binary), "-version"],
         [str(binary), "-hide_banner", "-filters"],
         [str(binary), "-hide_banner", "-h", "filter=ebur128"],
+        [str(binary), "-hide_banner", "-demuxers"],
+        [str(binary), "-hide_banner", "-decoders"],
     ]
 
 
@@ -377,6 +383,9 @@ def test_loudness_ffmpeg_bundle_is_validated_excluded_from_upx_and_documented() 
         "macOS universal2",
         "_MEIPASS/ffmpeg",
         "corresponding source",
+        "--enable-demuxer=mov",
+        "--enable-decoder=aac",
+        "--enable-decoder=alac",
     ):
         assert expected in inventory
     config_flags = re.findall(r'^    "(--(?:disable|enable)-[^"]+)",$', build_script, re.MULTILINE)
@@ -392,7 +401,7 @@ def _bundle_validator() -> dict[str, object]:
         for node in parsed.body
         if isinstance(node, (ast.Import, ast.ImportFrom))
         or isinstance(node, ast.FunctionDef)
-        and node.name in {"_ffmpeg_probe", "validate_ffmpeg_bundle"}
+        and node.name in {"_ffmpeg_probe", "_has_m4a_decode_capabilities", "validate_ffmpeg_bundle"}
     ]
     namespace: dict[str, object] = {}
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SPEC_PATH), "exec"), namespace)
@@ -418,4 +427,35 @@ def test_ffmpeg_bundle_validator_rejects_a_wrong_builder_version(
     monkeypatch.setattr(validator["subprocess"], "run", fake_run)
 
     with pytest.raises(RuntimeError, match="7.1.1"):
+        validator["validate_ffmpeg_bundle"](binary)
+
+
+def test_bundle_validators_fail_closed_without_m4a_decode_capabilities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    binary = tmp_path / "XfinAudio.app" / "Contents" / "Frameworks" / "ffmpeg"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("fixture", encoding="utf-8")
+    binary.chmod(0o755)
+    executable = binary.parents[1] / "MacOS" / "XfinAudio"
+    executable.parent.mkdir()
+    executable.write_text("fixture", encoding="utf-8")
+
+    def fake_run(command: list[str] | tuple[str, ...], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        output = {
+            "-version": "ffmpeg version 7.1.1",
+            "-filters": " ... ebur128 ...",
+            "filter=ebur128": "peak true",
+            "-demuxers": " D  wav",
+            "-decoders": " A....D mp3",
+        }.get(command[-1], "")
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+
+    monkeypatch.setattr(pyinstaller_build_smoke.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="M4A"):
+        pyinstaller_build_smoke.validate_bundled_ffmpeg(tmp_path)
+
+    validator = _bundle_validator()
+    monkeypatch.setattr(validator["subprocess"], "run", fake_run)
+    with pytest.raises(RuntimeError, match="M4A"):
         validator["validate_ffmpeg_bundle"](binary)

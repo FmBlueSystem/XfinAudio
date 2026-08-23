@@ -224,7 +224,17 @@ def validate_bundled_ffmpeg(dist_path: Path) -> Path:
     peak_help = probe("-hide_banner", "-h", "filter=ebur128").lower()
     if re.search(r"\bpeak\b.*\btrue\b|\btrue\b.*\bpeak\b", peak_help) is None:
         raise RuntimeError("Bundled FFmpeg lacks ebur128 true-peak support")
+    if not _has_m4a_decode_capabilities(probe("-hide_banner", "-demuxers"), probe("-hide_banner", "-decoders")):
+        raise RuntimeError("Bundled FFmpeg lacks required M4A MOV/AAC/ALAC decoding")
     return binary
+
+
+def _has_m4a_decode_capabilities(demuxers: str, decoders: str) -> bool:
+    return bool(
+        re.search(r"^\s*D\s+mov(?:,|$)", demuxers, re.MULTILINE)
+        and re.search(r"^\s*[A-Z.]{6}\s+aac(?:\s|$)", decoders, re.MULTILINE)
+        and re.search(r"^\s*[A-Z.]{6}\s+alac(?:\s|$)", decoders, re.MULTILINE)
+    )
 
 
 def validate_launch(dist_path: Path, temp_root: Path, timeout_seconds: int = 20) -> int:

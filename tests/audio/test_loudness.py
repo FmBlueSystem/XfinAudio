@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import base64
+import math
+import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -26,6 +29,7 @@ from xfinaudio.audio.loudness import (
     LoudnessProfile,
     LoudnessStatus,
 )
+from xfinaudio.audio.loudness_runtime import resolve_ffmpeg
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "loudness"
 
@@ -396,3 +400,30 @@ def test_cancel_and_shutdown_cover_spawn_registration_race_and_wait_for_reaping(
     assert process.reaped.is_set()
     if action_name == "cancel":
         assert adapter.analyze(tmp_path / "restart.flac", duration_seconds=3.0).status is LoudnessStatus.MEASURED
+
+
+@pytest.mark.parametrize("fixture_name", ["synthetic_tone_1khz_aac.m4a", "synthetic_tone_1khz_alac.m4a"])
+def test_frozen_resolved_ffmpeg_measures_real_synthetic_m4a(fixture_name: str, tmp_path: Path) -> None:
+    executable = Path(os.environ.get("XFINAUDIO_FFMPEG_BINARY") or shutil.which("ffmpeg") or "")
+    if not executable.is_file():
+        pytest.skip("requires XFINAUDIO_FFMPEG_BINARY or a developer FFmpeg")
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / "ffmpeg").symlink_to(executable)
+    frozen_ffmpeg = resolve_ffmpeg(frozen=True, bundle_dir=bundle_dir)
+    assert frozen_ffmpeg == executable.resolve()
+    assert frozen_ffmpeg is not None
+
+    profile = FfmpegLoudnessAdapter(frozen_ffmpeg, engine_fingerprint="fixture-real-m4a").analyze(
+        FIXTURES / fixture_name, duration_seconds=3.0
+    )
+
+    assert profile.status is LoudnessStatus.MEASURED
+    lufs = profile.lufs_integrated
+    lra = profile.loudness_range_lra
+    true_peak = profile.true_peak_dbtp
+    assert lufs is not None and lra is not None and true_peak is not None
+    assert all(math.isfinite(value) for value in (lufs, lra, true_peak))
+    assert -80.0 < lufs < 0.0
+    assert 0.0 <= lra < 80.0
+    assert -80.0 < true_peak <= 10.0

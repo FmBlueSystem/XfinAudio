@@ -34,7 +34,19 @@ def validate_ffmpeg_bundle(binary: Path) -> Path:
     filter_help = _ffmpeg_probe((str(binary), "-hide_banner", "-h", "filter=ebur128"))
     if re.search(r"\bpeak\b.*\btrue\b|\btrue\b.*\bpeak\b", filter_help.lower()) is None:
         raise RuntimeError("Bundled FFmpeg lacks ebur128 true-peak support")
+    demuxers = _ffmpeg_probe((str(binary), "-hide_banner", "-demuxers"))
+    decoders = _ffmpeg_probe((str(binary), "-hide_banner", "-decoders"))
+    if not _has_m4a_decode_capabilities(demuxers, decoders):
+        raise RuntimeError("Bundled FFmpeg lacks required M4A MOV/AAC/ALAC decoding")
     return binary
+
+
+def _has_m4a_decode_capabilities(demuxers: str, decoders: str) -> bool:
+    return bool(
+        re.search(r"^\s*D\s+mov(?:,|$)", demuxers, re.MULTILINE)
+        and re.search(r"^\s*[A-Z.]{6}\s+aac(?:\s|$)", decoders, re.MULTILINE)
+        and re.search(r"^\s*[A-Z.]{6}\s+alac(?:\s|$)", decoders, re.MULTILINE)
+    )
 
 
 def preserve_standalone_ffmpeg(entries: list[tuple[str, str, str]], binary: Path) -> list[tuple[str, str, str]]:

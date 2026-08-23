@@ -38,7 +38,7 @@ Disabled: `--disable-everything`, `--disable-gpl`, `--disable-nonfree`, `--disab
 
 Enabled: `--enable-ffmpeg`, `--enable-avcodec`, `--enable-avformat`, `--enable-avfilter`, `--enable-avutil`,
 `--enable-protocol=file`; demuxers `--enable-demuxer=aiff`, `--enable-demuxer=flac`, `--enable-demuxer=mp3`,
-`--enable-demuxer=wav`; decoders `--enable-decoder=flac`, `--enable-decoder=mp3`, `--enable-decoder=pcm_s16be`,
+`--enable-demuxer=wav`, `--enable-demuxer=mov`; decoders `--enable-decoder=flac`, `--enable-decoder=mp3`, `--enable-decoder=aac`, `--enable-decoder=alac`, `--enable-decoder=pcm_s16be`,
 `--enable-decoder=pcm_s16le`, `--enable-decoder=pcm_s24be`, `--enable-decoder=pcm_s24le`,
 `--enable-decoder=pcm_s32be`, `--enable-decoder=pcm_s32le`; filters `--enable-filter=ebur128`,
 `--enable-filter=aformat`, `--enable-filter=aresample`; `--enable-muxer=null`; and encoders
@@ -49,7 +49,7 @@ for every bundled binary. Any distributed bundle must make the corresponding sou
 available, or include a durable written offer identifying the official source URL and checksum.
 
 The generated executable is intentionally not committed. Packaging fails closed unless this exact source-built,
-executable, universal2 FFmpeg 7.1.1 binary supports `ebur128=peak=true`. This provenance entry does not clear
+executable, universal2 FFmpeg 7.1.1 binary supports `ebur128=peak=true` and MOV/AAC/ALAC M4A decoding. This provenance entry does not clear
 legal review or binary redistribution obligations.
 
 ## Limitations and legal review gates

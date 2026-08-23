@@ -79,6 +79,10 @@ def test_builds_universal_binary_and_validates_ebur128_capability(tmp_path: Path
             stdout = " ... ebur128 ..."
         elif command[-1] == "filter=ebur128":
             stdout = "peak <int> enable true peak"
+        elif command[-1] == "-demuxers":
+            stdout = " D  mov,mp4,m4a,3gp,3g2,mj2 QuickTime / MOV"
+        elif command[-1] == "-decoders":
+            stdout = " A....D aac AAC\n A....D alac ALAC"
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
     output = ffmpeg_build.build_universal_ffmpeg(tmp_path / "work", tmp_path / "ffmpeg", manifest, download, run)
@@ -91,6 +95,8 @@ def test_builds_universal_binary_and_validates_ebur128_capability(tmp_path: Path
     assert any("--arch=x86_64" in command for command in commands)
     assert any("--enable-filter=ebur128" in command for command in commands)
     assert any("--enable-encoder=pcm_s16le" in command for command in commands)
+    assert any("--enable-demuxer=mov" in command for command in commands)
+    assert any("--enable-decoder=aac" in command and "--enable-decoder=alac" in command for command in commands)
     assert any("--extra-cflags=-arch arm64 -mmacosx-version-min=11.0" in command for command in commands)
     assert any("--extra-ldflags=-arch x86_64 -mmacosx-version-min=11.0" in command for command in commands)
     assert ("lipo", str(output.with_name(f".{output.name}.staging")), "-verify_arch", "arm64", "x86_64") in commands
@@ -145,3 +151,23 @@ def test_build_refuses_checksum_mismatch_before_running_tools(tmp_path: Path) ->
         )
 
     assert called is False
+
+
+def test_binary_validation_fails_closed_without_m4a_decode_capabilities(tmp_path: Path) -> None:
+    binary = tmp_path / "ffmpeg"
+    binary.write_text("fixture", encoding="utf-8")
+    binary.chmod(0o755)
+
+    def run(command: tuple[str, ...], _cwd: Path) -> subprocess.CompletedProcess[str]:
+        output = {
+            "-filters": " ... ebur128 ...",
+            "filter=ebur128": "peak <int> enable true peak",
+            "-demuxers": " D  wav",
+            "-decoders": " A....D mp3",
+        }.get(command[-1], "ffmpeg version 7.1.1")
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+
+    required_m4a_flags = {"--enable-demuxer=mov", "--enable-decoder=aac", "--enable-decoder=alac"}
+    assert required_m4a_flags <= set(ffmpeg_build.CONFIGURE_FLAGS)
+    with pytest.raises(ffmpeg_build.BuildError, match="M4A"):
+        ffmpeg_build._validate_binary(binary, run)
