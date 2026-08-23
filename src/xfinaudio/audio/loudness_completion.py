@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -54,11 +55,23 @@ class LoudnessCompletionService:
         self._analyzer = analyzer
         self._engine_fingerprint = engine_fingerprint
         self._tag_writer = tag_writer
+        self._lifecycle = threading.Condition(threading.RLock())
+        self._active_run: object | None = None
+        self._cancelled_runs: set[object] = set()
+        self._commit_run: object | None = None
 
     def cancel(self) -> None:
-        """Forward lifecycle cancellation when the concrete analyzer supports it."""
+        """Cancel the active run without interrupting an already-started commit."""
+        with self._lifecycle:
+            run = self._active_run
+            if run is None:
+                return
+            self._cancelled_runs.add(run)
         if (cancel := getattr(self._analyzer, "cancel", None)) is not None:
             cancel()
+        with self._lifecycle:
+            while self._commit_run is run:
+                self._lifecycle.wait()
 
     def complete(
         self,
@@ -73,56 +86,99 @@ class LoudnessCompletionService:
         on_progress: Callable[[int, int], None] | None = None,
     ) -> dict[str, LoudnessProfile]:
         """Return cached or freshly persisted profiles, reporting every completed record."""
-        ordered = prioritize_records(
-            records,
-            selected_paths=selected_paths,
-            candidate_paths=candidate_paths,
-            visible_paths=visible_paths,
-        )
-        cache = repository.load_loudness_profile_cache(
-            [record.path for record in ordered],
-            engine_fingerprint=self._engine_fingerprint,
-            force_reanalyze=force_reanalyze,
-        )
-        results: dict[str, LoudnessProfile] = {}
-        pending: list[TrackRecord] = []
-        for record in ordered:
-            if (profile := cache.get(record.path)) is None:
-                pending.append(record)
-            else:
-                results[record.path] = profile
-                _emit(on_result, on_progress, len(results), len(ordered), record.path, profile)
+        run = object()
+        with self._lifecycle:
+            if self._active_run is not None:
+                return {}
+            self._active_run = run
+        try:
+            ordered = prioritize_records(
+                records,
+                selected_paths=selected_paths,
+                candidate_paths=candidate_paths,
+                visible_paths=visible_paths,
+            )
+            cache = repository.load_loudness_profile_cache(
+                [record.path for record in ordered],
+                engine_fingerprint=self._engine_fingerprint,
+                force_reanalyze=force_reanalyze,
+            )
+            results: dict[str, LoudnessProfile] = {}
+            pending: list[TrackRecord] = []
+            for record in ordered:
+                if (profile := cache.get(record.path)) is None:
+                    pending.append(record)
+                else:
+                    results[record.path] = profile
+                    _emit(on_result, on_progress, len(results), len(ordered), record.path, profile)
 
-        with ThreadPoolExecutor(max_workers=_MAX_DISK_WORKERS) as pool:
-            future_to_record = {
-                pool.submit(self._analyzer.analyze, Path(record.path), duration_seconds=record.duration or 0.0): record
-                for record in pending
-            }
-            for future in as_completed(future_to_record):
-                record = future_to_record[future]
-                try:
-                    profile = future.result()
-                except Exception:
-                    profile = _transient_failure(self._engine_fingerprint)
-                before_write = _file_identity(record.path)
-                try:
-                    write_result = self._tag_writer(Path(record.path), profile)
-                    if write_result.status is LoudnessTagWriteStatus.CHANGED:
-                        refresh_siblings = True
-                    elif write_result.status in {LoudnessTagWriteStatus.UNCHANGED, LoudnessTagWriteStatus.UNSUPPORTED}:
-                        refresh_siblings = False
-                    else:
-                        raise RuntimeError("unsafe loudness tag write result")
-                except Exception:
-                    profile = _transient_failure(profile.engine_fingerprint)
-                    refresh_siblings = _file_identity(record.path) != before_write
-                profile = _stamp_profile(profile, record)
-                if refresh_siblings:
-                    repository.refresh_post_metadata_identity(record.path)
-                repository.update_loudness_profile(record.path, profile)
-                results[record.path] = profile
-                _emit(on_result, on_progress, len(results), len(ordered), record.path, profile)
-        return results
+            with ThreadPoolExecutor(max_workers=_MAX_DISK_WORKERS) as pool:
+                future_to_record = {pool.submit(self._analyze_if_active, run, record): record for record in pending}
+                for future in as_completed(future_to_record):
+                    if self._is_cancelled(run):
+                        break
+                    record = future_to_record[future]
+                    if (profile := future.result()) is None or not self._begin_commit(run):
+                        continue
+                    try:
+                        profile = self._commit_profile(repository, record, profile)
+                    finally:
+                        self._finish_commit(run)
+                    results[record.path] = profile
+                    _emit(on_result, on_progress, len(results), len(ordered), record.path, profile)
+            return results
+        finally:
+            with self._lifecycle:
+                self._cancelled_runs.discard(run)
+                if self._active_run is run:
+                    self._active_run = None
+                self._lifecycle.notify_all()
+
+    def _analyze_if_active(self, run: object, record: TrackRecord) -> LoudnessProfile | None:
+        if self._is_cancelled(run):
+            return None
+        try:
+            return self._analyzer.analyze(Path(record.path), duration_seconds=record.duration or 0.0)
+        except Exception:
+            return _transient_failure(self._engine_fingerprint)
+
+    def _commit_profile(
+        self, repository: TrackLoudnessProfileCachePort, record: TrackRecord, profile: LoudnessProfile
+    ) -> LoudnessProfile:
+        before_write = _file_identity(record.path)
+        try:
+            write_result = self._tag_writer(Path(record.path), profile)
+            if write_result.status is LoudnessTagWriteStatus.CHANGED:
+                refresh_siblings = True
+            elif write_result.status in {LoudnessTagWriteStatus.UNCHANGED, LoudnessTagWriteStatus.UNSUPPORTED}:
+                refresh_siblings = False
+            else:
+                raise RuntimeError("unsafe loudness tag write result")
+        except Exception:
+            profile = _transient_failure(profile.engine_fingerprint)
+            refresh_siblings = _file_identity(record.path) != before_write
+        profile = _stamp_profile(profile, record)
+        if refresh_siblings:
+            repository.refresh_post_metadata_identity(record.path)
+        repository.update_loudness_profile(record.path, profile)
+        return profile
+
+    def _is_cancelled(self, run: object) -> bool:
+        with self._lifecycle:
+            return run in self._cancelled_runs or self._active_run is not run
+
+    def _begin_commit(self, run: object) -> bool:
+        with self._lifecycle:
+            if run in self._cancelled_runs or self._active_run is not run:
+                return False
+            self._commit_run = run
+            return True
+
+    def _finish_commit(self, run: object) -> None:
+        with self._lifecycle:
+            if self._commit_run is run:
+                self._commit_run = None
+            self._lifecycle.notify_all()
 
 
 def _transient_failure(engine_fingerprint: str) -> LoudnessProfile:

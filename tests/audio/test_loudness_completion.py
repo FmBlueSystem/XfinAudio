@@ -258,3 +258,111 @@ def test_m4a_writer_exception_becomes_typed_transient_failure(tmp_path: Path) ->
     result = service.complete([TrackRecord(path=str(path), duration=8.0)], repository)
 
     assert result[str(path)].status is LoudnessStatus.TRANSIENT_FAILURE
+
+
+def test_cancel_wins_before_late_measurement_commit_and_service_can_be_reused(tmp_path: Path) -> None:
+    path = tmp_path / "late.flac"
+    path.write_text("audio")
+    started, release, cancelled = threading.Event(), threading.Event(), threading.Event()
+
+    class LateAnalyzer(_Analyzer):
+        def __init__(self) -> None:
+            super().__init__()
+            self.block = True
+
+        def analyze(self, path: Path, *, duration_seconds: float) -> LoudnessProfile:
+            self.calls.append((path, duration_seconds))
+            started.set()
+            if self.block:
+                release.wait(1)
+            return _profile()
+
+        def cancel(self) -> None:
+            cancelled.set()
+
+    events: list[str] = []
+    analyzer, repository = LateAnalyzer(), _OrderedRepository(events)
+
+    def unchanged_writer(_path: Path, _profile: LoudnessProfile) -> LoudnessTagWriteResult:
+        events.append("write")
+        return LoudnessTagWriteResult(LoudnessTagWriteStatus.UNCHANGED)
+
+    service = LoudnessCompletionService(analyzer, engine_fingerprint="ffmpeg-test", tag_writer=unchanged_writer)
+    completed: dict[str, LoudnessProfile] = {}
+    callbacks: list[str] = []
+    worker = threading.Thread(
+        target=lambda: completed.update(
+            service.complete(
+                [TrackRecord(path=str(path), duration=8.0)],
+                repository,
+                on_result=lambda path, _profile: callbacks.append(path),
+            )
+        )
+    )
+    worker.start()
+    assert started.wait(1)
+    service.cancel()
+    assert cancelled.is_set()
+    release.set()
+    worker.join(timeout=1)
+
+    assert worker.is_alive() is False
+    assert completed == {}
+    assert events == []
+    assert repository.updated == {}
+    assert callbacks == []
+
+    analyzer.block = False
+    next_results = service.complete([TrackRecord(path=str(path), duration=8.0)], repository)
+    assert next_results[str(path)].status is LoudnessStatus.MEASURED
+    assert next_results[str(path)].source_size_bytes == path.stat().st_size
+    assert events == ["write", "persist"]
+
+
+def test_cancel_waits_for_active_tag_commit_then_skips_remaining_records(tmp_path: Path) -> None:
+    first, second, third = [tmp_path / f"{name}.flac" for name in ("first", "second", "third")]
+    for path in (first, second, third):
+        path.write_text("audio")
+    commit_started, release_commit, cancel_called, cancel_done = (threading.Event() for _ in range(4))
+
+    class SequencedAnalyzer(_Analyzer):
+        def __init__(self) -> None:
+            super().__init__()
+            self._call_lock = threading.Lock()
+
+        def analyze(self, path: Path, *, duration_seconds: float) -> LoudnessProfile:
+            with self._call_lock:
+                first_call = not self.calls
+                self.calls.append((path, duration_seconds))
+            if not first_call:
+                cancel_called.wait(1)
+            return _profile()
+
+        def cancel(self) -> None:
+            cancel_called.set()
+
+    events: list[str] = []
+
+    def blocking_writer(_path: Path, _profile: LoudnessProfile) -> LoudnessTagWriteResult:
+        events.append("write")
+        commit_started.set()
+        release_commit.wait(1)
+        return LoudnessTagWriteResult(LoudnessTagWriteStatus.CHANGED)
+
+    analyzer, repository = SequencedAnalyzer(), _OrderedRepository(events)
+    service = LoudnessCompletionService(analyzer, engine_fingerprint="ffmpeg-test", tag_writer=blocking_writer)
+    records = [TrackRecord(path=str(path), duration=8.0) for path in (first, second, third)]
+    worker = threading.Thread(target=lambda: service.complete(records, repository))
+    worker.start()
+    assert commit_started.wait(1)
+    canceller = threading.Thread(target=lambda: (service.cancel(), cancel_done.set()))
+    canceller.start()
+    assert cancel_called.wait(1)
+    assert cancel_done.wait(0.1) is False
+    release_commit.set()
+    worker.join(timeout=1)
+    canceller.join(timeout=1)
+
+    assert worker.is_alive() is canceller.is_alive() is False
+    assert events == ["write", "refresh", "persist"]
+    assert list(repository.updated) == [str(analyzer.calls[0][0])]
