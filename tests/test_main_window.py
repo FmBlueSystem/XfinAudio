@@ -161,7 +161,11 @@ def test_main_window_constructs_desktop_scanning_skeleton() -> None:
     assert window.windowTitle() == "XfinAudio"
     assert window._library_screen.folder_button.text() == "Choose Folder"
     assert window._library_screen.scan_button.text() == "Scan Metadata"
-    assert window._build_screen.strategy_combo.count() == 10
+    assert window._build_screen.strategy_combo.count() == 11
+    assert "Consistent Loudness" in [
+        window._build_screen.strategy_combo.itemText(index)
+        for index in range(window._build_screen.strategy_combo.count())
+    ]
     assert window._build_screen.recommend_button.text() == "Recommend Playlist"
     assert _library_tracks_table(window).columnCount() >= 7
     assert window._review_screen.recommendation_table.columnCount() >= 6
