@@ -8,7 +8,7 @@
       `-vn`, `stdin=DEVNULL`), injectable command construction
 - [x] 1.3 Stderr parser with typed outcomes; fixture-based regression tests against the
       pinned build's output format
-- [ ] 1.4 Capability preflight (binary present, filter present, true-peak supported)
+- [x] 1.4 Capability preflight (binary present, filter present, true-peak supported)
 - [ ] 1.5 Timeout + kill-on-timeout classified as transient failure; process-group kill on
       cancel; orphan reaping on shutdown
 - [x] 1.6 Conformance fixtures: golden LUFS/LRA/TP on synthetic WAVs; pyloudnorm as

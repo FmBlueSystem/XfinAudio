@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pyloudnorm as pyln
@@ -10,7 +12,9 @@ import pytest
 
 from xfinaudio.audio.loudness import (
     MINIMUM_LOUDNESS_DURATION_SECONDS,
+    FfmpegCapabilityError,
     FfmpegLoudnessAdapter,
+    FfmpegProbeResult,
     LoudnessAnalyzer,
     LoudnessParseError,
     LoudnessProfile,
@@ -92,3 +96,90 @@ def test_short_material_keeps_integrated_lufs_but_omits_lra_and_true_peak() -> N
     assert profile.lufs_integrated == pytest.approx(-20.0)
     assert profile.loudness_range_lra is None
     assert profile.true_peak_dbtp is None
+
+
+class _BasicProcess:
+    def __init__(self, stderr: str, *, times_out: bool = False) -> None:
+        self.stderr = stderr
+        self.times_out = times_out
+        self.returncode: int | None = None
+        self.timeouts: list[float | None] = []
+
+    def communicate(self, *, timeout: float | None = None) -> tuple[str, str]:
+        self.timeouts.append(timeout)
+        if self.times_out:
+            raise subprocess.TimeoutExpired("ffmpeg", timeout or 0.0)
+        return "", self.stderr
+
+
+def test_preflight_requires_executable_successful_probes_and_structured_true_peak(tmp_path: Path) -> None:
+    executable = tmp_path / "bundle" / "ffmpeg"
+    executable.parent.mkdir()
+    executable.touch(mode=0o755)
+    adapter = FfmpegLoudnessAdapter(executable, engine_fingerprint="ffmpeg-8.0.1-ebur128")
+
+    def valid_probe(command: tuple[str, ...]) -> FfmpegProbeResult:
+        output = " T.. ebur128 A->N EBU R128" if command[-1] == "-filters" else "  peak <int>\n     true 2"
+        return FfmpegProbeResult(returncode=0, output=output)
+
+    adapter.preflight(probe=valid_probe)
+    executable.chmod(0o644)
+    with pytest.raises(FfmpegCapabilityError, match="executable"):
+        adapter.preflight(probe=valid_probe)
+    executable.chmod(0o755)
+    with pytest.raises(FfmpegCapabilityError, match="probe"):
+        adapter.preflight(probe=lambda _command: FfmpegProbeResult(returncode=1, output="unused"))
+
+
+def test_preflight_rejects_unrelated_true_peak_words(tmp_path: Path) -> None:
+    executable = tmp_path / "bundle" / "ffmpeg"
+    executable.parent.mkdir()
+    executable.touch(mode=0o755)
+    adapter = FfmpegLoudnessAdapter(executable, engine_fingerprint="ffmpeg-8.0.1-ebur128")
+
+    def misleading_probe(command: tuple[str, ...]) -> FfmpegProbeResult:
+        output = " T.. ebur128 A->N EBU R128" if command[-1] == "-filters" else "peak detection is true elsewhere"
+        return FfmpegProbeResult(returncode=0, output=output)
+
+    with pytest.raises(FfmpegCapabilityError, match="true peak"):
+        adapter.preflight(probe=misleading_probe)
+
+
+def test_analyze_injects_shell_free_process_and_classifies_timeout(tmp_path: Path) -> None:
+    process = _BasicProcess((FIXTURES / "synthetic_tone_1khz_ebu.stderr").read_text())
+    launches: list[dict[str, Any]] = []
+
+    def process_factory(_command: tuple[str, ...], **kwargs: Any) -> _BasicProcess:
+        launches.append(kwargs)
+        return process
+
+    adapter = FfmpegLoudnessAdapter(
+        tmp_path / "bundle" / "ffmpeg",
+        engine_fingerprint="ffmpeg-8.0.1-ebur128",
+        process_factory=process_factory,
+        timeout_seconds=9.5,
+    )
+
+    profile = adapter.analyze(tmp_path / "track.flac", duration_seconds=3.0)
+
+    assert profile.status is LoudnessStatus.MEASURED
+    assert process.timeouts == [9.5]
+    assert launches == [
+        {
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "shell": False,
+            "start_new_session": True,
+        }
+    ]
+    timeout_adapter = FfmpegLoudnessAdapter(
+        tmp_path / "bundle" / "ffmpeg",
+        engine_fingerprint="ffmpeg-8.0.1-ebur128",
+        process_factory=lambda _command, **_kwargs: _BasicProcess("", times_out=True),
+    )
+    assert (
+        timeout_adapter.analyze(tmp_path / "timeout.flac", duration_seconds=3.0).status
+        is LoudnessStatus.TRANSIENT_FAILURE
+    )

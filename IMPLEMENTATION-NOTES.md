@@ -50,3 +50,9 @@ The maintainer approved completing governance task 4.6 before any WU3 tag-write 
 read-only and that the loudness module is the single documented exception, permitted to write
 loudness tags only through its explicit setting. This authorizes the future WU3 boundary; it
 does not implement or execute a tag write.
+
+
+## add-loudness-module WU1b task 1.4
+
+- Preflight requires an absolute executable file with execute permission, checks successful typed probe results, and parses the FFmpeg filter listing and `peak` option structurally rather than accepting unrelated words.
+- The initial execution boundary remains shell-free with `stdin=DEVNULL`, `start_new_session=True`, and typed timeout failure. Process-group lifecycle safety follows in task 1.5.
