@@ -126,3 +126,9 @@ maintainer reset documented in `IMPLEMENTATION-NOTES.md`.
 - RED: `uv run pytest -q tests/test_loudness_completion_stage.py` failed at collection because the generic completion stage did not exist.
 - GREEN: `uv run pytest -q tests/test_loudness_completion_stage.py tests/audio/test_loudness_completion.py` — 6 passed in 0.66s.
 - Generic Qt lifecycle wiring follows edge completion, applies results immutably, and supplies selected → recommendation → visible priorities. Task 2.5 remains unchecked: runtime FFmpeg composition is WU4 scope.
+
+## WU2f Task 2.5 Runtime Composition Evidence
+
+- RED: `uv run pytest -q tests/test_loudness_runtime.py` failed at collection because the runtime resolver was absent.
+- GREEN: `uv run pytest -q tests/test_loudness_runtime.py tests/test_loudness_completion_stage.py tests/audio/test_loudness.py` — 21 passed in 2.03s.
+- The controller receives a preflighted service when available; frozen mode never searches PATH. Task 2.5 is complete. WU4.5 still owns binary bundling, UPX exclusion, pinning, and license inventory.

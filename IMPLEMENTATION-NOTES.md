@@ -125,3 +125,8 @@ No WU2 actor or harness was launched after this native stop.
 
 - A compact generic `BackgroundCompletionStage` replaces a copied fourth worker; it starts after edge completion, cancels with a new chain, and shuts down with the controller.
 - Runtime composition remains deferred: `LibraryController` accepts the service injection, but no window-factory FFmpeg service is created before WU4.
+
+## add-loudness-module WU2f task 2.5 runtime composition
+
+- Runtime uses a SHA-256 fingerprint of successful shell-free `ffmpeg -version` output, so every exact build/configuration change invalidates the loudness cache.
+- Frozen mode resolves only `<bundle>/ffmpeg`; developer PATH fallback is best-effort and unsupported binaries leave startup operational without loudness.

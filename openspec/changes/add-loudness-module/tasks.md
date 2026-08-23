@@ -26,7 +26,7 @@
       spectral/danceability/edge on any format)
 - [x] 2.4 Persist typed failures; retry only on version/fingerprint bump or explicit
       reanalyze
-- [ ] 2.5 Serialize into existing lazy completion lifecycle; disk-bound concurrency cap
+- [x] 2.5 Serialize into existing lazy completion lifecycle; disk-bound concurrency cap
       (2–3); priority queue (selected → candidates → visible folder → rest); per-result
       immediate persistence
 
