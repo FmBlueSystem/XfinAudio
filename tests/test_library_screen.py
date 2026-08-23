@@ -216,6 +216,8 @@ def test_rescan_button_click_emits_rescan_requested(qapp: QApplication) -> None:
     screen.rescan_button.click()
 
     assert emitted == [True]
+
+
 def test_scan_progress_bar_shows_loudness_completion_progress(qapp: QApplication) -> None:
     screen = LibraryScreen()
     screen.render(

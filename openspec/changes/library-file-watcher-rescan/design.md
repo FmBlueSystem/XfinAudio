@@ -527,3 +527,25 @@ Every debounce/coalesce/lifecycle test runs against the injected seams
 deterministic and fast; only a small, explicitly-marked integration test (if
 added at all) touches real `watchdog`/filesystem timing, isolated from the
 rest of the suite.
+
+## 10. Watcher-loudness integration
+
+`LoudnessCompletionService` remains desktop-agnostic. It depends only on a
+small structural `PathChangeSuppressor` protocol and invokes it with the exact
+`Path` passed to the tag writer, immediately before that writer runs. Runtime
+composition attaches the single `LibraryWatchService` instance after loudness
+preflight succeeds; the same instance is wired into `ScanService`, receives
+immutable state updates, and stops during window shutdown.
+
+`LibraryWatchService.suppress_paths()` canonicalizes exact paths and records a
+monotonic-clock expiry under a lock because loudness completion writes from a
+background stage while watcher delivery is marshaled to Qt's main thread. Raw
+events check the guard before starting the debounce timer. Entries are removed
+lazily on registration or event handling. A non-positive duration is rejected,
+so the API cannot create a permanent suppression.
+
+The suppression duration is five seconds. This intentionally covers delayed
+observer delivery from the app-owned tag write. It does not distinguish a
+separate external edit to the same exact path during that brief interval; that
+tradeoff is bounded, documented, and preferable to permanently hiding later
+changes. Unrelated paths remain observable throughout.

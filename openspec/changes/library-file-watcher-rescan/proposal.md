@@ -242,3 +242,19 @@ untouched and continue to work exactly as before. No persisted user data
 - [ ] `watchdog` is added as a pinned dependency; `uv.lock` resolves.
 - [ ] Full verification suite (`pytest`, `pyright`, coverage gate,
       `ruff check`, `ruff format --check`, release gate script) passes.
+
+## Loudness write-back integration amendment
+
+XfinAudio's optional loudness completion writes app-owned metadata tags after
+measuring a track. Those writes change the file mtime and are observable by the
+same watcher intended for external changes. The watcher therefore needs a
+bounded, exact-path suppression boundary for the tag writer only: it prevents a
+false "Changes detected — Rescan" affordance without changing analysis,
+recommendation, scanning, or metadata persistence behavior.
+
+The suppression is deliberately short-lived. It begins before the tag writer is
+called, matches only canonical exact paths supplied to that writer, and expires
+without a background task. An event for another path remains external. An event
+for the same path after expiry is external again. This accepts that an external
+edit to the same path within the bounded interval cannot be distinguished from
+the app write; expiry prevents a permanent blind spot.

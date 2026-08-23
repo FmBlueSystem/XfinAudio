@@ -163,3 +163,29 @@ Derived from the proposal's Success Criteria:
 - [ ] `watchdog` is added as a pinned dependency and `uv.lock` resolves.
 - [ ] Full verification suite (`pytest`, `pyright`, coverage gate,
       `ruff check`, `ruff format --check`, release gate script) passes.
+
+### Requirement: App-owned loudness tag writes do not surface a rescan affordance
+
+The system MUST suppress filesystem events for the exact paths that XfinAudio
+has handed to its loudness tag writer for a bounded interval beginning before
+the writer runs. The suppression MUST expire automatically and MUST NOT pause
+or suppress events for unrelated paths.
+
+#### Scenario: Loudness tag write does not prompt a rescan
+- GIVEN the watcher is active and loudness completion is about to write tags
+  for one measured track
+- WHEN the tag writer emits a filesystem event for that track during the
+  bounded suppression interval
+- THEN the watcher does not start its settle timer or surface the rescan
+  affordance
+
+#### Scenario: External modification remains visible
+- GIVEN a bounded suppression exists for a loudness tag-write path
+- WHEN an external tool modifies another path under the watched folder
+- THEN the watcher settles that event and surfaces the rescan affordance
+
+#### Scenario: A suppression expires
+- GIVEN a path was suppressed for an app-owned loudness tag write
+- WHEN the bounded interval has elapsed and that path is modified
+- THEN the watcher treats the event as external and surfaces the rescan
+  affordance after the normal settle window

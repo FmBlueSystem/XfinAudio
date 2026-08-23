@@ -303,3 +303,18 @@ clean run. Nothing has been committed or pushed — working tree only, per
   launch scope; recommend the orchestrator update `state.yaml`'s
   `phases.apply` to `in-progress` with a note that PR 1 of 2 is complete and
   PR 2 remains).
+
+## Watcher-loudness integration — completed
+
+- **RED:** `uv run pytest -q tests/test_library_watch_service.py
+  tests/audio/test_loudness_completion.py` failed with the expected missing
+  `monotonic_clock` and `path_suppressor` constructor seams (2 failures).
+- **GREEN:** commit `5336e42` adds exact-path suppression before debounce and
+  before tag writing, with a five-second monotonic expiry. It wires one
+  watcher into scan/loudness runtime composition and shutdown.
+- **Focused verification:** 21 selected watcher/loudness/runtime tests passed;
+  project Pyright reported 0 errors; Ruff check passed; formatting was
+  normalized before the commit.
+- **Rollback boundary:** revert `5336e42` to remove only bounded tag-write
+  suppression and watcher composition; loudness analysis and external watcher
+  behavior otherwise retain their prior implementation.

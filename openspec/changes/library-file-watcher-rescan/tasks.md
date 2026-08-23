@@ -486,3 +486,24 @@ unreferenced code (or revert PR 1 too, if a full rollback is desired).
   PR 2 = Tracks D+E+Tasks 14–16) is recommended over a single-PR slice. The
   orchestrator must confirm `chain_strategy` with the user before `sdd-apply`
   begins, per the Review Workload Guard.
+
+## Task 17 — Watcher-loudness suppression integration
+
+- [x] **RED** — Add deterministic integration coverage using the existing fake
+  event source/timer: an event produced by a loudness tag write does not start
+  debounce, an external path still activates the affordance, and the original
+  path is detected once a fake monotonic clock passes expiry. Add completion
+  coverage proving suppression receives the exact tag target before the writer.
+- [x] **GREEN** — Add a lock-protected, canonical exact-path, monotonic-expiry
+  suppression map to `LibraryWatchService`, checked before debounce. Inject the
+  watcher through composition into `LoudnessCompletionService` through a narrow
+  protocol; construct, wire, state-synchronize, and stop the one watcher at
+  desktop lifecycle boundaries.
+- [x] **REFACTOR** — Keep the audio core free of desktop imports and retain
+  immutable `AppState` replacement through the existing factory boundary.
+- [x] **VERIFY** — Focused watcher/loudness/runtime tests, project Pyright,
+  Ruff, the full suite, coverage, and release gate pass; see verify-report.
+
+**Review workload:** source and tests are 235 added/deleted lines in commit
+`5336e42`, below the 400-line work-unit budget. The SDD evidence update is a
+separate documentation work unit.
