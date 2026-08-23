@@ -24,7 +24,7 @@ def validate_ffmpeg_bundle(binary: Path) -> Path:
     binary = binary.resolve()
     if not binary.is_file() or not os.access(binary, os.X_OK):
         raise RuntimeError(f"Bundled FFmpeg is missing or not executable: {binary}")
-    _ffmpeg_probe(("lipo", "-verify_arch", "arm64", "x86_64", str(binary)))
+    _ffmpeg_probe(("lipo", str(binary), "-verify_arch", "arm64", "x86_64"))
     version = _ffmpeg_probe((str(binary), "-version"))
     if re.search(r"\bffmpeg version 7\.1\.1(?:\s|$)", version) is None:
         raise RuntimeError("Bundled FFmpeg is not the required 7.1.1 builder version")

@@ -93,7 +93,7 @@ def test_builds_universal_binary_and_validates_ebur128_capability(tmp_path: Path
     assert any("--enable-encoder=pcm_s16le" in command for command in commands)
     assert any("--extra-cflags=-arch arm64 -mmacosx-version-min=11.0" in command for command in commands)
     assert any("--extra-ldflags=-arch x86_64 -mmacosx-version-min=11.0" in command for command in commands)
-    assert any(command[:4] == ("lipo", "-verify_arch", "arm64", "x86_64") for command in commands)
+    assert ("lipo", str(output.with_name(f".{output.name}.staging")), "-verify_arch", "arm64", "x86_64") in commands
 
 
 def test_failed_staging_validation_preserves_existing_output(tmp_path: Path) -> None:

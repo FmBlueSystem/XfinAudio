@@ -305,7 +305,7 @@ def test_loudness_ffmpeg_bundle_is_validated_excluded_from_upx_and_documented() 
     assert 'binaries=[(str(bundled_ffmpeg), ".")]' in spec_text
     assert 'upx_exclude=["ffmpeg"]' in spec_text
     assert 'Path(root) / "ffmpeg"' in runtime
-    assert '("lipo", "-verify_arch", "arm64", "x86_64", str(binary))' in spec_text
+    assert '("lipo", str(binary), "-verify_arch", "arm64", "x86_64")' in spec_text
     assert '"filter=ebur128"' in spec_text
     assert spec_text.index("validate_ffmpeg_bundle(ffmpeg_binary)") < spec_text.index("analysis = Analysis")
     for expected in (

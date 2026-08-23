@@ -296,3 +296,9 @@ The test-wide guard had remained attached to the legacy `MainWindow._start_spect
 - RED: `uv run pytest -q tests/test_dependency_bounds.py -k coverage_report_uses_two_decimal_precision` — 1 failed (`KeyError: 'precision'`).
 - GREEN: focused contract test passed; `uv run pytest --cov --cov-fail-under=91.14 -q` — 1798 passed, 45 warnings, 91.18%, exit 0.
 - Rollback: revert `tool.coverage.report.precision` and its configuration contract test.
+
+### Final verification lipo argument-order correction
+
+- RED: focused FFmpeg build/packaging assertions — 2 failed because both validators passed `-verify_arch` before the binary.
+- GREEN: `uv run pytest -q tests/test_ffmpeg_build.py tests/test_pyinstaller_packaging.py` — 23 passed; Pyright and Ruff passed.
+- Rollback: revert the two lipo command tuples and their ordering assertions.

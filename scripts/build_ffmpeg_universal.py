@@ -182,7 +182,7 @@ def build_universal_ffmpeg(
         lipo_command = ("lipo", "-create", *(str(binary) for binary in binaries), "-output", str(staging))
         _checked(run, lipo_command, output.parent, "lipo")
         staging.chmod(staging.stat().st_mode | 0o111)
-        _checked(run, ("lipo", "-verify_arch", *ARCHITECTURES, str(staging)), output.parent, "lipo architecture check")
+        _checked(run, ("lipo", str(staging), "-verify_arch", *ARCHITECTURES), output.parent, "lipo architecture check")
         _validate_binary(staging, run)
         os.replace(staging, output)
     finally:
