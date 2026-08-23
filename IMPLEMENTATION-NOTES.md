@@ -73,3 +73,26 @@ All requested WU1 verification gates passed on 2026-08-22 in the required order:
 - `uv run ruff format --check .` — 290 files already formatted; wall 0.054s; output `sha256:aed20c5cdfe9f925fe3d0e35cc2b37455ed39da2dab16a5441a0d6530c2e51af`.
 
 Coverage and the release gate were intentionally not run. `uv run` caused only the known editable-project version drift in `uv.lock`; it was restored to HEAD. The untracked loudness review remained byte-identical, no source/tests changed, and root `build/`/`dist/` remained absent.
+
+## Native ledger blocker after WU1 completion
+
+WU1 is functionally complete and fully self-verified, but settlement of the WU1b objective
+returned `maintainer_decision`. The original 303-line implementation required a fresh-context
+gate correction for true reaping, synchronized cancellation, and strict capability probing.
+That correction was committed separately at 399 lines, but the native objective accounts for
+the combined final candidate and reports 560 changed lines against its 400-line limit.
+
+Active ledger revision:
+`sha256:d941ab0d243c9804d1f79fc3aa845bc725019a2f34af87a20dfcad2f139718c6`.
+
+Required maintainer action before WU2:
+
+```bash
+gentle-ai sdd-attempt reset --cwd <repo> --change add-loudness-module \
+  --expected-revision sha256:d941ab0d243c9804d1f79fc3aa845bc725019a2f34af87a20dfcad2f139718c6 \
+  --request-id <unique-id> \
+  --reason "Accept the separately committed sub-400-line WU1 preflight and lifecycle correction slices" \
+  --actor <maintainer>
+```
+
+No WU2 actor or harness was launched after this native stop.

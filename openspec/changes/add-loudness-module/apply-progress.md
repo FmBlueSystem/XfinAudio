@@ -59,3 +59,12 @@ Verification file-drift audit:
 - `uv run` transiently changed only the editable-project version in `uv.lock` from 1.8.0 to 1.8.2; the verifier restored that version-only drift to HEAD.
 - `docs/reviews/loudness-module-review.md` remained untracked and byte-identical at `sha256:cca5dfd5a0111d59c5280fee9913fbcb40badf6f9c4ac2603b772a19e0e0fdb9`.
 - No source or test file changed during self-verification, and project-root `build/` and `dist/` remained absent.
+
+## Native Runtime Status After WU1
+
+Settlement recorded the WU1 evidence as passed but returned `maintainer_decision`: the
+fresh-context correction made the final WU1b candidate 560 changed lines against the native
+400-line objective, although the implementation and correction commits are independently
+303 and 399 changed text lines. Further runtime work is stopped at ledger revision
+`sha256:d941ab0d243c9804d1f79fc3aa845bc725019a2f34af87a20dfcad2f139718c6` pending the exact
+maintainer reset documented in `IMPLEMENTATION-NOTES.md`.
