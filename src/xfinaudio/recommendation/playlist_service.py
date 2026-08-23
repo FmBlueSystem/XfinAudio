@@ -817,7 +817,9 @@ def resolve_color_anchor_path(
     controls = controls or DJControls()
     preserve_paths = preserved_control_paths(controls)
     complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
-    filtered, _ = _apply_strategy_filters(complete_tracks, strategy, preserve_paths=preserve_paths)
+    filtered, _ = _apply_strategy_filters(
+        complete_tracks, strategy, preserve_paths=preserve_paths, loudness_band=DEFAULT_LOUDNESS_BAND
+    )
     filtered, _ = _apply_requested_genre(filtered, controls.genre, preserve_paths)
     anchor = _resolve_color_anchor(filtered, controls)
     return anchor.path if anchor is not None else None

@@ -23,6 +23,7 @@ from xfinaudio.recommendation.playlist_service import (
     recommend_playlist,
     recommendation_with_replacement,
     recommendation_without_paths,
+    resolve_color_anchor_path,
 )
 from xfinaudio.recommendation.scoring import ScoringWeights, score_transition
 from xfinaudio.recommendation.strategies import StrategyRegistry, get_strategy
@@ -2252,6 +2253,13 @@ def test_apply_genre_filter_fallback_and_warnings_are_byte_identical() -> None:
 # ---------------------------------------------------------------------------
 # Review findings: anchor resolution and prerequisite warnings.
 # ---------------------------------------------------------------------------
+
+
+def test_resolve_color_anchor_path_applies_the_default_loudness_band() -> None:
+    """Anchor planning must use the same safe default as the recommendation flow."""
+    anchor = spectral_track("/anchor-red.flac", "RED")
+
+    assert resolve_color_anchor_path([anchor], "same_color") == "/anchor-red.flac"
 
 
 def test_color_anchor_resolution_never_selects_a_locked_track() -> None:
