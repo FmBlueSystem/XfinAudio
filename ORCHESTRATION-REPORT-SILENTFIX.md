@@ -158,6 +158,42 @@ difference. Slice sizes: 76 and 130 changed lines, both well under the 400-line 
 
 `design.md` §14 owner decisions were not revisited.
 
+## Follow-up: a defect introduced by the observability change
+
+`main()` called `configure_logging()` at the default path, so any test that called `main()`
+installed a root handler pointing at the developer's own `~/.xfinaudio/xfinaudio.log`, and
+every later test in the run appended to it. A full suite run left 438 lines of test noise
+in a real user's log file.
+
+Found by inspecting that log while trying to prove the frozen build had shipped the
+observability — the log's contents were pytest paths, not application output, which also
+showed the earlier "the frozen app wrote this" reading was wrong.
+
+`db17c0a fix(desktop): keep the test suite out of the real log file` adds
+`log_path_from_environment()` honoring `XFINAUDIO_LOG_PATH`, matching the existing
+database and settings path overrides, and binds every `main()` test to `tmp_path`. A full
+suite run now leaves the real log untouched.
+
+## Delivery proof
+
+The frozen build was verified by launching the installed app rather than by inference:
+
+- `~/.xfinaudio/xfinaudio.log` was deleted, the installed `.app` was launched, and the
+  file reappeared — so `configure_logging()` runs inside the frozen binary.
+- The file was empty, so no `Loudness analysis disabled` line was written: the engine
+  composed successfully. The pre-fix build would have written the true-peak rejection.
+
+Build identity, `shasum -a 256` of `Contents/MacOS/XfinAudio`:
+
+| Artifact | Hash prefix | Build |
+|---|---|---|
+| `~/Documents/xfinaudio-local-main/out/XfinAudio-1.8.2-loudness.dmg` (10:32) | `3ee97018…` | broken |
+| `out/XfinAudio-1.8.2.dmg` (11:55) | `1a8a9f85…` | fixed, superseded |
+| installed `/Applications/XfinAudio.app` | `813710cc…` | fixed, includes `db17c0a` |
+
+The 10:32 DMG in `~/Documents` still installs the broken build and was left in place for
+the owner to remove.
+
 ## Disk hygiene
 
 See the closing summary for freed space and for the owner-deletion candidates, which were
