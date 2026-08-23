@@ -139,3 +139,9 @@ All requested gates passed on 2026-08-22: focused WU2 tests 112 passed in 3.01s 
 
 - The immutable default band is **−10.0 LUFS ±2.0 LU**: a DJ-pool filter for modern mastered material, not streaming normalization or gain processing.
 - `LoudnessBand` is an orthogonal argument with no loudness scoring weight; WU4 may persist an override without changing this strategy's semantics.
+
+
+## add-loudness-module WU3b task 3.3
+
+- The codec overwrites every ID3 `COMM` frame and writes `TXXX:XFINAUDIO_LOUDNESS`; FLAC uses Vorbis `COMMENT` and `XFINAUDIO_LOUDNESS`. MP3/WAV/AIFF are ID3-capable when tags can be created, while M4A and unknown suffixes return typed `unsupported`.
+- It saves only changed complete `measured` values. WU3c must perform the post-write restat, shared identity refresh, and profile persistence.

@@ -149,3 +149,16 @@ All requested gates passed on 2026-08-22 in order (exact combined stdout/stderr 
 - RED: `uv run pytest -q tests/test_playlist_service.py tests/test_playlist_strategies.py tests/test_application_strategy_catalog.py` failed at collection because `loudness_policy` did not exist.
 - GREEN: same command — 239 passed in 0.92s; focused pyright and Ruff passed.
 - Consistent Loudness filters only numeric `measured` profiles; coverage warnings report evaluated profiles and exempt tracks without claiming partial output is matched.
+
+
+## WU3b Task 3.3 Evidence
+
+| Task | RED | GREEN | Refactor |
+|---|---|---|---|
+| 3.3 | `uv run pytest -q tests/audio/test_loudness_tags.py` — collection failed: `xfinaudio.audio.loudness_tags` missing | Same command — 9 passed | Extracted one formatter and per-family idempotence helpers |
+
+| Evidence | Result |
+|---|---|
+| Focused tests | 9 deterministic fake-tag tests; no audio files opened or saved. |
+| Runtime harness | N/A — the injectable loader/saver isolates this codec; WU3c owns live write ordering. |
+| Rollback boundary | Revert the tag codec and its tests without changing analysis, persistence, or pipeline behavior. |

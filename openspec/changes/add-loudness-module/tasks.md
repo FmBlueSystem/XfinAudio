@@ -38,7 +38,7 @@
 - [x] 3.2 Register "Consistent Loudness" strategy via StrategyName/_STRATEGIES/catalog;
       orthogonal target setting (no Warmup/Peak catalog rows); partial-coverage honesty in
       strategy output
-- [ ] 3.3 Tag write-back: COMMENT summary (frozen `{:.1f}` format, write only on changed
+- [x] 3.3 Tag write-back: COMMENT summary (frozen `{:.1f}` format, write only on changed
       values) + structured `XFINAUDIO_LOUDNESS` custom tag (v1 payload schema)
 - [ ] 3.4 Write ordering: measure → write tags → restat → stamp profile identity → persist;
       shared identity helper call after write
