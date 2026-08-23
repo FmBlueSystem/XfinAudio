@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,8 @@ from xfinaudio.audio.loudness_tags import write_loudness_tags
 
 VersionProbe = Callable[[Path], str | None]
 AdapterFactory = Callable[[Path, str], FfmpegLoudnessAdapter]
+
+_log = logging.getLogger(__name__)
 
 
 def resolve_ffmpeg(
@@ -59,14 +62,21 @@ def create_loudness_completion_service(
     version_probe: VersionProbe = probe_engine_fingerprint,
     adapter_factory: AdapterFactory = _adapter,
 ) -> LoudnessCompletionService | None:
-    """Return a preflighted service, or leave startup operational without loudness."""
+    """Return a preflighted service, or leave startup operational without loudness.
+
+    Startup stays operational without loudness, but never quietly: each abort names its
+    own reason so a stage that vanishes can be traced from the log alone.
+    """
     if (executable := resolve_ffmpeg(frozen=frozen, bundle_dir=bundle_dir, which=which)) is None:
+        _log.warning("Loudness analysis disabled: no FFmpeg executable could be resolved")
         return None
     if (fingerprint := version_probe(executable)) is None:
+        _log.warning("Loudness analysis disabled: FFmpeg at %s did not report a usable version", executable)
         return None
     try:
         adapter = adapter_factory(executable, fingerprint)
         adapter.preflight()
-    except (FfmpegCapabilityError, OSError):
+    except (FfmpegCapabilityError, OSError) as error:
+        _log.warning("Loudness analysis disabled: FFmpeg at %s failed capability preflight: %s", executable, error)
         return None
     return LoudnessCompletionService(adapter, engine_fingerprint=fingerprint, tag_writer=write_loudness_tags)

@@ -119,3 +119,34 @@ def test_main_resolves_default_macos_configurator_at_call_time(monkeypatch, tmp_
 
     assert desktop_app.main() == 0
     assert calls and calls[0][0] == "XfinAudio"
+
+
+def test_configure_logging_makes_stage_skips_durable_in_a_frozen_app(tmp_path) -> None:
+    """A frozen .app has no usable stderr, so warnings must land in a file on disk."""
+    import logging
+
+    from xfinaudio.desktop import app as desktop_app
+
+    log_path = tmp_path / "logs" / "xfinaudio.log"
+    handlers_before = list(logging.getLogger().handlers)
+    try:
+        assert desktop_app.configure_logging(log_path) == log_path
+        desktop_app.configure_logging(log_path)  # repeat startup must not duplicate handlers
+
+        logging.getLogger("xfinaudio.audio.loudness_runtime").warning("Loudness analysis disabled: probe failed")
+        logging.shutdown()
+        contents = log_path.read_text(encoding="utf-8")
+    finally:
+        for handler in list(logging.getLogger().handlers):
+            if handler not in handlers_before:
+                logging.getLogger().removeHandler(handler)
+                handler.close()
+
+    assert contents.count("Loudness analysis disabled: probe failed") == 1
+    assert "xfinaudio.audio.loudness_runtime" in contents
+
+
+def test_default_log_path_sits_next_to_the_application_database() -> None:
+    from xfinaudio.desktop import app as desktop_app
+
+    assert desktop_app.default_log_path().parent == desktop_app.default_database_path().parent
