@@ -265,6 +265,7 @@ class LibraryController:
             anchor = self._state.records_by_path.get(paths[0])
             if anchor is not None:
                 self._widgets.build_screen.suggest_genre_from_anchor(anchor.genre)
+        self._refresh_loudness_details()
         self.refresh_idle_action_state()
         if self._audio_player._source_path is not None and self._audio_player._source_path not in paths:
             self._audio_player.stop()
@@ -724,6 +725,7 @@ class LibraryController:
             return
         self._state = apply_loudness_completion_result(self._state, path=path, profile=profile)  # type: ignore[arg-type]
         self._access.state_setter(self._state)
+        self._refresh_loudness_details()
         self._request_sync()
 
     def on_loudness_completion_finished(self, completed_stage: BackgroundCompletionStage | None = None) -> None:
@@ -745,10 +747,19 @@ class LibraryController:
         self._state = self._state.model_copy(update=updates)
         self._access.state_setter(self._state)
 
+    def _refresh_loudness_details(self) -> None:
+        paths = self._access.selected_paths
+        record = self._state.records_by_path.get(paths[0]) if len(paths) == 1 else None
+        self._widgets.library_screen.set_loudness_details(
+            None if record is None else record.loudness_profile,
+            visible=record is not None,
+        )
+
     def clear_scan_dependent_state(self) -> None:
         self._state = apply_scan_context_reset(self._state)
         self._access.state_setter(self._state)
         self._clear_scan_dependent_ui()
+        self._widgets.library_screen.set_loudness_details(None, visible=False)
         self._sync_state()
 
     def _clear_scan_dependent_ui(self) -> None:

@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import QTableWidgetItem
 
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_filter import _RowInfo, suppressed_duplicate_paths
 from xfinaudio.desktop.library_filter_state import library_filters_from_flags, row_matches_query
@@ -118,6 +119,59 @@ class LibraryScreenRenderingMixin:
         self.scan_progress_bar.setVisible(False)
         self.scan_progress_label.setVisible(False)
         self.scan_progress_label.setText("")
+
+    def set_loudness_details(self, profile: LoudnessProfile | None, *, visible: bool) -> None:
+        """Render the selected track's loudness summary and true-peak status."""
+        self.loudness_detail_pane.setVisible(visible)
+        if not visible:
+            self.loudness_detail_label.setText("")
+            self.true_peak_badge.setText("")
+            self.true_peak_badge.setVisible(False)
+            return
+        self.true_peak_badge.setText("")
+        self.true_peak_badge.setVisible(False)
+        if profile is None:
+            self.loudness_detail_label.setText(self.tr("Loudness: not measured"))
+            return
+        if profile.status is LoudnessStatus.TOO_SHORT:
+            if profile.lufs_integrated is None:
+                self.loudness_detail_label.setText(self.tr("Loudness: unavailable (too short)"))
+            else:
+                self.loudness_detail_label.setText(
+                    self.tr("LUFS: {0:.1f} · LRA: unavailable · True peak: unavailable (too short)").format(
+                        profile.lufs_integrated
+                    )
+                )
+            return
+        if (
+            profile.status is not LoudnessStatus.MEASURED
+            or profile.lufs_integrated is None
+            or profile.loudness_range_lra is None
+            or profile.true_peak_dbtp is None
+        ):
+            if profile.status is LoudnessStatus.UNMEASURABLE:
+                text = self.tr("Loudness: unmeasurable")
+            elif profile.status is LoudnessStatus.TRANSIENT_FAILURE:
+                text = self.tr("Loudness: temporarily unavailable")
+            elif profile.status is LoudnessStatus.UNSUPPORTED:
+                text = self.tr("Loudness: unsupported")
+            else:
+                text = self.tr("Loudness: incomplete measurement")
+            self.loudness_detail_label.setText(text)
+            return
+        self.loudness_detail_label.setText(
+            self.tr("LUFS: {0:.1f} · LRA: {1:.1f} · True peak: {2:.1f} dBTP").format(
+                profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp
+            )
+        )
+        if profile.true_peak_dbtp >= 0.0:
+            badge = self.tr("True peak clipping")
+        elif profile.true_peak_dbtp > -1.0:
+            badge = self.tr("True peak warning")
+        else:
+            badge = ""
+        self.true_peak_badge.setText(badge)
+        self.true_peak_badge.setVisible(bool(badge))
 
     def _populate_table(self, rows: list[TrackDisplayRow]) -> None:
         # Preserve selected paths so sorting does not lose selection.

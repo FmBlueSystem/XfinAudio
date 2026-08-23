@@ -178,3 +178,8 @@ After stale-count correction `b155d39`, lifecycle hardening `f4bebe5`, and termi
 
 - Loudness completion owns immutable `is_completing_loudness`, count, and total fields. The stage initializes total from both cache-replay and fresh candidates; each active stage-scoped result increments only its own run, while stale/cancelled signals cannot mutate the current state.
 - The library reuses its existing scan-progress label/bar with `Analyzing loudness {0:,}/{1:,}`. No table column or copied Qt worker is introduced; WU4.4 will localize the new source string.
+
+## add-loudness-module WU4d task 4.3
+
+- The library adds a selection-bound detail pane rather than a thirteenth table column. It reports one-decimal LUFS/LRA/dBTP only for complete measured profiles and explicitly reports missing, failed, unsupported, and too-short states.
+- True-peak semantics are exact: `>= 0.0 dBTP` is clipping; `> -1.0 dBTP` and `< 0.0 dBTP` is warning; exactly `-1.0 dBTP` and lower has no badge. WU4.4 owns translations for the new source strings.

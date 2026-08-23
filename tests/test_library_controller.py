@@ -7,6 +7,7 @@ from unittest.mock import Mock
 from PySide6.QtWidgets import QApplication
 
 from xfinaudio.audio.danceability import DanceabilityProfile
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, EdgeSpectralProfile, SpectralProfile
 from xfinaudio.config.settings import LoudnessSettings
 from xfinaudio.desktop.main_window import MainWindow
@@ -55,6 +56,16 @@ def _danceability_profile() -> DanceabilityProfile:
         pulse_clarity=0.8,
         tempo_confidence=0.9,
         percussive_ratio=0.6,
+    )
+
+
+def _loudness_profile() -> LoudnessProfile:
+    return LoudnessProfile(
+        lufs_integrated=-9.5,
+        loudness_range_lra=3.0,
+        true_peak_dbtp=-0.5,
+        status=LoudnessStatus.MEASURED,
+        engine_fingerprint="test-engine",
     )
 
 
@@ -203,6 +214,25 @@ def test_library_anchor_selection_suggests_its_genre_on_build_screen() -> None:
     window._library_controller.on_library_selection_changed([records[0].path])
 
     assert window._build_screen.genre_combo.currentText() == "House"
+
+
+def test_library_selection_and_profile_completion_refresh_loudness_detail() -> None:
+    _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    record = TrackRecord(path="/music/house.flac", genre="House")
+    controller = window._library_controller
+    controller._state = controller._state.model_copy(
+        update={"scanned_records": [record], "records_by_path": {record.path: record}}
+    )
+
+    controller.on_library_selection_changed([record.path])
+    assert window._library_screen.loudness_detail_label.text() == "Loudness: not measured"
+
+    controller.on_loudness_profile_ready(record.path, _loudness_profile())
+    assert window._library_screen.loudness_detail_label.text().startswith("LUFS: -9.5")
+
+    controller.on_library_selection_changed([])
+    assert window._library_screen.loudness_detail_pane.isHidden() is True
 
 
 def test_replacement_backfill_uses_the_current_loudness_band(monkeypatch) -> None:

@@ -4,12 +4,28 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from PySide6.QtWidgets import QApplication, QFrame
 
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_view_model import LibraryViewModel
 from xfinaudio.desktop.screens.library_screen import _MISSING_COLUMN, LibraryScreen
 from xfinaudio.library.models import TrackRecord
+
+
+def _loudness_profile(
+    true_peak_dbtp: float | None,
+    *,
+    status: LoudnessStatus = LoudnessStatus.MEASURED,
+) -> LoudnessProfile:
+    return LoudnessProfile(
+        lufs_integrated=-10.2,
+        loudness_range_lra=3.5,
+        true_peak_dbtp=true_peak_dbtp,
+        status=status,
+        engine_fingerprint="test-engine",
+    )
 
 
 def _state_with_tracks() -> AppState:
@@ -187,6 +203,42 @@ def test_scan_progress_bar_shows_loudness_completion_progress(qapp: QApplication
 
     assert screen.scan_progress_bar.value() == 25
     assert screen.scan_progress_label.text() == "Analyzing loudness 25/100"
+
+
+@pytest.mark.parametrize(
+    ("true_peak_dbtp", "badge"),
+    [(0.0, "True peak clipping"), (-0.5, "True peak warning"), (-1.0, ""), (-1.1, "")],
+)
+def test_loudness_detail_true_peak_badge_uses_exact_thresholds(
+    qapp: QApplication, true_peak_dbtp: float, badge: str
+) -> None:
+    screen = LibraryScreen()
+
+    screen.set_loudness_details(_loudness_profile(true_peak_dbtp), visible=True)
+
+    assert screen.loudness_detail_label.text() == f"LUFS: -10.2 · LRA: 3.5 · True peak: {true_peak_dbtp:.1f} dBTP"
+    assert screen.true_peak_badge.text() == badge
+    assert screen.true_peak_badge.isHidden() is (badge == "")
+
+
+def test_loudness_detail_honestly_handles_missing_and_too_short_profiles(qapp: QApplication) -> None:
+    screen = LibraryScreen()
+
+    screen.set_loudness_details(None, visible=True)
+    assert screen.loudness_detail_label.text() == "Loudness: not measured"
+
+    screen.set_loudness_details(_loudness_profile(None, status=LoudnessStatus.TRANSIENT_FAILURE), visible=True)
+    assert screen.loudness_detail_label.text() == "Loudness: temporarily unavailable"
+
+    screen.set_loudness_details(_loudness_profile(None, status=LoudnessStatus.TOO_SHORT), visible=True)
+    assert screen.loudness_detail_label.text() == "LUFS: -10.2 · LRA: unavailable · True peak: unavailable (too short)"
+    assert screen.true_peak_badge.isHidden() is True
+
+
+def test_loudness_detail_does_not_add_library_table_columns(qapp: QApplication) -> None:
+    screen = LibraryScreen()
+
+    assert screen.tracks_table.columnCount() == 12
 
 
 def test_primary_and_secondary_action_buttons_have_visual_hierarchy(qapp: QApplication) -> None:

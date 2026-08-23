@@ -237,3 +237,15 @@ Task 4.1 remains unchecked pending WU4.4 translation catalog updates.
 | Stage lifecycle | Start sets total from all completion records; stage-scoped results apply profiles and increment once; stale results/finishes cannot change progress; cancel, finish, and shutdown reset it. |
 | UI | Existing progress label/bar now renders `Analyzing loudness {0:,}/{1:,}` without a new worker or table column. WU4.4 owns translation catalogs. |
 | Focused type/lint/format | `uv run pyright src tests` — 0 errors; `uv run ruff check .` — passed; `uv run ruff format --check .` — 300 files already formatted. |
+
+## WU4d Task 4.3 Selected-track loudness detail
+
+| Task | RED | GREEN | Refactor |
+|---|---|---|---|
+| 4.3 | `uv run pytest -q tests/test_library_screen.py tests/test_library_controller.py` — 6 failed: detail API/widgets absent | `uv run pytest -q tests/test_library_screen.py tests/test_library_controller.py tests/test_loudness_completion_stage.py` — 49 passed | Applied Ruff formatting after the focused green run. |
+
+| Evidence | Result |
+|---|---|
+| UI behavior | A selection-bound, accessible pane reports one-decimal LUFS/LRA/dBTP, missing/non-measured/too-short states, and exact true-peak boundaries. Profile completion refreshes the selected pane; clearing selection hides it. |
+| Table contract | The existing 12-column library table is unchanged. |
+| Focused type/lint/format | `uv run pyright src tests` — 0 errors; `uv run ruff check .` — passed; `uv run ruff format --check .` — 300 files already formatted. |

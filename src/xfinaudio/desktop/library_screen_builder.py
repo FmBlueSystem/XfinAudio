@@ -157,6 +157,23 @@ def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int
     screen.tracks_table.setColumnHidden(missing_column, True)
     layout.addWidget(screen.tracks_table)
 
+    screen.loudness_detail_pane = QFrame()
+    screen.loudness_detail_pane.setObjectName("loudnessDetailPane")
+    screen.loudness_detail_pane.setAccessibleName(screen.tr("Selected track loudness details"))
+    detail_layout = QHBoxLayout(screen.loudness_detail_pane)
+    screen.loudness_detail_label = QLabel("")
+    screen.loudness_detail_label.setObjectName("loudnessDetail")
+    screen.loudness_detail_label.setAccessibleName(screen.tr("Selected track loudness measurements"))
+    screen.true_peak_badge = QLabel("")
+    screen.true_peak_badge.setObjectName("truePeakBadge")
+    screen.true_peak_badge.setAccessibleName(screen.tr("True peak status"))
+    detail_layout.addWidget(screen.loudness_detail_label)
+    detail_layout.addWidget(screen.true_peak_badge)
+    detail_layout.addStretch()
+    screen.loudness_detail_pane.setVisible(False)
+    screen.true_peak_badge.setVisible(False)
+    layout.addWidget(screen.loudness_detail_pane)
+
     # Bottom row
     bottom = QHBoxLayout()
     screen.settings_button = QPushButton(screen.tr("⚙ Settings"))
