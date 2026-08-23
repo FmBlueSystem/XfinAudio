@@ -654,7 +654,11 @@ class LibraryController:
     def start_loudness_completion(self, records: list[TrackRecord]) -> None:
         """Start the disk-bound stage only after all three existing stages finish."""
         service = self._loudness_completion_service
-        if service is None or self._edge_spectral_completion_worker is not None:
+        if (
+            service is None
+            or self._edge_spectral_completion_worker is not None
+            or not self._access.settings_getter().loudness.enabled
+        ):
             return
         self.cancel_loudness_completion()
         stage = BackgroundCompletionStage(parent=self._parent)

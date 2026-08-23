@@ -2,7 +2,9 @@ from types import SimpleNamespace
 from typing import Any
 
 from tests.test_prep_copilot import spectral_track
+from xfinaudio.config.settings import AppSettings, LoudnessSettings
 from xfinaudio.desktop.prep_copilot import PrepCopilotController
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
 
 
 class _Index:
@@ -161,8 +163,9 @@ def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) 
         tr=lambda text: text,
         _selected_track_controls=lambda: controls,
         _replace_app_state=lambda updated_state: None,
+        settings=AppSettings(loudness=LoudnessSettings(target_lufs=-14.0, tolerance_lu=0.5)),
     )
-    generation_calls: list[tuple[Any, Any]] = []
+    generation_calls: list[tuple[Any, Any, LoudnessBand | None]] = []
     status_messages: list[str] = []
     state_changes = 0
     render_calls: list[tuple[Any, Any]] = []
@@ -176,8 +179,14 @@ def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) 
         nonlocal state_changes
         state_changes += 1
 
-    def generate_plan(records: Any, request: Any, *, color_anchor_path: str | None = None) -> Any:
-        generation_calls.append((records, request))
+    def generate_plan(
+        records: Any,
+        request: Any,
+        *,
+        color_anchor_path: str | None = None,
+        loudness_band: LoudnessBand | None = None,
+    ) -> Any:
+        generation_calls.append((records, request, loudness_band))
         assert color_anchor_path is None
         return generated_plan
 
@@ -210,6 +219,7 @@ def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) 
     assert request.start_path == "/music/start.flac"
     assert request.required_paths == ["/music/start.flac"]
     assert request.genre_focus == "House"
+    assert generation_calls[0][2] == LoudnessBand(-14.0, 0.5)
     assert status_messages == ["Generated 2 Prep Copilot variant(s)"]
     assert transition_calls == [(initial_state, generated_plan)]
     assert render_calls == [(build_vm, state._state)]
@@ -251,7 +261,9 @@ def test_controller_routes_colour_strategies_through_the_bound_anchor_context(mo
         _replace_app_state=lambda updated_state: None,
     )
 
-    def generate_plan(records: Any, request: Any, *, color_anchor_path: str | None = None) -> Any:
+    def generate_plan(
+        records: Any, request: Any, *, color_anchor_path: str | None = None, loudness_band: Any = None
+    ) -> Any:
         generation_calls.append((records, request, color_anchor_path))
         return generated_plan
 
@@ -318,7 +330,9 @@ def test_controller_routes_colour_display_labels_through_the_bound_anchor_contex
         _replace_app_state=lambda updated_state: None,
     )
 
-    def generate_plan(records: Any, request: Any, *, color_anchor_path: str | None = None) -> Any:
+    def generate_plan(
+        records: Any, request: Any, *, color_anchor_path: str | None = None, loudness_band: Any = None
+    ) -> Any:
         generation_calls.append((records, request, color_anchor_path))
         return generated_plan
 

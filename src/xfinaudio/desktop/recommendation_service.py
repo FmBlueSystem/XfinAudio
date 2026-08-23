@@ -15,6 +15,7 @@ from xfinaudio.desktop.app_state_transitions import apply_recommendation_complet
 from xfinaudio.desktop.candidate_routes import resolve_candidate_route
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
 
 # The pool is derived from the slot rather than fixed: see pool_size_for_slot.
 # A fixed 50 bottomed the track count out at 11 whatever the slot length.
@@ -137,6 +138,7 @@ class RecommendationService(QObject):
         spectral_cohesion: float = 0.0,
         *,
         color_anchor_path: str | None = None,
+        loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
     ) -> None:
         """Start a background recommendation in a worker thread."""
         if self._recommendation_thread is not None and self._recommendation_thread.isRunning():
@@ -176,6 +178,7 @@ class RecommendationService(QObject):
             self._status_label.setText(self._tr("Select at least one complete track before recommending"))
             return
         spectral_cohesion = self._build_screen.spectral_cohesion_value() / 100.0
+        loudness = self._current_state().settings.loudness
         records, color_anchor_path = resolve_candidate_route(
             controls,
             strategy_name,
@@ -189,6 +192,7 @@ class RecommendationService(QObject):
             controls,
             spectral_cohesion,
             color_anchor_path=color_anchor_path,
+            loudness_band=LoudnessBand(loudness.target_lufs, loudness.tolerance_lu),
         )
 
     def _begin_recommendation_state(self, candidate_count: int) -> None:
@@ -271,6 +275,7 @@ class RecommendationService(QObject):
         request_id: int,
         *,
         color_anchor_path: str | None = None,
+        loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
     ) -> None:
         thread = QThread(self)
         worker = BackgroundWorker(
@@ -282,6 +287,7 @@ class RecommendationService(QObject):
                 target_duration_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
                 played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
                 color_anchor_path=color_anchor_path,
+                loudness_band=loudness_band,
             ),
             request_id=request_id,
         )

@@ -13,6 +13,7 @@ from xfinaudio.application.prep_copilot import (
     build_prep_copilot_variant_application,
     generate_prep_copilot_plan,
 )
+from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop.app_state_transitions import (
     PrepCopilotVariantApplication,
     apply_prep_copilot_plan_cleared,
@@ -25,6 +26,7 @@ from xfinaudio.desktop.candidate_routes import (
     resolve_candidate_route,
 )
 from xfinaudio.desktop.rendering import format_quality_summary
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
 from xfinaudio.recommendation.strategies import resolve_strategy_name
 
@@ -39,7 +41,12 @@ class PlanGenerationBuilder(Protocol):
     """
 
     def __call__(
-        self, records: list[Any], request: PrepCopilotGenerationRequest, *, color_anchor_path: str | None = None
+        self,
+        records: list[Any],
+        request: PrepCopilotGenerationRequest,
+        *,
+        color_anchor_path: str | None = None,
+        loudness_band: LoudnessBand,
     ) -> PrepCopilotPlan: ...
 
 
@@ -121,7 +128,13 @@ class PrepCopilotController:
             required_paths=controls.manual_order_paths,
             genre_focus=genre_focus,
         )
-        plan = self._plan_generation_builder(records, request, color_anchor_path=color_anchor_path)
+        loudness = getattr(self._state, "settings", AppSettings()).loudness
+        plan = self._plan_generation_builder(
+            records,
+            request,
+            color_anchor_path=color_anchor_path,
+            loudness_band=LoudnessBand(loudness.target_lufs, loudness.tolerance_lu),
+        )
         self._replace_state(apply_prep_copilot_plan_generated(self._state._state, plan))
         self._build_screen.apply_variant_button.setEnabled(True)
         self._on_status_message(self._state.tr("Generated {0} Prep Copilot variant(s)").format(len(plan.variants)))

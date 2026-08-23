@@ -15,6 +15,7 @@ from xfinaudio.library.ports import TrackRepositoryPort
 from xfinaudio.library.scan_service import ProfileCache, ProgressCallback, ScanCancellationToken, ScanCancelledError
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
 from xfinaudio.recommendation.strategies import StrategyName
 
@@ -131,6 +132,7 @@ class PlaylistWorkflowService:
         target_duration_minutes: float | None = None,
         played_seconds_per_track: float | None = None,
         color_anchor_path: str | None = None,
+        loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
     ) -> RecommendationWorkflowResult:
         """Build a recommendation plus explanation and quality report for UI rendering.
 
@@ -147,6 +149,7 @@ class PlaylistWorkflowService:
             target_duration_minutes=target_duration_minutes,
             played_seconds_per_track=played_seconds_per_track,
             color_anchor_path=color_anchor_path,
+            loudness_band=loudness_band,
         )
         explanation = build_playlist_explanation(recommendation)
         quality_report = build_quality_report(recommendation)

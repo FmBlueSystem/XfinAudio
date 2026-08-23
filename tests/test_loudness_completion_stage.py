@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import CURRENT_EDGE_ANALYSIS_VERSION, EdgeSpectralProfile, SpectralProfile
+from xfinaudio.config.settings import AppSettings, LoudnessSettings
 from xfinaudio.desktop import library_controller, window_factory
 from xfinaudio.desktop.background_completion_stage import BackgroundCompletionStage
 from xfinaudio.desktop.main_window import MainWindow
@@ -242,4 +243,42 @@ def test_controller_starts_after_edge_without_missing_work_uses_priority_and_upd
     stage.result.emit(records[0].path, _profile())
     assert window._state is previous
     window._library_controller.shutdown()
+    assert app is QApplication.instance()
+
+
+def test_controller_does_not_schedule_new_loudness_work_when_disabled(monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class Repository:
+        def save_scan_results(self, records, **kwargs):
+            pass
+
+    class ScanService:
+        def scan(self, *_args, **_kwargs):
+            return []
+
+    class Service:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(self, *_args, **_kwargs) -> None:
+            self.calls += 1
+
+        def cancel(self) -> None:
+            pass
+
+    window = MainWindow(
+        scan_service=ScanService(),
+        repository=Repository(),
+        settings=AppSettings(loudness=LoudnessSettings(enabled=False)),
+    )
+    service = Service()
+    controller = window._library_controller
+    controller._loudness_completion_service = service
+
+    controller.start_loudness_completion([TrackRecord(path="/track.flac")])
+
+    assert service.calls == 0
+    assert controller._loudness_completion_stage is None
+    controller.shutdown()
     assert app is QApplication.instance()

@@ -210,3 +210,18 @@ Task 4.1 remains unchecked: settings UI, runtime scheduling, and translations ar
 | Focused type/lint/format | `uv run pyright src/xfinaudio/config/settings.py tests/test_settings.py tests/test_settings_repository.py` — 0 errors; `uv run ruff check …` — passed; `uv run ruff format --check …` — 3 files already formatted. |
 | Runtime harness | N/A — this is a frozen Pydantic model and JSON repository contract with no runtime process boundary. |
 | Rollback boundary | Revert `LoudnessSettings`, its AppSettings field/export, tests, and WU4a notes; no UI, scheduler, tag-write, or schema behavior is included. |
+
+## WU4b Task 4.1 UI and runtime wiring (partial)
+
+Task 4.1 remains unchecked pending WU4.4 translation catalog updates.
+
+| Task | Safety net | RED | GREEN | Refactor |
+|---|---|---|---|---|
+| 4.1 UI, policy, scheduling | 23 focused tests passed | 36 tests: 6 failed (missing controls, workflow override, current-band forwarding, disabled scheduling, Prep forwarding) | 244 passed in 2.65s | Reused one `LoudnessBand` value across desktop and Prep boundaries. |
+
+| Evidence | Result |
+|---|---|
+| Focused command | `uv run pytest -q tests/test_settings_dialog.py tests/test_settings_controller.py tests/test_playlist_workflow.py tests/test_recommendation_service_state.py tests/test_loudness_completion_stage.py tests/test_application_prep_copilot.py tests/test_prep_copilot.py tests/test_prep_copilot_controller.py tests/test_playlist_service.py` — 244 passed. |
+| Type/lint/format | `uv run pyright src tests` — 0 errors; `uv run ruff check .` — passed; `uv run ruff format --check .` — 300 files already formatted. |
+| Runtime harness | N/A — deterministic Qt/test-double seams prove scheduling without running FFmpeg or touching audio. |
+| Rollback | Revert this UI/policy/scheduling wiring and tests; WU4a model, WU3 tag writer, cached profiles, and translations remain independent. |

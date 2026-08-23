@@ -9,8 +9,10 @@ from typing import Any, cast
 import pytest
 
 from xfinaudio.application.recommendation_candidates import RecommendationCandidateContext
+from xfinaudio.config.settings import AppSettings, LoudnessSettings
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.recommendation_service import RecommendationService
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
 
 
 class _Label:
@@ -196,6 +198,23 @@ def test_recommend_reads_strategy_via_current_data() -> None:
     assert len(context_calls) == 1
     assert started_strategies == ["same_color_energy"]
     assert combo.currentText() != "same_color_energy"
+
+
+def test_recommend_forwards_the_current_loudness_settings_band() -> None:
+    service = RecommendationService(cast(Any, object()))
+    state = AppState(settings=AppSettings(loudness=LoudnessSettings(target_lufs=-14.0, tolerance_lu=0.5)))
+    combo = _StrategyCombo([("Consistent Loudness", "consistent_loudness")])
+    build_screen = SimpleNamespace(recommend_button=_Button(), strategy_combo=combo, spectral_cohesion_value=lambda: 50)
+    _wire_service(service, state=lambda: state, build_screen=build_screen)
+    service._scanned_records = lambda: [cast(Any, object())]
+    service._selected_track_controls = lambda: cast(Any, object())
+    service._desktop_recommendation_records = lambda _controls, _strategy=None: []
+    started: dict[str, Any] = {}
+    service.start_recommendation = lambda *_args, **kwargs: started.update(kwargs)
+
+    service.recommend()
+
+    assert started["loudness_band"] == LoudnessBand(-14.0, 0.5)
 
 
 def test_on_recommend_requested_selects_item_via_find_data() -> None:

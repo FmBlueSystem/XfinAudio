@@ -6,9 +6,11 @@ from pathlib import Path
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -80,6 +82,30 @@ class SettingsDialog(QDialog):
         library_layout.addWidget(self._last_scan_folder_label, 1)
         layout.addWidget(library_group)
 
+        loudness_group = QGroupBox(self.tr("Loudness Settings"))
+        loudness_layout = QVBoxLayout(loudness_group)
+        self._loudness_enabled_checkbox = QCheckBox(self.tr("Enable loudness analysis"))
+        self._loudness_enabled_checkbox.setObjectName("loudness_enabled_checkbox")
+        self._loudness_enabled_checkbox.setChecked(self._settings.loudness.enabled)
+        loudness_layout.addWidget(self._loudness_enabled_checkbox)
+        band_layout = QHBoxLayout()
+        band_layout.addWidget(QLabel(self.tr("Target LUFS:")))
+        self._loudness_target_lufs_spinbox = QDoubleSpinBox()
+        self._loudness_target_lufs_spinbox.setObjectName("loudness_target_lufs_spinbox")
+        self._loudness_target_lufs_spinbox.setRange(-30.0, 0.0)
+        self._loudness_target_lufs_spinbox.setSingleStep(0.5)
+        self._loudness_target_lufs_spinbox.setValue(self._settings.loudness.target_lufs)
+        band_layout.addWidget(self._loudness_target_lufs_spinbox)
+        band_layout.addWidget(QLabel(self.tr("Tolerance LU:")))
+        self._loudness_tolerance_lu_spinbox = QDoubleSpinBox()
+        self._loudness_tolerance_lu_spinbox.setObjectName("loudness_tolerance_lu_spinbox")
+        self._loudness_tolerance_lu_spinbox.setRange(0.0, 10.0)
+        self._loudness_tolerance_lu_spinbox.setSingleStep(0.5)
+        self._loudness_tolerance_lu_spinbox.setValue(self._settings.loudness.tolerance_lu)
+        band_layout.addWidget(self._loudness_tolerance_lu_spinbox)
+        loudness_layout.addLayout(band_layout)
+        layout.addWidget(loudness_group)
+
         # Buttons
         button_layout = QHBoxLayout()
         self._reset_button = QPushButton(self.tr("Reset to Defaults"))
@@ -139,6 +165,13 @@ class SettingsDialog(QDialog):
             update={
                 "export": ExportSettings(safe_export_folder=self._pending_safe_export_folder),
                 "ui": UiSettings(language=selected_lang),
+                "loudness": self._settings.loudness.model_copy(
+                    update={
+                        "enabled": self._loudness_enabled_checkbox.isChecked(),
+                        "target_lufs": self._loudness_target_lufs_spinbox.value(),
+                        "tolerance_lu": self._loudness_tolerance_lu_spinbox.value(),
+                    }
+                ),
             }
         )
         self.settings_changed.emit(new_settings)

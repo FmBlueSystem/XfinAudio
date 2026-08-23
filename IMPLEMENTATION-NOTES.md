@@ -167,3 +167,9 @@ After stale-count correction `b155d39`, lifecycle hardening `f4bebe5`, and termi
 - `LoudnessSettings.enabled` controls whether a later WU4 wiring step schedules **new** loudness analysis. It is deliberately not a write-back preference: fresh measured profiles continue through the always-on, idempotent WU3 tag writer once analysis is scheduled.
 - The persisted defaults reuse the strategy policy (`−10.0 LUFS`, `±2.0 LU`). Targets are constrained to `−30.0..0.0 LUFS` and tolerances to `0.0..10.0 LU`, preventing implausible settings while retaining exact-band and broad-library use cases.
 - `CURRENT_SETTINGS_VERSION` remains `1`: the frozen AppSettings default factory lets existing v1 JSON without `loudness` load and deterministically round-trip the new defaults, while the existing hard future-version rejection remains unchanged.
+
+## add-loudness-module WU4b settings UI and runtime wiring
+
+- The settings dialog persists an immutable `LoudnessSettings` update. Its enabled flag blocks only new `LoudnessCompletionService` scheduling; cached/recovered profiles and target-band filtering remain available.
+- A fresh enabled analysis still uses the existing always-on idempotent tag writer. There is deliberately no write-back preference or write-only mode.
+- The current target/tolerance is forwarded through desktop recommendations and Prep Copilot into each strategy/prefilter boundary; default bands retain prior behavior until users change settings.
