@@ -110,3 +110,8 @@ No WU2 actor or harness was launched after this native stop.
 - `load_loudness_profile_cache` validates the profile JSON, current analysis version, requested engine fingerprint, and the profile's own source mtime/size against a fresh file stat. It never reads shared `tracks.file_mtime_ns/file_size_bytes` for loudness validity.
 - Typed statuses, including `transient_failure`, are returned from that cache for unchanged inputs so pipeline callers can avoid retry loops; `force_reanalyze=True` returns no cache entries.
 - The supplied profile's post-write identity is serialized unchanged. Tag-write timing remains the caller's WU3 responsibility.
+
+## add-loudness-module WU2c task 2.3
+
+- `TrackRepository.refresh_post_metadata_identity` accepts only supported MP3/FLAC/WAV/AIFF suffixes, fresh-stats the existing path, and atomically updates only shared `file_mtime_ns` and `file_size_bytes`. It deliberately preserves the existing spectral, danceability, and edge JSON columns unchanged.
+- It returns `False` before issuing SQL when `stat()` fails and is a post-tag-write boundary, not an arbitrary-audio-replacement API. WU3 remains responsible for ordering any tag write before this refresh.

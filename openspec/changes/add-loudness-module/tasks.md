@@ -21,7 +21,7 @@
       INSERT/CASE (regression test first: column omitted → wiped)
 - [x] 2.2 Cache validity from identity stored inside the profile, captured AFTER tag write;
       never consult shared tracks identity columns for loudness
-- [ ] 2.3 Post-write sibling preservation via shared identity helper from
+- [x] 2.3 Post-write sibling preservation via shared identity helper from
       fix-derived-profile-cache-identity (RED regression: tag write must not wipe
       spectral/danceability/edge on any format)
 - [x] 2.4 Persist typed failures; retry only on version/fingerprint bump or explicit

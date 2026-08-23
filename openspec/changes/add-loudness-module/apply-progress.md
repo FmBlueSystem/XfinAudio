@@ -2,8 +2,8 @@
 
 ## Status
 
-WU1 and WU2 tasks 2.1, 2.2, and 2.4 are complete under strict TDD. Sibling preservation and
-pipeline integration remain pending. The executor did not settle the supplied native runtime token.
+WU1 and WU2 tasks 2.1–2.4 are complete under strict TDD. Pipeline integration remains pending.
+The executor did not settle the supplied native runtime token.
 
 ## Completed Tasks
 
@@ -12,6 +12,7 @@ pipeline integration remain pending. The executor did not settle the supplied na
 - [x] 1.5 — Timeout kills then reaps the owner process; cancellation/shutdown synchronize spawn, registration, kill, and owner reaping.
 - [x] 2.1 — Nullable `loudness_profile_json` migration and explicit scan upsert `CASE` preserve an existing payload on ordinary rescans.
 - [x] 2.2 — Versioned profile JSON cache checks its own post-write mtime/size against disk, not shared track identity.
+- [x] 2.3 — Supported post-tag-write identity refresh atomically updates shared mtime/size without changing sibling profile JSON.
 - [x] 2.4 — Typed failures persist/cache on unchanged inputs; explicit force reanalysis bypasses the cache.
 
 ## TDD Cycle Evidence
@@ -61,13 +62,25 @@ The maintainer constrained this objective to **330 text changed lines**, includi
 
 ## Remaining Tasks
 
-- [ ] WU2 tasks 2.3 and 2.5: sibling preservation and pipeline integration.
+- [ ] WU2 task 2.5: pipeline integration.
 - [ ] WU3 target-band filter, strategy, and tag write-back.
 - [ ] WU4 settings, UI surface, packaging, and full verification, except completed governance task 4.6.
 
 ## Scope Notes
 
 - No user-library audio was touched. All WU1 process behavior is fixture/fake driven.
+
+## WU2c Task 2.3 Evidence
+
+| Task | Safety net | RED | GREEN | Refactor |
+|---|---|---|---|---|
+| 2.3 | `uv run pytest -q tests/test_track_repository.py` → 82 passed in 0.73s | Same command → 5 failed, 82 passed in 0.72s: the post-tag identity API was absent | Same command → 87 passed in 0.64s | Kept one supported-suffix guard and one atomic SQLite `UPDATE`; no profile serializer changes. |
+
+| Evidence | Result |
+|---|---|
+| Focused tests | `uv run pytest -q tests/test_track_repository.py` — 87 passed in 0.64s. |
+| Runtime harness | Temporary MP3, FLAC, WAV, and AIFF-named files simulate a metadata-only size/mtime change; no tags are written. |
+| Rollback boundary | Revert the WU2c commit to remove only the post-metadata identity refresh helper and its regression coverage. |
 
 ## Authorized Governance Reorder (4.6)
 

@@ -29,6 +29,7 @@ SCHEMA_VERSION = 4
 # Bound placeholders per IN (...) clause. Modern SQLite allows 32766, older
 # builds only 999; 900 stays safe everywhere and keeps queries small.
 _MAX_QUERY_VARIABLES = 900
+_METADATA_REFRESH_SUFFIXES = frozenset({".mp3", ".flac", ".wav", ".aif", ".aiff"})
 
 
 class DatabaseSchemaError(RuntimeError):
@@ -425,6 +426,26 @@ class TrackRepository:
                     if profile is not None and profile.analysis_version == CURRENT_EDGE_ANALYSIS_VERSION:
                         cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
+
+    def refresh_post_metadata_identity(self, path: str) -> bool:
+        """Refresh shared identity after a supported-format metadata write without touching profiles.
+
+        This is a post-tag-write boundary only; callers must not use it after replacing audio
+        content. The single UPDATE is atomic and leaves every derived profile JSON untouched.
+        """
+        audio_path = Path(path)
+        if audio_path.suffix.casefold() not in _METADATA_REFRESH_SUFFIXES:
+            return False
+        try:
+            stat = audio_path.stat()
+        except OSError:
+            return False
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE tracks SET file_mtime_ns = ?, file_size_bytes = ? WHERE path = ?",
+                (stat.st_mtime_ns, stat.st_size, path),
+            )
+        return cursor.rowcount > 0
 
     def load_loudness_profile_cache(
         self,
