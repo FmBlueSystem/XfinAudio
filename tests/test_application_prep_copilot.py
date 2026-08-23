@@ -51,6 +51,7 @@ def test_application_prep_copilot_generation_builds_intent_and_delegates() -> No
         color_anchor_path: str | None = None,
         loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
     ) -> Any:
+        assert color_anchor_path is None
         calls.append((tracks, intent, loudness_band))
         return generated_plan
 
