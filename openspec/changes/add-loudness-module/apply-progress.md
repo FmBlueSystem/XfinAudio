@@ -143,3 +143,9 @@ All requested gates passed on 2026-08-22 in order (exact combined stdout/stderr 
 - Ruff check: passed; wall 0.104s; `sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18`.
 - Ruff format check: 296 files already formatted; wall 0.052s; `sha256:ba046a223e9f43762cca9c846332de658a26517c9939c3d67c012a2d214b899f`.
 - Drift: restored the sole transient `uv.lock` editable-version change (1.8.0 → 1.8.2); review doc remained byte-identical at `sha256:cca5dfd5a0111d59c5280fee9913fbcb40badf6f9c4ac2603b772a19e0e0fdb9`; no source/tests changed; root `build/` and `dist/` remained absent.
+
+## WU3a Tasks 3.1–3.2 Evidence
+
+- RED: `uv run pytest -q tests/test_playlist_service.py tests/test_playlist_strategies.py tests/test_application_strategy_catalog.py` failed at collection because `loudness_policy` did not exist.
+- GREEN: same command — 239 passed in 0.92s; focused pyright and Ruff passed.
+- Consistent Loudness filters only numeric `measured` profiles; coverage warnings report evaluated profiles and exempt tracks without claiming partial output is matched.

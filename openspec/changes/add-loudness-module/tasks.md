@@ -32,10 +32,10 @@
 
 ## WU3 — Target-band filter, strategy, tag write-back
 
-- [ ] 3.1 Hard LUFS target band as pool filter in `_apply_strategy_filters`, returning
+- [x] 3.1 Hard LUFS target band as pool filter in `_apply_strategy_filters`, returning
       `(filtered, warnings)`; unmeasured stay in pool exempt while coverage incomplete,
       warning carries coverage numbers ("N of M applied; K left in")
-- [ ] 3.2 Register "Consistent Loudness" strategy via StrategyName/_STRATEGIES/catalog;
+- [x] 3.2 Register "Consistent Loudness" strategy via StrategyName/_STRATEGIES/catalog;
       orthogonal target setting (no Warmup/Peak catalog rows); partial-coverage honesty in
       strategy output
 - [ ] 3.3 Tag write-back: COMMENT summary (frozen `{:.1f}` format, write only on changed

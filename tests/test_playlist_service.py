@@ -2,9 +2,11 @@ from unittest.mock import patch
 
 import pytest
 
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.playlist_service import (
     _COLOR_GATES,
     COLOR_CENTROID_REL_MAX,
@@ -64,6 +66,20 @@ def spectral_track(path: str, color: ColorName) -> TrackRecord:
                 centroid_hz=1000.0,
                 rolloff_hz=2000.0,
                 dominant_color=color,
+            )
+        }
+    )
+
+
+def loudness_track(path: str, lufs: float | None, status: LoudnessStatus = LoudnessStatus.MEASURED) -> TrackRecord:
+    return track(path).model_copy(
+        update={
+            "loudness_profile": LoudnessProfile(
+                lufs_integrated=lufs,
+                loudness_range_lra=4.0,
+                true_peak_dbtp=-1.0,
+                status=status,
+                engine_fingerprint="ffmpeg-test",
             )
         }
     )
@@ -177,6 +193,40 @@ def test_recommend_playlist_preserves_locked_tracks_filtered_out_by_strategy() -
 
     assert sorted(item.path for item in result.ordered_tracks) == ["/locked-high.flac", "/low.flac"]
     assert result.applied_controls["locked_paths"] == ["/locked-high.flac"]
+
+
+def test_consistent_loudness_filters_measured_tracks_but_reports_partial_coverage_honestly() -> None:
+    tracks = [
+        loudness_track("/in-band.flac", -10.0),
+        loudness_track("/edge.flac", -8.0),
+        loudness_track("/outside.flac", -13.0),
+        loudness_track("/unmeasurable.flac", None, LoudnessStatus.UNMEASURABLE),
+        loudness_track("/short.flac", -10.0, LoudnessStatus.TOO_SHORT),
+    ]
+    result = recommend_playlist(tracks, "consistent_loudness", loudness_band=LoudnessBand(-10.0, 2.0))
+
+    assert {item.path for item in result.ordered_tracks} == {
+        "/in-band.flac",
+        "/edge.flac",
+        "/unmeasurable.flac",
+        "/short.flac",
+    }
+    assert "Loudness coverage 3 of 5 applied; 2 left in" in result.warnings
+    assert all("matched" not in warning.casefold() for warning in result.warnings)
+    assert [item.path for item in prefilter_strategy_candidates(tracks, "consistent_loudness")] == [
+        "/edge.flac",
+        "/in-band.flac",
+        "/short.flac",
+        "/unmeasurable.flac",
+    ]
+
+
+def test_consistent_loudness_preserves_locked_out_of_band_track() -> None:
+    tracks = [loudness_track("/in-band.flac", -10.0), loudness_track("/locked.flac", -16.0)]
+
+    result = recommend_playlist(tracks, "consistent_loudness", DJControls(locked_paths={"/locked.flac"}))
+
+    assert {item.path for item in result.ordered_tracks} == {"/in-band.flac", "/locked.flac"}
 
 
 def test_recommend_playlist_preserves_manual_order_prefix_where_feasible() -> None:

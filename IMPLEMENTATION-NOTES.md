@@ -134,3 +134,8 @@ No WU2 actor or harness was launched after this native stop.
 ## add-loudness-module WU2 self-verification at `7a0a55e`
 
 All requested gates passed on 2026-08-22: focused WU2 tests 112 passed in 3.01s (wall 3.963s, `sha256:249bc13b8c82a0b79aae798e1f3868613adecfa95cf919bf3f4ddc83fa7148e9`); full pytest 1729 passed with 261 warnings in 51.34s (wall 54.471s, `sha256:c590de63340a84073e06d55020ca65fbfdd421123a6ffe54e5aa630a8c5dd4cc`); Pyright reported 0 errors/warnings/informations (wall 5.087s, `sha256:3c1a00ce86bcdce1ef7ba97d18d9c5b4e7026f49a5dc61a23382ed7345e02316`); Ruff check passed (wall 0.104s, `sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18`); Ruff format confirmed 296 files (wall 0.052s, `sha256:ba046a223e9f43762cca9c846332de658a26517c9939c3d67c012a2d214b899f`). Only transient `uv.lock` version drift occurred and was restored; the review doc stayed byte-identical, no source/tests changed, and root `build/`/`dist/` stayed absent.
+
+## add-loudness-module WU3a tasks 3.1–3.2
+
+- The immutable default band is **−10.0 LUFS ±2.0 LU**: a DJ-pool filter for modern mastered material, not streaming normalization or gain processing.
+- `LoudnessBand` is an orthogonal argument with no loudness scoring weight; WU4 may persist an override without changing this strategy's semantics.

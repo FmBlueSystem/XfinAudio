@@ -24,6 +24,7 @@ EXPECTED_STRATEGIES = {
     "same_color",
     "same_genre",
     "same_color_energy",
+    "consistent_loudness",
 }
 
 
@@ -94,6 +95,14 @@ def test_same_color_energy_registers_with_expected_profile() -> None:
     assert strategy.display_name == "Same Color & Energy"
     assert strategy.energy_tolerance is None
     assert strategy.weights == ScoringWeights(harmonic=0.25, bpm=0.15, energy=0.30, tags=0.10, spectral=0.20)
+
+
+def test_consistent_loudness_is_a_hard_filter_without_new_scoring_weight() -> None:
+    strategy = get_strategy("consistent_loudness")
+
+    assert strategy.display_name == "Consistent Loudness"
+    assert strategy.loudness_band is True
+    assert strategy.weights == ScoringWeights(harmonic=0.30, bpm=0.20, energy=0.30, tags=0.20)
 
 
 def test_strategy_descriptions_state_guarantees() -> None:
