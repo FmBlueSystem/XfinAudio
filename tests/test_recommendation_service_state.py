@@ -200,7 +200,7 @@ def test_recommend_reads_strategy_via_current_data() -> None:
     assert combo.currentText() != "same_color_energy"
 
 
-def test_recommend_forwards_the_current_loudness_settings_band() -> None:
+def test_recommend_forwards_the_current_loudness_settings_band_to_the_worker() -> None:
     service = RecommendationService(cast(Any, object()))
     state = AppState(settings=AppSettings(loudness=LoudnessSettings(target_lufs=-14.0, tolerance_lu=0.5)))
     combo = _StrategyCombo([("Consistent Loudness", "consistent_loudness")])
@@ -209,20 +209,10 @@ def test_recommend_forwards_the_current_loudness_settings_band() -> None:
     service._scanned_records = lambda: [cast(Any, object())]
     service._selected_track_controls = lambda: cast(Any, object())
     service._desktop_recommendation_records = lambda _controls, _strategy=None, **_kwargs: []
-    started: dict[str, Any] = {}
-    service.start_recommendation = lambda *_args, **kwargs: started.update(kwargs)
-
-    service.recommend()
-
-    assert started["loudness_band"] == LoudnessBand(-14.0, 0.5)
-
-
-def test_start_recommendation_forwards_loudness_band_to_the_worker() -> None:
-    service = RecommendationService(cast(Any, object()))
     forwarded: dict[str, Any] = {}
     service._start_recommendation_worker = lambda *_args, **kwargs: forwarded.update(kwargs)
 
-    service.start_recommendation([], "consistent_loudness", loudness_band=LoudnessBand(-14.0, 0.5))
+    service.recommend()
 
     assert forwarded["loudness_band"] == LoudnessBand(-14.0, 0.5)
 

@@ -51,6 +51,7 @@ from xfinaudio.desktop.table_populators import populate_library_table
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.ports import TrackLoudnessProfileCachePort
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
     prefilter_strategy_candidates,
@@ -340,10 +341,13 @@ class LibraryController:
             return None
         anchor_path = next((item.path for item in recommendation.ordered_tracks if item.path != path), None)
         controls = DJControls(start_path=anchor_path) if anchor_path is not None else None
-        candidates = prefilter_strategy_candidates(self._state.scanned_records, recommendation.strategy.name, controls)
+        settings = self._access.settings_getter()
+        strategy = recommendation.strategy.name
+        band = LoudnessBand(settings.loudness.target_lufs, settings.loudness.tolerance_lu)
+        candidates = prefilter_strategy_candidates(self._state.scanned_records, strategy, controls, loudness_band=band)
         blocked_paths = self._state.playlist_removed_paths | {path}
         eligible = [candidate for candidate in candidates if candidate.path not in blocked_paths]
-        cohesion = self._access.settings_getter().scoring.spectral_cohesion
+        cohesion = settings.scoring.spectral_cohesion
         return recommendation_with_replacement(recommendation, path, eligible, spectral_cohesion=cohesion)
 
     def on_track_play_requested(self, path: str) -> None:

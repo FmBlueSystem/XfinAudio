@@ -8,8 +8,11 @@ from PySide6.QtWidgets import QApplication
 
 from xfinaudio.audio.danceability import DanceabilityProfile
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, EdgeSpectralProfile, SpectralProfile
+from xfinaudio.config.settings import LoudnessSettings
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
+from xfinaudio.recommendation.playlist_service import recommend_playlist
 
 
 class _FakeScanService:
@@ -196,3 +199,29 @@ def test_library_anchor_selection_suggests_its_genre_on_build_screen() -> None:
     window._library_controller.on_library_selection_changed([records[0].path])
 
     assert window._build_screen.genre_combo.currentText() == "House"
+
+
+def test_replacement_backfill_uses_the_current_loudness_band(monkeypatch) -> None:
+    _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    controller = window._library_controller
+    removed = TrackRecord(path="/removed.flac", metadata_status="complete")
+    replacement = TrackRecord(path="/replacement.flac", metadata_status="complete")
+    recommendation = recommend_playlist([removed], "consistent_loudness")
+    controller._state = controller._state.model_copy(
+        update={"scanned_records": [removed, replacement], "last_recommendation": recommendation}
+    )
+    settings = LoudnessSettings(target_lufs=-14, tolerance_lu=0.5)
+    window.settings = window.settings.model_copy(update={"loudness": settings})
+    captured: dict[str, object] = {}
+
+    def prefilter(*_args: object, **kwargs: object) -> list[TrackRecord]:
+        captured.update(kwargs)
+        return [replacement]
+
+    monkeypatch.setattr("xfinaudio.desktop.library_controller.prefilter_strategy_candidates", prefilter)
+
+    result = controller._replacement_recommendation(removed.path)
+
+    assert captured["loudness_band"] == LoudnessBand(-14.0, 0.5)
+    assert [item.path for item in result.ordered_tracks] == [replacement.path]
