@@ -132,3 +132,14 @@ maintainer reset documented in `IMPLEMENTATION-NOTES.md`.
 - RED: `uv run pytest -q tests/test_loudness_runtime.py` failed at collection because the runtime resolver was absent.
 - GREEN: `uv run pytest -q tests/test_loudness_runtime.py tests/test_loudness_completion_stage.py tests/audio/test_loudness.py` — 21 passed in 2.03s.
 - The controller receives a preflighted service when available; frozen mode never searches PATH. Task 2.5 is complete. WU4.5 still owns binary bundling, UPX exclusion, pinning, and license inventory.
+
+## WU2 Self-Verification — HEAD `7a0a55e`
+
+All requested gates passed on 2026-08-22 in order (exact combined stdout/stderr hashes):
+
+- Focused WU2 suite: 112 passed in 3.01s; wall 3.963s; `sha256:249bc13b8c82a0b79aae798e1f3868613adecfa95cf919bf3f4ddc83fa7148e9`.
+- Full pytest: 1729 passed, 261 warnings in 51.34s; wall 54.471s; `sha256:c590de63340a84073e06d55020ca65fbfdd421123a6ffe54e5aa630a8c5dd4cc`.
+- Pyright: 0 errors, 0 warnings, 0 informations; wall 5.087s; `sha256:3c1a00ce86bcdce1ef7ba97d18d9c5b4e7026f49a5dc61a23382ed7345e02316`.
+- Ruff check: passed; wall 0.104s; `sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18`.
+- Ruff format check: 296 files already formatted; wall 0.052s; `sha256:ba046a223e9f43762cca9c846332de658a26517c9939c3d67c012a2d214b899f`.
+- Drift: restored the sole transient `uv.lock` editable-version change (1.8.0 → 1.8.2); review doc remained byte-identical at `sha256:cca5dfd5a0111d59c5280fee9913fbcb40badf6f9c4ac2603b772a19e0e0fdb9`; no source/tests changed; root `build/` and `dist/` remained absent.
