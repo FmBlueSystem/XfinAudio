@@ -4,9 +4,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_playlist_service import loudness_track
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.playlist_service import recommend_playlist
 
 
@@ -81,6 +83,20 @@ def test_application_candidate_pool_prefilters_by_strategy_before_the_interactiv
     assert len(result) == 25
     assert all(track.spectral_profile is not None for track in result)
     assert {track.spectral_profile.dominant_color for track in result} == {"GREEN"}
+
+
+def test_application_candidate_pool_uses_the_current_loudness_band_before_cap() -> None:
+    from xfinaudio.application.recommendation_candidates import plan_recommendation_candidates
+
+    result = plan_recommendation_candidates(
+        scanned_records=[loudness_track("/default.mp3", -10.0), loudness_track("/custom.mp3", -14.0)],
+        controls=None,
+        limit=1,
+        strategy_name="consistent_loudness",
+        loudness_band=LoudnessBand(-14.0, 0.5),
+    )
+
+    assert [track.path for track in result] == ["/custom.mp3"]
 
 
 def test_application_candidate_pool_keeps_legacy_behavior_without_a_strategy() -> None:

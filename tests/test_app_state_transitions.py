@@ -6,12 +6,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from xfinaudio.audio.danceability import DanceabilityProfile
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
 from xfinaudio.desktop import app_state_transitions
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.app_state_transitions import (
     apply_danceability_profile,
     apply_edge_spectral_profile,
+    apply_loudness_completion_finished,
+    apply_loudness_completion_result,
+    apply_loudness_completion_started,
     apply_spectral_profile,
 )
 from xfinaudio.library.models import TrackRecord
@@ -27,6 +31,16 @@ def _profile() -> SpectralProfile:
         green_ratio=0.0,
         blue_ratio=0.0,
         dominant_color="RED",
+    )
+
+
+def _loudness_profile() -> LoudnessProfile:
+    return LoudnessProfile(
+        lufs_integrated=-14.0,
+        loudness_range_lra=4.0,
+        true_peak_dbtp=-1.0,
+        status=LoudnessStatus.MEASURED,
+        engine_fingerprint="ffmpeg-test",
     )
 
 
@@ -106,6 +120,22 @@ def test_apply_edge_spectral_profile_updates_both_track_collections_immutably() 
     assert updated.records_by_path[track.path].edge_spectral_profile == profile
     assert state.scanned_records[0].edge_spectral_profile is None
     assert state.records_by_path[track.path].edge_spectral_profile is None
+
+
+def test_loudness_completion_transitions_update_progress_immutably() -> None:
+    track = _track()
+    state = AppState(scanned_records=[track], records_by_path={track.path: track})
+
+    started = apply_loudness_completion_started(state, total_count=2)
+    updated = apply_loudness_completion_result(started, path=track.path, profile=_loudness_profile())
+    finished = apply_loudness_completion_finished(updated)
+
+    assert started is not state and started.is_completing_loudness is True
+    assert updated.loudness_progress_count == 1
+    assert updated.records_by_path[track.path].loudness_profile == _loudness_profile()
+    assert finished.is_completing_loudness is False
+    assert finished.loudness_progress_count == finished.loudness_total_count == 0
+    assert state.scanned_records[0].loudness_profile is None
 
 
 def test_apply_recommendation_completion_returns_new_state_without_mutating_original() -> None:

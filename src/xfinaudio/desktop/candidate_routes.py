@@ -7,6 +7,7 @@ from collections.abc import Callable
 from xfinaudio.application.recommendation_candidates import RecommendationCandidateContext
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
 from xfinaudio.recommendation.playlist_service import COLOR_FILTER_STRATEGIES
 
 RecommendationRecordsRoute = Callable[..., list[TrackRecord]]
@@ -19,6 +20,7 @@ def resolve_candidate_route(
     *,
     records_route: RecommendationRecordsRoute,
     color_anchor_context_route: ColorAnchorContextRoute,
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
 ) -> tuple[list[TrackRecord], str | None]:
     """Return the candidate pool for this strategy plus the colour anchor bound to it.
 
@@ -35,7 +37,8 @@ def resolve_candidate_route(
     the same `MainWindow` methods, but through different injection seams, and which seam
     is none of this function's business.
     """
+    route_kwargs = {} if loudness_band == DEFAULT_LOUDNESS_BAND else {"loudness_band": loudness_band}
     if strategy_name in COLOR_FILTER_STRATEGIES:
-        context = color_anchor_context_route(controls, strategy_name)
+        context = color_anchor_context_route(controls, strategy_name, **route_kwargs)
         return context.records, context.color_anchor_path
-    return records_route(controls, strategy_name), None
+    return records_route(controls, strategy_name, **route_kwargs), None

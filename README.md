@@ -123,7 +123,7 @@ The desktop app scans supported audio files recursively:
 - `.mp3`
 - `.wav`
 
-The scan is read-only. It does not mutate audio files.
+The scan is read-only. It does not mutate audio files. The loudness module is the single documented exception and may write loudness tags only through its explicit setting.
 
 During scan, the app:
 
@@ -492,7 +492,7 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 
 ### Safety and release workflow
 
-- Read-only audio scanning.
+- Read-only audio scanning, except for loudness tags written only through the loudness module's explicit setting.
 - App-owned database/settings/export writes only.
 - Serato crate write planning before write.
 - Confirmed crate writes only.
@@ -563,7 +563,7 @@ These exports follow the same strategy-grouped, timestamped, non-overwriting con
 
 XfinAudio is intentionally non-destructive:
 
-- It does not mutate audio files.
+- It does not mutate audio files outside the loudness module's explicit tag-write setting.
 - It does not render, mix, time-stretch, pitch-shift, or analyze waveforms.
 - It does not perform key detection, BPM detection, beat tracking, or cue/phrase detection.
 - It does not mutate live Serato database V2 files.
@@ -776,7 +776,7 @@ La app escanea recursivamente archivos soportados:
 - `.mp3`
 - `.wav`
 
-El escaneo es de solo lectura. No modifica archivos de audio.
+El escaneo es de solo lectura. No modifica archivos de audio. El módulo de loudness es la única excepción documentada y puede escribir tags de loudness solo mediante su ajuste explícito.
 
 Durante el scan, la app:
 
@@ -1145,7 +1145,7 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 
 ### Seguridad y release
 
-- Scan de audio read-only.
+- Scan de audio read-only, excepto los tags de loudness escritos solo mediante el ajuste explícito del módulo de loudness.
 - Escrituras solo en base/settings/export propios de la app.
 - Plan de Serato crate antes de escribir.
 - Escritura confirmada únicamente.
@@ -1216,7 +1216,7 @@ Estas exportaciones siguen la misma convención de agrupación por estrategia, t
 
 XfinAudio es intencionalmente no destructivo:
 
-- No modifica archivos de audio.
+- No modifica archivos de audio fuera del ajuste explícito de escritura de tags del módulo de loudness.
 - No renderiza, mezcla, time-stretchea, pitch-shiftea ni analiza waveforms.
 - No hace key detection, BPM detection, beat tracking ni cue/phrase detection.
 - No modifica live Serato database V2 files.

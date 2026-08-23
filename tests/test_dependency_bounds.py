@@ -52,6 +52,12 @@ def test_pyobjc_range_supports_python_314_compatible_release() -> None:
     assert not requirement.specifier.contains("13.0")
 
 
+def test_coverage_report_uses_two_decimal_precision_for_baseline_gates() -> None:
+    config = tomllib.loads(Path("pyproject.toml").read_text())
+
+    assert config["tool"]["coverage"]["report"]["precision"] == 2
+
+
 @pytest.mark.parametrize("constraint", ["pkg!=2,<garbage", "pkg===local", "pkg>=1", "pkg==1.*"])
 def test_semantic_bound_policy_rejects_malformed_or_non_ordering_constraints(constraint: str) -> None:
     assert not _is_bounded_requirement(constraint)

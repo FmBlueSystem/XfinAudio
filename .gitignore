@@ -30,6 +30,7 @@ build/
 dist/
 out/
 release-dist/
+packaging/ffmpeg/ffmpeg
 .release-evidence/
 .worktrees/
 

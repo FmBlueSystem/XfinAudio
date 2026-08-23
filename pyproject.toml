@@ -30,6 +30,7 @@ xfinaudio = "xfinaudio.desktop.app:main"
 dev = [
     "packaging>=24.0,<26.0",
     "pyinstaller==6.20.0",
+    "pyloudnorm>=0.1.1,<0.2",
     "pyright>=1.1.410,<2.0",
     "pytest>=8.0,<10.0",
     "pytest-cov>=7.1.0,<8.0",
@@ -50,6 +51,7 @@ pythonpath = ["src"]
 # Built into pytest via the stdlib faulthandler; it reports and lets the run
 # continue rather than killing it.
 faulthandler_timeout = "120"
+markers = ["uses_spectral_completion_worker: exercise the real controller start boundary"]
 
 [tool.pyright]
 pythonVersion = "3.11"
@@ -71,6 +73,7 @@ branch = false
 
 [tool.coverage.report]
 fail_under = 70
+precision = 2
 show_missing = true
 skip_empty = true
 omit = ["*/tests/*"]

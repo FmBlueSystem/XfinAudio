@@ -8,10 +8,12 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict
 
+from xfinaudio.audio.loudness import LoudnessStatus
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls, preserved_control_paths
 from xfinaudio.recommendation.energy_arc import traces_an_arc
+from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
 from xfinaudio.recommendation.optimizer import recommend_sequence
 from xfinaudio.recommendation.scoring import (
     ScoringWeights,
@@ -269,6 +271,7 @@ def recommend_playlist(
     target_duration_minutes: float | None = None,
     played_seconds_per_track: float | None = None,
     color_anchor_path: str | None = None,
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
 ) -> PlaylistRecommendation:
     """Recommend a playlist using a strategy profile and optional DJ controls.
 
@@ -312,7 +315,7 @@ def recommend_playlist(
         warnings.append(f"Excluded {incomplete_count} incomplete track(s)")
 
     filtered_tracks, filter_warnings = _apply_strategy_filters(
-        complete_tracks, strategy, preserve_paths=preserved_control_paths(controls)
+        complete_tracks, strategy, preserve_paths=preserved_control_paths(controls), loudness_band=loudness_band
     )
     warnings.extend(filter_warnings)
     # The DJ's explicit choice comes first; `same_genre` still infers one from
@@ -647,7 +650,7 @@ def _apply_requested_genre(
 
 
 def _apply_strategy_filters(
-    tracks: list[TrackRecord], strategy: PlaylistStrategy, preserve_paths: set[str]
+    tracks: list[TrackRecord], strategy: PlaylistStrategy, preserve_paths: set[str], loudness_band: LoudnessBand
 ) -> tuple[list[TrackRecord], list[str]]:
     filtered = tracks
     warnings: list[str] = []
@@ -672,7 +675,30 @@ def _apply_strategy_filters(
         removed = before - len(filtered)
         if removed:
             warnings.append(f"Filtered {removed} track(s) outside {strategy.name} BPM range")
+    if strategy.loudness_band:
+        measured = {track.path: lufs for track in filtered if (lufs := _measured_lufs(track)) is not None}
+        before = len(filtered)
+        filtered = [
+            track
+            for track in filtered
+            if track.path in preserve_paths
+            or track.path not in measured
+            or loudness_band.contains(measured[track.path])
+        ]
+        removed = before - len(filtered)
+        if removed:
+            warnings.append(f"Filtered {removed} track(s) outside loudness target band")
+        left_in = before - len(measured)
+        if left_in:
+            warnings.append(f"Loudness coverage {len(measured)} of {before} applied; {left_in} left in")
     return _sort_by_hint(filtered, strategy), warnings
+
+
+def _measured_lufs(track: TrackRecord) -> float | None:
+    profile = track.loudness_profile
+    if profile is None or profile.status is not LoudnessStatus.MEASURED:
+        return None
+    return profile.lufs_integrated
 
 
 def _apply_genre_filter(
@@ -731,6 +757,7 @@ def prefilter_strategy_candidates(
     strategy_name: StrategyName | str,
     controls: DJControls | None = None,
     strategy_registry: StrategyRegistry | None = None,
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
 ) -> list[TrackRecord]:
     """Apply a strategy's hard filters to a full candidate pool before interactive capping.
 
@@ -744,7 +771,9 @@ def prefilter_strategy_candidates(
     preserve_paths = preserved_control_paths(controls)
     complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
 
-    filtered, _ = _apply_strategy_filters(complete_tracks, strategy, preserve_paths=preserve_paths)
+    filtered, _ = _apply_strategy_filters(
+        complete_tracks, strategy, preserve_paths=preserve_paths, loudness_band=loudness_band
+    )
     # Before the interactive cap, or the 120 slots fill with genres the set will
     # then filter away, leaving a handful of candidates to sequence.
     filtered, _ = _apply_requested_genre(filtered, controls.genre, preserve_paths)
@@ -770,6 +799,7 @@ def resolve_color_anchor_path(
     tracks: list[TrackRecord],
     strategy_name: StrategyName | str,
     controls: DJControls | None = None,
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
 ) -> str | None:
     """Bind a colour-gate anchor path from the pre-anchor candidate pool.
 
@@ -788,7 +818,9 @@ def resolve_color_anchor_path(
     controls = controls or DJControls()
     preserve_paths = preserved_control_paths(controls)
     complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
-    filtered, _ = _apply_strategy_filters(complete_tracks, strategy, preserve_paths=preserve_paths)
+    filtered, _ = _apply_strategy_filters(
+        complete_tracks, strategy, preserve_paths=preserve_paths, loudness_band=loudness_band
+    )
     filtered, _ = _apply_requested_genre(filtered, controls.genre, preserve_paths)
     anchor = _resolve_color_anchor(filtered, controls)
     return anchor.path if anchor is not None else None

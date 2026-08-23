@@ -6,9 +6,11 @@ from pathlib import Path
 import pytest
 
 from xfinaudio.audio.danceability import CURRENT_DANCEABILITY_VERSION, DanceabilityProfile
+from xfinaudio.audio.loudness import CURRENT_LOUDNESS_VERSION, LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import (
     CURRENT_ANALYSIS_VERSION,
     CURRENT_EDGE_ANALYSIS_VERSION,
+    ColorName,
     EdgeSpectralProfile,
     SpectralProfile,
 )
@@ -804,6 +806,212 @@ def _edge_spectral_profile(*, analysis_version: int = CURRENT_EDGE_ANALYSIS_VERS
     )
 
 
+def _spectral_profile(*, dominant_color: ColorName = "RED") -> SpectralProfile:
+    ratios = {
+        "RED": (0.9, 0.05, 0.05),
+        "GREEN": (0.05, 0.9, 0.05),
+    }
+    red_ratio, green_ratio, blue_ratio = ratios[dominant_color]
+    return SpectralProfile(
+        red_ratio=red_ratio,
+        green_ratio=green_ratio,
+        blue_ratio=blue_ratio,
+        dominant_color=dominant_color,
+    )
+
+
+def _derived_profile_seed() -> tuple[SpectralProfile, DanceabilityProfile, EdgeSpectralProfile]:
+    return _spectral_profile(), _danceability_profile(), _edge_spectral_profile()
+
+
+@pytest.mark.parametrize(
+    ("updater", "requested_attribute", "identity_change"),
+    [
+        ("update_spectral_profile", "spectral_profile", "mtime"),
+        ("update_danceability_profile", "danceability_profile", "mtime"),
+        ("update_edge_spectral_profile", "edge_spectral_profile", "mtime"),
+        ("update_spectral_profile", "spectral_profile", "size"),
+        ("update_danceability_profile", "danceability_profile", "size"),
+        ("update_edge_spectral_profile", "edge_spectral_profile", "size"),
+    ],
+)
+def test_profile_update_clears_siblings_when_file_identity_changes(
+    tmp_path,
+    updater: str,
+    requested_attribute: str,
+    identity_change: str,
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("original audio")
+    spectral, danceability, edge_spectral = _derived_profile_seed()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+                edge_spectral_profile=edge_spectral,
+            )
+        ]
+    )
+    requested = {
+        "spectral_profile": _spectral_profile(dominant_color="GREEN"),
+        "danceability_profile": DanceabilityProfile(
+            score=0.81,
+            pulse_clarity=0.82,
+            tempo_confidence=0.83,
+            percussive_ratio=0.84,
+        ),
+        "edge_spectral_profile": EdgeSpectralProfile(intro=edge_spectral.outro, outro=edge_spectral.intro),
+    }[requested_attribute]
+    if identity_change == "mtime":
+        stat = audio_file.stat()
+        os.utime(audio_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+    else:
+        audio_file.write_text("replacement audio with a different size")
+
+    assert getattr(repository, updater)(str(audio_file), requested) is True
+
+    restored = repository.list_tracks()[0]
+    assert getattr(restored, requested_attribute) == requested
+    for sibling_attribute in {
+        "spectral_profile",
+        "danceability_profile",
+        "edge_spectral_profile",
+    } - {requested_attribute}:
+        assert getattr(restored, sibling_attribute) is None
+    stat = audio_file.stat()
+    with sqlite3.connect(repository.db_path) as connection:
+        identity = connection.execute(
+            "SELECT file_mtime_ns, file_size_bytes FROM tracks WHERE path = ?", (str(audio_file),)
+        ).fetchone()
+    assert identity == (stat.st_mtime_ns, stat.st_size)
+
+
+@pytest.mark.parametrize(
+    ("updater", "requested_attribute"),
+    [
+        ("update_spectral_profile", "spectral_profile"),
+        ("update_danceability_profile", "danceability_profile"),
+        ("update_edge_spectral_profile", "edge_spectral_profile"),
+    ],
+)
+def test_profile_update_preserves_siblings_when_file_identity_matches(
+    tmp_path,
+    updater: str,
+    requested_attribute: str,
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    spectral, danceability, edge_spectral = _derived_profile_seed()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+                edge_spectral_profile=edge_spectral,
+            )
+        ]
+    )
+    requested = {
+        "spectral_profile": _spectral_profile(dominant_color="GREEN"),
+        "danceability_profile": DanceabilityProfile(
+            score=0.81,
+            pulse_clarity=0.82,
+            tempo_confidence=0.83,
+            percussive_ratio=0.84,
+        ),
+        "edge_spectral_profile": EdgeSpectralProfile(intro=edge_spectral.outro, outro=edge_spectral.intro),
+    }[requested_attribute]
+
+    assert getattr(repository, updater)(str(audio_file), requested) is True
+
+    restored = repository.list_tracks()[0]
+    assert getattr(restored, requested_attribute) == requested
+    assert restored.spectral_profile == (requested if requested_attribute == "spectral_profile" else spectral)
+    assert restored.danceability_profile == (
+        requested if requested_attribute == "danceability_profile" else danceability
+    )
+    assert restored.edge_spectral_profile == (
+        requested if requested_attribute == "edge_spectral_profile" else edge_spectral
+    )
+
+
+@pytest.mark.parametrize(
+    ("updater", "requested_attribute", "cache_loader"),
+    [
+        ("update_spectral_profile", "spectral_profile", "load_spectral_profile_cache"),
+        ("update_danceability_profile", "danceability_profile", "load_danceability_profile_cache"),
+        ("update_edge_spectral_profile", "edge_spectral_profile", "load_edge_spectral_profile_cache"),
+    ],
+)
+def test_profile_update_fails_closed_when_file_stat_is_unavailable(
+    tmp_path,
+    updater: str,
+    requested_attribute: str,
+    cache_loader: str,
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    spectral, danceability, edge_spectral = _derived_profile_seed()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+                edge_spectral_profile=edge_spectral,
+            )
+        ]
+    )
+    requested = {
+        "spectral_profile": _spectral_profile(dominant_color="GREEN"),
+        "danceability_profile": DanceabilityProfile(
+            score=0.81,
+            pulse_clarity=0.82,
+            tempo_confidence=0.83,
+            percussive_ratio=0.84,
+        ),
+        "edge_spectral_profile": EdgeSpectralProfile(intro=edge_spectral.outro, outro=edge_spectral.intro),
+    }[requested_attribute]
+    audio_file.unlink()
+
+    assert getattr(repository, updater)(str(audio_file), requested) is True
+
+    restored = repository.list_tracks()[0]
+    assert getattr(restored, requested_attribute) == requested
+    for sibling_attribute in {
+        "spectral_profile",
+        "danceability_profile",
+        "edge_spectral_profile",
+    } - {requested_attribute}:
+        assert getattr(restored, sibling_attribute) is None
+    with sqlite3.connect(repository.db_path) as connection:
+        identity = connection.execute(
+            "SELECT file_mtime_ns, file_size_bytes FROM tracks WHERE path = ?", (str(audio_file),)
+        ).fetchone()
+    assert identity == (None, None)
+    assert getattr(repository, cache_loader)([str(audio_file)]) == {}
+
+
+@pytest.mark.parametrize(
+    ("updater", "profile"),
+    [
+        ("update_spectral_profile", _spectral_profile()),
+        ("update_danceability_profile", _danceability_profile()),
+        ("update_edge_spectral_profile", _edge_spectral_profile()),
+    ],
+)
+def test_profile_update_returns_false_for_a_missing_track(updater: str, profile: object, tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+
+    assert getattr(repository, updater)("/music/missing.flac", profile) is False
+
+
 def test_track_repository_round_trips_danceability_profile_for_full_and_display_reads(tmp_path) -> None:
     repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
     profile = _danceability_profile()
@@ -1033,3 +1241,207 @@ def test_track_repository_adds_edge_profile_column_to_existing_schema(tmp_path) 
     with sqlite3.connect(db_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
     assert "edge_spectral_profile_json" in columns
+
+
+def test_save_scan_results_preserves_existing_loudness_profile_json_on_ordinary_rescan(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    path = "/music/loudness.flac"
+    payload = '{"status":"measured","lufs_integrated":-10.0}'
+    repository.save_scan_results([TrackRecord(path=path, title="Original")])
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute("UPDATE tracks SET loudness_profile_json = ? WHERE path = ?", (payload, path))
+
+    repository.save_scan_results([TrackRecord(path=path, title="Rescanned")])
+
+    with sqlite3.connect(repository.db_path) as connection:
+        stored = connection.execute("SELECT loudness_profile_json FROM tracks WHERE path = ?", (path,)).fetchone()[0]
+    assert stored == payload
+
+
+def test_track_repository_adds_loudness_column_to_current_version_schema(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    TrackRepository(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("ALTER TABLE tracks RENAME TO tracks_old")
+        connection.execute(
+            """
+            CREATE TABLE tracks AS
+            SELECT path, title, artist, bpm, camelot_key, energy_level,
+                   energy_in, energy_out, energy_peak, duration, genre, tags_json,
+                   metadata_status, missing_required_fields_json, source_fields_json,
+                   raw_metadata_json, audio_md5, spectral_profile_json,
+                   danceability_profile_json, edge_spectral_profile_json,
+                   file_mtime_ns, file_size_bytes
+            FROM tracks_old
+            """
+        )
+        connection.execute("DROP TABLE tracks_old")
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    TrackRepository(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
+    assert "loudness_profile_json" in columns
+
+
+def _loudness_profile(
+    path: Path,
+    *,
+    status: LoudnessStatus = LoudnessStatus.MEASURED,
+    version: int = 1,
+    fingerprint: str = "ffmpeg-8",
+) -> LoudnessProfile:
+    stat = path.stat()
+    return LoudnessProfile(
+        lufs_integrated=-12.0 if status is LoudnessStatus.MEASURED else None,
+        loudness_range_lra=4.0 if status is LoudnessStatus.MEASURED else None,
+        true_peak_dbtp=-1.0 if status is LoudnessStatus.MEASURED else None,
+        status=status,
+        analysis_version=version,
+        engine_fingerprint=fingerprint,
+        source_mtime_ns=stat.st_mtime_ns,
+        source_size_bytes=stat.st_size,
+    )
+
+
+def test_track_repository_round_trips_loudness_profile_for_display_reads(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "display.flac"
+    audio_file.write_text("audio")
+    profile = _loudness_profile(audio_file)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), loudness_profile=profile)])
+
+    assert repository.list_tracks()[0].loudness_profile == profile
+    assert repository.list_display_tracks()[0].loudness_profile == profile
+
+
+def test_loudness_cache_uses_profile_identity_not_shared_track_identity(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "retagged.flac"
+    audio_file.write_text("audio")
+    profile = _loudness_profile(audio_file)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), loudness_profile=profile)])
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute(
+            "UPDATE tracks SET file_mtime_ns = 1, file_size_bytes = 1 WHERE path = ?",
+            (str(audio_file),),
+        )
+
+    cache = repository.load_loudness_profile_cache([str(audio_file)], engine_fingerprint="ffmpeg-8")
+
+    assert cache == {str(audio_file): profile}
+
+
+def test_loudness_cache_keeps_typed_failures_and_force_reanalyze_bypasses_them(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "timeout.flac"
+    audio_file.write_text("audio")
+    failure = _loudness_profile(audio_file, status=LoudnessStatus.TRANSIENT_FAILURE)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), loudness_profile=failure)])
+
+    assert repository.load_loudness_profile_cache([str(audio_file)], engine_fingerprint="ffmpeg-8") == {
+        str(audio_file): failure
+    }
+    assert (
+        repository.load_loudness_profile_cache([str(audio_file)], engine_fingerprint="ffmpeg-8", force_reanalyze=True)
+        == {}
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "engine_fingerprint"),
+    [
+        ("not-json", "ffmpeg-8"),
+        (None, "ffmpeg-9"),
+        (None, "ffmpeg-8"),
+    ],
+)
+def test_loudness_cache_rejects_malformed_or_stale_version_or_engine(
+    tmp_path, payload: str | None, engine_fingerprint: str
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "stale.flac"
+    audio_file.write_text("audio")
+    version = (
+        CURRENT_LOUDNESS_VERSION + 1
+        if engine_fingerprint == "ffmpeg-8" and payload is None
+        else CURRENT_LOUDNESS_VERSION
+    )
+    profile = _loudness_profile(audio_file, version=version)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), loudness_profile=profile)])
+    if payload is not None:
+        with sqlite3.connect(repository.db_path) as connection:
+            connection.execute("UPDATE tracks SET loudness_profile_json = ? WHERE path = ?", (payload, str(audio_file)))
+
+    assert repository.load_loudness_profile_cache([str(audio_file)], engine_fingerprint=engine_fingerprint) == {}
+
+
+@pytest.mark.parametrize("suffix", [".mp3", ".flac", ".wav", ".aiff", ".m4a"])
+def test_refresh_post_metadata_identity_preserves_all_sibling_profiles_across_supported_formats(
+    tmp_path, suffix: str
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / f"tagged{suffix}"
+    audio_file.write_text("audio before metadata")
+    spectral, danceability, edge_spectral = _derived_profile_seed()
+    spectral = spectral.model_copy(update={"analysis_version": CURRENT_ANALYSIS_VERSION})
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+                edge_spectral_profile=edge_spectral,
+            )
+        ]
+    )
+    audio_file.write_text("audio after simulated metadata update with a larger container")
+
+    assert repository.refresh_post_metadata_identity(str(audio_file)) is True
+
+    restored = repository.list_tracks()[0]
+    assert (restored.spectral_profile, restored.danceability_profile, restored.edge_spectral_profile) == (
+        spectral,
+        danceability,
+        edge_spectral,
+    )
+    assert repository.load_spectral_profile_cache([str(audio_file)]) == {
+        str(audio_file): (audio_file.stat().st_mtime_ns, audio_file.stat().st_size, spectral)
+    }
+    assert repository.load_danceability_profile_cache([str(audio_file)]) == {
+        str(audio_file): (audio_file.stat().st_mtime_ns, audio_file.stat().st_size, danceability)
+    }
+    assert repository.load_edge_spectral_profile_cache([str(audio_file)]) == {
+        str(audio_file): (audio_file.stat().st_mtime_ns, audio_file.stat().st_size, edge_spectral)
+    }
+
+
+def test_refresh_post_metadata_identity_fails_closed_when_stat_is_unavailable(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "missing.flac"
+    audio_file.write_text("audio")
+    spectral, danceability, edge_spectral = _derived_profile_seed()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+                edge_spectral_profile=edge_spectral,
+            )
+        ]
+    )
+    with sqlite3.connect(repository.db_path) as connection:
+        before = connection.execute(
+            "SELECT file_mtime_ns, file_size_bytes FROM tracks WHERE path = ?", (str(audio_file),)
+        ).fetchone()
+    audio_file.unlink()
+
+    assert repository.refresh_post_metadata_identity(str(audio_file)) is False
+
+    with sqlite3.connect(repository.db_path) as connection:
+        after = connection.execute(
+            "SELECT file_mtime_ns, file_size_bytes FROM tracks WHERE path = ?", (str(audio_file),)
+        ).fetchone()
+    assert after == before

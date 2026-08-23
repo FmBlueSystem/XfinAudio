@@ -79,6 +79,9 @@ class AppState:
     is_completing_spectral: bool = False
     spectral_progress_count: int = 0
     spectral_total_count: int = 0
+    is_completing_loudness: bool = False
+    loudness_progress_count: int = 0
+    loudness_total_count: int = 0
 
     def model_copy(self, *, update: dict[str, object] | None = None) -> AppState:
         """Return a shallow copy with selected fields replaced."""

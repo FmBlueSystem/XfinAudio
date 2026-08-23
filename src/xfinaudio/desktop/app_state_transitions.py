@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from xfinaudio.audio.danceability import DanceabilityProfile
+from xfinaudio.audio.loudness import LoudnessProfile
 from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
@@ -97,6 +98,40 @@ def apply_edge_spectral_profile(state: AppState, *, path: str, profile: EdgeSpec
         records_by_path[path] = records_by_path[path].model_copy(update={"edge_spectral_profile": profile})
 
     return state.model_copy(update={"scanned_records": scanned_records, "records_by_path": records_by_path})
+
+
+def apply_loudness_profile(state: AppState, *, path: str, profile: LoudnessProfile) -> AppState:
+    """Return a new state with one loudness profile applied to both record views."""
+    records = [
+        record.model_copy(update={"loudness_profile": profile}) if record.path == path else record
+        for record in state.scanned_records
+    ]
+    by_path = dict(state.records_by_path)
+    if path in by_path:
+        by_path[path] = by_path[path].model_copy(update={"loudness_profile": profile})
+    return state.model_copy(update={"scanned_records": records, "records_by_path": by_path})
+
+
+def apply_loudness_completion_started(state: AppState, *, total_count: int) -> AppState:
+    """Return a new state for an active loudness completion stage."""
+    return state.model_copy(
+        update={"is_completing_loudness": True, "loudness_progress_count": 0, "loudness_total_count": total_count}
+    )
+
+
+def apply_loudness_completion_result(state: AppState, *, path: str, profile: LoudnessProfile) -> AppState:
+    """Apply one stage result and advance its bounded progress count."""
+    updated = apply_loudness_profile(state, path=path, profile=profile)
+    return updated.model_copy(
+        update={"loudness_progress_count": min(updated.loudness_progress_count + 1, updated.loudness_total_count)}
+    )
+
+
+def apply_loudness_completion_finished(state: AppState) -> AppState:
+    """Return a new state with transient loudness progress cleared."""
+    return state.model_copy(
+        update={"is_completing_loudness": False, "loudness_progress_count": 0, "loudness_total_count": 0}
+    )
 
 
 def apply_recommendation_completion(state: AppState, result: CompletedRecommendationResult) -> AppState:
@@ -289,6 +324,7 @@ __all__ = [
     "PrepCopilotVariantApplication",
     "apply_danceability_profile",
     "apply_edge_spectral_profile",
+    "apply_loudness_profile",
     "apply_playlist_track_removed",
     "apply_playlist_track_replaced",
     "apply_playlist_track_restored",

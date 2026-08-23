@@ -7,9 +7,13 @@ from unittest.mock import Mock
 from PySide6.QtWidgets import QApplication
 
 from xfinaudio.audio.danceability import DanceabilityProfile
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, EdgeSpectralProfile, SpectralProfile
+from xfinaudio.config.settings import LoudnessSettings
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
+from xfinaudio.recommendation.playlist_service import recommend_playlist
 
 
 class _FakeScanService:
@@ -52,6 +56,16 @@ def _danceability_profile() -> DanceabilityProfile:
         pulse_clarity=0.8,
         tempo_confidence=0.9,
         percussive_ratio=0.6,
+    )
+
+
+def _loudness_profile() -> LoudnessProfile:
+    return LoudnessProfile(
+        lufs_integrated=-9.5,
+        loudness_range_lra=3.0,
+        true_peak_dbtp=-0.5,
+        status=LoudnessStatus.MEASURED,
+        engine_fingerprint="test-engine",
     )
 
 
@@ -173,6 +187,9 @@ def test_shutdown_tears_down_all_completion_workers() -> None:
     window._library_controller._spectral_completion_worker = spectral_worker
     window._library_controller._danceability_completion_worker = danceability_worker
     window._library_controller._edge_spectral_completion_worker = edge_worker
+    window._library_controller._state = window._state.model_copy(
+        update={"is_completing_loudness": True, "loudness_progress_count": 1, "loudness_total_count": 2}
+    )
 
     window._library_controller.shutdown()
 
@@ -182,6 +199,7 @@ def test_shutdown_tears_down_all_completion_workers() -> None:
     assert window._library_controller._spectral_completion_worker is None
     assert window._library_controller._danceability_completion_worker is None
     assert window._library_controller._edge_spectral_completion_worker is None
+    assert window._library_controller._state.is_completing_loudness is False
 
 
 def test_library_anchor_selection_suggests_its_genre_on_build_screen() -> None:
@@ -196,3 +214,48 @@ def test_library_anchor_selection_suggests_its_genre_on_build_screen() -> None:
     window._library_controller.on_library_selection_changed([records[0].path])
 
     assert window._build_screen.genre_combo.currentText() == "House"
+
+
+def test_library_selection_and_profile_completion_refresh_loudness_detail() -> None:
+    _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    record = TrackRecord(path="/music/house.flac", genre="House")
+    controller = window._library_controller
+    controller._state = controller._state.model_copy(
+        update={"scanned_records": [record], "records_by_path": {record.path: record}}
+    )
+
+    controller.on_library_selection_changed([record.path])
+    assert window._library_screen.loudness_detail_label.text() == "Loudness: not measured"
+
+    controller.on_loudness_profile_ready(record.path, _loudness_profile())
+    assert window._library_screen.loudness_detail_label.text().startswith("LUFS: -9.5")
+
+    controller.on_library_selection_changed([])
+    assert window._library_screen.loudness_detail_pane.isHidden() is True
+
+
+def test_replacement_backfill_uses_the_current_loudness_band(monkeypatch) -> None:
+    _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    controller = window._library_controller
+    removed = TrackRecord(path="/removed.flac", metadata_status="complete")
+    replacement = TrackRecord(path="/replacement.flac", metadata_status="complete")
+    recommendation = recommend_playlist([removed], "consistent_loudness")
+    controller._state = controller._state.model_copy(
+        update={"scanned_records": [removed, replacement], "last_recommendation": recommendation}
+    )
+    settings = LoudnessSettings(target_lufs=-14, tolerance_lu=0.5)
+    window.settings = window.settings.model_copy(update={"loudness": settings})
+    captured: dict[str, object] = {}
+
+    def prefilter(*_args: object, **kwargs: object) -> list[TrackRecord]:
+        captured.update(kwargs)
+        return [replacement]
+
+    monkeypatch.setattr("xfinaudio.desktop.library_controller.prefilter_strategy_candidates", prefilter)
+
+    result = controller._replacement_recommendation(removed.path)
+
+    assert captured["loudness_band"] == LoudnessBand(-14.0, 0.5)
+    assert [item.path for item in result.ordered_tracks] == [replacement.path]

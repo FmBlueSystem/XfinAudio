@@ -43,8 +43,19 @@ class BuildViewModel:
         return [
             StrategyOption(
                 name=strategy.name,
-                display_name=strategy.display_name,
-                description=strategy.description,
+                display_name=(
+                    QCoreApplication.translate("BuildViewModel", "Consistent Loudness")
+                    if strategy.name == "consistent_loudness"
+                    else strategy.display_name
+                ),
+                description=(
+                    QCoreApplication.translate(
+                        "BuildViewModel",
+                        "Hard filter: measured tracks must stay within the configured integrated loudness band.",
+                    )
+                    if strategy.name == "consistent_loudness"
+                    else strategy.description
+                ),
                 requires_vibe_metadata=strategy.requires_vibe_metadata,
             )
             for strategy in list_strategy_catalog()
@@ -110,6 +121,11 @@ class BuildViewModel:
 
     def strategy_explanation(self, strategy_name: str) -> str:
         """Return the description for a given strategy name."""
+        if strategy_name == "consistent_loudness":
+            return QCoreApplication.translate(
+                "BuildViewModel",
+                "Hard filter: measured tracks must stay within the configured integrated loudness band.",
+            )
         return describe_strategy(strategy_name)
 
     @staticmethod

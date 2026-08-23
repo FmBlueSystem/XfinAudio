@@ -45,7 +45,7 @@ For changes that touch product behavior, also create or update the required `ope
 
 Do not expand scope without explicit discussion. Required boundaries:
 
-- No audio mutation.
+- No audio mutation outside the loudness module's explicit tag-write setting. Scanning remains read-only. The loudness module is the single documented exception and may write loudness tags only through its explicit setting.
 - No live Serato database V2 mutation.
 - No DSP, audio rendering, mixing, time-stretching, pitch-shifting, waveform analysis, key detection, BPM detection, beat tracking, or cue/phrase detection.
 - App writes must stay limited to app-owned database, settings, and export files.

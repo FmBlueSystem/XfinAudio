@@ -11,6 +11,7 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.quality.recommendation_quality import build_quality_report as _build_quality_report
+from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, PrepCopilotPlan, build_prep_copilot_plan
 
@@ -24,7 +25,12 @@ class PlanBuilder(Protocol):
     """
 
     def __call__(
-        self, tracks: list[TrackRecord], intent: DJSetIntent, *, color_anchor_path: str | None = None
+        self,
+        tracks: list[TrackRecord],
+        intent: DJSetIntent,
+        *,
+        color_anchor_path: str | None = None,
+        loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
     ) -> PrepCopilotPlan: ...
 
 
@@ -45,6 +51,7 @@ def generate_prep_copilot_plan(
     *,
     plan_builder: PlanBuilder = build_prep_copilot_plan,
     color_anchor_path: str | None = None,
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
 ) -> PrepCopilotPlan:
     """Generate a Prep Copilot plan from UI-derived generation parameters.
 
@@ -62,7 +69,7 @@ def generate_prep_copilot_plan(
         required_paths=request.required_paths,
         genre_focus=request.genre_focus,
     )
-    return plan_builder(records, intent, color_anchor_path=color_anchor_path)
+    return plan_builder(records, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band)
 
 
 class PrepCopilotVariantLike(Protocol):

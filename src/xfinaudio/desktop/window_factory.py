@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
+from xfinaudio.audio.loudness_runtime import create_loudness_completion_service
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop.app_controller import (
     AppController,
@@ -165,6 +166,7 @@ def initialize_library_controller(window, log) -> None:
         audio_player=window._audio_player,
         sync_state=window._sync_state,
         request_sync=window._request_sync,
+        loudness_completion_service=create_loudness_completion_service(),
         tr=window.tr,
         log=log,
         parent=window,

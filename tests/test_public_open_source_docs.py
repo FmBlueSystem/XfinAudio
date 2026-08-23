@@ -85,6 +85,26 @@ def test_contributing_sets_dev_workflow_tdd_and_safety_boundaries() -> None:
         assert fragment in text
 
 
+def test_loudness_is_the_single_explicitly_configured_audio_write_exception() -> None:
+    assert (
+        "Scanning remains read-only. The loudness module is the single documented exception and may write loudness "
+        "tags only through its explicit setting."
+    ) in read(AGENTS)
+    assert (
+        "Scanning remains read-only. The loudness module is the single documented exception and may write loudness "
+        "tags only through its explicit setting."
+    ) in read(CONTRIBUTING)
+    readme = read(README)
+    assert (
+        "The loudness module is the single documented exception and may write loudness tags only through its explicit "
+        "setting."
+    ) in readme
+    assert (
+        "El módulo de loudness es la única excepción documentada y puede escribir tags de loudness solo mediante su "
+        "ajuste explícito."
+    ) in readme
+
+
 def test_security_sets_disclosure_placeholder_scope_and_dependency_caveats() -> None:
     text = read(SECURITY)
 

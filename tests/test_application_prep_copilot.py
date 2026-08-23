@@ -38,13 +38,21 @@ def test_application_prep_copilot_builds_variant_application_result(monkeypatch)
 
 def test_application_prep_copilot_generation_builds_intent_and_delegates() -> None:
     from xfinaudio.application.prep_copilot import PrepCopilotGenerationRequest, generate_prep_copilot_plan
+    from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
 
     records: list[Any] = [object()]
     generated_plan: Any = object()
-    calls: list[tuple[Any, Any]] = []
+    calls: list[tuple[Any, Any, LoudnessBand]] = []
 
-    def fake_plan_builder(tracks: Any, intent: Any, *, color_anchor_path: str | None = None) -> Any:
-        calls.append((tracks, intent))
+    def fake_plan_builder(
+        tracks: Any,
+        intent: Any,
+        *,
+        color_anchor_path: str | None = None,
+        loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    ) -> Any:
+        assert color_anchor_path is None
+        calls.append((tracks, intent, loudness_band))
         return generated_plan
 
     request = PrepCopilotGenerationRequest(
@@ -55,7 +63,9 @@ def test_application_prep_copilot_generation_builds_intent_and_delegates() -> No
         genre_focus="House",
     )
 
-    result = generate_prep_copilot_plan(records, request, plan_builder=fake_plan_builder)
+    result = generate_prep_copilot_plan(
+        records, request, plan_builder=fake_plan_builder, loudness_band=LoudnessBand(-14.0, 0.5)
+    )
 
     assert result is generated_plan
     assert calls[0][0] is records
@@ -66,3 +76,4 @@ def test_application_prep_copilot_generation_builds_intent_and_delegates() -> No
     assert intent.start_path == "/music/start.flac"
     assert intent.required_paths == ["/music/start.flac", "/music/must.flac"]
     assert intent.genre_focus == "House"
+    assert calls[0][2] == LoudnessBand(-14.0, 0.5)

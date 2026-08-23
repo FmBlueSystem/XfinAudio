@@ -6,13 +6,14 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import QFileDialog, QLabel, QWidget
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.audio.danceability import CURRENT_DANCEABILITY_VERSION
+from xfinaudio.audio.loudness_completion import LoudnessCompletionService
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, CURRENT_EDGE_ANALYSIS_VERSION
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop import layout as _layout
@@ -22,6 +23,9 @@ from xfinaudio.desktop.app_state_transitions import (
     apply_edge_spectral_profile,
     apply_library_folder_selected,
     apply_library_records_loaded,
+    apply_loudness_completion_finished,
+    apply_loudness_completion_result,
+    apply_loudness_completion_started,
     apply_playlist_track_removed,
     apply_playlist_track_replaced,
     apply_playlist_track_restored,
@@ -32,6 +36,7 @@ from xfinaudio.desktop.app_state_transitions import (
     apply_tracks_locked,
 )
 from xfinaudio.desktop.audio_player import AudioPlayer
+from xfinaudio.desktop.background_completion_stage import BackgroundCompletionStage
 from xfinaudio.desktop.danceability_completion_worker import DanceabilityCompletionWorker
 from xfinaudio.desktop.edge_spectral_completion_worker import EdgeSpectralCompletionWorker
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
@@ -46,7 +51,9 @@ from xfinaudio.desktop.screens import BuildScreen, ExportScreen, LibraryScreen, 
 from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
 from xfinaudio.desktop.table_populators import populate_library_table
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.ports import TrackLoudnessProfileCachePort
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
     prefilter_strategy_candidates,
@@ -114,6 +121,7 @@ class LibraryController:
         log: logging.Logger,
         parent: QWidget,
         request_sync: Callable[[], None] | None = None,
+        loudness_completion_service: LoudnessCompletionService | None = None,
     ) -> None:
         self._state = state
         self._workflow_service = workflow_service
@@ -132,6 +140,9 @@ class LibraryController:
         self._danceability_completion_records: list[TrackRecord] = []
         self._edge_spectral_completion_worker: EdgeSpectralCompletionWorker | None = None
         self._edge_spectral_completion_records: list[TrackRecord] = []
+        self._loudness_completion_service = loudness_completion_service
+        self._loudness_completion_stage: BackgroundCompletionStage | None = None
+        self._loudness_completion_stages: list[BackgroundCompletionStage] = []
         self._active_song_search_query = ""
         # Ensure analysis workers are shut down before this controller is
         # destroyed. Otherwise their QThreads outlive the
@@ -254,6 +265,7 @@ class LibraryController:
             anchor = self._state.records_by_path.get(paths[0])
             if anchor is not None:
                 self._widgets.build_screen.suggest_genre_from_anchor(anchor.genre)
+        self._refresh_loudness_details()
         self.refresh_idle_action_state()
         if self._audio_player._source_path is not None and self._audio_player._source_path not in paths:
             self._audio_player.stop()
@@ -332,10 +344,13 @@ class LibraryController:
             return None
         anchor_path = next((item.path for item in recommendation.ordered_tracks if item.path != path), None)
         controls = DJControls(start_path=anchor_path) if anchor_path is not None else None
-        candidates = prefilter_strategy_candidates(self._state.scanned_records, recommendation.strategy.name, controls)
+        settings = self._access.settings_getter()
+        strategy = recommendation.strategy.name
+        band = LoudnessBand(settings.loudness.target_lufs, settings.loudness.tolerance_lu)
+        candidates = prefilter_strategy_candidates(self._state.scanned_records, strategy, controls, loudness_band=band)
         blocked_paths = self._state.playlist_removed_paths | {path}
         eligible = [candidate for candidate in candidates if candidate.path not in blocked_paths]
-        cohesion = self._access.settings_getter().scoring.spectral_cohesion
+        cohesion = settings.scoring.spectral_cohesion
         return recommendation_with_replacement(recommendation, path, eligible, spectral_cohesion=cohesion)
 
     def on_track_play_requested(self, path: str) -> None:
@@ -389,6 +404,31 @@ class LibraryController:
             or (status_filter is not None and bool(self.metadata_status_records(status_filter)))
         )
         self._widgets.library_screen.cancel_button.setEnabled(False)
+        if (button := getattr(self._widgets.library_screen, "reanalyze_loudness_button", None)) is not None:
+            button.setEnabled(self._can_reanalyze_loudness())
+
+    def _completion_chain_active(self) -> bool:
+        return (
+            any(
+                worker is not None
+                for worker in (
+                    self._spectral_completion_worker,
+                    self._danceability_completion_worker,
+                    self._edge_spectral_completion_worker,
+                )
+            )
+            or self._loudness_completion_stage is not None
+            or bool(self._loudness_completion_stages)
+        )
+
+    def _can_reanalyze_loudness(self) -> bool:
+        return (
+            len(self._access.selected_paths) == 1
+            and self._access.selected_paths[0] in self._state.records_by_path
+            and self._loudness_completion_service is not None
+            and not self._completion_chain_active()
+            and self._access.settings_getter().loudness.enabled
+        )
 
     def show_tracks(
         self,
@@ -411,6 +451,7 @@ class LibraryController:
         self.cancel_spectral_completion_worker()
         self.cancel_danceability_completion_worker()
         self.cancel_edge_spectral_completion_worker()
+        self.cancel_loudness_completion()
         self._danceability_completion_records = records
         self._edge_spectral_completion_records = records
         missing = [
@@ -473,6 +514,18 @@ class LibraryController:
         self._edge_spectral_completion_worker = None
         if edge_worker is not None:
             edge_worker.shutdown()
+        loudness_stage = self._loudness_completion_stage
+        self._loudness_completion_stage = None
+        if self._state.is_completing_loudness:
+            self._state = apply_loudness_completion_finished(self._state)
+            self._access.state_setter(self._state)
+        stages = self._loudness_completion_stages
+        self._loudness_completion_stages = []
+        if loudness_stage is not None and loudness_stage not in stages:
+            stages.append(loudness_stage)
+        for stage in stages:
+            stage.shutdown()
+            stage.deleteLater()
 
     def _dispose_spectral_completion_worker(self) -> None:
         """Ask the worker to stop and release it once it actually does.
@@ -598,6 +651,7 @@ class LibraryController:
             or record.edge_spectral_profile.analysis_version != CURRENT_EDGE_ANALYSIS_VERSION
         ]
         if not missing:
+            self.start_loudness_completion(records)
             return
         worker = EdgeSpectralCompletionWorker(parent=self._parent)
         worker.progress.connect(self.on_edge_spectral_profile_ready)
@@ -630,15 +684,115 @@ class LibraryController:
         self._edge_spectral_completion_worker = None
         if worker is not None:
             worker.deleteLater()
+        self.start_loudness_completion(self._edge_spectral_completion_records)
+
+    def start_loudness_completion(self, records: list[TrackRecord], *, force_reanalyze: bool = False) -> None:
+        """Start the disk-bound stage only after all three existing stages finish."""
+        service = self._loudness_completion_service
+        if service is None or self._completion_chain_active() or not self._access.settings_getter().loudness.enabled:
+            return
+        self.cancel_loudness_completion()
+        stage = BackgroundCompletionStage(parent=self._parent)
+        stage.result.connect(
+            lambda path, profile, completed_stage=stage: (
+                completed_stage is self._loudness_completion_stage
+                and self.on_loudness_profile_ready(path, profile, completed_stage)
+            )
+        )
+        stage.finished.connect(lambda stage=stage: self.on_loudness_completion_finished(stage))
+        self._loudness_completion_stage = stage
+        self._loudness_completion_stages.append(stage)
+        self._state = apply_loudness_completion_started(self._state, total_count=len(records))
+        self._access.state_setter(self._state)
+        self._request_sync()
+        self.refresh_idle_action_state()
+        candidates = (
+            []
+            if self._state.last_recommendation is None
+            else [track.path for track in self._state.last_recommendation.ordered_tracks]
+        )
+        visible = [
+            self._widgets.library_screen.tracks_table.item(row, _TRACK_PATH_COLUMN).text()
+            for row in range(self._widgets.library_screen.tracks_table.rowCount())
+            if not self._widgets.library_screen.tracks_table.isRowHidden(row)
+            and self._widgets.library_screen.tracks_table.item(row, _TRACK_PATH_COLUMN) is not None
+        ]
+        stage.start(
+            lambda emit: service.complete(
+                records,
+                cast(TrackLoudnessProfileCachePort, self._workflow_service.repository),
+                selected_paths=self._access.selected_paths,
+                candidate_paths=candidates,
+                visible_paths=visible,
+                force_reanalyze=force_reanalyze,
+                on_result=emit,
+            ),
+            cancel=service.cancel,
+        )
+
+    def cancel_loudness_completion(self) -> None:
+        stage = self._loudness_completion_stage
+        self._loudness_completion_stage = None
+        if stage is not None:
+            stage.cancel()
+        if self._state.is_completing_loudness:
+            self._state = apply_loudness_completion_finished(self._state)
+            self._access.state_setter(self._state)
+            self._request_sync()
+        self.refresh_idle_action_state()
+
+    def on_loudness_reanalyze_requested(self) -> None:
+        """Force analysis of the one selected track without cache replay."""
+        if not self._can_reanalyze_loudness():
+            return
+        self.start_loudness_completion(
+            [self._state.records_by_path[self._access.selected_paths[0]]], force_reanalyze=True
+        )
+
+    @Slot(str, object)
+    def on_loudness_profile_ready(
+        self, path: str, profile: object, completed_stage: BackgroundCompletionStage | None = None
+    ) -> None:
+        if completed_stage is not None and completed_stage is not self._loudness_completion_stage:
+            return
+        self._state = apply_loudness_completion_result(self._state, path=path, profile=profile)  # type: ignore[arg-type]
+        self._access.state_setter(self._state)
+        self._refresh_loudness_details()
+        self._request_sync()
+
+    def on_loudness_completion_finished(self, completed_stage: BackgroundCompletionStage | None = None) -> None:
+        if completed_stage is not None and completed_stage is not self._loudness_completion_stage:
+            stage = completed_stage
+        else:
+            stage = self._loudness_completion_stage
+            self._loudness_completion_stage = None
+            if self._state.is_completing_loudness:
+                self._state = apply_loudness_completion_finished(self._state)
+                self._access.state_setter(self._state)
+                self._request_sync()
+        if stage is not None:
+            if stage in self._loudness_completion_stages:
+                self._loudness_completion_stages.remove(stage)
+            stage.deleteLater()
+        self.refresh_idle_action_state()
 
     def _replace_state(self, **updates: object) -> None:
         self._state = self._state.model_copy(update=updates)
         self._access.state_setter(self._state)
 
+    def _refresh_loudness_details(self) -> None:
+        paths = self._access.selected_paths
+        record = self._state.records_by_path.get(paths[0]) if len(paths) == 1 else None
+        self._widgets.library_screen.set_loudness_details(
+            None if record is None else record.loudness_profile,
+            visible=record is not None,
+        )
+
     def clear_scan_dependent_state(self) -> None:
         self._state = apply_scan_context_reset(self._state)
         self._access.state_setter(self._state)
         self._clear_scan_dependent_ui()
+        self._widgets.library_screen.set_loudness_details(None, visible=False)
         self._sync_state()
 
     def _clear_scan_dependent_ui(self) -> None:

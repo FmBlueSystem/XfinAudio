@@ -8,6 +8,7 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.candidate_pool import build_recommendation_pool, dedupe_recommendation_duplicates
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.energy_arc import traces_an_arc
+from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
 from xfinaudio.recommendation.playlist_service import (
     COLOR_FILTER_STRATEGIES,
     prefilter_strategy_candidates,
@@ -58,6 +59,7 @@ def plan_recommendation_candidates(
     controls: DJControls | None,
     limit: int,
     strategy_name: str | None = None,
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
 ) -> list[TrackRecord]:
     """Return the interactive recommendation candidate pool for desktop adapters.
 
@@ -72,11 +74,17 @@ def plan_recommendation_candidates(
     """
     if strategy_name in COLOR_FILTER_STRATEGIES:
         return plan_recommendation_candidate_context(
-            scanned_records=scanned_records, controls=controls, limit=limit, strategy_name=strategy_name
+            scanned_records=scanned_records,
+            controls=controls,
+            limit=limit,
+            strategy_name=strategy_name,
+            loudness_band=loudness_band,
         ).records
     pool_source = scanned_records
     if strategy_name is not None:
-        pool_source = prefilter_strategy_candidates(scanned_records, strategy_name, controls)
+        pool_source = prefilter_strategy_candidates(
+            scanned_records, strategy_name, controls, loudness_band=loudness_band
+        )
     pool_source = dedupe_recommendation_duplicates(pool_source, controls)
     # A strategy that traces an arc needs candidates at both ends of the energy
     # range; similarity ranking alone would hand it the anchor's own level.
@@ -90,6 +98,7 @@ def plan_recommendation_candidate_context(
     controls: DJControls | None,
     limit: int,
     strategy_name: str,
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
 ) -> RecommendationCandidateContext:
     """Plan a colour-strategy pool and bind an immutable anchor identity.
 
@@ -100,8 +109,8 @@ def plan_recommendation_candidate_context(
     pool — which is what stops the second gate pass emptying a pool the first pass
     had already narrowed for a different anchor.
     """
-    anchor_path = resolve_color_anchor_path(scanned_records, strategy_name, controls)
-    pool_source = prefilter_strategy_candidates(scanned_records, strategy_name, controls)
+    anchor_path = resolve_color_anchor_path(scanned_records, strategy_name, controls, loudness_band=loudness_band)
+    pool_source = prefilter_strategy_candidates(scanned_records, strategy_name, controls, loudness_band=loudness_band)
     pool_source = dedupe_recommendation_duplicates(pool_source, controls, protected_path=anchor_path)
     spread = traces_an_arc(strategy_name)
     records = build_recommendation_pool(pool_source, controls, limit, spread_energy=spread, protected_path=anchor_path)

@@ -1,9 +1,72 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+import re
+import subprocess
 import tomllib
 from pathlib import Path
 
 project_root = Path(SPECPATH).parents[1]
+ffmpeg_binary = project_root / "packaging" / "ffmpeg" / "ffmpeg"
+
+
+def _ffmpeg_probe(command: tuple[str, ...]) -> str:
+    result = subprocess.run(
+        command, stdin=subprocess.DEVNULL, capture_output=True, text=True, shell=False, check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Bundled FFmpeg validation failed: {' '.join(command)}")
+    return result.stdout or ""
+
+
+def validate_ffmpeg_bundle(binary: Path) -> Path:
+    """Fail packaging before including an invalid universal2 ebur128 executable."""
+    binary = binary.resolve()
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise RuntimeError(f"Bundled FFmpeg is missing or not executable: {binary}")
+    _ffmpeg_probe(("lipo", str(binary), "-verify_arch", "arm64", "x86_64"))
+    version = _ffmpeg_probe((str(binary), "-version"))
+    if re.search(r"\bffmpeg version 7\.1\.1(?:\s|$)", version) is None:
+        raise RuntimeError("Bundled FFmpeg is not the required 7.1.1 builder version")
+    filters = _ffmpeg_probe((str(binary), "-hide_banner", "-filters"))
+    if re.search(r"\bebur128\b", filters) is None:
+        raise RuntimeError("Bundled FFmpeg lacks ebur128")
+    filter_help = _ffmpeg_probe((str(binary), "-hide_banner", "-h", "filter=ebur128"))
+    if re.search(r"\bpeak\b.*\btrue\b|\btrue\b.*\bpeak\b", filter_help.lower()) is None:
+        raise RuntimeError("Bundled FFmpeg lacks ebur128 true-peak support")
+    demuxers = _ffmpeg_probe((str(binary), "-hide_banner", "-demuxers"))
+    decoders = _ffmpeg_probe((str(binary), "-hide_banner", "-decoders"))
+    if not _has_m4a_decode_capabilities(demuxers, decoders):
+        raise RuntimeError("Bundled FFmpeg lacks required M4A MOV/AAC/ALAC decoding")
+    return binary
+
+
+def _has_m4a_decode_capabilities(demuxers: str, decoders: str) -> bool:
+    return bool(
+        re.search(r"^\s*D\s+mov(?:,|$)", demuxers, re.MULTILINE)
+        and re.search(r"^\s*[A-Z.]{6}\s+aac(?:\s|$)", decoders, re.MULTILINE)
+        and re.search(r"^\s*[A-Z.]{6}\s+alac(?:\s|$)", decoders, re.MULTILINE)
+    )
+
+
+def preserve_standalone_ffmpeg(entries: list[tuple[str, str, str]], binary: Path) -> list[tuple[str, str, str]]:
+    """Keep the standalone universal2 CLI out of PyInstaller's Mach-O thinning path."""
+    target_source = str(binary.resolve())
+    matches = [
+        (name, source, typecode)
+        for name, source, typecode in entries
+        if name == "ffmpeg" and str(Path(source).resolve()) == target_source
+    ]
+    if len(matches) != 1 or matches[0][2] != "BINARY":
+        raise RuntimeError("Expected exactly one standalone FFmpeg binary for collection")
+    selected = matches[0]
+    return [
+        (name, source, "DATA" if (name, source, typecode) == selected else typecode)
+        for name, source, typecode in entries
+    ]
+
+
+bundled_ffmpeg = validate_ffmpeg_bundle(ffmpeg_binary)
 
 # Without this the bundle reports CFBundleShortVersionString 0.0.0, which is
 # what macOS shows in Get Info and what every crash report carries -- making
@@ -24,7 +87,7 @@ if asset_dir.exists():
 analysis = Analysis(
     [str(project_root / "src/xfinaudio/desktop/app.py")],
     pathex=[str(project_root / "src")],
-    binaries=[],
+    binaries=[(str(bundled_ffmpeg), ".")],
     datas=assets,
     hiddenimports=[
         "pydantic",
@@ -52,6 +115,7 @@ analysis = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+analysis.binaries[:] = preserve_standalone_ffmpeg(analysis.binaries, bundled_ffmpeg)
 
 pyz = PYZ(analysis.pure, analysis.zipped_data, cipher=block_cipher)
 
@@ -80,7 +144,7 @@ coll = COLLECT(
     analysis.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=["ffmpeg"],
     name="XfinAudio",
 )
 
