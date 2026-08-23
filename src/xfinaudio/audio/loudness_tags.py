@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import math
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -61,6 +62,64 @@ def write_loudness_tags(
         return LoudnessTagWriteResult(LoudnessTagWriteStatus.UNCHANGED)
     (save_audio or _save_mutagen_audio)(audio)
     return LoudnessTagWriteResult(LoudnessTagWriteStatus.CHANGED)
+
+
+def recover_loudness_profile(
+    path: Path | str, tags: Mapping[str, Any], *, audio_md5: str | None = None
+) -> LoudnessProfile | None:
+    """Recover only this app's v1 structured tag, stamped from current disk identity."""
+    target = Path(path)
+    family = _tag_family(target)
+    expected_key = _LOUDNESS_TAG if family == "vorbis" else f"TXXX:{_LOUDNESS_TAG}" if family == "id3" else None
+    if expected_key is None:
+        return None
+    payload = next(
+        (_tag_text(value) for key, value in tags.items() if str(key).casefold() == expected_key.casefold()), None
+    )
+    if payload is None or (values := _parse_payload(payload)) is None:
+        return None
+    try:
+        stat = target.stat()
+    except OSError:
+        return None
+    lufs, lra, dbtp, engine = values
+    return LoudnessProfile(
+        lufs_integrated=lufs,
+        loudness_range_lra=lra,
+        true_peak_dbtp=dbtp,
+        status=LoudnessStatus.MEASURED,
+        engine_fingerprint=engine,
+        source_mtime_ns=stat.st_mtime_ns,
+        source_size_bytes=stat.st_size,
+        source_audio_md5=audio_md5 if family == "vorbis" else None,
+    )
+
+
+def _tag_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list | tuple) and len(value) == 1:
+        return str(value[0])
+    return None
+
+
+def _parse_payload(payload: str) -> tuple[float, float, float, str] | None:
+    fields: dict[str, str] = {}
+    for part in payload.split(";"):
+        key, separator, value = part.partition("=")
+        key, value = key.strip(), value.strip()
+        if not separator or not key or key in fields:
+            return None
+        fields[key] = value
+    if set(fields) != {"lufs", "lra", "dbtp", "v", "engine"} or fields["v"] != "1" or not fields["engine"]:
+        return None
+    try:
+        metrics = {key: float(fields[key]) for key in ("lufs", "lra", "dbtp")}
+    except ValueError:
+        return None
+    if not all(math.isfinite(value) for value in metrics.values()):
+        return None
+    return metrics["lufs"], metrics["lra"], metrics["dbtp"], fields["engine"]
 
 
 def _load_mutagen_audio(path: Path) -> Any | None:
@@ -130,4 +189,4 @@ def _apply_id3_tags(tags: Any, comment: str, payload: str) -> bool:
     return True
 
 
-__all__ = ["LoudnessTagWriteResult", "LoudnessTagWriteStatus", "write_loudness_tags"]
+__all__ = ["LoudnessTagWriteResult", "LoudnessTagWriteStatus", "recover_loudness_profile", "write_loudness_tags"]

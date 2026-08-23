@@ -151,3 +151,9 @@ All requested gates passed on 2026-08-22: focused WU2 tests 112 passed in 3.01s 
 
 - Fresh results always invoke the codec, then stamp profile-owned identity from a post-write stat. Only `changed` invokes `refresh_post_metadata_identity` before loudness persistence; cache replays never invoke the codec.
 - A writer exception or unknown result is persisted as `transient_failure`; the service fresh-stats and refreshes siblings when that failed attempt changed identity.
+
+
+## add-loudness-module WU3d task 3.5
+
+- Recovery accepts only the exact v1 `lufs/lra/dbtp/v/engine` structured payload and never COMMENT or ReplayGain/R128. It fresh-stamps filesystem identity and FLAC MD5 when available.
+- `save_scan_results` treats recovered values as bootstrap-only: it inserts them into NULL loudness rows but preserves any existing database profile.

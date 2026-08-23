@@ -42,7 +42,7 @@
       values) + structured `XFINAUDIO_LOUDNESS` custom tag (v1 payload schema)
 - [x] 3.4 Write ordering: measure → write tags → restat → stamp profile identity → persist;
       shared identity helper call after write
-- [ ] 3.5 Best-effort recovery-from-tags on scan when DB row absent (per-format capability
+- [x] 3.5 Best-effort recovery-from-tags on scan when DB row absent (per-format capability
       map; DB remains source of truth)
 
 ## WU4 — Settings, UI surface, packaging, governance

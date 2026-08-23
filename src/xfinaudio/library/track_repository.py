@@ -119,7 +119,7 @@ class TrackRepository:
                         ELSE NULL
                     END,
                     loudness_profile_json = CASE
-                        WHEN excluded.loudness_profile_json IS NOT NULL THEN excluded.loudness_profile_json
+                        WHEN tracks.loudness_profile_json IS NULL THEN excluded.loudness_profile_json
                         ELSE tracks.loudness_profile_json
                     END,
                     file_mtime_ns = excluded.file_mtime_ns,

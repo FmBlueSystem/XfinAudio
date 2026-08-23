@@ -175,3 +175,16 @@ All requested gates passed on 2026-08-22 in order (exact combined stdout/stderr 
 | Focused tests | Deterministic writer/repository fakes prove analyze → write → post-write stamp → sibling refresh → persist, cache no-write, and failure recovery. |
 | Runtime harness | N/A — injected fakes exercise the runtime composition boundary without user audio or mutagen writes. |
 | Rollback boundary | Revert the completion ordering, port addition, and focused regressions without changing the codec or cache format. |
+
+
+## WU3d Task 3.5 Evidence
+
+| Task | RED | GREEN | Refactor |
+|---|---|---|---|
+| 3.5 | `uv run pytest -q tests/test_loudness_tag_recovery.py` — collection failed: recovery parser absent | Focused scan/repository/tag suite — 135 passed, 30 warnings | Kept recovery in the codec boundary; scan retains no extra raw metadata. |
+
+| Evidence | Result |
+|---|---|
+| Capability map | MP3/FLAC/WAV/AIFF recover only app-owned v1 structured tags; M4A and unknown suffixes are unsupported. |
+| DB precedence | Scan-upsert writes recovered JSON only when the stored JSON is NULL; an existing DB profile wins. |
+| Rollback boundary | Revert parser, scan attachment, and nullable-row CASE without changing write-back ordering. |
