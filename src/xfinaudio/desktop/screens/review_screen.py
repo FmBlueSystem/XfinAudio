@@ -161,7 +161,7 @@ class ReviewScreen(QWidget):
         )
         self.transition_help_label.setWordWrap(True)
         self.transition_help_label.setMaximumHeight(40)
-        self.transition_help_label.setStyleSheet("color: #9fb3c8; font-size: 12px; padding: 4px 0;")
+        self.transition_help_label.setStyleSheet("color: #93aac4; font-size: 12px; padding: 4px 0;")
         layout.addWidget(self.transition_help_label)
 
         # 5. Transition table

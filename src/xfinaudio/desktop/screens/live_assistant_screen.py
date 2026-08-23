@@ -44,7 +44,7 @@ class _CandidateRow(QWidget):
         layout.addWidget(self._title_label)
 
         self._artist_label = QLabel("—")
-        self._artist_label.setStyleSheet("font-size: 12px; color: #aaaaaa;")
+        self._artist_label.setStyleSheet("font-size: 12px; color: #93aac4;")
         layout.addWidget(self._artist_label)
 
         self._bpm_label = QLabel("—")

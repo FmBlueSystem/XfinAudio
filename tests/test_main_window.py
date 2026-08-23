@@ -1938,7 +1938,7 @@ def test_main_window_applies_dj_visual_style() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    assert "#00d4ff" in window.styleSheet()
+    assert "#2ce8f5" in window.styleSheet()
     assert "#ffb000" in window.styleSheet()
     assert window._export_screen.export_button.objectName() == "seratoExportButton"
     assert window._build_screen.recommend_button.objectName() == "primaryAction"
