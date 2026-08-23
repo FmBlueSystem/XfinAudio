@@ -15,6 +15,13 @@ from xfinaudio.library.ports import TrackLoudnessProfileCachePort
 
 _MAX_DISK_WORKERS = 2
 LoudnessTagWriter = Callable[[Path, LoudnessProfile], LoudnessTagWriteResult]
+_TAG_WRITE_SUPPRESSION_SECONDS = 5.0
+
+
+class PathChangeSuppressor(Protocol):
+    """Briefly ignore watcher events for app-owned metadata writes."""
+
+    def suppress_paths(self, paths: Iterable[Path], *, duration_seconds: float) -> None: ...
 
 
 class LoudnessAnalysisPort(Protocol):
@@ -51,14 +58,20 @@ class LoudnessCompletionService:
         *,
         engine_fingerprint: str,
         tag_writer: LoudnessTagWriter = write_loudness_tags,
+        path_suppressor: PathChangeSuppressor | None = None,
     ) -> None:
         self._analyzer = analyzer
         self._engine_fingerprint = engine_fingerprint
         self._tag_writer = tag_writer
+        self._path_suppressor = path_suppressor
         self._lifecycle = threading.Condition(threading.RLock())
         self._active_run: object | None = None
         self._cancelled_runs: set[object] = set()
         self._commit_run: object | None = None
+
+    def set_path_suppressor(self, path_suppressor: PathChangeSuppressor | None) -> None:
+        """Attach the optional desktop watcher boundary after runtime composition."""
+        self._path_suppressor = path_suppressor
 
     def cancel(self) -> None:
         """Cancel the active run without interrupting an already-started commit."""
@@ -147,6 +160,10 @@ class LoudnessCompletionService:
     ) -> LoudnessProfile:
         before_write = _file_identity(record.path)
         try:
+            if self._path_suppressor is not None:
+                self._path_suppressor.suppress_paths(
+                    [Path(record.path)], duration_seconds=_TAG_WRITE_SUPPRESSION_SECONDS
+                )
             write_result = self._tag_writer(Path(record.path), profile)
             if write_result.status is LoudnessTagWriteStatus.CHANGED:
                 refresh_siblings = True

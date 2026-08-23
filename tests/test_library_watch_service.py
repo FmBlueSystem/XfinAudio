@@ -291,3 +291,95 @@ def test_cross_thread_raw_event_marshals_to_main_thread_and_starts_timer() -> No
 
     assert _pump_events_until(lambda: timer.is_active())
     assert timer.start_calls == [2000]
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.value = 100.0
+
+    def __call__(self) -> float:
+        return self.value
+
+    def advance(self, seconds: float) -> None:
+        self.value += seconds
+
+
+def test_loudness_tag_write_events_are_suppressed_but_external_changes_and_expiry_surface(tmp_path: Path) -> None:
+    """App-owned tag writes are ignored briefly without hiding later external edits."""
+    from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
+    from xfinaudio.audio.loudness_completion import LoudnessCompletionService
+    from xfinaudio.audio.loudness_tags import LoudnessTagWriteResult, LoudnessTagWriteStatus
+    from xfinaudio.library.models import TrackRecord
+
+    class Analyzer:
+        def analyze(self, path: Path, *, duration_seconds: float) -> LoudnessProfile:
+            return LoudnessProfile(
+                lufs_integrated=-10.0,
+                loudness_range_lra=4.0,
+                true_peak_dbtp=-1.0,
+                status=LoudnessStatus.MEASURED,
+                engine_fingerprint="test-engine",
+            )
+
+    class Repository:
+        def load_loudness_profile_cache(self, *_args, **_kwargs):
+            return {}
+
+        def refresh_post_metadata_identity(self, path: str) -> bool:
+            return True
+
+        def update_loudness_profile(self, path: str, profile: LoudnessProfile) -> bool:
+            return True
+
+    clock = _FakeClock()
+    event_source = FakeEventSource()
+    timers: list[FakeDebounceTimer] = []
+
+    def factory(on_timeout: Callable[[], None]) -> FakeDebounceTimer:
+        timer = FakeDebounceTimer(on_timeout)
+        timers.append(timer)
+        return timer
+
+    watch_service = LibraryWatchService(
+        FolderWatcher(event_source=event_source),
+        debounce_timer_factory=factory,
+        monotonic_clock=clock,
+    )
+    state = FakeState()
+    watch_service.set_state_accessors(state=state, sync_state=lambda: None)
+    watch_service.start(tmp_path)
+    track = tmp_path / "tagged.flac"
+    external = tmp_path / "external.flac"
+    track.write_text("audio")
+    external.write_text("audio")
+
+    def write_tags(target: Path, _profile: LoudnessProfile) -> LoudnessTagWriteResult:
+        event_source.fire(str(target))
+        target.write_text("tagged")
+        return LoudnessTagWriteResult(LoudnessTagWriteStatus.CHANGED)
+
+    completion = LoudnessCompletionService(
+        Analyzer(),
+        engine_fingerprint="test-engine",
+        tag_writer=write_tags,
+        path_suppressor=watch_service,
+    )
+    completion.complete([TrackRecord(path=str(track), duration=8.0)], Repository())
+    QApplication.processEvents()
+
+    assert timers[0].start_calls == []
+    assert state.model_copy_calls == []
+
+    event_source.fire(str(external))
+    QApplication.processEvents()
+    timers[0].fire()
+    assert state.model_copy_calls == [{"changes_detected_since_scan": True}]
+
+    clock.advance(5.0)
+    event_source.fire(str(track))
+    QApplication.processEvents()
+    timers[0].fire()
+    assert state.model_copy_calls == [
+        {"changes_detected_since_scan": True},
+        {"changes_detected_since_scan": True},
+    ]

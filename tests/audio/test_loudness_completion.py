@@ -366,3 +366,30 @@ def test_cancel_waits_for_active_tag_commit_then_skips_remaining_records(tmp_pat
     assert worker.is_alive() is canceller.is_alive() is False
     assert events == ["write", "refresh", "persist"]
     assert list(repository.updated) == [str(analyzer.calls[0][0])]
+
+
+def test_completion_suppresses_the_exact_tag_target_before_writing(tmp_path: Path) -> None:
+    path = tmp_path / "track.flac"
+    path.write_text("audio")
+    events: list[tuple[str, list[Path] | None]] = []
+
+    class Suppressor:
+        def suppress_paths(self, paths, *, duration_seconds: float) -> None:
+            events.append(("suppress", list(paths)))
+
+    def write_tags(target: Path, _profile: LoudnessProfile) -> LoudnessTagWriteResult:
+        assert events == [("suppress", [path])]
+        events.append(("write", None))
+        target.write_text("tagged")
+        return LoudnessTagWriteResult(LoudnessTagWriteStatus.CHANGED)
+
+    service = LoudnessCompletionService(
+        _Analyzer(),
+        engine_fingerprint="ffmpeg-test",
+        tag_writer=write_tags,
+        path_suppressor=Suppressor(),
+    )
+
+    service.complete([TrackRecord(path=str(path), duration=8.0)], _Repository())
+
+    assert events == [("suppress", [path]), ("write", None)]

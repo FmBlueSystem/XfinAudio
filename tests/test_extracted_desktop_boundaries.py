@@ -35,11 +35,14 @@ def test_extracted_boundaries_own_real_responsibilities() -> None:
     calls = []
     scan_service = SimpleNamespace(
         set_state_accessors=lambda **kwargs: calls.append(("state", kwargs)),
+        set_watch_service=lambda watcher: calls.append(("watch", watcher)),
         set_ui=lambda **kwargs: calls.append(("ui", kwargs)),
         set_actions=lambda **kwargs: calls.append(("actions", kwargs)),
     )
+    watch_service = SimpleNamespace(set_state_accessors=lambda **kwargs: calls.append(("watch-state", kwargs)))
     host = SimpleNamespace(
         _scan_service=scan_service,
+        _library_watch_service=watch_service,
         selected_folder=None,
         scanned_records=[],
         _state=object(),
@@ -51,6 +54,7 @@ def test_extracted_boundaries_own_real_responsibilities() -> None:
         recommendation_guidance_label=object(),
         tr=lambda text: text,
         _sync_state=lambda: None,
+        _replace_app_state=lambda state: None,
         _request_sync=lambda: None,
         show_tracks=lambda: None,
         _clear_scan_dependent_state=lambda: None,
@@ -60,9 +64,10 @@ def test_extracted_boundaries_own_real_responsibilities() -> None:
 
     wire_main_scan_service(host)
 
-    assert [name for name, _kwargs in calls] == ["state", "ui", "actions"]
+    assert [name for name, _kwargs in calls] == ["watch-state", "watch", "state", "ui", "actions"]
     assert calls[0][1]["state"] is host._state
-    assert calls[1][1]["library_screen"] is host._library_screen
+    assert calls[2][1]["state"] is host._state
+    assert calls[3][1]["library_screen"] is host._library_screen
 
 
 def test_extracted_export_previews_update_user_visible_guidance(monkeypatch, tmp_path) -> None:

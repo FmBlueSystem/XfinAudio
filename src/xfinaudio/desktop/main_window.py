@@ -113,6 +113,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: object) -> None:
         self._audio_player.shutdown()
+        self._library_watch_service.stop()
         self._scan_service.cancel()
         if hasattr(self, "_library_controller"):
             self._library_controller.shutdown()
