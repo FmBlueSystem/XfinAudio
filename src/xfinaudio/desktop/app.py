@@ -118,6 +118,14 @@ def settings_path_from_environment() -> Path:
     return default_settings_path()
 
 
+def log_path_from_environment() -> Path:
+    """Return the configured log path, honoring packaging smoke overrides."""
+    override = os.environ.get("XFINAUDIO_LOG_PATH")
+    if override:
+        return Path(override)
+    return default_log_path()
+
+
 def _load_settings_language() -> str | None:
     """Return the saved UI language preference, or None if not set."""
     try:
@@ -151,7 +159,7 @@ def main(*, macos_configurator: Callable[[str, Path | None], None] | None = None
     install_translator(lang)
     if package_smoke_enabled():
         return 0
-    configure_logging()
+    configure_logging(log_path_from_environment())
     if macos_configurator is None:
         macos_configurator = _configure_macos_app
     macos_configurator("XfinAudio", icon_path)

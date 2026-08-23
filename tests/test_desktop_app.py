@@ -41,6 +41,7 @@ def test_desktop_main_activates_window(monkeypatch, tmp_path) -> None:
     monkeypatch.delenv("XFINAUDIO_PACKAGE_SMOKE", raising=False)
     monkeypatch.setenv("XFINAUDIO_DB_PATH", str(tmp_path / "db.sqlite3"))
     monkeypatch.setenv("XFINAUDIO_SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("XFINAUDIO_LOG_PATH", str(tmp_path / "xfinaudio.log"))
 
     macos_calls = []
 
@@ -70,6 +71,7 @@ def test_package_smoke_exits_without_creating_main_window(monkeypatch, tmp_path)
     monkeypatch.setenv("XFINAUDIO_PACKAGE_SMOKE", "1")
     monkeypatch.setenv("XFINAUDIO_DB_PATH", str(tmp_path / "db.sqlite3"))
     monkeypatch.setenv("XFINAUDIO_SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("XFINAUDIO_LOG_PATH", str(tmp_path / "xfinaudio.log"))
 
     macos_calls = []
     assert desktop_app.main(macos_configurator=lambda name, icon: macos_calls.append((name, icon))) == 0
@@ -116,6 +118,7 @@ def test_main_resolves_default_macos_configurator_at_call_time(monkeypatch, tmp_
     monkeypatch.delenv("XFINAUDIO_PACKAGE_SMOKE", raising=False)
     monkeypatch.setenv("XFINAUDIO_DB_PATH", str(tmp_path / "db.sqlite3"))
     monkeypatch.setenv("XFINAUDIO_SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("XFINAUDIO_LOG_PATH", str(tmp_path / "xfinaudio.log"))
 
     assert desktop_app.main() == 0
     assert calls and calls[0][0] == "XfinAudio"
@@ -150,3 +153,63 @@ def test_default_log_path_sits_next_to_the_application_database() -> None:
     from xfinaudio.desktop import app as desktop_app
 
     assert desktop_app.default_log_path().parent == desktop_app.default_database_path().parent
+
+
+def test_main_never_writes_the_log_into_the_real_home(monkeypatch, tmp_path) -> None:
+    """Running main() under test must not touch the user's own ~/.xfinaudio log."""
+    import logging
+
+    from xfinaudio.desktop import app as desktop_app
+
+    class FakeQApplication:
+        def __init__(self, argv):
+            self.argv = argv
+
+        def setApplicationName(self, name):
+            pass
+
+        def setApplicationDisplayName(self, name):
+            pass
+
+        def exec(self):
+            return 0
+
+    class FakeWindow:
+        def showMaximized(self):
+            pass
+
+        def windowState(self):
+            return desktop_app.Qt.WindowState.WindowMinimized
+
+        def setWindowState(self, state):
+            pass
+
+        def raise_(self):
+            pass
+
+        def activateWindow(self):
+            pass
+
+    monkeypatch.setattr(desktop_app, "QApplication", FakeQApplication)
+    monkeypatch.setattr(desktop_app.MainWindow, "with_defaults", lambda *_args: FakeWindow())
+    monkeypatch.delenv("XFINAUDIO_PACKAGE_SMOKE", raising=False)
+    monkeypatch.setenv("XFINAUDIO_DB_PATH", str(tmp_path / "db.sqlite3"))
+    monkeypatch.setenv("XFINAUDIO_SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("XFINAUDIO_LOG_PATH", str(tmp_path / "logs" / "xfinaudio.log"))
+    handlers_before = list(logging.getLogger().handlers)
+
+    try:
+        assert desktop_app.main(macos_configurator=lambda _name, _icon: None) == 0
+        logging.getLogger("xfinaudio.audio.loudness_runtime").warning("probe failed")
+        logging.shutdown()
+    finally:
+        for handler in list(logging.getLogger().handlers):
+            if handler not in handlers_before:
+                logging.getLogger().removeHandler(handler)
+                handler.close()
+
+    assert (tmp_path / "logs" / "xfinaudio.log").read_text(encoding="utf-8").count("probe failed") == 1
+    assert all(
+        getattr(handler, "baseFilename", "") != str(desktop_app.default_log_path())
+        for handler in logging.getLogger().handlers
+    )
