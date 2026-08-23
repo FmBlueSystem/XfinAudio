@@ -11,6 +11,7 @@ from pathlib import Path
 
 from xfinaudio.audio.loudness import FfmpegCapabilityError, FfmpegLoudnessAdapter
 from xfinaudio.audio.loudness_completion import LoudnessCompletionService
+from xfinaudio.audio.loudness_tags import write_loudness_tags
 
 VersionProbe = Callable[[Path], str | None]
 AdapterFactory = Callable[[Path, str], FfmpegLoudnessAdapter]
@@ -68,4 +69,4 @@ def create_loudness_completion_service(
         adapter.preflight()
     except (FfmpegCapabilityError, OSError):
         return None
-    return LoudnessCompletionService(adapter, engine_fingerprint=fingerprint)
+    return LoudnessCompletionService(adapter, engine_fingerprint=fingerprint, tag_writer=write_loudness_tags)

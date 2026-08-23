@@ -5,6 +5,7 @@ from pathlib import Path
 
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.loudness_completion import LoudnessCompletionService, prioritize_records
+from xfinaudio.audio.loudness_tags import LoudnessTagWriteResult, LoudnessTagWriteStatus
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.track_repository import TrackRepository
 
@@ -26,6 +27,9 @@ class _Repository:
 
     def load_loudness_profile_cache(self, paths, *, engine_fingerprint: str, force_reanalyze: bool = False):
         return {path: self.cache[path] for path in paths if path in self.cache}
+
+    def refresh_post_metadata_identity(self, path: str) -> bool:
+        return True
 
     def update_loudness_profile(self, path: str, profile: LoudnessProfile) -> bool:
         self.updated[path] = profile
@@ -138,3 +142,87 @@ def test_repository_updates_one_loudness_profile_without_rescanning(tmp_path: Pa
 
     assert repository.update_loudness_profile(str(path), _profile()) is True
     assert repository.list_tracks()[0].loudness_profile == _profile()
+
+
+class _OrderedRepository(_Repository):
+    def __init__(self, events: list[str], cache: dict[str, LoudnessProfile] | None = None) -> None:
+        super().__init__(cache)
+        self.events = events
+        self.siblings = {"spectral": object(), "danceability": object(), "edge": object()}
+
+    def refresh_post_metadata_identity(self, path: str) -> bool:
+        self.events.append("refresh")
+        return True
+
+    def update_loudness_profile(self, path: str, profile: LoudnessProfile) -> bool:
+        self.events.append("persist")
+        assert self.siblings.keys() == {"spectral", "danceability", "edge"}
+        return super().update_loudness_profile(path, profile)
+
+
+def test_fresh_profile_writes_restamps_refreshes_siblings_then_persists(tmp_path: Path) -> None:
+    path = tmp_path / "track.flac"
+    path.write_text("audio")
+    events: list[str] = []
+
+    class EventAnalyzer(_Analyzer):
+        def analyze(self, path: Path, *, duration_seconds: float) -> LoudnessProfile:
+            events.append("analyze")
+            return super().analyze(path, duration_seconds=duration_seconds)
+
+    def write_tags(target: Path, profile: LoudnessProfile) -> LoudnessTagWriteResult:
+        events.append("write")
+        target.write_text(target.read_text() + " tags")
+        return LoudnessTagWriteResult(LoudnessTagWriteStatus.CHANGED)
+
+    repository = _OrderedRepository(events)
+    LoudnessCompletionService(EventAnalyzer(), engine_fingerprint="ffmpeg-test", tag_writer=write_tags).complete(
+        [TrackRecord(path=str(path), duration=8.0)], repository
+    )
+
+    assert events == ["analyze", "write", "refresh", "persist"]
+    assert repository.updated[str(path)].source_size_bytes == path.stat().st_size
+    assert repository.siblings.keys() == {"spectral", "danceability", "edge"}
+
+
+def test_unchanged_write_avoids_refresh_and_cache_replay_never_calls_writer(tmp_path: Path) -> None:
+    path = tmp_path / "track.flac"
+    path.write_text("audio")
+    events: list[str] = []
+    writer_calls: list[Path] = []
+
+    def unchanged(target: Path, profile: LoudnessProfile) -> LoudnessTagWriteResult:
+        writer_calls.append(target)
+        return LoudnessTagWriteResult(LoudnessTagWriteStatus.UNCHANGED)
+
+    service = LoudnessCompletionService(_Analyzer(), engine_fingerprint="ffmpeg-test", tag_writer=unchanged)
+    repository = _OrderedRepository(events)
+    records = [TrackRecord(path=str(path), duration=8.0)]
+    service.complete(records, repository)
+
+    assert events == ["persist"]
+    assert writer_calls == [path]
+    cache_repository = _OrderedRepository([], {str(path): repository.updated[str(path)]})
+    service.complete(records, cache_repository)
+    assert writer_calls == [path]
+    assert cache_repository.updated == {}
+
+
+def test_tag_write_failure_restamps_and_refreshes_before_persisting_typed_failure(tmp_path: Path) -> None:
+    path = tmp_path / "track.flac"
+    path.write_text("audio")
+    events: list[str] = []
+
+    def partial_write(target: Path, profile: LoudnessProfile) -> LoudnessTagWriteResult:
+        events.append("write")
+        target.write_text(target.read_text() + " partial")
+        raise RuntimeError("save interrupted")
+
+    repository = _OrderedRepository(events)
+    LoudnessCompletionService(_Analyzer(), engine_fingerprint="ffmpeg-test", tag_writer=partial_write).complete(
+        [TrackRecord(path=str(path), duration=8.0)], repository
+    )
+
+    assert events == ["write", "refresh", "persist"]
+    assert repository.updated[str(path)].status is LoudnessStatus.TRANSIENT_FAILURE
+    assert repository.updated[str(path)].source_size_bytes == path.stat().st_size

@@ -145,3 +145,9 @@ All requested gates passed on 2026-08-22: focused WU2 tests 112 passed in 3.01s 
 
 - The codec overwrites every ID3 `COMM` frame and writes `TXXX:XFINAUDIO_LOUDNESS`; FLAC uses Vorbis `COMMENT` and `XFINAUDIO_LOUDNESS`. MP3/WAV/AIFF are ID3-capable when tags can be created, while M4A and unknown suffixes return typed `unsupported`.
 - It saves only changed complete `measured` values. WU3c must perform the post-write restat, shared identity refresh, and profile persistence.
+
+
+## add-loudness-module WU3c task 3.4
+
+- Fresh results always invoke the codec, then stamp profile-owned identity from a post-write stat. Only `changed` invokes `refresh_post_metadata_identity` before loudness persistence; cache replays never invoke the codec.
+- A writer exception or unknown result is persisted as `transient_failure`; the service fresh-stats and refreshes siblings when that failed attempt changed identity.

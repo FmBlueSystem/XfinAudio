@@ -40,7 +40,7 @@
       strategy output
 - [x] 3.3 Tag write-back: COMMENT summary (frozen `{:.1f}` format, write only on changed
       values) + structured `XFINAUDIO_LOUDNESS` custom tag (v1 payload schema)
-- [ ] 3.4 Write ordering: measure → write tags → restat → stamp profile identity → persist;
+- [x] 3.4 Write ordering: measure → write tags → restat → stamp profile identity → persist;
       shared identity helper call after write
 - [ ] 3.5 Best-effort recovery-from-tags on scan when DB row absent (per-format capability
       map; DB remains source of truth)

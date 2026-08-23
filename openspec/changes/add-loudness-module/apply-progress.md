@@ -162,3 +162,16 @@ All requested gates passed on 2026-08-22 in order (exact combined stdout/stderr 
 | Focused tests | 9 deterministic fake-tag tests; no audio files opened or saved. |
 | Runtime harness | N/A — the injectable loader/saver isolates this codec; WU3c owns live write ordering. |
 | Rollback boundary | Revert the tag codec and its tests without changing analysis, persistence, or pipeline behavior. |
+
+
+## WU3c Task 3.4 Evidence
+
+| Task | RED | GREEN | Refactor |
+|---|---|---|---|
+| 3.4 | `uv run pytest -q tests/audio/test_loudness_completion.py tests/test_loudness_runtime.py` — 4 failed: no tag-writer seam | Same command — 11 passed | Kept one failure/profile helper and one identity snapshot helper |
+
+| Evidence | Result |
+|---|---|
+| Focused tests | Deterministic writer/repository fakes prove analyze → write → post-write stamp → sibling refresh → persist, cache no-write, and failure recovery. |
+| Runtime harness | N/A — injected fakes exercise the runtime composition boundary without user audio or mutagen writes. |
+| Rollback boundary | Revert the completion ordering, port addition, and focused regressions without changing the codec or cache format. |

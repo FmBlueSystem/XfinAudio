@@ -13,6 +13,7 @@ from xfinaudio.audio.loudness_runtime import (
     probe_engine_fingerprint,
     resolve_ffmpeg,
 )
+from xfinaudio.audio.loudness_tags import write_loudness_tags
 from xfinaudio.desktop import window_factory
 from xfinaudio.desktop.main_window import MainWindow
 
@@ -47,6 +48,7 @@ def test_runtime_factory_preflights_and_returns_none_when_unavailable_or_unsuppo
 
     assert service is not None
     assert service._engine_fingerprint == "ffmpeg-test"
+    assert service._tag_writer is write_loudness_tags
     adapter.preflight.assert_called_once_with()
     adapter.preflight.side_effect = FfmpegCapabilityError("missing peak")
     assert (
