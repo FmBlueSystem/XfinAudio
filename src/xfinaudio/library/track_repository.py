@@ -187,11 +187,40 @@ class TrackRepository:
                 """
                 UPDATE tracks
                 SET spectral_profile_json = ?,
+                    danceability_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN danceability_profile_json
+                        ELSE NULL
+                    END,
+                    edge_spectral_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN edge_spectral_profile_json
+                        ELSE NULL
+                    END,
                     file_mtime_ns = ?,
                     file_size_bytes = ?
                 WHERE path = ?
                 """,
-                (_serialize_profile(profile), mtime_ns, size_bytes, path),
+                (
+                    _serialize_profile(profile),
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    path,
+                ),
             )
             return cursor.rowcount > 0
 
@@ -244,12 +273,41 @@ class TrackRepository:
             cursor = connection.execute(
                 """
                 UPDATE tracks
-                SET danceability_profile_json = ?,
+                SET spectral_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN spectral_profile_json
+                        ELSE NULL
+                    END,
+                    danceability_profile_json = ?,
+                    edge_spectral_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN edge_spectral_profile_json
+                        ELSE NULL
+                    END,
                     file_mtime_ns = ?,
                     file_size_bytes = ?
                 WHERE path = ?
                 """,
-                (_serialize_danceability_profile(profile), mtime_ns, size_bytes, path),
+                (
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    _serialize_danceability_profile(profile),
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    path,
+                ),
             )
             return cursor.rowcount > 0
 
@@ -298,12 +356,41 @@ class TrackRepository:
             cursor = connection.execute(
                 """
                 UPDATE tracks
-                SET edge_spectral_profile_json = ?,
+                SET spectral_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN spectral_profile_json
+                        ELSE NULL
+                    END,
+                    danceability_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN danceability_profile_json
+                        ELSE NULL
+                    END,
+                    edge_spectral_profile_json = ?,
                     file_mtime_ns = ?,
                     file_size_bytes = ?
                 WHERE path = ?
                 """,
-                (_serialize_edge_spectral_profile(profile), mtime_ns, size_bytes, path),
+                (
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    _serialize_edge_spectral_profile(profile),
+                    mtime_ns,
+                    size_bytes,
+                    path,
+                ),
             )
             return cursor.rowcount > 0
 

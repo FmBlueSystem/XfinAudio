@@ -9,6 +9,7 @@ from xfinaudio.audio.danceability import CURRENT_DANCEABILITY_VERSION, Danceabil
 from xfinaudio.audio.spectral_profile import (
     CURRENT_ANALYSIS_VERSION,
     CURRENT_EDGE_ANALYSIS_VERSION,
+    ColorName,
     EdgeSpectralProfile,
     SpectralProfile,
 )
@@ -802,6 +803,212 @@ def _edge_spectral_profile(*, analysis_version: int = CURRENT_EDGE_ANALYSIS_VERS
         outro=SpectralProfile(red_ratio=0.05, green_ratio=0.05, blue_ratio=0.9, dominant_color="BLUE"),
         analysis_version=analysis_version,
     )
+
+
+def _spectral_profile(*, dominant_color: ColorName = "RED") -> SpectralProfile:
+    ratios = {
+        "RED": (0.9, 0.05, 0.05),
+        "GREEN": (0.05, 0.9, 0.05),
+    }
+    red_ratio, green_ratio, blue_ratio = ratios[dominant_color]
+    return SpectralProfile(
+        red_ratio=red_ratio,
+        green_ratio=green_ratio,
+        blue_ratio=blue_ratio,
+        dominant_color=dominant_color,
+    )
+
+
+def _derived_profile_seed() -> tuple[SpectralProfile, DanceabilityProfile, EdgeSpectralProfile]:
+    return _spectral_profile(), _danceability_profile(), _edge_spectral_profile()
+
+
+@pytest.mark.parametrize(
+    ("updater", "requested_attribute", "identity_change"),
+    [
+        ("update_spectral_profile", "spectral_profile", "mtime"),
+        ("update_danceability_profile", "danceability_profile", "mtime"),
+        ("update_edge_spectral_profile", "edge_spectral_profile", "mtime"),
+        ("update_spectral_profile", "spectral_profile", "size"),
+        ("update_danceability_profile", "danceability_profile", "size"),
+        ("update_edge_spectral_profile", "edge_spectral_profile", "size"),
+    ],
+)
+def test_profile_update_clears_siblings_when_file_identity_changes(
+    tmp_path,
+    updater: str,
+    requested_attribute: str,
+    identity_change: str,
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("original audio")
+    spectral, danceability, edge_spectral = _derived_profile_seed()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+                edge_spectral_profile=edge_spectral,
+            )
+        ]
+    )
+    requested = {
+        "spectral_profile": _spectral_profile(dominant_color="GREEN"),
+        "danceability_profile": DanceabilityProfile(
+            score=0.81,
+            pulse_clarity=0.82,
+            tempo_confidence=0.83,
+            percussive_ratio=0.84,
+        ),
+        "edge_spectral_profile": EdgeSpectralProfile(intro=edge_spectral.outro, outro=edge_spectral.intro),
+    }[requested_attribute]
+    if identity_change == "mtime":
+        stat = audio_file.stat()
+        os.utime(audio_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+    else:
+        audio_file.write_text("replacement audio with a different size")
+
+    assert getattr(repository, updater)(str(audio_file), requested) is True
+
+    restored = repository.list_tracks()[0]
+    assert getattr(restored, requested_attribute) == requested
+    for sibling_attribute in {
+        "spectral_profile",
+        "danceability_profile",
+        "edge_spectral_profile",
+    } - {requested_attribute}:
+        assert getattr(restored, sibling_attribute) is None
+    stat = audio_file.stat()
+    with sqlite3.connect(repository.db_path) as connection:
+        identity = connection.execute(
+            "SELECT file_mtime_ns, file_size_bytes FROM tracks WHERE path = ?", (str(audio_file),)
+        ).fetchone()
+    assert identity == (stat.st_mtime_ns, stat.st_size)
+
+
+@pytest.mark.parametrize(
+    ("updater", "requested_attribute"),
+    [
+        ("update_spectral_profile", "spectral_profile"),
+        ("update_danceability_profile", "danceability_profile"),
+        ("update_edge_spectral_profile", "edge_spectral_profile"),
+    ],
+)
+def test_profile_update_preserves_siblings_when_file_identity_matches(
+    tmp_path,
+    updater: str,
+    requested_attribute: str,
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    spectral, danceability, edge_spectral = _derived_profile_seed()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+                edge_spectral_profile=edge_spectral,
+            )
+        ]
+    )
+    requested = {
+        "spectral_profile": _spectral_profile(dominant_color="GREEN"),
+        "danceability_profile": DanceabilityProfile(
+            score=0.81,
+            pulse_clarity=0.82,
+            tempo_confidence=0.83,
+            percussive_ratio=0.84,
+        ),
+        "edge_spectral_profile": EdgeSpectralProfile(intro=edge_spectral.outro, outro=edge_spectral.intro),
+    }[requested_attribute]
+
+    assert getattr(repository, updater)(str(audio_file), requested) is True
+
+    restored = repository.list_tracks()[0]
+    assert getattr(restored, requested_attribute) == requested
+    assert restored.spectral_profile == (requested if requested_attribute == "spectral_profile" else spectral)
+    assert restored.danceability_profile == (
+        requested if requested_attribute == "danceability_profile" else danceability
+    )
+    assert restored.edge_spectral_profile == (
+        requested if requested_attribute == "edge_spectral_profile" else edge_spectral
+    )
+
+
+@pytest.mark.parametrize(
+    ("updater", "requested_attribute", "cache_loader"),
+    [
+        ("update_spectral_profile", "spectral_profile", "load_spectral_profile_cache"),
+        ("update_danceability_profile", "danceability_profile", "load_danceability_profile_cache"),
+        ("update_edge_spectral_profile", "edge_spectral_profile", "load_edge_spectral_profile_cache"),
+    ],
+)
+def test_profile_update_fails_closed_when_file_stat_is_unavailable(
+    tmp_path,
+    updater: str,
+    requested_attribute: str,
+    cache_loader: str,
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    spectral, danceability, edge_spectral = _derived_profile_seed()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+                edge_spectral_profile=edge_spectral,
+            )
+        ]
+    )
+    requested = {
+        "spectral_profile": _spectral_profile(dominant_color="GREEN"),
+        "danceability_profile": DanceabilityProfile(
+            score=0.81,
+            pulse_clarity=0.82,
+            tempo_confidence=0.83,
+            percussive_ratio=0.84,
+        ),
+        "edge_spectral_profile": EdgeSpectralProfile(intro=edge_spectral.outro, outro=edge_spectral.intro),
+    }[requested_attribute]
+    audio_file.unlink()
+
+    assert getattr(repository, updater)(str(audio_file), requested) is True
+
+    restored = repository.list_tracks()[0]
+    assert getattr(restored, requested_attribute) == requested
+    for sibling_attribute in {
+        "spectral_profile",
+        "danceability_profile",
+        "edge_spectral_profile",
+    } - {requested_attribute}:
+        assert getattr(restored, sibling_attribute) is None
+    with sqlite3.connect(repository.db_path) as connection:
+        identity = connection.execute(
+            "SELECT file_mtime_ns, file_size_bytes FROM tracks WHERE path = ?", (str(audio_file),)
+        ).fetchone()
+    assert identity == (None, None)
+    assert getattr(repository, cache_loader)([str(audio_file)]) == {}
+
+
+@pytest.mark.parametrize(
+    ("updater", "profile"),
+    [
+        ("update_spectral_profile", _spectral_profile()),
+        ("update_danceability_profile", _danceability_profile()),
+        ("update_edge_spectral_profile", _edge_spectral_profile()),
+    ],
+)
+def test_profile_update_returns_false_for_a_missing_track(updater: str, profile: object, tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+
+    assert getattr(repository, updater)("/music/missing.flac", profile) is False
 
 
 def test_track_repository_round_trips_danceability_profile_for_full_and_display_reads(tmp_path) -> None:
