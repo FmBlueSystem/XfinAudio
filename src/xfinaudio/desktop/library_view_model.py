@@ -153,6 +153,10 @@ class LibraryViewModel:
         """True while a scan is in progress."""
         return state.is_scanning
 
+    def rescan_button_visible(self, state: AppState) -> bool:
+        """True when changes were detected and no scan is currently running."""
+        return state.changes_detected_since_scan and not state.is_scanning
+
     def status_text(self, state: AppState) -> str:
         """Human-readable library status line."""
         if state.is_scanning:

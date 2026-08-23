@@ -64,7 +64,7 @@ def test_runtime_factory_preflights_and_returns_none_when_unavailable_or_unsuppo
 
 
 def test_window_factory_injects_available_loudness_service(monkeypatch) -> None:
-    service = object()
+    service = Mock()
     monkeypatch.setattr(window_factory, "create_loudness_completion_service", lambda: service)
     app = QApplication.instance() or QApplication([])
     repository = Mock()
@@ -72,4 +72,23 @@ def test_window_factory_injects_available_loudness_service(monkeypatch) -> None:
     window = MainWindow(scan_service=Mock(), repository=repository)
 
     assert window._library_controller._loudness_completion_service is service
+    assert app is QApplication.instance()
+
+
+def test_window_factory_wires_one_watcher_to_scan_and_loudness_and_stops_it(monkeypatch) -> None:
+    service = Mock()
+    monkeypatch.setattr(window_factory, "create_loudness_completion_service", lambda: service)
+    app = QApplication.instance() or QApplication([])
+    repository = Mock()
+    repository.db_path = None
+    window = MainWindow(scan_service=Mock(), repository=repository)
+    watcher = window._library_watch_service
+    watcher.stop = Mock()
+
+    assert window._scan_service._watch_service is watcher
+    service.set_path_suppressor.assert_called_once_with(watcher)
+
+    window.close()
+
+    watcher.stop.assert_called_once_with()
     assert app is QApplication.instance()

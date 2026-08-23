@@ -24,6 +24,9 @@ class TestAppStateDefaults:
     def test_records_by_path_default(self) -> None:
         assert AppState().records_by_path == {}
 
+    def test_changes_detected_since_scan_default(self) -> None:
+        assert AppState().changes_detected_since_scan is False
+
     def test_last_recommendation_default(self) -> None:
         assert AppState().last_recommendation is None
 

@@ -24,6 +24,7 @@ from xfinaudio.desktop.export_coordinator import ExportCoordinator
 from xfinaudio.desktop.export_view_model import ExportViewModel
 from xfinaudio.desktop.library_controller import LibraryController, LibraryControllerAccess, LibraryControllerWidgets
 from xfinaudio.desktop.library_view_model import LibraryViewModel
+from xfinaudio.desktop.library_watch_service import LibraryWatchService
 from xfinaudio.desktop.metadata_view_model import MetadataViewModel
 from xfinaudio.desktop.navigation import Navigation
 from xfinaudio.desktop.playlist_coordinator import PlaylistCoordinator
@@ -65,6 +66,7 @@ def initialize_window_state(
     )
     window._is_recommending = False
     window._scan_service = DesktopScanService(workflow_service, parent=window)
+    window._library_watch_service = LibraryWatchService(parent=window)
     window._recommendation_service = RecommendationService(workflow_service, parent=window)
     window._table_sort_orders = {}
     window._active_song_search_query = ""
@@ -122,6 +124,9 @@ def initialize_window_state(
 
 
 def initialize_library_controller(window, log) -> None:
+    loudness_completion_service = create_loudness_completion_service()
+    if loudness_completion_service is not None:
+        loudness_completion_service.set_path_suppressor(window._library_watch_service)
     window._library_controller = LibraryController(
         state=window._state,
         workflow_service=window.workflow_service,
@@ -166,7 +171,7 @@ def initialize_library_controller(window, log) -> None:
         audio_player=window._audio_player,
         sync_state=window._sync_state,
         request_sync=window._request_sync,
-        loudness_completion_service=create_loudness_completion_service(),
+        loudness_completion_service=loudness_completion_service,
         tr=window.tr,
         log=log,
         parent=window,
@@ -181,6 +186,8 @@ def replace_app_state(window, state: AppState) -> None:
         window._dj_readiness_controller._state = state
     if hasattr(window, "_scan_service"):
         window._scan_service._state = state
+    if hasattr(window, "_library_watch_service"):
+        window._library_watch_service.set_state(state)
     if hasattr(window, "_library_controller"):
         window._library_controller._state = state
     if hasattr(window, "_recommendation_service"):

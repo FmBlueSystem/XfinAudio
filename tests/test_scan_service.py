@@ -3,10 +3,13 @@ import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
+from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.scan_service import ScanService
 from xfinaudio.library.scan_service import (
     ScanCancellationToken,
     ScanCancelledError,
@@ -512,3 +515,184 @@ def test_coerce_tag_value_still_reads_text_frames() -> None:
     assert _coerce_tag_value(FakeTextFrame(["Track One"])) == ["Track One"]
     assert _coerce_tag_value(["Disco", "House"]) == ["Disco", "House"]
     assert _coerce_tag_value("plain") == "plain"
+
+
+# ---------------------------------------------------------------------------
+# xfinaudio.desktop.scan_service.ScanService: LibraryWatchService integration
+# ---------------------------------------------------------------------------
+
+
+class _ScanLabel:
+    def __init__(self) -> None:
+        self.text = ""
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt-compatible test double
+        self.text = text
+
+
+class _ScanButton:
+    def __init__(self) -> None:
+        self.enabled = True
+
+    def setEnabled(self, enabled: bool) -> None:  # noqa: N802 - Qt-compatible test double
+        self.enabled = enabled
+
+
+class FakeLibraryWatchService:
+    """Spy double recording lifecycle calls, matching LibraryWatchService's public shape."""
+
+    def __init__(self) -> None:
+        self.pause_calls = 0
+        self.resume_calls = 0
+        self.start_calls: list[Path] = []
+
+    def pause(self) -> None:
+        self.pause_calls += 1
+
+    def resume(self) -> None:
+        self.resume_calls += 1
+
+    def start(self, folder: Path) -> None:
+        self.start_calls.append(folder)
+
+
+def _wire_desktop_scan_service(
+    service: ScanService,
+    *,
+    state: AppState,
+    folder: Path | None = None,
+    watch_service: Any = None,
+) -> dict[str, Any]:
+    captured: dict[str, Any] = {"scanned_records": []}
+
+    def _set_scanned_records(records: list) -> None:
+        captured["scanned_records"] = records
+
+    service.set_state_accessors(
+        selected_folder=lambda: folder,
+        scanned_records=lambda: captured["scanned_records"],
+        set_scanned_records=_set_scanned_records,
+        state=state,
+    )
+    service.set_ui(
+        library_screen=SimpleNamespace(scan_button=_ScanButton(), cancel_button=_ScanButton()),
+        build_screen=SimpleNamespace(recommend_button=_ScanButton()),
+        status_label=_ScanLabel(),
+        scan_progress_label=_ScanLabel(),
+        library_guidance_label=_ScanLabel(),
+        recommendation_guidance_label=_ScanLabel(),
+        tr=lambda text: text,
+    )
+    service.set_actions(
+        sync_state=lambda: None,
+        show_tracks=lambda *_args: None,
+        clear_scan_dependent_state=lambda: None,
+        refresh_idle_action_state=lambda: None,
+        cancel_spectral_completion_worker=lambda: None,
+        show_status_bar=lambda: None,
+    )
+    if watch_service is not None:
+        service.set_watch_service(cast(Any, watch_service))
+    return captured
+
+
+def _completed_result(records: list | None = None) -> SimpleNamespace:
+    return SimpleNamespace(
+        cancelled=False,
+        records=records or [],
+        complete_count=0,
+        incomplete_count=0,
+    )
+
+
+def test_begin_scan_state_pauses_watch_service_when_wired() -> None:
+    service = ScanService(cast(Any, object()))
+    watch_service = FakeLibraryWatchService()
+    _wire_desktop_scan_service(service, state=AppState(), watch_service=watch_service)
+
+    service.begin_scan_state()
+
+    assert watch_service.pause_calls == 1
+
+
+def test_end_scan_state_resumes_watch_service_when_wired() -> None:
+    service = ScanService(cast(Any, object()))
+    watch_service = FakeLibraryWatchService()
+    _wire_desktop_scan_service(service, state=AppState(), watch_service=watch_service)
+
+    service._end_scan_state()
+
+    assert watch_service.resume_calls == 1
+
+
+def test_successful_scan_arms_watch_on_scanned_folder() -> None:
+    service = ScanService(cast(Any, object()))
+    watch_service = FakeLibraryWatchService()
+    folder = Path("/music")
+    _wire_desktop_scan_service(service, state=AppState(), folder=folder, watch_service=watch_service)
+
+    service.on_completed(_completed_result())
+
+    assert watch_service.start_calls == [folder]
+
+
+def test_successful_scan_clears_changes_detected_state() -> None:
+    service = ScanService(cast(Any, object()))
+    state = AppState(changes_detected_since_scan=True)
+    _wire_desktop_scan_service(service, state=state)
+
+    service.on_completed(_completed_result())
+
+    assert service._state.changes_detected_since_scan is False
+
+
+def test_scan_service_works_without_watch_service_wired() -> None:
+    service = ScanService(cast(Any, object()))
+    _wire_desktop_scan_service(service, state=AppState(), folder=Path("/music"))
+
+    service.begin_scan_state()
+    service.on_completed(_completed_result())
+
+    assert service._watch_service is None
+
+
+def test_pause_resume_debounce_burst_through_real_library_watch_service_coalesces_once() -> None:
+    """End-to-end pause (scan begins) -> resume (scan ends) -> debounce burst,
+    through a real LibraryWatchService wired to ScanService, coalesces to a
+    single changes_detected_since_scan transition."""
+    from tests.test_library_watch_service import FakeDebounceTimer, FakeEventSource
+    from xfinaudio.desktop.library_watch_service import LibraryWatchService
+    from xfinaudio.library.folder_watcher import FolderWatcher
+
+    event_source = FakeEventSource()
+    folder_watcher = FolderWatcher(event_source=event_source)
+    timers: list[FakeDebounceTimer] = []
+
+    def factory(on_timeout):
+        timer = FakeDebounceTimer(on_timeout)
+        timers.append(timer)
+        return timer
+
+    watch_service = LibraryWatchService(folder_watcher, debounce_timer_factory=factory, settle_window_ms=2000)
+    folder = Path("/music")
+    state = AppState(selected_folder=folder)
+    watch_service.set_state_accessors(state=state, sync_state=lambda: None)
+
+    scan_service = ScanService(cast(Any, object()))
+    _wire_desktop_scan_service(scan_service, state=state, folder=folder, watch_service=watch_service)
+
+    # Manual "Scan" click: begins the scan (pauses the watcher, no watch armed yet).
+    scan_service.begin_scan_state()
+    # Scan completes: resumes onto nothing (never armed), then arms the watch on
+    # the scanned folder as the successful-scan hook does.
+    scan_service.on_completed(_completed_result())
+
+    emissions: list[None] = []
+    watch_service.changes_detected.connect(lambda: emissions.append(None))
+
+    event_source.fire(str(folder / "a.mp3"))
+    event_source.fire(str(folder / "b.mp3"))
+    event_source.fire(str(folder / "c.mp3"))
+    timers[-1].fire()
+
+    assert len(emissions) == 1

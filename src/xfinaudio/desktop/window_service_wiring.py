@@ -46,6 +46,12 @@ def set_main_recommendation_sections_expanded(self: Any, expanded: bool) -> None
 
 
 def wire_main_scan_service(self: Any) -> None:
+    self._library_watch_service.set_state_accessors(
+        state=self._state,
+        state_setter=self._replace_app_state,
+        sync_state=self._sync_state,
+    )
+    self._scan_service.set_watch_service(self._library_watch_service)
     self._scan_service.set_state_accessors(
         selected_folder=lambda: self.selected_folder,
         scanned_records=lambda: self.scanned_records,

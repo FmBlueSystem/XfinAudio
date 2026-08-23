@@ -31,6 +31,7 @@ class AppState:
     selected_folder: Path | None = None
     scanned_records: list[TrackRecord] = field(default_factory=list)
     records_by_path: dict[str, TrackRecord] = field(default_factory=dict)
+    changes_detected_since_scan: bool = False
 
     # Recommendation
     last_recommendation: PlaylistRecommendation | None = None
