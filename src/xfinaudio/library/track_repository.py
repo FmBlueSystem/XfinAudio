@@ -164,7 +164,8 @@ class TrackRepository:
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
                        energy_in, energy_out, energy_peak, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json, spectral_profile_json,
-                       danceability_profile_json, edge_spectral_profile_json, loudness_profile_json, audio_md5
+                       danceability_profile_json, edge_spectral_profile_json, loudness_profile_json, audio_md5,
+                       file_mtime_ns, file_size_bytes
                 FROM tracks
                 ORDER BY path
                 """
@@ -693,7 +694,11 @@ class TrackRepository:
             spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
             danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"]),
             edge_spectral_profile=_deserialize_edge_spectral_profile(row["edge_spectral_profile_json"]),
-            loudness_profile=_deserialize_loudness_profile(row["loudness_profile_json"]),
+            loudness_profile=_deserialize_current_loudness_profile(
+                row["loudness_profile_json"],
+                source_mtime_ns=row["file_mtime_ns"],
+                source_size_bytes=row["file_size_bytes"],
+            ),
         )
 
 
@@ -759,3 +764,17 @@ def _deserialize_loudness_profile(value: str | None) -> LoudnessProfile | None:
         return LoudnessProfile.model_validate_json(value)
     except Exception:
         return None
+
+
+def _deserialize_current_loudness_profile(
+    value: str | None,
+    *,
+    source_mtime_ns: int | None,
+    source_size_bytes: int | None,
+) -> LoudnessProfile | None:
+    profile = _deserialize_loudness_profile(value)
+    if profile is None:
+        return None
+    if (profile.source_mtime_ns, profile.source_size_bytes) != (source_mtime_ns, source_size_bytes):
+        return None
+    return profile

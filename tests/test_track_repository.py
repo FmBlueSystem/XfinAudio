@@ -1316,6 +1316,19 @@ def test_track_repository_round_trips_loudness_profile_for_display_reads(tmp_pat
     assert repository.list_display_tracks()[0].loudness_profile == profile
 
 
+def test_display_reads_hide_loudness_profile_after_audio_identity_changes(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "replaced.flac"
+    audio_file.write_text("original audio")
+    profile = _loudness_profile(audio_file)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), loudness_profile=profile)])
+    audio_file.write_text("replacement audio bytes")
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file))])
+
+    assert repository.list_display_tracks()[0].loudness_profile is None
+
+
 def test_loudness_cache_uses_profile_identity_not_shared_track_identity(tmp_path) -> None:
     repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
     audio_file = tmp_path / "retagged.flac"
