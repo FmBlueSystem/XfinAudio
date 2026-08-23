@@ -139,6 +139,7 @@ class LibraryController:
         self._edge_spectral_completion_records: list[TrackRecord] = []
         self._loudness_completion_service = loudness_completion_service
         self._loudness_completion_stage: BackgroundCompletionStage | None = None
+        self._loudness_completion_stages: list[BackgroundCompletionStage] = []
         self._active_song_search_query = ""
         # Ensure analysis workers are shut down before this controller is
         # destroyed. Otherwise their QThreads outlive the
@@ -483,8 +484,13 @@ class LibraryController:
             edge_worker.shutdown()
         loudness_stage = self._loudness_completion_stage
         self._loudness_completion_stage = None
-        if loudness_stage is not None:
-            loudness_stage.shutdown()
+        stages = self._loudness_completion_stages
+        self._loudness_completion_stages = []
+        if loudness_stage is not None and loudness_stage not in stages:
+            stages.append(loudness_stage)
+        for stage in stages:
+            stage.shutdown()
+            stage.deleteLater()
 
     def _dispose_spectral_completion_worker(self) -> None:
         """Ask the worker to stop and release it once it actually does.
@@ -659,6 +665,7 @@ class LibraryController:
         )
         stage.finished.connect(lambda stage=stage: self.on_loudness_completion_finished(stage))
         self._loudness_completion_stage = stage
+        self._loudness_completion_stages.append(stage)
         candidates = (
             []
             if self._state.last_recommendation is None
@@ -696,10 +703,13 @@ class LibraryController:
 
     def on_loudness_completion_finished(self, completed_stage: BackgroundCompletionStage | None = None) -> None:
         if completed_stage is not None and completed_stage is not self._loudness_completion_stage:
-            return
-        stage = self._loudness_completion_stage
-        self._loudness_completion_stage = None
+            stage = completed_stage
+        else:
+            stage = self._loudness_completion_stage
+            self._loudness_completion_stage = None
         if stage is not None:
+            if stage in self._loudness_completion_stages:
+                self._loudness_completion_stages.remove(stage)
             stage.deleteLater()
 
     def _replace_state(self, **updates: object) -> None:

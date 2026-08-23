@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -8,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import CURRENT_EDGE_ANALYSIS_VERSION, EdgeSpectralProfile, SpectralProfile
-from xfinaudio.desktop import library_controller
+from xfinaudio.desktop import library_controller, window_factory
 from xfinaudio.desktop.background_completion_stage import BackgroundCompletionStage
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.library.models import TrackRecord
@@ -56,6 +57,93 @@ def test_background_stage_terminal_shutdown_waits_without_a_timeout() -> None:
     stage.shutdown()
 
     thread.wait.assert_called_once_with()
+
+
+def test_window_close_terminates_its_loudness_stage_thread(monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class Repository:
+        def save_scan_results(self, records, **kwargs):
+            pass
+
+    class ScanService:
+        def scan(self, *_args, **_kwargs):
+            return []
+
+    class BlockingService:
+        def __init__(self) -> None:
+            self.started = threading.Event()
+            self.cancelled = threading.Event()
+
+        def complete(self, *_args, **_kwargs) -> None:
+            self.started.set()
+            self.cancelled.wait(1)
+
+        def cancel(self) -> None:
+            self.cancelled.set()
+
+    monkeypatch.setattr(window_factory, "create_loudness_completion_service", lambda: None)
+    window = MainWindow(scan_service=ScanService(), repository=Repository())
+    service = BlockingService()
+    controller = window._library_controller
+    controller._loudness_completion_service = service
+    controller.start_loudness_completion([TrackRecord(path="/track.flac")])
+    stage = controller._loudness_completion_stage
+    assert stage is not None
+    assert service.started.wait(1)
+
+    try:
+        window.close()
+        assert controller._loudness_completion_stage is None
+        assert not stage.is_running()
+    finally:
+        controller.shutdown()
+        stage.shutdown()
+    assert app is QApplication.instance()
+
+
+def test_window_close_reaps_a_loudness_stage_cancelled_before_shutdown(monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class Repository:
+        def save_scan_results(self, records, **kwargs):
+            pass
+
+    class ScanService:
+        def scan(self, *_args, **_kwargs):
+            return []
+
+    class DelayedCancellationService:
+        def __init__(self) -> None:
+            self.started = threading.Event()
+            self.cancelled = threading.Event()
+            self.release = threading.Event()
+
+        def complete(self, *_args, **_kwargs) -> None:
+            self.started.set()
+            self.cancelled.wait(1)
+            self.release.wait(1)
+
+        def cancel(self) -> None:
+            self.cancelled.set()
+
+    monkeypatch.setattr(window_factory, "create_loudness_completion_service", lambda: None)
+    window = MainWindow(scan_service=ScanService(), repository=Repository())
+    service = DelayedCancellationService()
+    controller = window._library_controller
+    controller._loudness_completion_service = service
+    controller.start_loudness_completion([TrackRecord(path="/track.flac")])
+    stage = controller._loudness_completion_stage
+    assert stage is not None
+    assert service.started.wait(1)
+
+    controller.cancel_loudness_completion()
+    assert stage.is_running()
+    assert stage in controller._loudness_completion_stages
+    service.release.set()
+    window.close()
+    assert not stage.is_running()
+    assert app is QApplication.instance()
 
 
 def test_controller_starts_after_edge_without_missing_work_uses_priority_and_updates_immutably(monkeypatch) -> None:

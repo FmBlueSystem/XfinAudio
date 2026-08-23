@@ -114,7 +114,7 @@ class MainWindow(QMainWindow):
         self._audio_player.shutdown()
         self._scan_service.cancel()
         if hasattr(self, "_library_controller"):
-            self._cancel_spectral_completion_worker()
+            self._library_controller.shutdown()
         self._recommendation_service.cancel()
         self._persist_window_geometry()
         super().closeEvent(event)  # type: ignore[arg-type]
