@@ -153,6 +153,7 @@ class RecommendationService(QObject):
             spectral_cohesion,
             rid,
             color_anchor_path=color_anchor_path,
+            loudness_band=loudness_band,
         )
 
     def cancel(self) -> None:
@@ -179,11 +180,13 @@ class RecommendationService(QObject):
             return
         spectral_cohesion = self._build_screen.spectral_cohesion_value() / 100.0
         loudness = self._current_state().settings.loudness
+        loudness_band = LoudnessBand(loudness.target_lufs, loudness.tolerance_lu)
         records, color_anchor_path = resolve_candidate_route(
             controls,
             strategy_name,
             records_route=self._desktop_recommendation_records,
             color_anchor_context_route=self._desktop_color_anchor_candidate_context,
+            loudness_band=loudness_band,
         )
         self._begin_recommendation_state(len(records))
         self.start_recommendation(
@@ -192,7 +195,7 @@ class RecommendationService(QObject):
             controls,
             spectral_cohesion,
             color_anchor_path=color_anchor_path,
-            loudness_band=LoudnessBand(loudness.target_lufs, loudness.tolerance_lu),
+            loudness_band=loudness_band,
         )
 
     def _begin_recommendation_state(self, candidate_count: int) -> None:

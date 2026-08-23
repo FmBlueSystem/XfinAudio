@@ -197,6 +197,7 @@ def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) 
         return "updated-state"
 
     monkeypatch.setattr("xfinaudio.desktop.prep_copilot.apply_prep_copilot_plan_generated", fake_plan_generated)
+    routed_bands: list[LoudnessBand] = []
 
     controller = PrepCopilotController(
         build_screen=build_screen,
@@ -205,7 +206,7 @@ def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) 
         workflow_service=object(),
         on_state_changed=on_state_changed,
         on_status_message=status_messages.append,
-        desktop_recommendation_records=lambda controls_arg, _strategy=None: records,
+        desktop_recommendation_records=lambda *_args, loudness_band: routed_bands.append(loudness_band) or records,
         desktop_color_anchor_candidate_context=_unrouted,
         plan_generation_builder=generate_plan,
     )
@@ -219,6 +220,7 @@ def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) 
     assert request.start_path == "/music/start.flac"
     assert request.required_paths == ["/music/start.flac"]
     assert request.genre_focus == "House"
+    assert routed_bands == [LoudnessBand(-14.0, 0.5)]
     assert generation_calls[0][2] == LoudnessBand(-14.0, 0.5)
     assert status_messages == ["Generated 2 Prep Copilot variant(s)"]
     assert transition_calls == [(initial_state, generated_plan)]

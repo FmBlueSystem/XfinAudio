@@ -41,6 +41,7 @@ from xfinaudio.library.ports import TrackRepositoryPort
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 
 LOGGER = logging.getLogger(__name__)
@@ -478,7 +479,11 @@ class MainWindow(QMainWindow):
         return _layout.selected_main_track_controls(self)
 
     def _desktop_recommendation_records(
-        self, controls: DJControls | None, strategy_name: str | None = None
+        self,
+        controls: DJControls | None,
+        strategy_name: str | None = None,
+        *,
+        loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
     ) -> list[TrackRecord]:
         return plan_recommendation_candidates(
             scanned_records=self.scanned_records,
@@ -488,10 +493,11 @@ class MainWindow(QMainWindow):
                 played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
             ),
             strategy_name=strategy_name,
+            loudness_band=loudness_band,
         )
 
     def _desktop_color_anchor_candidate_context(
-        self, controls: DJControls | None, strategy_name: str
+        self, controls: DJControls | None, strategy_name: str, *, loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND
     ) -> RecommendationCandidateContext:
         return plan_recommendation_candidate_context(
             scanned_records=self.scanned_records,
@@ -501,6 +507,7 @@ class MainWindow(QMainWindow):
                 played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
             ),
             strategy_name=strategy_name,
+            loudness_band=loudness_band,
         )
 
     def show_recommendation(

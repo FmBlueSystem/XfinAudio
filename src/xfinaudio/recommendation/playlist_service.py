@@ -799,6 +799,7 @@ def resolve_color_anchor_path(
     tracks: list[TrackRecord],
     strategy_name: StrategyName | str,
     controls: DJControls | None = None,
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
 ) -> str | None:
     """Bind a colour-gate anchor path from the pre-anchor candidate pool.
 
@@ -818,7 +819,7 @@ def resolve_color_anchor_path(
     preserve_paths = preserved_control_paths(controls)
     complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
     filtered, _ = _apply_strategy_filters(
-        complete_tracks, strategy, preserve_paths=preserve_paths, loudness_band=DEFAULT_LOUDNESS_BAND
+        complete_tracks, strategy, preserve_paths=preserve_paths, loudness_band=loudness_band
     )
     filtered, _ = _apply_requested_genre(filtered, controls.genre, preserve_paths)
     anchor = _resolve_color_anchor(filtered, controls)
