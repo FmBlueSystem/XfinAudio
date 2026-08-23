@@ -201,6 +201,32 @@ def _built_executable(dist_path: Path) -> Path:
     raise FileNotFoundError(f"Could not find built XfinAudio executable under {dist_path}")
 
 
+def validate_bundled_ffmpeg(dist_path: Path) -> Path:
+    """Verify the collected CLI before launch can mask a thinned binary."""
+    binary = _built_executable(dist_path).parents[1] / "Frameworks" / "ffmpeg"
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise RuntimeError(f"Bundled FFmpeg is missing or not executable: {binary}")
+
+    def probe(*args: str) -> str:
+        command = [str(binary), *args]
+        if args[0] == "-verify_arch":
+            command = ["lipo", str(binary), *args]
+        result = subprocess.run(command, cwd=PROJECT_ROOT, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Bundled FFmpeg validation failed: {' '.join(command)}")
+        return result.stdout or ""
+
+    probe("-verify_arch", "arm64", "x86_64")
+    if re.search(r"\bffmpeg version 7\.1\.1(?:\s|$)", probe("-version")) is None:
+        raise RuntimeError("Bundled FFmpeg is not the required 7.1.1 builder version")
+    if re.search(r"\bebur128\b", probe("-hide_banner", "-filters")) is None:
+        raise RuntimeError("Bundled FFmpeg lacks ebur128")
+    peak_help = probe("-hide_banner", "-h", "filter=ebur128").lower()
+    if re.search(r"\bpeak\b.*\btrue\b|\btrue\b.*\bpeak\b", peak_help) is None:
+        raise RuntimeError("Bundled FFmpeg lacks ebur128 true-peak support")
+    return binary
+
+
 def validate_launch(dist_path: Path, temp_root: Path, timeout_seconds: int = 20) -> int:
     """Launch the built app in package smoke mode with temp-only app data paths."""
     executable = _built_executable(dist_path)
@@ -267,6 +293,7 @@ def run_temp_build(validate_launch_after_build: bool = False) -> int:
         return result.returncode
 
     print("PyInstaller temp build completed.")
+    print(f"Bundled FFmpeg validation: {validate_bundled_ffmpeg(dist_path)}")
     _print_warning_triage(work_path)
     if validate_launch_after_build:
         launch_result = validate_launch(dist_path, temp_root)

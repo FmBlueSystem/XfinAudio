@@ -37,6 +37,23 @@ def validate_ffmpeg_bundle(binary: Path) -> Path:
     return binary
 
 
+def preserve_standalone_ffmpeg(entries: list[tuple[str, str, str]], binary: Path) -> list[tuple[str, str, str]]:
+    """Keep the standalone universal2 CLI out of PyInstaller's Mach-O thinning path."""
+    target_source = str(binary.resolve())
+    matches = [
+        (name, source, typecode)
+        for name, source, typecode in entries
+        if name == "ffmpeg" and str(Path(source).resolve()) == target_source
+    ]
+    if len(matches) != 1 or matches[0][2] != "BINARY":
+        raise RuntimeError("Expected exactly one standalone FFmpeg binary for collection")
+    selected = matches[0]
+    return [
+        (name, source, "DATA" if (name, source, typecode) == selected else typecode)
+        for name, source, typecode in entries
+    ]
+
+
 bundled_ffmpeg = validate_ffmpeg_bundle(ffmpeg_binary)
 
 # Without this the bundle reports CFBundleShortVersionString 0.0.0, which is
@@ -86,6 +103,7 @@ analysis = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+analysis.binaries[:] = preserve_standalone_ffmpeg(analysis.binaries, bundled_ffmpeg)
 
 pyz = PYZ(analysis.pure, analysis.zipped_data, cipher=block_cipher)
 

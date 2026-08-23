@@ -302,3 +302,11 @@ The test-wide guard had remained attached to the legacy `MainWindow._start_spect
 - RED: focused FFmpeg build/packaging assertions — 2 failed because both validators passed `-verify_arch` before the binary.
 - GREEN: `uv run pytest -q tests/test_ffmpeg_build.py tests/test_pyinstaller_packaging.py` — 23 passed; Pyright and Ruff passed.
 - Rollback: revert the two lipo command tuples and their ordering assertions.
+
+### Final verification PyInstaller universal2 preservation correction
+
+- RED: new spec/smoke contract tests — 2 failed: no standalone-CLI reclassification and no post-collection validator.
+- GREEN: `uv run pytest -q tests/test_pyinstaller_packaging.py tests/test_ffmpeg_build.py` — 26 passed; focused Pyright and Ruff passed.
+- Mechanism: retain the required Analysis binary declaration, then reclassify only that exact resolved `ffmpeg` BINARY TOC entry as executable DATA for COLLECT/BUNDLE, which avoids PyInstaller's Mach-O processing/thinning while retaining the bundle-root Frameworks symlink.
+- Smoke: temp builds now validate the collected executable, 7.1.1, universal2 architectures, ebur128, and true peak before optional launch.
+- Rollback: revert the spec reclassification, smoke validator, and packing regressions together.
