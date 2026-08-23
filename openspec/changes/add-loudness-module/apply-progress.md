@@ -261,3 +261,22 @@ Task 4.1 remains unchecked pending WU4.4 translation catalog updates.
 | Catalogs | Finished source-equivalent English and neutral Spanish entries cover strategy, settings, progress, details, badges, and missing states in both TS/QM pairs. Placeholder strings are byte-identical between source and translation. |
 | Churn control | Full `update_translations.py` exposed 245 unrelated stale entries; its TS/QM output was reverted, then the affected source catalog was merged and both QM files regenerated with `pyside6-lrelease`. |
 | Focused type/lint/format | `uv run pyright src tests` — 0 errors; `uv run ruff check .` — passed; `uv run ruff format --check .` — 301 files already formatted. |
+
+## WU4g Task 4.5 Packaging integration
+
+| Task | Safety net | RED | GREEN | Refactor |
+|---|---|---|---|---|
+| 4.5 | `uv run pytest -q tests/test_pyinstaller_packaging.py tests/test_open_source_license_docs.py tests/test_third_party_license_inventory.py` — 31 passed | Packaging contract test failed: no bundled FFmpeg declaration | Same command — 32 passed | Kept validation in the PyInstaller spec so packaging fails before analysis. |
+
+| Evidence | Result |
+|---|---|
+| Bundle contract | Source-built `packaging/ffmpeg/ffmpeg` is validated as executable universal2 with ebur128 true peak, bundled at root, and excluded from UPX. |
+| Provenance | Inventory pins FFmpeg 7.1.1, official source/checksum, LGPL configuration, source rebuild command, macOS target, and `_MEIPASS/ffmpeg` location. |
+| Runtime harness | N/A — inspection-based fake-free packaging contract; no FFmpeg binary or source build is run in tests. |
+| Rollback boundary | Revert spec, inventory/strategy, task, and test changes; the WU4f source builder remains independently usable. |
+
+### WU4g correction
+
+- RED: `uv run pytest -q tests/test_pyinstaller_packaging.py` — 2 failed, 16 passed: missing exact build-surface provenance and version rejection.
+- GREEN: `uv run pytest -q tests/test_pyinstaller_packaging.py tests/test_open_source_license_docs.py tests/test_third_party_license_inventory.py` — 33 passed.
+- Added a fake executable/tool validator regression for rejected non-7.1.1 output; the inventory now mirrors every enabled/disabled build flag and defines corresponding-source retention or durable-offer terms.

@@ -51,7 +51,7 @@
 - [x] 4.2 AppState + progress surface for loudness stage (immutable transitions pattern)
 - [x] 4.3 True-peak badge (warn > −1.0 dBTP, clip ≥ 0.0 dBTP) + LUFS/LRA/dBTP detail pane
 - [x] 4.4 en/es translations for all new UI strings
-- [ ] 4.5 Packaging: FFmpeg CLI in binaries=[], bundle-absolute invocation, UPX exclusion,
+- [x] 4.5 Packaging: FFmpeg CLI in binaries=[], bundle-absolute invocation, UPX exclusion,
       license inventory entry
 - [x] 4.6 Governance: amend read-only contract text in README (EN/ES), AGENTS.md,
       CONTRIBUTING.md + tests pinning the amended sentences

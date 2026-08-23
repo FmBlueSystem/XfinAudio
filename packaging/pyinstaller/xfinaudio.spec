@@ -1,9 +1,43 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+import re
+import subprocess
 import tomllib
 from pathlib import Path
 
 project_root = Path(SPECPATH).parents[1]
+ffmpeg_binary = project_root / "packaging" / "ffmpeg" / "ffmpeg"
+
+
+def _ffmpeg_probe(command: tuple[str, ...]) -> str:
+    result = subprocess.run(
+        command, stdin=subprocess.DEVNULL, capture_output=True, text=True, shell=False, check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Bundled FFmpeg validation failed: {' '.join(command)}")
+    return result.stdout or ""
+
+
+def validate_ffmpeg_bundle(binary: Path) -> Path:
+    """Fail packaging before including an invalid universal2 ebur128 executable."""
+    binary = binary.resolve()
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise RuntimeError(f"Bundled FFmpeg is missing or not executable: {binary}")
+    _ffmpeg_probe(("lipo", "-verify_arch", "arm64", "x86_64", str(binary)))
+    version = _ffmpeg_probe((str(binary), "-version"))
+    if re.search(r"\bffmpeg version 7\.1\.1(?:\s|$)", version) is None:
+        raise RuntimeError("Bundled FFmpeg is not the required 7.1.1 builder version")
+    filters = _ffmpeg_probe((str(binary), "-hide_banner", "-filters"))
+    if re.search(r"\bebur128\b", filters) is None:
+        raise RuntimeError("Bundled FFmpeg lacks ebur128")
+    filter_help = _ffmpeg_probe((str(binary), "-hide_banner", "-h", "filter=ebur128"))
+    if re.search(r"\bpeak\b.*\btrue\b|\btrue\b.*\bpeak\b", filter_help.lower()) is None:
+        raise RuntimeError("Bundled FFmpeg lacks ebur128 true-peak support")
+    return binary
+
+
+bundled_ffmpeg = validate_ffmpeg_bundle(ffmpeg_binary)
 
 # Without this the bundle reports CFBundleShortVersionString 0.0.0, which is
 # what macOS shows in Get Info and what every crash report carries -- making
@@ -24,7 +58,7 @@ if asset_dir.exists():
 analysis = Analysis(
     [str(project_root / "src/xfinaudio/desktop/app.py")],
     pathex=[str(project_root / "src")],
-    binaries=[],
+    binaries=[(str(bundled_ffmpeg), ".")],
     datas=assets,
     hiddenimports=[
         "pydantic",
@@ -80,7 +114,7 @@ coll = COLLECT(
     analysis.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=["ffmpeg"],
     name="XfinAudio",
 )
 

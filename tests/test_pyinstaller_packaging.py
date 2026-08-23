@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -290,3 +292,70 @@ def test_run_temp_build_prints_warning_triage_after_successful_build(
     assert "PyInstaller expected warnings: 1" in output
     assert "PyInstaller unexpected warnings: 1" in output
     assert "definitely_required_runtime_module" in output
+
+
+def test_loudness_ffmpeg_bundle_is_validated_excluded_from_upx_and_documented() -> None:
+    spec_text = SPEC_PATH.read_text(encoding="utf-8")
+    inventory = (PROJECT_ROOT / "docs" / "third-party-license-inventory.md").read_text(encoding="utf-8")
+    runtime = (PROJECT_ROOT / "src" / "xfinaudio" / "audio" / "loudness_runtime.py").read_text(encoding="utf-8")
+    build_script = (PROJECT_ROOT / "scripts" / "build_ffmpeg_universal.py").read_text(encoding="utf-8")
+    tasks = (PROJECT_ROOT / "openspec" / "changes" / "add-loudness-module" / "tasks.md").read_text(encoding="utf-8")
+
+    assert 'ffmpeg_binary = project_root / "packaging" / "ffmpeg" / "ffmpeg"' in spec_text
+    assert 'binaries=[(str(bundled_ffmpeg), ".")]' in spec_text
+    assert 'upx_exclude=["ffmpeg"]' in spec_text
+    assert 'Path(root) / "ffmpeg"' in runtime
+    assert '("lipo", "-verify_arch", "arm64", "x86_64", str(binary))' in spec_text
+    assert '"filter=ebur128"' in spec_text
+    assert spec_text.index("validate_ffmpeg_bundle(ffmpeg_binary)") < spec_text.index("analysis = Analysis")
+    for expected in (
+        "FFmpeg 7.1.1",
+        "https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz",
+        "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1",
+        "LGPL-2.1-or-later",
+        "scripts/build_ffmpeg_universal.py",
+        "macOS universal2",
+        "_MEIPASS/ffmpeg",
+        "corresponding source",
+    ):
+        assert expected in inventory
+    config_flags = re.findall(r'^    "(--(?:disable|enable)-[^"]+)",$', build_script, re.MULTILINE)
+    assert config_flags and all(f"`{flag}`" in inventory for flag in config_flags)
+    assert "durable written offer" in inventory
+    assert "- [x] 4.5 Packaging: FFmpeg CLI" in tasks
+
+
+def _bundle_validator() -> dict[str, object]:
+    parsed = ast.parse(SPEC_PATH.read_text(encoding="utf-8"), filename=str(SPEC_PATH))
+    nodes: list[ast.stmt] = [
+        node
+        for node in parsed.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        or isinstance(node, ast.FunctionDef)
+        and node.name in {"_ffmpeg_probe", "validate_ffmpeg_bundle"}
+    ]
+    namespace: dict[str, object] = {}
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SPEC_PATH), "exec"), namespace)
+    return namespace
+
+
+def test_ffmpeg_bundle_validator_rejects_a_wrong_builder_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    binary = tmp_path / "ffmpeg"
+    binary.write_text("fake", encoding="utf-8")
+    binary.chmod(0o755)
+    validator = _bundle_validator()
+
+    def fake_run(command: tuple[str, ...], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        stdout = "ffmpeg version 7.0" if command[-1] == "-version" else ""
+        if command[-1] == "-filters":
+            stdout = "ebur128"
+        elif command[-1] == "filter=ebur128":
+            stdout = "peak true"
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(validator["subprocess"], "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="7.1.1"):
+        validator["validate_ffmpeg_bundle"](binary)
