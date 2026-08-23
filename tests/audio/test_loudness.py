@@ -342,3 +342,5 @@ def test_cancel_and_shutdown_cover_spawn_registration_race_and_wait_for_reaping(
     assert action.is_alive() is False
     assert killed == [process.pid]
     assert process.reaped.is_set()
+    if action_name == "cancel":
+        assert adapter.analyze(tmp_path / "restart.flac", duration_seconds=3.0).status is LoudnessStatus.MEASURED

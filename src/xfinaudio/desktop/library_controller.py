@@ -652,7 +652,11 @@ class LibraryController:
             return
         self.cancel_loudness_completion()
         stage = BackgroundCompletionStage(parent=self._parent)
-        stage.result.connect(self.on_loudness_profile_ready)
+        stage.result.connect(
+            lambda path, profile, completed_stage=stage: (
+                completed_stage is self._loudness_completion_stage and self.on_loudness_profile_ready(path, profile)
+            )
+        )
         stage.finished.connect(lambda stage=stage: self.on_loudness_completion_finished(stage))
         self._loudness_completion_stage = stage
         candidates = (
@@ -670,7 +674,7 @@ class LibraryController:
             lambda emit: service.complete(
                 records,
                 cast(TrackLoudnessProfileCachePort, self._workflow_service.repository),
-                selected_paths=self._state.selected_library_paths,
+                selected_paths=self._access.selected_paths,
                 candidate_paths=candidates,
                 visible_paths=visible,
                 on_result=emit,

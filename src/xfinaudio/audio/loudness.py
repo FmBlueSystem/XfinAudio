@@ -198,18 +198,19 @@ class FfmpegLoudnessAdapter:
 
     def cancel(self) -> None:
         """Cancel every live analysis and wait until its owner process is reaped."""
-        self.shutdown()
-
-    def shutdown(self) -> None:
-        """Kill every registered process group and wait for their owner analyses to reap."""
         with self._lifecycle:
-            self._shutdown_requested = True
             processes = tuple(self._live_processes.values())
             self._cancelled_process_ids.update(process.pid for process in processes)
             for process in processes:
                 self._terminate_process_group(process)
             while self._live_processes:
                 self._lifecycle.wait()
+
+    def shutdown(self) -> None:
+        """Kill every registered process group and wait for their owner analyses to reap."""
+        with self._lifecycle:
+            self._shutdown_requested = True
+        self.cancel()
 
     def _terminate_process_group(self, process: _RunningProcess) -> None:
         if process.returncode is None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
@@ -44,6 +45,17 @@ def test_background_stage_emits_result_and_invokes_cancel_at_shutdown() -> None:
     assert results == [("/track.flac", _profile())]
     assert cancelled == [True]
     assert app is QApplication.instance()
+
+
+def test_background_stage_terminal_shutdown_waits_without_a_timeout() -> None:
+    stage = BackgroundCompletionStage()
+    thread = Mock()
+    thread.isRunning.return_value = True
+    stage._thread = thread  # type: ignore[assignment]
+
+    stage.shutdown()
+
+    thread.wait.assert_called_once_with()
 
 
 def test_controller_starts_after_edge_without_missing_work_uses_priority_and_updates_immutably(monkeypatch) -> None:
@@ -113,11 +125,11 @@ def test_controller_starts_after_edge_without_missing_work_uses_priority_and_upd
     window._replace_app_state(
         window._state.model_copy(
             update={
-                "selected_library_paths": [records[0].path],
                 "last_recommendation": SimpleNamespace(ordered_tracks=[records[1]]),
             }
         )
     )
+    window._library_controller.on_library_selection_changed([records[0].path])
     window._library_screen.tracks_table.setRowHidden(2, True)
     service = Service()
     window._library_controller._loudness_completion_service = service
@@ -138,5 +150,8 @@ def test_controller_starts_after_edge_without_missing_work_uses_priority_and_upd
     assert window._library_controller._loudness_completion_stage is stage
     window._library_controller.start_spectral_completion_worker([])
     assert stage.cancelled == service.cancelled == 1
+    previous = window._state
+    stage.result.emit(records[0].path, _profile())
+    assert window._state is previous
     window._library_controller.shutdown()
     assert app is QApplication.instance()

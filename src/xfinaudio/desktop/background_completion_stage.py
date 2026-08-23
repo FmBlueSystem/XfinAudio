@@ -66,7 +66,11 @@ class BackgroundCompletionStage(QObject):
             self._thread.wait(timeout_ms)
 
     def shutdown(self) -> None:
-        self.cancel(1000)
+        if self._cancel is not None:
+            self._cancel()
+        if self._thread is not None and self._thread.isRunning():
+            self._thread.requestInterruption()
+            self._thread.wait()
 
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.isRunning()
