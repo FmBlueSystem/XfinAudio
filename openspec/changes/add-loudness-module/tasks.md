@@ -2,18 +2,18 @@
 
 ## WU1 — Port and FFmpeg adapter
 
-- [ ] 1.1 Define `LoudnessAnalyzer` port + `LoudnessProfile` Pydantic model (status enum,
+- [x] 1.1 Define `LoudnessAnalyzer` port + `LoudnessProfile` Pydantic model (status enum,
       analysis_version, engine_fingerprint, post-write source identity fields)
-- [ ] 1.2 Implement FFmpeg adapter: pinned command contract (`-nostdin`, `-map 0:a:0`,
+- [x] 1.2 Implement FFmpeg adapter: pinned command contract (`-nostdin`, `-map 0:a:0`,
       `-vn`, `stdin=DEVNULL`), injectable command construction
-- [ ] 1.3 Stderr parser with typed outcomes; fixture-based regression tests against the
+- [x] 1.3 Stderr parser with typed outcomes; fixture-based regression tests against the
       pinned build's output format
 - [ ] 1.4 Capability preflight (binary present, filter present, true-peak supported)
 - [ ] 1.5 Timeout + kill-on-timeout classified as transient failure; process-group kill on
       cancel; orphan reaping on shutdown
-- [ ] 1.6 Conformance fixtures: golden LUFS/LRA/TP on synthetic WAVs; pyloudnorm as
+- [x] 1.6 Conformance fixtures: golden LUFS/LRA/TP on synthetic WAVs; pyloudnorm as
       epsilon-tolerant LUFS-I sanity oracle only
-- [ ] 1.7 Minimum-duration floor: LRA/TP None below floor, typed too_short status
+- [x] 1.7 Minimum-duration floor: LRA/TP None below floor, typed too_short status
 
 ## WU2 — Persistence and pipeline integration
 

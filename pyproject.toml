@@ -30,6 +30,7 @@ xfinaudio = "xfinaudio.desktop.app:main"
 dev = [
     "packaging>=24.0,<26.0",
     "pyinstaller==6.20.0",
+    "pyloudnorm>=0.1.1,<0.2",
     "pyright>=1.1.410,<2.0",
     "pytest>=8.0,<10.0",
     "pytest-cov>=7.1.0,<8.0",
