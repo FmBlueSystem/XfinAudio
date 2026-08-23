@@ -68,6 +68,7 @@ class LoudnessCompletionService:
         selected_paths: Iterable[str] = (),
         candidate_paths: Iterable[str] = (),
         visible_paths: Iterable[str] = (),
+        force_reanalyze: bool = False,
         on_result: Callable[[str, LoudnessProfile], None] | None = None,
         on_progress: Callable[[int, int], None] | None = None,
     ) -> dict[str, LoudnessProfile]:
@@ -79,7 +80,9 @@ class LoudnessCompletionService:
             visible_paths=visible_paths,
         )
         cache = repository.load_loudness_profile_cache(
-            [record.path for record in ordered], engine_fingerprint=self._engine_fingerprint
+            [record.path for record in ordered],
+            engine_fingerprint=self._engine_fingerprint,
+            force_reanalyze=force_reanalyze,
         )
         results: dict[str, LoudnessProfile] = {}
         pending: list[TrackRecord] = []

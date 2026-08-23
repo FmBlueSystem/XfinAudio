@@ -38,6 +38,7 @@ _CATALOGS = {
         ),
         "True peak clipping": "True peak clipping",
         "True peak warning": "True peak warning",
+        "Reanalyze loudness": "Reanalyze loudness",
     },
     "es": {
         "Consistent Loudness": "Sonoridad consistente",
@@ -67,6 +68,7 @@ _CATALOGS = {
         ),
         "True peak clipping": "Pico verdadero con recorte",
         "True peak warning": "Advertencia de pico verdadero",
+        "Reanalyze loudness": "Volver a analizar sonoridad",
     },
 }
 _BUILD_VIEW_MODEL_SOURCES = frozenset(list(_CATALOGS["en"])[:2])

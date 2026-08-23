@@ -404,6 +404,31 @@ class LibraryController:
             or (status_filter is not None and bool(self.metadata_status_records(status_filter)))
         )
         self._widgets.library_screen.cancel_button.setEnabled(False)
+        if (button := getattr(self._widgets.library_screen, "reanalyze_loudness_button", None)) is not None:
+            button.setEnabled(self._can_reanalyze_loudness())
+
+    def _completion_chain_active(self) -> bool:
+        return (
+            any(
+                worker is not None
+                for worker in (
+                    self._spectral_completion_worker,
+                    self._danceability_completion_worker,
+                    self._edge_spectral_completion_worker,
+                )
+            )
+            or self._loudness_completion_stage is not None
+            or bool(self._loudness_completion_stages)
+        )
+
+    def _can_reanalyze_loudness(self) -> bool:
+        return (
+            len(self._access.selected_paths) == 1
+            and self._access.selected_paths[0] in self._state.records_by_path
+            and self._loudness_completion_service is not None
+            and not self._completion_chain_active()
+            and self._access.settings_getter().loudness.enabled
+        )
 
     def show_tracks(
         self,
@@ -661,14 +686,10 @@ class LibraryController:
             worker.deleteLater()
         self.start_loudness_completion(self._edge_spectral_completion_records)
 
-    def start_loudness_completion(self, records: list[TrackRecord]) -> None:
+    def start_loudness_completion(self, records: list[TrackRecord], *, force_reanalyze: bool = False) -> None:
         """Start the disk-bound stage only after all three existing stages finish."""
         service = self._loudness_completion_service
-        if (
-            service is None
-            or self._edge_spectral_completion_worker is not None
-            or not self._access.settings_getter().loudness.enabled
-        ):
+        if service is None or self._completion_chain_active() or not self._access.settings_getter().loudness.enabled:
             return
         self.cancel_loudness_completion()
         stage = BackgroundCompletionStage(parent=self._parent)
@@ -684,6 +705,7 @@ class LibraryController:
         self._state = apply_loudness_completion_started(self._state, total_count=len(records))
         self._access.state_setter(self._state)
         self._request_sync()
+        self.refresh_idle_action_state()
         candidates = (
             []
             if self._state.last_recommendation is None
@@ -702,6 +724,7 @@ class LibraryController:
                 selected_paths=self._access.selected_paths,
                 candidate_paths=candidates,
                 visible_paths=visible,
+                force_reanalyze=force_reanalyze,
                 on_result=emit,
             ),
             cancel=service.cancel,
@@ -716,6 +739,15 @@ class LibraryController:
             self._state = apply_loudness_completion_finished(self._state)
             self._access.state_setter(self._state)
             self._request_sync()
+        self.refresh_idle_action_state()
+
+    def on_loudness_reanalyze_requested(self) -> None:
+        """Force analysis of the one selected track without cache replay."""
+        if not self._can_reanalyze_loudness():
+            return
+        self.start_loudness_completion(
+            [self._state.records_by_path[self._access.selected_paths[0]]], force_reanalyze=True
+        )
 
     @Slot(str, object)
     def on_loudness_profile_ready(
@@ -742,6 +774,7 @@ class LibraryController:
             if stage in self._loudness_completion_stages:
                 self._loudness_completion_stages.remove(stage)
             stage.deleteLater()
+        self.refresh_idle_action_state()
 
     def _replace_state(self, **updates: object) -> None:
         self._state = self._state.model_copy(update=updates)

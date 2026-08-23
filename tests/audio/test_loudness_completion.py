@@ -24,9 +24,11 @@ class _Repository:
     def __init__(self, cache: dict[str, LoudnessProfile] | None = None) -> None:
         self.cache = cache or {}
         self.updated: dict[str, LoudnessProfile] = {}
+        self.force_reanalyze_calls: list[bool] = []
 
     def load_loudness_profile_cache(self, paths, *, engine_fingerprint: str, force_reanalyze: bool = False):
-        return {path: self.cache[path] for path in paths if path in self.cache}
+        self.force_reanalyze_calls.append(force_reanalyze)
+        return {} if force_reanalyze else {path: self.cache[path] for path in paths if path in self.cache}
 
     def refresh_post_metadata_identity(self, path: str) -> bool:
         return True
@@ -81,6 +83,20 @@ def test_completion_replays_cache_without_decoding_and_reports_progress(tmp_path
     assert [path for path, _profile in results] == [str(paths[1]), str(paths[0])]
     assert progress == [(1, 2), (2, 2)]
     assert completed[str(paths[1])] == cached
+
+
+def test_completion_force_reanalyze_bypasses_a_cached_transient_failure(tmp_path: Path) -> None:
+    path = tmp_path / "timeout.flac"
+    path.write_text("audio")
+    repository = _Repository({str(path): _profile(LoudnessStatus.TRANSIENT_FAILURE)})
+    analyzer = _Analyzer()
+
+    LoudnessCompletionService(analyzer, engine_fingerprint="ffmpeg-test").complete(
+        [TrackRecord(path=str(path), duration=8.0)], repository, force_reanalyze=True
+    )
+
+    assert repository.force_reanalyze_calls == [True]
+    assert analyzer.calls == [(path, 8.0)]
 
 
 def test_completion_caps_external_drive_work_and_persists_each_typed_result(tmp_path: Path) -> None:

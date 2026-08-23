@@ -258,6 +258,7 @@
     <message><source>LUFS: {0:.1f} · LRA: {1:.1f} · True peak: {2:.1f} dBTP</source><translation>LUFS: {0:.1f} · LRA: {1:.1f} · True peak: {2:.1f} dBTP</translation></message>
     <message><source>True peak clipping</source><translation>True peak clipping</translation></message>
     <message><source>True peak warning</source><translation>True peak warning</translation></message>
+    <message><source>Reanalyze loudness</source><translation>Reanalyze loudness</translation></message>
     <message>
         <location filename="../src/xfinaudio/desktop/screens/library_screen.py" line="92"/>
         <source>Choose Folder</source>

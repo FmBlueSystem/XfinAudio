@@ -1305,6 +1305,17 @@ def _loudness_profile(
     )
 
 
+def test_track_repository_round_trips_loudness_profile_for_display_reads(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "display.flac"
+    audio_file.write_text("audio")
+    profile = _loudness_profile(audio_file)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), loudness_profile=profile)])
+
+    assert repository.list_tracks()[0].loudness_profile == profile
+    assert repository.list_display_tracks()[0].loudness_profile == profile
+
+
 def test_loudness_cache_uses_profile_identity_not_shared_track_identity(tmp_path) -> None:
     repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
     audio_file = tmp_path / "retagged.flac"
@@ -1366,7 +1377,7 @@ def test_loudness_cache_rejects_malformed_or_stale_version_or_engine(
     assert repository.load_loudness_profile_cache([str(audio_file)], engine_fingerprint=engine_fingerprint) == {}
 
 
-@pytest.mark.parametrize("suffix", [".mp3", ".flac", ".wav", ".aiff"])
+@pytest.mark.parametrize("suffix", [".mp3", ".flac", ".wav", ".aiff", ".m4a"])
 def test_refresh_post_metadata_identity_preserves_all_sibling_profiles_across_supported_formats(
     tmp_path, suffix: str
 ) -> None:

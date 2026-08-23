@@ -222,21 +222,33 @@ def test_controller_starts_after_edge_without_missing_work_uses_priority_and_upd
     window._library_screen.tracks_table.setRowHidden(2, True)
     service = Service()
     window._library_controller._loudness_completion_service = service
+    window._library_controller._spectral_completion_worker = Mock()
+    window._library_controller.refresh_idle_action_state()
+    assert window._library_screen.reanalyze_loudness_button.isEnabled() is False
+    window._library_controller._spectral_completion_worker = None
+    window._library_controller.refresh_idle_action_state()
+    assert window._library_screen.reanalyze_loudness_button.isEnabled() is True
     previous = window._state
+    edge_worker = Mock()
+    window._library_controller._edge_spectral_completion_worker = edge_worker
+    window._library_controller._edge_spectral_completion_records = records
 
-    window._library_controller.start_edge_spectral_completion_worker(records)
+    window._library_controller.on_edge_spectral_completion_finished(edge_worker)
+    edge_worker.deleteLater.assert_called_once_with()
     stage = Stage.instances[0]
 
     assert service.calls[0] == {
         "selected_paths": [records[0].path],
         "candidate_paths": [records[1].path],
         "visible_paths": [records[0].path, records[1].path],
+        "force_reanalyze": False,
         "on_result": stage.result.emit,
     }
     assert window._state is not previous
     assert window._state.records_by_path[records[0].path].loudness_profile == _profile()
     assert window._state.is_completing_loudness is True
     assert (window._state.loudness_progress_count, window._state.loudness_total_count) == (1, 3)
+    assert window._library_screen.reanalyze_loudness_button.isEnabled() is False
     window._library_controller.on_loudness_completion_finished(Stage())
     assert window._library_controller._loudness_completion_stage is stage
     assert window._state.is_completing_loudness is True
@@ -244,6 +256,15 @@ def test_controller_starts_after_edge_without_missing_work_uses_priority_and_upd
     assert stage.cancelled == service.cancelled == 1
     assert window._state.is_completing_loudness is False
     assert (window._state.loudness_progress_count, window._state.loudness_total_count) == (0, 0)
+    assert window._library_screen.reanalyze_loudness_button.isEnabled() is False
+    calls = len(service.calls)
+    window._library_controller.start_loudness_completion([records[0]], force_reanalyze=True)
+    assert len(service.calls) == calls
+    window._library_controller.on_loudness_completion_finished(stage)
+    assert window._library_screen.reanalyze_loudness_button.isEnabled() is True
+    window._library_screen.reanalyze_loudness_button.click()
+    assert service.calls[0].get("force_reanalyze", False) is False
+    assert service.calls[-1]["force_reanalyze"] is True
     previous = window._state
     stage.result.emit(records[0].path, _profile())
     assert window._state is previous
@@ -280,10 +301,16 @@ def test_controller_does_not_schedule_new_loudness_work_when_disabled(monkeypatc
     service = Service()
     controller = window._library_controller
     controller._loudness_completion_service = service
+    record = TrackRecord(path="/track.flac")
+    controller.populate_track_table([record])
+    controller.on_library_selection_changed([record.path])
 
-    controller.start_loudness_completion([TrackRecord(path="/track.flac")])
+    controller.start_loudness_completion([record])
 
     assert service.calls == 0
     assert controller._loudness_completion_stage is None
+    assert window._library_screen.reanalyze_loudness_button.isEnabled() is False
+    window._library_screen.reanalyze_loudness_button.click()
+    assert service.calls == 0
     controller.shutdown()
     assert app is QApplication.instance()

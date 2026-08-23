@@ -29,7 +29,7 @@ SCHEMA_VERSION = 4
 # Bound placeholders per IN (...) clause. Modern SQLite allows 32766, older
 # builds only 999; 900 stays safe everywhere and keeps queries small.
 _MAX_QUERY_VARIABLES = 900
-_METADATA_REFRESH_SUFFIXES = frozenset({".mp3", ".flac", ".wav", ".aif", ".aiff"})
+_METADATA_REFRESH_SUFFIXES = frozenset({".mp3", ".flac", ".wav", ".aif", ".aiff", ".m4a"})
 
 
 class DatabaseSchemaError(RuntimeError):
@@ -164,7 +164,7 @@ class TrackRepository:
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
                        energy_in, energy_out, energy_peak, duration, genre, tags_json,
                        metadata_status, missing_required_fields_json, spectral_profile_json,
-                       danceability_profile_json, edge_spectral_profile_json, audio_md5
+                       danceability_profile_json, edge_spectral_profile_json, loudness_profile_json, audio_md5
                 FROM tracks
                 ORDER BY path
                 """
@@ -693,6 +693,7 @@ class TrackRepository:
             spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
             danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"]),
             edge_spectral_profile=_deserialize_edge_spectral_profile(row["edge_spectral_profile_json"]),
+            loudness_profile=_deserialize_loudness_profile(row["loudness_profile_json"]),
         )
 
 

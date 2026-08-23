@@ -51,6 +51,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
     track_play_requested = Signal(str)  # emits full path
     play_requested = Signal(str)
     pause_requested = Signal()
+    reanalyze_loudness_requested = Signal()
     filters_cleared = Signal(list)  # emits labels of filters that were active before clearing
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -88,6 +89,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
             self.missing_key_filter_button: "Show only tracks missing a musical key",
             self.missing_energy_filter_button: "Show only tracks missing an energy level",
             self.hide_duplicates_button: "Collapse near-duplicate versions of the same song into one row",
+            self.reanalyze_loudness_button: "Reanalyze loudness",
         }
         for button, tip in tips.items():
             button.setToolTip(self.tr(tip))
@@ -162,6 +164,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
         self.settings_button.clicked.connect(self.settings_requested)
         self.help_button.clicked.connect(self._show_help)
         self.tour_button.clicked.connect(self._show_tour)
+        self.reanalyze_loudness_button.clicked.connect(self.reanalyze_loudness_requested)
         self.tracks_table.horizontalHeader().sectionDoubleClicked.connect(self._on_header_double_clicked)
 
     def connect_signals(self, window: Any) -> None:
@@ -178,6 +181,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
         self.track_play_requested.connect(window._library_controller.on_track_play_requested)
         self.play_requested.connect(window._library_controller.on_preview_play_requested)
         self.pause_requested.connect(window._audio_player.pause)
+        self.reanalyze_loudness_requested.connect(window._library_controller.on_loudness_reanalyze_requested)
 
     # ------------------------------------------------------------------
     # Render
