@@ -1,9 +1,9 @@
 schema: gentle-ai.sdd-state.v1
 change: add-loudness-module
 artifact_store: openspec
-status: active
-state: apply_complete
-step: verify
+status: verified
+state: verify_complete
+step: archive
 review_status: pending
 created: 2026-08-22
 updated: 2026-08-23
@@ -14,9 +14,9 @@ phases:
   design: complete
   tasks: complete
   apply: complete
-  verify: pending
+  verify: complete
   review: pending
-next_recommended: verify
+next_recommended: archive
 blocked_reasons: []
 delivery:
   strategy: single-pr
@@ -24,4 +24,4 @@ delivery:
   chain_strategy: none
   review_budget_changed_lines: 400
 notes: |
-  WU1-WU4 implementation and final apply gates are complete. Dedicated sdd-verify owns independent requirements verification and verify-report creation.
+  Independent verification passed all 5 requirements and 10 scenarios with 24/24 tasks complete. Final tests, exact coverage, quality, release, and actual universal2 packaging evidence passed. Archive is next.

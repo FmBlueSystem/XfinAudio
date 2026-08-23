@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import base64
 import subprocess
+import sys
 import threading
 from pathlib import Path
+from shutil import copyfile
 from typing import Any
 
 import numpy as np
 import pyloudnorm as pyln
 import pytest
+from mutagen.id3 import APIC
+from mutagen.wave import WAVE
 
 from xfinaudio.audio.loudness import (
     MINIMUM_LOUDNESS_DURATION_SECONDS,
@@ -63,6 +68,53 @@ def test_adapter_builds_the_exact_shell_free_ffmpeg_command(tmp_path: Path) -> N
         "null",
         "-",
     )
+
+
+def test_adapter_analyzes_embedded_cover_art_without_selecting_it_as_audio(tmp_path: Path) -> None:
+    audio_file = tmp_path / "cover-art.wav"
+    copyfile(FIXTURES / "synthetic_tone_1khz.wav", audio_file)
+    audio = WAVE(audio_file)
+    audio.add_tags()
+    audio.tags.add(
+        APIC(
+            encoding=3,
+            mime="image/png",
+            type=3,
+            desc="cover",
+            data=base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlWZQAAAABJRU5ErkJggg=="
+            ),
+        )
+    )
+    audio.save()
+    tagged_audio = WAVE(audio_file)
+    assert tagged_audio.tags is not None
+    assert tagged_audio.tags["APIC:cover"].mime == "image/png"
+
+    executable = tmp_path / "ffmpeg"
+    golden_stderr = (FIXTURES / "synthetic_tone_1khz_ebu.stderr").read_text()
+    executable.write_text(
+        f"""#!{sys.executable}
+import sys
+from mutagen.wave import WAVE
+
+args = sys.argv[1:]
+audio_path = args[args.index("-i") + 1]
+audio = WAVE(audio_path)
+assert "APIC:cover" in audio.tags and audio.info.length >= 3
+assert args[args.index("-map") + 1] == "0:a:0" and "-vn" in args
+sys.stderr.write({golden_stderr!r})
+""",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+
+    profile = FfmpegLoudnessAdapter(executable, engine_fingerprint="cover-art-fixture").analyze(
+        audio_file, duration_seconds=3.0
+    )
+
+    assert profile.status is LoudnessStatus.MEASURED
+    assert (profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp) == (-20.0, 20.0, -17.0)
 
 
 def test_adapter_parses_the_pinned_synthetic_golden_output_with_lufs_sanity() -> None:
