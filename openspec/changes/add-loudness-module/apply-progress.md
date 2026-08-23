@@ -2,7 +2,8 @@
 
 ## Status
 
-WU1a complete under strict TDD. WU1b and WU2–WU4 remain pending.
+WU1a complete under strict TDD. Further runtime-bearing work is blocked by the native SDD
+attempt ledger pending an explicit maintainer reset; WU1b and WU2-WU4 remain pending.
 
 ## Completed Tasks
 
@@ -38,3 +39,9 @@ WU1a complete under strict TDD. WU1b and WU2–WU4 remain pending.
 - Duration floor is 3.0 seconds because EBU short-term windows are 3 seconds; see `IMPLEMENTATION-NOTES.md`.
 - `pyloudnorm` is a bounded development dependency used only by the LUFS sanity test, not by runtime code.
 - No user-library audio was touched. A committed synthetic WAV fixture was created and read only to capture its golden FFmpeg stderr fixture.
+- Native attempt `WU1` settled as passed but exceeded its ledger budget because the recovered
+  354-line contract import occurred after acquisition. Revision and reset requirements are
+  recorded in `IMPLEMENTATION-NOTES.md`; no automatic reset was performed.
+- WU3 audio tag writes conflict with the active root `AGENTS.md` no-audio-mutation rule. The
+  design schedules governance amendment in WU4, after the prohibited mutation, so write-back
+  cannot proceed in the mandated order without a prior governance decision.

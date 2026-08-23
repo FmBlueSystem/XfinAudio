@@ -1,6 +1,6 @@
 # Design: add-loudness-module
 
-Status: DRAFT v2 — awaiting owner approval.
+Status: APPROVED v2 — product-owner approval recorded 2026-08-22.
 Provenance tags: [OPUS] / [GROK] / [CODEX] = finding origin; [OWNER] = product-owner decision.
 
 ## 1. Engine (WU1)
