@@ -290,3 +290,9 @@ Task 4.1 remains unchecked pending WU4.4 translation catalog updates.
 | Stability | `uv run pytest -q` twice from clean processes — 1797 passed, 45 warnings in 60.06s and 54.62s, both exit 0 without a QThread teardown abort. |
 
 The test-wide guard had remained attached to the legacy `MainWindow._start_spectral_completion_worker`, while scan completion now calls `LibraryController.start_spectral_completion_worker` directly. The guard now substitutes only the spectral QThread factory with a signal-compatible fake, preserving controller state transitions; explicit lifecycle tests opt in to the real worker. Rollback: revert this guard/test change.
+
+### Final verification coverage precision correction
+
+- RED: `uv run pytest -q tests/test_dependency_bounds.py -k coverage_report_uses_two_decimal_precision` — 1 failed (`KeyError: 'precision'`).
+- GREEN: focused contract test passed; `uv run pytest --cov --cov-fail-under=91.14 -q` — 1798 passed, 45 warnings, 91.18%, exit 0.
+- Rollback: revert `tool.coverage.report.precision` and its configuration contract test.
