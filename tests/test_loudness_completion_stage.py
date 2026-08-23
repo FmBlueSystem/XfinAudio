@@ -235,10 +235,15 @@ def test_controller_starts_after_edge_without_missing_work_uses_priority_and_upd
     }
     assert window._state is not previous
     assert window._state.records_by_path[records[0].path].loudness_profile == _profile()
+    assert window._state.is_completing_loudness is True
+    assert (window._state.loudness_progress_count, window._state.loudness_total_count) == (1, 3)
     window._library_controller.on_loudness_completion_finished(Stage())
     assert window._library_controller._loudness_completion_stage is stage
-    window._library_controller.start_spectral_completion_worker([])
+    assert window._state.is_completing_loudness is True
+    window._library_controller.cancel_loudness_completion()
     assert stage.cancelled == service.cancelled == 1
+    assert window._state.is_completing_loudness is False
+    assert (window._state.loudness_progress_count, window._state.loudness_total_count) == (0, 0)
     previous = window._state
     stage.result.emit(records[0].path, _profile())
     assert window._state is previous

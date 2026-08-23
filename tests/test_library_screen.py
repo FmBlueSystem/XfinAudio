@@ -172,6 +172,23 @@ def test_scan_progress_bar_shows_spectral_completion_progress(qapp: QApplication
     assert screen.scan_progress_label.text() == ""
 
 
+def test_scan_progress_bar_shows_loudness_completion_progress(qapp: QApplication) -> None:
+    screen = LibraryScreen()
+    screen.render(
+        LibraryViewModel(),
+        AppState(
+            selected_folder=Path("/music"),
+            is_completing_loudness=True,
+            loudness_progress_count=25,
+            loudness_total_count=100,
+        ),
+        lightweight=True,
+    )
+
+    assert screen.scan_progress_bar.value() == 25
+    assert screen.scan_progress_label.text() == "Analyzing loudness 25/100"
+
+
 def test_primary_and_secondary_action_buttons_have_visual_hierarchy(qapp: QApplication) -> None:
     """Scan is a larger primary action; Settings is a smaller muted secondary action."""
     screen = LibraryScreen()

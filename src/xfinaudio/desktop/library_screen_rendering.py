@@ -105,6 +105,16 @@ class LibraryScreenRenderingMixin:
             self.scan_progress_bar.setVisible(True)
             self.scan_progress_label.setVisible(True)
             return
+        if state.is_completing_loudness and state.loudness_total_count > 0:
+            self.scan_progress_bar.setValue(progress_percent(state.loudness_progress_count, state.loudness_total_count))
+            self.scan_progress_label.setText(
+                self.tr("Analyzing loudness {0:,}/{1:,}").format(
+                    state.loudness_progress_count, state.loudness_total_count
+                )
+            )
+            self.scan_progress_bar.setVisible(True)
+            self.scan_progress_label.setVisible(True)
+            return
         self.scan_progress_bar.setVisible(False)
         self.scan_progress_label.setVisible(False)
         self.scan_progress_label.setText("")

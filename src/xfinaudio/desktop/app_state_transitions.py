@@ -112,6 +112,28 @@ def apply_loudness_profile(state: AppState, *, path: str, profile: LoudnessProfi
     return state.model_copy(update={"scanned_records": records, "records_by_path": by_path})
 
 
+def apply_loudness_completion_started(state: AppState, *, total_count: int) -> AppState:
+    """Return a new state for an active loudness completion stage."""
+    return state.model_copy(
+        update={"is_completing_loudness": True, "loudness_progress_count": 0, "loudness_total_count": total_count}
+    )
+
+
+def apply_loudness_completion_result(state: AppState, *, path: str, profile: LoudnessProfile) -> AppState:
+    """Apply one stage result and advance its bounded progress count."""
+    updated = apply_loudness_profile(state, path=path, profile=profile)
+    return updated.model_copy(
+        update={"loudness_progress_count": min(updated.loudness_progress_count + 1, updated.loudness_total_count)}
+    )
+
+
+def apply_loudness_completion_finished(state: AppState) -> AppState:
+    """Return a new state with transient loudness progress cleared."""
+    return state.model_copy(
+        update={"is_completing_loudness": False, "loudness_progress_count": 0, "loudness_total_count": 0}
+    )
+
+
 def apply_recommendation_completion(state: AppState, result: CompletedRecommendationResult) -> AppState:
     """Return a new state with completed recommendation fields applied."""
     return state.model_copy(

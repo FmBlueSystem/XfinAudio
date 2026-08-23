@@ -48,7 +48,7 @@
 ## WU4 — Settings, UI surface, packaging, governance
 
 - [ ] 4.1 `LoudnessSettings` without CURRENT_SETTINGS_VERSION bump; module toggle default ON
-- [ ] 4.2 AppState + progress surface for loudness stage (immutable transitions pattern)
+- [x] 4.2 AppState + progress surface for loudness stage (immutable transitions pattern)
 - [ ] 4.3 True-peak badge (warn > −1.0 dBTP, clip ≥ 0.0 dBTP) + LUFS/LRA/dBTP detail pane
 - [ ] 4.4 en/es translations for all new UI strings
 - [ ] 4.5 Packaging: FFmpeg CLI in binaries=[], bundle-absolute invocation, UPX exclusion,

@@ -23,7 +23,9 @@ from xfinaudio.desktop.app_state_transitions import (
     apply_edge_spectral_profile,
     apply_library_folder_selected,
     apply_library_records_loaded,
-    apply_loudness_profile,
+    apply_loudness_completion_finished,
+    apply_loudness_completion_result,
+    apply_loudness_completion_started,
     apply_playlist_track_removed,
     apply_playlist_track_replaced,
     apply_playlist_track_restored,
@@ -488,6 +490,9 @@ class LibraryController:
             edge_worker.shutdown()
         loudness_stage = self._loudness_completion_stage
         self._loudness_completion_stage = None
+        if self._state.is_completing_loudness:
+            self._state = apply_loudness_completion_finished(self._state)
+            self._access.state_setter(self._state)
         stages = self._loudness_completion_stages
         self._loudness_completion_stages = []
         if loudness_stage is not None and loudness_stage not in stages:
@@ -668,12 +673,16 @@ class LibraryController:
         stage = BackgroundCompletionStage(parent=self._parent)
         stage.result.connect(
             lambda path, profile, completed_stage=stage: (
-                completed_stage is self._loudness_completion_stage and self.on_loudness_profile_ready(path, profile)
+                completed_stage is self._loudness_completion_stage
+                and self.on_loudness_profile_ready(path, profile, completed_stage)
             )
         )
         stage.finished.connect(lambda stage=stage: self.on_loudness_completion_finished(stage))
         self._loudness_completion_stage = stage
         self._loudness_completion_stages.append(stage)
+        self._state = apply_loudness_completion_started(self._state, total_count=len(records))
+        self._access.state_setter(self._state)
+        self._request_sync()
         candidates = (
             []
             if self._state.last_recommendation is None
@@ -702,10 +711,18 @@ class LibraryController:
         self._loudness_completion_stage = None
         if stage is not None:
             stage.cancel()
+        if self._state.is_completing_loudness:
+            self._state = apply_loudness_completion_finished(self._state)
+            self._access.state_setter(self._state)
+            self._request_sync()
 
     @Slot(str, object)
-    def on_loudness_profile_ready(self, path: str, profile: object) -> None:
-        self._state = apply_loudness_profile(self._state, path=path, profile=profile)  # type: ignore[arg-type]
+    def on_loudness_profile_ready(
+        self, path: str, profile: object, completed_stage: BackgroundCompletionStage | None = None
+    ) -> None:
+        if completed_stage is not None and completed_stage is not self._loudness_completion_stage:
+            return
+        self._state = apply_loudness_completion_result(self._state, path=path, profile=profile)  # type: ignore[arg-type]
         self._access.state_setter(self._state)
         self._request_sync()
 
@@ -715,6 +732,10 @@ class LibraryController:
         else:
             stage = self._loudness_completion_stage
             self._loudness_completion_stage = None
+            if self._state.is_completing_loudness:
+                self._state = apply_loudness_completion_finished(self._state)
+                self._access.state_setter(self._state)
+                self._request_sync()
         if stage is not None:
             if stage in self._loudness_completion_stages:
                 self._loudness_completion_stages.remove(stage)

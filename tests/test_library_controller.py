@@ -176,6 +176,9 @@ def test_shutdown_tears_down_all_completion_workers() -> None:
     window._library_controller._spectral_completion_worker = spectral_worker
     window._library_controller._danceability_completion_worker = danceability_worker
     window._library_controller._edge_spectral_completion_worker = edge_worker
+    window._library_controller._state = window._state.model_copy(
+        update={"is_completing_loudness": True, "loudness_progress_count": 1, "loudness_total_count": 2}
+    )
 
     window._library_controller.shutdown()
 
@@ -185,6 +188,7 @@ def test_shutdown_tears_down_all_completion_workers() -> None:
     assert window._library_controller._spectral_completion_worker is None
     assert window._library_controller._danceability_completion_worker is None
     assert window._library_controller._edge_spectral_completion_worker is None
+    assert window._library_controller._state.is_completing_loudness is False
 
 
 def test_library_anchor_selection_suggests_its_genre_on_build_screen() -> None:

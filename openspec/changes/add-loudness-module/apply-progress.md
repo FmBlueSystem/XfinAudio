@@ -225,3 +225,15 @@ Task 4.1 remains unchecked pending WU4.4 translation catalog updates.
 | Type/lint/format | `uv run pyright src tests` — 0 errors; `uv run ruff check .` — passed; `uv run ruff format --check .` — 300 files already formatted. |
 | Runtime harness | N/A — deterministic Qt/test-double seams prove scheduling without running FFmpeg or touching audio. |
 | Rollback | Revert this UI/policy/scheduling wiring and tests; WU4a model, WU3 tag writer, cached profiles, and translations remain independent. |
+
+## WU4c Task 4.2 Completion progress
+
+| Task | RED | GREEN | Refactor |
+|---|---|---|---|
+| 4.2 | `uv run pytest -q tests/test_app_state_transitions.py tests/test_loudness_completion_stage.py tests/test_library_screen.py` — collection failed: missing `apply_loudness_completion_finished` | `uv run pytest -q tests/test_app_state_transitions.py tests/test_loudness_completion_stage.py tests/test_library_screen.py tests/test_library_controller.py` — 70 passed | Reused immutable AppState transitions and the existing library progress bar. |
+
+| Evidence | Result |
+|---|---|
+| Stage lifecycle | Start sets total from all completion records; stage-scoped results apply profiles and increment once; stale results/finishes cannot change progress; cancel, finish, and shutdown reset it. |
+| UI | Existing progress label/bar now renders `Analyzing loudness {0:,}/{1:,}` without a new worker or table column. WU4.4 owns translation catalogs. |
+| Focused type/lint/format | `uv run pyright src tests` — 0 errors; `uv run ruff check .` — passed; `uv run ruff format --check .` — 300 files already formatted. |

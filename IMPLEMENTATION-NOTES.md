@@ -173,3 +173,8 @@ After stale-count correction `b155d39`, lifecycle hardening `f4bebe5`, and termi
 - The settings dialog persists an immutable `LoudnessSettings` update. Its enabled flag blocks only new `LoudnessCompletionService` scheduling; cached/recovered profiles and target-band filtering remain available.
 - A fresh enabled analysis still uses the existing always-on idempotent tag writer. There is deliberately no write-back preference or write-only mode.
 - The current target/tolerance is forwarded through desktop recommendations and Prep Copilot into each strategy/prefilter boundary; default bands retain prior behavior until users change settings.
+
+## add-loudness-module WU4c task 4.2
+
+- Loudness completion owns immutable `is_completing_loudness`, count, and total fields. The stage initializes total from both cache-replay and fresh candidates; each active stage-scoped result increments only its own run, while stale/cancelled signals cannot mutate the current state.
+- The library reuses its existing scan-progress label/bar with `Analyzing loudness {0:,}/{1:,}`. No table column or copied Qt worker is introduced; WU4.4 will localize the new source string.
