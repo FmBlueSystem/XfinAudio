@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
 from xfinaudio.audio.loudness import is_complete_measurement
+from xfinaudio.desktop.library_columns import ordered_cells
 from xfinaudio.desktop.library_view_model import _fmt_lufs
 from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.library.models import TrackRecord
@@ -40,37 +41,39 @@ def populate_library_table(
     table.setRowCount(len(records))
     records_by_path = {record.path: record for record in records}
     for row_index, record in enumerate(records):
-        values = [
-            record.title or "",
-            record.artist or "",
-            "" if record.bpm is None else f"{record.bpm:g}",
-            record.camelot_key or "",
-            "" if record.energy_level is None else str(record.energy_level),
-            _fmt_lufs(record.loudness_profile),
-            _format_duration(record.duration),
-            format_spectral_color(record),
-            format_missing_metadata(record),
-            record.genre or "",
-            record.metadata_status,
-            "▶",
-            record.path,
-        ]
-        sort_values: list[object] = [
-            values[0].casefold(),
-            values[1].casefold(),
-            record.bpm if record.bpm is not None else float("inf"),
-            values[3].casefold(),
-            record.energy_level if record.energy_level is not None else 999,
+        cells = {
+            "Title": record.title or "",
+            "Artist": record.artist or "",
+            "BPM": "" if record.bpm is None else f"{record.bpm:g}",
+            "Key": record.camelot_key or "",
+            "Energy": "" if record.energy_level is None else str(record.energy_level),
+            "LUFS": _fmt_lufs(record.loudness_profile),
+            "Duration": _format_duration(record.duration),
+            "Color": format_spectral_color(record),
+            "Missing": format_missing_metadata(record),
+            "Genre": record.genre or "",
+            "Status": record.metadata_status,
+            "Preview": "▶",
+            "Path": record.path,
+        }
+        sort_keys: dict[str, object] = {
+            "Title": cells["Title"].casefold(),
+            "Artist": cells["Artist"].casefold(),
+            "BPM": record.bpm if record.bpm is not None else float("inf"),
+            "Key": cells["Key"].casefold(),
+            "Energy": record.energy_level if record.energy_level is not None else 999,
             # Unmeasured rows sort last in both directions of a loudness sweep.
-            _lufs_sort_key(record),
-            record.duration if record.duration is not None else float("inf"),
-            values[7].casefold(),
-            values[8].casefold(),
-            values[9].casefold(),
-            values[10].casefold(),
-            "",
-            values[12].casefold(),
-        ]
+            "LUFS": _lufs_sort_key(record),
+            "Duration": record.duration if record.duration is not None else float("inf"),
+            "Color": cells["Color"].casefold(),
+            "Missing": cells["Missing"].casefold(),
+            "Genre": cells["Genre"].casefold(),
+            "Status": cells["Status"].casefold(),
+            "Preview": "",
+            "Path": cells["Path"].casefold(),
+        }
+        values = ordered_cells(cells)
+        sort_values = ordered_cells(sort_keys)
         for column_index, value in enumerate(values):
             table.setItem(row_index, column_index, item_factory(value, sort_values[column_index]))
     return records_by_path

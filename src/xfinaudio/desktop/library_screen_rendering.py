@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QTableWidgetItem
 
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus, is_complete_measurement
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.library_columns import COLUMNS, column_index, ordered_cells
 from xfinaudio.desktop.library_filter import _RowInfo, suppressed_duplicate_paths
 from xfinaudio.desktop.library_filter_state import library_filters_from_flags, row_matches_query
 from xfinaudio.desktop.library_table_presenter import sort_rows_for_column
@@ -26,22 +27,8 @@ _EMPTY = QTableWidgetItem("")
 _ROW_COLOR_EVEN = QColor("#0e161e")
 _ROW_COLOR_ODD = QColor("#121d27")
 _ROW_COLOR_SELECTED = QColor("#5a4be0")
-_MISSING_COLUMN = 8
-_COLUMNS = [
-    "Title",
-    "Artist",
-    "BPM",
-    "Key",
-    "Energy",
-    "LUFS",
-    "Duration",
-    "Color",
-    "Missing",
-    "Genre",
-    "Status",
-    "Preview",
-    "Path",
-]
+_COLUMNS = list(COLUMNS)
+_MISSING_COLUMN = column_index("Missing")
 _TITLE_COLUMN = _COLUMNS.index("Title")
 _ARTIST_COLUMN = _COLUMNS.index("Artist")
 _STATUS_COLUMN = _COLUMNS.index("Status")
@@ -192,21 +179,24 @@ class LibraryScreenRenderingMixin:
                 row = self.tracks_table.rowCount()
                 self.tracks_table.insertRow(row)
                 preview_text = "⏸" if row_data.path == self._playing_path else "▶"
-                values = [
-                    row_data.title,
-                    row_data.artist,
-                    row_data.bpm,
-                    row_data.musical_key,
-                    row_data.energy,
-                    row_data.lufs,
-                    row_data.duration,
-                    row_data.spectral_color,
-                    row_data.missing_fields,
-                    row_data.genre,
-                    row_data.metadata_status,
-                    preview_text,
-                    row_data.path,  # full path for lookup; display_path only for UI labels
-                ]
+                values = ordered_cells(
+                    {
+                        "Title": row_data.title,
+                        "Artist": row_data.artist,
+                        "BPM": row_data.bpm,
+                        "Key": row_data.musical_key,
+                        "Energy": row_data.energy,
+                        "LUFS": row_data.lufs,
+                        "Duration": row_data.duration,
+                        "Color": row_data.spectral_color,
+                        "Missing": row_data.missing_fields,
+                        "Genre": row_data.genre,
+                        "Status": row_data.metadata_status,
+                        "Preview": preview_text,
+                        # full path for lookup; display_path only for UI labels
+                        "Path": row_data.path,
+                    }
+                )
                 for col, value in enumerate(values):
                     item = QTableWidgetItem(value)
                     item.setToolTip(value)

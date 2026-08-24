@@ -39,6 +39,7 @@ from xfinaudio.desktop.audio_player import AudioPlayer
 from xfinaudio.desktop.background_completion_stage import BackgroundCompletionStage
 from xfinaudio.desktop.danceability_completion_worker import DanceabilityCompletionWorker
 from xfinaudio.desktop.edge_spectral_completion_worker import EdgeSpectralCompletionWorker
+from xfinaudio.desktop.library_columns import column_index
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
 from xfinaudio.desktop.rendering import (
     _format_missing_metadata,
@@ -60,8 +61,8 @@ from xfinaudio.recommendation.playlist_service import (
     recommendation_with_replacement,
 )
 
-_TRACK_COLOR_COLUMN = 7
-_TRACK_PATH_COLUMN = 12
+_TRACK_COLOR_COLUMN = column_index("Color")
+_TRACK_PATH_COLUMN = column_index("Path")
 _MISSING_METADATA_FILTERS = {
     "Missing BPM": "bpm",
     "Missing Key": "camelot_key",

@@ -1,12 +1,14 @@
 """Visual theme constants for the XfinAudio desktop UI."""
 
+from xfinaudio.desktop.library_columns import ordered_widths
+
 _COMPACT_RESULTS_TABLE_MIN_HEIGHT = 118
 _COMPACT_REVIEW_TABLE_MIN_HEIGHT = 100
 _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT = 72
 _COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT = 92
 _COMPACT_TABLE_ROW_HEIGHT = 24
 
-_TRACK_TABLE_COLUMN_WIDTHS = (160, 145, 70, 70, 76, 76, 90, 150, 130, 140, 86, 70, 220)
+_TRACK_TABLE_COLUMN_WIDTHS = ordered_widths()
 _RECOMMENDATION_TABLE_COLUMN_WIDTHS = (160, 150, 72, 70, 82, 130, 145, 92, 180, 120, 150)
 # Order, From, To, then seven five-character score columns, then Warnings.
 # Must stay the same length as review_screen._TRANSITION_COLUMNS: the widths are

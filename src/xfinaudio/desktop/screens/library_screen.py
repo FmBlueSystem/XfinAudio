@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.library_columns import COLUMNS, column_index
 from xfinaudio.desktop.library_screen_builder import build_library_screen_ui
 from xfinaudio.desktop.library_screen_rendering import LibraryScreenRenderingMixin
 from xfinaudio.desktop.library_view_model import LibraryViewModel
@@ -22,22 +23,8 @@ _ROW_COLOR_EVEN = QColor("#0e161e")
 _ROW_COLOR_ODD = QColor("#121d27")
 _ROW_COLOR_SELECTED = QColor("#5a4be0")
 
-_COLUMNS = [
-    "Title",
-    "Artist",
-    "BPM",
-    "Key",
-    "Energy",
-    "LUFS",
-    "Duration",
-    "Color",
-    "Missing",
-    "Genre",
-    "Status",
-    "Preview",
-    "Path",
-]
-_MISSING_COLUMN = _COLUMNS.index("Missing")
+_COLUMNS = list(COLUMNS)
+_MISSING_COLUMN = column_index("Missing")
 
 
 class LibraryScreen(LibraryScreenRenderingMixin, QWidget):

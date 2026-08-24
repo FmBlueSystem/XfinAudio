@@ -131,3 +131,24 @@ def test_unmeasured_rows_sort_last_in_both_directions() -> None:
     for ascending in (True, False):
         ordered = sort_rows_for_column([unmeasured, measured], column, ascending=ascending)
         assert ordered[-1] is unmeasured
+
+
+def test_every_column_has_a_sort_key_and_a_width() -> None:
+    """A column added without a sort key or a width must fail here, not render wrong."""
+    from xfinaudio.desktop.library_columns import COLUMN_WIDTHS, COLUMNS
+    from xfinaudio.desktop.library_table_presenter import _SORT_KEYS
+
+    assert set(_SORT_KEYS) == set(COLUMNS)
+    assert set(COLUMN_WIDTHS) == set(COLUMNS)
+
+
+def test_a_row_missing_a_column_raises_instead_of_shifting() -> None:
+    """ordered_cells is the guard that replaced hand-ordered positional lists."""
+    from xfinaudio.desktop.library_columns import COLUMNS, ordered_cells
+
+    complete = {name: name for name in COLUMNS}
+    assert ordered_cells(complete) == list(COLUMNS)
+
+    del complete["Genre"]
+    with pytest.raises(KeyError, match="Genre"):
+        ordered_cells(complete)

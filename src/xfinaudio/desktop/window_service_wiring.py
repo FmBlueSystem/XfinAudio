@@ -6,6 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import QCoreApplication
 
+from xfinaudio.desktop.library_columns import column_index
 from xfinaudio.desktop.theme import (
     _COMPACT_EMPTY_RECOMMENDATION_SECTION_MAX_HEIGHT,
     _COMPACT_EXPORT_HISTORY_TABLE_MAX_HEIGHT,
@@ -13,9 +14,9 @@ from xfinaudio.desktop.theme import (
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 
-_TRACK_TITLE_COLUMN = 0
-_TRACK_STATUS_COLUMN = 10
-_TRACK_PATH_COLUMN = 12
+_TRACK_TITLE_COLUMN = column_index("Title")
+_TRACK_STATUS_COLUMN = column_index("Status")
+_TRACK_PATH_COLUMN = column_index("Path")
 _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
     "MainWindow",
     "Selected row starts the playlist; multiple selected rows set the opening order. "
