@@ -136,6 +136,13 @@ New `LoudnessSettings` (target LUFS, tolerance band, module toggle default ON) a
 - Detail-pane display preferred over new library-table columns (table is a fixed
   12-column positional contract). If columns are added, `_TRACK_TABLE_COLUMN_WIDTHS`
   update is mandatory. [GROK N4]
+- **Amended 2026-08-23 [OWNER]:** a 13th `LUFS` column was added anyway. The pane stays
+  the deep surface, but it is selection-bound, so during an hours-long analysis the user
+  could not see which rows were already measured. The column shows the one-decimal value
+  for a complete measurement and an em-dash for every other state, gated by the shared
+  `is_complete_measurement` so column and pane can never disagree. Adding it shifted seven
+  hardcoded column indices across four modules plus the sort mapping; those are now pinned
+  by name in `tests/test_library_loudness_column.py`.
 - New UI strings require en/es translations like the rest of the desktop layer. [GROK N7]
 
 ## 8. Packaging (WU4)

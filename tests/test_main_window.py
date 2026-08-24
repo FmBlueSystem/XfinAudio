@@ -152,7 +152,7 @@ def test_main_window_does_not_create_dead_tracks_table() -> None:
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
     assert not hasattr(window, "tracks_table")
-    assert _library_tracks_table(window).columnCount() == 12
+    assert _library_tracks_table(window).columnCount() == 13
 
 
 def test_main_window_constructs_desktop_scanning_skeleton() -> None:
@@ -201,6 +201,7 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "BPM",
         "Key",
         "Energy",
+        "LUFS",
         "Duration",
         "Color",
         "Missing",

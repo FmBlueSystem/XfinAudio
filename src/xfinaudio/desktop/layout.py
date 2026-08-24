@@ -26,8 +26,8 @@ _SIDEBAR_WIDTH_WIDE = 180
 _SIDEBAR_WIDTH_NARROW = 120
 _NARROW_BREAKPOINT = 900
 _TRACK_TITLE_COLUMN = 0
-_TRACK_STATUS_COLUMN = 9
-_TRACK_PATH_COLUMN = 11
+_TRACK_STATUS_COLUMN = 10
+_TRACK_PATH_COLUMN = 12
 _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
     "MainWindow",
     "Selected row starts the playlist; multiple selected rows set the opening order. "

@@ -13,7 +13,7 @@ from mutagen._file import File as MutagenFile
 from mutagen.id3 import COMM, TXXX
 from mutagen.mp4 import AtomDataType, MP4FreeForm
 
-from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus, is_complete_measurement
 
 _LOUDNESS_TAG = "XFINAUDIO_LOUDNESS"
 _ID3_SUFFIXES = frozenset({".mp3", ".wav", ".aif", ".aiff"})
@@ -47,7 +47,7 @@ def write_loudness_tags(
 ) -> LoudnessTagWriteResult:
     """Overwrite v1 loudness tags only when a complete measured profile differs."""
     target = Path(path)
-    if not _is_complete_measurement(profile) or _tag_family(target) is None:
+    if not is_complete_measurement(profile) or _tag_family(target) is None:
         return LoudnessTagWriteResult(LoudnessTagWriteStatus.UNSUPPORTED)
 
     audio = (load_audio or _load_mutagen_audio)(target)
@@ -168,12 +168,6 @@ def _ensure_tags(audio: Any | None) -> Any | None:
         add_tags()
         tags = getattr(audio, "tags", None)
     return tags
-
-
-def _is_complete_measurement(profile: LoudnessProfile) -> bool:
-    return profile.status is LoudnessStatus.MEASURED and all(
-        value is not None for value in (profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp)
-    )
 
 
 def _formatted_values(profile: LoudnessProfile) -> tuple[str, str]:

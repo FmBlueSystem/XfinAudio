@@ -244,6 +244,7 @@
 </context>
 <context>
     <name>LibraryScreen</name>
+    <message><source>LUFS</source><translation>LUFS</translation></message>
     <message><source>Analyzing loudness {0:,}/{1:,}</source><translation>Analizando sonoridad {0:,}/{1:,}</translation></message>
     <message><source>Selected track loudness details</source><translation>Detalles de sonoridad de la pista seleccionada</translation></message>
     <message><source>Selected track loudness measurements</source><translation>Mediciones de sonoridad de la pista seleccionada</translation></message>

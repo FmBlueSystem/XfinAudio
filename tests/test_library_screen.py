@@ -265,10 +265,15 @@ def test_loudness_detail_honestly_handles_missing_and_too_short_profiles(qapp: Q
     assert screen.true_peak_badge.isHidden() is True
 
 
-def test_loudness_detail_does_not_add_library_table_columns(qapp: QApplication) -> None:
+def test_loudness_adds_exactly_one_library_table_column(qapp: QApplication) -> None:
+    """The detail pane stayed the deep surface; the table gained only a per-row LUFS value.
+
+    Supersedes the earlier contract that loudness must add no column at all: without a
+    per-row indicator an hours-long analysis is invisible unless a row is selected.
+    """
     screen = LibraryScreen()
 
-    assert screen.tracks_table.columnCount() == 12
+    assert screen.tracks_table.columnCount() == 13
 
 
 def test_primary_and_secondary_action_buttons_have_visual_hierarchy(qapp: QApplication) -> None:

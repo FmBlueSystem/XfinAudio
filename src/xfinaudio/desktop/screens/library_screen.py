@@ -28,6 +28,7 @@ _COLUMNS = [
     "BPM",
     "Key",
     "Energy",
+    "LUFS",
     "Duration",
     "Color",
     "Missing",

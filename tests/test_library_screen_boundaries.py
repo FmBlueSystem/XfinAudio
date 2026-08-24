@@ -24,4 +24,4 @@ def test_library_builder_owns_complete_widget_construction(qapp) -> None:
     screen = LibraryScreen()
     assert callable(build_library_screen_ui)
     assert screen.folder_button.text() == "Choose Folder"
-    assert screen.tracks_table.columnCount() == 12
+    assert screen.tracks_table.columnCount() == 13

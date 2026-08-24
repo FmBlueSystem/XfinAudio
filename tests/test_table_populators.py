@@ -60,7 +60,7 @@ def format_warning(raw_warning: str) -> str:
 def test_populate_library_table_writes_columns_mapping_and_numeric_bpm_sort(tmp_path) -> None:
     ensure_app()
     table = QTableWidget()
-    table.setColumnCount(12)
+    table.setColumnCount(13)
     records = [
         TrackRecord(
             path=str(tmp_path / "high.flac"),
@@ -98,12 +98,13 @@ def test_populate_library_table_writes_columns_mapping_and_numeric_bpm_sort(tmp_
     )
 
     assert table.rowCount() == 3
-    assert [table.item(0, column).text() for column in range(12)] == [
+    assert [table.item(0, column).text() for column in range(13)] == [
         "High",
         "Artist A",
         "128",
         "8A",
         "7",
+        "—",
         "—",
         "🔴 RED",
         "",
@@ -112,12 +113,13 @@ def test_populate_library_table_writes_columns_mapping_and_numeric_bpm_sort(tmp_
         "▶",
         str(tmp_path / "high.flac"),
     ]
-    assert [table.item(1, column).text() for column in range(12)] == [
+    assert [table.item(1, column).text() for column in range(13)] == [
         "Low",
         "Artist B",
         "95",
         "9A",
         "3",
+        "—",
         "—",
         "",
         "Camelot key, energy level",

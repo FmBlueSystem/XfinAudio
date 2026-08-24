@@ -46,6 +46,17 @@ class LoudnessProfile(BaseModel):
     source_audio_md5: str | None = None
 
 
+def is_complete_measurement(profile: LoudnessProfile) -> bool:
+    """Return whether every consumer may treat this profile as a real measurement.
+
+    Tag write-back, the detail pane and the library column all gate on this, so a
+    profile can never read as measured in one surface and absent in another.
+    """
+    return profile.status is LoudnessStatus.MEASURED and all(
+        value is not None for value in (profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp)
+    )
+
+
 class LoudnessParseError(ValueError):
     """Raised when the pinned FFmpeg EBU R128 summary is incomplete or malformed."""
 

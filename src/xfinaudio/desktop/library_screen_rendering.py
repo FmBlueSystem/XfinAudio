@@ -8,7 +8,7 @@ from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import QTableWidgetItem
 
-from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus, is_complete_measurement
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_filter import _RowInfo, suppressed_duplicate_paths
 from xfinaudio.desktop.library_filter_state import library_filters_from_flags, row_matches_query
@@ -26,13 +26,14 @@ _EMPTY = QTableWidgetItem("")
 _ROW_COLOR_EVEN = QColor("#0e161e")
 _ROW_COLOR_ODD = QColor("#121d27")
 _ROW_COLOR_SELECTED = QColor("#5a4be0")
-_MISSING_COLUMN = 7
+_MISSING_COLUMN = 8
 _COLUMNS = [
     "Title",
     "Artist",
     "BPM",
     "Key",
     "Energy",
+    "LUFS",
     "Duration",
     "Color",
     "Missing",
@@ -146,12 +147,7 @@ class LibraryScreenRenderingMixin:
                     ).format(profile.lufs_integrated)
                 )
             return
-        if (
-            profile.status is not LoudnessStatus.MEASURED
-            or profile.lufs_integrated is None
-            or profile.loudness_range_lra is None
-            or profile.true_peak_dbtp is None
-        ):
+        if not is_complete_measurement(profile):
             if profile.status is LoudnessStatus.UNMEASURABLE:
                 text = QCoreApplication.translate("LibraryScreen", "Loudness: unmeasurable")
             elif profile.status is LoudnessStatus.TRANSIENT_FAILURE:
@@ -162,6 +158,10 @@ class LibraryScreenRenderingMixin:
                 text = QCoreApplication.translate("LibraryScreen", "Loudness: incomplete measurement")
             self.loudness_detail_label.setText(text)
             return
+        # is_complete_measurement guarantees these three, but only at runtime.
+        assert profile.lufs_integrated is not None
+        assert profile.loudness_range_lra is not None
+        assert profile.true_peak_dbtp is not None
         self.loudness_detail_label.setText(
             QCoreApplication.translate(
                 "LibraryScreen", "LUFS: {0:.1f} · LRA: {1:.1f} · True peak: {2:.1f} dBTP"
@@ -198,6 +198,7 @@ class LibraryScreenRenderingMixin:
                     row_data.bpm,
                     row_data.musical_key,
                     row_data.energy,
+                    row_data.lufs,
                     row_data.duration,
                     row_data.spectral_color,
                     row_data.missing_fields,

@@ -60,8 +60,8 @@ from xfinaudio.recommendation.playlist_service import (
     recommendation_with_replacement,
 )
 
-_TRACK_COLOR_COLUMN = 6
-_TRACK_PATH_COLUMN = 11
+_TRACK_COLOR_COLUMN = 7
+_TRACK_PATH_COLUMN = 12
 _MISSING_METADATA_FILTERS = {
     "Missing BPM": "bpm",
     "Missing Key": "camelot_key",

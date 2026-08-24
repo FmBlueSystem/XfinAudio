@@ -2,13 +2,14 @@ from xfinaudio.desktop.library_table_presenter import sort_key_for_column, sort_
 from xfinaudio.desktop.library_view_model import TrackDisplayRow
 
 
-def _row(*, title: str = "Title", bpm: str = "120") -> TrackDisplayRow:
+def _row(*, title: str = "Title", bpm: str = "120", lufs: str = "-9.8") -> TrackDisplayRow:
     return TrackDisplayRow(
         title=title,
         artist="Artist",
         bpm=bpm,
         musical_key="8A",
         energy="5",
+        lufs=lufs,
         duration="3:20",
         spectral_color="GREEN",
         missing_fields="",

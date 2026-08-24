@@ -9,6 +9,8 @@ from PySide6.QtCore import QCoreApplication
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
+from xfinaudio.audio.loudness import is_complete_measurement
+from xfinaudio.desktop.library_view_model import _fmt_lufs
 from xfinaudio.exporting.explainability import PlaylistExplanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessReport
@@ -44,6 +46,7 @@ def populate_library_table(
             "" if record.bpm is None else f"{record.bpm:g}",
             record.camelot_key or "",
             "" if record.energy_level is None else str(record.energy_level),
+            _fmt_lufs(record.loudness_profile),
             _format_duration(record.duration),
             format_spectral_color(record),
             format_missing_metadata(record),
@@ -58,17 +61,27 @@ def populate_library_table(
             record.bpm if record.bpm is not None else float("inf"),
             values[3].casefold(),
             record.energy_level if record.energy_level is not None else 999,
+            # Unmeasured rows sort last in both directions of a loudness sweep.
+            _lufs_sort_key(record),
             record.duration if record.duration is not None else float("inf"),
-            values[6].casefold(),
             values[7].casefold(),
             values[8].casefold(),
             values[9].casefold(),
+            values[10].casefold(),
             "",
-            values[11].casefold(),
+            values[12].casefold(),
         ]
         for column_index, value in enumerate(values):
             table.setItem(row_index, column_index, item_factory(value, sort_values[column_index]))
     return records_by_path
+
+
+def _lufs_sort_key(record: TrackRecord) -> float:
+    profile = record.loudness_profile
+    if profile is None or not is_complete_measurement(profile):
+        return float("inf")
+    assert profile.lufs_integrated is not None
+    return profile.lufs_integrated
 
 
 def populate_recommendation_table(

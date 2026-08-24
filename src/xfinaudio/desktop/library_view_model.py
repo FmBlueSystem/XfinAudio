@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QCoreApplication
 
 from xfinaudio.application.spectral_profile_display import format_application_spectral_color
+from xfinaudio.audio.loudness import LoudnessProfile, is_complete_measurement
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.library.models import TrackRecord
 
@@ -27,6 +28,7 @@ class TrackDisplayRow:
     bpm: str  # "128" or "—"
     musical_key: str  # "8A" or "—"
     energy: str  # "7" or "—"
+    lufs: str  # "-9.8" or "—"
     duration: str  # "3:42" or "—"
     missing_fields: str  # comma-separated or "—"
     genre: str  # value or "—"
@@ -58,6 +60,13 @@ def _fmt_energy(energy: int | None) -> str:
     if energy is None or energy == 0:
         return _DASH
     return str(int(energy))
+
+
+def _fmt_lufs(profile: LoudnessProfile | None) -> str:
+    """Show integrated loudness only for a complete measurement, so a row never overstates."""
+    if profile is None or not is_complete_measurement(profile):
+        return _DASH
+    return f"{profile.lufs_integrated:.1f}"
 
 
 def _fmt_duration(seconds: float | None) -> str:
@@ -98,6 +107,7 @@ def _to_display_row(track: TrackRecord) -> TrackDisplayRow:
         bpm=_fmt_bpm(track.bpm),
         musical_key=_fmt_key(track.camelot_key),
         energy=_fmt_energy(track.energy_level),
+        lufs=_fmt_lufs(track.loudness_profile),
         duration=_fmt_duration(track.duration),
         missing_fields=_fmt_missing(track.missing_required_fields),
         genre=_fmt_genre(track.genre),
