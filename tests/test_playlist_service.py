@@ -1152,6 +1152,18 @@ def test_expected_set_length_sizes_the_arc_by_the_slot() -> None:
     assert _expected_set_length([], None, None, None) is None
 
 
+def test_expected_set_length_keeps_explicit_played_seconds_with_nonempty_candidates() -> None:
+    """A supplied segment length is the shared caller contract, regardless of track duration."""
+    from xfinaudio.recommendation.playlist_service import _expected_set_length
+
+    pool = [
+        track("/short.flac").model_copy(update={"duration": 60.0}),
+        track("/long.flac").model_copy(update={"duration": 300.0}),
+    ]
+
+    assert _expected_set_length(pool, 30.0, 120.0, None) == 15
+
+
 def test_expected_set_length_falls_back_to_the_mean_duration() -> None:
     """With no segment length each track counts in full."""
     from xfinaudio.recommendation.playlist_service import _expected_set_length
@@ -1281,6 +1293,68 @@ def test_chill_keeps_its_sort() -> None:
     ]
 
     assert recommend_playlist(pool, "chill").optimizer == "strategy-order"
+
+
+@pytest.mark.parametrize("strategy_name", ["harmonic_journey", "warmup", "build", "peak_time"])
+def test_arc_strategy_selects_the_same_full_set_from_raw_or_desktop_sized_pool(strategy_name: str) -> None:
+    if strategy_name == "peak_time":
+        energies = [7 + index % 4 for index in range(24)]
+    elif strategy_name == "warmup":
+        energies = [1 + index % 6 for index in range(24)]
+    else:
+        energies = [2 + index % 8 for index in range(24)]
+    playable = [
+        track(
+            f"/playable-{index:02d}.flac",
+            bpm=100.0 + index * 0.5,
+            camelot_key="8A",
+            energy_level=energies[index],
+        )
+        for index in range(24)
+    ]
+    fragmented_noise = [
+        track(f"/noise-{index:02d}.flac", bpm=150.0 + index, camelot_key="8A", energy_level=2 + index % 8)
+        for index in range(30)
+    ]
+    raw = [playable[0], *fragmented_noise, *playable[1:]]
+    controls = DJControls(start_path=playable[0].path)
+
+    raw_result = recommend_playlist(raw, strategy_name, controls=controls, target_count=12)
+    capped_result = recommend_playlist(playable, strategy_name, controls=controls, target_count=12)
+
+    assert len(raw_result.ordered_tracks) == 12
+    assert len(capped_result.ordered_tracks) == 12
+
+
+def test_non_arc_strategy_does_not_route_through_subset_search(monkeypatch) -> None:
+    import xfinaudio.recommendation.optimizer as optimizer_module
+
+    monkeypatch.setattr(
+        optimizer_module,
+        "_arc_subset_path",
+        lambda *args, **kwargs: pytest.fail("non-arc strategy used arc subset search"),
+        raising=False,
+    )
+    pool = [track(f"/e{index}.flac", bpm=120.0 + index * 0.2, energy_level=2 + index) for index in range(6)]
+
+    assert recommend_playlist(pool, "chill", target_count=4).optimizer == "strategy-order"
+
+
+def test_arc_subset_preserves_anchor_locked_track_and_manual_prefix_end_to_end() -> None:
+    manual = track("/manual.flac", bpm=100.0, energy_level=2)
+    locked = track("/locked.flac", bpm=103.0, energy_level=7)
+    pool = [manual, locked] + [
+        track(f"/t{index}.flac", bpm=101.0 + index, energy_level=3 + index) for index in range(5)
+    ]
+    controls = DJControls(manual_order_paths=[manual.path], locked_paths={locked.path})
+
+    result = recommend_playlist(pool, "warmup", controls=controls, target_count=5)
+
+    paths = [item.path for item in result.ordered_tracks]
+    assert paths[0] == manual.path
+    assert locked.path in paths
+    assert len(paths) == 5
+    assert result.optimizer in {"arc-subset-exact", "arc-subset-beam"}
 
 
 # ---------------------------------------------------------------------------

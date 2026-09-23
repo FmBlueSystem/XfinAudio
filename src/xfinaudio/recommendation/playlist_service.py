@@ -415,13 +415,34 @@ def recommend_playlist(
         remaining_tracks, dropped_bpm_jump_count = _bpm_reachable_from(
             remaining_tracks, start_path, preserve_paths=preserved_control_paths(controls)
         )
-        remaining_tracks = _shortlist_for_sequencing(
-            remaining_tracks,
-            _expected_set_length(remaining_tracks, target_duration_minutes, played_seconds_per_track, target_count),
-            preserve_paths=preserved_control_paths(controls),
+        expected_set_length = _expected_set_length(
+            remaining_tracks, target_duration_minutes, played_seconds_per_track, target_count
         )
+        arc_subset_set_length = (
+            _expected_arc_subset_length(
+                remaining_tracks,
+                target_duration_minutes,
+                played_seconds_per_track,
+                target_count,
+            )
+            if traces_an_arc(strategy.name)
+            else expected_set_length
+        )
+        use_arc_subset = traces_an_arc(strategy.name) and arc_subset_set_length is not None
+        if not use_arc_subset:
+            remaining_tracks = _shortlist_for_sequencing(
+                remaining_tracks,
+                expected_set_length,
+                preserve_paths=preserved_control_paths(controls),
+            )
         if dropped_bpm_jump_count:
             warnings.append(_bpm_jump_warning(dropped_bpm_jump_count))
+        generated_target_length = (
+            min(len(remaining_tracks), max(0, arc_subset_set_length - len(manual_prefix)))
+            if use_arc_subset and arc_subset_set_length is not None
+            else None
+        )
+        generated_mandatory_paths = preserved_control_paths(controls) - manual_paths
         sequenced = recommend_sequence(
             remaining_tracks,
             start_path=start_path,
@@ -429,7 +450,7 @@ def recommend_playlist(
             weights=scoring_config.weights,
             cache=_score_cache,
             config=scoring_config,
-            arc_strategy=strategy.name,
+            arc_strategy=strategy.name if traces_an_arc(strategy.name) else None,
             # A tempo jump the DJ cannot beatmatch is not a bad option, it is not
             # an option -- the sequencer routes around it instead of pricing it.
             max_bpm_difference_percent=MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
@@ -437,12 +458,15 @@ def recommend_playlist(
             # from. Sizing it by the pool showed only the opening fraction of the
             # curve, so a warm-up never climbed and a journey's peak sat past the
             # end of the set.
-            arc_length=_expected_set_length(
-                remaining_tracks, target_duration_minutes, played_seconds_per_track, target_count
-            ),
+            arc_length=arc_subset_set_length,
+            target_length=generated_target_length,
+            mandatory_paths=generated_mandatory_paths,
+            external_start=manual_prefix[-1] if manual_prefix else None,
+            arc_slot_offset=len(manual_prefix),
         )
         sequenced_tracks = sequenced.ordered_tracks
         optimizer = sequenced.optimizer
+        warnings.extend(sequenced.warnings)
         # The sequencer orders everything it is handed, so a track with no
         # playable neighbour still comes back -- parked at an edge, where the
         # penalty is cheapest. Cut those loose now that the true order is known.
@@ -599,6 +623,27 @@ def _expected_set_length(
     if not seconds:
         return target_count
     return max(1, round(target_duration_minutes * 60 / seconds))
+
+
+def _expected_arc_subset_length(
+    candidates: list[TrackRecord],
+    target_duration_minutes: float | None,
+    played_seconds_per_track: float | None,
+    target_count: int | None,
+) -> int | None:
+    """Size only the arc subset for tracks shorter than the played segment."""
+    expected = _expected_set_length(
+        candidates,
+        target_duration_minutes,
+        played_seconds_per_track,
+        target_count,
+    )
+    if target_duration_minutes is None or played_seconds_per_track is None:
+        return expected
+    effective = [min(track.duration, played_seconds_per_track) for track in candidates if track.duration]
+    if not effective:
+        return expected
+    return max(1, round(target_duration_minutes * 60 / (sum(effective) / len(effective))))
 
 
 def _uses_strategy_order(strategy: PlaylistStrategy) -> bool:

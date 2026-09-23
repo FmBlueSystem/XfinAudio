@@ -1,3 +1,5 @@
+import pytest
+
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation import optimizer
 from xfinaudio.recommendation.optimizer import recommend_sequence
@@ -308,3 +310,251 @@ def test_half_time_pair_does_not_receive_unplayable_transition_penalty() -> None
     )
 
     assert score >= 0.0
+
+
+def _hard_arc(pool: list[TrackRecord], **kwargs):
+    return recommend_sequence(
+        pool,
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=kwargs.pop("arc_length", 4),
+        **kwargs,
+    )
+
+
+def test_energy_arc_does_not_collapse_on_a_fragmented_shortlist() -> None:
+    pool = [
+        track("/anchor.flac", bpm=100.0, energy=2),
+        track("/wrong-low.flac", bpm=140.0, energy=2),
+        track("/bridge-1.flac", bpm=101.0, energy=4),
+        track("/wrong-high.flac", bpm=160.0, energy=9),
+        track("/bridge-2.flac", bpm=102.0, energy=7),
+        track("/finish.flac", bpm=103.0, energy=9),
+    ]
+
+    result = _hard_arc(pool, start_path="/anchor.flac")
+
+    assert len(result.ordered_tracks) == 4
+    assert [item.path for item in result.ordered_tracks] == [
+        "/anchor.flac",
+        "/bridge-1.flac",
+        "/bridge-2.flac",
+        "/finish.flac",
+    ]
+
+
+def test_hard_arc_every_returned_edge_respects_the_bpm_ceiling() -> None:
+    pool = [track(f"/t{i}.flac", bpm=bpm, energy=2 + i) for i, bpm in enumerate([100, 101, 102, 103, 140])]
+
+    result = _hard_arc(pool, start_path="/t0.flac")
+
+    assert all(
+        optimizer.bpm_difference_percent(left.bpm or 0.0, right.bpm or 0.0) <= 3.0
+        for left, right in zip(result.ordered_tracks, result.ordered_tracks[1:], strict=False)
+    )
+
+
+def test_hard_arc_reserves_a_reachable_end_for_the_terminal_slot() -> None:
+    pool = _tempo_pool([100.0, 101.0, 102.0, 103.0, 104.0])
+
+    result = _hard_arc(pool, start_path="/t0.flac", end_path="/t4.flac")
+
+    assert result.ordered_tracks[-1].path == "/t4.flac"
+    assert not result.warnings
+
+
+def test_hard_arc_reports_a_proven_unreachable_end() -> None:
+    pool = _tempo_pool([100.0, 101.0, 102.0, 160.0])
+
+    result = _hard_arc(pool, start_path="/t0.flac", end_path="/t3.flac")
+
+    assert not result.ordered_tracks
+    assert any("proven infeasible" in warning.lower() for warning in result.warnings)
+
+
+def test_hard_arc_distinguishes_budget_exhaustion_from_proven_infeasibility() -> None:
+    pool = [track(f"/t{i}.flac", bpm=100.0 + i * 0.5, energy=(i % 9) + 1) for i in range(20)]
+
+    exhausted = _hard_arc(pool, beam_width=0)
+    infeasible = _hard_arc(_tempo_pool([100.0, 101.0]), arc_length=4, start_path="/t0.flac")
+
+    assert any("budget" in warning.lower() and "not proof" in warning.lower() for warning in exhausted.warnings)
+    assert any("proven infeasible" in warning.lower() for warning in infeasible.warnings)
+
+
+def test_hard_arc_keeps_locked_paths_and_uses_manual_seam_as_external_root() -> None:
+    seam = track("/manual.flac", bpm=99.0, energy=2)
+    pool = [track(f"/t{i}.flac", bpm=100.0 + i, energy=3 + i) for i in range(5)]
+
+    result = _hard_arc(
+        pool,
+        arc_length=5,
+        target_length=4,
+        external_start=seam,
+        arc_slot_offset=1,
+        mandatory_paths={"/t3.flac"},
+    )
+
+    assert len(result.ordered_tracks) == 4
+    assert "/t3.flac" in {item.path for item in result.ordered_tracks}
+    assert optimizer.bpm_difference_percent(seam.bpm or 0.0, result.ordered_tracks[0].bpm or 0.0) <= 3.0
+
+
+def test_hard_arc_fails_closed_when_mandatory_paths_exceed_target() -> None:
+    result = _hard_arc(
+        _tempo_pool([100.0, 101.0, 102.0]),
+        arc_length=2,
+        target_length=2,
+        mandatory_paths={"/t0.flac", "/t1.flac", "/t2.flac"},
+    )
+
+    assert not result.ordered_tracks
+    assert any("mandatory" in warning.lower() and "proven infeasible" in warning.lower() for warning in result.warnings)
+
+
+def test_hard_arc_fails_closed_when_mandatory_paths_cannot_coexist() -> None:
+    result = _hard_arc(
+        _tempo_pool([100.0, 101.0, 160.0]),
+        arc_length=3,
+        mandatory_paths={"/t1.flac", "/t2.flac"},
+        start_path="/t0.flac",
+    )
+
+    assert not result.ordered_tracks
+    assert any("mandatory" in warning.lower() for warning in result.warnings)
+
+
+def test_hard_arc_defines_none_start_missing_bpm_and_uncapped_fallback() -> None:
+    missing = track("/missing.flac", bpm=120.0).model_copy(update={"bpm": None})
+    result = _hard_arc([missing, *_tempo_pool([100.0, 101.0, 102.0])])
+    uncapped = recommend_sequence(
+        _tempo_pool([100.0, 101.0, 102.0]),
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=None,
+    )
+
+    assert len(result.ordered_tracks) == 4
+    assert missing in result.ordered_tracks
+    assert uncapped.optimizer in {"exact", "greedy-2opt"}
+
+
+def test_hard_arc_one_track_can_be_both_start_and_end() -> None:
+    only = track("/only.flac")
+
+    result = _hard_arc([only], arc_length=1, start_path=only.path, end_path=only.path)
+
+    assert result.ordered_tracks == [only]
+
+
+def test_hard_arc_reports_a_mandatory_path_missing_from_the_pool() -> None:
+    result = _hard_arc(_tempo_pool([100.0, 101.0, 102.0]), mandatory_paths={"/not-in-pool.flac"})
+
+    assert not result.ordered_tracks
+    assert any("not in the candidate pool" in warning.lower() for warning in result.warnings)
+
+
+def test_hard_arc_neighbor_discovery_includes_folded_two_to_one_edges() -> None:
+    pool = _tempo_pool([60.0, 120.0])
+
+    result = _hard_arc(pool, arc_length=2, start_path="/t0.flac", end_path="/t1.flac")
+
+    assert [item.path for item in result.ordered_tracks] == ["/t0.flac", "/t1.flac"]
+
+
+def test_hard_arc_exact_and_beam_paths_are_deterministic_and_observable() -> None:
+    small = _tempo_pool([100.0, 101.0, 102.0, 103.0])
+    large = [track(f"/b{i:02d}.flac", bpm=100.0 + i * 0.1, energy=2 + i % 8) for i in range(20)]
+
+    exact = _hard_arc(list(reversed(small)), start_path="/t0.flac")
+    beam_first = _hard_arc(list(reversed(large)))
+    beam_second = _hard_arc(large)
+
+    assert exact.optimizer == "arc-subset-exact"
+    assert beam_first.optimizer == "arc-subset-beam"
+    assert [item.path for item in beam_first.ordered_tracks] == [item.path for item in beam_second.ordered_tracks]
+
+
+def test_hard_arc_large_pool_never_builds_eager_score_or_arc_matrices(monkeypatch) -> None:
+    pool = [track(f"/t{i:04d}.flac", bpm=120.0 + i % 10 * 0.1, energy=2 + i % 8) for i in range(2000)]
+    monkeypatch.setattr(optimizer, "_score_matrix", lambda *args, **kwargs: pytest.fail("eager score matrix"))
+    monkeypatch.setattr(optimizer, "_arc_bonuses", lambda *args, **kwargs: pytest.fail("eager arc matrix"))
+
+    result = _hard_arc(pool)
+
+    assert len(result.ordered_tracks) == 4
+
+
+def test_hard_arc_exploration_only_caches_the_final_path_edges() -> None:
+    pool = [track(f"/t{i:03d}.flac", bpm=120.0 + i % 12 * 0.1, energy=2 + i % 8) for i in range(200)]
+    caller_cache = {}
+
+    result = recommend_sequence(
+        pool,
+        start_path="/t000.flac",
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=6,
+        cache=caller_cache,
+    )
+
+    assert len(result.ordered_tracks) == 6
+    assert len(caller_cache) == 5, "exploration must not retain full TransitionScore objects"
+
+
+def test_hard_arc_beam_bounds_expensive_transition_scoring(monkeypatch) -> None:
+    pool = [track(f"/t{i:04d}.flac", bpm=120.0 + i % 20 * 0.1, energy=2 + i % 8) for i in range(2000)]
+    original = optimizer.score_transition
+    calls = 0
+
+    def counted_score_transition(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(optimizer, "score_transition", counted_score_transition)
+
+    result = _hard_arc(pool, arc_length=6, start_path="/t0000.flac")
+
+    assert len(result.ordered_tracks) == 6
+    assert calls < 50_000, "beam exploration must preselect a bounded feasible successor budget"
+
+
+def test_small_arc_domain_does_not_hide_a_low_arc_bonus_connector(monkeypatch) -> None:
+    start = track("/start.flac", bpm=120.0, energy=10)
+    connector = track("/zz-connector.flac", bpm=121.0, energy=1)
+    decoys = [track(f"/decoy-{index:02d}.flac", bpm=121.0, energy=10) for index in range(70)]
+
+    def connector_transition(left, right, **kwargs):
+        return optimizer.TransitionScore(
+            left_path=left.path,
+            right_path=right.path,
+            total_score=100.0 if right.path == connector.path else 0.0,
+            component_scores={},
+            explanations=[],
+            warnings=[],
+        )
+
+    monkeypatch.setattr(optimizer, "score_transition", connector_transition)
+
+    result = recommend_sequence(
+        [start, connector, *decoys],
+        start_path=start.path,
+        arc_strategy="peak_time",
+        max_bpm_difference_percent=3.0,
+        arc_length=4,
+    )
+
+    assert connector.path in {item.path for item in result.ordered_tracks}
+
+
+def test_non_hard_arc_call_shapes_keep_the_legacy_solvers() -> None:
+    pool = _tempo_pool([100.0, 101.0, 102.0, 103.0])
+
+    no_arc = recommend_sequence(pool, max_bpm_difference_percent=3.0)
+    no_ceiling = recommend_sequence(pool, arc_strategy="warmup", arc_length=3)
+
+    assert no_arc.optimizer == "exact"
+    assert len(no_arc.ordered_tracks) == 4
+    assert no_ceiling.optimizer == "exact"
+    assert len(no_ceiling.ordered_tracks) == 4

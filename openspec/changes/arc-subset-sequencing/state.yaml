@@ -1,0 +1,75 @@
+schema: gentle-ai.sdd-state.v1
+change: arc-subset-sequencing
+artifact_store: openspec
+status: verified
+state: verify_complete
+step: archive
+review_status: pending
+created: 2026-09-22
+updated: 2026-09-23
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  review: pending
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: single-accept
+  review_budget_changed_lines: 400
+  measured_changed_lines: 1632
+  measured_changed_lines_excluding_own_artifacts: 889
+  review_scope: spec-delta-contract
+notes: |
+  Implementation and tests were rescued uncommitted from the stale branch
+  feat/library-file-watcher-integration (68 commits behind main) and ported onto
+  feat/arc-subset-sequencing: 999 insertions across optimizer.py,
+  playlist_service.py, and the two test files. Local validation measured by the
+  orchestrating session: 1901 passed full suite, coverage 91.58%, pyright clean,
+  ruff clean. Pending: aggregate 40-anchor before/after re-measurement against a
+  scratch SQLite copy, frozen-spec required-properties checklist (items 1-13),
+  independent verification, and the 400-line review-budget disposition (chained-PR
+  plan or recorded accept). Specs here are deltas only; do not claim verified or
+  archived.
+
+  Verification completed 2026-09-23. The gates the implementing session recorded were
+  re-measured by a different session on the same branch and reproduce exactly (1901 passed,
+  91.58%, pyright 0 errors/0 warnings, ruff clean). The aggregate 40-anchor before/after
+  measurement that was missing is now done and recorded in verify-report.md: the raw condition
+  goes from 3-10 of 40 full sets to 40 of 40, and the desktop condition from 33 of 40 to 39 of
+  40 for peak_time.
+
+  Two findings are recorded rather than glossed. First, the change costs more: 4.7x overall and
+  up to 13.7x in the raw condition, though the UI path stays under 0.6s per recommendation.
+  Second, SPEC-WU25 is unrecoverable, so task 6.2 could not be completed as written and was
+  re-scoped to verifying this change's own spec-delta scenarios; that is a weaker claim and is
+  marked as such.
+
+  This is verification, not review. Running the gates and the measurement is independent
+  verification of the claims; no native review transaction was opened for these bytes and none
+  is claimed. review_status stays pending.
+
+  Task 6.4 disposition: the maintainer recorded an explicit accept of about 1632 changed lines
+  against the repository's 400-line budget, in session on 2026-09-23. Review is scoped to this
+  change's spec-delta contract rather than to the raw diff: the contract is
+  openspec/changes/arc-subset-sequencing/specs/energy-arc-sequencing/spec.md and
+  specs/repository-reference-integrity is not part of this change, so the contract to review is
+  the energy-arc-sequencing delta alone -- 15 scenarios, each naming a pinning test, 22 distinct
+  test names, all present in the tree and passing.
+
+  The alternative considered and rejected was a chained-PR plan: the primitive is one coherent
+  algorithm, and splitting it would add helpers with no caller before the solver lands and change
+  which solver the optimizer picks between the exact and beam work units, so the intermediate
+  states would be artificial and their tests written to tolerate behaviour that is then rewritten.
+  The change's own proposal records the same argument.
+
+  An accept does not remove review: it scopes it. review_status stays pending, because no native
+  review transaction exists for these bytes and none is claimed here. The accept is recorded as
+  the maintainer's decision relayed and written down by the orchestrating session -- not as that
+  session's own judgment.
