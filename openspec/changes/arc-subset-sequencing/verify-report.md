@@ -168,3 +168,21 @@ uv run python scripts/release_gate_check.py --run
    package hygiene with sdist and wheel inspected, PyInstaller check-only, root
    artifact hygiene); working tree clean afterwards
 ```
+
+## Cost disposition (owner decision, 2026-09-23)
+
+The independent verification measured a cost regression the implementing branch never
+measured: total benchmark time 72.7s → 338.9s (4.7x), with the raw pool condition up to
+13.7x per anchor (`harmonic_journey` 7.11s → 97.13s). The desktop (real UI) condition
+measured ~1.0x except `peak_time` (2.5x); per recommendation in the UI path including
+pool planning: 0.24–0.54s after vs 0.21–0.33s before — worst case stays under 0.6s.
+
+**Decision: accepted.** The user never waits on raw/batch mode, and the interactive path
+the UI actually exercises is unchanged within perception threshold. The raw-mode cost is
+recorded here as accepted technical debt with its measurement
+(`scripts/arc_subset_benchmark.py` reproduces these numbers); revisit only if batch
+workflows become user-facing.
+
+Also recorded: the frozen spec `SPEC-WU25.md` was unrecoverable after the 2026-09-22
+clone consolidation (local-only file, never versioned on any ref); task 6.2 was re-scoped
+to the change's own spec delta (15 scenarios, 22 named pinning tests — all pass).
