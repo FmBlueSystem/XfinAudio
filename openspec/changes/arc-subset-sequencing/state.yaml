@@ -1,0 +1,36 @@
+schema: gentle-ai.sdd-state.v1
+change: arc-subset-sequencing
+artifact_store: openspec
+status: in_progress
+state: apply_complete
+step: verify
+review_status: pending
+created: 2026-09-22
+updated: 2026-09-22
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: pending
+  review: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: undecided
+  chained_prs_recommended: true
+  chain_strategy: pending-owner-decision
+  review_budget_changed_lines: 400
+notes: |
+  Implementation and tests were rescued uncommitted from the stale branch
+  feat/library-file-watcher-integration (68 commits behind main) and ported onto
+  feat/arc-subset-sequencing: 999 insertions across optimizer.py,
+  playlist_service.py, and the two test files. Local validation measured by the
+  orchestrating session: 1901 passed full suite, coverage 91.58%, pyright clean,
+  ruff clean. Pending: aggregate 40-anchor before/after re-measurement against a
+  scratch SQLite copy, frozen-spec required-properties checklist (items 1-13),
+  independent verification, and the 400-line review-budget disposition (chained-PR
+  plan or recorded accept). Specs here are deltas only; do not claim verified or
+  archived.
