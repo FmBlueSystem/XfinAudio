@@ -84,8 +84,11 @@
 - [x] 6.3 Independent verification of this change — the gates re-measured by a different
       session on the same branch: 1901 passed, 91.58%, pyright 0 errors / 0 warnings, ruff
       clean.
-- [ ] 6.4 Review-budget decision per AGENTS.md: chained-PR plan or a recorded explicit
-      accept for ~999 changed lines (budget 400). The owner's decision; the only open item.
+- [x] 6.4 Review-budget disposition recorded per AGENTS.md: an explicit accept for the
+      ~1632 changed lines (budget 400), with review scoped to the energy-arc-sequencing
+      spec-delta contract rather than a chained-PR plan. Maintainer's decision, recorded
+      2026-09-23; the rejected alternative and its reason are in `state.yaml` and
+      `verify-report.md`.
 
 ## Deferred / out of scope
 

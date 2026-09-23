@@ -17,13 +17,15 @@ phases:
   verify: complete
   review: pending
 next_recommended: archive
-blocked_reasons:
-  - "review-budget disposition (task 6.4): about 999 changed lines against the 400-line budget in AGENTS.md; needs a chained-PR plan or a recorded explicit accept, and that is the owner's decision"
+blocked_reasons: []
 delivery:
-  strategy: undecided
-  chained_prs_recommended: true
-  chain_strategy: pending-owner-decision
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: single-accept
   review_budget_changed_lines: 400
+  measured_changed_lines: 1632
+  measured_changed_lines_excluding_own_artifacts: 889
+  review_scope: spec-delta-contract
 notes: |
   Implementation and tests were rescued uncommitted from the stale branch
   feat/library-file-watcher-integration (68 commits behind main) and ported onto
@@ -52,3 +54,22 @@ notes: |
   This is verification, not review. Running the gates and the measurement is independent
   verification of the claims; no native review transaction was opened for these bytes and none
   is claimed. review_status stays pending.
+
+  Task 6.4 disposition: the maintainer recorded an explicit accept of about 1632 changed lines
+  against the repository's 400-line budget, in session on 2026-09-23. Review is scoped to this
+  change's spec-delta contract rather than to the raw diff: the contract is
+  openspec/changes/arc-subset-sequencing/specs/energy-arc-sequencing/spec.md and
+  specs/repository-reference-integrity is not part of this change, so the contract to review is
+  the energy-arc-sequencing delta alone -- 15 scenarios, each naming a pinning test, 22 distinct
+  test names, all present in the tree and passing.
+
+  The alternative considered and rejected was a chained-PR plan: the primitive is one coherent
+  algorithm, and splitting it would add helpers with no caller before the solver lands and change
+  which solver the optimizer picks between the exact and beam work units, so the intermediate
+  states would be artificial and their tests written to tolerate behaviour that is then rewritten.
+  The change's own proposal records the same argument.
+
+  An accept does not remove review: it scopes it. review_status stays pending, because no native
+  review transaction exists for these bytes and none is claimed here. The accept is recorded as
+  the maintainer's decision relayed and written down by the orchestrating session -- not as that
+  session's own judgment.
