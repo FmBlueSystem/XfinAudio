@@ -91,7 +91,13 @@ All on `feat/arc-subset-sequencing`. Nothing pushed; no commit on `main`.
 | WU1 optimizer primitive | `04eeace` | `optimizer.py` +622/−2, `tests/test_sequence_optimizer.py` +250; green in isolation (34 passed) |
 | WU2 service routing | `b0c25fa` | `playlist_service.py` +53/−8, `tests/test_playlist_service.py` +74; focused 241 passed |
 | WU3 governance | `3245943` | the seven OpenSpec artifacts + this ledger |
-| WU4 verification | `_pending_` | added `scripts/arc_subset_benchmark.py` (the repeatable 40-anchor harness) plus the before/after, cost and re-scope evidence in `openspec/changes/arc-subset-sequencing/` |
+| WU4 verification | `5317494` | added `scripts/arc_subset_benchmark.py` (the repeatable 40-anchor harness) plus the before/after, cost and re-scope evidence in `openspec/changes/arc-subset-sequencing/` |
+| WU3b evidence recording | `0e11333` | recorded the work-unit commits and the final gate evidence in the report and this ledger |
+| WU5 hash bookkeeping | the commit that carries this row | filled the WU4 hash. A commit cannot record its own hash, so this row names the work unit by its content instead; every other commit on the branch is listed above. |
+
+The `0e11333` row above was missing until this edit: the table listed four of the branch's five
+commits. It was found by diffing the table against `git log`, which is the check that catches
+this class of gap — not by reading the table.
 
 ## Final gate at the tip (`3245943` plus the evidence commit)
 
