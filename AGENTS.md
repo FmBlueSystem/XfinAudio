@@ -52,16 +52,14 @@ state.yaml   # schema: gentle-ai.sdd-state.v1
 
 ## Verification before finishing
 
-Run these commands in order and ensure they pass:
+Run this and ensure it passes:
 
 ```bash
-uv run pytest -q
-uv run pyright src tests
-uv run pytest --cov -q
-uv run ruff check .
-uv run ruff format --check .
 uv run python scripts/release_gate_check.py --run
 ```
+
+The gate already includes the test suite with coverage, the type check, and the lint and format
+checks, so running them separately only repeats work.
 
 The coverage floor lives in `pyproject.toml` (`[tool.coverage.report] fail_under`) and nowhere
 else. Never pass `--cov-fail-under` on a command line: the flag overrides the config, so the

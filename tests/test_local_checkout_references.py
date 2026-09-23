@@ -19,8 +19,9 @@ CONFIG_PATH = PROJECT_ROOT / "openspec" / "config.yaml"
 # below scans tracked files, so a literal path here would make it flag itself.
 MACHINE_LOCAL_CHECKOUT = "/".join(("", "Users", "freddymolina", "Documents", "audio"))
 # Historical change records and review evidence may cite the old checkout; they
-# are the record of what happened, not instructions for what to do next.
-HISTORICAL_PREFIXES = ("openspec/changes/", "docs/reviews/")
+# are the record of what happened, not instructions for what to do next. The ODD
+# feature ledgers record defects with the same evidence tables.
+HISTORICAL_PREFIXES = ("openspec/changes/", "docs/reviews/", "odd/tasks/")
 
 
 def config_text() -> str:
@@ -60,6 +61,24 @@ def test_project_root_is_the_repository_root() -> None:
     root_line = next(line for line in config_text().splitlines() if line.strip().startswith("root:"))
 
     assert root_line.split(":", maxsplit=1)[1].strip().strip('"').strip("'") == "."
+
+
+def test_declared_skill_registry_resolves_when_present() -> None:
+    """A declared convention must point at a file the clone actually contains.
+
+    ``conventions.skill_registry`` named ``.atl/skill-registry.md``, which does
+    not exist anywhere: ``.atl/`` is git-ignored, so the pointer resolved only
+    on the machine that wrote it. A convention this repository does not
+    maintain must not be declared.
+    """
+    declared = [
+        line.split(":", maxsplit=1)[1].strip()
+        for line in config_text().splitlines()
+        if line.strip().startswith("skill_registry:")
+    ]
+    missing = [value for value in declared if not (PROJECT_ROOT / value).exists()]
+
+    assert missing == [], f"openspec/config.yaml declares an unresolvable skill registry: {missing}"
 
 
 def test_declared_source_and_test_roots_exist() -> None:

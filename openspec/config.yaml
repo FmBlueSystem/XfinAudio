@@ -113,5 +113,4 @@ testing:
     command: uv run ruff format .
 
 conventions:
-  skill_registry: .atl/skill-registry.md
   review_budget_changed_lines: 400
