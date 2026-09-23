@@ -73,7 +73,10 @@ source = ["src/xfinaudio"]
 branch = false
 
 [tool.coverage.report]
-fail_under = 70
+# 89, not 70: the suite measured 91.64% on this tree, so a 70 floor could absorb
+# a twenty-point collapse of the test suite before anyone noticed. The slack is
+# deliberate headroom for ordinary churn, not a number to shave.
+fail_under = 89
 precision = 2
 show_missing = true
 skip_empty = true
@@ -93,3 +96,4 @@ indent-style = "space"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/xfinaudio"]
+

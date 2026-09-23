@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -120,13 +121,35 @@ def test_run_mode_propagates_subprocess_failure_and_stops(
     assert release_gate_check.main(["--run"]) == 17
 
     assert calls == [
-        ["uv", "run", "pytest", "--cov", "--cov-fail-under=70", "-q"],
+        ["uv", "run", "pytest", "--cov", "-q"],
         ["uv", "run", "pyright", "src", "tests"],
         ["uv", "run", "ruff", "check", "."],
     ]
     output = capsys.readouterr().out
     assert "FAIL lint exited with 17" in output
     assert "uv run ruff format --check ." not in output
+
+
+def test_coverage_floor_has_one_definition_and_cannot_sit_far_below_reality() -> None:
+    """Regression: the coverage floor existed twice, so raising either changed nothing.
+
+    The gate command passed ``--cov-fail-under=70`` while ``pyproject.toml`` also
+    said 70. The command-line flag wins over the config, so the configured floor
+    was decorative. One definition, and it has to stay close enough to the
+    measured coverage to notice a regression: the real figure is 91.64%, which
+    means a floor of 70 could absorb a twenty-point collapse before failing.
+    """
+    coverage_command = next(
+        gate.command for gate in release_gate_check.NON_AUDIO_COMMAND_GATES if gate.name == "tests and coverage"
+    )
+
+    assert not any(argument.startswith("--cov-fail-under") for argument in coverage_command), (
+        "the floor must live in pyproject.toml only, or the config becomes decorative"
+    )
+    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    fail_under = pyproject["tool"]["coverage"]["report"]["fail_under"]
+
+    assert fail_under >= 85, f"a floor of {fail_under} against 91.64% measured cannot catch a regression"
 
 
 def test_root_artifact_hygiene_fails_when_build_or_dist_exists(tmp_path: Path) -> None:
@@ -190,7 +213,7 @@ def test_check_only_report_json_lists_gates_and_pending_manual_gates(
         "PyInstaller check-only": "listed",
         "root artifact hygiene": "listed",
     }
-    assert report["gates"][0]["command"] == ["uv", "run", "pytest", "--cov", "--cov-fail-under=70", "-q"]
+    assert report["gates"][0]["command"] == ["uv", "run", "pytest", "--cov", "-q"]
     open_source_gate = next(gate for gate in report["gates"] if gate["name"] == "open-source publication docs")
     assert open_source_gate["command"] == [
         "uv",
