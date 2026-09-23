@@ -152,6 +152,29 @@ def test_coverage_floor_has_one_definition_and_cannot_sit_far_below_reality() ->
     assert fail_under >= 85, f"a floor of {fail_under} against 91.64% measured cannot catch a regression"
 
 
+def test_documented_verification_sequence_defers_the_coverage_floor_to_pyproject() -> None:
+    """Regression: AGENTS.md documented a floor that pyproject.toml no longer owns.
+
+    The gate command stopped passing ``--cov-fail-under`` when the floor moved to
+    ``pyproject.toml``, but the sequence a contributor is told to follow kept the
+    old ``--cov-fail-under=70``. Following the documented instructions would have
+    lowered the floor from 89 to 70, because the flag wins over the config -- the
+    very defect the command-line fix removed, left behind in the instructions.
+    """
+    agents = (PROJECT_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "## Verification before finishing" in agents, "AGENTS.md no longer carries a verification sequence"
+    section = agents.split("## Verification before finishing", 1)[1].split("\n## ", 1)[0]
+    assert "```bash" in section, "the verification sequence is no longer a runnable bash block"
+    block = section.split("```bash", 1)[1].split("```", 1)[0]
+
+    # The flag is a command-line concern, so it is asserted on the commands only:
+    # the surrounding prose names ``--cov-fail-under`` precisely to forbid it.
+    assert "--cov-fail-under" not in block, (
+        "the documented sequence must not pass a coverage floor flag; it overrides pyproject.toml"
+    )
+    assert "pyproject.toml" in section, "the documented sequence must name where the coverage floor lives"
+
+
 def test_root_artifact_hygiene_fails_when_build_or_dist_exists(tmp_path: Path) -> None:
     (tmp_path / "build").mkdir()
 
