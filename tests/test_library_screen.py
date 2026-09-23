@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtWidgets import QApplication, QFrame
@@ -11,6 +12,7 @@ from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_view_model import LibraryViewModel
 from xfinaudio.desktop.screens.library_screen import _MISSING_COLUMN, LibraryScreen
+from xfinaudio.desktop.window_service_wiring import apply_main_song_filter
 from xfinaudio.library.models import TrackRecord
 
 
@@ -529,3 +531,43 @@ def test_duplicate_count_label_clears_when_toggle_off_again(qapp: QApplication) 
 
     screen.hide_duplicates_button.click()
     assert screen.duplicate_count_label.text() == ""
+
+
+def _main_song_filter_harness(screen: LibraryScreen, state: AppState) -> SimpleNamespace:
+    """Minimal stand-in exposing only the attributes apply_main_song_filter consumes."""
+    return SimpleNamespace(
+        _library_screen=screen,
+        _records_by_path={record.path: record for record in state.scanned_records},
+        _active_song_search_query="",
+        _selected_metadata_status_filter=lambda: None,
+        _selected_missing_metadata_filter=lambda: None,
+        _refresh_idle_action_state=lambda: None,
+    )
+
+
+def test_main_song_filter_matches_artist_not_only_title(qapp: QApplication) -> None:
+    """The main-window song filter must match Artist, not only Title.
+
+    The wiring filter read the Title cell alone, so a DJ searching an artist
+    name hid every row unless the name also appeared inside the title text.
+    """
+    screen = LibraryScreen()
+    state = _state_with_duplicates()
+    screen.render(LibraryViewModel(), state)
+    harness = _main_song_filter_harness(screen, state)
+
+    # Artist query keeps rows whose titles never mention the artist.
+    apply_main_song_filter(harness, "dj richie rich")
+    assert _visible_titles(screen) == ["Right On Track", "Right On Track (v2)"]
+
+    # Title queries keep working.
+    apply_main_song_filter(harness, "right on")
+    assert _visible_titles(screen) == ["Right On Track", "Right On Track (v2)"]
+
+    # A query matching neither title nor artist hides every row.
+    apply_main_song_filter(harness, "no such match anywhere")
+    assert _visible_titles(screen) == []
+
+    # An empty query shows everything again.
+    apply_main_song_filter(harness, "")
+    assert _visible_titles(screen) == ["Right On Track", "Right On Track (v2)", "Other Song"]
