@@ -632,7 +632,12 @@ def test_main_window_refresh_reports_metadata_completion_delta(tmp_path) -> None
     assert window.status_label.text() == "Refresh complete: 1 incomplete → 0 incomplete; 1 fixed"
 
 
-def test_main_window_filters_library_by_song_title(tmp_path) -> None:
+def test_main_window_filters_library_by_song_title_or_artist(tmp_path) -> None:
+    """The main search filters by title OR artist.
+
+    Regression: the wiring read the Title cell alone, so "love" hid
+    "Night Drive" by "Love Artist" unless the name was inside the title.
+    """
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
     window.show_tracks(
@@ -661,7 +666,7 @@ def test_main_window_filters_library_by_song_title(tmp_path) -> None:
     window._library_screen.search_input.setText("love")
     window._search_debounce.timeout.emit()
 
-    assert _visible_track_titles(window) == ["Love Song", "Another Love"]
+    assert _visible_track_titles(window) == ["Love Song", "Night Drive", "Another Love"]
 
 
 def test_search_filter_debounce_fires_once_for_rapid_input(tmp_path, monkeypatch) -> None:

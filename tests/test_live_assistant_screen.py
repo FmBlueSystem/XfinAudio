@@ -1,6 +1,8 @@
 """Tests for LiveAssistantScreen — Qt widget tests."""
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QLabel
 
 from xfinaudio.desktop.screens.live_assistant_screen import LiveAssistantScreen
@@ -147,6 +149,40 @@ def test_guidance_banner_visible_without_current_track(qapp: QApplication) -> No
     assert "L" in guidance_text
     assert guidance_labels[0].wordWrap() is True
     assert guidance_labels[0].isVisible() is True
+
+
+def test_guidance_shortcuts_match_registered_bindings(qapp: QApplication) -> None:
+    """The guidance text must advertise only shortcuts that actually exist."""
+    screen = LiveAssistantScreen()
+
+    guidance_labels = screen.findChildren(QLabel, "guidanceLabel")
+    assert len(guidance_labels) == 1
+    guidance_text = guidance_labels[0].text()
+
+    # No unregistered shortcut may be advertised.
+    assert "L loads" not in guidance_text
+    # Space loads a suggestion; it does not control preview playback.
+    assert "plays or pauses" not in guidance_text
+
+    # The live QShortcut registrations are the source of truth.
+    bound_sequences = [shortcut.key() for shortcut in screen.findChildren(QShortcut)]
+
+    def is_bound(key: Qt.Key) -> bool:
+        return any(seq == QKeySequence(key) for seq in bound_sequences)
+
+    assert is_bound(Qt.Key.Key_Escape)
+    assert is_bound(Qt.Key.Key_Space)
+    assert is_bound(Qt.Key.Key_1)
+    assert is_bound(Qt.Key.Key_2)
+    assert is_bound(Qt.Key.Key_3)
+    assert not is_bound(Qt.Key.Key_L)
+
+    # Every registered shortcut must be mentioned, and nothing else.
+    assert "Esc" in guidance_text
+    assert "Space" in guidance_text
+    assert "1" in guidance_text
+    assert "2" in guidance_text
+    assert "3" in guidance_text
 
 
 def test_content_shows_when_current_track_set(qapp: QApplication, track_a: TrackRecord) -> None:

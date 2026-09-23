@@ -15,6 +15,7 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import DJControls
 
 _TRACK_TITLE_COLUMN = column_index("Title")
+_TRACK_ARTIST_COLUMN = column_index("Artist")
 _TRACK_STATUS_COLUMN = column_index("Status")
 _TRACK_PATH_COLUMN = column_index("Path")
 _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
@@ -120,12 +121,14 @@ def apply_main_song_filter(self: Any, query: str | None = None, *, clear_selecti
     for row_index in range(self._library_screen.tracks_table.rowCount()):
         title_item = self._library_screen.tracks_table.item(row_index, _TRACK_TITLE_COLUMN)
         title = "" if title_item is None else title_item.text().casefold()
+        artist_item = self._library_screen.tracks_table.item(row_index, _TRACK_ARTIST_COLUMN)
+        artist = "" if artist_item is None else artist_item.text().casefold()
         status_item = self._library_screen.tracks_table.item(row_index, _TRACK_STATUS_COLUMN)
         status = "" if status_item is None else status_item.text()
         path_item = self._library_screen.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
         path = "" if path_item is None else path_item.text()
         record = self._records_by_path.get(path)
-        title_mismatch = bool(search_query) and search_query not in title
+        title_mismatch = bool(search_query) and search_query not in title and search_query not in artist
         status_mismatch = status_filter is not None and status != status_filter
         missing_mismatch = missing_filter is not None and (
             record is None or missing_filter not in record.missing_required_fields
