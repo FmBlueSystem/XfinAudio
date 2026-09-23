@@ -16,6 +16,24 @@ SPEC_PATH = PROJECT_ROOT / "packaging" / "pyinstaller" / "xfinaudio.spec"
 SMOKE_SCRIPT_PATH = PROJECT_ROOT / "scripts" / "pyinstaller_build_smoke.py"
 PYPROJECT_PATH = PROJECT_ROOT / "pyproject.toml"
 
+
+def _change_artifact_path(change_name: str, *parts: str, changes_root: Path | None = None) -> Path:
+    """Resolve an OpenSpec change artifact whether the change is active or archived.
+
+    A change lives at ``openspec/changes/<name>/`` while active and moves under
+    ``openspec/changes/archive/<date>-<name>/`` once verified. Reading the active
+    path directly makes a gate fail purely because a verified change was archived,
+    so resolve the change directory first and only then compose the artifact path.
+    """
+    root = changes_root if changes_root is not None else PROJECT_ROOT / "openspec" / "changes"
+    active = root / change_name
+    if active.is_dir():
+        return active.joinpath(*parts)
+    for archived in sorted((root / "archive").glob(f"*-{change_name}")):
+        if archived.is_dir():
+            return archived.joinpath(*parts)
+    raise FileNotFoundError(f"OpenSpec change {change_name!r} not found under {root}")
+
 _smoke_script_spec = importlib.util.spec_from_file_location("pyinstaller_build_smoke", SMOKE_SCRIPT_PATH)
 assert _smoke_script_spec is not None
 assert _smoke_script_spec.loader is not None
@@ -365,7 +383,7 @@ def test_loudness_ffmpeg_bundle_is_validated_excluded_from_upx_and_documented() 
     inventory = (PROJECT_ROOT / "docs" / "third-party-license-inventory.md").read_text(encoding="utf-8")
     runtime = (PROJECT_ROOT / "src" / "xfinaudio" / "audio" / "loudness_runtime.py").read_text(encoding="utf-8")
     build_script = (PROJECT_ROOT / "scripts" / "build_ffmpeg_universal.py").read_text(encoding="utf-8")
-    tasks = (PROJECT_ROOT / "openspec" / "changes" / "add-loudness-module" / "tasks.md").read_text(encoding="utf-8")
+    tasks = _change_artifact_path("add-loudness-module", "tasks.md").read_text(encoding="utf-8")
 
     assert 'ffmpeg_binary = project_root / "packaging" / "ffmpeg" / "ffmpeg"' in spec_text
     assert 'binaries=[(str(bundled_ffmpeg), ".")]' in spec_text
@@ -392,6 +410,26 @@ def test_loudness_ffmpeg_bundle_is_validated_excluded_from_upx_and_documented() 
     assert config_flags and all(f"`{flag}`" in inventory for flag in config_flags)
     assert "durable written offer" in inventory
     assert "- [x] 4.5 Packaging: FFmpeg CLI" in tasks
+
+
+def test_change_artifact_path_resolves_a_change_in_active_and_archived_locations(tmp_path: Path) -> None:
+    changes_root = tmp_path / "changes"
+    active_change = changes_root / "active-change"
+    active_change.mkdir(parents=True)
+    (active_change / "tasks.md").write_text("active", encoding="utf-8")
+    archived_change = changes_root / "archive" / "2026-01-01-archived-change"
+    archived_change.mkdir(parents=True)
+    (archived_change / "tasks.md").write_text("archived", encoding="utf-8")
+
+    assert _change_artifact_path("active-change", "tasks.md", changes_root=changes_root).read_text(
+        encoding="utf-8"
+    ) == "active"
+    assert _change_artifact_path("archived-change", "tasks.md", changes_root=changes_root).read_text(
+        encoding="utf-8"
+    ) == "archived"
+
+    with pytest.raises(FileNotFoundError):
+        _change_artifact_path("missing-change", "tasks.md", changes_root=changes_root)
 
 
 def _bundle_validator() -> dict[str, object]:
