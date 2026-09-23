@@ -67,16 +67,25 @@
 - [x] 5.1 Focused suites, full suite, coverage, pyright, ruff check/format — evidence in
       `verify-report.md`
 
-## WU6 — Verification and governance (NOT done)
+## WU6 — Verification and governance
 
-- [ ] 6.1 Aggregate 40-anchor before/after re-measurement (all four strategies, desktop-
-      capped and raw conditions) against a **scratch copy** of the SQLite library —
-      never the live DB — reported in the baseline table's shape
-- [ ] 6.2 Required-properties checklist (SPEC-WU25 test items 1–13) confirmed item by
-      item in a verify pass
-- [ ] 6.3 Independent verification of this change
+- [x] 6.1 Aggregate 40-anchor before/after re-measurement (all four strategies, desktop-
+      capped and raw conditions) against a **scratch copy** of the SQLite library,
+      `target_count=12`, by `scripts/arc_subset_benchmark.py`. Raw condition: 3-10 of 40
+      full sets before, 40 of 40 after. Desktop condition: `peak_time` 33 of 40 before,
+      39 after. The fix also costs more — 4.7x overall, up to 13.7x in the raw condition
+      — and the cost table is recorded in `verify-report.md`.
+- [x] 6.2 Required-properties verification — **RE-SCOPED, not completed as written.**
+      SPEC-WU25 is unrecoverable (a local-only file in a deleted clone, present in no ref
+      of this repository), so its items 1-13 cannot be confirmed. Replaced by verifying
+      that every scenario of this change's own spec delta names a pinning test that exists
+      and passes: 15 scenarios, 22 test names. Weaker than the original item; the reason is
+      recorded in `verify-report.md`.
+- [x] 6.3 Independent verification of this change — the gates re-measured by a different
+      session on the same branch: 1901 passed, 91.58%, pyright 0 errors / 0 warnings, ruff
+      clean.
 - [ ] 6.4 Review-budget decision per AGENTS.md: chained-PR plan or a recorded explicit
-      accept for ~999 changed lines (budget 400)
+      accept for ~999 changed lines (budget 400). The owner's decision; the only open item.
 
 ## Deferred / out of scope
 

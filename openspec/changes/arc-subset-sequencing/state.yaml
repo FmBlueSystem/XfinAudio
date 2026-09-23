@@ -1,12 +1,12 @@
 schema: gentle-ai.sdd-state.v1
 change: arc-subset-sequencing
 artifact_store: openspec
-status: in_progress
-state: apply_complete
-step: verify
+status: verified
+state: verify_complete
+step: archive
 review_status: pending
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-23
 strict_tdd: true
 phases:
   proposal: complete
@@ -14,10 +14,11 @@ phases:
   design: complete
   tasks: complete
   apply: complete
-  verify: pending
+  verify: complete
   review: pending
-next_recommended: verify
-blocked_reasons: []
+next_recommended: archive
+blocked_reasons:
+  - "review-budget disposition (task 6.4): about 999 changed lines against the 400-line budget in AGENTS.md; needs a chained-PR plan or a recorded explicit accept, and that is the owner's decision"
 delivery:
   strategy: undecided
   chained_prs_recommended: true
@@ -34,3 +35,20 @@ notes: |
   independent verification, and the 400-line review-budget disposition (chained-PR
   plan or recorded accept). Specs here are deltas only; do not claim verified or
   archived.
+
+  Verification completed 2026-09-23. The gates the implementing session recorded were
+  re-measured by a different session on the same branch and reproduce exactly (1901 passed,
+  91.58%, pyright 0 errors/0 warnings, ruff clean). The aggregate 40-anchor before/after
+  measurement that was missing is now done and recorded in verify-report.md: the raw condition
+  goes from 3-10 of 40 full sets to 40 of 40, and the desktop condition from 33 of 40 to 39 of
+  40 for peak_time.
+
+  Two findings are recorded rather than glossed. First, the change costs more: 4.7x overall and
+  up to 13.7x in the raw condition, though the UI path stays under 0.6s per recommendation.
+  Second, SPEC-WU25 is unrecoverable, so task 6.2 could not be completed as written and was
+  re-scoped to verifying this change's own spec-delta scenarios; that is a weaker claim and is
+  marked as such.
+
+  This is verification, not review. Running the gates and the measurement is independent
+  verification of the claims; no native review transaction was opened for these bytes and none
+  is claimed. review_status stays pending.

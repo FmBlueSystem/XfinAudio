@@ -50,7 +50,7 @@ Baseline measured over 40 real anchors, `target_count=12` (raw library input):
 - [x] 3. Work-unit commit: the optimizer primitive
 - [x] 4. Work-unit commit: the playlist_service routing + pool sizing
 - [x] 5. Work-unit commit: the OpenSpec artifacts
-- [ ] 6. Re-run the aggregate 40-anchor measurement and record before/after
+- [x] 6. Re-run the aggregate 40-anchor measurement and record before/after
 - [x] 7. Full gate + release gate + evidence report
 
 ## Evidence so far
@@ -91,6 +91,7 @@ All on `feat/arc-subset-sequencing`. Nothing pushed; no commit on `main`.
 | WU1 optimizer primitive | `04eeace` | `optimizer.py` +622/−2, `tests/test_sequence_optimizer.py` +250; green in isolation (34 passed) |
 | WU2 service routing | `b0c25fa` | `playlist_service.py` +53/−8, `tests/test_playlist_service.py` +74; focused 241 passed |
 | WU3 governance | `3245943` | the seven OpenSpec artifacts + this ledger |
+| WU4 verification | `_pending_` | added `scripts/arc_subset_benchmark.py` (the repeatable 40-anchor harness) plus the before/after, cost and re-scope evidence in `openspec/changes/arc-subset-sequencing/` |
 
 ## Final gate at the tip (`3245943` plus the evidence commit)
 
@@ -111,9 +112,21 @@ The release gate ran the publication-docs, publication-artifact-hygiene, source-
 
 ## Open risks
 
-- The frozen spec's PROOF section also requires the aggregate 40-anchor before/after table
-  against a **scratch copy** of `~/.xfinaudio/xfinaudio.sqlite3` (never the live DB). Not yet run.
-- The spec's baseline table came from a real 10,607-track library; the improvement must be
-  re-measured, not assumed.
+- ~~The frozen spec's PROOF section also requires the aggregate 40-anchor before/after table
+  against a **scratch copy** of `~/.xfinaudio/xfinaudio.sqlite3` (never the live DB).~~ **Done.**
+  Ran against a scratch copy, 40 anchors, `target_count=12`, both pool conditions. Raw: 3-10 of
+  40 full sets before, 40 of 40 after. Desktop: `peak_time` 33 of 40 before, 39 after.
+- ~~The spec's baseline table came from a real 10,607-track library; the improvement must be
+  re-measured, not assumed.~~ **Done, with a caveat.** Re-measured on the real library (10,511
+  complete tracks on this machine). The harness was first validated by running it on `main` and
+  checking it against the recorded baseline, which it reproduces in shape and, in the desktop
+  condition, almost exactly. The anchor set itself is a documented replacement, because the
+  spec's is lost.
+- **New, and unmeasured before this pass: the change costs more.** 4.7x total, up to 13.7x in
+  the raw condition. The UI path — the one a DJ feels — stays at or under 0.54s per
+  recommendation including pool planning. Recorded in `verify-report.md`.
+- **SPEC-WU25 is unrecoverable.** It was a local-only file in the clone the consolidation
+  deleted, and it is in no ref of this repository. Task 6.2 could not be completed as written
+  and was re-scoped; that weaker claim is stated in `verify-report.md`.
 - Review budget: this change is ~999 changed lines, above the 400-line `AGENTS.md` budget; it
   needs either an explicit chained-PR plan or a recorded accept decision.
