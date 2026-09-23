@@ -20,9 +20,11 @@ next_recommended: archive
 blocked_reasons: []
 delivery:
   strategy: single-pr
-  chained_prs_recommended: false
-  chain_strategy: none
+  chained_prs_recommended: true
+  chain_strategy: work-unit-commits
   review_budget_changed_lines: 400
+  measured_changed_lines: 1632
+  measured_changed_lines_excluding_own_artifacts: 889
 notes: |
   Five guards and one publication path, each verified by running the guard rather than by
   reading it. No file under src/xfinaudio changes; the wheel was never affected, because none
@@ -47,3 +49,11 @@ notes: |
   in the ledger and in verify-report.md: a dead conventions.skill_registry pointer to a
   git-ignored file, and a packaging test that reads an active change's artifact and so breaks when
   that change is archived as its own state.yaml prescribes.
+
+  Review budget: this change measures 1632 changed lines against the repository's 400-line
+  budget, so it exceeds the budget and records that rather than claiming otherwise. The figure
+  splits into 743 lines of this change's own SDD artifacts and 889 lines of production, test and
+  configuration change; excluding the artifacts it is still over. The largest single work unit,
+  234d6f5, is 557 lines, and 426 of those are deletions -- a dead test script removed whole rather
+  than edited. It is delivered as eight work-unit commits, each with its own failing test first,
+  which is the chain the budget asks for even though it lands as one branch.
