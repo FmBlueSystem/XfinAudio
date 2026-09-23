@@ -1,8 +1,11 @@
 # Restart Handoff — XfinAudio
 
 Date: 2026-06-03
-Project path: `/Users/freddymolina/Documents/audio`
-Git status: this directory is not currently a Git repository; no `git status` or `git diff` evidence is available.
+Status: historical record. Written against a local working copy that predates this
+repository's Git history, so it is kept for the record rather than as current
+instructions. The project root is wherever this repository is checked out; resolve it
+with `git rev-parse --show-toplevel`.
+Git status: at the time of writing, this directory was not a Git repository; no `git status` or `git diff` evidence is available.
 
 ## Current state
 
@@ -80,7 +83,7 @@ No DSP, C++, beat tracking, BPM/key detection, audio rendering/mixing, audio mut
 
 ## Recommended next steps after restart
 
-1. Re-open `/Users/freddymolina/Documents/audio`.
+1. Re-open the repository root: `cd "$(git rev-parse --show-toplevel)"`.
 2. Run:
 
 ```bash

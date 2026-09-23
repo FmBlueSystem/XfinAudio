@@ -2,7 +2,13 @@
 # Generated from repository inspection on 2026-06-06; keep user-maintained changes authoritative.
 project:
   name: xfinaudio
-  root: /Users/freddymolina/Documents/audio
+  # Repository-relative on purpose. This field used to name a machine-local
+  # path belonging to a different, independent clone of this same repository,
+  # so anything resolving project.root from this file operated on the wrong
+  # tree. The tooling resolves the project root with
+  # `git rev-parse --show-toplevel || pwd`; `.` is the only value that keeps
+  # that meaning in any clone.
+  root: .
   description: Metadata-driven DJ playlist assistant desktop app/discovery prototype.
   language: python
   python:
@@ -24,13 +30,17 @@ stack:
   core_dependencies:
     - mutagen >=1.47,<2.0
     - pydantic >=2.0,<3.0
+    - PySide6 >=6.0,<7.0
     - librosa >=0.10,<0.12
     - numpy >=1.24,<3.0
+    - watchdog >=4.0,<7.0
+    - setproctitle >=1.3,<2.0
+    - pyobjc-framework-Cocoa >=10.0,<13.0 (Darwin only)
   dev_dependencies:
-    - pytest >=8.0
-    - pytest-cov >=7.1.0
-    - pyright >=1.1.410
-    - ruff >=0.11
+    - pytest >=8.0,<10.0
+    - pytest-cov >=7.1.0,<8.0
+    - pyright >=1.1.410,<2.0
+    - ruff >=0.11,<1.0
     - pyinstaller ==6.20.0
 
 sdd:
@@ -45,14 +55,14 @@ sdd:
     - Keep OpenSpec artifacts in this repository's openspec/ tree.
     - Follow the project skill .atl/skills/gentle-ai-sdd-tdd/SKILL.md for the full lifecycle.
   current_intent:
-    requested_change: Implement offline read-only spectral color features for transition scoring.
-    status: In progress — apply phase.
+    requested_change: Idle; the spectral colour work is complete and archived.
+    status: idle — no active change in this repository.
     reference_history:
-      - openspec/changes/spectral-color-features/design.md
+      - openspec/changes/archive/2026-06-14-spectral-color-features
 
 testing:
   runner: pytest
-  framework: pytest 9.0.3
+  framework: pytest (range pinned in pyproject.toml)
   primary_command: uv run pytest -q
   strict_tdd: true
   test_layers:
@@ -63,7 +73,8 @@ testing:
   coverage:
     available: true
     tool: pytest-cov
-    command: uv run pytest --cov --cov-fail-under=70 -q
+    command: uv run pytest --cov -q
+    floor_owner: pyproject.toml (tool.coverage.report.fail_under)
   type_checker:
     available: true
     tool: pyright
@@ -71,7 +82,7 @@ testing:
   validation_commands:
     - uv run pytest -q
     - uv run pyright src tests
-    - uv run pytest --cov --cov-fail-under=70 -q
+    - uv run pytest --cov -q
     - uv run ruff check .
     - uv run ruff format --check .
   pytest:

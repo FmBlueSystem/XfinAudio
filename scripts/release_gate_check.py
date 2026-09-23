@@ -28,7 +28,10 @@ class CommandGate(NamedTuple):
 NON_AUDIO_COMMAND_GATES = [
     # One run, not two: a coverage run executes every test, so a separate bare
     # run added no signal and doubled the slowest gate.
-    CommandGate("tests and coverage", ["uv", "run", "pytest", "--cov", "--cov-fail-under=70", "-q"]),
+    # No --cov-fail-under here on purpose: pyproject.toml owns the floor, and a
+    # command-line flag would silently win over it. Two copies of one number
+    # meant raising either one alone changed nothing.
+    CommandGate("tests and coverage", ["uv", "run", "pytest", "--cov", "-q"]),
     CommandGate("type-check", ["uv", "run", "pyright", "src", "tests"]),
     CommandGate("lint", ["uv", "run", "ruff", "check", "."]),
     CommandGate("format", ["uv", "run", "ruff", "format", "--check", "."]),

@@ -57,11 +57,15 @@ Run these commands in order and ensure they pass:
 ```bash
 uv run pytest -q
 uv run pyright src tests
-uv run pytest --cov --cov-fail-under=70 -q
+uv run pytest --cov -q
 uv run ruff check .
 uv run ruff format --check .
 uv run python scripts/release_gate_check.py --run
 ```
+
+The coverage floor lives in `pyproject.toml` (`[tool.coverage.report] fail_under`) and nowhere
+else. Never pass `--cov-fail-under` on a command line: the flag overrides the config, so the
+number a maintainer edits in `pyproject.toml` would stop being the number that gates.
 
 For focused work, run the smallest relevant `pytest` target first, then the full suite.
 

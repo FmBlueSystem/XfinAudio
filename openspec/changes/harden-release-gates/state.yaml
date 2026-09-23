@@ -1,0 +1,59 @@
+schema: gentle-ai.sdd-state.v1
+change: harden-release-gates
+artifact_store: openspec
+status: verified
+state: verify_complete
+step: archive
+review_status: pending
+created: 2026-09-22
+updated: 2026-09-22
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+  review: pending
+next_recommended: archive
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: true
+  chain_strategy: work-unit-commits
+  review_budget_changed_lines: 400
+  measured_changed_lines: 1632
+  measured_changed_lines_excluding_own_artifacts: 889
+notes: |
+  Five guards and one publication path, each verified by running the guard rather than by
+  reading it. No file under src/xfinaudio changes; the wheel was never affected, because none
+  of the excluded scratch lived inside the package.
+
+  Full-suite evidence was measured at 234d6f5 (1896 passed) and the documentation work unit
+  landed as 39fbeb5; WU8 re-runs the whole gate over the finished tree and the result is in
+  verify-report.md. The two revisions are kept distinct there on purpose.
+
+  Provenance: WU1-WU5 were implemented by the session that produced the orchestration ledger at
+  odd/tasks/harden-release-gates.md, which records a RED before each production change. Those RED
+  observations are reproduced in apply-progress.md as recorded by that session, not re-observed
+  by this one. WU6 and both of its mutation directions were observed directly. No RED output is
+  invented for a work unit whose RED nobody present observed.
+
+  review_status is pending, and that is a statement about what happened rather than a formality:
+  no independent or native review transaction was opened for these bytes, and this change claims
+  no review receipt. Verification here means the local gates and the re-verification of each
+  defect.
+
+  Two follow-ups were found while closing this change and are deliberately left unfixed, recorded
+  in the ledger and in verify-report.md: a dead conventions.skill_registry pointer to a
+  git-ignored file, and a packaging test that reads an active change's artifact and so breaks when
+  that change is archived as its own state.yaml prescribes.
+
+  Review budget: this change measures 1632 changed lines against the repository's 400-line
+  budget, so it exceeds the budget and records that rather than claiming otherwise. The figure
+  splits into 743 lines of this change's own SDD artifacts and 889 lines of production, test and
+  configuration change; excluding the artifacts it is still over. The largest single work unit,
+  234d6f5, is 557 lines, and 426 of those are deletions -- a dead test script removed whole rather
+  than edited. It is delivered as eight work-unit commits, each with its own failing test first,
+  which is the chain the budget asks for even though it lands as one branch.
