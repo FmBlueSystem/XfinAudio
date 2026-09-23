@@ -68,6 +68,16 @@ building `xfinaudio-1.8.2.tar.gz` and `xfinaudio-1.8.2-py3-none-any.whl` from th
 distribution, `PASS PyInstaller check-only` (6.20.0), and `PASS root artifact hygiene`. Its
 manual gate list records real Mixed In Key audio QA as `COMPLETED`.
 
+These artifacts were untracked when the run above was taken. The gate was therefore run a
+second time after they were committed, because committing them changes what several guards
+are looking at: `openspec/` is part of the source distribution, and the publication hygiene
+gate, the local-checkout reference guard and the sdist inspection all read `git ls-files`.
+That second run also exited 0, with `PASS publication artifact hygiene`, `PASS source package
+hygiene` for both `xfinaudio-1.8.2.tar.gz` and `xfinaudio-1.8.2-py3-none-any.whl` built from
+the distribution, and `PASS root artifact hygiene`. The two guards most exposed to this
+change were also run directly against the tracked set — `test_local_checkout_references.py`
+and `test_publication_artifact_hygiene.py` — and pass, 11 tests.
+
 ## Each defect verified against the branch
 
 The defects were re-verified rather than accepted from their commit messages.
