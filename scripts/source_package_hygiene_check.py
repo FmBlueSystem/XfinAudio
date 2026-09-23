@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 import zipfile
 from email.parser import Parser
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,11 @@ REQUIRED_SDIST_FILES = [
     "pyproject.toml",
 ]
 FORBIDDEN_FILE_NAMES = {"apiJira.txt", "context.md", ".DS_Store"}
+# Planning and review scratch that belongs in git but never in a distribution.
+# A published sdist carried PLAN.md, the PLAN-REVIEW-LOG files and every
+# document under docs/reviews/, so the source package shipped working notes.
+FORBIDDEN_PATH_PREFIXES = ("docs/reviews", "docs/superpowers", "odd")
+FORBIDDEN_PATH_PATTERNS = ("PLAN*.md", "SPEC-*.md")
 FORBIDDEN_TOP_LEVEL_DIRS = {".release-evidence", "build", "dist"}
 
 
@@ -62,6 +68,12 @@ def _forbidden_artifact_matches(relative_paths: set[str]) -> list[str]:
         if not parts:
             continue
         if any(part in FORBIDDEN_FILE_NAMES for part in parts):
+            offenders.append(relative_path)
+            continue
+        if any(relative_path == prefix or relative_path.startswith(prefix + "/") for prefix in FORBIDDEN_PATH_PREFIXES):
+            offenders.append(relative_path)
+            continue
+        if any(fnmatch(parts[-1], pattern) for pattern in FORBIDDEN_PATH_PATTERNS):
             offenders.append(relative_path)
             continue
         if parts[0] in FORBIDDEN_TOP_LEVEL_DIRS:

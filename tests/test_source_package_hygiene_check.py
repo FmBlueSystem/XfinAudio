@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import tarfile
+import tomllib
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -135,3 +137,55 @@ def test_build_check_uses_temp_out_dir_and_rejects_root_build_dist_creation(
     assert calls
     assert calls[0][0][:3] == ["uv", "build", "--out-dir"]
     assert not calls[0][0][-1].startswith(str(project_root))
+
+
+@pytest.mark.parametrize(
+    "scratch_path",
+    [
+        "PLAN.md",
+        "PLAN-REVIEW-LOG-docs-audit-2026-07-18.md",
+        "SPEC-WU25.md",
+        "docs/reviews/2026-08-loudness/final-gate-grok.md",
+        "docs/superpowers/plans/2026-06-20-layered-boundary-cleanup.md",
+        "odd/tasks/harden-release-gates.md",
+    ],
+)
+def test_inspect_sdist_rejects_planning_and_review_scratch(tmp_path: Path, scratch_path: str) -> None:
+    """Regression: a real sdist published planning and review scratch.
+
+    ``uv build --sdist`` on the published tree shipped ``PLAN.md``, the
+    PLAN-REVIEW-LOG files and the documents under ``docs/reviews/``, so the
+    source distribution carried working notes rather than product source.
+    """
+    module = load_source_package_hygiene_check()
+    sdist = tmp_path / "xfinaudio-0.1.0.tar.gz"
+    members = {f"xfinaudio-0.1.0/{name}": "public" for name in module.REQUIRED_SDIST_FILES}
+    members[f"xfinaudio-0.1.0/{scratch_path}"] = "scratch"
+    write_sdist(sdist, members)
+
+    with pytest.raises(module.SourcePackageHygieneError, match=re.escape(PurePosixPath(scratch_path).name)):
+        module.inspect_sdist(sdist)
+
+
+def test_sdist_configuration_excludes_scratch_before_it_is_built() -> None:
+    """Detection is the second line of defence; the package must not build it in."""
+    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    excludes = pyproject["tool"]["hatch"]["build"]["targets"]["sdist"]["exclude"]
+
+    def covers(path: str) -> bool:
+        for pattern in excludes:
+            anchored = pattern.lstrip("/")
+            if path == anchored or path.startswith(anchored.rstrip("/") + "/"):
+                return True
+            if PurePosixPath(path).match(anchored):
+                return True
+        return False
+
+    for scratch_path in (
+        "PLAN.md",
+        "PLAN-REVIEW-LOG.md",
+        "docs/reviews/2026-08-loudness/final-gate-grok.md",
+        "docs/superpowers/plans/2026-06-20-layered-boundary-cleanup.md",
+        "odd/tasks/harden-release-gates.md",
+    ):
+        assert covers(scratch_path), f"{scratch_path} would be published; add an sdist exclude pattern for it"

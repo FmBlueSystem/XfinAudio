@@ -97,3 +97,14 @@ indent-style = "space"
 [tool.hatch.build.targets.wheel]
 packages = ["src/xfinaudio"]
 
+# Planning and review scratch stays in git but out of the distribution. Without
+# this the published sdist shipped PLAN.md, the PLAN-REVIEW-LOG files and every
+# document under docs/reviews/.
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/PLAN*.md",
+  "/SPEC-*.md",
+  "/docs/reviews",
+  "/docs/superpowers",
+  "/odd",
+]
