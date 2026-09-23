@@ -46,12 +46,12 @@ Baseline measured over 40 real anchors, `target_count=12` (raw library input):
 ## Tasks
 
 - [x] 1. Port the 4 files onto a branch from `main`; verify the port is faithful
-- [ ] 2. Author the OpenSpec change artifacts (`openspec/changes/arc-subset-sequencing/`)
-- [ ] 3. Work-unit commit: the optimizer primitive
-- [ ] 4. Work-unit commit: the playlist_service routing + pool sizing
-- [ ] 5. Work-unit commit: the OpenSpec artifacts
+- [x] 2. Author the OpenSpec change artifacts (`openspec/changes/arc-subset-sequencing/`)
+- [x] 3. Work-unit commit: the optimizer primitive
+- [x] 4. Work-unit commit: the playlist_service routing + pool sizing
+- [x] 5. Work-unit commit: the OpenSpec artifacts
 - [ ] 6. Re-run the aggregate 40-anchor measurement and record before/after
-- [ ] 7. Full gate + release gate + evidence report
+- [x] 7. Full gate + release gate + evidence report
 
 ## Evidence so far
 
@@ -84,9 +84,30 @@ uv run ruff format --check .
 
 ## Commits
 
+All on `feat/arc-subset-sequencing`. Nothing pushed; no commit on `main`.
+
 | Work unit | Commit | Note |
 |---|---|---|
-| _pending_ | | |
+| WU1 optimizer primitive | `04eeace` | `optimizer.py` +622/−2, `tests/test_sequence_optimizer.py` +250; green in isolation (34 passed) |
+| WU2 service routing | `b0c25fa` | `playlist_service.py` +53/−8, `tests/test_playlist_service.py` +74; focused 241 passed |
+| WU3 governance | `3245943` | the seven OpenSpec artifacts + this ledger |
+
+## Final gate at the tip (`3245943` plus the evidence commit)
+
+Full `AGENTS.md` verification sequence, macOS, Python 3.11:
+
+```
+uv run pytest -q                                    1901 passed in 64.23s
+uv run pyright src tests                            0 errors, 0 warnings, 0 informations
+uv run pytest --cov --cov-fail-under=70 -q          91.58% (11622 stmts, 978 missed)
+uv run ruff check .                                 All checks passed!
+uv run ruff format --check .                        309 files already formatted
+uv run python scripts/release_gate_check.py --run    exit 0, every gate PASS
+```
+
+The release gate ran the publication-docs, publication-artifact-hygiene, source-package-hygiene
+(sdist + wheel inspected) and PyInstaller check-only gates, plus root artifact hygiene.
+`real Mixed In Key audio QA` reports COMPLETED. Working tree clean afterwards.
 
 ## Open risks
 

@@ -2,6 +2,8 @@
 
 **Change**: arc-subset-sequencing
 **Status: pending** — an independent verification has NOT been performed.
+**Commit range under test**: `490f79a..3245943` on `feat/arc-subset-sequencing`
+(`04eeace` optimizer primitive, `b0c25fa` service routing, `3245943` governance).
 
 The commands below were measured by the orchestrating session on this branch
 (`feat/arc-subset-sequencing`, macOS, Python 3.11, `uv`). They are recorded here as
@@ -28,6 +30,11 @@ uv run ruff check .
 
 uv run ruff format --check .
 -> 309 files already formatted
+
+uv run python scripts/release_gate_check.py --run
+-> exit 0; every gate PASS (publication docs, publication artifact hygiene, source
+   package hygiene with sdist and wheel inspected, PyInstaller check-only, root
+   artifact hygiene); working tree clean afterwards
 ```
 
 ## Not verified
