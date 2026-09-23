@@ -145,7 +145,8 @@ class LiveAssistantScreen(QWidget):
                 "1. Pick a track to start the session (or use the candidate list). "
                 "2. Preview candidates with the play button; alerts flag risky transitions. "
                 "3. Press Load Next to commit the chosen track as the new current track. "
-                "Shortcuts: Space plays or pauses preview; L loads the selected next track. "
+                "Shortcuts: Space or 1 loads the first suggestion; "
+                "2 and 3 load the second and third suggestions; Esc exits. "
                 "Scan a library first to populate candidates."
             )
         )
