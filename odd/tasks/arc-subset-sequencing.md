@@ -1,7 +1,8 @@
 # ODD feature ledger — arc-subset-sequencing
 
 **Branch:** `feat/arc-subset-sequencing` (created from `main` @ `490f79a`)
-**Worktree:** `/Users/freddymolina/orca/workspaces/xfinaudio-local-main/arc-subset-sequencing`
+**Worktree:** `~/Desktop/XfinAudio/repo` — this ledger was first written in a temporary worktree
+under `~/orca/workspaces/`, which the 2026-09-22 consolidation deleted.
 **Frozen spec (input):** `SPEC-WU25.md` in the primary clone (local-only file, excluded via
 `.git/info/exclude`; Batch 19 / WU25, three adversarial review rounds, frozen)
 **Raw pickaxe target:** 400 lines of changed source per review budget (`AGENTS.md`)
@@ -9,7 +10,7 @@
 
 ## Why this branch exists
 
-The primary clone `/Users/freddymolina/Documents/xfinaudio-local-main` sits on
+The primary clone — a local checkout outside this consolidated folder, since deleted — sat on
 `feat/library-file-watcher-integration` at `b2b1547`, **68 commits behind `main`**, with this
 work uncommitted in its working tree. `main` already contains everything else that clone
 carried (the EBU R128 loudness module merged as `6fabb3e` and its remediation chain, the
@@ -93,7 +94,7 @@ All on `feat/arc-subset-sequencing`. Nothing pushed; no commit on `main`.
 | WU3 governance | `3245943` | the seven OpenSpec artifacts + this ledger |
 | WU4 verification | `5317494` | added `scripts/arc_subset_benchmark.py` (the repeatable 40-anchor harness) plus the before/after, cost and re-scope evidence in `openspec/changes/arc-subset-sequencing/` |
 | WU3b evidence recording | `0e11333` | recorded the work-unit commits and the final gate evidence in the report and this ledger |
-| WU5 hash bookkeeping | the commit that carries this row | filled the WU4 hash. A commit cannot record its own hash, so this row names the work unit by its content instead; every other commit on the branch is listed above. |
+| WU5 ledger bookkeeping | the commit that carries this row | filled the WU4 hash and corrected the `Worktree` field above, which pointed at a deleted directory. A commit cannot record its own hash, so this row names the work unit by its content. The table lists every substantive work unit; later bookkeeping edits to this ledger are named rather than numbered, for the same reason. |
 
 The `0e11333` row above was missing until this edit: the table listed four of the branch's five
 commits. It was found by diffing the table against `git log`, which is the check that catches
