@@ -38,8 +38,31 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked
 
-      - name: Run tests
-        run: uv run pytest -q
+      # The tag names the release and pyproject names the build. They drifted
+      # once: v1.0.2 sat six weeks and 265 commits ahead of the version it
+      # published, so two files with the same name held different builds.
+      - name: Require the tag to match the project version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+          if [[ -z "${version}" ]]; then
+            echo "error: could not read the version from pyproject.toml" >&2
+            exit 1
+          fi
+          if [[ "${tag}" != "${version}" ]]; then
+            echo "error: tag ${GITHUB_REF_NAME} does not match pyproject.toml ${version}" >&2
+            exit 1
+          fi
+          echo "tag ${GITHUB_REF_NAME} matches ${version}"
+
+      # The pull-request workflow gates the suite, the type checker, the lint,
+      # the coverage floor and every hygiene check. Publishing used to run only
+      # the suite, so the one path with no reviewer had the least scrutiny.
+      # `--run` executes the suite once; there is no separate test step.
+      - name: Run non-audio release gates
+        run: >-
+          uv run python scripts/release_gate_check.py --run
+          --report-json .release-evidence/release-gate-report.json
 
       - name: Build package
         run: uv build
