@@ -30,3 +30,15 @@ Orchestrator = parent (glm5.3-flash); code written by DeepSeek via nan; verifica
 ## Work unit commits
 
 (recorded as they land)
+
+## Work unit commits (final)
+
+- `3949a85` merge: chore/harden-release-gates (9 commits) — suite 1897 green
+- `efee27b` merge: feat/arc-subset-sequencing (8 commits) — suite 1922 green
+- `21ecb8b` merge: fix/verified-product-defects — suite 1924 green
+- `c230b3f` docs(openspec): accepted cost disposition for arc-subset-sequencing (P3)
+- `576d5d5` test(packaging): resolve change artifacts wherever the change lives (P4, DeepSeek TDD)
+- `fbe72ff` docs(openspec): archive the four verified changes + sync spec deltas (P5, DeepSeek)
+- `aed78fe` fix(config): skill-registry pointer + AGENTS.md verification sequence (P6, DeepSeek)
+
+Suite final: 1926 passed, ruff clean. Pending: push (P7).
