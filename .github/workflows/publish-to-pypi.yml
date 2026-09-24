@@ -44,7 +44,11 @@ jobs:
       - name: Require the tag to match the project version
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+          # Read the version with a real TOML parser. `sed | head -1` matched the
+          # first `version = "..."` at column zero, so any earlier table's own
+          # version (TOML does not require indentation) won and the empty guard
+          # only noticed a total miss, never the wrong table.
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb")).get("project", {}).get("version", ""))')"
           if [[ -z "${version}" ]]; then
             echo "error: could not read the version from pyproject.toml" >&2
             exit 1
@@ -63,6 +67,17 @@ jobs:
         run: >-
           uv run python scripts/release_gate_check.py --run
           --report-json .release-evidence/release-gate-report.json
+
+      # The gate writes structured evidence into .release-evidence/. Nothing
+      # else preserves it, so without this the report died with the runner on
+      # exactly the red run that needed it.
+      - name: Upload release gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-release-gate-evidence
+          path: .release-evidence/release-gate-report.json
+          if-no-files-found: error
 
       - name: Build package
         run: uv build

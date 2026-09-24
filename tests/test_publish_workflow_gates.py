@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import tomllib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -79,6 +83,90 @@ def test_publish_workflow_requires_the_tag_to_match_the_project_version() -> Non
     assert "GITHUB_REF_NAME" in text
     assert "pyproject.toml" in text
     assert text.index("GITHUB_REF_NAME") < text.index("uv publish")
+
+
+_STEP_NAME_PREFIX = "      - name:"
+
+
+def step_run_block(step_name: str) -> str:
+    """Return the shell body of the workflow step whose name contains step_name."""
+    lines = workflow_text().splitlines()
+    for index, line in enumerate(lines):
+        if not line.startswith(_STEP_NAME_PREFIX) or step_name not in line:
+            continue
+        run_index = next(
+            candidate for candidate in range(index + 1, len(lines)) if lines[candidate].strip().startswith("run:")
+        )
+        indent = len(lines[run_index]) - len(lines[run_index].lstrip())
+        body: list[str] = []
+        for continuation in lines[run_index + 1 :]:
+            if continuation.strip() and len(continuation) - len(continuation.lstrip()) <= indent:
+                break
+            body.append(continuation)
+        return "\n".join(body)
+    raise AssertionError(f"no workflow step named {step_name!r}")
+
+
+def tag_gate_result(tmp_path: Path, tag: str) -> subprocess.CompletedProcess[str]:
+    """Run the real tag/version gate step against a synthetic pyproject in tmp_path."""
+    shim_dir = tmp_path / "bin"
+    shim_dir.mkdir(exist_ok=True)
+    shim = shim_dir / "python"
+    shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+    shim.chmod(0o755)
+    environment = {
+        **os.environ,
+        "GITHUB_REF_NAME": tag,
+        "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
+    }
+    return subprocess.run(
+        ["bash", "-c", step_run_block("Require the tag to match the project version")],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_tag_gate_reads_the_project_version_with_a_toml_parser(tmp_path: Path) -> None:
+    """Regression: `sed | head -1` read the first `version = ` line in the file.
+
+    TOML does not require indentation, so an earlier table may open with its own
+    `version = "..."` at column zero and win `head -1`. The empty-value guard
+    only noticed "matched nothing"; it never noticed "matched the wrong table".
+    A tag naming that nested value passed the gate while the build published
+    `[project].version`.
+    """
+    version = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    (tmp_path / "pyproject.toml").write_text(
+        f'[tool.decoy]\nversion = "9.9.9"\n\n[project]\nversion = "{version}"\n',
+        encoding="utf-8",
+    )
+
+    correct = tag_gate_result(tmp_path, f"v{version}")
+    decoy = tag_gate_result(tmp_path, "v9.9.9")
+
+    assert correct.returncode == 0, correct.stdout + correct.stderr
+    assert decoy.returncode != 0, f"gate accepted the nested table version: {decoy.stdout}"
+
+
+def test_publish_workflow_preserves_the_release_gate_evidence() -> None:
+    """Regression: a red publish left no record of which gate stopped it.
+
+    The gate step writes `.release-evidence/release-gate-report.json` and the
+    job uploaded nothing, so the structured evidence died with the runner the
+    moment any gate failed.
+    """
+    text = workflow_text()
+
+    assert "actions/upload-artifact@" in text, "the publish job uploads no gate evidence"
+    assert "- name: Upload release gate evidence" in text
+    assert ".release-evidence/release-gate-report.json" in text
+    assert "if-no-files-found: error" in text
+
+    upload_step = text[text.index("- name: Upload release gate evidence") : text.index("actions/upload-artifact@")]
+
+    assert "if: always()" in upload_step, "evidence must upload even when a gate fails"
 
 
 def test_publish_workflow_declares_the_offscreen_qt_platform() -> None:
