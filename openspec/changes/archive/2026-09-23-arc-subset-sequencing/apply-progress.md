@@ -53,6 +53,15 @@ of the SQLite library (never the live DB).
   therefore not available; only the frozen spec's pre-change baseline exists. Tracked as
   open task 6.1.
 
+> **Later note, added 2026-09-23 while closing the native review findings.** The
+> measurement this section records as not run was completed afterwards, so the two
+> paragraphs above describe the state when they were written and are preserved as such.
+> Task 6.1 is now checked in `tasks.md` with its numbers (raw condition: 3-10 of 40 full
+> sets before, 40 of 40 after; desktop condition: `peak_time` 33 of 40 before, 39 after;
+> total benchmark time 72.7s -> 338.9s, 4.7x overall and up to 13.7x in the raw
+> condition). `verify-report.md` carries the owner's accepted cost disposition for that
+> regression, and `scripts/arc_subset_benchmark.py` reproduces both measurements.
+
 ## Scope notes
 
 - No library audio or database was touched by this task; the aggregate measurement, when
