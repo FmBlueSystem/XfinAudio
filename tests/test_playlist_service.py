@@ -5,6 +5,7 @@ import pytest
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation import optimizer as optimizer_module
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.playlist_service import (
@@ -1327,8 +1328,6 @@ def test_arc_strategy_selects_the_same_full_set_from_raw_or_desktop_sized_pool(s
 
 
 def test_non_arc_strategy_does_not_route_through_subset_search(monkeypatch) -> None:
-    import xfinaudio.recommendation.optimizer as optimizer_module
-
     def fail_arc_subset(*args: object, **kwargs: object) -> None:
         pytest.fail("non-arc strategy used arc subset search")
 

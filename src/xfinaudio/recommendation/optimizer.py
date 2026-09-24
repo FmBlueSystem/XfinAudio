@@ -186,6 +186,30 @@ def recommend_sequence(
     )
 
 
+# The beam is sized for the raw library, where pruning a successor costs
+# little because a thousand near-equivalents replace it. A pool already capped
+# for a desktop slot is small enough that the single low-arc-bonus connector
+# bridging two components can be the only way to finish the path, and the K=64
+# beam's pruning then reads as infeasibility. So a failed beam search retries
+# with a widened beam, but only inside the domain size where that retry stays
+# cheap; a large raw domain keeps the single cheap pass.
+_BEAM_RETRY_DOMAIN_LIMIT = 128
+# Widening is quadratic in the domain, so the retry covers the whole domain
+# rather than a multiple of the beam that failed. The ceiling is what keeps it
+# finite: it binds from roughly a 91-candidate domain and bounds the retry at
+# every domain size the gate above admits.
+_BEAM_RETRY_WIDTH_CEILING = 16_384
+
+
+def _beam_retry_width(beam_width: int, domain_size: int) -> int:
+    """Return the widened beam for the retry after a failed beam search.
+
+    Never narrower than the beam that already failed, never wider than the
+    ceiling: the retry is a bounded second attempt, not an exhaustive search.
+    """
+    return min(_BEAM_RETRY_WIDTH_CEILING, max(beam_width, domain_size**2 * 2))
+
+
 def _arc_subset_recommendation(
     tracks: list[TrackRecord],
     *,
@@ -362,11 +386,10 @@ def _arc_subset_recommendation(
             beam_width,
             len(search_domain),
         )
-        if path is None and exhausted and beam_width > 0 and len(search_domain) <= 128:
-            # A capped desktop pool can be small yet still need a low-scoring
-            # connector path that a K=64 beam prunes. Retry only after failure;
-            # successful capped calls and large raw domains keep the cheap path.
-            retry_width = min(16_384, max(beam_width, len(search_domain) ** 2 * 2))
+        if path is None and exhausted and beam_width > 0 and len(search_domain) <= _BEAM_RETRY_DOMAIN_LIMIT:
+            # Only a failed capped pass retries; a successful one and a large raw
+            # domain both keep the single cheap pass.
+            retry_width = _beam_retry_width(beam_width, len(search_domain))
             path, exhausted = _beam_arc_subset_path(
                 tracks,
                 target,
