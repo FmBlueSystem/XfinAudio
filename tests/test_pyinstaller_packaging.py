@@ -34,6 +34,7 @@ def _change_artifact_path(change_name: str, *parts: str, changes_root: Path | No
             return archived.joinpath(*parts)
     raise FileNotFoundError(f"OpenSpec change {change_name!r} not found under {root}")
 
+
 _smoke_script_spec = importlib.util.spec_from_file_location("pyinstaller_build_smoke", SMOKE_SCRIPT_PATH)
 assert _smoke_script_spec is not None
 assert _smoke_script_spec.loader is not None
@@ -421,12 +422,14 @@ def test_change_artifact_path_resolves_a_change_in_active_and_archived_locations
     archived_change.mkdir(parents=True)
     (archived_change / "tasks.md").write_text("archived", encoding="utf-8")
 
-    assert _change_artifact_path("active-change", "tasks.md", changes_root=changes_root).read_text(
-        encoding="utf-8"
-    ) == "active"
-    assert _change_artifact_path("archived-change", "tasks.md", changes_root=changes_root).read_text(
-        encoding="utf-8"
-    ) == "archived"
+    assert (
+        _change_artifact_path("active-change", "tasks.md", changes_root=changes_root).read_text(encoding="utf-8")
+        == "active"
+    )
+    assert (
+        _change_artifact_path("archived-change", "tasks.md", changes_root=changes_root).read_text(encoding="utf-8")
+        == "archived"
+    )
 
     with pytest.raises(FileNotFoundError):
         _change_artifact_path("missing-change", "tasks.md", changes_root=changes_root)
