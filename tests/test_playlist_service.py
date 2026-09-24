@@ -1329,12 +1329,15 @@ def test_arc_strategy_selects_the_same_full_set_from_raw_or_desktop_sized_pool(s
 def test_non_arc_strategy_does_not_route_through_subset_search(monkeypatch) -> None:
     import xfinaudio.recommendation.optimizer as optimizer_module
 
-    monkeypatch.setattr(
-        optimizer_module,
-        "_arc_subset_path",
-        lambda *args, **kwargs: pytest.fail("non-arc strategy used arc subset search"),
-        raising=False,
-    )
+    def fail_arc_subset(*args: object, **kwargs: object) -> None:
+        pytest.fail("non-arc strategy used arc subset search")
+
+    # No `raising=False`: these are the real arc-subset entry points. If one is
+    # renamed or removed, the patch below raises during setup and the test fails
+    # loudly, instead of passing vacuously against a guard that never ran.
+    monkeypatch.setattr(optimizer_module, "_arc_subset_recommendation", fail_arc_subset)
+    monkeypatch.setattr(optimizer_module, "_exact_arc_subset_path", fail_arc_subset)
+    monkeypatch.setattr(optimizer_module, "_beam_arc_subset_path", fail_arc_subset)
     pool = [track(f"/e{index}.flac", bpm=120.0 + index * 0.2, energy_level=2 + index) for index in range(6)]
 
     assert recommend_playlist(pool, "chill", target_count=4).optimizer == "strategy-order"
@@ -1355,6 +1358,31 @@ def test_arc_subset_preserves_anchor_locked_track_and_manual_prefix_end_to_end()
     assert locked.path in paths
     assert len(paths) == 5
     assert result.optimizer in {"arc-subset-exact", "arc-subset-beam"}
+
+
+def test_arc_target_shorter_than_the_manual_prefix_warns_that_generation_was_skipped() -> None:
+    """The arc target floors at zero when the manual prefix already overfills it.
+
+    `_expected_arc_subset_length` can return fewer tracks than the DJ manually
+    ordered. That floors the generated target to zero, so the set is the manual
+    prefix alone -- and without a warning the DJ cannot tell the requested slot
+    was abandoned. This test pins the warning.
+    """
+    pool = [track(f"/t{index}.flac", bpm=120.0 + index * 0.5, energy_level=3) for index in range(5)]
+    controls = DJControls(manual_order_paths=[item.path for item in pool[:4]])
+
+    result = recommend_playlist(
+        pool,
+        "warmup",
+        controls=controls,
+        target_duration_minutes=4.0,
+        played_seconds_per_track=120.0,
+    )
+
+    assert [item.path for item in result.ordered_tracks] == [item.path for item in pool[:4]]
+    shortfall = [warning for warning in result.warnings if "manually ordered" in warning]
+    assert shortfall, result.warnings
+    assert "2 track(s)" in shortfall[0]
 
 
 # ---------------------------------------------------------------------------

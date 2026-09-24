@@ -442,6 +442,11 @@ def recommend_playlist(
             if use_arc_subset and arc_subset_set_length is not None
             else None
         )
+        if use_arc_subset and arc_subset_set_length is not None and arc_subset_set_length < len(manual_prefix):
+            warnings.append(
+                f"Arc target of {arc_subset_set_length} track(s) is shorter than the "
+                f"{len(manual_prefix)} manually ordered track(s); no generated tracks were added"
+            )
         generated_mandatory_paths = preserved_control_paths(controls) - manual_paths
         sequenced = recommend_sequence(
             remaining_tracks,

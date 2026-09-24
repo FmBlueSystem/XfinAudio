@@ -128,14 +128,14 @@ def apply_main_song_filter(self: Any, query: str | None = None, *, clear_selecti
         path_item = self._library_screen.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
         path = "" if path_item is None else path_item.text()
         record = self._records_by_path.get(path)
-        title_mismatch = bool(search_query) and search_query not in title and search_query not in artist
+        search_mismatch = bool(search_query) and search_query not in title and search_query not in artist
         status_mismatch = status_filter is not None and status != status_filter
         missing_mismatch = missing_filter is not None and (
             record is None or missing_filter not in record.missing_required_fields
         )
         self._library_screen.tracks_table.setRowHidden(
             row_index,
-            title_mismatch or status_mismatch or missing_mismatch,
+            search_mismatch or status_mismatch or missing_mismatch,
         )
     self._refresh_idle_action_state()
 
