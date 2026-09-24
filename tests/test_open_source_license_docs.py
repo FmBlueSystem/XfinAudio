@@ -61,7 +61,7 @@ def test_pyproject_declares_public_source_metadata() -> None:
     assert "Development Status :: 3 - Alpha" in classifiers
     assert "Environment :: MacOS X" in classifiers
     assert "Intended Audience :: End Users/Desktop" in classifiers
-    assert "Programming Language :: Python :: 3.11" in classifiers
+    assert "Programming Language :: Python :: 3.12" in classifiers
     assert "Topic :: Multimedia :: Sound/Audio" in classifiers
 
 

@@ -109,7 +109,7 @@ def extract_source(archive_path: Path, destination: Path, source_directory: str)
                 or not (member.isfile() or member.isdir())
             ):
                 raise BuildError(f"unsafe archive member: {member.name}")
-        archive.extractall(destination, members=members)
+        archive.extractall(destination, members=members, filter="tar")
     return destination / source_directory
 
 

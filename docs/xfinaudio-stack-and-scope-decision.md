@@ -51,7 +51,7 @@ Sin esto, el parser se construiría sobre supuestos.
 
 | Capa | Tecnología |
 |---|---|
-| Lenguaje | Python 3.11+ |
+| Lenguaje | Python 3.12+ |
 | Package manager | uv |
 | CLI | Typer |
 | Metadata audio | mutagen |

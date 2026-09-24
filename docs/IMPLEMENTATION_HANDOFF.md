@@ -30,7 +30,7 @@ It is **not**:
 
 | Layer | Decision |
 |---|---|
-| Language | Python 3.11+ |
+| Language | Python 3.12+ |
 | Desktop UI | PySide6 |
 | Metadata | mutagen |
 | Persistence | SQLite |
@@ -227,7 +227,7 @@ Use this after restarting:
 ```text
 Continue XfinAudio implementation from docs/IMPLEMENTATION_HANDOFF.md.
 Start with HELP-3: Mixed In Key metadata contract discovery.
-Use Python 3.11+, PySide6, mutagen, SQLite, pydantic, pytest, ruff, uv.
+Use Python 3.12+, PySide6, mutagen, SQLite, pydantic, pytest, ruff, uv.
 Do not implement DSP, C++, audio rendering, or audio file mutation.
 First inspect 5–10 real Mixed In Key processed audio files, document raw tags, define parser contract, and create fixtures.
 Keep responses concise.

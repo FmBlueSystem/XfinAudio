@@ -16,7 +16,7 @@ uv run python scripts/render_release_gate_evidence.py /tmp/xfinaudio-release-gat
 
 Copy the rendered Markdown snippet manually into `docs/release-candidate-evidence.md` when release evidence needs to be recorded. The renderer writes to stdout by default, or to an explicit `--output PATH`; it never edits the evidence document automatically.
 
-CI runs the same default non-audio gate through `.github/workflows/non-audio-release-gates.yml` on pull requests, pushes to `main`, and manual dispatch. It uses a macOS runner for packaging relevance, Python 3.11, `uv sync --locked`, writes `.release-evidence/release-gate-report.json`, renders `.release-evidence/release-gate-evidence.md` from that JSON, appends the Markdown to the GitHub Step Summary, and uploads both files as workflow artifact evidence for manual review/copy-paste.
+CI runs the same default non-audio gate through `.github/workflows/non-audio-release-gates.yml` on pull requests, pushes to `main`, and manual dispatch. It uses a macOS runner for packaging relevance, Python 3.12, `uv sync --locked`, writes `.release-evidence/release-gate-report.json`, renders `.release-evidence/release-gate-evidence.md` from that JSON, appends the Markdown to the GitHub Step Summary, and uploads both files as workflow artifact evidence for manual review/copy-paste.
 
 If local packaging validation is feasible, run the optional temp-only PyInstaller build and launch gate:
 

@@ -9,10 +9,10 @@ classifiers = [
   "Environment :: MacOS X",
   "Intended Audience :: End Users/Desktop",
   "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "Topic :: Multimedia :: Sound/Audio",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "mutagen>=1.47,<2.0",
     "pydantic>=2.0,<3.0",
@@ -71,7 +71,7 @@ filterwarnings = [
 ]
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.12"
 include = ["src", "tests"]
 exclude = [".venv", "build", "dist", "node_modules", ".ruff_cache", ".pytest_cache"]
 typeCheckingMode = "basic"

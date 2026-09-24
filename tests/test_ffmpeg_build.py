@@ -48,6 +48,32 @@ def test_safe_extract_rejects_linked_archive_members(tmp_path: Path) -> None:
         ffmpeg_build.extract_source(archive_path, tmp_path / "extract", "ffmpeg-7.1.1")
 
 
+def test_safe_extract_pins_the_tar_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Python 3.14 defaults extractall to filtering; the build must opt in explicitly.
+
+    ``filter="tar"`` keeps the executable bits the source tree needs (configure
+    scripts) while still refusing absolute paths and outside traversal, so a
+    Python upgrade cannot silently change extraction semantics.
+    """
+    archive_path = tmp_path / "ffmpeg.tar.xz"
+    with tarfile.open(archive_path, "w:xz") as archive:
+        info = tarfile.TarInfo("ffmpeg-7.1.1/README")
+        info.size = 0
+        archive.addfile(info)
+
+    recorded: dict[str, object] = {}
+    original = tarfile.TarFile.extractall
+
+    def recording_extractall(self, path, members=None, **kwargs):
+        recorded.update(kwargs)
+        return original(self, path, members=members, **kwargs)
+
+    monkeypatch.setattr(tarfile.TarFile, "extractall", recording_extractall)
+    ffmpeg_build.extract_source(archive_path, tmp_path / "extract", "ffmpeg-7.1.1")
+
+    assert recorded.get("filter") == "tar"
+
+
 def test_builds_universal_binary_and_validates_ebur128_capability(tmp_path: Path) -> None:
     archive_path = tmp_path / "fixture.tar.xz"
     _source_archive(archive_path)

@@ -17,10 +17,10 @@ def test_non_audio_release_gates_workflow_exists() -> None:
     assert WORKFLOW_PATH.exists()
 
 
-def test_workflow_uses_python_311_and_locked_uv_install() -> None:
+def test_workflow_uses_python_312_and_locked_uv_install() -> None:
     text = workflow_text()
 
-    assert 'python-version: "3.11"' in text
+    assert 'python-version: "3.12"' in text
     assert "astral-sh/setup-uv@" in text
     assert "uv sync --locked" in text
 
