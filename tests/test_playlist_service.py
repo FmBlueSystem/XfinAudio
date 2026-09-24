@@ -2464,3 +2464,211 @@ def test_recommendation_with_replacement_prefers_a_mixable_candidate_over_a_bett
     result = recommendation_with_replacement(recommendation, "/removed.flac", [unmixable_perfect, mixable_ok])
 
     assert [item.path for item in result.ordered_tracks] == ["/left.flac", "/mixable.flac", "/right.flac"]
+
+
+# ---------------------------------------------------------------------------
+# Coverage hotspots: playlist_service branches the existing suite never reached.
+#
+# Guard branches carry a one-line falsification note. Helpers the public path
+# cannot reach naturally are exercised directly, as noted at the test.
+# ---------------------------------------------------------------------------
+
+
+def test_manual_prefix_overrides_a_conflicting_start_path() -> None:
+    # Value: when the DJ has hand-ordered the opening, a start_path that names a
+    # different track cannot also hold slot zero; the DJ must be told which one
+    # won. Catches removal of the "start_path ignored" warning.
+    tracks = [track("/a.flac"), track("/b.flac"), track("/c.flac")]
+    controls = DJControls(manual_order_paths=["/b.flac"], start_path="/a.flac")
+
+    result = recommend_playlist(tracks, "same_genre", controls=controls)
+
+    assert "start_path ignored because manual order prefix is applied" in result.warnings
+    assert result.ordered_tracks[0].path == "/b.flac"
+
+
+def test_strategy_order_pins_the_start_and_end_edges() -> None:
+    # Value: a strategy-order strategy still honours the DJ's terminal
+    # constraints (the response returns `_apply_terminal_constraints` directly).
+    # Catches removal of either edge move, which would let the sorted order win.
+    tracks = [
+        track("/s.flac", bpm=100.0, energy_level=3),
+        track("/m1.flac", bpm=101.0, energy_level=3),
+        track("/e.flac", bpm=102.0, energy_level=3),
+        track("/m2.flac", bpm=103.0, energy_level=3),
+        track("/m3.flac", bpm=104.0, energy_level=3),
+    ]
+    controls = DJControls(start_path="/s.flac", end_path="/e.flac")
+
+    result = recommend_playlist(tracks, "chill", controls=controls)
+
+    assert result.optimizer == "strategy-order"
+    assert result.ordered_tracks[0].path == "/s.flac"
+    assert result.ordered_tracks[-1].path == "/e.flac"
+    assert len(result.ordered_tracks) == 5
+
+
+def test_strategy_order_with_manual_prefix_drops_an_unplayable_seam() -> None:
+    # Value: in the strategy-order branch the manual anchor seeds the BPM gate,
+    # so a generated track the manual pick cannot reach is dropped and reported.
+    # Catches removal of the manual-seeded gate or its warning.
+    tracks = [
+        track("/man.flac", bpm=100.0, energy_level=3),
+        track("/g1.flac", bpm=111.0, energy_level=3),
+        track("/g2.flac", bpm=112.0, energy_level=3),
+    ]
+    controls = DJControls(manual_order_paths=["/man.flac"])
+
+    result = recommend_playlist(tracks, "chill", controls=controls)
+
+    assert [item.path for item in result.ordered_tracks] == ["/man.flac"]
+    assert any("Dropped 2 generated track(s)" in warning for warning in result.warnings)
+
+
+def test_move_path_to_edge_returns_the_tracks_when_the_path_is_absent() -> None:
+    # Value: a control path that no longer exists in the pool must be a no-op,
+    # not a crash or a silent drop of unrelated tracks. Falsification: removing
+    # the empty-matching guard would still build `others` and reorder everything.
+    from xfinaudio.recommendation.playlist_service import _move_path_to_edge
+
+    tracks = [track("/a.flac"), track("/b.flac")]
+
+    assert _move_path_to_edge(tracks, "/absent.flac", first=True) == tracks
+
+
+def test_target_count_trims_a_non_arc_optimizer_result() -> None:
+    # Value: the trim runs for optimizer-branch strategies too, not only arc
+    # ones. Catches a regression where the arc target length hid the explicit
+    # count cap.
+    tracks = [track(f"/t{index:02d}.flac", bpm=120.0 + index * 0.1) for index in range(20)]
+
+    result = recommend_playlist(tracks, "same_genre", target_count=5)
+
+    assert len(result.ordered_tracks) == 5
+    assert result.optimizer == "greedy-2opt"
+
+
+def test_target_duration_stops_trimming_once_the_slot_is_filled() -> None:
+    # Value: time-based trimming must stop at the slot boundary, not walk the
+    # whole pool. Catches removal of the early break in `_trim_to_duration`.
+    tracks = [track(f"/t{index:02d}.flac", bpm=120.0 + index * 0.1, duration=300.0) for index in range(20)]
+
+    result = recommend_playlist(tracks, "same_genre", target_duration_minutes=15.0)
+
+    assert len(result.ordered_tracks) == 3
+
+
+def test_expected_set_length_without_durations_returns_the_target_count() -> None:
+    # Value: a slot request over a pool with no durations falls back to the
+    # caller's explicit count (here None) rather than dividing by zero. Catches
+    # loss of the `not seconds` guard in `_expected_set_length`.
+    tracks = [track(f"/t{index:02d}.flac", bpm=120.0 + index * 0.1) for index in range(20)]
+
+    result = recommend_playlist(tracks, "same_genre", target_duration_minutes=30.0)
+
+    assert len(result.ordered_tracks) == 20
+
+
+def test_same_genre_without_genre_metadata_returns_the_pool_unchanged() -> None:
+    # Value: `same_genre` over a pool with no genre at all must not narrow to
+    # nothing; it reports no anchor and keeps the pool. Catches removal of the
+    # None-anchor guard (which would otherwise filter everything out).
+    tracks = [track(f"/t{index}.flac", genre=None) for index in range(4)]
+
+    result = recommend_playlist(tracks, "same_genre")
+
+    assert len(result.ordered_tracks) == 4
+    assert not any("same_genre filter applied" in warning for warning in result.warnings)
+
+
+def test_same_genre_infers_the_first_genre_when_no_anchor_is_named() -> None:
+    # Value: with no start path or manual prefix, the genre falls back to the
+    # first pooled track's genre rather than refusing the strategy. Catches a
+    # regression where only the start/manual anchors are consulted.
+    tracks = [
+        track("/a-rock.flac", genre="Rock"),
+        track("/b-house.flac", genre="House"),
+        track("/c-house.flac", genre="House"),
+    ]
+
+    result = recommend_playlist(tracks, "same_genre")
+
+    assert "same_genre filter applied: rock" in result.warnings
+    assert {item.path for item in result.ordered_tracks} == {"/a-rock.flac"}
+
+
+def test_prefilter_same_genre_narrows_to_the_inferred_genre() -> None:
+    # Value: the interactive prefilter applies the inferred genre BEFORE the cap,
+    # so a capped pool is full of strategy-viable tracks. Catches removal of the
+    # same_genre prefilter branch.
+    tracks = [
+        track("/a-rock.flac", genre="Rock"),
+        track("/b-house.flac", genre="House"),
+        track("/c-house.flac", genre="House"),
+    ]
+
+    filtered = prefilter_strategy_candidates(tracks, "same_genre")
+
+    assert {item.path for item in filtered} == {"/a-rock.flac"}
+
+
+def test_spectral_profile_close_fails_closed_on_a_non_finite_ratio() -> None:
+    # A validated SpectralProfile cannot carry a non-finite ratio, so the guard
+    # is reached directly. Falsification: without the isfinite check a NaN ratio
+    # propagates (`l1 = nan`, `nan > MAX` is False) and the two otherwise-equal
+    # profiles compare as close, returning True.
+    from xfinaudio.recommendation.playlist_service import _spectral_profile_close
+
+    anchor = SpectralProfile(
+        red_ratio=0.4,
+        green_ratio=0.3,
+        blue_ratio=0.3,
+        centroid_hz=1000.0,
+        rolloff_hz=2000.0,
+        dominant_color="MIXED",
+    )
+    candidate = SpectralProfile.model_construct(
+        red_ratio=float("nan"),
+        green_ratio=0.3,
+        blue_ratio=0.3,
+        centroid_hz=1000.0,
+        rolloff_hz=2000.0,
+        rms=0.0,
+        dominant_color="MIXED",
+        analysis_version=1,
+    )
+
+    assert _spectral_profile_close(anchor, candidate) is False
+
+
+def test_supplied_color_anchor_without_a_profile_fails_closed() -> None:
+    # Value: a bound anchor identity that turns out to have no spectral profile
+    # must fail closed, not re-resolve a different track. Catches removal of the
+    # missing-profile guard in `_anchor_meets_prerequisites`.
+    tracks = [track("/anchor.flac"), track("/b.flac")]
+
+    result = recommend_playlist(tracks, "same_color", color_anchor_path="/anchor.flac")
+
+    assert not result.ordered_tracks
+    assert any("prerequisite" in warning for warning in result.warnings)
+
+
+def test_locked_track_outside_the_tempo_run_drops_the_unreachable_generated_tracks() -> None:
+    # Value: a locked control whose tempo the generated pool cannot reach must
+    # still survive, and the generated tracks stranded by it must be cut. The
+    # reachability gate protects the locked path, so only the post-sequencing
+    # gate can drop the stranded tracks. Catches removal of that gate.
+    #
+    # FINDING (not fixed in this batch): the post-sequencing drop counter is
+    # accumulated into `dropped_bpm_jump_count` but never read again, so unlike
+    # the strategy-order branch these drops emit NO warning -- the DJ sees a
+    # one-track set with no explanation. See the Batch C ledger entry.
+    pool = [track("/locked.flac", bpm=160.0, energy_level=6)] + [
+        track(f"/g{index}.flac", bpm=100.0 + index * 0.5, energy_level=6) for index in range(6)
+    ]
+    controls = DJControls(locked_paths={"/locked.flac"})
+
+    result = recommend_playlist(pool, "same_genre", controls=controls)
+
+    paths = [item.path for item in result.ordered_tracks]
+    assert paths == ["/locked.flac"]

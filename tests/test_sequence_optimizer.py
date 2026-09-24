@@ -677,3 +677,384 @@ def test_non_hard_arc_call_shapes_keep_the_legacy_solvers() -> None:
     assert len(no_arc.ordered_tracks) == 4
     assert no_ceiling.optimizer == "exact"
     assert len(no_ceiling.ordered_tracks) == 4
+
+
+# ---------------------------------------------------------------------------
+# Coverage hotspots: branches the existing arc/optimizer suites never reached.
+#
+# Each test below targets a behaviourally meaningful uncovered branch. Guard
+# branches carry a one-line falsification note describing the mutation the
+# assertion would catch. Ranges the public API cannot reach naturally are
+# exercised through the private helper directly, as noted.
+# ---------------------------------------------------------------------------
+
+
+def test_arc_bonuses_treat_a_missing_energy_level_as_neutral() -> None:
+    # Value: a pool containing an unanalyzed track (energy_level None) must still
+    # produce a full arc-ordered set, not crash or drop the track. Catches a
+    # regression where `_arc_bonuses` indexes energy_level without a None guard.
+    pool = [track("/a.flac", "8A", 120.0, 2), track("/b.flac", "8A", 121.0, 5), track("/c.flac", "8A", 122.0, 8)]
+    pool[1] = pool[1].model_copy(update={"energy_level": None})
+
+    result = recommend_sequence(pool, arc_strategy="warmup")
+
+    assert len(result.ordered_tracks) == 3
+    assert result.optimizer == "exact"
+
+
+def test_arc_subset_rejects_identical_start_and_end_for_a_multi_track_target() -> None:
+    # Value: one path cannot be both the opener and the closer of a multi-track
+    # set; the arc subset must warn instead of looping forever. Catches removal of
+    # the start==end guard, which would otherwise try to place one index twice.
+    pool = _tempo_pool([100.0, 101.0, 102.0])
+
+    result = _hard_arc(pool, arc_length=3, start_path="/t0.flac", end_path="/t0.flac")
+
+    assert not result.ordered_tracks
+    assert any("both start and terminal" in warning for warning in result.warnings)
+
+
+def test_arc_subset_reports_an_unplayable_external_start_seam() -> None:
+    # Value: a manual seam the rest of the pool cannot follow from must be
+    # reported as infeasible, not silently reordered. Catches removal of the
+    # empty-initial-seam guard, which would let the subset start anywhere.
+    seam = track("/seam.flac", bpm=100.0, energy=4)
+    pool = _tempo_pool([160.0, 161.0, 162.0, 163.0])
+
+    result = recommend_sequence(
+        pool,
+        external_start=seam,
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=4,
+    )
+
+    assert not result.ordered_tracks
+    assert any("BPM-compatible with the required start seam" in warning for warning in result.warnings)
+
+
+def _install_neighbor_graph(
+    monkeypatch: pytest.MonkeyPatch,
+    pool: list[TrackRecord],
+    edges: dict[int, tuple[int, ...]],
+) -> None:
+    def neighbors(index: int) -> tuple[int, ...]:
+        return edges.get(index, ())
+
+    def expand_frontier(frontier: set[int]) -> set[int]:
+        return {candidate for index in frontier for candidate in edges.get(index, ())}
+
+    monkeypatch.setattr(
+        optimizer,
+        "_lazy_bpm_neighbors",
+        lambda *_args, **_kwargs: (neighbors, frozenset(), expand_frontier),
+    )
+
+
+def test_arc_subset_rejects_mandatory_paths_outside_the_fixed_end_hop_budget(monkeypatch) -> None:
+    # Value: a locked path that is reachable but cannot fit before the required
+    # end must fail closed, not be silently dropped from the set. Catches removal
+    # of the mandatory-vs-search-domain check.
+    pool = [track(f"/k{index}.flac") for index in range(3)]
+    _install_neighbor_graph(monkeypatch, pool, {0: (1, 2), 1: (0,), 2: (0,)})
+
+    result = recommend_sequence(
+        pool,
+        start_path="/k0.flac",
+        end_path="/k2.flac",
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=3,
+        mandatory_paths={"/k1.flac"},
+    )
+
+    assert not result.ordered_tracks
+    assert any("fixed-end hop budget" in warning for warning in result.warnings)
+
+
+def test_arc_subset_rejects_a_fixed_end_domain_smaller_than_the_target(monkeypatch) -> None:
+    # Value: too few candidates fit the fixed-end hop budget for the requested
+    # length; the subset must say so rather than build a short set. Catches
+    # removal of the search-domain size check.
+    pool = [track(f"/m{index}.flac") for index in range(3)]
+    _install_neighbor_graph(monkeypatch, pool, {0: (1, 2), 1: (0,), 2: (0,)})
+
+    result = recommend_sequence(
+        pool,
+        start_path="/m0.flac",
+        end_path="/m1.flac",
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=3,
+    )
+
+    assert not result.ordered_tracks
+    assert any("fixed-end hop budget" in warning for warning in result.warnings)
+
+
+def test_arc_subset_reports_infeasibility_when_mandatory_paths_cannot_coexist(monkeypatch) -> None:
+    # Value: two individually reachable locked tracks that cannot share one path
+    # must be reported, not silently narrowed. Catches a regression where the
+    # exact solver returns None but the caller treats it as an exhausted beam
+    # (the wrong warning) or as success.
+    #
+    # Start (g0) and end (g3) are mandatory too, so the set is g0 + g1, g2, g3.
+    # Both g1 and g2 touch only g0 and g3, so a four-slot path through both would
+    # need a g1<->g2 edge that does not exist: no valid path exists even though
+    # each mandatory path individually fits the hop budget.
+    pool = [track(f"/g{index}.flac", energy=2 + index * 2) for index in range(5)]
+    _install_neighbor_graph(
+        monkeypatch,
+        pool,
+        {0: (1, 2, 4), 1: (0, 3), 2: (0, 3), 3: (1, 2, 4), 4: (0, 3)},
+    )
+
+    result = recommend_sequence(
+        pool,
+        start_path="/g0.flac",
+        end_path="/g3.flac",
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=4,
+        mandatory_paths={"/g1.flac", "/g2.flac"},
+    )
+
+    assert not result.ordered_tracks
+    assert any("satisfies every mandatory control" in warning for warning in result.warnings)
+
+
+def test_arc_subset_treats_an_unknown_bpm_start_as_adjoining_every_track() -> None:
+    # Value: a track without a usable BPM is a universal neighbour, so an
+    # unknown-BPM anchor can still open an arc. Catches removal of the universal
+    # fast-path, which would strand the anchor with no successors.
+    pool = [
+        track("/u0.flac", energy=2).model_copy(update={"bpm": None}),
+        track("/u1.flac", bpm=120.0, energy=5),
+        track("/u2.flac", bpm=121.0, energy=8),
+    ]
+
+    result = recommend_sequence(
+        pool,
+        start_path="/u0.flac",
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=3,
+    )
+
+    assert len(result.ordered_tracks) == 3
+    assert result.ordered_tracks[0].path == "/u0.flac"
+    assert result.optimizer.startswith("arc-subset")
+
+
+def test_arc_frontier_reaches_an_unknown_bpm_track_from_a_measurable_frontier() -> None:
+    # Value: hop expansion must admit a track with no BPM even when the frontier
+    # itself is all measurable. Catches removal of the unknown set from the
+    # possible-frontier superset.
+    pool = [track("/v0.flac", bpm=120.0, energy=2), track("/v1.flac", energy=5).model_copy(update={"bpm": None})]
+
+    result = recommend_sequence(
+        pool,
+        start_path="/v0.flac",
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=2,
+    )
+
+    assert len(result.ordered_tracks) == 2
+    assert {item.path for item in result.ordered_tracks} == {"/v0.flac", "/v1.flac"}
+
+
+def test_arc_frontier_rejects_a_candidate_only_inside_the_window_superset() -> None:
+    # Value: the merged BPM windows are a fast superset; a candidate sitting
+    # exactly on the window edge is 3.09% away and must still be rejected by the
+    # real folded comparator. Catches removal of the superset validation, which
+    # would admit unplayable neighbours.
+    margin = 3.0 / 97.0
+    pool = [track("/w0.flac", bpm=100.0, energy=2), track("/w1.flac", bpm=100.0 * (1.0 + margin), energy=5)]
+
+    result = recommend_sequence(
+        pool,
+        start_path="/w0.flac",
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=2,
+    )
+
+    assert not result.ordered_tracks
+    assert any("BPM-reachable candidates" in warning for warning in result.warnings)
+
+
+def test_expand_frontier_short_circuits_when_the_frontier_holds_an_unknown_bpm() -> None:
+    # _reachable_indices returns early on this same condition, so the public arc
+    # path cannot reach this guard; exercised directly. Falsification: dropping
+    # the guard returns only the unknown index plus window matches, not the whole
+    # universe, so the assertion fails.
+    pool = [track("/x0.flac", bpm=120.0), track("/x1.flac").model_copy(update={"bpm": None})]
+
+    _neighbors, unknown, expand_frontier = optimizer._lazy_bpm_neighbors(pool, 3.0)
+
+    assert unknown == frozenset({1})
+    assert expand_frontier({1}) == set(range(len(pool)))
+
+
+def test_hop_distances_without_an_end_index_is_empty() -> None:
+    # Falsification: without the None guard the walk calls neighbors(None); the
+    # fake raises, so the assertion fails.
+    def neighbors(_index: int):  # pragma: no cover - must never be called
+        raise AssertionError("hop distances walked neighbours without an end index")
+
+    assert optimizer._hop_distances(None, neighbors) == {}
+
+
+def test_arc_subset_scores_a_locked_track_without_energy_as_neutral() -> None:
+    # Value: a locked track the analyzer never assigned an energy level must stay
+    # in the set without distorting the arc. Catches removal of the None-level
+    # branch in the lazy arc bonus, which would raise on subtraction.
+    pool = [
+        track("/p0.flac", "8A", 100.0, 2),
+        track("/p1.flac", "8A", 101.0, 3),
+        track("/p2.flac", "8A", 102.0, 6),
+        track("/locked.flac", "8A", 103.0, 8),
+    ]
+    pool[3] = pool[3].model_copy(update={"energy_level": None})
+
+    result = recommend_sequence(
+        pool,
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=4,
+        mandatory_paths={"/locked.flac"},
+    )
+
+    assert "/locked.flac" in {item.path for item in result.ordered_tracks}
+    assert len(result.ordered_tracks) == 4
+
+
+def test_recommend_sequence_rejects_an_unknown_start_path() -> None:
+    pool = _tempo_pool([100.0, 101.0])
+
+    with pytest.raises(ValueError, match="Unknown start_path"):
+        recommend_sequence(pool, start_path="/missing.flac")
+
+
+def test_recommend_sequence_rejects_an_unknown_end_path() -> None:
+    pool = _tempo_pool([100.0, 101.0])
+
+    with pytest.raises(ValueError, match="Unknown end_path"):
+        recommend_sequence(pool, end_path="/missing.flac")
+
+
+def test_recommend_sequence_rejects_a_start_equal_to_the_end_for_multiple_tracks() -> None:
+    pool = _tempo_pool([100.0, 101.0])
+
+    with pytest.raises(ValueError, match="must differ"):
+        recommend_sequence(pool, start_path="/t0.flac", end_path="/t0.flac")
+
+
+def test_heuristic_path_pins_a_terminal_end_for_a_large_pool() -> None:
+    # Value: the greedy heuristic must reserve the required end for the final
+    # slot even when the pool is too large for the exact solver. Catches removal
+    # of the remove-end-from-remaining / append-end scaffolding.
+    pool = [track(f"/h{index:02d}.flac", bpm=120.0 + index * 0.1, energy=2 + index % 8) for index in range(20)]
+
+    result = recommend_sequence(pool, end_path="/h19.flac")
+
+    assert result.optimizer == "greedy-2opt"
+    assert len(result.ordered_tracks) == 20
+    assert result.ordered_tracks[-1].path == "/h19.flac"
+
+
+def test_beam_reserves_the_end_path_and_skips_it_before_the_terminal_slot() -> None:
+    # Value: in the beam, a required end must not be placed before the last slot.
+    # Catches removal of the mid-slot end_index filter, which would pin the end
+    # early and leave the final slot open.
+    pool = [track(f"/z{index:02d}.flac", bpm=120.0, energy=2 + index % 8) for index in range(20)]
+
+    result = recommend_sequence(
+        pool,
+        end_path="/z19.flac",
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=6,
+    )
+
+    assert result.optimizer == "arc-subset-beam"
+    assert len(result.ordered_tracks) == 6
+    assert result.ordered_tracks[-1].path == "/z19.flac"
+
+
+def test_beam_rejects_a_mandatory_successor_that_cannot_finish() -> None:
+    # No real BPM pool produces this: the pre-checks already guarantee each
+    # mandatory path fits the hop budget, so the mandatory-successor rejection in
+    # the beam is exercised directly. Falsification: dropping the
+    # `_state_can_finish` guard would keep the dead-end successor and return a
+    # path instead of (None, True).
+    pool = [track(f"/b{index}.flac") for index in range(4)]
+
+    path, exhausted = optimizer._beam_arc_subset_path(
+        pool,
+        target=2,
+        initial=(0,),
+        end_index=3,
+        mandatory_mask=1 << 2,
+        neighbors=lambda index: {0: (2, 3), 2: (3,)}.get(index, ()),
+        hops_to_end={3: 0, 0: 1},
+        transition=lambda _left, _right: 1.0,
+        arc_bonus=lambda _index, _slot: 0.0,
+        beam_width=4,
+        candidate_domain_size=4,
+    )
+
+    assert path is None
+    assert exhausted is True
+
+
+def test_beam_skips_the_end_path_before_the_terminal_slot() -> None:
+    # `_arc_subset_recommendation` folds the end into the mandatory mask, so the
+    # mandatory check shadows this end-specific skip on the public path; the
+    # beam is exercised directly. Falsification: removing the mid-slot end guard
+    # would let the terminal track be selected early and the path is no longer
+    # forced to reserve the final slot for it.
+    pool = [track(f"/e{index}.flac") for index in range(4)]
+
+    path, exhausted = optimizer._beam_arc_subset_path(
+        pool,
+        target=3,
+        initial=(0,),
+        end_index=3,
+        mandatory_mask=0,
+        neighbors=lambda index: {0: (1, 3), 1: (2,)}.get(index, ()),
+        hops_to_end={3: 0, 0: 1, 1: 1},
+        transition=lambda _left, _right: 1.0,
+        arc_bonus=lambda _index, _slot: 0.0,
+        beam_width=4,
+        candidate_domain_size=4,
+    )
+
+    assert path is None
+    assert exhausted is True
+
+
+def test_beam_reports_no_valid_path_when_the_terminal_slot_cannot_be_satisfied() -> None:
+    # A single-slot target skips the expansion loop entirely, leaving the
+    # terminal-validity guard as the only place that can fail; exercised
+    # directly. Falsification: removing the guard returns an empty path as a
+    # success, so the assertion on `exhausted` fails.
+    pool = [track("/b0.flac"), track("/b1.flac")]
+
+    path, exhausted = optimizer._beam_arc_subset_path(
+        pool,
+        target=1,
+        initial=(0,),
+        end_index=1,
+        mandatory_mask=0,
+        neighbors=lambda _index: (),
+        hops_to_end={},
+        transition=lambda _left, _right: 1.0,
+        arc_bonus=lambda _index, _slot: 0.0,
+        beam_width=1,
+        candidate_domain_size=2,
+    )
+
+    assert path is None
+    assert exhausted is True
