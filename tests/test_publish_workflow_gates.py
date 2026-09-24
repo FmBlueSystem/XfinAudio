@@ -92,8 +92,9 @@ def test_publish_workflow_does_not_run_the_suite_outside_the_release_gates() -> 
         "|+2",
         ">2",
         ">2-",
+        ">-2",
+        ">+2",
         "|2 # parse with a two-space indent",
-        ">- ",
     ],
 )
 def test_run_step_commands_reads_block_scalar_headers(header: str, monkeypatch: pytest.MonkeyPatch) -> None:
