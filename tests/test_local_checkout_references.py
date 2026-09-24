@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "openspec" / "config.yaml"
@@ -87,6 +90,16 @@ def test_declared_source_and_test_roots_exist() -> None:
         assert (PROJECT_ROOT / relative).is_dir()
 
 
+def referenced_change_paths(text: str) -> list[str]:
+    """Extract change paths, dropping sentence punctuation the regex may swallow.
+
+    The character class matches ``.`` and ``/``, so a reference written at the
+    end of a sentence captures its closing period and the guard then reports a
+    path that does exist as missing.
+    """
+    return [reference.rstrip("./") for reference in re.findall(r"openspec/changes/[\w./-]+", text)]
+
+
 def test_referenced_change_paths_exist() -> None:
     """A config pointing at a change nobody can find sends the next session hunting.
 
@@ -94,12 +107,26 @@ def test_referenced_change_paths_exist() -> None:
     change had been archived under a dated directory.
     """
     missing = [
-        reference
-        for reference in re.findall(r"openspec/changes/[\w./-]+", config_text())
-        if not (PROJECT_ROOT / reference).exists()
+        reference for reference in referenced_change_paths(config_text()) if not (PROJECT_ROOT / reference).exists()
     ]
 
     assert missing == [], f"openspec/config.yaml references missing paths: {missing}"
+
+
+def test_change_path_references_ignore_a_sentence_final_period(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The regex captures ``.``, so a sentence-final reference kept its period.
+
+    The guard then reported a change directory that does exist as missing.
+    """
+    (tmp_path / "openspec" / "changes" / "demo-change").mkdir(parents=True)
+    monkeypatch.setattr(sys.modules[__name__], "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "config_text",
+        lambda: "reference_history:\n  - openspec/changes/demo-change.",
+    )
+
+    test_referenced_change_paths_exist()
 
 
 def test_no_operational_file_points_at_another_local_checkout() -> None:

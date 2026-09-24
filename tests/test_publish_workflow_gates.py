@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
+
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = PROJECT_ROOT / ".github" / "workflows" / "publish-to-pypi.yml"
@@ -17,7 +20,11 @@ def workflow_text() -> str:
     return WORKFLOW_PATH.read_text(encoding="utf-8")
 
 
-_BLOCK_SCALARS = {"|", "|-", "|+", ">", ">-", ">+"}
+# A block scalar header is `|` or `>` plus an optional chomping (`+`/`-`) and/or
+# indentation (1-9) indicator, in either order. Membership in a fixed set of
+# plain markers missed `|2` and `|-2`, so the literal marker was recorded as the
+# command and the body discarded.
+_BLOCK_SCALAR_PATTERN = re.compile(r"^[|>](?:[1-9][+-]?|[+-][1-9]?)?(?:\s+#.*)?$")
 
 
 def run_step_commands() -> list[str]:
@@ -33,7 +40,7 @@ def run_step_commands() -> list[str]:
         if not stripped.startswith("run:"):
             continue
         inline = stripped.removeprefix("run:").strip()
-        if inline and inline not in _BLOCK_SCALARS:
+        if inline and not _BLOCK_SCALAR_PATTERN.fullmatch(inline):
             commands.append(inline)
             continue
         indent = len(line) - len(line.lstrip())
@@ -69,6 +76,44 @@ def test_publish_workflow_does_not_run_the_suite_outside_the_release_gates() -> 
     suite_invocations = [command for command in commands if "pytest" in command]
 
     assert suite_invocations == [], f"the workflow runs the suite directly: {suite_invocations}"
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "|",
+        "|-",
+        "|+",
+        ">",
+        ">-",
+        ">+",
+        "|2",
+        "|-2",
+        "|+2",
+        ">2",
+        ">2-",
+        "|2 # parse with a two-space indent",
+        ">- ",
+    ],
+)
+def test_run_step_commands_reads_block_scalar_headers(header: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every block scalar header runs the body, not the literal marker.
+
+    A fixed set of plain markers missed headers carrying a chomping or
+    indentation indicator such as ``|2`` or ``|-2``; the marker was then recorded
+    as the command and the body discarded.
+    """
+    workflow = (
+        "    steps:\n"
+        "      - name: demo\n"
+        f"        run: {header}\n"
+        "          echo one\n"
+        "          echo two\n"
+        "        shell: bash\n"
+    )
+    monkeypatch.setattr(sys.modules[__name__], "workflow_text", lambda: workflow)
+
+    assert run_step_commands() == ["echo one", "echo two"]
 
 
 def test_publish_workflow_requires_the_tag_to_match_the_project_version() -> None:

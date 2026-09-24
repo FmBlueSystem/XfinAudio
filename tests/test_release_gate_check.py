@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -130,6 +131,18 @@ def test_run_mode_propagates_subprocess_failure_and_stops(
     assert "uv run ruff format --check ." not in output
 
 
+def coverage_fail_under(pyproject: dict[str, object]) -> int:
+    """Return the configured coverage floor, failing with an actionable message."""
+    section: object = pyproject
+    for key in ("tool", "coverage", "report", "fail_under"):
+        assert isinstance(section, dict) and key in section, (
+            f"pyproject.toml is missing tool.coverage.report.fail_under (no {key!r})"
+        )
+        section = section[key]
+    assert isinstance(section, int), "pyproject.toml tool.coverage.report.fail_under must be an integer"
+    return section
+
+
 def test_coverage_floor_has_one_definition_and_cannot_sit_far_below_reality() -> None:
     """Regression: the coverage floor existed twice, so raising either changed nothing.
 
@@ -147,9 +160,33 @@ def test_coverage_floor_has_one_definition_and_cannot_sit_far_below_reality() ->
         "the floor must live in pyproject.toml only, or the config becomes decorative"
     )
     pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    fail_under = pyproject["tool"]["coverage"]["report"]["fail_under"]
+    fail_under = coverage_fail_under(pyproject)
 
-    assert fail_under >= 85, f"a floor of {fail_under} against 91.64% measured cannot catch a regression"
+    assert fail_under >= 85, f"the configured coverage floor {fail_under} must stay at least 85 to catch a regression"
+
+
+def test_coverage_floor_guard_reports_a_readable_failure_when_the_key_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A moved config raised a bare KeyError, which names nothing actionable."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "xfinaudio"\n', encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "PROJECT_ROOT", tmp_path)
+
+    with pytest.raises(AssertionError, match="fail_under"):
+        test_coverage_floor_has_one_definition_and_cannot_sit_far_below_reality()
+
+
+def test_coverage_floor_message_does_not_assert_a_hardcoded_measurement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The failure message claimed 91.64% measured, a figure it never re-derived."""
+    (tmp_path / "pyproject.toml").write_text("[tool.coverage.report]\nfail_under = 70\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "PROJECT_ROOT", tmp_path)
+
+    with pytest.raises(AssertionError) as failure:
+        test_coverage_floor_has_one_definition_and_cannot_sit_far_below_reality()
+
+    assert "91.64" not in str(failure.value)
 
 
 def test_documented_verification_sequence_defers_the_coverage_floor_to_pyproject() -> None:

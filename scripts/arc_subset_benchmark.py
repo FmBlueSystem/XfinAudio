@@ -100,6 +100,21 @@ def run_one(
     return len(pool), len(recommendation.ordered_tracks), list(recommendation.warnings)
 
 
+def _is_live_database(db_path: Path, live: Path) -> bool:
+    """Detect the live database by path and, crucially, by file identity.
+
+    A resolved-path comparison misses a hard link (or bind mount) that reaches
+    the same inode from a different path, so the benchmark could read and mutate
+    the live library through it. ``Path.samefile`` compares ``(st_dev, st_ino)``.
+    """
+    if db_path.resolve() == live.resolve():
+        return True
+    try:
+        return db_path.samefile(live)
+    except OSError:
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", required=True, help="scratch copy of the library database")
@@ -117,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: database not found: {db_path}", file=sys.stderr)
         return 2
     live = Path.home() / ".xfinaudio" / "xfinaudio.sqlite3"
-    if db_path.resolve() == live.resolve():
+    if _is_live_database(db_path, live):
         print("error: refusing to read the live database; pass a scratch copy", file=sys.stderr)
         return 2
 
