@@ -212,6 +212,53 @@ def test_documented_verification_sequence_defers_the_coverage_floor_to_pyproject
     assert "pyproject.toml" in section, "the documented sequence must name where the coverage floor lives"
 
 
+# The scope AGENTS.md promises for the gate, and the commands that have to carry it.
+DOCUMENTED_GATE_CLAIM = (
+    "The gate already includes the test suite with coverage, the type check, and the lint and format checks"
+)
+DOCUMENTED_GATE_CAPABILITIES = (
+    ("the test suite with coverage", ("pytest", "--cov")),
+    ("the type check", ("pyright",)),
+    ("the lint checks", ("ruff", "check")),
+    ("the format checks", ("ruff", "format")),
+)
+
+
+def test_documented_gate_scope_matches_the_gates_the_runner_executes() -> None:
+    """Regression: AGENTS.md promised four checks that no gate had to keep providing.
+
+    The verification sequence tells a contributor the gate already includes the test
+    suite with coverage, the type check, and the lint and format checks, so running
+    them separately only repeats work. Nothing tied that sentence to
+    ``NON_AUDIO_COMMAND_GATES``: a gate could be deleted, the tests that hardcode it
+    updated, and the promise would outlive the gate it describes.
+    """
+    agents = (PROJECT_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "## Verification before finishing" in agents, "AGENTS.md no longer carries a verification sequence"
+    section = agents.split("## Verification before finishing", 1)[1].split("\n## ", 1)[0]
+    normalized = " ".join(section.split())
+
+    assert DOCUMENTED_GATE_CLAIM in normalized, (
+        "the documented gate scope changed; update this pin and DOCUMENTED_GATE_CAPABILITIES together"
+    )
+    for capability, required in DOCUMENTED_GATE_CAPABILITIES:
+        assert any(
+            all(fragment in gate.command for fragment in required)
+            for gate in release_gate_check.NON_AUDIO_COMMAND_GATES
+        ), f"AGENTS.md says the gate already includes {capability}, but no gate runs {' '.join(required)}"
+
+
+def test_documented_gate_scope_guard_notices_a_gate_that_stopped_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard above is only worth its sentence if deleting a gate makes it fail."""
+    remaining = [gate for gate in release_gate_check.NON_AUDIO_COMMAND_GATES if gate.name != "type-check"]
+    monkeypatch.setattr(release_gate_check, "NON_AUDIO_COMMAND_GATES", remaining)
+
+    with pytest.raises(AssertionError, match="the type check"):
+        test_documented_gate_scope_matches_the_gates_the_runner_executes()
+
+
 def test_root_artifact_hygiene_fails_when_build_or_dist_exists(tmp_path: Path) -> None:
     (tmp_path / "build").mkdir()
 
