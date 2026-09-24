@@ -548,6 +548,88 @@ def test_small_arc_domain_does_not_hide_a_low_arc_bonus_connector(monkeypatch) -
     assert connector.path in {item.path for item in result.ordered_tracks}
 
 
+def test_beam_retry_widens_a_pruned_bridge_into_the_path(monkeypatch) -> None:
+    """A capped beam can prune the one bridge that finishes a small domain.
+
+    The retry widens the beam and tries again, but no BPM pool can shape the
+    failure the retry guards: it needs a bridge ranked below ``beam_width``
+    high-scoring candidates that are all dead ends, and a BPM interval graph
+    cannot hold 64 mutually non-adjacent dead ends beside the same terminal.
+    So the neighbour graph is fabricated while the real
+    ``_beam_arc_subset_path`` still runs, and a spy records the widths it is
+    asked to run.
+    """
+    start = track("/01-start.flac", energy=5)
+    leaves = [track(f"/02-leaf-{index:02d}.flac", energy=5) for index in range(65)]
+    bridge = track("/03-bridge.flac", energy=5)
+    bridge2 = track("/04-bridge2.flac", energy=5)
+    end = track("/05-end.flac", energy=5)
+    pool = [start, *leaves, bridge, bridge2, end]
+    position = {item.path: index for index, item in enumerate(pool)}
+
+    adjacency: dict[str, set[str]] = {item.path: set() for item in pool}
+
+    def connect(left: TrackRecord, right: TrackRecord) -> None:
+        adjacency[left.path].add(right.path)
+        adjacency[right.path].add(left.path)
+
+    for leaf in leaves:
+        connect(start, leaf)
+        connect(leaf, end)
+    connect(start, bridge)
+    connect(bridge, bridge2)
+    connect(bridge2, end)
+
+    def neighbors(index: int) -> tuple[int, ...]:
+        return tuple(position[name] for name in sorted(adjacency[pool[index].path]))
+
+    def expand_frontier(frontier: set[int]) -> set[int]:
+        return {position[name] for index in frontier for name in adjacency[pool[index].path]}
+
+    monkeypatch.setattr(
+        optimizer, "_lazy_bpm_neighbors", lambda tracks, ceiling: (neighbors, frozenset(), expand_frontier)
+    )
+
+    leaf_paths = {leaf.path for leaf in leaves}
+
+    def ranked_transition(left, right, **kwargs):
+        total = 100.0 if left is not None and left.path == start.path and right.path in leaf_paths else 0.0
+        return optimizer.TransitionScore(
+            left_path="" if left is None else left.path,
+            right_path=right.path,
+            total_score=total,
+            component_scores={},
+            explanations=[],
+            warnings=[],
+        )
+
+    monkeypatch.setattr(optimizer, "score_transition", ranked_transition)
+
+    widths: list[int] = []
+    original_beam = optimizer._beam_arc_subset_path
+
+    def spy_beam(*args, **kwargs):
+        widths.append(args[9])
+        return original_beam(*args, **kwargs)
+
+    monkeypatch.setattr(optimizer, "_beam_arc_subset_path", spy_beam)
+
+    result = recommend_sequence(
+        pool,
+        start_path=start.path,
+        end_path=end.path,
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=4,
+    )
+
+    # The capped pass prunes the low-ranked bridge behind 64 dead-end leaves;
+    # only the widened retry carries it and finishes the path.
+    assert widths == [64, optimizer._beam_retry_width(64, len(pool))]
+    assert widths[1] > widths[0]
+    assert [item.path for item in result.ordered_tracks] == [start.path, bridge.path, bridge2.path, end.path]
+
+
 def test_non_hard_arc_call_shapes_keep_the_legacy_solvers() -> None:
     pool = _tempo_pool([100.0, 101.0, 102.0, 103.0])
 
