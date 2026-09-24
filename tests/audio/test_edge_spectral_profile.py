@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -58,6 +59,23 @@ def test_edge_profile_returns_none_for_missing_file_and_silence(tmp_path: Path) 
 
     assert analyze_edge_spectral_profile(Path("/nonexistent/file.wav")) is None
     assert analyze_edge_spectral_profile(silent_path) is None
+
+
+def test_edge_profile_missing_file_does_not_trigger_audioread_fallback() -> None:
+    """A missing path must fail fast instead of entering the deprecated fallback.
+
+    librosa warns "PySoundFile failed. Trying audioread instead." before raising.
+    That fallback depends on aifc/audioop/sunau, removed in Python 3.13, so a
+    missing file must never reach it. The module-level filters suppress this
+    warning in production; ``simplefilter(\"always\")`` here neutralizes them so
+    the guard observes the fallback even if it returns.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        profile = analyze_edge_spectral_profile(Path("/nonexistent/file.wav"))
+
+    assert profile is None
+    assert [str(w.message) for w in caught if "PySoundFile failed" in str(w.message)] == []
 
 
 def test_edge_profile_uses_current_analysis_version(tmp_path: Path) -> None:

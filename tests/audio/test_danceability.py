@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -134,6 +135,23 @@ def test_score_is_bounded_and_versioned(groove: Path) -> None:
 
 def test_missing_file_returns_none(tmp_path: Path) -> None:
     assert analyze_danceability(tmp_path / "does_not_exist.wav") is None
+
+
+def test_missing_file_does_not_trigger_audioread_fallback(tmp_path: Path) -> None:
+    """A missing path must fail fast instead of entering the deprecated fallback.
+
+    librosa warns "PySoundFile failed. Trying audioread instead." before raising.
+    That fallback depends on aifc/audioop/sunau, removed in Python 3.13, so a
+    missing file must never reach it. The module-level filters suppress this
+    warning in production; ``simplefilter(\"always\")`` here neutralizes them so
+    the guard observes the fallback even if it returns.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = analyze_danceability(tmp_path / "does_not_exist.wav")
+
+    assert result is None
+    assert [str(w.message) for w in caught if "PySoundFile failed" in str(w.message)] == []
 
 
 def test_silence_returns_none(tmp_path: Path) -> None:

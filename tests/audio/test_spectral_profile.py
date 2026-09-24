@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +83,23 @@ def test_analyze_spectral_profile_returns_none_for_missing_file() -> None:
     profile = analyze_spectral_profile(Path("/nonexistent/file.wav"))
 
     assert profile is None
+
+
+def test_analyze_spectral_profile_missing_file_does_not_trigger_audioread_fallback() -> None:
+    """A missing path must fail fast instead of entering the deprecated fallback.
+
+    librosa warns "PySoundFile failed. Trying audioread instead." before raising.
+    That fallback depends on aifc/audioop/sunau, removed in Python 3.13, so a
+    missing file must never reach it. The module-level filters suppress this
+    warning in production; ``simplefilter(\"always\")`` here neutralizes them so
+    the guard observes the fallback even if it returns.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        profile = analyze_spectral_profile(Path("/nonexistent/file.wav"))
+
+    assert profile is None
+    assert [str(w.message) for w in caught if "PySoundFile failed" in str(w.message)] == []
 
 
 def test_analyze_spectral_profile_uses_canonical_mid_track_window(tmp_path: Path) -> None:

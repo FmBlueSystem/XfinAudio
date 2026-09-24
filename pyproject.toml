@@ -53,6 +53,22 @@ pythonpath = ["src"]
 # continue rather than killing it.
 faulthandler_timeout = "120"
 markers = ["uses_spectral_completion_worker: exercise the real controller start boundary"]
+# Third-party noise, not ours. The first librosa decode imports
+# librosa.core.audio, which runs a top-level `import audioread`
+# (librosa/core/audio.py:11); audioread.rawread then imports these stdlib
+# modules, all deprecated for removal in Python 3.13. Unfixable until librosa
+# 1.0 drops audioread. Each message is a literal prefix, escaped by pytest.
+filterwarnings = [
+  # Third-party, emitted by librosa 0.11's top-level `import audioread`
+  # (librosa/core/audio.py:11); disappears with librosa 1.0.
+  "ignore:'aifc' is deprecated and slated for removal in Python 3.13:DeprecationWarning",
+  # Third-party, emitted by librosa 0.11's top-level `import audioread`
+  # (librosa/core/audio.py:11); disappears with librosa 1.0.
+  "ignore:'audioop' is deprecated and slated for removal in Python 3.13:DeprecationWarning",
+  # Third-party, emitted by librosa 0.11's top-level `import audioread`
+  # (librosa/core/audio.py:11); disappears with librosa 1.0.
+  "ignore:'sunau' is deprecated and slated for removal in Python 3.13:DeprecationWarning",
+]
 
 [tool.pyright]
 pythonVersion = "3.11"

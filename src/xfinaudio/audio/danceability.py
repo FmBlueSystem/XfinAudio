@@ -93,6 +93,12 @@ def analyze_danceability(path: Path | str) -> DanceabilityProfile | None:
 
     try:
         audio_path = Path(path)
+        if not audio_path.is_file():
+            # A missing file must never reach librosa: soundfile fails first and
+            # librosa falls back to audioread, whose aifc/audioop/sunau imports
+            # are deprecated for removal in Python 3.13 and dropped in librosa
+            # 1.0. Fail fast on the same None contract as the except below.
+            return None
         try:
             track_duration = float(librosa.get_duration(path=audio_path))
         except Exception:
