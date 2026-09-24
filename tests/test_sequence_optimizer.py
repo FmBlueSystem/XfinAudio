@@ -548,6 +548,43 @@ def test_small_arc_domain_does_not_hide_a_low_arc_bonus_connector(monkeypatch) -
     assert connector.path in {item.path for item in result.ordered_tracks}
 
 
+def test_beam_keeps_optional_successors_when_a_locked_track_is_not_a_neighbour() -> None:
+    """A locked track that is not BPM-adjacent must not drain the frontier's neighbours.
+
+    ``domain_neighbors`` is a generator. Testing ``candidate not in
+    neighbor_candidates`` against the unplaced locked track consumes that
+    one-shot iterator, so the optional successors the state needs to keep
+    advancing silently vanish and a buildable arc is reported as
+    unfinishable. This pool is a real interval graph driven through the real
+    ``domain_neighbors``: ``/00-start`` (100 BPM) cannot jump straight to
+    ``/50-locked`` (104 BPM, 4%), but both touch the bridge cluster at 102 BPM,
+    so a four-track arc exists. Nothing here is monkeypatched.
+    """
+    start = track("/00-start.flac", bpm=100.0)
+    locked = track("/50-locked.flac", bpm=104.0)
+    bridges = [track(f"/10-fill-{index:02d}.flac", bpm=100.4 + index * 0.4) for index in range(16)]
+    pool = sorted([start, locked, *bridges], key=lambda item: item.path)
+
+    result = recommend_sequence(
+        pool,
+        start_path=start.path,
+        arc_strategy="warmup",
+        max_bpm_difference_percent=3.0,
+        arc_length=4,
+        mandatory_paths={locked.path},
+    )
+
+    assert result.optimizer == "arc-subset-beam"
+    assert result.ordered_tracks, f"beam dropped a buildable arc: {result.warnings}"
+    assert result.ordered_tracks[0].path == start.path
+    assert locked.path in {item.path for item in result.ordered_tracks}
+    assert len(result.ordered_tracks) == 4
+    assert all(
+        optimizer.bpm_difference_percent(left.bpm or 0.0, right.bpm or 0.0) <= 3.0
+        for left, right in zip(result.ordered_tracks, result.ordered_tracks[1:], strict=False)
+    )
+
+
 def test_beam_retry_widens_a_pruned_bridge_into_the_path(monkeypatch) -> None:
     """A capped beam can prune the one bridge that finishes a small domain.
 

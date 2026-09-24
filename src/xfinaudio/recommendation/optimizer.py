@@ -727,7 +727,7 @@ def _beam_arc_subset_path(
     for slot in range(1, target):
         expanded: list[tuple[float, int, int, tuple[int, ...]]] = []
         for score, mask, last, path in states:
-            neighbor_candidates = neighbors(last)
+            neighbor_candidates = tuple(neighbors(last))
             mandatory_successors: list[tuple[int, int]] = []
             for candidate in mandatory_indexes:
                 if mask & (1 << candidate):
