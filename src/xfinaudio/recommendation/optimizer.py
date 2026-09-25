@@ -379,12 +379,12 @@ def _arc_subset_recommendation(
             initial_indexes,
             end_index,
             mandatory_mask,
-            domain_neighbors,
-            hops_to_end,
-            transition,
-            arc_bonus,
-            beam_width,
-            len(search_domain),
+            neighbors=domain_neighbors,
+            hops_to_end=hops_to_end,
+            transition=transition,
+            arc_bonus=arc_bonus,
+            beam_width=beam_width,
+            candidate_domain_size=len(search_domain),
         )
         if path is None and exhausted and beam_width > 0 and len(search_domain) <= _BEAM_RETRY_DOMAIN_LIMIT:
             # Only a failed capped pass retries; a successful one and a large raw
@@ -396,12 +396,12 @@ def _arc_subset_recommendation(
                 initial_indexes,
                 end_index,
                 mandatory_mask,
-                domain_neighbors,
-                hops_to_end,
-                transition,
-                arc_bonus,
-                retry_width,
-                len(search_domain),
+                neighbors=domain_neighbors,
+                hops_to_end=hops_to_end,
+                transition=transition,
+                arc_bonus=arc_bonus,
+                beam_width=retry_width,
+                candidate_domain_size=len(search_domain),
             )
         optimizer_name = "arc-subset-beam"
 
@@ -697,6 +697,7 @@ def _beam_arc_subset_path(
     initial: tuple[int, ...],
     end_index: int | None,
     mandatory_mask: int,
+    *,
     neighbors,
     hops_to_end: dict[int, int],
     transition,

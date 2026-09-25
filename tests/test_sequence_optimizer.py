@@ -1,3 +1,5 @@
+import inspect
+
 import pytest
 
 from xfinaudio.library.models import TrackRecord
@@ -46,8 +48,8 @@ def test_recommend_sequence_routes_twenty_tracks_to_exact_optimizer(monkeypatch)
     tracks = [track(f"/track-{index:02d}.flac") for index in range(20)]
     calls: list[int] = []
 
-    def fake_exact_path(*args, **kwargs) -> tuple[int, ...]:
-        calls.append(len(args[0]))
+    def fake_exact_path(tracks, *_rest, **_kwargs) -> tuple[int, ...]:
+        calls.append(len(tracks))
         return tuple(range(20))
 
     monkeypatch.setattr(optimizer, "_exact_path", fake_exact_path)
@@ -645,9 +647,20 @@ def test_beam_retry_widens_a_pruned_bridge_into_the_path(monkeypatch) -> None:
     widths: list[int] = []
     original_beam = optimizer._beam_arc_subset_path
 
-    def spy_beam(*args, **kwargs):
-        widths.append(args[9])
-        return original_beam(*args, **kwargs)
+    # The beam's structural parameters stay positional, but every injected
+    # collaborator and the tuning knobs are keyword-only. This pins the boundary
+    # that forced the old spy to read the width by index and keeps a future
+    # caller (or spy) from binding the width positionally again.
+    positional = [
+        name
+        for name, parameter in inspect.signature(original_beam).parameters.items()
+        if parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    ]
+    assert positional == ["tracks", "target", "initial", "end_index", "mandatory_mask"]
+
+    def spy_beam(*args, beam_width, **kwargs):
+        widths.append(beam_width)
+        return original_beam(*args, beam_width=beam_width, **kwargs)
 
     monkeypatch.setattr(optimizer, "_beam_arc_subset_path", spy_beam)
 
