@@ -478,9 +478,11 @@ def recommend_playlist(
         sequenced_tracks, unplayable_count = _drop_generated_tracks_after_impossible_bpm_jumps(
             sequenced_tracks, preserve_paths=preserved_control_paths(controls)
         )
+        # Report THIS gate's drop, not the branch's running total. The reachability
+        # gate above already warned for its own tracks, and both warnings carry the
+        # same text, so a cumulative count here reads as a second drop of that size.
         if unplayable_count:
-            dropped_bpm_jump_count += unplayable_count
-            warnings.append(_bpm_jump_warning(dropped_bpm_jump_count))
+            warnings.append(_bpm_jump_warning(unplayable_count))
         # Second gate call: now that the true final order is known, re-validate it seeded
         # with the manual anchor. This can drop more than just the manual->generated seam
         # (it walks the whole chain, same as the pre-existing start_path/anchor pattern), so

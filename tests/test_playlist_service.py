@@ -1741,8 +1741,23 @@ def test_same_color_energy_eligible_requires_exact_energy_for_rgb() -> None:
 
 
 def test_same_color_energy_eligible_requires_label_equality_for_rgb() -> None:
+    # Label equality must be an independent predicate, not an implied side effect of
+    # the RGB proximity gate. Falsification: with the dominant-color check removed
+    # from `_color_eligible` this candidate passes every remaining predicate and the
+    # test fails. A candidate that also broke the RGB L1 gate would prove nothing,
+    # because the gate would reject it before the label predicate ran, so the
+    # fixture carries the anchor's exact ratios, centroid and rolloff and differs
+    # ONLY in `dominant_color`.
     anchor = _colored_track("/anchor.flac", "RED", energy=5)
-    other_color = _colored_track("/green.flac", "GREEN", energy=5)
+    red, green, blue = _COLOR_RATIOS["RED"]
+    other_color = _colored_track(
+        "/cross-label.flac",
+        "GREEN",
+        energy=5,
+        red=red,
+        green=green,
+        blue=blue,
+    )
 
     assert _color_eligible(anchor, other_color, match_energy=True) is False
 
@@ -2694,3 +2709,30 @@ def test_locked_track_outside_the_tempo_run_drops_the_unreachable_generated_trac
     paths = [item.path for item in result.ordered_tracks]
     assert paths == ["/locked.flac"]
     assert _bpm_jump_warning(6) in result.warnings
+
+
+def test_mixed_pre_and_post_sequencing_bpm_drops_report_each_stage_count() -> None:
+    # Value: the optimizer branch runs two BPM gates, and each warning must report
+    # the tracks ITS gate dropped (F-BatchC-1 follow-up). In this mixed run the
+    # pre-sequencing reachability gate drops the stranded 140/141 BPM run, and the
+    # post-sequencing gate then drops the 100.0-102.5 BPM run stranded behind the
+    # locked 160 BPM control.
+    #
+    # Catches the running-total message: reporting the accumulated
+    # `dropped_bpm_jump_count` (2 + 6 = 8) on the post-sequencing warning would read
+    # as a second drop of 8 tracks and contradict the pre-sequencing warning that
+    # already accounted for 2 of them. The DJ sums the same-shaped warnings, so a
+    # count that overlaps an earlier one over-reports the loss.
+    pool = (
+        [track("/locked.flac", bpm=160.0, energy_level=6)]
+        + [track(f"/g{index}.flac", bpm=100.0 + index * 0.5, energy_level=6) for index in range(6)]
+        + [track("/far1.flac", bpm=140.0, energy_level=6), track("/far2.flac", bpm=141.0, energy_level=6)]
+    )
+    controls = DJControls(locked_paths={"/locked.flac"})
+
+    result = recommend_playlist(pool, "same_genre", controls=controls)
+
+    assert [item.path for item in result.ordered_tracks] == ["/locked.flac"]
+    assert _bpm_jump_warning(2) in result.warnings
+    assert _bpm_jump_warning(6) in result.warnings
+    assert _bpm_jump_warning(8) not in result.warnings
