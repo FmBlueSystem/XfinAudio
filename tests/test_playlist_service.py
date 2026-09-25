@@ -551,6 +551,25 @@ def test_same_color_energy_composes_color_and_exact_energy_simultaneously() -> N
     # Behavior changed by tighten-same-color-energy: a candidate must match BOTH
     # the anchor color AND the anchor's EXACT energy. Under the old +/-1 band a
     # RED E6 candidate (/near_energy) counted as "both"; now only RED E5 does.
+    #
+    # /cross-label carries the anchor's exact ratios, centroid and rolloff, so the
+    # bounded proximity gate admits it and only the dominant-color label can reject
+    # it. Without that member the label half of the claim has no oracle here: every
+    # foreign-color member above is already excluded by the RGB L1 gate, so dropping
+    # the label check in `_color_eligible` would leave this test green (observed).
+    cross_label = spectral_track("/cross-label.flac", "RED").model_copy(
+        update={
+            "energy_level": 5,
+            "spectral_profile": SpectralProfile(
+                red_ratio=1.0,
+                green_ratio=0.0,
+                blue_ratio=0.0,
+                centroid_hz=1000.0,
+                rolloff_hz=2000.0,
+                dominant_color="MIXED",
+            ),
+        }
+    )
     tracks = [
         spectral_track("/anchor.flac", "RED").model_copy(update={"energy_level": 5}),
         spectral_track("/color-only.flac", "RED").model_copy(update={"energy_level": 9}),
@@ -558,12 +577,14 @@ def test_same_color_energy_composes_color_and_exact_energy_simultaneously() -> N
         spectral_track("/near_energy.flac", "RED").model_copy(update={"energy_level": 6}),
         spectral_track("/both.flac", "RED").model_copy(update={"energy_level": 5}),
         spectral_track("/neither.flac", "GREEN").model_copy(update={"energy_level": 9}),
+        cross_label,
     ]
 
     result = recommend_playlist(tracks, "same_color_energy", controls=DJControls(start_path="/anchor.flac"))
 
     paths = {item.path for item in result.ordered_tracks}
     assert paths == {"/anchor.flac", "/both.flac"}
+    assert "/cross-label.flac" not in paths
 
 
 def test_same_color_energy_preserves_control_paths() -> None:
@@ -2659,10 +2680,10 @@ def test_locked_track_outside_the_tempo_run_drops_the_unreachable_generated_trac
     # reachability gate protects the locked path, so only the post-sequencing
     # gate can drop the stranded tracks. Catches removal of that gate.
     #
-    # FINDING (not fixed in this batch): the post-sequencing drop counter is
-    # accumulated into `dropped_bpm_jump_count` but never read again, so unlike
-    # the strategy-order branch these drops emit NO warning -- the DJ sees a
-    # one-track set with no explanation. See the Batch C ledger entry.
+    # The drop is not silent (F-BatchC-1): the optimizer branch must surface the
+    # post-sequencing count through `_bpm_jump_warning`, exactly like the
+    # strategy-order branch. Catches the write-only accumulation coming back --
+    # the DJ would see a one-track set with no explanation.
     pool = [track("/locked.flac", bpm=160.0, energy_level=6)] + [
         track(f"/g{index}.flac", bpm=100.0 + index * 0.5, energy_level=6) for index in range(6)
     ]
@@ -2672,3 +2693,4 @@ def test_locked_track_outside_the_tempo_run_drops_the_unreachable_generated_trac
 
     paths = [item.path for item in result.ordered_tracks]
     assert paths == ["/locked.flac"]
+    assert _bpm_jump_warning(6) in result.warnings

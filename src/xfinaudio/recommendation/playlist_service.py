@@ -480,6 +480,7 @@ def recommend_playlist(
         )
         if unplayable_count:
             dropped_bpm_jump_count += unplayable_count
+            warnings.append(_bpm_jump_warning(dropped_bpm_jump_count))
         # Second gate call: now that the true final order is known, re-validate it seeded
         # with the manual anchor. This can drop more than just the manual->generated seam
         # (it walks the whole chain, same as the pre-existing start_path/anchor pattern), so
