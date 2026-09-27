@@ -36,3 +36,7 @@ packaging/ffmpeg/ffmpeg
 
 # App-generated runtime state
 playlists.db
+
+# Local AI credentials (never commit)
+*.env
+apiIA.env
