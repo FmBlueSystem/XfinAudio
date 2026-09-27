@@ -200,6 +200,10 @@ class LibraryController:
             format_track_tags=_format_track_tags,
             format_spectral_color=_format_spectral_color,
         )
+        # The direct write bypasses the screen's _populate_table, so the cached
+        # rows signature must be dropped or the next render of identical rows
+        # would skip rebuilding (mirrors BuildScreen.invalidate_copilot_cache).
+        self._widgets.library_screen.invalidate_library_render_cache()
         self._state = apply_library_records_loaded(self._state, records)
         self._access.state_setter(self._state)
         # Offer the genres the library actually holds. The Build screen keeps
@@ -811,6 +815,9 @@ class LibraryController:
     def _clear_scan_dependent_ui(self) -> None:
         self._access.set_applied_copilot_variant(None)
         self._widgets.library_screen.tracks_table.setRowCount(0)
+        # Direct clear bypassing _populate_table; drop the cached signature so
+        # the next render cannot skip a rebuild on matching row content.
+        self._widgets.library_screen.invalidate_library_render_cache()
         self._widgets.library_screen.search_input.clear()
         self._widgets.review_screen.recommendation_table.setRowCount(0)
         self._access.set_recommendation_sections_expanded(False)

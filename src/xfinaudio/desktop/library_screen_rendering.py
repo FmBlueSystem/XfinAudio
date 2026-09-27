@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, QItemSelection, QItemSelectionModel, QItemSelectionRange, Qt
 from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import QTableWidgetItem
 
@@ -32,6 +32,36 @@ _MISSING_COLUMN = column_index("Missing")
 _TITLE_COLUMN = _COLUMNS.index("Title")
 _ARTIST_COLUMN = _COLUMNS.index("Artist")
 _STATUS_COLUMN = _COLUMNS.index("Status")
+_PREVIEW_COLUMN = _COLUMNS.index("Preview")
+
+
+def _library_rows_signature(rows: list[TrackDisplayRow]) -> tuple:
+    """Return a comparable signature of the library rows shown in the table.
+
+    render() runs on every state sync for the visible Library tab, and
+    rebuilding the table would reset the DJ's selection, currentRow, and scroll
+    position even when the rows are identical. The signature covers every cell
+    _populate_table writes (tooltips mirror cell text) in row order, so a sort
+    or filter change also invalidates it. The Preview cell depends on the
+    playing path, which is tracked separately in the render extras.
+    """
+    return tuple(
+        (
+            row.path,
+            row.title,
+            row.artist,
+            row.bpm,
+            row.musical_key,
+            row.energy,
+            row.lufs,
+            row.duration,
+            row.missing_fields,
+            row.genre,
+            row.metadata_status,
+            row.spectral_color,
+        )
+        for row in rows
+    )
 
 
 class LibraryScreenRenderingMixin:
@@ -58,10 +88,42 @@ class LibraryScreenRenderingMixin:
         sort_column = self._sort_column
         if sort_column is not None:
             rows = sort_rows_for_column(rows, sort_column, ascending=self._sort_ascending)
-        self._populate_table(rows)
+        rows_signature = _library_rows_signature(rows)
+        # Excluded/locked sets and the playing path are painted after populate,
+        # so they must also gate the rebuild: skipping populate while they
+        # changed would leave stale constraint colors behind.
+        extras = (
+            tuple(sorted(state.excluded_paths)),
+            tuple(sorted(state.locked_paths)),
+            self._playing_path,
+        )
+        # Skip the destructive rebuild when the rendered content is identical;
+        # the same-rows path must keep the DJ's selection, currentRow, and
+        # scroll position untouched.
+        if (
+            rows_signature != self._last_rows_signature
+            or extras != self._last_render_extras
+            or self.tracks_table.rowCount() != len(rows)
+        ):
+            self._populate_table(rows)
+        self._last_rows_signature = rows_signature
+        self._last_render_extras = extras
         self._apply_search_and_duplicate_filters()
         self._apply_constraint_colors(state.excluded_paths, state.locked_paths)
         self._apply_playing_highlight()
+
+    def invalidate_library_render_cache(self) -> None:
+        """Drop the cached rows signature so the next render rebuilds the table.
+
+        Direct writes to ``tracks_table`` that bypass ``_populate_table`` (the
+        controller repopulating the library after a scan or a saved-library
+        restore) leave the cached signature describing rows that are no longer
+        on screen. Without this, a later render of identical rows would skip
+        the rebuild and keep the direct-write row order under an active sort,
+        or a default Preview cell on the playing row.
+        """
+        self._last_rows_signature = None
+        self._last_render_extras = None
 
     def _render_empty_state(self, state: AppState) -> None:
         # Records first: a library restored from the database has tracks but no
@@ -164,6 +226,13 @@ class LibraryScreenRenderingMixin:
         self.true_peak_badge.setVisible(bool(badge))
 
     def _populate_table(self, rows: list[TrackDisplayRow]) -> None:
+        """Rebuild the tracks table and restore the DJ's view state.
+
+        The rebuild resets selection, currentRow, and scroll position, so all
+        three are captured before and restored afterwards. Selection is
+        restored by path (not row position) so a reordered library keeps the
+        same tracks selected.
+        """
         # Preserve selected paths so sorting does not lose selection.
         path_col = len(_COLUMNS) - 1
         selected_paths = {
@@ -171,6 +240,14 @@ class LibraryScreenRenderingMixin:
             for idx in self.tracks_table.selectedIndexes()
             if self.tracks_table.item(idx.row(), path_col) is not None
         }
+        current_path: str | None = None
+        current_row = self.tracks_table.currentRow()
+        if 0 <= current_row < self.tracks_table.rowCount():
+            item = self.tracks_table.item(current_row, path_col)
+            if item is not None:
+                current_path = item.text()
+        v_scroll = self.tracks_table.verticalScrollBar().value()
+        h_scroll = self.tracks_table.horizontalScrollBar().value()
 
         self.tracks_table.blockSignals(True)
         try:
@@ -204,11 +281,53 @@ class LibraryScreenRenderingMixin:
         finally:
             self.tracks_table.blockSignals(False)
 
-        # Restore selection after repopulation.
+        self._restore_selection_and_scroll(selected_paths, current_path, v_scroll, h_scroll, path_col)
+        self._last_rows_signature = _library_rows_signature(rows)
+
+    def _restore_selection_and_scroll(
+        self,
+        selected_paths: set[str],
+        current_path: str | None,
+        v_scroll: int,
+        h_scroll: int,
+        path_col: int,
+    ) -> None:
+        """Re-select previously selected paths and restore scroll after a rebuild.
+
+        All matched rows are re-selected in one QItemSelection block: the old
+        per-row selectRow() loop replaced the previous selection on every call,
+        collapsing a multi-row selection to its last match. setCurrentCell runs
+        BEFORE the selection is applied — it can clear a freshly applied
+        selection (the same pitfall ReviewScreen documents) — and scroll is
+        restored last because setCurrentCell scrolls the current cell into
+        view. The table's ExtendedSelection + SelectRows configuration is
+        preserved: full-row ranges with a plain Select flag never change it.
+        """
+        matched_rows: list[int] = []
+        restored_current_row: int | None = None
         for row in range(self.tracks_table.rowCount()):
             path_item = self.tracks_table.item(row, path_col)
-            if path_item is not None and path_item.text() in selected_paths:
-                self.tracks_table.selectRow(row)
+            if path_item is None or path_item.text() not in selected_paths:
+                continue
+            matched_rows.append(row)
+            if path_item.text() == current_path:
+                restored_current_row = row
+        if restored_current_row is None:
+            restored_current_row = matched_rows[0] if matched_rows else None
+        if restored_current_row is not None:
+            self.tracks_table.setCurrentCell(restored_current_row, 0)
+        self.tracks_table.clearSelection()
+        if matched_rows:
+            model = self.tracks_table.model()
+            last_col = self.tracks_table.columnCount() - 1
+            selection = QItemSelection()
+            for row in matched_rows:
+                selection.append(QItemSelectionRange(model.index(row, 0), model.index(row, last_col)))
+            self.tracks_table.selectionModel().select(selection, QItemSelectionModel.SelectionFlag.Select)
+        # Restore scroll offsets last; Qt clamps out-of-range values, which is
+        # correct when the new row count no longer scrolls that far.
+        self.tracks_table.verticalScrollBar().setValue(v_scroll)
+        self.tracks_table.horizontalScrollBar().setValue(h_scroll)
 
     # ------------------------------------------------------------------
     # Internal slots
@@ -404,10 +523,45 @@ class LibraryScreenRenderingMixin:
             self.play_requested.emit(path)
 
     def set_playing_row(self, path: str | None) -> None:
-        """Highlight *path* as the currently playing track, or None to clear."""
+        """Highlight *path* as the currently playing track, or None to clear.
+
+        WHY in-place: a play/pause toggle only changes the Preview cell text of
+        the previous and new playing rows plus their background colors. When
+        the table already shows the last-populated rows unchanged, a full
+        render() would rebuild the table — resetting selection, currentRow, and
+        scroll — for zero content change, so the two affected rows are updated
+        in place instead, mirroring render()'s paint order (base colors,
+        constraint colors, then the playing highlight). The full rebuild is
+        still required when the records actually changed.
+        """
+        previous = self._playing_path
         self._playing_path = path
-        if self._last_vm is not None and self._last_state is not None:
-            self.render(self._last_vm, self._last_state)
+        if previous == path:
+            return
+        rows_current = (
+            self._last_rows_signature is not None and len(self._last_rows_signature) == self.tracks_table.rowCount()
+        )
+        if not rows_current:
+            if self._last_vm is not None and self._last_state is not None:
+                self.render(self._last_vm, self._last_state)
+            return
+        for affected_path in (previous, path):
+            if affected_path is None:
+                continue
+            row = self._find_row_by_path(affected_path)
+            if row is None:
+                continue
+            item = self.tracks_table.item(row, _PREVIEW_COLUMN)
+            if item is not None:
+                item.setText("⏸" if affected_path == path else "▶")
+            self._paint_row_base_backgrounds(row)
+        if self._last_state is not None:
+            self._apply_constraint_colors(self._last_state.excluded_paths, self._last_state.locked_paths)
+        self._apply_playing_highlight()
+        if self._last_render_extras is not None:
+            # The playing path is the last extra; refresh it so the next
+            # same-rows render keeps skipping the rebuild.
+            self._last_render_extras = (*self._last_render_extras[:2], path)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Space toggles play/pause for the selected track."""
@@ -469,3 +623,22 @@ class LibraryScreenRenderingMixin:
                 item = self.tracks_table.item(row, col)
                 if item is not None:
                     item.setBackground(color)
+
+    def _paint_row_base_backgrounds(self, row: int) -> None:
+        """Repaint one row with its base selection/zebra color.
+
+        Used by the in-place play-state update: a full _paint_row_selection
+        pass would wipe constraint colors on unrelated rows, so only the
+        affected row is reset here and render()'s paint order is mirrored by
+        the caller (constraint colors, then the playing highlight).
+        """
+        selected_rows = {idx.row() for idx in self.tracks_table.selectedIndexes()}
+        playing_row = self._find_row_by_path(self._playing_path) if self._playing_path else None
+        if row == playing_row or row in selected_rows:
+            color = _ROW_COLOR_SELECTED
+        else:
+            color = _ROW_COLOR_ODD if row % 2 else _ROW_COLOR_EVEN
+        for col in range(self.tracks_table.columnCount()):
+            item = self.tracks_table.item(row, col)
+            if item is not None:
+                item.setBackground(color)

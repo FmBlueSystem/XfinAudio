@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
-from PySide6.QtWidgets import QApplication, QFrame
+from PySide6.QtWidgets import QApplication, QFrame, QWidget
 
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.desktop.app_state import AppState
-from xfinaudio.desktop.library_view_model import LibraryViewModel
+from xfinaudio.desktop.library_columns import column_index
+from xfinaudio.desktop.library_controller import LibraryController
+from xfinaudio.desktop.library_view_model import LibraryViewModel, TrackDisplayRow
 from xfinaudio.desktop.screens.library_screen import _MISSING_COLUMN, LibraryScreen
 from xfinaudio.desktop.window_service_wiring import apply_main_song_filter
 from xfinaudio.library.models import TrackRecord
@@ -571,3 +575,237 @@ def test_main_song_filter_matches_artist_not_only_title(qapp: QApplication) -> N
     # An empty query shows everything again.
     apply_main_song_filter(harness, "")
     assert _visible_titles(screen) == ["Right On Track", "Right On Track (v2)", "Other Song"]
+
+
+# ---------------------------------------------------------------------------
+# Render contract: same-rows skip, selection/scroll restore, in-place play state
+# ---------------------------------------------------------------------------
+
+
+def _state_with_named_tracks(*paths: str) -> AppState:
+    return AppState(
+        selected_folder=Path("/music"),
+        scanned_records=[TrackRecord(path=path, title=Path(path).stem, metadata_status="complete") for path in paths],
+    )
+
+
+def _state_with_many_tracks(count: int) -> AppState:
+    return AppState(
+        selected_folder=Path("/music"),
+        scanned_records=[
+            TrackRecord(path=f"/music/track-{i}.flac", title=f"Track {i}", metadata_status="complete")
+            for i in range(count)
+        ],
+    )
+
+
+def _select_whole_rows(table, rows: list[int]) -> None:
+    table.setCurrentCell(rows[0], 0)
+    for row in rows:
+        for col in range(table.columnCount()):
+            table.item(row, col).setSelected(True)
+
+
+def test_same_rows_render_preserves_multi_selection_current_row_and_scroll(qapp: QApplication) -> None:
+    """Re-rendering identical rows must not collapse a multi-row selection.
+
+    The old restore path called selectRow once per matched row, and each call
+    replaces the previous selection in Qt, so selecting rows 0 and 1 collapsed
+    to row 1 and dragged the current row along with it. The scroll assertion is
+    a regression guard for explicit scroll restore after a rebuild.
+    """
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    state = _state_with_many_tracks(40)
+    screen.render(vm, state)
+
+    table = screen.tracks_table
+    _select_whole_rows(table, [0, 1])
+    screen.resize(400, 300)
+    screen.show()
+    qapp.processEvents()
+    scroll_bar = table.verticalScrollBar()
+    assert scroll_bar.maximum() > 0
+    scroll_bar.setValue(5)
+    qapp.processEvents()
+
+    screen.render(vm, state)
+
+    assert sorted({idx.row() for idx in table.selectedIndexes()}) == [0, 1]
+    assert table.currentRow() == 0
+    assert scroll_bar.value() == 5
+
+
+def test_rows_changed_render_updates_table_and_restores_all_persisting_selections(qapp: QApplication) -> None:
+    """A rebuild with changed rows rewrites the content and re-selects every persisting path.
+
+    Two persisting paths are selected on purpose: the old per-row selectRow
+    restore collapsed them to the last match even when both still exist.
+    """
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    screen.render(vm, _state_with_named_tracks("/music/a.flac", "/music/b.flac", "/music/c.flac"))
+
+    table = screen.tracks_table
+    _select_whole_rows(table, [0, 1])
+
+    screen.render(vm, _state_with_named_tracks("/music/b.flac", "/music/a.flac", "/music/d.flac"))
+
+    assert table.rowCount() == 3
+    assert table.item(0, 0).text() == "b"
+    path_col = table.columnCount() - 1
+    selected_paths = {table.item(idx.row(), path_col).text() for idx in table.selectedIndexes()}
+    assert selected_paths == {"/music/a.flac", "/music/b.flac"}
+
+
+def test_set_playing_row_with_unchanged_records_does_not_rebuild(qapp: QApplication) -> None:
+    """Play/pause toggles must not rebuild the table when the records are unchanged.
+
+    The play-state highlight only touches the Preview cell and the row colors,
+    so a full rebuild — which resets selection and currentRow — is pure waste;
+    the update is applied in place instead.
+    """
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    state = _state_with_tracks()
+    screen.render(vm, state)
+
+    populate_calls: list[int] = []
+    original_populate = screen._populate_table
+
+    def spying_populate(rows: list[TrackDisplayRow]) -> None:
+        populate_calls.append(len(rows))
+        original_populate(rows)
+
+    screen._populate_table = spying_populate
+    preview_col = column_index("Preview")
+
+    screen.set_playing_row("/music/ready.flac")
+    assert populate_calls == []
+    assert screen.tracks_table.rowCount() == 3
+    assert screen.tracks_table.item(0, preview_col).text() == "⏸"
+
+    screen.set_playing_row(None)
+    assert populate_calls == []
+    assert screen.tracks_table.item(0, preview_col).text() == "▶"
+
+    # A rebuild still happens when the records themselves change.
+    screen.render(vm, _state_with_many_tracks(2))
+    assert populate_calls == [2]
+
+
+# ---------------------------------------------------------------------------
+# Render cache invalidation: direct table writes bypassing _populate_table
+# ---------------------------------------------------------------------------
+
+
+def _controller_for(screen: LibraryScreen, state: AppState) -> LibraryController:
+    """Build a minimal LibraryController wired to *screen* for direct-write tests."""
+    widgets = SimpleNamespace(library_screen=screen, build_screen=None)
+    access = SimpleNamespace(
+        settings_getter=lambda: None,
+        settings_setter=lambda _settings: None,
+        settings_repository=None,
+        selected_paths=[],
+        pre_scan_records_by_path={},
+        set_applied_copilot_variant=lambda _variant: None,
+        set_recommendation_sections_expanded=lambda _expanded: None,
+        clear_recommendation_review=lambda: None,
+        selected_track_controls=lambda: None,
+        apply_song_filter=lambda *args, **kwargs: None,
+        state_setter=lambda _state: None,
+        export_metadata_status_to_serato=lambda *args, **kwargs: None,
+        undo_manager=None,
+        refresh_undo_state=lambda: None,
+        workflow_tab_setter=lambda _index: None,
+        open_track=lambda _path: None,
+        live_load_next=lambda _path: None,
+    )
+    return LibraryController(
+        state=state,
+        workflow_service=cast(Any, None),
+        widgets=cast(Any, widgets),
+        access=cast(Any, access),
+        audio_player=cast(Any, None),
+        sync_state=lambda: None,
+        tr=lambda text: text,
+        log=logging.getLogger("test"),
+        parent=QWidget(),
+    )
+
+
+def test_full_render_after_controller_populate_reconciles_active_sort(qapp: QApplication) -> None:
+    """Rows written directly by the controller must reconcile on the next full render.
+
+    LibraryController.populate_track_table writes the tracks table in scan
+    order, bypassing _populate_table. With an active sort indicator the next
+    render computed the same sorted signature and skipped the rebuild, leaving
+    rows in scan order under a sorted header (verifier repro S4).
+    """
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    records = [
+        TrackRecord(path="/music/c.flac", title="Charlie", metadata_status="complete"),
+        TrackRecord(path="/music/a.flac", title="Alpha", metadata_status="complete"),
+        TrackRecord(path="/music/b.flac", title="Bravo", metadata_status="complete"),
+    ]
+    state = AppState(selected_folder=Path("/music"), scanned_records=records)
+    screen.render(vm, state)
+
+    title_col = column_index("Title")
+    screen._on_header_double_clicked(title_col)  # activates the sort and re-renders
+    assert [screen.tracks_table.item(row, title_col).text() for row in range(3)] == [
+        "Alpha",
+        "Bravo",
+        "Charlie",
+    ]
+
+    controller = _controller_for(screen, state)
+    controller.populate_track_table(records)  # direct write in scan order
+
+    assert screen._last_rows_signature is None
+    assert screen._last_render_extras is None
+
+    screen.render(vm, controller._state)
+
+    assert [screen.tracks_table.item(row, title_col).text() for row in range(3)] == [
+        "Alpha",
+        "Bravo",
+        "Charlie",
+    ]
+
+
+def test_full_render_after_controller_populate_restores_playing_preview(qapp: QApplication) -> None:
+    """A direct controller write while a track plays must not strand the Preview cell.
+
+    populate_track_table rewrites every Preview cell to the play icon and the
+    same-rows render skipped the rebuild because the extras (including the
+    playing path) were unchanged, so the playing row never regained its paused
+    icon (verifier repro S5).
+    """
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    records = [
+        TrackRecord(path="/music/ready.flac", title="Ready", metadata_status="complete"),
+        TrackRecord(path="/music/other.flac", title="Other", metadata_status="complete"),
+    ]
+    state = AppState(selected_folder=Path("/music"), scanned_records=records)
+    screen.render(vm, state)
+
+    preview_col = column_index("Preview")
+    screen.set_playing_row("/music/ready.flac")
+    ready_row = screen._find_row_by_path("/music/ready.flac")
+    assert ready_row is not None
+    assert screen.tracks_table.item(ready_row, preview_col).text() == "⏸"
+
+    controller = _controller_for(screen, state)
+    controller.populate_track_table(records)  # direct write resets Preview cells
+
+    assert screen._last_rows_signature is None
+    assert screen._last_render_extras is None
+
+    screen.render(vm, controller._state)
+
+    playing_row = screen._find_row_by_path("/music/ready.flac")
+    assert playing_row is not None
+    assert screen.tracks_table.item(playing_row, preview_col).text() == "⏸"

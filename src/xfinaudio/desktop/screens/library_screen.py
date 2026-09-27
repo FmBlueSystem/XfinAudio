@@ -50,6 +50,14 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
         self._last_vm: LibraryViewModel | None = None
         self._last_state: AppState | None = None
         self._playing_path: str | None = None
+        # Signature of the rows currently in the table plus the extras painted
+        # after populate (excluded/locked sets, playing path). render() runs on
+        # every state sync, quick-filter toggle, sort, and play-state change;
+        # the signature lets it skip the destructive table rebuild when the
+        # rendered content is identical, keeping selection, currentRow, and
+        # scroll position alive.
+        self._last_rows_signature: tuple | None = None
+        self._last_render_extras: tuple | None = None
         self._build_ui()
         self._connect_signals()
 
