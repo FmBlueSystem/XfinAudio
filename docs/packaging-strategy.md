@@ -1,6 +1,6 @@
 # Packaging Strategy
 
-XfinAudio is a full open-source GPL-3.0-only project. The primary distribution format is the Python package: end users install it with `pip`, `pipx`, or `uv tool`, and the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses. Developer/QA execution runs through `uv run xfinaudio`. The PyInstaller spike remains available only for producing an optional, unsigned local `.app` for personal use; signed macOS `.app`/DMG redistribution is out of scope.
+XfinAudio is a full open-source GPL-3.0-only project. The primary distribution format is the Python package: end users install it with `pip`, `pipx`, or `uv tool`, and the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses. Developer/QA execution runs through `uv run xfinaudio`. The PyInstaller spike remains available only for producing an optional local `.app` (unsigned by default) for personal use; signed macOS `.app`/DMG redistribution is out of scope pending legal review.
 
 A PyInstaller packaging spike now exists at `packaging/pyinstaller/xfinaudio.spec`; its optional local bundle includes only a validated, source-built FFmpeg CLI at bundle root for loudness measurement. The source pin, LGPL configuration, and rebuild command are recorded in `docs/third-party-license-inventory.md`; this does not change the pending legal-review posture for binary redistribution. It has a safe smoke script at `scripts/pyinstaller_build_smoke.py`. The non-audio release gate runner at `scripts/release_gate_check.py` lists or executes all automated release-readiness gates that do not require audio files, including open-source publication docs, publication artifact hygiene, and source package hygiene, can write structured JSON evidence with `--report-json PATH`, and clearly leaves audio QA, clean-account validation, signing/notarization, DMG distribution, and legal review as pending manual gates. The GitHub Actions workflow at `.github/workflows/non-audio-release-gates.yml` runs the default non-heavy gate on macOS with Python 3.12, renders Markdown evidence from the JSON report, appends it to the GitHub Step Summary, and uploads both CI evidence files; the temp packaging build is manual-only through the `include_packaging_build` dispatch input. PyInstaller is pinned in the project dev dependency group, and the smoke script can validate a temp-built app launch without touching user app data. The spike validates packaging configuration only; it does not produce a release artifact, installer, signed binary, notarized app, or published distribution.
 
@@ -23,12 +23,28 @@ A PyInstaller packaging spike now exists at `packaging/pyinstaller/xfinaudio.spe
 ## Distribution and licensing
 
 - XfinAudio is distributed as a Python package; no signed macOS `.app`/DMG is produced or redistributed.
-- PyInstaller-built `.app` bundles are unsigned and for personal local use only.
+- PyInstaller-built `.app` bundles are unsigned by default and for personal local use only; optional Developer ID signing/notarization is credential-gated and documented under "Signing and notarization".
 - XfinAudio source is GPL-3.0-only; redistribution must comply with GPLv3.
 - Third-party dependency/license inventory tooling is documented in `docs/third-party-license-inventory.md`; it records package metadata evidence only.
 - GPLv3 compliance and third-party dependency obligations (especially PySide6/Qt and mutagen) for package distribution warrant legal review.
-- This strategy does not add installer, signing, notarization, DMG, legal clearance, or release publishing automation.
+- This strategy does not add installer automation, legal clearance, or release publishing automation; signing/notarization in `scripts/build_dmg.sh` stays a manual, credential-gated local step, not a release pipeline.
 - No legal clearance is implied by this strategy.
+
+## Signing and notarization
+
+Local builds stay unsigned and un-notarized by default: `scripts/build_dmg.sh` only signs when credentials are available, so a machine without a Developer ID identity produces exactly the unsigned DMG it always has, with a hint on how to enable signing.
+
+| Environment variable | Effect when set |
+|----------------------|-----------------|
+| `XFINAUDIO_SIGN_IDENTITY` | Sign the `.app` with this identity (hardened runtime, trusted timestamp), then enforce `codesign --verify --strict` and a Gatekeeper assessment (`spctl -a -t exec -vv`); a verification failure fails the build. When unset, the script signs only if the keychain holds exactly one valid "Developer ID Application" identity, and never guesses between several. |
+| `XFINAUDIO_NOTARY_PROFILE` | After the DMG is created and verified, submit it to Apple's notary service with `xcrun notarytool submit --wait --keychain-profile`, then staple and validate the ticket with `xcrun stapler`. A submission failure fails the build. Requires the app to have been signed. |
+
+Prerequisites:
+
+- A "Developer ID Application" certificate in the keychain for signing.
+- A notarytool keychain profile stored once with `xcrun notarytool store-credentials PROFILE ...`, backed by an App Store Connect API key or an app-specific password, for notarization.
+
+The final build summary names the outcome: unsigned (with the right-click > Open workaround), signed, or signed and notarized. Enabling signing or notarization does not change the redistribution posture: binary redistribution still requires the legal review noted under "Distribution and licensing".
 
 ## App-owned paths
 

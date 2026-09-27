@@ -15,6 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SPEC_PATH = PROJECT_ROOT / "packaging" / "pyinstaller" / "xfinaudio.spec"
 SMOKE_SCRIPT_PATH = PROJECT_ROOT / "scripts" / "pyinstaller_build_smoke.py"
 PYPROJECT_PATH = PROJECT_ROOT / "pyproject.toml"
+BUILD_DMG_SCRIPT_PATH = PROJECT_ROOT / "scripts" / "build_dmg.sh"
 
 
 def _change_artifact_path(change_name: str, *parts: str, changes_root: Path | None = None) -> Path:
@@ -411,6 +412,53 @@ def test_loudness_ffmpeg_bundle_is_validated_excluded_from_upx_and_documented() 
     assert config_flags and all(f"`{flag}`" in inventory for flag in config_flags)
     assert "durable written offer" in inventory
     assert "- [x] 4.5 Packaging: FFmpeg CLI" in tasks
+
+
+def test_build_dmg_script_gates_signing_and_notarization_behind_credentials() -> None:
+    script_text = BUILD_DMG_SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert 'sign_identity="${XFINAUDIO_SIGN_IDENTITY:-}"' in script_text
+    assert 'if [[ -n "${sign_identity}" ]]; then' in script_text
+    assert 'if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" ]]; then' in script_text
+    assert (
+        'if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" && -z "${sign_identity}" ]]; then'
+        in script_text
+    )
+    assert "hint: unsigned build; set XFINAUDIO_SIGN_IDENTITY" in script_text
+
+    # Notarization without a signing identity must fail closed before any heavy
+    # work, not after the DMG has been built.
+    fail_closed_guard = script_text.index(
+        'if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" && -z "${sign_identity}" ]]; then'
+    )
+    first_heavy_step = script_text.index('==> Building')
+    assert fail_closed_guard < first_heavy_step
+
+    # Every signing/notarization invocation must live inside its env-gated
+    # block, so the unsigned default path never touches the signing tools.
+    sign_guard = script_text.index('if [[ -n "${sign_identity}" ]]; then')
+    notary_guard = script_text.index('if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" ]]; then')
+    for tool, guard in (
+        ("codesign --force", sign_guard),
+        ("codesign --verify --strict", sign_guard),
+        ("spctl -a -t exec -vv", sign_guard),
+        ("notarytool submit --wait", notary_guard),
+        ("stapler staple", notary_guard),
+        ("stapler validate", notary_guard),
+    ):
+        occurrences = [match.start() for match in re.finditer(re.escape(tool), script_text)]
+        assert occurrences, tool
+        assert all(position > guard for position in occurrences), tool
+
+
+def test_build_dmg_script_documents_unsigned_signed_and_notarized_outcomes() -> None:
+    script_text = BUILD_DMG_SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert "Signed and notarized build:" in script_text
+    assert "Signed build (not notarized):" in script_text
+    assert "Unsigned build: on first launch macOS will block it." in script_text
+    assert "Developer ID Application" in script_text
+    assert "xcrun notarytool store-credentials" in script_text
 
 
 def test_change_artifact_path_resolves_a_change_in_active_and_archived_locations(tmp_path: Path) -> None:

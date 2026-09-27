@@ -9,9 +9,17 @@
 #   scripts/build_dmg.sh /path/to/output  # build into a specific directory
 #   SKIP_APP_BUILD=1 scripts/build_dmg.sh # reuse an existing .app, only repackage
 #
-# The DMG is unsigned and un-notarized. macOS will warn on first launch unless
-# the user right-clicks > Open. Signing needs a Developer ID and is out of scope
-# for a local build.
+# Signing and notarization are optional and credential-gated. Every build
+# reports one of three outcomes at the end:
+#   unsigned (default): no Developer ID identity is available; macOS warns on
+#     first launch unless the user right-clicks > Open.
+#   signed: XFINAUDIO_SIGN_IDENTITY names a "Developer ID Application"
+#     identity (or the keychain holds exactly one); the build fails if code
+#     verification or the Gatekeeper assessment fails.
+#   signed + notarized: XFINAUDIO_NOTARY_PROFILE names a keychain profile
+#     stored with `xcrun notarytool store-credentials`; the DMG is submitted
+#     to Apple's notary service, then stapled and validated. Submission
+#     failures fail the build.
 
 set -euo pipefail
 
@@ -29,6 +37,33 @@ dmg_path="${output_dir}/${app_name}-${version}.dmg"
 
 mkdir -p "${output_dir}"
 
+# ---------------------------------------------------------------------------
+# Resolve the code-signing identity up front. This is cheap and lets a
+# misconfiguration (notarization requested without any signing identity) fail
+# in seconds instead of after the multi-minute app build and DMG packaging.
+# ---------------------------------------------------------------------------
+sign_identity="${XFINAUDIO_SIGN_IDENTITY:-}"
+if [[ -z "${sign_identity}" ]]; then
+  # Auto-detect only when exactly one valid Developer ID Application identity
+  # exists, so an ambiguous keychain never picks a certificate silently.
+  # (while-read instead of mapfile: macOS ships bash 3.2, which lacks mapfile.)
+  developer_id_entities=()
+  while IFS= read -r identity_hash; do
+    developer_id_entities+=("${identity_hash}")
+  done < <(
+    security find-identity -v -p codesigning 2>/dev/null \
+      | awk '$0 ~ /Developer ID Application/ {print $2}'
+  )
+  if (( ${#developer_id_entities[@]} == 1 )); then
+    sign_identity="${developer_id_entities[0]}"
+  fi
+fi
+
+if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" && -z "${sign_identity}" ]]; then
+  echo "error: XFINAUDIO_NOTARY_PROFILE is set but no Developer ID Application signing identity is available; notarization requires a signed build" >&2
+  exit 1
+fi
+
 if [[ "${SKIP_APP_BUILD:-0}" != "1" ]]; then
   echo "==> Building ${app_name}.app (this takes a few minutes)"
   cd "${project_root}"
@@ -41,6 +76,21 @@ fi
 if [[ ! -d "${app_bundle}" ]]; then
   echo "error: ${app_bundle} not found" >&2
   exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Optional code signing. Without a Developer ID Application identity the build
+# stays unsigned and the rest of the pipeline is unchanged.
+# ---------------------------------------------------------------------------
+app_signed=0
+if [[ -n "${sign_identity}" ]]; then
+  echo "==> Signing ${app_bundle} (identity: ${sign_identity})"
+  codesign --force --options runtime --timestamp --sign "${sign_identity}" "${app_bundle}"
+  codesign --verify --strict "${app_bundle}"
+  spctl -a -t exec -vv "${app_bundle}"
+  app_signed=1
+else
+  echo "hint: unsigned build; set XFINAUDIO_SIGN_IDENTITY (Developer ID Application identity) to enable code signing."
 fi
 
 echo "==> Verifying the bundle launches"
@@ -70,11 +120,35 @@ hdiutil create \
 echo "==> Verifying the image"
 hdiutil verify "${dmg_path}" >/dev/null
 
+# ---------------------------------------------------------------------------
+# Optional notarization. Requires a signed build (fail-closed check above, at
+# the top of the script); without a notary profile the DMG is left as produced
+# above.
+# ---------------------------------------------------------------------------
+dmg_notarized=0
+if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" ]]; then
+  echo "==> Notarizing ${dmg_path} (keychain profile: ${XFINAUDIO_NOTARY_PROFILE})"
+  xcrun notarytool submit --wait --keychain-profile "${XFINAUDIO_NOTARY_PROFILE}" "${dmg_path}"
+  echo "==> Stapling the notarization ticket"
+  xcrun stapler staple "${dmg_path}"
+  xcrun stapler validate "${dmg_path}"
+  dmg_notarized=1
+elif [[ "${app_signed}" == "1" ]]; then
+  echo "hint: signed but not notarized; set XFINAUDIO_NOTARY_PROFILE (store it first with 'xcrun notarytool store-credentials') to enable notarization."
+fi
+
 app_size="$(du -sh "${app_bundle}" | cut -f1)"
 dmg_size="$(du -sh "${dmg_path}" | cut -f1)"
 echo
 echo "app: ${app_bundle} (${app_size})"
 echo "dmg: ${dmg_path} (${dmg_size})"
 echo
-echo "Unsigned build: on first launch macOS will block it."
-echo "Right-click the app > Open, or run: xattr -dr com.apple.quarantine <app>"
+if [[ "${dmg_notarized}" == "1" ]]; then
+  echo "Signed and notarized build: Gatekeeper accepts it on first launch."
+elif [[ "${app_signed}" == "1" ]]; then
+  echo "Signed build (not notarized): Gatekeeper verifies it online on first launch."
+  echo "Notarize with XFINAUDIO_NOTARY_PROFILE to remove that dependency."
+else
+  echo "Unsigned build: on first launch macOS will block it."
+  echo "Right-click the app > Open, or run: xattr -dr com.apple.quarantine <app>"
+fi
