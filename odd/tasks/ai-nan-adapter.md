@@ -41,9 +41,13 @@ working 100% without network, without a key, and with the flag off.
        fake transport; contracts: default-off flag, missing-key error text
        names the env var, timeout honored, key absent from raised errors,
        request payload shape (model, messages), response parsing.
-5. [ ] Verification: `uv run pytest -q`, `uv run ruff check .`,
+5. [x] Verification: `uv run pytest -q`, `uv run ruff check .`,
        `uv run ruff format --check .`, `uv run pyright src tests`.
-6. [ ] Work-unit commit (Conventional Commit) staging only the new paths.
+6. [x] Work-unit commit (Conventional Commit) staging only the new paths.
+
+All tasks complete: commit 2e3bffd on feat/ai-nan-adapter (2026-09-28).
+Follow-up (separate task): add `AiSettings` (enabled + env_file path, never the
+key) to config/settings.py + settings persistence tests.
 
 ## Constraints
 
@@ -54,4 +58,11 @@ working 100% without network, without a key, and with the flag off.
 
 ## Evidence
 
-- Commit: (pending)
+- Commit: `2e3bffd feat(ai): add offline-by-default Nan Builders adapter spike`
+- Suite: 58 adapter tests + full suite 2096 passed; ruff check/format clean;
+  pyright 0 errors (verified independently by orchestrator post-writer).
+- Deliberate deviation (tested): `chat()` raises NanConfigError when the flag is
+  OFF, making the flag authoritative against accidental network reach.
+- Credential safeguard: /Users/freddymolina/Desktop/XfinAudio/apiIA.env is
+  bare-key format, chmod 600, gitignored; its value was never read into any
+  session log.
