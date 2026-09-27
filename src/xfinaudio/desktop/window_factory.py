@@ -9,6 +9,7 @@ from PySide6.QtCore import QTimer
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.audio.loudness_runtime import create_loudness_completion_service
 from xfinaudio.config.settings import AppSettings
+from xfinaudio.desktop.app import default_database_path
 from xfinaudio.desktop.app_controller import (
     AppController,
     AppControllerScreens,
@@ -48,6 +49,20 @@ from xfinaudio.library.scan_service import MetadataScanService
 from xfinaudio.library.track_repository import TrackRepository
 
 
+def playlist_repository_for(repository) -> PlaylistRepository:
+    """Resolve the playlist database next to the app-controlled library database.
+
+    A repository without ``db_path`` previously fell back to the current
+    working directory, scattering playlists.db wherever the app happened to
+    be launched from. The app-controlled directory (the same one holding the
+    library database) is the stable home.
+    """
+    playlist_db_path = getattr(repository, "db_path", None)
+    if playlist_db_path is None:
+        playlist_db_path = default_database_path().with_name("xfinaudio_playlists.db")
+    return PlaylistRepository(playlist_db_path.parent / "playlists.db")
+
+
 def initialize_window_state(
     window,
     scan_service,
@@ -76,10 +91,7 @@ def initialize_window_state(
     window._undo_manager = UndoManager()
     window._audio_player = AudioPlayer(parent=window)
     window._audio_player.set_volume(window.settings.audio.preview_volume)
-    playlist_db_path = getattr(repository, "db_path", None)
-    if playlist_db_path is None:
-        playlist_db_path = Path(".") / "xfinaudio_playlists.db"
-    window._playlist_repository = PlaylistRepository(playlist_db_path.parent / "playlists.db")
+    window._playlist_repository = playlist_repository_for(repository)
     window._library_vm = LibraryViewModel()
     window._build_vm = BuildViewModel()
     window._review_vm = ReviewViewModel()
