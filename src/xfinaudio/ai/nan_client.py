@@ -24,6 +24,10 @@ from typing import Any
 DEFAULT_ENDPOINT = "https://api.nan.builders/v1/chat/completions"
 DEFAULT_MODEL = "deepseek-v4-flash"
 
+#: The Nan API (fronted by a CDN) rejects the default ``Python-urllib`` user
+#: agent with HTTP 403. Identify the app instead; observed live 2026-09-28.
+USER_AGENT = "XfinAudio/1.8 (+https://github.com/FmBlueSystem/XfinAudio)"
+
 TRUTHY_FLAG_VALUES = frozenset({"1", "true", "yes"})
 
 ENABLED_ENV = "XFINAUDIO_AI_ENABLED"
@@ -158,6 +162,7 @@ def _build_request(message: str, *, system: str | None, model: str | None, api_k
     body = json.dumps({"model": _resolve_model(model), "messages": messages}).encode("utf-8")
     request = urllib.request.Request(_resolve_endpoint(), data=body, method="POST")
     request.add_header("Content-Type", "application/json")
+    request.add_header("User-Agent", USER_AGENT)
     request.add_header("Authorization", f"Bearer {api_key}")
     return request
 

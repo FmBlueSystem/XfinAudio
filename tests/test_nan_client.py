@@ -218,6 +218,17 @@ def test_chat_sends_the_bearer_authorization_header(ai_env: None) -> None:
     assert header_of(transport.request, "Authorization") == f"Bearer {API_KEY}"
 
 
+def test_chat_sends_the_app_user_agent(ai_env: None) -> None:
+    # The Nan CDN rejects the default Python-urllib agent with HTTP 403.
+    transport = FakeTransport(completion_body("ok"))
+
+    chat("hi", transport=transport)
+
+    user_agent = header_of(transport.request, "User-Agent")
+    assert user_agent
+    assert "python" not in user_agent.lower()
+
+
 def test_chat_passes_the_default_timeout_to_the_transport(ai_env: None) -> None:
     transport = FakeTransport(completion_body("ok"))
 
