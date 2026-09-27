@@ -6,6 +6,7 @@ tagging) depend on one narrow surface instead of reaching into the module.
 
 from __future__ import annotations
 
+from xfinaudio.ai.intent_copilot import extract_intent
 from xfinaudio.ai.nan_client import (
     NanConfigError,
     NanRequestError,
@@ -20,6 +21,7 @@ __all__ = [
     "NanRequestError",
     "chat",
     "default_env_file_path",
+    "extract_intent",
     "is_ai_enabled",
     "load_api_key_from_env_file",
 ]

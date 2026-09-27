@@ -70,6 +70,20 @@ class AudioSettings(BaseModel):
     preview_volume: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
+class AiSettings(BaseModel):
+    """Configuration for the optional AI copilot.
+
+    Stores the PATH to the operator-owned credential env file, never the API
+    key value: the key is read by the adapter at call time and must never be
+    persisted in the settings file.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = False
+    env_file: Path | None = None
+
+
 class LoudnessSettings(BaseModel):
     """Configuration for optional loudness-analysis scheduling."""
 
@@ -120,6 +134,9 @@ class AppSettings(BaseModel):
     export: ExportSettings = Field(default_factory=ExportSettings)
     ui: UiSettings = Field(default_factory=UiSettings)
     audio: AudioSettings = Field(default_factory=AudioSettings)
+    # Additive section: an existing version-1 payload without ``ai`` stays valid
+    # (the defaults hydrate), so CURRENT_SETTINGS_VERSION does not move.
+    ai: AiSettings = Field(default_factory=AiSettings)
     loudness: LoudnessSettings = Field(default_factory=LoudnessSettings)
     window: WindowSettings = Field(default_factory=WindowSettings)
     build: BuildSessionSettings = Field(default_factory=BuildSessionSettings)
@@ -134,6 +151,7 @@ class AppSettings(BaseModel):
 
 
 __all__ = [
+    "AiSettings",
     "AppSettings",
     "AudioSettings",
     "BuildSessionSettings",
