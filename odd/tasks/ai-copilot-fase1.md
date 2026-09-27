@@ -38,12 +38,12 @@ minimal desktop chat panel wired to build_prep_copilot_plan.
        - additive exports in ai/__init__.py.
 3. [x] Verify T1: 101 targeted + 2144 full suite passed; ruff clean; pyright 0 errors (independently re-verified by orchestrator).
 4. [x] Work-unit commits: 00f87c0 (uv.lock sync chore) + bc2b524 (feat(ai) T1).
-5. [ ] T2 desktop UI: minimal chat panel in the prep flow surface
+5. [x] T2 desktop UI: minimal chat panel in the prep flow surface
        (explore desktop/ screens first; delegate writer with narrow surfaces;
        follow render-contract rules — the 4-screen signature caches require
        invalidation if tables are written directly).
-6. [ ] Verify T2 + work-unit commit T2.
-7. [ ] Merge feat/ai-copilot-fase1 into main AFTER the peer's release window
+6. [x] Verify T2 + commit 2586fc5 (independent re-verification: 88 targeted guard tests, ruff/pyright clean, render-contract anchors 0 diff lines, .qm regenerated via scripts/update_translations.py).
+7. [ ] Merge into main by the PEER session after its P3 (agreed 2026-09-27); notify peer with suite state. Peer hot surfaces on main@4682edf all additive; conflicts expected only in imports/__all__.
        closes; push remains a user decision.
 
 ## Constraints
