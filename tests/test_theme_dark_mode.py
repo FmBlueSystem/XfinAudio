@@ -11,12 +11,12 @@ import re
 
 from xfinaudio.desktop.theme import _DJ_VISUAL_STYLESHEET
 
-_BACKGROUND = "#080c12"
+_BACKGROUND = "#000000"
 
 # Spectrum palette key colors. Pinned so a future refresh is a deliberate edit
 # here, not an accident somewhere in the stylesheet.
 _PALETTE = {
-    "window background": "#080c12",
+    "window background": "#000000",
     "panel surface": "#0f1721",
     "elevated surface": "#151f2b",
     "table background": "#0e161e",

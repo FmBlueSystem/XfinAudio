@@ -28,7 +28,7 @@ _READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "b
 
 # Spectrum palette (v1.8.3 renewal). Key tokens, kept literal inside the
 # stylesheet because Qt style sheets are plain strings:
-#   surfaces   #080c12 window, #0f1721 panel, #151f2b elevated
+#   surfaces   #000000 window (user-provided swatch), #0f1721 panel, #151f2b elevated
 #   text       #eaf4ff primary, #cfe0f0 secondary, #93aac4 muted
 #   accent     #2ce8f5 signal cyan (focus/hover), #3ef0d2 -> #00c2e6 primary sweep
 #   highlight  #463ac4 selection, #5a4be0 active selection
@@ -37,10 +37,10 @@ _READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "b
 # tests/test_theme_dark_mode.py.
 _DJ_VISUAL_STYLESHEET = """
 QMainWindow {
-    background: #080c12;
+    background: #000000;
 }
 QWidget {
-    background: #080c12;
+    background: #000000;
     color: #eaf4ff;
     font-size: 13px;
 }
