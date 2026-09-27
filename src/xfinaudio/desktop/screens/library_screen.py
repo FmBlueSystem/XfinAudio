@@ -40,6 +40,7 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
     track_play_requested = Signal(str)  # emits full path
     play_requested = Signal(str)
     pause_requested = Signal()
+    preview_without_path_requested = Signal()  # Preview click on a row with no playable path
     reanalyze_loudness_requested = Signal()
     filters_cleared = Signal(list)  # emits labels of filters that were active before clearing
 
@@ -183,6 +184,9 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
         self.track_play_requested.connect(window._library_controller.on_track_play_requested)
         self.play_requested.connect(window._library_controller.on_preview_play_requested)
         self.pause_requested.connect(window._audio_player.pause)
+        self.preview_without_path_requested.connect(
+            lambda: window.status_label.setText(self.tr("Select a complete track to preview"))
+        )
         self.reanalyze_loudness_requested.connect(window._library_controller.on_loudness_reanalyze_requested)
 
     # ------------------------------------------------------------------

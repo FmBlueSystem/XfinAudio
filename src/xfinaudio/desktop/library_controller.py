@@ -61,6 +61,7 @@ from xfinaudio.recommendation.playlist_service import (
     recommendation_with_replacement,
 )
 
+# Anchors the column-order sync test in test_library_loudness_column.py.
 _TRACK_COLOR_COLUMN = column_index("Color")
 _TRACK_PATH_COLUMN = column_index("Path")
 _MISSING_METADATA_FILTERS = {
@@ -311,6 +312,10 @@ class LibraryController:
     def on_proceed_to_export(self) -> None:
         if ReviewViewModel().can_export(self._state):
             self._access.workflow_tab_setter(3)
+        else:
+            # Surface guidance instead of failing silently: the button looks
+            # dead otherwise when no exportable playlist exists yet.
+            self._widgets.status_label.setText(self._tr("Build a playlist before exporting"))
 
     def on_track_remove_requested(self, path: str) -> None:
         from xfinaudio.desktop.undo_manager import Command
@@ -388,6 +393,9 @@ class LibraryController:
     def open_selected_library_track(self) -> None:
         selected_rows = sorted({index.row() for index in self._widgets.library_screen.tracks_table.selectedIndexes()})
         if not selected_rows:
+            # Surface guidance instead of failing silently: the shortcut looks
+            # dead otherwise when nothing is selected.
+            self._widgets.status_label.setText(self._tr("Select a track to play"))
             return
         path_item = self._widgets.library_screen.tracks_table.item(selected_rows[0], _TRACK_PATH_COLUMN)
         if path_item is not None:
@@ -563,6 +571,21 @@ class LibraryController:
 
     @Slot(str, object)
     def on_spectral_profile_ready(self, path: str, profile: object) -> None:
+        """Record a finished spectral profile and paint its Color cell now.
+
+        The in-place write below is load-bearing, not an optimization: library
+        sync renders are lightweight by design (app_controller.py hardcodes
+        ``lightweight=True`` for the library tab), and ``render(lightweight=``
+        ``True)`` returns before painting rows. So the coalesced sync render
+        triggered by ``_request_sync()`` never paints this cell — this direct
+        write is the production painter for the spectral pass's only visible
+        output.
+
+        Signature divergence is impossible: ``apply_spectral_profile`` updates
+        the state first, and the row signature includes ``spectral_color``, so
+        the changed state forces a full rebuild (sort/filter/tab-change/re-scan)
+        to repaint the row from state. The write-behind cannot drift from state.
+        """
         self._state = apply_spectral_profile(self._state, path=path, profile=profile)  # type: ignore[arg-type]
         self._access.state_setter(self._state)
         for row_index in range(self._widgets.library_screen.tracks_table.rowCount()):
@@ -572,8 +595,8 @@ class LibraryController:
                 color_text = _format_spectral_color(record) if record is not None else ""
                 self._widgets.library_screen.tracks_table.item(row_index, _TRACK_COLOR_COLUMN).setText(color_text)
                 break
-        # The color cell above is already updated in place, so the full render
-        # this asks for is only needed to refresh the other screens.
+        # Fires once per analyzed track; coalesce so the UI is not re-rendered
+        # thousands of times mid-scan. Refreshes the other screens only.
         self._request_sync()
 
     def on_spectral_completion_finished(self, completed_worker: SpectralCompletionWorker | None = None) -> None:

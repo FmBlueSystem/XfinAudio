@@ -8,9 +8,14 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from PySide6.QtWidgets import QApplication, QFrame, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QWidget
 
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
+from xfinaudio.audio.spectral_profile import (
+    CURRENT_ANALYSIS_VERSION,
+    SpectralProfile,
+    format_spectral_color,
+)
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_columns import column_index
 from xfinaudio.desktop.library_controller import LibraryController
@@ -701,7 +706,7 @@ def test_set_playing_row_with_unchanged_records_does_not_rebuild(qapp: QApplicat
 
 def _controller_for(screen: LibraryScreen, state: AppState) -> LibraryController:
     """Build a minimal LibraryController wired to *screen* for direct-write tests."""
-    widgets = SimpleNamespace(library_screen=screen, build_screen=None)
+    widgets = SimpleNamespace(library_screen=screen, build_screen=None, status_label=QLabel(""))
     access = SimpleNamespace(
         settings_getter=lambda: None,
         settings_setter=lambda _settings: None,
@@ -809,3 +814,89 @@ def test_full_render_after_controller_populate_restores_playing_preview(qapp: QA
     playing_row = screen._find_row_by_path("/music/ready.flac")
     assert playing_row is not None
     assert screen.tracks_table.item(playing_row, preview_col).text() == "⏸"
+
+
+# ---------------------------------------------------------------------------
+# Analysis callbacks update state and paint the affected cell immediately.
+# ---------------------------------------------------------------------------
+
+
+def test_spectral_profile_ready_paints_color_cell_immediately(qapp: QApplication) -> None:
+    """on_spectral_profile_ready must paint the Color cell in place, synchronously.
+
+    Library sync renders are lightweight by design (app_controller hardcodes
+    lightweight=True for the library tab), and ``render(lightweight=True)``
+    returns before painting rows. The in-place cell write is therefore the
+    production painter for the spectral pass's only visible output; deferring
+    it to "the coalesced sync render" (the T3 premise) leaves the cell empty
+    forever. The state update still runs first, so the row signature (which
+    includes spectral_color) diverges and the next full render rebuilds the
+    row from state — no drift is possible.
+    """
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    state = AppState(selected_folder=Path("/music")).with_scanned_records(
+        [TrackRecord(path="/music/red.flac", title="Red", metadata_status="complete")]
+    )
+    screen.render(vm, state)
+    color_col = column_index("Color")
+    assert screen.tracks_table.item(0, color_col).text() == ""
+
+    controller = _controller_for(screen, state)
+    sync_requests: list[bool] = []
+    controller._request_sync = lambda: sync_requests.append(True)
+
+    profile = SpectralProfile(
+        red_ratio=0.9,
+        green_ratio=0.05,
+        blue_ratio=0.05,
+        dominant_color="RED",
+        analysis_version=CURRENT_ANALYSIS_VERSION,
+    )
+    controller.on_spectral_profile_ready("/music/red.flac", profile)
+
+    # Immediate in-place paint: the cell shows the color synchronously,
+    # without any render call (library sync renders are lightweight and
+    # never paint rows).
+    assert screen.tracks_table.item(0, color_col).text() == format_spectral_color(profile)
+    assert sync_requests == [True]
+
+    # The state update keeps signature parity: a full render rebuilds the row
+    # from state with the same color, so the write-behind cannot drift.
+    screen.render(vm, controller._state)
+    assert screen.tracks_table.item(0, color_col).text() == format_spectral_color(profile)
+
+
+# ---------------------------------------------------------------------------
+# No silent-return slots: empty-selection guidance reaches the status label.
+# ---------------------------------------------------------------------------
+
+
+def test_open_selected_library_track_without_selection_reports_status(qapp: QApplication) -> None:
+    """Opening a track with no library selection must surface guidance."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    state = AppState(selected_folder=Path("/music")).with_scanned_records(
+        [TrackRecord(path="/music/a.flac", title="A", metadata_status="complete")]
+    )
+    screen.render(vm, state)
+    controller = _controller_for(screen, state)
+
+    controller.open_selected_library_track()
+
+    assert controller._widgets.status_label.text() != ""
+
+
+def test_proceed_to_export_without_exportable_state_reports_status(qapp: QApplication) -> None:
+    """Proceeding to export with no exportable playlist must surface guidance."""
+    screen = LibraryScreen()
+    vm = LibraryViewModel()
+    state = AppState(selected_folder=Path("/music")).with_scanned_records(
+        [TrackRecord(path="/music/a.flac", title="A", metadata_status="complete")]
+    )
+    screen.render(vm, state)
+    controller = _controller_for(screen, state)
+
+    controller.on_proceed_to_export()
+
+    assert controller._widgets.status_label.text() != ""

@@ -515,6 +515,9 @@ class LibraryScreenRenderingMixin:
         path_col = len(_COLUMNS) - 1
         path_item = self.tracks_table.item(row, path_col)
         if path_item is None:
+            # Surface guidance instead of failing silently: the Preview click
+            # looks dead otherwise when the row carries no playable path.
+            self.preview_without_path_requested.emit()
             return
         path = path_item.text()
         if self._playing_path == path:

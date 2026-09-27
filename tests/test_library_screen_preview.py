@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import Mock
 
 from PySide6.QtWidgets import QApplication
 
@@ -72,6 +73,36 @@ class TestPlayRequested:
         screen.play_requested.connect(paths.append)
         screen._on_cell_clicked(0, 0)  # Title column
         assert paths == []
+
+
+class TestPreviewWithoutPath:
+    def test_click_preview_with_missing_path_item_emits_guidance_signal(self, qapp: QApplication) -> None:
+        """A Preview click on a row whose Path item is gone must report, not fail silently."""
+        screen = LibraryScreen()
+        vm = LibraryViewModel()
+        state = make_state([make_track("/library/a.mp3", "Track A")])
+        screen.render(vm, state)
+        preview_col = _preview_column_index(screen)
+        path_col = screen.tracks_table.columnCount() - 1  # Path is the last column
+        screen.tracks_table.takeItem(0, path_col)
+        requests: list[None] = []
+        screen.preview_without_path_requested.connect(lambda: requests.append(None))
+        screen._on_cell_clicked(0, preview_col)
+        assert requests == [None]
+
+    def test_missing_path_guidance_reaches_status_label(self, qapp: QApplication) -> None:
+        """The screen signal must be wired to the window status surface."""
+        screen = LibraryScreen()
+        window = Mock()
+        screen.connect_signals(window)
+        vm = LibraryViewModel()
+        state = make_state([make_track("/library/a.mp3", "Track A")])
+        screen.render(vm, state)
+        preview_col = _preview_column_index(screen)
+        path_col = screen.tracks_table.columnCount() - 1
+        screen.tracks_table.takeItem(0, path_col)
+        screen._on_cell_clicked(0, preview_col)
+        window.status_label.setText.assert_called_once_with("Select a complete track to preview")
 
 
 class TestPauseRequested:
