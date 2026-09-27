@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+from unittest.mock import Mock
+
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QPushButton
 
+from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.review_view_model import RecommendationRow, ReviewViewModel
 from xfinaudio.desktop.screens.review_screen import _READINESS_COLUMNS, _TRANSITION_COLUMNS, ReviewScreen
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
+from xfinaudio.recommendation.scoring import ScoringWeights
+from xfinaudio.recommendation.strategies import PlaylistStrategy
 
 
 def test_all_buttons_have_tooltips(qapp: QApplication) -> None:
@@ -159,3 +168,187 @@ def test_theme_column_widths_cover_every_table_column() -> None:
 
     assert len(_REVIEW_TABLE_COLUMN_WIDTHS) == len(_TRANSITION_COLUMNS)
     assert len(_DJ_READINESS_TABLE_COLUMN_WIDTHS) == len(_READINESS_COLUMNS)
+
+
+# ----------------------------------------------------------------------
+# Idempotent render + selection restore (render-contract-hardening T2)
+# ----------------------------------------------------------------------
+
+
+def _track(path: str) -> TrackRecord:
+    return TrackRecord(
+        path=path,
+        title=path,
+        artist="Test Artist",
+        bpm=128.0,
+        camelot_key="8A",
+        energy_level=7,
+        metadata_status="complete",
+    )
+
+
+def _recommendation(tracks: list[TrackRecord]) -> PlaylistRecommendation:
+    return PlaylistRecommendation(
+        ordered_tracks=tracks,
+        transition_scores=[],
+        strategy=PlaylistStrategy(
+            name="harmonic_journey",
+            display_name="Harmonic Journey",
+            description="Test strategy",
+            weights=ScoringWeights(),
+        ),
+        warnings=[],
+        applied_controls={},
+        optimizer="test",
+        total_score=0.0,
+    )
+
+
+def _state(paths: list[str]) -> AppState:
+    tracks = [_track(path) for path in paths]
+    return AppState(scanned_records=tracks, last_recommendation=_recommendation(tracks))
+
+
+def _selected_paths(screen: ReviewScreen) -> list[str]:
+    """Paths (UserRole on column 0) of every currently selected row."""
+    table = screen.recommendation_table
+    paths = []
+    for row in range(table.rowCount()):
+        item = table.item(row, 0)
+        if item is not None and item.isSelected():
+            path = item.data(Qt.ItemDataRole.UserRole)
+            if path:
+                paths.append(path)
+    return paths
+
+
+def test_selection_survives_same_rows_render(qapp: QApplication) -> None:
+    """A second render with unchanged rows must not wipe selection or currentRow.
+
+    render() runs on every coalesced state sync while the Review tab is visible
+    (~5 times per second during scans), so the destructive setRowCount(0)
+    rebuild fired constantly and the DJ's selection — which drives the Remove
+    button and double-click play — kept disappearing.
+    """
+    screen = ReviewScreen()
+    vm = ReviewViewModel()
+    state = _state(["/music/a.mp3", "/music/b.mp3"])
+
+    screen.render(vm, state)
+    screen.recommendation_table.selectRow(1)
+    assert screen.recommendation_table.currentRow() == 1
+
+    screen.render(vm, state)
+
+    assert screen.recommendation_table.rowCount() == 2
+    assert screen.recommendation_table.currentRow() == 1
+    assert _selected_paths(screen) == ["/music/b.mp3"]
+
+
+def test_selection_restored_by_path_when_rows_change(qapp: QApplication) -> None:
+    """When rows change, every previously selected path that still exists is re-selected.
+
+    The restore must follow the track path (UserRole on column 0), not the row
+    position, so a reordered playlist keeps the same tracks selected. The
+    currentRow follows the previously current track's path.
+    """
+    screen = ReviewScreen()
+    vm = ReviewViewModel()
+    screen.render(vm, _state(["/music/a.mp3", "/music/b.mp3", "/music/c.mp3"]))
+
+    table = screen.recommendation_table
+    # MultiSelection so two tracks can genuinely be selected at once; the
+    # default single-selection mode would collapse this to one row in setup.
+    from PySide6.QtWidgets import QAbstractItemView
+
+    table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+    table.setCurrentCell(1, 0)  # current track: /music/b.mp3
+    for row in (0, 1):  # select /music/a.mp3 and /music/b.mp3
+        for col in range(table.columnCount()):
+            table.item(row, col).setSelected(True)
+
+    screen.render(vm, _state(["/music/d.mp3", "/music/c.mp3", "/music/b.mp3", "/music/a.mp3"]))
+
+    assert sorted(_selected_paths(screen)) == ["/music/a.mp3", "/music/b.mp3"]
+    assert table.item(table.currentRow(), 0).data(Qt.ItemDataRole.UserRole) == "/music/b.mp3"
+
+
+def test_remove_click_without_selection_reports_status(qapp: QApplication) -> None:
+    """Remove with nothing selected must report guidance, not fail silently."""
+    screen = ReviewScreen()
+    window = Mock()
+    screen.connect_signals(window)
+
+    screen._on_remove_clicked()
+
+    window.status_label.setText.assert_called_once_with("Select a track in the playlist before removing it")
+
+
+def test_remove_click_without_valid_path_reports_status(qapp: QApplication) -> None:
+    """A selected row whose column-0 item carries no path must also report, not fail silently."""
+    screen = ReviewScreen()
+    window = Mock()
+    screen.connect_signals(window)
+    screen._populate_recommendation_table(
+        [
+            RecommendationRow(
+                position=1,
+                title="Track",
+                artist="Artist",
+                bpm="128",
+                camelot_key="8A",
+                energy="7",
+                spectral_color="",
+                overall_score="—",
+                path="",
+            )
+        ]
+    )
+    screen.recommendation_table.selectRow(0)
+
+    screen._on_remove_clicked()
+
+    window.status_label.setText.assert_called_once_with("Select a track in the playlist before removing it")
+    window._library_controller.on_track_remove_requested.assert_not_called()
+
+
+def test_double_click_without_path_reports_status(qapp: QApplication) -> None:
+    """Double-clicking a row without a stored path must report, not fail silently."""
+    screen = ReviewScreen()
+    window = Mock()
+    screen.connect_signals(window)
+    screen._populate_recommendation_table(
+        [
+            RecommendationRow(
+                position=1,
+                title="Track",
+                artist="Artist",
+                bpm="128",
+                camelot_key="8A",
+                energy="7",
+                spectral_color="",
+                overall_score="—",
+                path="",
+            )
+        ]
+    )
+
+    item = screen.recommendation_table.item(0, 0)
+    assert item is not None
+    screen._on_rec_double_clicked(item)
+
+    window.status_label.setText.assert_called_once_with("That track has no playable file path")
+    window._library_controller.on_track_play_requested.assert_not_called()
+
+
+def test_table_still_updates_when_rows_change(qapp: QApplication) -> None:
+    """The signature cache must not freeze the table: changed rows still rebuild it."""
+    screen = ReviewScreen()
+    vm = ReviewViewModel()
+
+    screen.render(vm, _state(["/music/a.mp3", "/music/b.mp3"]))
+    screen.render(vm, _state(["/music/c.mp3"]))
+
+    table = screen.recommendation_table
+    assert table.rowCount() == 1
+    assert table.item(0, 1).text() == "/music/c.mp3"

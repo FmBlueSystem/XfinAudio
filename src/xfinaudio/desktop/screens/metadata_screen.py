@@ -20,9 +20,23 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.desktop.app_state import AppState
-from xfinaudio.desktop.metadata_view_model import MetadataViewModel
+from xfinaudio.desktop.metadata_view_model import MetadataViewModel, WorklistRow
 
 _WORKLIST_COLUMNS = ["Title", "Artist", "BPM", "Key", "Energy", "Missing", "Status"]
+
+
+def _worklist_rows_signature(rows: list[WorklistRow]) -> tuple:
+    """Return a comparable signature of the worklist rows shown in the table.
+
+    render() runs on every state sync while the Metadata tab is visible, and
+    rebuilding the table would wipe the DJ's selection even when the rows are
+    identical. The signature covers every rendered cell value plus the UserRole
+    path stored behind column 0.
+    """
+    return (
+        len(rows),
+        tuple((row.path, row.title, row.artist, row.bpm, row.key, row.energy, row.missing, row.status) for row in rows),
+    )
 
 
 class MetadataScreen(QWidget):
@@ -34,6 +48,10 @@ class MetadataScreen(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # Signature of the worklist rows currently in the table. render() runs
+        # on every state sync for the visible tab, and rebuilding the table
+        # would wipe the DJ's selection even when the rows are identical.
+        self._last_worklist_signature: tuple | None = None
         self._build_ui()
         self._connect_signals()
 
@@ -179,14 +197,33 @@ class MetadataScreen(QWidget):
 
         if not lightweight:
             rows = vm.worklist_rows(state, status_filter, missing_filter)
-            self._populate_table(rows)
+            signature = _worklist_rows_signature(rows)
+            # The rowCount guard also covers direct external table clears: a
+            # cleared table no longer matches the signature even when the rows
+            # are unchanged, so the rebuild still happens.
+            if signature != self._last_worklist_signature or self.worklist_table.rowCount() != len(rows):
+                self._populate_table(rows)
+                self._last_worklist_signature = signature
 
         self.export_button.setEnabled(vm.export_enabled(state))
 
-    def _populate_table(self, rows: list) -> None:
-        self.worklist_table.blockSignals(True)
+    def _populate_table(self, rows: list[WorklistRow]) -> None:
+        """Rebuild the worklist table, restoring same-path selection when possible.
+
+        setRowCount(0) destroys selection and currentRow; restoring by the UserRole
+        path stored on column 0 keeps the selection tied to the track, not to the
+        row position, so a reordered worklist keeps the same track selected.
+        """
+        table = self.worklist_table
+        current_item = table.item(table.currentRow(), 0)
+        previous_path: str | None = None
+        if current_item is not None:
+            data = current_item.data(Qt.ItemDataRole.UserRole)
+            if data:
+                previous_path = data
+        table.blockSignals(True)
         try:
-            self.worklist_table.setRowCount(0)
+            table.setRowCount(0)
             for row_data in rows:
                 row_idx = self.worklist_table.rowCount()
                 self.worklist_table.insertRow(row_idx)
@@ -208,6 +245,12 @@ class MetadataScreen(QWidget):
                     self.worklist_table.setItem(row_idx, col, item)
         finally:
             self.worklist_table.blockSignals(False)
+        if previous_path:
+            for row_idx in range(table.rowCount()):
+                item = table.item(row_idx, 0)
+                if item is not None and item.data(Qt.ItemDataRole.UserRole) == previous_path:
+                    table.selectRow(row_idx)
+                    break
 
     # ------------------------------------------------------------------
     # Internal slots

@@ -87,6 +87,33 @@ _SCORE_TEXT_GOOD = QColor("#ffb000")
 _SCORE_TEXT_POOR = QColor("#ff4d4f")
 
 
+def _recommendation_rows_signature(rows: list[RecommendationRow]) -> tuple:
+    """Return a comparable signature of the recommendation rows shown in the table.
+
+    render() runs on every coalesced state sync while the Review tab is visible
+    (~5 times per second during scans), and rebuilding the table would wipe the
+    DJ's selection even when the rows are identical. The signature covers every
+    rendered cell value plus the UserRole path stored behind column 0.
+    """
+    return (
+        len(rows),
+        tuple(
+            (
+                row.position,
+                row.title,
+                row.artist,
+                row.bpm,
+                row.camelot_key,
+                row.energy,
+                row.spectral_color,
+                row.overall_score,
+                row.path,
+            )
+            for row in rows
+        ),
+    )
+
+
 class ReviewScreen(QWidget):
     """Displays readiness status, track list, and transition analysis."""
 
@@ -95,9 +122,15 @@ class ReviewScreen(QWidget):
     save_to_playlists_requested = Signal()
     track_remove_requested = Signal(str)  # emits the track path
     track_play_requested = Signal(str)  # emits the track path
+    remove_without_selection_requested = Signal()  # no valid row selected for removal
+    play_without_path_requested = Signal()  # double-clicked row has no playable path
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # Signature of the recommendation rows currently in the table. render()
+        # runs on every state sync for the visible tab, and rebuilding the table
+        # would wipe the DJ's selection even when the rows are identical.
+        self._last_recommendation_signature: tuple | None = None
         self._build_ui()
         self._connect_signals()
 
@@ -273,6 +306,12 @@ class ReviewScreen(QWidget):
         self.proceed_to_export_requested.connect(window._library_controller.on_proceed_to_export)
         self.track_remove_requested.connect(window._library_controller.on_track_remove_requested)
         self.track_play_requested.connect(window._library_controller.on_track_play_requested)
+        self.remove_without_selection_requested.connect(
+            lambda: window.status_label.setText(self.tr("Select a track in the playlist before removing it"))
+        )
+        self.play_without_path_requested.connect(
+            lambda: window.status_label.setText(self.tr("That track has no playable file path"))
+        )
 
     # ------------------------------------------------------------------
     # Render
@@ -289,7 +328,15 @@ class ReviewScreen(QWidget):
         self.export_button.setEnabled(vm.can_export(state))
         self.save_to_playlists_button.setEnabled(state.last_recommendation is not None)
         if not lightweight:
-            self._populate_recommendation_table(vm.recommendation_rows(state))
+            rows = vm.recommendation_rows(state)
+            signature = _recommendation_rows_signature(rows)
+            # The rowCount guard also covers controllers that clear the table
+            # directly (e.g. library_controller._clear_scan_dependent_ui): a
+            # cleared table no longer matches the signature even when the
+            # ViewModel rows are unchanged, so the rebuild still happens.
+            if signature != self._last_recommendation_signature or self.recommendation_table.rowCount() != len(rows):
+                self._populate_recommendation_table(rows)
+                self._last_recommendation_signature = signature
         # readiness_table and transition_table are populated imperatively by
         # _populate_dj_readiness_table / show_transition_review / clear_recommendation_review
 
@@ -308,7 +355,56 @@ class ReviewScreen(QWidget):
             self.readiness_table.setItem(row, 1, status_item)
             self.readiness_table.setItem(row, 2, detail_item)
 
+    def _selected_recommendation_paths(self) -> set[str]:
+        """Paths (UserRole of column 0) of every currently selected row."""
+        table = self.recommendation_table
+        paths: set[str] = set()
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            if item is not None and item.isSelected():
+                path = item.data(Qt.ItemDataRole.UserRole)
+                if path:
+                    paths.add(path)
+        return paths
+
+    def _restore_recommendation_selection(self, selected_paths: set[str], current_path: str | None) -> None:
+        """Re-select previously selected paths that still exist after a rebuild.
+
+        setRowCount(0) destroys selection and currentRow; restoring by path
+        keeps the selection tied to the tracks, not to row positions, so a
+        reordered playlist keeps the same tracks selected. Paths that no longer
+        exist reset, which is correct: their data is gone.
+        """
+        if not selected_paths and not current_path:
+            return
+        table = self.recommendation_table
+        matched_rows: list[int] = []
+        restored_current_row: int | None = None
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            path = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+            if path and path in selected_paths:
+                matched_rows.append(row)
+                if path == current_path:
+                    restored_current_row = row
+        if restored_current_row is None:
+            restored_current_row = matched_rows[0] if matched_rows else None
+        # Set the current cell before selecting: setCurrentCell can clear a
+        # freshly applied selection, so the selection must come last.
+        if restored_current_row is not None:
+            table.setCurrentCell(restored_current_row, 0)
+        for row in matched_rows:
+            for col in range(table.columnCount()):
+                cell = table.item(row, col)
+                if cell is not None:
+                    cell.setSelected(True)
+
     def _populate_recommendation_table(self, rows: list[RecommendationRow]) -> None:
+        previous_selected_paths = self._selected_recommendation_paths()
+        current_row_item = self.recommendation_table.item(self.recommendation_table.currentRow(), 0)
+        previous_current_path = (
+            current_row_item.data(Qt.ItemDataRole.UserRole) if current_row_item is not None else None
+        )
         self.recommendation_table.setRowCount(0)
         for row_data in rows:
             row = self.recommendation_table.rowCount()
@@ -339,6 +435,7 @@ class ReviewScreen(QWidget):
             position_item = self.recommendation_table.item(row, 0)
             if position_item is not None:
                 position_item.setData(Qt.ItemDataRole.UserRole, row_data.path)
+        self._restore_recommendation_selection(previous_selected_paths, previous_current_path)
 
     # ------------------------------------------------------------------
     # Internal slots
@@ -350,20 +447,23 @@ class ReviewScreen(QWidget):
     def _on_remove_clicked(self) -> None:
         selected = self.recommendation_table.selectedItems()
         if not selected:
+            # Surface guidance instead of failing silently: the button looks
+            # dead otherwise when nothing is selected.
+            self.remove_without_selection_requested.emit()
             return
         row = self.recommendation_table.currentRow()
         path_item = self.recommendation_table.item(row, 0)
-        if path_item is None:
-            return
-        path = path_item.data(Qt.ItemDataRole.UserRole)
+        path = path_item.data(Qt.ItemDataRole.UserRole) if path_item is not None else None
         if path:
             self.track_remove_requested.emit(path)
+        else:
+            self.remove_without_selection_requested.emit()
 
     def _on_rec_double_clicked(self, item: QTableWidgetItem) -> None:
         row = item.row()
         path_item = self.recommendation_table.item(row, 0)
-        if path_item is None:
-            return
-        path = path_item.data(Qt.ItemDataRole.UserRole)
+        path = path_item.data(Qt.ItemDataRole.UserRole) if path_item is not None else None
         if path:
             self.track_play_requested.emit(path)
+        else:
+            self.play_without_path_requested.emit()
