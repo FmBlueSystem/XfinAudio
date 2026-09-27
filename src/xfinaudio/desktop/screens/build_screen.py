@@ -32,6 +32,31 @@ from xfinaudio.desktop.scan_service import progress_percent, progress_status_tex
 _READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "blocked": "Blocked"}
 _READINESS_STATUS_COLORS = {"ready": "#1fd16a", "needs_review": "#ffb000", "blocked": "#ff4d4f"}
 
+
+def _copilot_rows_signature(rows: list[CopilotVariantRow]) -> tuple:
+    """Return a comparable signature of the copilot rows shown in the table.
+
+    render() is called on every state sync for the visible Build tab, so the
+    signature lets the screen skip the destructive table rebuild when the rows
+    are unchanged and keep the DJ's selection alive.
+    """
+    return (
+        len(rows),
+        tuple(
+            (
+                row.name,
+                row.description,
+                row.track_count,
+                row.readiness_status,
+                row.readiness_summary,
+                row.blocker_count,
+                row.warning_count,
+            )
+            for row in rows
+        ),
+    )
+
+
 _COPILOT_COLUMNS = ["Variant", "Description", "Tracks", "Readiness"]
 _COPILOT_HEADER_TOOLTIPS = [
     "Name of this Prep Copilot playlist variant",
@@ -51,6 +76,7 @@ class BuildScreen(QWidget):
     spectral_cohesion_changed = Signal(int)
     copilot_generate_requested = Signal()
     copilot_variant_applied = Signal(int)
+    apply_without_selection_requested = Signal()
     back_requested = Signal()
     exclude_requested = Signal()
     lock_requested = Signal()
@@ -59,6 +85,10 @@ class BuildScreen(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._last_vm: BuildViewModel | None = None
+        # Signature of the copilot rows currently in the table. render() runs on
+        # every state sync for the visible tab, and rebuilding the table would
+        # wipe the DJ's selection even when the rows are identical.
+        self._last_copilot_signature: tuple | None = None
         self._genre_chosen_by_dj = False
         self._build_ui()
         self._connect_signals()
@@ -297,6 +327,9 @@ class BuildScreen(QWidget):
         self.spectral_cohesion_changed.connect(window._settings_controller.on_spectral_cohesion_changed)
         self.copilot_generate_requested.connect(window.generate_prep_copilot)
         self.copilot_variant_applied.connect(window._on_copilot_variant_applied)
+        self.apply_without_selection_requested.connect(
+            lambda: window.status_label.setText(self.tr("Generate and select a Prep Copilot variant before applying"))
+        )
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
         self.proceed_button.clicked.connect(lambda: window.workflow_tabs.setCurrentIndex(2))
         self.exclude_requested.connect(window._library_controller.on_exclude_requested)
@@ -346,7 +379,10 @@ class BuildScreen(QWidget):
             self.copilot_table.setHidden(len(rows) == 0)
             self.apply_variant_button.setHidden(len(rows) == 0)
         else:
-            self._populate_copilot_table(rows)
+            signature = _copilot_rows_signature(rows)
+            if signature != self._last_copilot_signature:
+                self._populate_copilot_table(rows)
+                self._last_copilot_signature = signature
         self.applied_copilot_variant_label.setHidden(state.applied_variant_name is None)
 
         anchor = vm.anchor_summary(state)
@@ -400,7 +436,25 @@ class BuildScreen(QWidget):
         self.recommend_progress_bar.setVisible(True)
         self.recommend_progress_label.setVisible(True)
 
+    def invalidate_copilot_cache(self) -> None:
+        """Drop the cached copilot row signature so the next render repopulates.
+
+        External code clears `copilot_table` directly (e.g. the Prep Copilot
+        controller's no-tracks branch bypasses `_populate_copilot_table`), so the
+        signature would otherwise still describe the cleared rows and a later render
+        of identical variants would skip rebuilding, leaving the table empty.
+        """
+        self._last_copilot_signature = None
+
     def _populate_copilot_table(self, rows: list[CopilotVariantRow]) -> None:
+        """Rebuild the variants table, restoring same-index selection when possible.
+
+        setRowCount(0) destroys selection and currentRow, so the previous current
+        row is remembered and re-selected when the new row count matches. When the
+        count changed, the selection would point at different data, so it resets.
+        """
+        previous_row = self.copilot_table.currentRow()
+        previous_count = self.copilot_table.rowCount()
         self.copilot_table.setRowCount(0)
         for row_data in rows:
             row = self.copilot_table.rowCount()
@@ -422,6 +476,8 @@ class BuildScreen(QWidget):
                         item.setForeground(QColor("#061016"))
                     item.setToolTip(row_data.readiness_summary)
                 self.copilot_table.setItem(row, col, item)
+        if len(rows) == previous_count and 0 <= previous_row < len(rows):
+            self.copilot_table.selectRow(previous_row)
 
     # ------------------------------------------------------------------
     # Internal slots
@@ -438,6 +494,9 @@ class BuildScreen(QWidget):
     def _on_apply_variant(self) -> None:
         selected_rows = self.copilot_table.selectedItems()
         if not selected_rows:
+            # Surface guidance instead of failing silently: the button looks
+            # dead otherwise when no variant was generated or selected yet.
+            self.apply_without_selection_requested.emit()
             return
         row = self.copilot_table.currentRow()
         self.copilot_variant_applied.emit(row)

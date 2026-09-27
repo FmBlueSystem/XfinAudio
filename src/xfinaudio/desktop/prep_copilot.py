@@ -107,6 +107,10 @@ class PrepCopilotController:
         if controls is None:
             self._replace_state(apply_prep_copilot_plan_cleared(self._state._state))
             self._build_screen.copilot_table.setRowCount(0)
+            # The direct clear bypasses `_populate_copilot_table`, so the cached row
+            # signature must be dropped or the next render of identical variants would
+            # skip rebuilding and leave an empty table over live plan state.
+            self._build_screen.invalidate_copilot_cache()
             self._build_screen.apply_variant_button.setEnabled(False)
             self._on_status_message(self._state.tr("Select at least one complete track before generating Prep Copilot"))
             return

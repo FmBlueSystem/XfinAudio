@@ -142,6 +142,47 @@ class _Combo:
         return self._text
 
 
+def test_controller_generate_without_tracks_invalidates_the_copilot_signature_cache(monkeypatch) -> None:
+    """Clearing the table directly must also invalidate BuildScreen's cached signature.
+
+    The controls-None branch bypasses `_populate_copilot_table`, so a stale signature
+    would make the next render of identical variants skip repopulation and leave the
+    visible table empty while the plan state still held rows.
+    """
+    invalidations: list[bool] = []
+    build_screen = SimpleNamespace(
+        copilot_table=SimpleNamespace(setRowCount=lambda count: None),
+        apply_variant_button=SimpleNamespace(setEnabled=lambda enabled: None),
+        invalidate_copilot_cache=lambda: invalidations.append(True),
+    )
+    state = SimpleNamespace(
+        _state=object(),
+        tr=lambda text: text,
+        _selected_track_controls=lambda: None,
+        _replace_app_state=lambda updated_state: None,
+    )
+    status_messages: list[str] = []
+    monkeypatch.setattr(
+        "xfinaudio.desktop.prep_copilot.apply_prep_copilot_plan_cleared",
+        lambda state_arg: "cleared-state",
+    )
+    controller = PrepCopilotController(
+        build_screen=build_screen,
+        build_vm=object(),
+        state=state,
+        workflow_service=object(),
+        on_state_changed=lambda: None,
+        on_status_message=status_messages.append,
+        desktop_recommendation_records=_unrouted,
+        desktop_color_anchor_candidate_context=_unrouted,
+    )
+
+    controller.generate()
+
+    assert invalidations == [True]
+    assert status_messages == ["Select at least one complete track before generating Prep Copilot"]
+
+
 def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) -> None:
     controls = SimpleNamespace(start_path="/music/start.flac", manual_order_paths=["/music/start.flac"])
     records: list[Any] = [object()]
