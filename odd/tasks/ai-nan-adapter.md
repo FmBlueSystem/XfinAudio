@@ -59,8 +59,14 @@ key) to config/settings.py + settings persistence tests.
 ## Evidence
 
 - Commit: `2e3bffd feat(ai): add offline-by-default Nan Builders adapter spike`
+- Commit: `cc9c548 fix(ai): send app User-Agent to avoid CDN 403 on Nan API`
+  (live test 2026-09-28: Python-urllib UA -> HTTP 403; app UA -> 200. Live
+  smoke passed with deepseek-v4-flash and glm5.3-flash, key from apiIA.env,
+  value never printed.)
 - Suite: 58 adapter tests + full suite 2096 passed; ruff check/format clean;
   pyright 0 errors (verified independently by orchestrator post-writer).
+  After the UA fix: 59 adapter tests green (fix applied via temporary
+  worktree spike-ai-fix while the main worktree was on main).
 - Deliberate deviation (tested): `chat()` raises NanConfigError when the flag is
   OFF, making the flag authoritative against accidental network reach.
 - Credential safeguard: /Users/freddymolina/Desktop/XfinAudio/apiIA.env is
