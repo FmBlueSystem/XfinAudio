@@ -101,6 +101,7 @@ def test_flac_uses_vorbis_comment_and_custom_value() -> None:
     assert tags == {
         "COMMENT": ["-9.8 LUFS · 4.2 LRA · -0.7 dBTP"],
         "XFINAUDIO_LOUDNESS": ["lufs=-9.8;lra=4.2;dbtp=-0.7;v=1;engine=ffmpeg-test"],
+        "DESCRIPTION": ["-9.8 LUFS · 4.2 LRA · -0.7 dBTP"],
     }
     assert (
         write_loudness_tags(

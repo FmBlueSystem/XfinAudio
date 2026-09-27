@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -20,6 +21,11 @@ _ID3_SUFFIXES = frozenset({".mp3", ".wav", ".aif", ".aiff"})
 _FLAC_SUFFIX = ".flac"
 _MP4_SUFFIXES = frozenset({".m4a"})
 MP4_LOUDNESS_TAG = f"----:com.bluesystemio.xfinaudio:{_LOUDNESS_TAG}"
+
+# Serato DJ Pro shows a FLAC's vorbis DESCRIPTION as its browser comment column,
+# preferring it over COMMENT, so the loudness line is mirrored into DESCRIPTION.
+_DESCRIPTION_SEPARATOR = " · "
+_LOUDNESS_SUFFIX = re.compile(r"(?:^| · )(-?\d+\.\d+ LUFS · \d+\.\d+ LRA · -?\d+\.\d+ dBTP)$")
 
 AudioLoader = Callable[[Path], Any | None]
 AudioSaver = Callable[[Any], None]
@@ -185,11 +191,51 @@ def _formatted_values(profile: LoudnessProfile) -> tuple[str, str]:
 
 
 def _apply_flac_tags(tags: Any, comment: str, payload: str) -> bool:
-    if tags.get("COMMENT") == [comment] and tags.get(_LOUDNESS_TAG) == [payload]:
+    description_values = _description_values(tags.get("DESCRIPTION"))
+    updated_values = _updated_descriptions(description_values, comment)
+    if (
+        tags.get("COMMENT") == [comment]
+        and tags.get(_LOUDNESS_TAG) == [payload]
+        and description_values == updated_values
+    ):
         return False
     tags["COMMENT"] = [comment]
     tags[_LOUDNESS_TAG] = [payload]
+    tags["DESCRIPTION"] = updated_values
     return True
+
+
+def _description_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list | tuple):
+        return [str(item) for item in value]
+    return []
+
+
+def _updated_descriptions(values: list[str], comment: str) -> list[str]:
+    """Keep every foreign value; refresh only the value carrying a previous loudness line."""
+    for index, value in enumerate(values):
+        if _LOUDNESS_SUFFIX.search(value) is not None:
+            refreshed = list(values)
+            refreshed[index] = _updated_description(value, comment)
+            return refreshed
+    if len(values) == 1:
+        return [_updated_description(values[0], comment)]
+    return [*values, comment]
+
+
+def _updated_description(existing: str | None, comment: str) -> str:
+    """Keep foreign description text, refresh only a previously appended loudness line."""
+    if not existing or not existing.strip():
+        return comment
+    if comment in existing:
+        return existing
+    suffix = _LOUDNESS_SUFFIX.search(existing)
+    if suffix is None:
+        return f"{existing}{_DESCRIPTION_SEPARATOR}{comment}"
+    base = existing[: suffix.start()]
+    return f"{base}{_DESCRIPTION_SEPARATOR}{comment}" if base else comment
 
 
 def _apply_mp4_tags(tags: Any, comment: str, payload: str) -> bool:

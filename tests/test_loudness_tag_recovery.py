@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from shutil import copyfile
+from typing import Any
 
 import pytest
+from mutagen.id3 import TXXX
 from mutagen.mp4 import MP4, AtomDataType, MP4FreeForm
 
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
@@ -14,6 +17,45 @@ from xfinaudio.library.track_repository import TrackRepository
 
 _PAYLOAD = "lufs=-9.8;lra=4.2;dbtp=-0.7;v=1;engine=ffmpeg-test"
 _M4A_LOUDNESS_KEY = "----:com.bluesystemio.xfinaudio:XFINAUDIO_LOUDNESS"
+_LOUDNESS_COMMENT = "-9.8 LUFS · 4.2 LRA · -0.7 dBTP"
+
+
+@dataclass
+class FakeAudio:
+    tags: Any
+    save_count: int = 0
+
+
+def measured_profile(lufs: float = -9.8, lra: float = 4.2, dbtp: float = -0.7) -> LoudnessProfile:
+    return LoudnessProfile(
+        lufs_integrated=lufs,
+        loudness_range_lra=lra,
+        true_peak_dbtp=dbtp,
+        status=LoudnessStatus.MEASURED,
+        engine_fingerprint="ffmpeg-test",
+    )
+
+
+def save(audio: FakeAudio) -> None:
+    audio.save_count += 1
+
+
+@dataclass
+class FakeID3Tags:
+    frames: list[object] = field(default_factory=list)
+
+    def getall(self, frame_id: str) -> list[object]:
+        return [frame for frame in self.frames if getattr(frame, "FrameID", None) == frame_id]
+
+    def delall(self, key: str) -> None:
+        self.frames = [
+            frame
+            for frame in self.frames
+            if getattr(frame, "HashKey", None) != key and getattr(frame, "FrameID", None) != key
+        ]
+
+    def add(self, frame: object) -> None:
+        self.frames.append(frame)
 
 
 @pytest.mark.parametrize(
@@ -162,3 +204,158 @@ def test_m4a_recovery_rejects_case_variants_invalid_utf8_and_multiple_values(
     path.write_text("audio")
 
     assert recover_loudness_profile(path, tags) is None
+
+
+def test_flac_empty_description_is_populated_with_the_loudness_comment() -> None:
+    tags: dict[str, list[str]] = {"COMMENT": ["old note"]}
+    audio = FakeAudio(tags)
+
+    result = write_loudness_tags(
+        Path("/library/track.flac"), measured_profile(), load_audio=lambda _: audio, save_audio=save
+    )
+
+    assert result.status is LoudnessTagWriteStatus.CHANGED
+    assert tags["DESCRIPTION"] == [_LOUDNESS_COMMENT]
+
+
+def test_flac_existing_description_is_appended_with_the_loudness_comment() -> None:
+    tags: dict[str, list[str]] = {"COMMENT": ["old note"], "DESCRIPTION": ["1B - 02:53"]}
+    audio = FakeAudio(tags)
+
+    result = write_loudness_tags(
+        Path("/library/track.flac"), measured_profile(), load_audio=lambda _: audio, save_audio=save
+    )
+
+    assert result.status is LoudnessTagWriteStatus.CHANGED
+    assert tags["DESCRIPTION"] == [f"1B - 02:53 · {_LOUDNESS_COMMENT}"]
+
+
+def test_flac_second_write_is_unchanged_and_does_not_duplicate_the_description() -> None:
+    tags: dict[str, list[str]] = {"COMMENT": [], "DESCRIPTION": ["1B - 02:53"]}
+    audio = FakeAudio(tags)
+
+    assert (
+        write_loudness_tags(
+            Path("/library/track.flac"), measured_profile(), load_audio=lambda _: audio, save_audio=save
+        ).status
+        is LoudnessTagWriteStatus.CHANGED
+    )
+    expected = f"1B - 02:53 · {_LOUDNESS_COMMENT}"
+    assert (
+        write_loudness_tags(
+            Path("/library/track.flac"), measured_profile(), load_audio=lambda _: audio, save_audio=save
+        ).status
+        is LoudnessTagWriteStatus.UNCHANGED
+    )
+    assert tags["DESCRIPTION"] == [expected]
+    assert audio.save_count == 1
+
+
+def test_flac_remeasurement_replaces_the_stale_loudness_suffix_and_keeps_the_prefix() -> None:
+    tags: dict[str, list[str]] = {
+        "COMMENT": [_LOUDNESS_COMMENT],
+        "XFINAUDIO_LOUDNESS": [_PAYLOAD],
+        "DESCRIPTION": [f"1B - 02:53 · {_LOUDNESS_COMMENT}"],
+    }
+    audio = FakeAudio(tags)
+
+    result = write_loudness_tags(
+        Path("/library/track.flac"),
+        measured_profile(-7.7, 3.1, -0.2),
+        load_audio=lambda _: audio,
+        save_audio=save,
+    )
+
+    assert result.status is LoudnessTagWriteStatus.CHANGED
+    assert tags["DESCRIPTION"] == ["1B - 02:53 · -7.7 LUFS · 3.1 LRA · -0.2 dBTP"]
+
+
+def test_flac_description_that_merely_contains_a_number_is_appended_not_merged() -> None:
+    tags: dict[str, list[str]] = {"COMMENT": [], "DESCRIPTION": ["recorded 02:53"]}
+    audio = FakeAudio(tags)
+
+    assert (
+        write_loudness_tags(
+            Path("/library/track.flac"), measured_profile(), load_audio=lambda _: audio, save_audio=save
+        ).status
+        is LoudnessTagWriteStatus.CHANGED
+    )
+    assert tags["DESCRIPTION"] == [f"recorded 02:53 · {_LOUDNESS_COMMENT}"]
+
+
+def test_flac_remeasurement_of_self_produced_description_is_replaced_exactly() -> None:
+    tags: dict[str, list[str]] = {"COMMENT": [], "DESCRIPTION": []}
+    audio = FakeAudio(tags)
+
+    assert (
+        write_loudness_tags(
+            Path("/library/track.flac"), measured_profile(), load_audio=lambda _: audio, save_audio=save
+        ).status
+        is LoudnessTagWriteStatus.CHANGED
+    )
+    assert tags["DESCRIPTION"] == [_LOUDNESS_COMMENT]
+
+    assert (
+        write_loudness_tags(
+            Path("/library/track.flac"),
+            measured_profile(-7.7, 3.1, -0.2),
+            load_audio=lambda _: audio,
+            save_audio=save,
+        ).status
+        is LoudnessTagWriteStatus.CHANGED
+    )
+    assert tags["DESCRIPTION"] == ["-7.7 LUFS · 3.1 LRA · -0.2 dBTP"]
+
+
+def test_flac_multi_valued_description_keeps_foreign_values_and_replaces_only_the_loudness_value() -> None:
+    tags: dict[str, list[str]] = {"COMMENT": [], "DESCRIPTION": ["my notes", _LOUDNESS_COMMENT]}
+    audio = FakeAudio(tags)
+
+    result = write_loudness_tags(
+        Path("/library/track.flac"),
+        measured_profile(-7.7, 3.1, -0.2),
+        load_audio=lambda _: audio,
+        save_audio=save,
+    )
+
+    assert result.status is LoudnessTagWriteStatus.CHANGED
+    assert tags["DESCRIPTION"] == ["my notes", "-7.7 LUFS · 3.1 LRA · -0.2 dBTP"]
+
+
+def test_flac_multi_valued_description_without_a_prior_loudness_value_appends_a_new_value() -> None:
+    tags: dict[str, list[str]] = {"COMMENT": [], "DESCRIPTION": ["my notes", "1B - 02:53"]}
+    audio = FakeAudio(tags)
+
+    result = write_loudness_tags(
+        Path("/library/track.flac"), measured_profile(), load_audio=lambda _: audio, save_audio=save
+    )
+
+    assert result.status is LoudnessTagWriteStatus.CHANGED
+    assert tags["DESCRIPTION"] == ["my notes", "1B - 02:53", _LOUDNESS_COMMENT]
+
+
+def test_mp4_write_never_touches_a_description_field() -> None:
+    tags: dict[str, object] = {"©cmt": ["old note"], "©des": ["1B - 02:53"]}
+    audio = FakeAudio(tags)
+
+    result = write_loudness_tags(
+        Path("/library/track.m4a"), measured_profile(), load_audio=lambda _: audio, save_audio=save
+    )
+
+    assert result.status is LoudnessTagWriteStatus.CHANGED
+    assert tags["©des"] == ["1B - 02:53"]
+    assert set(tags) == {"©cmt", "©des", _M4A_LOUDNESS_KEY}
+
+
+def test_id3_write_never_touches_a_description_frame() -> None:
+    tags = FakeID3Tags([TXXX(encoding=3, desc="description", text=["1B - 02:53"])])
+    audio = FakeAudio(tags)
+
+    result = write_loudness_tags(
+        Path("/library/track.mp3"), measured_profile(), load_audio=lambda _: audio, save_audio=save
+    )
+
+    assert result.status is LoudnessTagWriteStatus.CHANGED
+    descriptions = [frame for frame in tags.getall("TXXX") if frame.desc == "description"]
+    assert len(descriptions) == 1
+    assert descriptions[0].text == ["1B - 02:53"]
