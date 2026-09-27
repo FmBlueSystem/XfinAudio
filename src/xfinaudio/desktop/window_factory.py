@@ -78,6 +78,8 @@ def initialize_window_state(
         workflow_service=workflow_service,
         selected_folder=window.settings.library.last_scan_folder,
         settings=window.settings,
+        excluded_paths=frozenset(window.settings.build.excluded_paths),
+        locked_paths=frozenset(window.settings.build.locked_paths),
     )
     window._is_recommending = False
     window._scan_service = DesktopScanService(workflow_service, parent=window)
@@ -100,6 +102,8 @@ def initialize_window_state(
     window._library_screen = LibraryScreen()
     window._build_screen = BuildScreen()
     window._build_screen.spectral_cohesion_slider.setValue(int(round(window.settings.scoring.spectral_cohesion * 100)))
+    if window.settings.build.genre_focus:
+        window._build_screen.genre_focus_input.setText(window.settings.build.genre_focus)
     window._review_screen = ReviewScreen()
     window._export_screen = ExportScreen()
     window._playlists_screen = MyPlaylistsScreen()
@@ -242,17 +246,51 @@ def initialize_app_controller(window, screen_names: list[str]) -> None:
     )
 
 
+def validated_build_settings(
+    settings: AppSettings, known_paths: set[str], settings_repository: SettingsPersistence
+) -> AppSettings:
+    """Drop persisted DJ build constraints whose paths no longer exist in the library.
+
+    Stale locked paths would raise ``Unknown locked_path`` during recommendation,
+    and a stale excluded path silently pins nothing. Any excluded∩locked overlap
+    surviving the intersection is also resolved in favor of locking. When
+    anything is dropped the healed settings are written back immediately so the
+    file matches the library.
+    """
+    build = settings.build
+    valid_excluded = build.excluded_paths & known_paths
+    valid_locked = build.locked_paths & known_paths
+    # Defense in depth for legacy or hand-edited settings files: a path present
+    # in both sets would make every recommendation raise
+    # ("excluded paths cannot overlap locked paths") until constraints were
+    # cleared, and the self-heal below would re-persist the poison. Locking is
+    # kept because it is the stronger DJ intent; the overlap is dropped from
+    # excluded_paths.
+    resolved_excluded = valid_excluded - valid_locked
+    if resolved_excluded == build.excluded_paths and valid_locked == build.locked_paths:
+        return settings
+    healed = settings.model_copy(
+        update={"build": build.model_copy(update={"excluded_paths": resolved_excluded, "locked_paths": valid_locked})}
+    )
+    settings_repository.save(healed)
+    return healed
+
+
 def with_defaults(cls, db_path: Path, settings_path: Path | None = None):
     from xfinaudio.config.settings_repository import SettingsRepository
     from xfinaudio.desktop.app import default_settings_path
 
     settings_repository = SettingsRepository(settings_path or default_settings_path())
     repository = TrackRepository(db_path)
+    settings = settings_repository.load()
+    # One fetch serves both the restore render and build-context validation.
+    display_tracks = repository.list_display_tracks()
+    settings = validated_build_settings(settings, {track.path for track in display_tracks}, settings_repository)
     window = cls(
         scan_service=MetadataScanService(),
         repository=repository,
-        settings=settings_repository.load(),
+        settings=settings,
         settings_repository=settings_repository,
     )
-    window.restore_persisted_tracks(repository.list_display_tracks())
+    window.restore_persisted_tracks(display_tracks)
     return window

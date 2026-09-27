@@ -128,6 +128,7 @@ class PrepCopilotController:
             loudness_band=loudness_band,
         )
         genre_focus = self._build_screen.genre_focus_input.text().strip() or None
+        self._persist_genre_focus(genre_focus)
         request = PrepCopilotGenerationRequest(
             strategy=strategy_name,
             target_track_count=self._build_screen.target_count_input.value(),
@@ -147,6 +148,17 @@ class PrepCopilotController:
         self._build_screen.copilot_table.setHidden(len(plan.variants) == 0)
         self._build_screen.render(self._build_vm, self._state._state)
         self._on_state_changed()
+
+    def _persist_genre_focus(self, genre_focus: str | None) -> None:
+        """Persist the genre focus so the next launch restores the same build intent."""
+        settings = getattr(self._state, "settings", None)
+        if settings is None:
+            return
+        settings = settings.model_copy(update={"build": settings.build.model_copy(update={"genre_focus": genre_focus})})
+        self._state.settings = settings
+        repository = getattr(self._state, "settings_repository", None)
+        if repository is not None:
+            repository.save(settings)
 
     def apply_item(self, item: QTableWidgetItem) -> None:
         self._build_screen.copilot_table.selectRow(item.row())

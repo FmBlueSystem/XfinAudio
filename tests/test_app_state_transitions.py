@@ -362,6 +362,35 @@ def test_apply_tracks_locked_returns_new_state_without_mutating_original() -> No
     assert state.locked_paths == frozenset({"/music/a.flac"})
 
 
+def test_apply_tracks_excluded_removes_newly_excluded_paths_from_locked() -> None:
+    # A track is either excluded or locked, never both: an overlap would make
+    # every subsequent DJControls validation raise until constraints are cleared.
+    state = AppState(locked_paths=frozenset({"/music/a.flac", "/music/b.flac"}))
+
+    transition = getattr(app_state_transitions, "apply_tracks_excluded", None)
+    assert callable(transition)
+    updated = transition(state, ["/music/a.flac"])
+
+    assert updated.excluded_paths == frozenset({"/music/a.flac"})
+    assert updated.locked_paths == frozenset({"/music/b.flac"})
+    # The original state stays untouched.
+    assert state.locked_paths == frozenset({"/music/a.flac", "/music/b.flac"})
+    assert state.excluded_paths == frozenset()
+
+
+def test_apply_tracks_locked_removes_newly_locked_paths_from_excluded() -> None:
+    state = AppState(excluded_paths=frozenset({"/music/a.flac", "/music/b.flac"}))
+
+    transition = getattr(app_state_transitions, "apply_tracks_locked", None)
+    assert callable(transition)
+    updated = transition(state, ["/music/a.flac"])
+
+    assert updated.locked_paths == frozenset({"/music/a.flac"})
+    assert updated.excluded_paths == frozenset({"/music/b.flac"})
+    assert state.excluded_paths == frozenset({"/music/a.flac", "/music/b.flac"})
+    assert state.locked_paths == frozenset()
+
+
 def test_apply_track_constraints_cleared_returns_new_state_without_mutating_original() -> None:
     state = AppState(
         excluded_paths=frozenset({"/music/excluded.flac"}),

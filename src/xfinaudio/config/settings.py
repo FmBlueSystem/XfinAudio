@@ -91,6 +91,22 @@ class WindowSettings(BaseModel):
     y: int | None = None
 
 
+class BuildSessionSettings(BaseModel):
+    """DJ build context restored across restarts for the current library.
+
+    Deliberately not persisted: the copilot plan, the applied variant name,
+    the last recommendation, derived quality/readiness reports, and
+    ``playlist_removed_paths`` (rescan-reset class: a fresh scan starts a
+    fresh build).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    excluded_paths: frozenset[str] = frozenset()
+    locked_paths: frozenset[str] = frozenset()
+    genre_focus: str | None = None
+
+
 class AppSettings(BaseModel):
     """Versioned root settings model for XfinAudio."""
 
@@ -106,6 +122,7 @@ class AppSettings(BaseModel):
     audio: AudioSettings = Field(default_factory=AudioSettings)
     loudness: LoudnessSettings = Field(default_factory=LoudnessSettings)
     window: WindowSettings = Field(default_factory=WindowSettings)
+    build: BuildSessionSettings = Field(default_factory=BuildSessionSettings)
 
     @field_validator("settings_version")
     @classmethod
@@ -119,6 +136,7 @@ class AppSettings(BaseModel):
 __all__ = [
     "AppSettings",
     "AudioSettings",
+    "BuildSessionSettings",
     "CURRENT_SETTINGS_VERSION",
     "ExportSettings",
     "LibrarySettings",

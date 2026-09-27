@@ -260,13 +260,37 @@ def apply_prep_copilot_variant(state: AppState, payload: PrepCopilotVariantAppli
 
 
 def apply_tracks_excluded(state: AppState, paths: Iterable[str]) -> AppState:
-    """Return a new state with selected tracks excluded."""
-    return state.model_copy(update={"excluded_paths": state.excluded_paths | frozenset(paths)})
+    """Return a new state with selected tracks excluded.
+
+    Newly excluded paths are removed from ``locked_paths``: a track is either
+    excluded or locked, never both. An overlap would make every subsequent
+    ``DJControls`` validation raise ("excluded paths cannot overlap locked
+    paths") until the constraints were cleared, and the persisted overlap
+    would resurface on every restart.
+    """
+    excluded = frozenset(paths)
+    return state.model_copy(
+        update={
+            "excluded_paths": state.excluded_paths | excluded,
+            "locked_paths": state.locked_paths - excluded,
+        }
+    )
 
 
 def apply_tracks_locked(state: AppState, paths: Iterable[str]) -> AppState:
-    """Return a new state with selected tracks locked."""
-    return state.model_copy(update={"locked_paths": state.locked_paths | frozenset(paths)})
+    """Return a new state with selected tracks locked.
+
+    Newly locked paths are removed from ``excluded_paths`` for the same reason
+    as :func:`apply_tracks_excluded`: the two constraint sets are mutually
+    exclusive by invariant, so the newest DJ action wins.
+    """
+    locked = frozenset(paths)
+    return state.model_copy(
+        update={
+            "locked_paths": state.locked_paths | locked,
+            "excluded_paths": state.excluded_paths - locked,
+        }
+    )
 
 
 def apply_track_constraints_cleared(state: AppState) -> AppState:

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.recommendation_candidates import pool_size_for_slot
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
-from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings, WindowSettings
+from xfinaudio.config.settings import AppSettings, BuildSessionSettings, ExportSettings, LibrarySettings, WindowSettings
 from xfinaudio.desktop import export_coordinator, main_window
 from xfinaudio.desktop.library_screen_rendering import _COLUMNS
 from xfinaudio.desktop.main_window import MainWindow
@@ -1515,6 +1515,145 @@ def test_main_window_with_defaults_restores_persisted_tracks_on_startup(tmp_path
     _library_tracks_table(window).selectRow(0)
     assert window._build_screen.recommend_button.isEnabled() is True
     assert window.status_label.text() == "Loaded saved library: 1 complete, 0 incomplete"
+
+
+def test_main_window_with_defaults_restores_and_validates_dj_build_context(tmp_path) -> None:
+    ensure_app()
+    import json
+
+    from xfinaudio.config.settings_repository import SettingsRepository
+    from xfinaudio.library.track_repository import TrackRepository
+
+    kept_path = str(tmp_path / "kept.flac")
+    stale_path = str(tmp_path / "removed.flac")
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    settings_path = tmp_path / "settings.json"
+    repository = TrackRepository(db_path)
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=kept_path,
+                title="Kept",
+                bpm=124.0,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            )
+        ]
+    )
+    settings_repository = SettingsRepository(settings_path)
+    settings_repository.save(
+        AppSettings(
+            build=BuildSessionSettings(
+                excluded_paths=frozenset({stale_path}),
+                locked_paths=frozenset({kept_path}),
+                genre_focus="Techno",
+            )
+        )
+    )
+
+    window = MainWindow.with_defaults(db_path, settings_path)
+
+    # Constraints whose paths still exist are restored into the app state;
+    # stale ones (path no longer in the library) are dropped.
+    assert window._state.locked_paths == frozenset({kept_path})
+    assert window._state.excluded_paths == frozenset()
+    # Self-heal: the persisted settings file is rewritten without stale paths.
+    persisted = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert persisted["build"]["locked_paths"] == [kept_path]
+    assert persisted["build"]["excluded_paths"] == []
+    # The restored locked path passes through DJControls validation untouched.
+    _library_tracks_table(window).selectRow(0)
+    controls = window._selected_track_controls()
+    assert controls is not None
+    assert controls.start_path == kept_path
+    # The persisted genre focus rehydrates into the build screen input.
+    assert window._build_screen.genre_focus_input.text() == "Techno"
+
+
+def test_main_window_with_defaults_resolves_persisted_excluded_locked_overlap(tmp_path) -> None:
+    """A legacy settings file with a path in both sets must not poison startup.
+
+    DJControls rejects any excluded∩locked overlap, so restoring one unchanged
+    would make every recommendation raise until constraints were cleared. The
+    restore step keeps the path locked (locking is the stronger DJ intent) and
+    self-heals the settings file, leaving no overlap behind.
+    """
+    ensure_app()
+    import json
+
+    from xfinaudio.config.settings_repository import SettingsRepository
+    from xfinaudio.library.track_repository import TrackRepository
+
+    kept_path = str(tmp_path / "kept.flac")
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    settings_path = tmp_path / "settings.json"
+    repository = TrackRepository(db_path)
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=kept_path,
+                title="Kept",
+                bpm=124.0,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            )
+        ]
+    )
+    settings_repository = SettingsRepository(settings_path)
+    settings_repository.save(
+        AppSettings(
+            build=BuildSessionSettings(
+                excluded_paths=frozenset({kept_path}),
+                locked_paths=frozenset({kept_path}),
+                genre_focus="Techno",
+            )
+        )
+    )
+
+    window = MainWindow.with_defaults(db_path, settings_path)
+
+    # The overlap is resolved in the restored app state: the path stays locked only.
+    assert window._state.locked_paths == frozenset({kept_path})
+    assert window._state.excluded_paths == frozenset()
+    # Self-heal persisted the resolved sets.
+    persisted = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert persisted["build"]["locked_paths"] == [kept_path]
+    assert persisted["build"]["excluded_paths"] == []
+    # The restored constraints pass DJControls validation: requesting controls
+    # for the restored track must not raise a ValidationError.
+    _library_tracks_table(window).selectRow(0)
+    controls = window._selected_track_controls()
+    assert controls is not None
+    assert controls.start_path == kept_path
+    assert not (controls.excluded_paths & controls.locked_paths)
+
+
+def test_main_window_prep_copilot_generate_persists_genre_focus(tmp_path) -> None:
+    ensure_app()
+    settings_repository = FakeSettingsRepository()
+    window = MainWindow(
+        scan_service=FakeScanService(),
+        repository=FakeRepository(),
+        settings_repository=settings_repository,
+    )
+    records = [
+        TrackRecord(
+            path="/music/a.flac", title="A", bpm=124.0, camelot_key="8A", energy_level=5, metadata_status="complete"
+        ),
+        TrackRecord(
+            path="/music/b.flac", title="B", bpm=126.0, camelot_key="9A", energy_level=5, metadata_status="complete"
+        ),
+    ]
+    window.restore_persisted_tracks(records)
+    window._build_screen.genre_focus_input.setText("Techno")
+    _library_tracks_table(window).selectRow(0)
+
+    window._prep_copilot.generate()
+
+    assert settings_repository.saved_settings is not None
+    assert settings_repository.saved_settings.build.genre_focus == "Techno"
 
 
 def test_main_window_limits_large_recommendation_candidate_pool_for_interactive_use(tmp_path) -> None:

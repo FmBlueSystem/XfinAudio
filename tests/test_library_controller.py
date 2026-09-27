@@ -9,11 +9,22 @@ from PySide6.QtWidgets import QApplication
 from xfinaudio.audio.danceability import DanceabilityProfile
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, EdgeSpectralProfile, SpectralProfile
-from xfinaudio.config.settings import LoudnessSettings
+from xfinaudio.config.settings import AppSettings, LoudnessSettings
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.playlist_service import recommend_playlist
+
+
+class _FakeSettingsRepository:
+    def __init__(self) -> None:
+        self.saved_settings: list[AppSettings] = []
+
+    def load(self) -> AppSettings:
+        return AppSettings()
+
+    def save(self, settings: AppSettings) -> None:
+        self.saved_settings.append(settings)
 
 
 class _FakeScanService:
@@ -259,3 +270,58 @@ def test_replacement_backfill_uses_the_current_loudness_band(monkeypatch) -> Non
 
     assert captured["loudness_band"] == LoudnessBand(-14.0, 0.5)
     assert [item.path for item in result.ordered_tracks] == [replacement.path]
+
+
+def _window_with_settings_repository() -> tuple[MainWindow, _FakeSettingsRepository]:
+    _ensure_app()
+    settings_repository = _FakeSettingsRepository()
+    window = MainWindow(
+        scan_service=_FakeScanService(), repository=_FakeRepository(), settings_repository=settings_repository
+    )
+    return window, settings_repository
+
+
+def test_exclude_requested_persists_selected_paths_in_build_settings() -> None:
+    window, settings_repository = _window_with_settings_repository()
+    window._library_selected_paths.append("/music/track.flac")
+
+    window._library_controller.on_exclude_requested()
+
+    assert settings_repository.saved_settings, "exclude must persist settings on change"
+    assert settings_repository.saved_settings[-1].build.excluded_paths == frozenset({"/music/track.flac"})
+    assert settings_repository.saved_settings[-1].build.locked_paths == frozenset()
+
+
+def test_lock_requested_persists_selected_paths_in_build_settings() -> None:
+    window, settings_repository = _window_with_settings_repository()
+    window._library_selected_paths.append("/music/track.flac")
+
+    window._library_controller.on_lock_requested()
+
+    assert settings_repository.saved_settings, "lock must persist settings on change"
+    assert settings_repository.saved_settings[-1].build.locked_paths == frozenset({"/music/track.flac"})
+    assert settings_repository.saved_settings[-1].build.excluded_paths == frozenset()
+
+
+def test_clear_constraints_persists_emptied_build_sets() -> None:
+    window, settings_repository = _window_with_settings_repository()
+    window._library_selected_paths.append("/music/track.flac")
+    window._library_controller.on_exclude_requested()
+    window._library_selected_paths.append("/music/other.flac")
+    window._library_controller.on_lock_requested()
+
+    window._library_controller.on_clear_constraints()
+
+    assert settings_repository.saved_settings, "clear must persist the emptied sets"
+    assert settings_repository.saved_settings[-1].build.excluded_paths == frozenset()
+    assert settings_repository.saved_settings[-1].build.locked_paths == frozenset()
+
+
+def test_rescan_does_not_clear_persisted_build_constraints() -> None:
+    window, settings_repository = _window_with_settings_repository()
+    window._library_selected_paths.append("/music/track.flac")
+    window._library_controller.on_exclude_requested()
+
+    window._library_controller.clear_scan_dependent_state()
+
+    assert settings_repository.saved_settings[-1].build.excluded_paths == frozenset({"/music/track.flac"})

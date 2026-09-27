@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from xfinaudio.config.settings import AppSettings, ExportSettings, LibrarySettings, LoudnessSettings
+from xfinaudio.config.settings import (
+    AppSettings,
+    BuildSessionSettings,
+    ExportSettings,
+    LibrarySettings,
+    LoudnessSettings,
+)
 from xfinaudio.config.settings_repository import SettingsRepository, SettingsRepositoryError
 
 
@@ -35,6 +41,22 @@ def test_settings_repository_save_then_load_preserves_last_scan_folder(tmp_path:
     loaded = repository.load()
 
     assert loaded.library.last_scan_folder == library_folder
+
+
+def test_settings_repository_save_then_load_preserves_build_session(tmp_path: Path) -> None:
+    repository = SettingsRepository(tmp_path / "settings.json")
+    settings = AppSettings(
+        build=BuildSessionSettings(
+            excluded_paths=frozenset({"/music/one.flac"}),
+            locked_paths=frozenset({"/music/two.flac"}),
+            genre_focus="Techno",
+        )
+    )
+
+    repository.save(settings)
+    loaded = repository.load()
+
+    assert loaded.build == settings.build
 
 
 def test_settings_repository_future_settings_version_raises_typed_error(tmp_path: Path) -> None:

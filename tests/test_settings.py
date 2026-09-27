@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from xfinaudio.config.settings import (
     AppSettings,
     AudioSettings,
+    BuildSessionSettings,
     ExportSettings,
     LibrarySettings,
     LoudnessSettings,
@@ -97,6 +98,34 @@ def test_app_settings_window_geometry_round_trips_through_json() -> None:
     assert restored.window.height == 800
     assert restored.window.x == 40
     assert restored.window.y == 60
+
+
+def test_build_session_settings_defaults_to_empty_dj_context() -> None:
+    build = BuildSessionSettings()
+
+    assert build.excluded_paths == frozenset()
+    assert build.locked_paths == frozenset()
+    assert build.genre_focus is None
+
+
+def test_app_settings_build_session_round_trips_through_json() -> None:
+    settings = AppSettings(
+        build=BuildSessionSettings(
+            excluded_paths=frozenset({"/music/one.flac"}),
+            locked_paths=frozenset({"/music/two.flac"}),
+            genre_focus="Techno",
+        )
+    )
+
+    restored = AppSettings.model_validate(settings.model_dump(mode="json"))
+
+    assert restored.build == settings.build
+
+
+def test_app_settings_v1_payload_without_build_section_hydrates_defaults() -> None:
+    restored = AppSettings.model_validate({"settings_version": 1, "audio": {"preview_volume": 0.3}})
+
+    assert restored.build == BuildSessionSettings()
 
 
 def test_app_settings_defaults_to_enabled_loudness_analysis_policy() -> None:

@@ -192,6 +192,14 @@ class LibraryController:
         if self._access.settings_repository is not None:
             self._access.settings_repository.save(settings)
 
+    def _persist_build_session(self, **updates: object) -> None:
+        """Persist DJ build context with the same synchronous on-change cadence as the scan folder."""
+        settings = self._access.settings_getter()
+        settings = settings.model_copy(update={"build": settings.build.model_copy(update=updates)})
+        self._access.settings_setter(settings)
+        if self._access.settings_repository is not None:
+            self._access.settings_repository.save(settings)
+
     def populate_track_table(self, records: list[TrackRecord]) -> None:
         populate_library_table(
             self._widgets.library_screen.tracks_table,
@@ -284,16 +292,19 @@ class LibraryController:
     def on_exclude_requested(self) -> None:
         self._state = apply_tracks_excluded(self._state, self._access.selected_paths)
         self._access.state_setter(self._state)
+        self._persist_build_session(excluded_paths=self._state.excluded_paths)
         self._sync_state()
 
     def on_lock_requested(self) -> None:
         self._state = apply_tracks_locked(self._state, self._access.selected_paths)
         self._access.state_setter(self._state)
+        self._persist_build_session(locked_paths=self._state.locked_paths)
         self._sync_state()
 
     def on_clear_constraints(self) -> None:
         self._state = apply_track_constraints_cleared(self._state)
         self._access.state_setter(self._state)
+        self._persist_build_session(excluded_paths=frozenset(), locked_paths=frozenset())
         self._sync_state()
 
     def on_library_filters_cleared(self, active_labels: list[str]) -> None:
