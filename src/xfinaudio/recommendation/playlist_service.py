@@ -679,6 +679,38 @@ def _move_path_to_edge(tracks: list[TrackRecord], path: str, *, first: bool) -> 
     return [*matching, *others] if first else [*others, *matching]
 
 
+def normalize_requested_genre(requested: str | None) -> str | None:
+    """Casefold and trim a DJ-requested genre; ``None`` when nothing was requested.
+
+    Kept public because the Prep Copilot variant filter and the Build genre
+    prefilter must agree on what "the requested genre" means.
+    """
+    wanted = (requested or "").strip().casefold()
+    return wanted or None
+
+
+def matches_requested_genre(track: TrackRecord, requested: str | None) -> bool:
+    """ONE shared genre contract: casefolded whole-string equality.
+
+    Both the Build genre prefilter (``_apply_requested_genre``) and the Prep
+    Copilot variant filter (``_filter_tracks_for_variant``) call this, so a
+    focus like "classical" matches a "Classical" track in every layer. A
+    split-brain contract (casefolded prefilter, case-sensitive variant filter)
+    once let a lowercase focus silently empty a variant pool down to its
+    protected paths only.
+    """
+    wanted = normalize_requested_genre(requested)
+    return wanted is not None and _normalized_genre(track) == wanted
+
+
+def matches_requested_genre_tag(tags: list[str] | None, requested: str | None) -> bool:
+    """Apply the same shared genre contract to tag bridges (balanced variant)."""
+    wanted = normalize_requested_genre(requested)
+    if wanted is None:
+        return False
+    return any((tag or "").strip().casefold() == wanted for tag in (tags or []))
+
+
 def _apply_requested_genre(
     tracks: list[TrackRecord], requested: str | None, preserve_paths: set[str]
 ) -> tuple[list[TrackRecord], list[str]]:
@@ -692,13 +724,12 @@ def _apply_requested_genre(
     nothing -- some genres are simply too small to fill a slot, and a set the DJ
     can edit beats an empty screen.
     """
-    wanted = (requested or "").strip().casefold()
-    if not wanted:
+    if normalize_requested_genre(requested) is None:
         return tracks, []
-    eligible = [track for track in tracks if _normalized_genre(track) == wanted]
+    eligible = [track for track in tracks if matches_requested_genre(track, requested)]
     if not eligible:
         return tracks, [f"No candidates in genre '{requested.strip()}'; showing every genre instead"]
-    kept = [track for track in tracks if track.path in preserve_paths or _normalized_genre(track) == wanted]
+    kept = [track for track in tracks if track.path in preserve_paths or matches_requested_genre(track, requested)]
     return kept, [f"Genre locked to '{requested.strip()}'"]
 
 
@@ -1309,6 +1340,9 @@ def _spectral_jump_warnings(tracks: list[TrackRecord]) -> list[str]:
 __all__ = [
     "COLOR_FILTER_STRATEGIES",
     "PlaylistRecommendation",
+    "matches_requested_genre",
+    "matches_requested_genre_tag",
+    "normalize_requested_genre",
     "prefilter_strategy_candidates",
     "recommend_playlist",
     "recommendation_with_replacement",

@@ -151,6 +151,133 @@ def test_safe_variant_keeps_focused_genre_while_adventurous_can_bridge_outside_i
     assert any("genre focus" in warning for warning in by_name["adventurous"].warnings)
 
 
+def test_variant_genre_focus_matches_case_insensitively() -> None:
+    """ "classical" focus must match "Classical" tracks under the shared genre contract.
+
+    The old variant filter used case-sensitive equality, so a lowercase focus
+    matched zero tracks and the pool silently collapsed to the protected anchor
+    even though the Build genre prefilter (casefolded) matched the same library.
+    """
+    tracks = [
+        track("/music/start.flac", bpm=120, key="8A", energy=4, genre="Classical"),
+        track("/music/sonata.flac", bpm=121, key="8A", energy=5, genre="Classical"),
+    ]
+    intent = DJSetIntent(
+        name="Lowercase focus",
+        strategy="build",
+        start_path="/music/start.flac",
+        target_track_count=2,
+        genre_focus="classical",
+    )
+
+    plan = build_prep_copilot_plan(tracks, intent)
+
+    safe_paths = {t.path for t in plan.variants[0].recommendation.ordered_tracks}
+    assert "/music/sonata.flac" in safe_paths
+
+
+def test_variant_genre_focus_zero_match_falls_back_to_pool_with_warning() -> None:
+    """A genre focus matching zero tracks must fall back to the pool, not protected paths.
+
+    The old contract shrank the variant pool to protected paths only (the anchor
+    when nothing else was selected) with no explanation. The shared contract now
+    falls back to the incoming pool with a warning, like the genre prefilter does.
+    """
+    tracks = [
+        track("/music/start.flac", bpm=120, key="8A", energy=4, genre="House"),
+        track("/music/groove.flac", bpm=121, key="8A", energy=5, genre="House"),
+    ]
+    intent = DJSetIntent(
+        name="Empty focus",
+        strategy="build",
+        start_path="/music/start.flac",
+        target_track_count=2,
+        genre_focus="Trance",
+    )
+
+    plan = build_prep_copilot_plan(tracks, intent)
+
+    safe = plan.variants[0]
+    assert len(safe.recommendation.ordered_tracks) == 2
+    assert any("Trance" in warning and "match" in warning.casefold() for warning in safe.warnings)
+
+
+def test_pool_notes_record_how_the_variant_pool_shrank() -> None:
+    """Every variant must carry per-step pool diagnostics: incoming size, filter
+    result, and BPM-gate drops reused from the existing recommendation warnings.
+    """
+    anchor = track("/music/anchor.flac", bpm=87.47, key="8A", energy=3, genre="Classical")
+    scattered = [
+        track(f"/music/c{index}.flac", bpm=bpm, key="8A", energy=3, genre="Classical")
+        for index, bpm in enumerate([62.0, 70.5, 76.0, 96.0, 108.0, 120.0, 128.0, 136.5, 174.0])
+    ]
+    intent = DJSetIntent(
+        name="Scattered classical",
+        strategy="harmonic_journey",
+        start_path=anchor.path,
+        target_track_count=25,
+        genre_focus="Classical",
+    )
+
+    plan = build_prep_copilot_plan([anchor, *scattered], intent)
+
+    assert len(plan.variants[0].recommendation.ordered_tracks) <= 1
+    for variant in plan.variants:
+        assert variant.pool_notes, "pool notes must explain how the pool was built"
+        assert variant.pool_notes[0] == "Incoming pool: 10 track(s)"
+        assert any("Genre focus 'Classical'" in note for note in variant.pool_notes)
+    gated = [variant for variant in plan.variants if any("BPM jump" in warning for warning in variant.warnings)]
+    assert gated, "scattered BPMs must exercise the adjacency gate"
+    for variant in gated:
+        assert any("BPM jump" in note for note in variant.pool_notes)
+
+
+def test_pool_notes_warn_when_variant_collapses_to_the_anchor() -> None:
+    """A variant that keeps at most the anchor from a larger pool says why it collapsed."""
+    anchor = track("/music/anchor.flac", bpm=87.47, key="8A", energy=3, genre="Classical")
+    scattered = [
+        track(f"/music/c{index}.flac", bpm=bpm, key="8A", energy=3, genre="Classical")
+        for index, bpm in enumerate([62.0, 70.5, 76.0, 96.0, 108.0, 120.0, 128.0, 136.5, 174.0])
+    ]
+    intent = DJSetIntent(
+        name="Scattered classical",
+        strategy="harmonic_journey",
+        start_path=anchor.path,
+        target_track_count=25,
+        genre_focus="Classical",
+    )
+
+    plan = build_prep_copilot_plan([anchor, *scattered], intent)
+
+    collapsed = [
+        variant
+        for variant in plan.variants
+        if len(variant.recommendation.ordered_tracks) <= 1 and len(variant.pool_notes) >= 1
+    ]
+    assert collapsed, "the scattered-BPM library must collapse at least one variant"
+    for variant in collapsed:
+        assert any("only the anchor" in warning.casefold() for warning in variant.warnings)
+        assert any("only the anchor" in note.casefold() for note in variant.pool_notes)
+
+
+def test_pool_notes_do_not_warn_when_variant_simply_meets_the_requested_cap() -> None:
+    """Hitting the requested track count is the cap working, not a pool collapse."""
+    tracks = [track(f"/music/t{index}.flac", bpm=120 + index, key="8A", energy=5, genre="House") for index in range(6)]
+    intent = DJSetIntent(
+        name="Small cap",
+        strategy="build",
+        start_path="/music/t0.flac",
+        target_track_count=2,
+        genre_focus="House",
+    )
+
+    plan = build_prep_copilot_plan(tracks, intent)
+
+    for variant in plan.variants:
+        assert len(variant.recommendation.ordered_tracks) == 2
+        assert not any("only the anchor" in warning.casefold() for warning in variant.warnings)
+
+
 def test_prep_copilot_surfaces_review_variant_when_required_track_breaks_bpm_gate() -> None:
     tracks = [
         track("/music/start.flac", bpm=100, key="8A", energy=4, genre="House"),

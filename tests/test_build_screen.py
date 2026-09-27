@@ -49,7 +49,9 @@ def _recommendation(tracks: list[TrackRecord]) -> PlaylistRecommendation:
     )
 
 
-def _variant(name: str, tracks: list[TrackRecord], blockers: int = 0) -> PrepCopilotVariant:
+def _variant(
+    name: str, tracks: list[TrackRecord], blockers: int = 0, pool_notes: tuple[str, ...] = ()
+) -> PrepCopilotVariant:
     return PrepCopilotVariant(
         name=name,  # type: ignore[arg-type]
         description=f"Description for {name}",
@@ -63,13 +65,16 @@ def _variant(name: str, tracks: list[TrackRecord], blockers: int = 0) -> PrepCop
         ),
         warnings=[],
         blockers=["block!"] * blockers,
+        pool_notes=pool_notes,
     )
 
 
-def _plan_state(tracks: list[TrackRecord], blocked: frozenset[int] = frozenset()) -> AppState:
+def _plan_state(
+    tracks: list[TrackRecord], blocked: frozenset[int] = frozenset(), pool_notes: tuple[str, ...] = ()
+) -> AppState:
     """AppState carrying a three-variant copilot plan; *blocked* marks blocked variants."""
     variants = [
-        _variant(name, tracks, blockers=1 if index in blocked else 0)
+        _variant(name, tracks, blockers=1 if index in blocked else 0, pool_notes=pool_notes)
         for index, name in enumerate(("safe", "balanced", "adventurous"))
     ]
     return AppState(
@@ -309,6 +314,22 @@ def test_generate_with_no_tracks_keeps_the_copilot_signature_fresh(qapp: QApplic
     # repopulate instead of skipping on a signature cached before the clear.
     screen.render(vm, state)
     assert screen.copilot_table.rowCount() == 3
+
+
+def test_copilot_tracks_cell_tooltip_shows_pool_notes(qapp: QApplication) -> None:
+    """A DJ hovering the Tracks cell sees WHY the variant is small (no new columns)."""
+    screen = BuildScreen()
+    vm = BuildViewModel()
+    tracks = [_track("/a.flac"), _track("/b.flac")]
+    notes = ("Incoming pool: 10 track(s)", "Genre focus 'Classical': 10 -> 2 track(s)")
+
+    screen.render(vm, _plan_state(tracks))
+    assert screen.copilot_table.item(0, 2).toolTip() == ""
+
+    screen.render(vm, _plan_state(tracks, pool_notes=notes))
+
+    assert notes[0] in screen.copilot_table.item(0, 2).toolTip()
+    assert notes[0] in screen.copilot_table.item(0, 3).toolTip()
 
 
 def test_render_with_unchanged_rows_preserves_selection(qapp: QApplication) -> None:

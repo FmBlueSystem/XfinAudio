@@ -15,7 +15,12 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation import candidate_pool
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
-from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
+from xfinaudio.recommendation.playlist_service import (
+    PlaylistRecommendation,
+    matches_requested_genre,
+    matches_requested_genre_tag,
+    recommend_playlist,
+)
 from xfinaudio.recommendation.strategies import StrategyName
 
 if TYPE_CHECKING:
@@ -51,6 +56,11 @@ class PrepCopilotVariant(BaseModel):
     readiness: DjReadinessReport
     warnings: list[str]
     blockers: list[str]
+    # HOW the candidate pool shrank on the way to this variant (incoming size,
+    # genre-filter result, BPM-gate drops). Tuple with a safe default so older
+    # serialized plans and state transitions stay valid; the Build UI shows it
+    # as the Tracks-cell tooltip so a 1-track variant is never unexplained.
+    pool_notes: tuple[str, ...] = ()
 
 
 class PrepCopilotPlan(BaseModel):
@@ -99,6 +109,7 @@ def _build_variant(
     from xfinaudio.quality.dj_readiness import build_dj_readiness_report
     from xfinaudio.quality.recommendation_quality import build_quality_report
 
+    incoming_count = len(tracks)
     variant_tracks, variant_warnings = _filter_tracks_for_variant(name, tracks, intent)
     controls = DJControls(
         start_path=intent.start_path,
@@ -124,7 +135,24 @@ def _build_variant(
     readiness = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
     readiness = _add_required_track_gate(readiness, recommendation, intent)
     blockers = [check.label for check in readiness.checks if check.status == "blocked"]
+    # Pool diagnostics: the same BPM-gate drop warnings the DJ already gets,
+    # restated as pool-shrink steps so the Tracks count is never unexplained.
+    pool_notes = [
+        f"Incoming pool: {incoming_count} track(s)",
+        _genre_filter_pool_note(name, intent, incoming_count, len(variant_tracks)),
+        *(warning for warning in recommendation.warnings if "Dropped" in warning and "BPM jump" in warning),
+    ]
     warnings = [*variant_warnings, *recommendation.warnings]
+    near_empty_warning = _near_empty_pool_warning(
+        recommendation.ordered_tracks,
+        incoming_count,
+        genre_filter_shrank=len(variant_tracks) != incoming_count,
+        target_track_count=intent.target_track_count,
+        color_anchor_path=color_anchor_path,
+    )
+    if near_empty_warning is not None:
+        warnings.append(near_empty_warning)
+        pool_notes.append(near_empty_warning)
     return PrepCopilotVariant(
         name=name,
         description=_variant_description(name),
@@ -132,29 +160,75 @@ def _build_variant(
         readiness=readiness,
         warnings=warnings,
         blockers=blockers,
+        pool_notes=tuple(pool_notes),
     )
 
 
 def _filter_tracks_for_variant(
     name: PrepVariantName, tracks: list[TrackRecord], intent: DJSetIntent
 ) -> tuple[list[TrackRecord], list[str]]:
+    """Narrow the incoming pool to this variant's genre contract, or explain why not.
+
+    Shares the ONE genre contract with the Build genre prefilter
+    (`matches_requested_genre`): casefolded whole-string equality, so a focus
+    like "classical" matches a "Classical" track. Unlike the prefilter, a
+    zero-match focus falls back to the incoming pool WITH a warning instead of
+    silently shrinking the pool to the protected paths (the anchor when nothing
+    else was selected) -- that silent shrink was the 1-track variant bug.
+    """
     if intent.genre_focus is None:
         return tracks, []
-    if name == "safe":
-        focused = [
-            track for track in tracks if track.path in _protected_paths(intent) or track.genre == intent.genre_focus
-        ]
-        return focused, []
-    if name == "balanced":
-        focused = [
-            track
-            for track in tracks
-            if track.path in _protected_paths(intent)
-            or track.genre == intent.genre_focus
-            or intent.genre_focus in set(track.tags or [])
-        ]
-        return focused, []
-    return tracks, [f"adventurous variant may bridge outside genre focus: {intent.genre_focus}"]
+    if name == "adventurous":
+        return tracks, [f"adventurous variant may bridge outside genre focus: {intent.genre_focus}"]
+    protected = _protected_paths(intent)
+    balanced = name == "balanced"
+
+    def _matches(track: TrackRecord) -> bool:
+        return matches_requested_genre(track, intent.genre_focus) or (
+            balanced and matches_requested_genre_tag(track.tags, intent.genre_focus)
+        )
+
+    focused = [track for track in tracks if track.path in protected or _matches(track)]
+    if not any(_matches(track) for track in tracks):
+        return tracks, [f"No tracks match genre focus '{intent.genre_focus}'; keeping the full candidate pool"]
+    return focused, []
+
+
+def _genre_filter_pool_note(name: PrepVariantName, intent: DJSetIntent, before: int, after: int) -> str:
+    """Describe the genre-focus step of the pool shrinkage for the pool notes."""
+    if intent.genre_focus is None:
+        return "Genre focus: none set"
+    if name == "adventurous":
+        return f"Genre focus '{intent.genre_focus}': not applied (bridging allowed)"
+    dropped = before - after
+    if dropped:
+        return f"Genre focus '{intent.genre_focus}': {before} -> {after} track(s), {dropped} outside focus"
+    return f"Genre focus '{intent.genre_focus}': matched all {after} track(s)"
+
+
+def _near_empty_pool_warning(
+    ordered_tracks: list[TrackRecord],
+    incoming_count: int,
+    *,
+    genre_filter_shrank: bool,
+    target_track_count: int,
+    color_anchor_path: str | None,
+) -> str | None:
+    """Explain a variant that collapsed to (almost) only its anchor.
+
+    Fires when the variant kept at most one non-anchor track while the DJ asked
+    for more, and the requested cap was not the binding constraint: meeting the
+    requested track count is the contract working, not a collapse. The pool may
+    already have arrived narrowed (a 1-match genre corner upstream), so the
+    incoming count is reported, not required to be larger.
+    """
+    kept = len(ordered_tracks)
+    non_anchor = sum(1 for track in ordered_tracks if track.path != color_anchor_path)
+    if non_anchor > 1 or kept >= target_track_count:
+        return None
+    if genre_filter_shrank:
+        return f"Genre focus matched only the anchor: kept {kept} of {incoming_count} pool track(s) after all gates"
+    return f"Only the anchor survived the gates: kept {kept} of {incoming_count} pool track(s)"
 
 
 def _manual_order_paths(intent: DJSetIntent) -> list[str]:

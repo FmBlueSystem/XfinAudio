@@ -51,6 +51,7 @@ def _copilot_rows_signature(rows: list[CopilotVariantRow]) -> tuple:
                 row.readiness_summary,
                 row.blocker_count,
                 row.warning_count,
+                row.pool_notes,
             )
             for row in rows
         ),
@@ -469,12 +470,19 @@ class BuildScreen(QWidget):
             ]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
+                if col == 2 and row_data.pool_notes:
+                    # Tracks cell carries the pool diagnostics: a DJ hovering a
+                    # 1-track variant sees exactly which filter step shrank it.
+                    item.setToolTip(row_data.pool_notes)
                 if col == 3:
                     color = _READINESS_STATUS_COLORS.get(status)
                     if color:
                         item.setBackground(QColor(color))
                         item.setForeground(QColor("#061016"))
-                    item.setToolTip(row_data.readiness_summary)
+                    tooltip = row_data.readiness_summary
+                    if row_data.pool_notes:
+                        tooltip = f"{tooltip}\n\n{row_data.pool_notes}"
+                    item.setToolTip(tooltip)
                 self.copilot_table.setItem(row, col, item)
         if len(rows) == previous_count and 0 <= previous_row < len(rows):
             self.copilot_table.selectRow(previous_row)

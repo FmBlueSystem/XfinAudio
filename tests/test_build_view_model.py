@@ -59,7 +59,9 @@ def _minimal_recommendation(tracks: list[TrackRecord]) -> PlaylistRecommendation
     )
 
 
-def _minimal_variant(name: str, tracks: list[TrackRecord], blockers: int = 0) -> PrepCopilotVariant:
+def _minimal_variant(
+    name: str, tracks: list[TrackRecord], blockers: int = 0, pool_notes: tuple[str, ...] = ()
+) -> PrepCopilotVariant:
     readiness_status = "blocked" if blockers > 0 else "ready"
     return PrepCopilotVariant(
         name=name,  # type: ignore[arg-type]
@@ -74,6 +76,7 @@ def _minimal_variant(name: str, tracks: list[TrackRecord], blockers: int = 0) ->
         ),
         warnings=[],
         blockers=["block!"] * blockers,
+        pool_notes=pool_notes,
     )
 
 
@@ -221,6 +224,27 @@ def test_copilot_variants_each_row_has_valid_fields(vm: BuildViewModel, state_wi
         assert isinstance(row.index, int)
         assert row.name
         assert row.description
+
+
+def test_copilot_rows_carry_joined_pool_notes_for_the_tracks_tooltip(
+    vm: BuildViewModel, tracks: list[TrackRecord]
+) -> None:
+    """The row exposes the variant's pool diagnostics joined as tooltip text."""
+    plan = _minimal_plan(tracks)
+    noted_variant = plan.variants[0].model_copy(
+        update={"pool_notes": ("Incoming pool: 10 track(s)", "Genre focus 'Classical': 10 -> 2 track(s)")}
+    )
+    state = AppState(
+        scanned_records=tracks,
+        last_prep_copilot_plan=PrepCopilotPlan(
+            intent=DJSetIntent(name="Test Set"), variants=[noted_variant, *plan.variants[1:]]
+        ),
+    )
+
+    rows = vm.copilot_variants_for_display(state)
+
+    assert rows[0].pool_notes == "Incoming pool: 10 track(s)\nGenre focus 'Classical': 10 -> 2 track(s)"
+    assert rows[1].pool_notes == ""
 
 
 # ---------------------------------------------------------------------------

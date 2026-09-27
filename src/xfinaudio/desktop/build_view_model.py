@@ -33,6 +33,9 @@ class CopilotVariantRow:
     readiness_summary: str
     blocker_count: int
     warning_count: int
+    # Joined PrepCopilotVariant.pool_notes: WHY the variant's pool shrank,
+    # shown as the Tracks-cell tooltip so a 1-track variant is never unexplained.
+    pool_notes: str = ""
 
 
 class BuildViewModel:
@@ -83,6 +86,7 @@ class BuildViewModel:
                 readiness_summary=variant.readiness.summary,
                 blocker_count=len(variant.blockers),
                 warning_count=len(variant.warnings),
+                pool_notes="\n".join(variant.pool_notes),
             )
             for i, variant in enumerate(state.last_prep_copilot_plan.variants)
         ]
