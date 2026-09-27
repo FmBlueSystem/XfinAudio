@@ -35,11 +35,18 @@ ProfileCacheLoader = Callable[[list[Path]], ProfileCache]
 
 @dataclass(frozen=True)
 class ScanProgress:
-    """Progress update emitted after each supported audio file is processed."""
+    """Progress update emitted as each supported audio file is processed.
+
+    ``record`` carries the just-built track so application services can persist
+    incrementally without the scan service knowing about repositories. It is
+    ``None`` for files that were skipped, and its spectral profile is not
+    resolved yet: the completion save owns the profile-complete records.
+    """
 
     processed_count: int
     total_count: int
     current_path: Path
+    record: TrackRecord | None = None
 
 
 class ScanCancellationToken:
@@ -147,13 +154,16 @@ def scan_folder(
     if previous_profile_cache is None and profile_cache_loader is not None and supported_paths:
         previous_profile_cache = profile_cache_loader(supported_paths)
 
-    # Phase 1: read metadata for every supported file.
+    # Phase 1: read metadata for every supported file, reporting progress per
+    # file as it is read. This loop is where a real multi-hour library scan
+    # spends its time, so a progress signal emitted only after the last file
+    # would drive neither a live ETA nor an incremental save.
     metadata_by_path: dict[Path, Any] = {}
     raw_metadata_by_path: dict[Path, dict[str, Any]] = {}
     durations: dict[Path, float | None] = {}
     audio_md5s: dict[Path, str | None] = {}
     skipped_paths: list[Path] = []
-    for path in supported_paths:
+    for processed_index, path in enumerate(supported_paths, start=1):
         if cancellation_token is not None and cancellation_token.is_cancelled:
             raise ScanCancelledError(
                 _build_records(
@@ -171,16 +181,27 @@ def scan_folder(
         except Exception as exc:
             LOGGER.warning("Skipping unreadable audio file %s: %s: %s", path, exc.__class__.__name__, exc)
             skipped_paths.append(path)
+            _emit_progress(on_progress, processed_index, total_count, path, None)
             continue
         if raw_metadata is None:
             skipped_paths.append(path)
+            _emit_progress(on_progress, processed_index, total_count, path, None)
             continue
         duration = raw_metadata.pop("__duration__", None) if raw_metadata else None
         audio_md5 = raw_metadata.pop("__audio_md5__", None) if raw_metadata else None
         durations[path] = duration
         audio_md5s[path] = audio_md5
         raw_metadata_by_path[path] = raw_metadata
-        metadata_by_path[path] = parse_mixedinkey_tags(raw_metadata)
+        metadata = parse_mixedinkey_tags(raw_metadata)
+        metadata_by_path[path] = metadata
+        if on_progress is not None:
+            _emit_progress(
+                on_progress,
+                processed_index,
+                total_count,
+                path,
+                _build_record(path, metadata, raw_metadata, duration, audio_md5, None),
+            )
 
     if cancellation_token is not None and cancellation_token.is_cancelled:
         raise ScanCancelledError(
@@ -206,7 +227,8 @@ def scan_folder(
         spectral_analyzer=spectral_analyzer,
     )
 
-    # Phase 3: build records and emit per-file progress in deterministic order.
+    # Phase 3: build the final records in deterministic order. Progress was
+    # already reported file by file during phase 1.
     records = _build_records(
         metadata_by_path,
         raw_metadata_by_path,
@@ -216,11 +238,6 @@ def scan_folder(
         skipped_paths,
         supported_paths,
     )
-    for processed_index, path in enumerate(supported_paths, start=1):
-        if path in skipped_paths:
-            _emit_progress(on_progress, processed_index, total_count, path)
-            continue
-        _emit_progress(on_progress, processed_index, total_count, path)
     if cancellation_token is not None and cancellation_token.is_cancelled:
         raise ScanCancelledError(records)
     return records
@@ -240,32 +257,49 @@ def _build_records(
     for path in supported_paths:
         if path in skipped_paths or path not in metadata_by_path:
             continue
-        metadata = metadata_by_path[path]
-        spectral_profile = profiles_by_path.get(path)
         records.append(
-            TrackRecord(
-                path=str(path),
-                title=metadata.title,
-                artist=metadata.artist,
-                bpm=metadata.bpm,
-                camelot_key=metadata.camelot_key,
-                energy_level=metadata.energy_level,
-                energy_in=metadata.energy_in,
-                energy_out=metadata.energy_out,
-                energy_peak=metadata.energy_peak,
-                duration=durations[path],
-                genre=metadata.genre,
-                tags=metadata.tags,
-                metadata_status="complete" if metadata.is_complete else "incomplete",
-                missing_required_fields=metadata.missing_required_fields,
-                source_fields=metadata.source_fields,
-                raw_metadata=_retained_raw_metadata(raw_metadata_by_path[path]),
-                audio_md5=audio_md5s[path],
-                spectral_profile=spectral_profile,
-                loudness_profile=recover_loudness_profile(path, raw_metadata_by_path[path], audio_md5=audio_md5s[path]),
+            _build_record(
+                path,
+                metadata_by_path[path],
+                raw_metadata_by_path[path],
+                durations[path],
+                audio_md5s[path],
+                profiles_by_path.get(path),
             )
         )
     return records
+
+
+def _build_record(
+    path: Path,
+    metadata: Any,
+    raw_metadata: dict[str, Any],
+    duration: float | None,
+    audio_md5: str | None,
+    spectral_profile: SpectralProfile | None,
+) -> TrackRecord:
+    """Build one track record from already-read metadata."""
+    return TrackRecord(
+        path=str(path),
+        title=metadata.title,
+        artist=metadata.artist,
+        bpm=metadata.bpm,
+        camelot_key=metadata.camelot_key,
+        energy_level=metadata.energy_level,
+        energy_in=metadata.energy_in,
+        energy_out=metadata.energy_out,
+        energy_peak=metadata.energy_peak,
+        duration=duration,
+        genre=metadata.genre,
+        tags=metadata.tags,
+        metadata_status="complete" if metadata.is_complete else "incomplete",
+        missing_required_fields=metadata.missing_required_fields,
+        source_fields=metadata.source_fields,
+        raw_metadata=_retained_raw_metadata(raw_metadata),
+        audio_md5=audio_md5,
+        spectral_profile=spectral_profile,
+        loudness_profile=recover_loudness_profile(path, raw_metadata, audio_md5=audio_md5),
+    )
 
 
 def _retained_raw_metadata(raw_metadata: dict[str, Any]) -> dict[str, Any]:
@@ -351,6 +385,7 @@ def _emit_progress(
     processed_count: int,
     total_count: int,
     current_path: Path,
+    record: TrackRecord | None,
 ) -> None:
     if on_progress is not None:
         on_progress(
@@ -358,6 +393,7 @@ def _emit_progress(
                 processed_count=processed_count,
                 total_count=total_count,
                 current_path=current_path,
+                record=record,
             )
         )
 

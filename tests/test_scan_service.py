@@ -13,6 +13,7 @@ from xfinaudio.desktop.scan_service import ScanService
 from xfinaudio.library.scan_service import (
     ScanCancellationToken,
     ScanCancelledError,
+    ScanProgress,
     _coerce_tag_value,
     _lookup_previous_profile,
     read_mutagen_tags,
@@ -239,6 +240,60 @@ def test_scan_folder_reports_progress_for_skipped_supported_files() -> None:
         (2, 3, no_tags_path),
         (3, 3, good_path),
     ]
+
+
+def test_scan_folder_reports_progress_as_each_metadata_read_finishes() -> None:
+    """A long library spends its time in the metadata loop, so progress must be
+    emitted there and not only after the last file is read."""
+    root = Path("/library")
+    paths = [root / "a.flac", root / "b.mp3", root / "c.wav"]
+    progress_events: list[ScanProgress] = []
+    announced_before_read: list[int] = []
+
+    def read_tags(path: Path) -> dict[str, list[str]]:
+        announced_before_read.append(len(progress_events))
+        return {"title": [path.stem]}
+
+    scan_folder(
+        root,
+        list_paths=lambda folder: paths,
+        read_tags=read_tags,
+        on_progress=progress_events.append,
+        resolve_spectral_profiles=False,
+    )
+
+    assert announced_before_read == [0, 1, 2]
+    assert [(event.processed_count, event.total_count, event.current_path) for event in progress_events] == [
+        (1, 3, root / "a.flac"),
+        (2, 3, root / "b.mp3"),
+        (3, 3, root / "c.wav"),
+    ]
+
+
+def test_scan_folder_attaches_the_scanned_record_to_its_progress_event() -> None:
+    root = Path("/library")
+    good_path = root / "a.flac"
+    broken_path = root / "b.mp3"
+    progress_events: list[ScanProgress] = []
+
+    def read_tags(path: Path) -> dict[str, list[str]]:
+        if path == broken_path:
+            raise ValueError("corrupt metadata")
+        return {"title": [path.stem]}
+
+    records = scan_folder(
+        root,
+        list_paths=lambda folder: [broken_path, good_path],
+        read_tags=read_tags,
+        on_progress=progress_events.append,
+        resolve_spectral_profiles=False,
+    )
+
+    assert [event.record for event in progress_events] == [records[0], None]
+    attached = progress_events[0].record
+    assert attached is not None
+    assert attached.path == str(good_path)
+    assert attached.title == "a"
 
 
 def test_scan_folder_raises_cancelled_error_before_later_file_without_persisting_api_change() -> None:
@@ -654,6 +709,86 @@ def test_scan_service_works_without_watch_service_wired() -> None:
     service.on_completed(_completed_result())
 
     assert service._watch_service is None
+
+
+def test_on_progress_publishes_live_progress_that_reaches_the_library_screen(qapp, monkeypatch) -> None:
+    from xfinaudio.desktop import scan_service as scan_service_module
+    from xfinaudio.desktop.library_view_model import LibraryViewModel
+    from xfinaudio.desktop.screens import LibraryScreen
+
+    clock = {"now": 100.0}
+    monkeypatch.setattr(scan_service_module, "time", SimpleNamespace(monotonic=lambda: clock["now"]))
+    service = ScanService(cast(Any, object()))
+    state = AppState(selected_folder=Path("/library"))
+    _wire_desktop_scan_service(service, state=state, folder=Path("/library"))
+
+    service.begin_scan_state()
+    state.is_scanning = True
+    clock["now"] = 130.0
+    service.on_progress(ScanProgress(processed_count=1, total_count=4, current_path=Path("/library/a.flac")))
+
+    screen = LibraryScreen()
+    screen.render(LibraryViewModel(), state, lightweight=True)
+
+    assert (state.scan_progress_count, state.scan_progress_total, state.scan_elapsed_seconds) == (1, 4, 30.0)
+    # Counts plus current file stay in the status bar, percent plus ETA in the
+    # library screen bar/label; both are fed by the same progress event.
+    assert service._scan_progress_label.text == "Scan progress: 1/4 - /library/a.flac"
+    assert screen.scan_progress_bar.value() == 25
+    assert screen.scan_progress_label.text() == "25% · 1:30 remaining"
+
+
+def test_on_progress_without_an_active_scan_publishes_no_elapsed_time() -> None:
+    service = ScanService(cast(Any, object()))
+    state = AppState()
+    _wire_desktop_scan_service(service, state=state)
+
+    service.on_progress(ScanProgress(processed_count=1, total_count=2, current_path=Path("/library/a.flac")))
+
+    assert state.scan_elapsed_seconds == 0.0
+    assert (state.scan_progress_count, state.scan_progress_total) == (1, 2)
+
+
+def test_begin_scan_state_resets_published_progress_before_a_new_scan() -> None:
+    service = ScanService(cast(Any, object()))
+    state = AppState(scan_progress_count=9, scan_progress_total=9, scan_elapsed_seconds=9.0)
+    _wire_desktop_scan_service(service, state=state)
+
+    service.begin_scan_state()
+
+    assert (state.scan_progress_count, state.scan_progress_total, state.scan_elapsed_seconds) == (0, 0, 0.0)
+
+
+def test_cancelled_scan_reports_kept_incremental_results() -> None:
+    service = ScanService(cast(Any, object()))
+    _wire_desktop_scan_service(service, state=AppState(), folder=Path("/music"))
+    result = SimpleNamespace(
+        cancelled=True,
+        records=[],
+        complete_count=0,
+        incomplete_count=0,
+        persisted_record_count=200,
+    )
+
+    service.on_completed(result)
+
+    assert service._status_label.text == "Scan canceled; partial results were kept"
+
+
+def test_cancelled_scan_without_flushed_records_reports_no_partial_persistence() -> None:
+    service = ScanService(cast(Any, object()))
+    _wire_desktop_scan_service(service, state=AppState(), folder=Path("/music"))
+    result = SimpleNamespace(
+        cancelled=True,
+        records=[],
+        complete_count=0,
+        incomplete_count=0,
+        persisted_record_count=0,
+    )
+
+    service.on_completed(result)
+
+    assert service._status_label.text == "Scan canceled; no partial results were saved"
 
 
 def test_pause_resume_debounce_burst_through_real_library_watch_service_coalesces_once() -> None:

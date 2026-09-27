@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,7 @@ class ScanService(QObject):
         self._refresh_idle_action_state: Callable[[], None] = _unwired
         self._cancel_spectral_completion_worker: Callable[[], None] = _unwired
         self._show_status_bar: Callable[[], None] = _unwired
+        self._scan_started_at: float | None = None
 
     def set_state_accessors(
         self,
@@ -191,12 +193,21 @@ class ScanService(QObject):
         self._library_screen.cancel_button.setEnabled(True)
         self._scan_progress_label.setText(self._tr("Scan progress: starting"))
         self._status_label.setText(self._tr("Scanning metadata"))
+        self._scan_started_at = time.monotonic()
+        # The library screen renders a 0..100 bar and an ETA label from these
+        # fields; leaving them at the previous scan's values would freeze both.
+        self._state.scan_progress_count = 0
+        self._state.scan_progress_total = 0
+        self._state.scan_elapsed_seconds = 0.0
         self._show_status_bar()
         self._sync_state()
 
     def _end_scan_state(self) -> None:
         self.current_scan_cancellation_token = None
+        self._scan_started_at = None
         self._state.scan_progress_count = 0
+        self._state.scan_progress_total = 0
+        self._state.scan_elapsed_seconds = 0.0
         if self._watch_service is not None:
             self._watch_service.resume()
         self._refresh_idle_action_state()
@@ -209,7 +220,11 @@ class ScanService(QObject):
         if result.cancelled:
             self._clear_scan_dependent_state()
             self._end_scan_state()
-            self._status_label.setText(self._tr("Scan canceled; no partial results were saved"))
+            self._status_label.setText(
+                self._tr("Scan canceled; partial results were kept")
+                if getattr(result, "persisted_record_count", 0)
+                else self._tr("Scan canceled; no partial results were saved")
+            )
             self._recommendation_guidance_label.setText(self._tr("Scan metadata before recommending a playlist."))
             return
         self._set_scanned_records(result.records)
@@ -244,9 +259,19 @@ class ScanService(QObject):
             )
         )
         self._state.scan_progress_count = progress.processed_count
-        # Fires once per scanned file, and library/scan_service.py emits the
-        # whole batch in a tight loop at the end, so coalesce.
+        # The library screen turns count/total/elapsed into the percent bar and
+        # the ETA label; nothing else writes them, so a scan that skipped this
+        # would sit on "0% · estimating remaining" until it finished.
+        self._state.scan_progress_total = progress.total_count
+        self._state.scan_elapsed_seconds = self._elapsed_scan_seconds()
+        # Fires once per scanned file for the whole scan, so coalesce into at
+        # most one render per interval instead of one per file.
         self._request_sync()
+
+    def _elapsed_scan_seconds(self) -> float:
+        if self._scan_started_at is None:
+            return 0.0
+        return max(time.monotonic() - self._scan_started_at, 0.0)
 
     def _start_scan_worker(self, folder: Path, token: ScanCancellationToken, request_id: int) -> None:
         thread = QThread(self)

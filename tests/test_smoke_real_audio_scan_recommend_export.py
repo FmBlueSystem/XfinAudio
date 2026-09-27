@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.exporting.serato_crate import parse_serato_crate_bytes, write_serato_crate
 from xfinaudio.exporting.serato_playlist_exporter import plan_serato_playlist_export
+from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import MetadataScanService
 from xfinaudio.library.track_repository import TrackRepository
 
@@ -123,3 +125,35 @@ def test_real_audio_scan_populates_app_state(smoke_audio_dir: Path, tmp_path: Pa
 
     assert len(state.scanned_records) == 2
     assert all(record.metadata_status == "complete" for record in state.scanned_records)
+
+
+class _RecordingRepository(TrackRepository):
+    """Real repository that records the shape and order of every save call."""
+
+    def __init__(self, db_path: Path) -> None:
+        super().__init__(db_path)
+        self.saves: list[tuple[int, Path | str | None]] = []
+
+    def save_scan_results(self, records: Iterable[TrackRecord], *, pruned_root: Path | str | None = None) -> None:
+        batch = list(records)
+        self.saves.append((len(batch), pruned_root))
+        super().save_scan_results(batch, pruned_root=pruned_root)
+
+
+def test_real_audio_scan_flushes_incrementally_before_the_final_pruned_save(tmp_path: Path) -> None:
+    """A multi-batch scan must reach disk while it still runs, and may only
+    delete absent rows once, in the completion save that carries the root."""
+    audio_dir = _prepare_tracks(tmp_path, ["A.wav", "B.wav", "C.wav"])
+    repository = _RecordingRepository(tmp_path / "incremental.db")
+    workflow = PlaylistWorkflowService(scan_service=MetadataScanService(), repository=repository)
+
+    result = workflow.scan_folder(audio_dir, flush_batch_size=2)
+
+    assert repository.saves[0] == (2, None)
+    assert repository.saves[-1] == (3, audio_dir)
+    assert all(pruned_root is None for _, pruned_root in repository.saves[:-1])
+    assert result.persisted_record_count == 2
+    assert len(repository.list_tracks()) == 3
+    for record in repository.list_tracks():
+        assert record.metadata_status == "complete"
+        assert record.bpm == 120.0

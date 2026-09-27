@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
@@ -113,8 +115,117 @@ def test_playlist_workflow_cancelled_scan_does_not_persist_partial_results(tmp_p
     assert result.complete_count == 0
     assert result.incomplete_count == 0
     assert repository.saved_records == []
-    assert scan_service.progress_callback == progress_events.append
+    forwarded = cast(Callable[[ScanProgress], None], scan_service.progress_callback)
+    forwarded(ScanProgress(processed_count=1, total_count=2, current_path=tmp_path / "a.flac"))
+    assert len(progress_events) == 1
     assert scan_service.cancellation_token is token
+
+
+class RecordingFakeRepository:
+    """Record every save call so batching order and pruning can be asserted."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[TrackRecord], Path | str | None]] = []
+
+    def save_scan_results(
+        self,
+        records: list[TrackRecord],
+        *,
+        pruned_root: Path | str | None = None,
+    ) -> None:
+        self.calls.append((list(records), pruned_root))
+
+    def _shapes(self) -> list[tuple[int, Path | str | None]]:
+        return [(len(batch), pruned_root) for batch, pruned_root in self.calls]
+
+
+class ProgressEmittingFakeScanService:
+    """Emit one record-carrying progress event per scanned file."""
+
+    def __init__(self, count: int, *, cancels_after_events: bool = False) -> None:
+        self.count = count
+        self.cancels_after_events = cancels_after_events
+
+    def scan(self, folder: Path, **kwargs) -> list[TrackRecord]:
+        callback = kwargs["on_progress"]
+        records = [
+            TrackRecord(
+                path=str(folder / f"{index:03d}.flac"),
+                bpm=120.0 + index,
+                camelot_key="8A",
+                energy_level=5,
+                metadata_status="complete",
+            )
+            for index in range(self.count)
+        ]
+        for index, record in enumerate(records, start=1):
+            callback(
+                ScanProgress(
+                    processed_count=index,
+                    total_count=len(records),
+                    current_path=Path(record.path),
+                    record=record,
+                )
+            )
+        if self.cancels_after_events:
+            raise ScanCancelledError(records)
+        return records
+
+
+def test_playlist_workflow_flushes_scan_batches_before_the_final_pruned_save(tmp_path) -> None:
+    repository = RecordingFakeRepository()
+    workflow = PlaylistWorkflowService(scan_service=ProgressEmittingFakeScanService(5), repository=repository)
+
+    result = workflow.scan_folder(tmp_path, flush_batch_size=2, flush_interval_seconds=60.0)
+
+    # Two full batches are upserted without a prune root while the scan runs;
+    # only the completion save may delete rows, and it carries the root.
+    assert repository._shapes() == [(2, None), (2, None), (5, tmp_path)]
+    assert repository.calls[0][0] == result.records[:2]
+    assert repository.calls[1][0] == result.records[2:4]
+    assert result.persisted_record_count == 4
+
+
+def test_playlist_workflow_flushes_scan_batches_on_the_interval_without_a_ui_callback(tmp_path) -> None:
+    repository = RecordingFakeRepository()
+    workflow = PlaylistWorkflowService(scan_service=ProgressEmittingFakeScanService(3), repository=repository)
+
+    result = workflow.scan_folder(tmp_path, flush_batch_size=1000, flush_interval_seconds=0.0)
+
+    assert repository._shapes() == [(1, None), (1, None), (1, None), (3, tmp_path)]
+    assert result.persisted_record_count == 3
+
+
+def test_playlist_workflow_skips_incremental_saves_for_progress_without_records(tmp_path) -> None:
+    class RecordlessFakeScanService:
+        def scan(self, folder: Path, **kwargs) -> list[TrackRecord]:
+            callback = kwargs["on_progress"]
+            records = [TrackRecord(path=str(folder / "a.flac"), metadata_status="complete")]
+            callback(ScanProgress(processed_count=1, total_count=2, current_path=folder / "a.flac"))
+            return records
+
+    repository = RecordingFakeRepository()
+    workflow = PlaylistWorkflowService(scan_service=RecordlessFakeScanService(), repository=repository)
+
+    result = workflow.scan_folder(tmp_path, flush_batch_size=1, flush_interval_seconds=0.0)
+
+    assert repository._shapes() == [(1, tmp_path)]
+    assert result.persisted_record_count == 0
+
+
+def test_playlist_workflow_cancelled_scan_keeps_incrementally_flushed_records(tmp_path) -> None:
+    repository = RecordingFakeRepository()
+    workflow = PlaylistWorkflowService(
+        scan_service=ProgressEmittingFakeScanService(3, cancels_after_events=True), repository=repository
+    )
+
+    result = workflow.scan_folder(tmp_path, flush_batch_size=2, flush_interval_seconds=60.0)
+
+    assert result.cancelled is True
+    assert len(result.records) == 3
+    # The flush that already happened stays on disk; a cancel never prunes.
+    assert repository._shapes() == [(2, None)]
+    assert result.persisted_record_count == 2
 
 
 def test_workflow_forwards_dj_controls_to_recommendation() -> None:
