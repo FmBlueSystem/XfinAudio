@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock
@@ -16,8 +17,15 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.application.recommendation_candidates import pool_size_for_slot
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
-from xfinaudio.config.settings import AppSettings, BuildSessionSettings, ExportSettings, LibrarySettings, WindowSettings
-from xfinaudio.desktop import export_coordinator, main_window
+from xfinaudio.config.settings import (
+    AiSettings,
+    AppSettings,
+    BuildSessionSettings,
+    ExportSettings,
+    LibrarySettings,
+    WindowSettings,
+)
+from xfinaudio.desktop import export_coordinator, main_window, window_factory
 from xfinaudio.desktop.library_screen_rendering import _COLUMNS
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.desktop.recommendation_service import (
@@ -3373,3 +3381,86 @@ def test_spectral_color_column_fits_without_horizontal_scrolling(tmp_path) -> No
     assert color_right_edge <= table.viewport().width(), (
         f"Color column ends at {color_right_edge}px, viewport is {table.viewport().width()}px wide"
     )
+
+
+# ---------------------------------------------------------------------------
+# AI copilot startup seeding and wiring
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def clean_ai_environment(monkeypatch):
+    """The seeding writes os.environ directly, so it must not leak into other tests."""
+    names = ("XFINAUDIO_AI_ENABLED", "XFINAUDIO_AI_ENV_FILE")
+    for name in names:
+        monkeypatch.delenv(name, raising=False)
+    yield
+    for name in names:
+        os.environ.pop(name, None)
+
+
+def test_seed_ai_environment_exports_the_enabled_flag_and_the_key_file(clean_ai_environment) -> None:
+    """The adapter reads the flag and the key path from the environment, not settings."""
+    key_file = Path("/keys/apiIA.env")
+
+    window_factory.seed_ai_environment(AppSettings(ai=AiSettings(enabled=True, env_file=key_file)))
+
+    assert os.environ["XFINAUDIO_AI_ENABLED"] == "1"
+    assert os.environ["XFINAUDIO_AI_ENV_FILE"] == str(key_file)
+
+
+def test_seed_ai_environment_keeps_explicit_environment_overrides(clean_ai_environment, monkeypatch) -> None:
+    """setdefault, not assignment: an operator's explicit launch environment wins."""
+    monkeypatch.setenv("XFINAUDIO_AI_ENABLED", "0")
+    monkeypatch.setenv("XFINAUDIO_AI_ENV_FILE", "/keys/operator.env")
+
+    window_factory.seed_ai_environment(AppSettings(ai=AiSettings(enabled=True, env_file=Path("/keys/settings.env"))))
+
+    assert os.environ["XFINAUDIO_AI_ENABLED"] == "0"
+    assert os.environ["XFINAUDIO_AI_ENV_FILE"] == "/keys/operator.env"
+
+
+def test_seed_ai_environment_stays_silent_while_ai_is_disabled(clean_ai_environment) -> None:
+    window_factory.seed_ai_environment(AppSettings(ai=AiSettings(enabled=False, env_file=Path("/keys/apiIA.env"))))
+
+    assert "XFINAUDIO_AI_ENABLED" not in os.environ
+    assert "XFINAUDIO_AI_ENV_FILE" not in os.environ
+
+
+def test_main_window_with_defaults_seeds_the_ai_environment_from_saved_settings(tmp_path, clean_ai_environment) -> None:
+    """A saved AI setting has to reach the adapter before the window can ask for an intent."""
+    ensure_app()
+    from xfinaudio.config.settings_repository import SettingsRepository
+
+    key_file = tmp_path / "apiIA.env"
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    settings_path = tmp_path / "settings.json"
+    SettingsRepository(settings_path).save(AppSettings(ai=AiSettings(enabled=True, env_file=key_file)))
+
+    MainWindow.with_defaults(db_path, settings_path)
+
+    assert os.environ["XFINAUDIO_AI_ENABLED"] == "1"
+    assert os.environ["XFINAUDIO_AI_ENV_FILE"] == str(key_file)
+
+
+def test_build_screen_ask_signal_reaches_the_ai_copilot_controller(monkeypatch) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    asked: list[str] = []
+    monkeypatch.setattr(window._ai_copilot, "ask", asked.append)
+
+    window._build_screen.copilot_ask_requested.emit("45 minutes of deep house")
+
+    assert asked == ["45 minutes of deep house"]
+
+
+def test_close_event_cancels_an_in_flight_ai_copilot_request(monkeypatch) -> None:
+    """The blocking request outlives the window unless close tears its thread down."""
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    cancelled: list[bool] = []
+    monkeypatch.setattr(window._ai_copilot, "cancel", lambda: cancelled.append(True))
+
+    window.closeEvent(QCloseEvent())
+
+    assert cancelled == [True]

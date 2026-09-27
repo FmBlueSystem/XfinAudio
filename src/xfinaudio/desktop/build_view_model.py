@@ -72,6 +72,25 @@ class BuildViewModel:
         """True if there are scanned tracks and neither scanning nor recommending."""
         return bool(state.scanned_records) and not state.is_scanning and not state.is_recommending
 
+    def copilot_ask_button_enabled(self, state: AppState) -> bool:
+        """True when the DJ can ask the AI copilot for a set.
+
+        ``is_asking_copilot`` is part of the contract rather than a one-off
+        ``setEnabled(False)`` in the controller: render() runs for every state
+        sync, so any enabled state it does not recompute is resurrected mid-request.
+        """
+        return (
+            bool(state.scanned_records)
+            and not state.is_scanning
+            and not state.is_recommending
+            and not state.is_asking_copilot
+        )
+
+    @staticmethod
+    def is_asking_copilot(state: AppState) -> bool:
+        """True while a natural-language copilot request is in flight."""
+        return state.is_asking_copilot
+
     def copilot_variants_for_display(self, state: AppState) -> list[CopilotVariantRow]:
         """Return PrepCopilotPlan variants formatted as CopilotVariantRow. Empty list if no plan."""
         if state.last_prep_copilot_plan is None:

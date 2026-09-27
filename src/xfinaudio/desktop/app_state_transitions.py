@@ -308,6 +308,24 @@ def apply_prep_copilot_plan_cleared(state: AppState) -> AppState:
     return state.model_copy(update={"last_prep_copilot_plan": None})
 
 
+def apply_ai_copilot_request_started(state: AppState, request: str) -> AppState:
+    """Return a new state marking a natural-language copilot request as in flight.
+
+    The request text stays on the state while it is in flight so a render can show
+    what is being asked without reaching back into the widget.
+    """
+    return state.model_copy(update={"ai_copilot_request": request, "is_asking_copilot": True})
+
+
+def apply_ai_copilot_request_finished(state: AppState) -> AppState:
+    """Return a new state with the AI copilot request no longer in flight.
+
+    The last request text is deliberately kept: it is what the DJ asked, not
+    transient progress, and the success/failure message replaces the busy state.
+    """
+    return state.model_copy(update={"is_asking_copilot": False})
+
+
 def apply_export_track_order(state: AppState, ordered_paths: list[str], *, spectral_cohesion: float = 0.0) -> AppState:
     """Return a new state whose recommendation follows a hand-made running order.
 
@@ -352,6 +370,8 @@ __all__ = [
     "apply_playlist_track_removed",
     "apply_playlist_track_replaced",
     "apply_playlist_track_restored",
+    "apply_ai_copilot_request_finished",
+    "apply_ai_copilot_request_started",
     "apply_prep_copilot_plan_cleared",
     "apply_prep_copilot_plan_generated",
     "apply_prep_copilot_variant",

@@ -76,6 +76,7 @@ class BuildScreen(QWidget):
     recommend_requested = Signal(str, list)
     spectral_cohesion_changed = Signal(int)
     copilot_generate_requested = Signal()
+    copilot_ask_requested = Signal(str)
     copilot_variant_applied = Signal(int)
     apply_without_selection_requested = Signal()
     back_requested = Signal()
@@ -194,14 +195,35 @@ class BuildScreen(QWidget):
         self.genre_focus_input = QLineEdit()
         self.genre_focus_input.setPlaceholderText(self.tr("Genre focus"))
         self.copilot_button = QPushButton(self.tr("Generate Prep Copilot"))
+        # The natural-language request sits with the other copilot controls rather
+        # than on a row of its own: an extra row here is taken straight out of the
+        # variants table, which owns the free vertical space.
+        self.copilot_ask_input = QLineEdit()
+        self.copilot_ask_input.setObjectName("copilot_ask_input")
+        self.copilot_ask_input.setPlaceholderText(
+            self.tr("Describe the set you want (for example: 45 minutes of deep house)")
+        )
+        self.copilot_ask_button = QPushButton(self.tr("Ask Copilot"))
+        self.copilot_ask_button.setObjectName("copilot_ask_button")
+        self.copilot_ask_button.setEnabled(False)
         self.variant_label = QLabel()
         copilot_row.addWidget(QLabel(self.tr("Set Tracks")))
         copilot_row.addWidget(self.target_count_input)
         copilot_row.addWidget(self.genre_focus_input)
         copilot_row.addWidget(self.copilot_button)
+        copilot_row.addWidget(self.copilot_ask_input, 1)
+        copilot_row.addWidget(self.copilot_ask_button)
         copilot_row.addWidget(self.variant_label)
         copilot_row.addStretch()
         layout.addLayout(copilot_row)
+
+        # AI copilot status line: its own row, because the controls row above cannot
+        # give a wrapping message the width it needs without squeezing the input.
+        self.copilot_ask_status = QLabel("")
+        self.copilot_ask_status.setObjectName("copilot_ask_status")
+        self.copilot_ask_status.setWordWrap(True)
+        self.copilot_ask_status.setMaximumHeight(36)
+        layout.addWidget(self.copilot_ask_status)
 
         # Section divider between controls and copilot table
         self.section_divider = QFrame()
@@ -270,6 +292,7 @@ class BuildScreen(QWidget):
             self.lock_button: "Lock the selected tracks so they always appear",
             self.clear_constraints_button: "Remove all exclude and lock constraints",
             self.copilot_button: "Generate several Prep Copilot playlist variants",
+            self.copilot_ask_button: "Ask the AI copilot to turn your request into Prep Copilot variants",
             self.apply_variant_button: "Apply the selected Prep Copilot variant",
             self.back_button: "Return to the Library screen",
             self.proceed_button: "Move on to review the recommended playlist",
@@ -289,6 +312,9 @@ class BuildScreen(QWidget):
         self.target_count_input.setAccessibleName(self.tr("Target track count"))
         self.genre_focus_input.setAccessibleName(self.tr("Genre focus"))
         self.copilot_button.setAccessibleName(self.tr("Generate Prep Copilot variants"))
+        self.copilot_ask_input.setAccessibleName(self.tr("Set request for the AI copilot"))
+        self.copilot_ask_button.setAccessibleName(self.tr("Ask the AI copilot"))
+        self.copilot_ask_status.setAccessibleName(self.tr("AI copilot status"))
         self.copilot_table.setAccessibleName(self.tr("Prep Copilot variants"))
         self.apply_variant_button.setAccessibleName(self.tr("Apply selected Prep Copilot variant"))
         self.back_button.setAccessibleName(self.tr("Back to library"))
@@ -305,7 +331,9 @@ class BuildScreen(QWidget):
         self.setTabOrder(self.clear_constraints_button, self.target_count_input)
         self.setTabOrder(self.target_count_input, self.genre_focus_input)
         self.setTabOrder(self.genre_focus_input, self.copilot_button)
-        self.setTabOrder(self.copilot_button, self.copilot_table)
+        self.setTabOrder(self.copilot_button, self.copilot_ask_input)
+        self.setTabOrder(self.copilot_ask_input, self.copilot_ask_button)
+        self.setTabOrder(self.copilot_ask_button, self.copilot_table)
         self.setTabOrder(self.copilot_table, self.apply_variant_button)
         self.setTabOrder(self.apply_variant_button, self.back_button)
         self.setTabOrder(self.back_button, self.proceed_button)
@@ -313,6 +341,8 @@ class BuildScreen(QWidget):
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
         self.copilot_button.clicked.connect(self.copilot_generate_requested)
+        self.copilot_ask_button.clicked.connect(self._on_copilot_ask)
+        self.copilot_ask_input.returnPressed.connect(self._on_copilot_ask)
         self.apply_variant_button.clicked.connect(self._on_apply_variant)
         self.recommend_button.clicked.connect(self._on_recommend)
         self.exclude_button.clicked.connect(self.exclude_requested)
@@ -327,6 +357,7 @@ class BuildScreen(QWidget):
         self.recommend_requested.connect(window._on_recommend_requested)
         self.spectral_cohesion_changed.connect(window._settings_controller.on_spectral_cohesion_changed)
         self.copilot_generate_requested.connect(window.generate_prep_copilot)
+        self.copilot_ask_requested.connect(window.ask_ai_copilot)
         self.copilot_variant_applied.connect(window._on_copilot_variant_applied)
         self.apply_without_selection_requested.connect(
             lambda: window.status_label.setText(self.tr("Generate and select a Prep Copilot variant before applying"))
@@ -365,6 +396,13 @@ class BuildScreen(QWidget):
 
         # recommend_button enabled state is managed by MainWindow._refresh_idle_action_state
         self.copilot_button.setEnabled(vm.copilot_button_enabled(state))
+        # Render-driven on purpose: the coalesced 200ms render walks every screen, so
+        # an enabled state set imperatively here would come back on the next sync.
+        self.copilot_ask_button.setEnabled(vm.copilot_ask_button_enabled(state))
+        if vm.is_asking_copilot(state):
+            # Only the busy text is render-owned. The success/failure message is
+            # written by the controller and must survive the next idle render.
+            self.copilot_ask_status.setText(self.tr("Asking the AI copilot... this can take up to a minute"))
         self._render_recommend_progress(state)
         no_recommendation = state.last_recommendation is None
         self.empty_state_label.setText(
@@ -494,6 +532,10 @@ class BuildScreen(QWidget):
     def _on_recommend(self) -> None:
         strategy = self.strategy_combo.currentData()
         self.recommend_requested.emit(strategy, [])
+
+    def _on_copilot_ask(self) -> None:
+        """Emit the typed request from both entry points (button and Return)."""
+        self.copilot_ask_requested.emit(self.copilot_ask_input.text())
 
     def _on_strategy_changed(self, _index: int) -> None:
         if self._last_vm is not None:
