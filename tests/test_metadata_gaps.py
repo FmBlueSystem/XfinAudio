@@ -41,8 +41,22 @@ def _record(
     )
 
 
-def _complete(path: str, **kwargs: object) -> TrackRecord:
-    return _record(path, bpm=120.0, camelot_key="8A", energy_level=7, **kwargs)
+def _complete(
+    path: str,
+    *,
+    title: str | None = None,
+    artist: str | None = None,
+    release_year: int | None = None,
+) -> TrackRecord:
+    return _record(
+        path,
+        bpm=120.0,
+        camelot_key="8A",
+        energy_level=7,
+        title=title,
+        artist=artist,
+        release_year=release_year,
+    )
 
 
 def _mixed_library() -> list[TrackRecord]:

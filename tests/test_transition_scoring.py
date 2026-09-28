@@ -741,7 +741,7 @@ def test_familiarity_weight_reject_negative_values() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _tonal(tiv: tuple[float, ...], *, coherence: float = 0.5) -> TonalProfile:
+def _tonal(tiv: tuple[float, float, float, float, float, float], *, coherence: float = 0.5) -> TonalProfile:
     return TonalProfile(tiv=tiv, tonal_coherence=coherence)
 
 

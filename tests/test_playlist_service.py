@@ -1,3 +1,4 @@
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -1382,7 +1383,8 @@ def test_slot_role_traces_the_requested_arc_over_the_ordering_strategy() -> None
     assert shaped.strategy.name == "same_energy"
     assert shaped.optimizer.startswith("arc-subset")
     assert [item.path for item in shaped.ordered_tracks] != [item.path for item in plain.ordered_tracks]
-    energies = [item.energy_level for item in shaped.ordered_tracks]
+    # Every pool track above is built with a concrete int energy level.
+    energies = cast(list[int], [item.energy_level for item in shaped.ordered_tracks])
     assert energies == sorted(energies), energies
 
 
@@ -1403,7 +1405,8 @@ def test_slot_role_forces_the_arc_solver_over_a_strategy_order_strategy() -> Non
     shaped = recommend_playlist(pool, "chill", target_count=6, arc_strategy="warmup")
 
     assert shaped.optimizer.startswith("arc-subset")
-    energies = [item.energy_level for item in shaped.ordered_tracks]
+    # Every pool track above is built with a concrete int energy level.
+    energies = cast(list[int], [item.energy_level for item in shaped.ordered_tracks])
     # The warm-up contract: open coldest, hand over hottest.
     assert energies[0] == min(energies), energies
     assert energies[-1] == max(energies), energies

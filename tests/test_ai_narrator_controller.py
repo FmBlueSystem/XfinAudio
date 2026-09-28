@@ -18,17 +18,21 @@ import pytest
 from PySide6.QtCore import QThread
 
 from xfinaudio.ai import NanConfigError, narrate_set
+from xfinaudio.application.playlist_workflow import RecommendationWorkflowResult
 from xfinaudio.desktop.ai_narrator import AI_NARRATOR_TIMEOUT_SECONDS, AiNarratorController
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.app_state_transitions import (
+    PrepCopilotVariantApplication,
     apply_ai_narrative_cleared,
     apply_ai_narrative_finished,
     apply_ai_narrative_started,
     apply_prep_copilot_variant,
     apply_recommendation_completion,
 )
+from xfinaudio.exporting.explainability import build_playlist_explanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessCheck, DjReadinessReport
+from xfinaudio.quality.recommendation_quality import build_quality_report
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.scoring import ScoringWeights, TransitionScore
 from xfinaudio.recommendation.strategies import PlaylistStrategy
@@ -494,10 +498,13 @@ def test_ai_narrative_transitions_track_the_in_flight_request() -> None:
 def test_storing_a_new_recommendation_clears_the_previous_narrative() -> None:
     """The narrative describes one specific set, so a new recommendation invalidates it."""
     tracks = [_track("/music/a.flac")]
-    payload = SimpleNamespace(
-        recommendation=_recommendation(tracks),
-        explanation=object(),
-        quality_report=object(),
+    recommendation = _recommendation(tracks)
+    explanation = build_playlist_explanation(recommendation)
+    quality_report = build_quality_report(recommendation)
+    payload = PrepCopilotVariantApplication(
+        recommendation=recommendation,
+        explanation=explanation,
+        quality_report=quality_report,
         readiness_report=_readiness(),
         variant_name="balanced",
     )
@@ -509,10 +516,10 @@ def test_storing_a_new_recommendation_clears_the_previous_narrative() -> None:
 
     completed = apply_recommendation_completion(
         AppState(ai_narrative_text=NARRATIVE),
-        SimpleNamespace(
-            recommendation=_recommendation(tracks),
-            explanation=object(),
-            quality_report=object(),
+        RecommendationWorkflowResult(
+            recommendation=recommendation,
+            explanation=explanation,
+            quality_report=quality_report,
         ),
     )
 

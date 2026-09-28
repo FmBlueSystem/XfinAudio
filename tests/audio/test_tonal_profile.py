@@ -25,7 +25,7 @@ from xfinaudio.audio.tonal_profile import (
 )
 
 
-def _tonal(tiv: tuple[float, ...], *, coherence: float = 0.5) -> TonalProfile:
+def _tonal(tiv: tuple[float, float, float, float, float, float], *, coherence: float = 0.5) -> TonalProfile:
     return TonalProfile(tiv=tiv, tonal_coherence=coherence)
 
 

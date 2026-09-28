@@ -41,7 +41,13 @@ class _StubRepository:
         return []
 
 
-def _record(title: str, key: str, bpm: float, energy: int, tiv: tuple[float, ...]) -> TrackRecord:
+def _record(
+    title: str,
+    key: str,
+    bpm: float,
+    energy: int,
+    tiv: tuple[float, float, float, float, float, float],
+) -> TrackRecord:
     return TrackRecord(
         path=f"/{title}.flac",
         title=title,
