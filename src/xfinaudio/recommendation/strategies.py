@@ -44,6 +44,10 @@ class PlaylistStrategy(BaseModel):
 
 
 _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
+    # Every strategy leaves the tonal interval weight at its 0.0 default in the
+    # Harmonic core v2 spike: no strategy enables audio-derived tonal scoring on
+    # its own. The A/B harness turns it on per arm through ScoringWeights
+    # ``weights_override`` (mirroring the familiarity field's inert default).
     "harmonic_journey": PlaylistStrategy(
         name="harmonic_journey",
         display_name="Harmonic Journey",

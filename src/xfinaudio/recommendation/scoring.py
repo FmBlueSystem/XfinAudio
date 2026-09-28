@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from xfinaudio.audio.spectral_profile import score_spectral_similarity
+from xfinaudio.audio.tonal_profile import tiv_compatibility
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.camelot import (
     BoostRule,
@@ -29,6 +30,14 @@ class ScoringWeights(BaseModel):
     spectral: float = 0.10
     danceability: float = 0.0
     spectral_edge: float = 0.0
+    # Continuous audio-derived tonal compatibility (Harmonic core v2). The
+    # component is the cosine similarity of the two tracks' 6-dimensional Tonal
+    # Interval Vectors, so it measures signal-level harmonic fit rather than a
+    # discrete Camelot-neighbourhood lookup. Disabled by default (0.0, the
+    # spectral_edge/familiarity precedent): with the default weight every
+    # transition score stays byte-identical, and the A/B harness turns it on
+    # per arm through ``weights_override``.
+    tonal: float = 0.0
     # Opt-in familiarity preference signal (Plan 3 T3). Familiarity is a
     # PER-TRACK signal, not a transition-pair component, so it is deliberately
     # NOT in SCORED_COMPONENTS: _weighted_total normalizes by the sum of
@@ -107,11 +116,11 @@ class TransitionScoringConfig(BaseModel):
 
 
 # Every component _weighted_total accounts for, present or not.
-SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral", "danceability", "spectral_edge")
+SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral", "danceability", "spectral_edge", "tonal")
 # Compatibility asks whether tracks belong in the same set; mixability asks
 # whether they can be joined. The latter already has hand-rolled checks in
 # quality/dj_readiness.py's _bpm_continuity_check/_energy_continuity_check.
-COMPATIBILITY_COMPONENTS = ("harmonic", "tags", "danceability", "spectral")
+COMPATIBILITY_COMPONENTS = ("harmonic", "tags", "danceability", "spectral", "tonal")
 MIXABILITY_COMPONENTS = ("bpm", "energy", "spectral_edge")
 # Score for a component that cannot be evaluated: midway between a known
 # mismatch (0.0) and a known match (1.0), so absent metadata neither rewards
@@ -226,6 +235,11 @@ def score_transition(
     if spectral_edge_score is not None:
         component_scores["spectral_edge"] = spectral_edge_score
         explanations.append(f"Edge spectral similarity (out→in) is {spectral_edge_score:.2f}")
+
+    tonal_score = _score_tonal(left, right)
+    if tonal_score is not None:
+        component_scores["tonal"] = tonal_score
+        explanations.append(f"Tonal compatibility is {tonal_score:.2f}")
 
     danceability_score = _score_danceability(left, right)
     if danceability_score is not None:
@@ -395,6 +409,11 @@ def _score_spectral_edge(left: TrackRecord, right: TrackRecord) -> float | None:
     if left.edge_spectral_profile is None or right.edge_spectral_profile is None:
         return None
     return score_spectral_similarity(left.edge_spectral_profile.outro, right.edge_spectral_profile.intro)
+
+
+def _score_tonal(left: TrackRecord, right: TrackRecord) -> float | None:
+    """Return the TIV cosine similarity, or None when either profile is absent/degenerate."""
+    return tiv_compatibility(left.tonal_profile, right.tonal_profile)
 
 
 def _score_danceability(left: TrackRecord, right: TrackRecord) -> float | None:

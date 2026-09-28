@@ -7,6 +7,7 @@ from xfinaudio.audio.spectral_profile import (
     dominant_color_for_ratios,
     score_spectral_similarity,
 )
+from xfinaudio.audio.tonal_profile import TonalProfile
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.playlist_service import recommend_playlist
@@ -26,6 +27,7 @@ from xfinaudio.recommendation.scoring import (
     normalized_bpm_pair,
     score_transition,
 )
+from xfinaudio.recommendation.strategies import default_strategy_registry
 
 
 def track(
@@ -43,6 +45,7 @@ def track(
     spectral_profile: SpectralProfile | None = None,
     danceability_profile: DanceabilityProfile | None = None,
     edge_spectral_profile: EdgeSpectralProfile | None = None,
+    tonal_profile: TonalProfile | None = None,
 ) -> TrackRecord:
     return TrackRecord(
         path=path,
@@ -59,6 +62,7 @@ def track(
         spectral_profile=spectral_profile,
         danceability_profile=danceability_profile,
         edge_spectral_profile=edge_spectral_profile,
+        tonal_profile=tonal_profile,
     )
 
 
@@ -728,3 +732,113 @@ def test_familiarity_weight_does_not_change_transition_scores() -> None:
 def test_familiarity_weight_reject_negative_values() -> None:
     with pytest.raises(ValueError, match="component weights cannot be negative"):
         ScoringWeights(familiarity=-0.1)
+
+
+# ---------------------------------------------------------------------------
+# Tonal interval compatibility weight (Harmonic core v2) — audio-derived TIV
+# joins the compatibility axis, disabled by default and inert at 0.0.
+# ---------------------------------------------------------------------------
+
+
+def _tonal(tiv: tuple[float, ...], *, coherence: float = 0.5) -> TonalProfile:
+    return TonalProfile(tiv=tiv, tonal_coherence=coherence)
+
+
+def _tonal_only_weights(**overrides: float) -> ScoringWeights:
+    base = {
+        "harmonic": 0.0,
+        "bpm": 0.0,
+        "energy": 0.0,
+        "tags": 0.0,
+        "spectral": 0.0,
+        "danceability": 0.0,
+        "spectral_edge": 0.0,
+        "tonal": 1.0,
+    }
+    base.update(overrides)
+    return ScoringWeights(**base)
+
+
+def test_tonal_default_weight_is_disabled() -> None:
+    assert ScoringWeights().tonal == 0.0
+
+
+def test_tonal_component_joins_the_compatibility_axis() -> None:
+    assert "tonal" in SCORED_COMPONENTS
+    assert "tonal" in COMPATIBILITY_COMPONENTS
+    assert "tonal" not in MIXABILITY_COMPONENTS
+
+
+def test_every_builtin_strategy_leaves_tonal_disabled() -> None:
+    registry = default_strategy_registry()
+
+    enabled = {name for name in registry.available() if registry.get(name).weights.tonal != 0.0}
+
+    assert enabled == set()
+
+
+def test_tonal_weight_zero_leaves_total_unchanged_with_profiles() -> None:
+    without = score_transition(track("left"), track("right"), weights=ScoringWeights())
+    with_profiles = score_transition(
+        track("left", tonal_profile=_tonal((1.0, 0.0, 0.0, 0.0, 0.0, 0.0))),
+        track("right", tonal_profile=_tonal((0.0, 0.0, 0.0, 1.0, 0.0, 0.0))),
+        weights=ScoringWeights(),
+    )
+
+    # The component is reported when measurable, but its zero weight is inert.
+    assert "tonal" in with_profiles.component_scores
+    assert with_profiles.total_score == without.total_score
+    assert with_profiles.compatibility_score == without.compatibility_score
+
+
+def test_tonal_weight_affects_total_when_profiles_present() -> None:
+    weights = _tonal_only_weights()
+    matching = score_transition(
+        track("ml", tonal_profile=_tonal((1.0, 0.0, 0.0, 0.0, 0.0, 0.0))),
+        track("mr", tonal_profile=_tonal((1.0, 0.0, 0.0, 0.0, 0.0, 0.0))),
+        weights=weights,
+    )
+    differing = score_transition(
+        track("dl", tonal_profile=_tonal((1.0, 0.0, 0.0, 0.0, 0.0, 0.0))),
+        track("dr", tonal_profile=_tonal((0.0, 0.0, 0.0, 1.0, 0.0, 0.0))),
+        weights=weights,
+    )
+
+    assert matching.component_scores["tonal"] == pytest.approx(1.0)
+    assert differing.component_scores["tonal"] == pytest.approx(0.0)
+    assert matching.total_score > differing.total_score
+    assert "Tonal compatibility is 1.00" in matching.explanations
+
+
+def test_absent_tonal_profile_is_absent_and_neutral() -> None:
+    result = score_transition(track("left"), track("right"), weights=_tonal_only_weights())
+
+    assert "tonal" not in result.component_scores
+    assert result.total_score == 0.5
+
+
+def test_degenerate_tonal_profile_is_absent_and_neutral() -> None:
+    degenerate = _tonal((0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+
+    result = score_transition(
+        track("left", tonal_profile=degenerate),
+        track("right", tonal_profile=degenerate),
+        weights=_tonal_only_weights(),
+    )
+
+    assert "tonal" not in result.component_scores
+    assert result.total_score == 0.5
+
+
+def test_tonal_compatibility_is_symmetric() -> None:
+    weak = _tonal((1.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+    strong = _tonal((0.6, 0.8, 0.0, 0.0, 0.0, 0.0))
+
+    forward = score_transition(
+        track("left", tonal_profile=weak), track("right", tonal_profile=strong), weights=_tonal_only_weights()
+    )
+    reverse = score_transition(
+        track("right", tonal_profile=strong), track("left", tonal_profile=weak), weights=_tonal_only_weights()
+    )
+
+    assert forward.component_scores["tonal"] == reverse.component_scores["tonal"]

@@ -21,10 +21,11 @@ from xfinaudio.audio.spectral_profile import (
     SpectralProfile,
     dominant_color_for_ratios,
 )
+from xfinaudio.audio.tonal_profile import CURRENT_TONAL_VERSION, TonalProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.metadata.mixedinkey_contract import PARSED_TAG_KEYS
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Schema version that introduced the PARSED_TAG_KEYS allowlist for raw metadata
 # (see library/scan_service.py). Databases older than this still hold blobs the
@@ -78,8 +79,9 @@ class TrackRepository:
                     energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
                     metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                     audio_md5, spectral_profile_json, danceability_profile_json,
-                    edge_spectral_profile_json, loudness_profile_json, file_mtime_ns, file_size_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    edge_spectral_profile_json, tonal_profile_json, loudness_profile_json,
+                    file_mtime_ns, file_size_bytes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     title = excluded.title,
                     artist = excluded.artist,
@@ -133,6 +135,16 @@ class TrackRepository:
                             THEN tracks.edge_spectral_profile_json
                         ELSE NULL
                     END,
+                    tonal_profile_json = CASE
+                        WHEN excluded.tonal_profile_json IS NOT NULL THEN excluded.tonal_profile_json
+                        WHEN tracks.audio_md5 IS NOT NULL
+                             AND tracks.audio_md5 = excluded.audio_md5
+                            THEN tracks.tonal_profile_json
+                        WHEN tracks.file_mtime_ns = excluded.file_mtime_ns
+                             AND tracks.file_size_bytes = excluded.file_size_bytes
+                            THEN tracks.tonal_profile_json
+                        ELSE NULL
+                    END,
                     loudness_profile_json = CASE
                         WHEN tracks.loudness_profile_json IS NULL THEN excluded.loudness_profile_json
                         ELSE tracks.loudness_profile_json
@@ -164,7 +176,7 @@ class TrackRepository:
                        energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
                        metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                        audio_md5, spectral_profile_json, danceability_profile_json,
-                       edge_spectral_profile_json, loudness_profile_json
+                       edge_spectral_profile_json, tonal_profile_json, loudness_profile_json
                 FROM tracks
                 ORDER BY path
                 """
@@ -179,8 +191,8 @@ class TrackRepository:
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
                        energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
                        metadata_status, missing_required_fields_json, spectral_profile_json,
-                       danceability_profile_json, edge_spectral_profile_json, loudness_profile_json, audio_md5,
-                       file_mtime_ns, file_size_bytes
+                       danceability_profile_json, edge_spectral_profile_json, tonal_profile_json,
+                       loudness_profile_json, audio_md5, file_mtime_ns, file_size_bytes
                 FROM tracks
                 ORDER BY path
                 """
@@ -225,12 +237,24 @@ class TrackRepository:
                             THEN edge_spectral_profile_json
                         ELSE NULL
                     END,
+                    tonal_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN tonal_profile_json
+                        ELSE NULL
+                    END,
                     file_mtime_ns = ?,
                     file_size_bytes = ?
                 WHERE path = ?
                 """,
                 (
                     _serialize_profile(profile),
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
                     mtime_ns,
                     size_bytes,
                     mtime_ns,
@@ -312,6 +336,14 @@ class TrackRepository:
                             THEN edge_spectral_profile_json
                         ELSE NULL
                     END,
+                    tonal_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN tonal_profile_json
+                        ELSE NULL
+                    END,
                     file_mtime_ns = ?,
                     file_size_bytes = ?
                 WHERE path = ?
@@ -322,6 +354,10 @@ class TrackRepository:
                     mtime_ns,
                     size_bytes,
                     _serialize_danceability_profile(profile),
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
                     mtime_ns,
                     size_bytes,
                     mtime_ns,
@@ -395,6 +431,14 @@ class TrackRepository:
                         ELSE NULL
                     END,
                     edge_spectral_profile_json = ?,
+                    tonal_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN tonal_profile_json
+                        ELSE NULL
+                    END,
                     file_mtime_ns = ?,
                     file_size_bytes = ?
                 WHERE path = ?
@@ -409,6 +453,10 @@ class TrackRepository:
                     mtime_ns,
                     size_bytes,
                     _serialize_edge_spectral_profile(profile),
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
                     mtime_ns,
                     size_bytes,
                     path,
@@ -440,6 +488,97 @@ class TrackRepository:
                 for row in connection.execute(query, chunk):
                     profile = _deserialize_edge_spectral_profile(row["edge_spectral_profile_json"])
                     if profile is not None and profile.analysis_version == CURRENT_EDGE_ANALYSIS_VERSION:
+                        cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
+        return cache
+
+    def update_tonal_profile(self, path: str, profile: TonalProfile) -> bool:
+        """Persist a tonal interval profile and refresh its file identity."""
+        mtime_ns: int | None = None
+        size_bytes: int | None = None
+        try:
+            stat = Path(path).stat()
+            mtime_ns = stat.st_mtime_ns
+            size_bytes = stat.st_size
+        except OSError:
+            pass
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE tracks
+                SET spectral_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN spectral_profile_json
+                        ELSE NULL
+                    END,
+                    danceability_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN danceability_profile_json
+                        ELSE NULL
+                    END,
+                    edge_spectral_profile_json = CASE
+                        WHEN ? IS NOT NULL
+                             AND ? IS NOT NULL
+                             AND file_mtime_ns = ?
+                             AND file_size_bytes = ?
+                            THEN edge_spectral_profile_json
+                        ELSE NULL
+                    END,
+                    tonal_profile_json = ?,
+                    file_mtime_ns = ?,
+                    file_size_bytes = ?
+                WHERE path = ?
+                """,
+                (
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    mtime_ns,
+                    size_bytes,
+                    _serialize_tonal_profile(profile),
+                    mtime_ns,
+                    size_bytes,
+                    path,
+                ),
+            )
+            return cursor.rowcount > 0
+
+    def load_tonal_profile_cache(
+        self,
+        paths: Iterable[str],
+    ) -> dict[str, tuple[int, int, TonalProfile]]:
+        """Return current cached tonal interval profiles with file identity."""
+        path_list = list(paths)
+        if not path_list:
+            return {}
+        cache: dict[str, tuple[int, int, TonalProfile]] = {}
+        with self._connect() as connection:
+            for start in range(0, len(path_list), _MAX_QUERY_VARIABLES):
+                chunk = path_list[start : start + _MAX_QUERY_VARIABLES]
+                placeholders = ",".join("?" * len(chunk))
+                query = f"""
+                    SELECT path, file_mtime_ns, file_size_bytes, tonal_profile_json
+                    FROM tracks
+                    WHERE path IN ({placeholders})
+                      AND file_mtime_ns IS NOT NULL
+                      AND file_size_bytes IS NOT NULL
+                      AND tonal_profile_json IS NOT NULL
+                """
+                for row in connection.execute(query, chunk):
+                    profile = _deserialize_tonal_profile(row["tonal_profile_json"])
+                    if profile is not None and profile.analysis_version == CURRENT_TONAL_VERSION:
                         cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
 
@@ -591,6 +730,7 @@ class TrackRepository:
                 spectral_profile_json TEXT,
                 danceability_profile_json TEXT,
                 edge_spectral_profile_json TEXT,
+                tonal_profile_json TEXT,
                 loudness_profile_json TEXT,
                 file_mtime_ns INTEGER,
                 file_size_bytes INTEGER
@@ -612,6 +752,8 @@ class TrackRepository:
             connection.execute("ALTER TABLE tracks ADD COLUMN danceability_profile_json TEXT")
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN edge_spectral_profile_json TEXT")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN tonal_profile_json TEXT")
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN loudness_profile_json TEXT")
         with contextlib.suppress(sqlite3.OperationalError):
@@ -661,6 +803,7 @@ class TrackRepository:
             _serialize_profile(record.spectral_profile),
             _serialize_danceability_profile(record.danceability_profile),
             _serialize_edge_spectral_profile(record.edge_spectral_profile),
+            _serialize_tonal_profile(record.tonal_profile),
             _serialize_loudness_profile(record.loudness_profile),
             mtime_ns,
             size_bytes,
@@ -691,6 +834,7 @@ class TrackRepository:
             danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"]),
             edge_spectral_profile=_deserialize_edge_spectral_profile(row["edge_spectral_profile_json"]),
             loudness_profile=_deserialize_loudness_profile(row["loudness_profile_json"]),
+            tonal_profile=_deserialize_tonal_profile(row["tonal_profile_json"]),
         )
 
     @staticmethod
@@ -715,6 +859,7 @@ class TrackRepository:
             spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
             danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"]),
             edge_spectral_profile=_deserialize_edge_spectral_profile(row["edge_spectral_profile_json"]),
+            tonal_profile=_deserialize_tonal_profile(row["tonal_profile_json"]),
             loudness_profile=_deserialize_current_loudness_profile(
                 row["loudness_profile_json"],
                 source_mtime_ns=row["file_mtime_ns"],
@@ -770,6 +915,21 @@ def _deserialize_edge_spectral_profile(value: str | None) -> EdgeSpectralProfile
         return None
     try:
         return EdgeSpectralProfile.model_validate(json.loads(value))
+    except Exception:
+        return None
+
+
+def _serialize_tonal_profile(profile: TonalProfile | None) -> str | None:
+    if profile is None:
+        return None
+    return profile.model_dump_json()
+
+
+def _deserialize_tonal_profile(value: str | None) -> TonalProfile | None:
+    if value is None:
+        return None
+    try:
+        return TonalProfile.model_validate(json.loads(value))
     except Exception:
         return None
 

@@ -13,6 +13,7 @@ from xfinaudio.audio.spectral_profile import (
     analyze_edge_spectral_profile,
     analyze_spectral_profile,
 )
+from xfinaudio.audio.tonal_profile import TonalProfile, analyze_tonal_profile
 
 
 class SpectralAnalyzer(Protocol):
@@ -63,11 +64,29 @@ class LibrosaEdgeSpectralAnalyzer:
         return analyze_edge_spectral_profile(path)
 
 
+class TonalAnalyzer(Protocol):
+    """Contract for read-only tonal interval profile analysis."""
+
+    def analyze(self, path: Path) -> TonalProfile | None:
+        """Return a tonal profile for a path without mutating the source file."""
+        ...
+
+
+@dataclass(frozen=True)
+class LibrosaTonalAnalyzer:
+    """Default adapter for the librosa-backed tonal interval analyzer."""
+
+    def analyze(self, path: Path) -> TonalProfile | None:
+        return analyze_tonal_profile(path)
+
+
 __all__ = [
     "DanceabilityAnalyzer",
     "EdgeSpectralAnalyzer",
     "LibrosaDanceabilityAnalyzer",
     "LibrosaEdgeSpectralAnalyzer",
     "LibrosaSpectralAnalyzer",
+    "LibrosaTonalAnalyzer",
     "SpectralAnalyzer",
+    "TonalAnalyzer",
 ]

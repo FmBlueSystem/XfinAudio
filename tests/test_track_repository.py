@@ -14,6 +14,7 @@ from xfinaudio.audio.spectral_profile import (
     EdgeSpectralProfile,
     SpectralProfile,
 )
+from xfinaudio.audio.tonal_profile import CURRENT_TONAL_VERSION, TonalProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.track_repository import (
     SCHEMA_VERSION,
@@ -1538,3 +1539,260 @@ def test_refresh_post_metadata_identity_fails_closed_when_stat_is_unavailable(tm
             "SELECT file_mtime_ns, file_size_bytes FROM tracks WHERE path = ?", (str(audio_file),)
         ).fetchone()
     assert after == before
+
+
+# ---------------------------------------------------------------------------
+# Tonal interval profile (Harmonic core v2) — mirrors the derived-profile
+# storage contract introduced for spectral/danceability/edge profiles.
+# ---------------------------------------------------------------------------
+
+
+def _tonal_profile(*, analysis_version: int = CURRENT_TONAL_VERSION) -> TonalProfile:
+    return TonalProfile(
+        tiv=(0.5, 0.3, 0.1, 0.05, 0.03, 0.02),
+        tonal_coherence=0.6,
+        analysis_version=analysis_version,
+    )
+
+
+def _profile_quartet() -> tuple[SpectralProfile, DanceabilityProfile, EdgeSpectralProfile, TonalProfile]:
+    return _spectral_profile(), _danceability_profile(), _edge_spectral_profile(), _tonal_profile()
+
+
+_ALL_PROFILE_ATTRIBUTES = (
+    "spectral_profile",
+    "danceability_profile",
+    "edge_spectral_profile",
+    "tonal_profile",
+)
+
+_ALL_UPDATERS = (
+    "update_spectral_profile",
+    "update_danceability_profile",
+    "update_edge_spectral_profile",
+    "update_tonal_profile",
+)
+
+_UPDATER_ATTRIBUTE = {
+    "update_spectral_profile": "spectral_profile",
+    "update_danceability_profile": "danceability_profile",
+    "update_edge_spectral_profile": "edge_spectral_profile",
+    "update_tonal_profile": "tonal_profile",
+}
+
+
+def _requested_profiles(
+    edge_spectral: EdgeSpectralProfile,
+) -> dict[str, object]:
+    return {
+        "spectral_profile": _spectral_profile(dominant_color="GREEN"),
+        "danceability_profile": DanceabilityProfile(
+            score=0.81, pulse_clarity=0.82, tempo_confidence=0.83, percussive_ratio=0.84
+        ),
+        "edge_spectral_profile": EdgeSpectralProfile(intro=edge_spectral.outro, outro=edge_spectral.intro),
+        "tonal_profile": TonalProfile(tiv=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6), tonal_coherence=0.9),
+    }
+
+
+def test_track_repository_round_trips_tonal_profile_for_full_and_display_reads(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    profile = _tonal_profile()
+    repository.save_scan_results([TrackRecord(path="/music/track.flac", tonal_profile=profile)])
+
+    assert repository.list_tracks()[0].tonal_profile == profile
+    assert repository.list_display_tracks()[0].tonal_profile == profile
+
+
+def test_track_repository_tolerates_corrupt_tonal_profile_json(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    repository.save_scan_results([TrackRecord(path="/music/track.flac")])
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute(
+            "UPDATE tracks SET tonal_profile_json = ? WHERE path = ?",
+            ("not-json", "/music/track.flac"),
+        )
+
+    assert repository.list_tracks()[0].tonal_profile is None
+
+
+def test_tonal_profile_preservation_uses_checksum_then_mtime_size_fallback(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "retagged.flac"
+    audio_file.write_text("audio")
+    profile = _tonal_profile()
+    checksum = "0123456789abcdef0123456789abcdef"
+    repository.save_scan_results([TrackRecord(path=str(audio_file), audio_md5=checksum, tonal_profile=profile)])
+    stat = audio_file.stat()
+    os.utime(audio_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+
+    repository.save_scan_results([TrackRecord(path=str(audio_file), audio_md5=checksum)])
+    assert repository.list_tracks()[0].tonal_profile == profile
+
+    stat = audio_file.stat()
+    repository.save_scan_results([TrackRecord(path=str(audio_file), audio_md5=None)])
+    assert repository.list_tracks()[0].tonal_profile == profile
+
+    stat = audio_file.stat()
+    os.utime(audio_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+    repository.save_scan_results([TrackRecord(path=str(audio_file), audio_md5=None)])
+    assert repository.list_tracks()[0].tonal_profile is None
+
+
+def test_save_scan_results_prefers_incoming_tonal_profile(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    path = "/music/track.flac"
+    old = _tonal_profile()
+    new = TonalProfile(tiv=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6), tonal_coherence=0.9)
+    repository.save_scan_results([TrackRecord(path=path, tonal_profile=old)])
+
+    repository.save_scan_results([TrackRecord(path=path, tonal_profile=new)])
+
+    assert repository.list_tracks()[0].tonal_profile == new
+
+
+def test_update_tonal_profile_returns_whether_path_exists(tmp_path) -> None:
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    repository.save_scan_results([TrackRecord(path=str(audio_file))])
+    profile = _tonal_profile()
+
+    assert repository.update_tonal_profile(str(audio_file), profile) is True
+    assert repository.update_tonal_profile("/music/missing.flac", profile) is False
+    assert repository.list_tracks()[0].tonal_profile == profile
+
+
+def test_load_tonal_profile_cache_filters_version_and_chunks_queries(tmp_path) -> None:
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    current = _tonal_profile()
+    repository.save_scan_results([TrackRecord(path=str(audio_file), tonal_profile=current)])
+    paths = [f"/music/missing-{index}.flac" for index in range(901)] + [str(audio_file)]
+
+    cache = repository.load_tonal_profile_cache(paths)
+
+    stat = audio_file.stat()
+    assert cache == {str(audio_file): (stat.st_mtime_ns, stat.st_size, current)}
+
+    stale = _tonal_profile(analysis_version=CURRENT_TONAL_VERSION + 1)
+    repository.save_scan_results([TrackRecord(path=str(audio_file), tonal_profile=stale)])
+    assert repository.load_tonal_profile_cache([str(audio_file)]) == {}
+
+
+@pytest.mark.parametrize("updater", _ALL_UPDATERS)
+@pytest.mark.parametrize("identity_change", ["mtime", "size"])
+def test_profile_family_update_clears_every_sibling_when_identity_changes(
+    tmp_path, updater: str, identity_change: str
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("original audio")
+    spectral, danceability, edge_spectral, tonal = _profile_quartet()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+                edge_spectral_profile=edge_spectral,
+                tonal_profile=tonal,
+            )
+        ]
+    )
+    requested_attribute = _UPDATER_ATTRIBUTE[updater]
+    requested = _requested_profiles(edge_spectral)
+    if identity_change == "mtime":
+        stat = audio_file.stat()
+        os.utime(audio_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1))
+    else:
+        audio_file.write_text("replacement audio with a different size")
+
+    assert getattr(repository, updater)(str(audio_file), requested[requested_attribute]) is True
+
+    restored = repository.list_tracks()[0]
+    assert getattr(restored, requested_attribute) == requested[requested_attribute]
+    for sibling_attribute in set(_ALL_PROFILE_ATTRIBUTES) - {requested_attribute}:
+        assert getattr(restored, sibling_attribute) is None
+
+
+@pytest.mark.parametrize("updater", _ALL_UPDATERS)
+def test_profile_family_update_preserves_every_sibling_when_identity_matches(
+    tmp_path, updater: str
+) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / "track.flac"
+    audio_file.write_text("audio")
+    spectral, danceability, edge_spectral, tonal = _profile_quartet()
+    repository.save_scan_results(
+        [
+            TrackRecord(
+                path=str(audio_file),
+                spectral_profile=spectral,
+                danceability_profile=danceability,
+                edge_spectral_profile=edge_spectral,
+                tonal_profile=tonal,
+            )
+        ]
+    )
+    requested_attribute = _UPDATER_ATTRIBUTE[updater]
+    requested = _requested_profiles(edge_spectral)
+
+    assert getattr(repository, updater)(str(audio_file), requested[requested_attribute]) is True
+
+    restored = repository.list_tracks()[0]
+    expected = {
+        "spectral_profile": spectral,
+        "danceability_profile": danceability,
+        "edge_spectral_profile": edge_spectral,
+        "tonal_profile": tonal,
+    }
+    expected[requested_attribute] = requested[requested_attribute]
+    for attribute in _ALL_PROFILE_ATTRIBUTES:
+        assert getattr(restored, attribute) == expected[attribute]
+
+
+def test_track_repository_adds_tonal_profile_column_to_v5_without_data_loss(tmp_path) -> None:
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    TrackRepository(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("ALTER TABLE tracks RENAME TO tracks_old")
+        connection.execute(
+            """
+            CREATE TABLE tracks AS
+            SELECT path, title, artist, bpm, camelot_key, energy_level,
+                   energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
+                   metadata_status, missing_required_fields_json, source_fields_json,
+                   raw_metadata_json, audio_md5, spectral_profile_json,
+                   danceability_profile_json, edge_spectral_profile_json,
+                   loudness_profile_json, file_mtime_ns, file_size_bytes
+            FROM tracks_old
+            """
+        )
+        connection.execute("DROP TABLE tracks_old")
+        connection.execute("PRAGMA user_version = 5")
+        connection.execute(
+            "INSERT INTO tracks (path, title, metadata_status) VALUES (?, ?, ?)",
+            ("/music/legacy.flac", "Legacy", "complete"),
+        )
+
+    TrackRepository(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(tracks)")}
+        row = connection.execute(
+            "SELECT title, metadata_status, tonal_profile_json FROM tracks WHERE path = ?",
+            ("/music/legacy.flac",),
+        ).fetchone()
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+
+    assert "tonal_profile_json" in columns
+    assert version == SCHEMA_VERSION == 6
+    assert row["title"] == "Legacy"
+    assert row["metadata_status"] == "complete"
+    assert row["tonal_profile_json"] is None
+
+
+def test_track_record_defaults_without_a_tonal_profile() -> None:
+    assert TrackRecord(path="/music/track.flac").tonal_profile is None

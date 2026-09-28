@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from xfinaudio.audio.danceability import DanceabilityProfile
 from xfinaudio.audio.loudness import LoudnessProfile
 from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
+from xfinaudio.audio.tonal_profile import TonalProfile
 
 MetadataStatus = Literal["complete", "incomplete"]
 
@@ -42,3 +43,4 @@ class TrackRecord(BaseModel):
     danceability_profile: DanceabilityProfile | None = None
     edge_spectral_profile: EdgeSpectralProfile | None = None
     loudness_profile: LoudnessProfile | None = None
+    tonal_profile: TonalProfile | None = None

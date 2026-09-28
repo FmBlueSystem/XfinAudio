@@ -8,6 +8,7 @@ from typing import Protocol
 from xfinaudio.audio.danceability import DanceabilityProfile
 from xfinaudio.audio.loudness import LoudnessProfile
 from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
+from xfinaudio.audio.tonal_profile import TonalProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_models import Playlist, PlaylistSummary
 
@@ -85,6 +86,25 @@ class TrackEdgeSpectralProfileCachePort(TrackEdgeSpectralProfileCacheReaderPort,
         ...
 
 
+class TrackTonalProfileCacheReaderPort(Protocol):
+    """Contract for reading cached tonal interval profiles."""
+
+    def load_tonal_profile_cache(
+        self,
+        paths: Iterable[str],
+    ) -> dict[str, tuple[int, int, TonalProfile]]:
+        """Return cached tonal profiles keyed by track path."""
+        ...
+
+
+class TrackTonalProfileCachePort(TrackTonalProfileCacheReaderPort, Protocol):
+    """Contract for cached tonal profile persistence."""
+
+    def update_tonal_profile(self, path: str, profile: TonalProfile) -> bool:
+        """Persist a tonal profile for a single track."""
+        ...
+
+
 class TrackLoudnessProfileCachePort(Protocol):
     """Contract for versioned loudness cache replay and immediate persistence."""
 
@@ -140,4 +160,6 @@ __all__ = [
     "TrackRepositoryPort",
     "TrackSpectralProfileCachePort",
     "TrackSpectralProfileCacheReaderPort",
+    "TrackTonalProfileCachePort",
+    "TrackTonalProfileCacheReaderPort",
 ]
