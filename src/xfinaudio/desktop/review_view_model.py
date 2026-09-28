@@ -174,6 +174,27 @@ class ReviewViewModel:
             position += 1
         return rows
 
+    def is_narrating(self, state: AppState) -> bool:
+        """True while the AI set narrative is being written."""
+        return state.is_narrating
+
+    def narrate_button_enabled(self, state: AppState) -> bool:
+        """The narrator needs a live recommendation with tracks and a readiness report.
+
+        Both facts are stored by applying a Prep Copilot variant, so this mirrors
+        what the AI copilot panel requires before it can ask anything at all.
+        """
+        if state.is_narrating:
+            return False
+        recommendation = state.last_recommendation
+        if recommendation is None or state.last_dj_readiness_report is None:
+            return False
+        return any(track.path not in state.playlist_removed_paths for track in recommendation.ordered_tracks)
+
+    def narrative_text(self, state: AppState) -> str:
+        """The set narrative to show, or an empty string when there is none."""
+        return state.ai_narrative_text or ""
+
 
 __all__ = [
     "ReadinessCheckRow",

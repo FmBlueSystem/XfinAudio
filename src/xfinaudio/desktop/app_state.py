@@ -48,6 +48,12 @@ class AppState:
     ai_copilot_request: str | None = None
     is_asking_copilot: bool = False
 
+    # AI set narrative ("Explícame este set"): the narration of the current
+    # recommendation, kept so render() can show it without reaching into a
+    # widget, plus the in-flight flag that drives the busy state.
+    ai_narrative_text: str | None = None
+    is_narrating: bool = False
+
     # Export
     serato_export_history: list[dict] = field(default_factory=list)
 
@@ -116,6 +122,7 @@ class AppState:
             "tracks": len(self.scanned_records),
             "has_recommendation": self.last_recommendation is not None,
             "has_readiness": self.last_dj_readiness_report is not None,
+            "has_ai_narrative": self.ai_narrative_text is not None,
             "applied_variant": self.applied_variant_name,
             "export_history": len(self.serato_export_history),
         }

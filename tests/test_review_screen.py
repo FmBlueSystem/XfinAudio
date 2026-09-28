@@ -10,6 +10,7 @@ from xfinaudio.desktop.dj_readiness_controller import DjReadinessController
 from xfinaudio.desktop.review_view_model import RecommendationRow, ReviewViewModel
 from xfinaudio.desktop.screens.review_screen import _READINESS_COLUMNS, _TRANSITION_COLUMNS, ReviewScreen
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.scoring import ScoringWeights, TransitionScore
@@ -471,3 +472,123 @@ def test_table_still_updates_when_rows_change(qapp: QApplication) -> None:
     table = screen.recommendation_table
     assert table.rowCount() == 1
     assert table.item(0, 1).text() == "/music/c.mp3"
+
+
+# ----------------------------------------------------------------------
+# AI set narrative ("Explícame este set")
+# ----------------------------------------------------------------------
+
+_NARRATIVE = "El set abre calmo y cierra arriba."
+
+
+def _review_state(paths: list[str], **overrides: object) -> AppState:
+    """A ready-to-narrate review state, with anything overridden per test."""
+    tracks = [_track(path) for path in paths]
+    state = AppState(
+        scanned_records=tracks,
+        last_recommendation=_recommendation(tracks),
+        last_dj_readiness_report=DjReadinessReport(
+            status="ready",
+            summary="Ready — 0 blocker(s), 0 review item(s); max BPM jump 2.00%",
+            checks=[],
+            blocker_count=0,
+            review_count=0,
+        ),
+    )
+    return state.model_copy(update=dict(overrides)) if overrides else state
+
+
+def test_narrate_button_emits_the_request_signal(qapp: QApplication) -> None:
+    """The button only announces intent: the window owns the request."""
+    screen = ReviewScreen()
+    vm = ReviewViewModel()
+    requested: list[bool] = []
+    screen.ai_narrate_requested.connect(lambda: requested.append(True))
+    screen.render(vm, _review_state(["/music/a.mp3"]))
+
+    screen.ai_narrate_button.click()
+
+    assert requested == [True]
+
+
+def test_narrate_button_and_narrative_display_are_accessible(qapp: QApplication) -> None:
+    screen = ReviewScreen()
+
+    assert screen.ai_narrate_button.objectName() == "ai_narrate_button"
+    assert screen.ai_narrate_button.toolTip().strip()
+    assert screen.ai_narrate_button.accessibleName().strip()
+    assert screen.ai_narrative_label.accessibleName().strip()
+    assert screen.ai_narrative_label.wordWrap()
+
+
+def test_narrate_button_is_enabled_only_with_a_narratable_set(qapp: QApplication) -> None:
+    """No recommendation, or no applied variant, means nothing honest to narrate yet."""
+    screen = ReviewScreen()
+    vm = ReviewViewModel()
+
+    screen.render(vm, AppState())
+    assert not screen.ai_narrate_button.isEnabled()
+
+    screen.render(vm, _review_state(["/music/a.mp3", "/music/b.mp3"]))
+    assert screen.ai_narrate_button.isEnabled()
+
+
+def test_render_drives_the_narrate_busy_state(qapp: QApplication) -> None:
+    """While narrating, the button is disabled and shows the busy label.
+
+    Render-driven on purpose: the coalesced state sync walks the Review screen
+    while the request is in flight, so an imperatively-set busy state would come
+    back on the next sync.
+    """
+    screen = ReviewScreen()
+
+    screen.render(ReviewViewModel(), _review_state(["/music/a.mp3"], is_narrating=True))
+
+    assert not screen.ai_narrate_button.isEnabled()
+    assert screen.ai_narrate_button.text() == "Narrando..."
+    assert "Narrating the set" in screen.ai_narrate_status.text()
+
+    screen.render(ReviewViewModel(), _review_state(["/music/a.mp3"]))
+
+    assert screen.ai_narrate_button.isEnabled()
+    assert screen.ai_narrate_button.text() == "Explícame este set"
+
+
+def test_narrative_is_rendered_from_state_and_survives_rerenders(qapp: QApplication) -> None:
+    """The narrative lives in state: an idle render must not wipe it."""
+    screen = ReviewScreen()
+    vm = ReviewViewModel()
+    state = _review_state(["/music/a.mp3"], ai_narrative_text=_NARRATIVE)
+
+    screen.render(vm, state)
+    assert screen.ai_narrative_label.text() == _NARRATIVE
+    assert screen.ai_narrative_label.isVisibleTo(screen)
+
+    screen.render(vm, state)
+    assert screen.ai_narrative_label.text() == _NARRATIVE
+    assert screen.ai_narrative_label.isVisibleTo(screen)
+
+
+def test_narrative_display_stays_hidden_until_there_is_something_to_show(qapp: QApplication) -> None:
+    """An empty display must not eat the tables' vertical space (see the table-space guard)."""
+    screen = ReviewScreen()
+
+    screen.render(ReviewViewModel(), _review_state(["/music/a.mp3"]))
+
+    assert screen.ai_narrative_label.text() == ""
+    assert not screen.ai_narrative_label.isVisibleTo(screen)
+
+
+def test_a_new_recommendation_clears_the_narrative_on_the_screen(qapp: QApplication) -> None:
+    """The narrative describes one set; a replaced set must not keep narrating it."""
+    screen = ReviewScreen()
+    vm = ReviewViewModel()
+    state = _review_state(["/music/a.mp3"], ai_narrative_text=_NARRATIVE)
+    screen.render(vm, state)
+    assert screen.ai_narrative_label.text() == _NARRATIVE
+
+    replaced = _review_state(["/music/c.mp3"])
+    screen.render(vm, replaced)
+
+    assert screen.ai_narrative_label.text() == ""
+    assert not screen.ai_narrative_label.isVisibleTo(screen)

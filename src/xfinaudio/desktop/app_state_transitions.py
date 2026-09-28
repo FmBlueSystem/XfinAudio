@@ -135,7 +135,12 @@ def apply_loudness_completion_finished(state: AppState) -> AppState:
 
 
 def apply_recommendation_completion(state: AppState, result: CompletedRecommendationResult) -> AppState:
-    """Return a new state with completed recommendation fields applied."""
+    """Return a new state with completed recommendation fields applied.
+
+    The previous AI narrative is dropped: it described the set that this
+    completion just replaced, so keeping it on screen would narrate a set the
+    DJ is no longer looking at.
+    """
     return state.model_copy(
         update={
             "last_recommendation": result.recommendation,
@@ -143,6 +148,7 @@ def apply_recommendation_completion(state: AppState, result: CompletedRecommenda
             "last_quality_report": result.quality_report,
             "playlist_removed_paths": frozenset(),
             "applied_variant_name": None,
+            "ai_narrative_text": None,
         }
     )
 
@@ -160,6 +166,7 @@ def apply_scan_context_reset(state: AppState) -> AppState:
             "last_prep_copilot_plan": None,
             "applied_variant_name": None,
             "playlist_removed_paths": frozenset(),
+            "ai_narrative_text": None,
         }
     )
 
@@ -246,7 +253,12 @@ def apply_playlist_track_restored(
 
 
 def apply_prep_copilot_variant(state: AppState, payload: PrepCopilotVariantApplication) -> AppState:
-    """Return a new state with an applied Prep Copilot variant result."""
+    """Return a new state with an applied Prep Copilot variant result.
+
+    ``apply_selected_variant`` is what stores the recommendation and the DJ
+    readiness report the narrator reads, so this transition also drops the
+    previous AI narrative: it belonged to the variant being replaced.
+    """
     return state.model_copy(
         update={
             "last_recommendation": payload.recommendation,
@@ -255,6 +267,7 @@ def apply_prep_copilot_variant(state: AppState, payload: PrepCopilotVariantAppli
             "last_dj_readiness_report": payload.readiness_report,
             "playlist_removed_paths": frozenset(),
             "applied_variant_name": payload.variant_name,
+            "ai_narrative_text": None,
         }
     )
 
@@ -326,6 +339,30 @@ def apply_ai_copilot_request_finished(state: AppState) -> AppState:
     return state.model_copy(update={"is_asking_copilot": False})
 
 
+def apply_ai_narrative_started(state: AppState) -> AppState:
+    """Return a new state marking a set-narrative request as in flight.
+
+    The previous narrative is dropped here as well as on a finished request: the
+    DJ must not read an old explanation while a new one is being written for a
+    set that may have changed since.
+    """
+    return state.model_copy(update={"is_narrating": True, "ai_narrative_text": None})
+
+
+def apply_ai_narrative_finished(state: AppState, narrative: str | None) -> AppState:
+    """Return a new state with the narrative request settled.
+
+    ``narrative`` is the model text on success and ``None`` on failure, so a
+    failed request leaves the display empty instead of showing a stale one.
+    """
+    return state.model_copy(update={"is_narrating": False, "ai_narrative_text": narrative})
+
+
+def apply_ai_narrative_cleared(state: AppState) -> AppState:
+    """Return a new state with the AI narrative and its in-flight flag cleared."""
+    return state.model_copy(update={"is_narrating": False, "ai_narrative_text": None})
+
+
 def apply_export_track_order(state: AppState, ordered_paths: list[str], *, spectral_cohesion: float = 0.0) -> AppState:
     """Return a new state whose recommendation follows a hand-made running order.
 
@@ -358,7 +395,7 @@ def apply_export_track_removal(state: AppState, path: str, *, spectral_cohesion:
 
 def apply_saved_playlist_export_recommendation(state: AppState, recommendation: PlaylistRecommendation) -> AppState:
     """Return a new state with a saved-playlist export recommendation applied."""
-    return state.model_copy(update={"last_recommendation": recommendation})
+    return state.model_copy(update={"last_recommendation": recommendation, "ai_narrative_text": None})
 
 
 __all__ = [
@@ -372,6 +409,9 @@ __all__ = [
     "apply_playlist_track_restored",
     "apply_ai_copilot_request_finished",
     "apply_ai_copilot_request_started",
+    "apply_ai_narrative_cleared",
+    "apply_ai_narrative_finished",
+    "apply_ai_narrative_started",
     "apply_prep_copilot_plan_cleared",
     "apply_prep_copilot_plan_generated",
     "apply_prep_copilot_variant",

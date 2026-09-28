@@ -120,6 +120,7 @@ class ReviewScreen(QWidget):
     back_requested = Signal()
     proceed_to_export_requested = Signal()
     save_to_playlists_requested = Signal()
+    ai_narrate_requested = Signal()  # "Explícame este set": ask the AI to narrate the set
     track_remove_requested = Signal(str)  # emits the track path
     track_play_requested = Signal(str)  # emits the track path
     remove_without_selection_requested = Signal()  # no valid row selected for removal
@@ -181,8 +182,38 @@ class ReviewScreen(QWidget):
         self.save_to_playlists_button = QPushButton(self.tr("Save to My Playlists"))
         self.save_to_playlists_button.setEnabled(False)
         actions.addWidget(self.save_to_playlists_button)
+        # Set-level AI narrative. It complements the deterministic per-track
+        # explainability already carried by the row tooltips: this button asks the
+        # LLM to narrate the whole arc, and the label below it shows the answer.
+        self.ai_narrate_button = QPushButton(self.tr("Explícame este set"))
+        self.ai_narrate_button.setObjectName("ai_narrate_button")
+        self.ai_narrate_button.setEnabled(False)
+        actions.addWidget(self.ai_narrate_button)
         actions.addStretch()
         layout.addLayout(actions)
+
+        # The narrative is read-only text from state, so a wrapping label is
+        # enough -- a text edit would claim focus and look like an input the DJ
+        # never types into. The label is adaptive: measured, a 150-word narrative
+        # takes ~75px at 1200px wide and ~138px at 550px wide, and it is capped at
+        # 150px so it can never eat the whole screen. It stays hidden while empty,
+        # so an idle Review screen loses no height to it.
+        self.ai_narrative_label = QLabel()
+        self.ai_narrative_label.setObjectName("ai_narrative_label")
+        self.ai_narrative_label.setWordWrap(True)
+        self.ai_narrative_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.ai_narrative_label.setMaximumHeight(150)
+        self.ai_narrative_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.ai_narrative_label.setVisible(False)
+        layout.addWidget(self.ai_narrative_label)
+
+        # Narrator status line: its own row, because the controls row above cannot
+        # give a wrapping message the width it needs.
+        self.ai_narrate_status = QLabel("")
+        self.ai_narrate_status.setObjectName("ai_narrate_status")
+        self.ai_narrate_status.setWordWrap(True)
+        self.ai_narrate_status.setMaximumHeight(36)
+        layout.addWidget(self.ai_narrate_status)
 
         # 4. Transition table help label
         self.transition_help_label = QLabel(
@@ -256,6 +287,10 @@ class ReviewScreen(QWidget):
         tips = {
             self.remove_track_button: "Remove the selected track from the playlist",
             self.save_to_playlists_button: "Save this recommendation to My Playlists",
+            self.ai_narrate_button: (
+                "Ask the AI to explain this set: how it opens, how it moves, and where it lands, "
+                "using only the facts the engine produced"
+            ),
             self.back_button: "Return to the Build screen",
             self.export_button: "Move on to export this playlist",
         }
@@ -269,6 +304,9 @@ class ReviewScreen(QWidget):
         self.recommendation_table.setAccessibleName(self.tr("Recommended playlist"))
         self.remove_track_button.setAccessibleName(self.tr("Remove selected track from playlist"))
         self.save_to_playlists_button.setAccessibleName(self.tr("Save recommendation to My Playlists"))
+        self.ai_narrate_button.setAccessibleName(self.tr("Explain this set with the AI narrator"))
+        self.ai_narrative_label.setAccessibleName(self.tr("AI set narrative"))
+        self.ai_narrate_status.setAccessibleName(self.tr("AI set narrator status"))
         self.transition_table.setAccessibleName(self.tr("Transition analysis"))
         self.readiness_table.setAccessibleName(self.tr("Readiness checks"))
         self.back_button.setAccessibleName(self.tr("Back to build"))
@@ -279,7 +317,8 @@ class ReviewScreen(QWidget):
         self.setTabOrder(self.readiness_badge, self.recommendation_table)
         self.setTabOrder(self.recommendation_table, self.remove_track_button)
         self.setTabOrder(self.remove_track_button, self.save_to_playlists_button)
-        self.setTabOrder(self.save_to_playlists_button, self.transition_table)
+        self.setTabOrder(self.save_to_playlists_button, self.ai_narrate_button)
+        self.setTabOrder(self.ai_narrate_button, self.transition_table)
         self.setTabOrder(self.transition_table, self.readiness_table)
         self.setTabOrder(self.readiness_table, self.back_button)
         self.setTabOrder(self.back_button, self.export_button)
@@ -297,6 +336,7 @@ class ReviewScreen(QWidget):
         self.back_button.clicked.connect(self.back_requested)
         self.export_button.clicked.connect(self.proceed_to_export_requested)
         self.save_to_playlists_button.clicked.connect(self.save_to_playlists_requested)
+        self.ai_narrate_button.clicked.connect(self.ai_narrate_requested)
         self.recommendation_table.itemSelectionChanged.connect(self._on_recommendation_selection_changed)
         self.remove_track_button.clicked.connect(self._on_remove_clicked)
         self.recommendation_table.itemDoubleClicked.connect(self._on_rec_double_clicked)
@@ -304,6 +344,7 @@ class ReviewScreen(QWidget):
     def connect_signals(self, window: Any) -> None:
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(1))
         self.proceed_to_export_requested.connect(window._library_controller.on_proceed_to_export)
+        self.ai_narrate_requested.connect(window.explain_ai_set)
         self.track_remove_requested.connect(window._library_controller.on_track_remove_requested)
         self.track_play_requested.connect(window._library_controller.on_track_play_requested)
         self.remove_without_selection_requested.connect(
@@ -327,6 +368,20 @@ class ReviewScreen(QWidget):
         self.readiness_badge.setText(vm.readiness_badge_text(state))
         self.export_button.setEnabled(vm.can_export(state))
         self.save_to_playlists_button.setEnabled(state.last_recommendation is not None)
+        # The narrative is cheap idempotent text from state, so it is re-applied on
+        # every render (including lightweight ones) instead of needing a signature
+        # cache. It is never cleared here: only a new recommendation invalidates it.
+        self.ai_narrate_button.setEnabled(vm.narrate_button_enabled(state))
+        if vm.is_narrating(state):
+            # Only the busy text is render-owned. The success/failure message is
+            # written by the controller and must survive the next idle render.
+            self.ai_narrate_button.setText(self.tr("Narrando..."))
+            self.ai_narrate_status.setText(self.tr("Narrating the set... this can take up to two minutes"))
+        else:
+            self.ai_narrate_button.setText(self.tr("Explícame este set"))
+        narrative = vm.narrative_text(state)
+        self.ai_narrative_label.setText(narrative)
+        self.ai_narrative_label.setVisible(bool(narrative))
         if not lightweight:
             rows = vm.recommendation_rows(state)
             signature = _recommendation_rows_signature(rows)

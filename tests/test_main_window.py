@@ -3464,3 +3464,26 @@ def test_close_event_cancels_an_in_flight_ai_copilot_request(monkeypatch) -> Non
     window.closeEvent(QCloseEvent())
 
     assert cancelled == [True]
+
+
+def test_review_screen_narrate_signal_reaches_the_ai_narrator_controller(monkeypatch) -> None:
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    narrated: list[bool] = []
+    monkeypatch.setattr(window._ai_narrator, "narrate", lambda: narrated.append(True))
+
+    window._review_screen.ai_narrate_requested.emit()
+
+    assert narrated == [True]
+
+
+def test_close_event_cancels_an_in_flight_ai_narrator_request(monkeypatch) -> None:
+    """A whole-set narration blocks for up to two minutes unless close tears its thread down."""
+    ensure_app()
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    cancelled: list[bool] = []
+    monkeypatch.setattr(window._ai_narrator, "cancel", lambda: cancelled.append(True))
+
+    window.closeEvent(QCloseEvent())
+
+    assert cancelled == [True]

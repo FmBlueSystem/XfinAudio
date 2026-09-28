@@ -15,6 +15,7 @@ from xfinaudio.ai.nan_client import (
     is_ai_enabled,
     load_api_key_from_env_file,
 )
+from xfinaudio.ai.set_narrator import narrate_set
 
 __all__ = [
     "NanConfigError",
@@ -24,4 +25,5 @@ __all__ = [
     "extract_intent",
     "is_ai_enabled",
     "load_api_key_from_env_file",
+    "narrate_set",
 ]
