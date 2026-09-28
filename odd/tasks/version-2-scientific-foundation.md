@@ -49,6 +49,7 @@ version"). Major bump justified: scoring semantics change.
   weight default 0.0 joining COMPATIBILITY axis, scripts/tiv_ab_benchmark.py
   dual-arm harness). 53 new tests; full suite 2386; pinned totals byte-identical.
 - Engine pack slice 1 (T3 target_minutes + T4 slot_role): in flight (writer).
-- Engine pack slice 2 (T1 triads + provenance tags): pending.
+- Engine pack slice 2 (T1 triads + provenance tags): committed bf7bd7a (reserved 'triad:' tag namespace, triad component 1.0/neutral on MIXABILITY axis default 0.0, bonus-never-gate, +22 tests; tags-channel confound neutralized in the A/B service test).
+- Copilot intent wiring (target_minutes/slot_role via chat): in flight (final v2 slice).
 - T9 contingency branches: deferred to a follow-up slice (medium value,
   sequential per-branch runs feasible; not blocking 2.0).
