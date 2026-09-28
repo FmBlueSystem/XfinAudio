@@ -48,6 +48,22 @@ class ScoringWeights(BaseModel):
     # where production wiring passes this field's value. It is never negative
     # (validated with the other components) and never blocks a track.
     familiarity: float = 0.0
+    # Rehearsed-together triad/tanda adjacency (Engine pack slice 2, T1). A
+    # triad is a short cluster of tracks the DJ has actually played together, so
+    # a shared identity is direct evidence that this junction has been heard by
+    # ear. Provenance rides the reserved ``triad:`` tag namespace, read by
+    # ``track_triad_identities``.
+    #
+    # It joins the MIXABILITY axis, not compatibility: adjacency/momentum
+    # answers "can these two be joined right now" (like bpm/energy/
+    # spectral_edge), while compatibility asks whether two tracks belong in the
+    # same set -- which sharing a rehearsal says nothing about.
+    #
+    # Disabled by default (0.0, the spectral_edge/tonal/familiarity precedent):
+    # with the default weight every transition score stays byte-identical, and
+    # the A/B harness turns it on per arm through ``weights_override``. It is a
+    # bonus and never a gate: unrehearsed pairs score neutral, not bad.
+    triad: float = 0.0
 
     @model_validator(mode="after")
     def validate_weights(self) -> ScoringWeights:
@@ -116,12 +132,24 @@ class TransitionScoringConfig(BaseModel):
 
 
 # Every component _weighted_total accounts for, present or not.
-SCORED_COMPONENTS = ("harmonic", "bpm", "energy", "tags", "spectral", "danceability", "spectral_edge", "tonal")
+SCORED_COMPONENTS = (
+    "harmonic",
+    "bpm",
+    "energy",
+    "tags",
+    "spectral",
+    "danceability",
+    "spectral_edge",
+    "tonal",
+    "triad",
+)
 # Compatibility asks whether tracks belong in the same set; mixability asks
 # whether they can be joined. The latter already has hand-rolled checks in
 # quality/dj_readiness.py's _bpm_continuity_check/_energy_continuity_check.
 COMPATIBILITY_COMPONENTS = ("harmonic", "tags", "danceability", "spectral", "tonal")
-MIXABILITY_COMPONENTS = ("bpm", "energy", "spectral_edge")
+# ``triad`` is here, not in compatibility: a rehearsed junction says the two
+# tracks can be joined, not that they belong to the same kind of set.
+MIXABILITY_COMPONENTS = ("bpm", "energy", "spectral_edge", "triad")
 # Score for a component that cannot be evaluated: midway between a known
 # mismatch (0.0) and a known match (1.0), so absent metadata neither rewards
 # nor punishes.
@@ -130,6 +158,45 @@ NEUTRAL_COMPONENT_SCORE = 0.5
 DEFAULT_WEIGHTS = ScoringWeights()
 DEFAULT_SCORING_CONFIG = TransitionScoringConfig(weights=DEFAULT_WEIGHTS, score_curve="fuzzy", spectral_cohesion=0.0)
 REQUIRED_FIELDS = DEFAULT_SCORING_CONFIG.required_fields
+
+# Reserved tag namespace for triad/tanda provenance (Engine pack slice 2, T1): a
+# tag starting with this prefix marks the track as a member of the rehearsed
+# cluster named by the suffix. Mixed In Key's own tag fields are unaffected --
+# this is an engine convention layered on the existing tag channel.
+TRIAD_TAG_PREFIX = "triad:"
+
+
+def track_triad_identities(track: TrackRecord) -> frozenset[str]:
+    """Return the triad/tanda identities a track declares, read from its tags.
+
+    A triad is a short cluster of tracks the DJ rehearsed together. Provenance
+    rides the existing tag channel under a reserved prefix: the tag
+    ``triad:a7f3`` declares membership of the cluster whose identity is
+    ``a7f3``. The prefix match is case-insensitive and the identity is
+    casefolded, so ``TRIAD:A7F3`` and ``triad:a7f3`` name the same cluster -- tag
+    text arrives in both spellings from different writers. A track may carry
+    several identities, because it can sit in several rehearsed clusters.
+
+    Only ``TrackRecord.tags`` is read. Genre is a free-text field the candidate
+    pool also splits into vibe terms, and reading provenance out of it would let
+    ordinary genre text invent clusters. A ``triad:`` tag with an empty suffix
+    names nothing and is ignored: treating it as an identity would declare every
+    such track rehearsed with every other one.
+
+    Defined here rather than in ``candidate_pool`` because scoring is the lower
+    layer -- ``candidate_pool`` already imports this module -- and the
+    component below needs it. ``candidate_pool`` re-exports it as part of the
+    pool-facing API.
+    """
+    identities: set[str] = set()
+    for tag in track.tags:
+        candidate = tag.strip()
+        if candidate[: len(TRIAD_TAG_PREFIX)].casefold() != TRIAD_TAG_PREFIX:
+            continue
+        identity = candidate[len(TRIAD_TAG_PREFIX) :].strip().casefold()
+        if identity:
+            identities.add(identity)
+    return frozenset(identities)
 
 
 def score_transition(
@@ -245,6 +312,11 @@ def score_transition(
     if danceability_score is not None:
         component_scores["danceability"] = danceability_score
         explanations.append(f"Danceability similarity is {danceability_score:.2f}")
+
+    triad_score = _score_triad(left, right)
+    if triad_score is not None:
+        component_scores["triad"] = triad_score[0]
+        explanations.append(f"Rehearsed triad/tanda shared: {'/'.join(sorted(triad_score[1]))}")
 
     spectral_penalty = _spectral_color_penalty(left, right, scoring_config.spectral_cohesion)
     if spectral_penalty:
@@ -421,6 +493,22 @@ def _score_danceability(left: TrackRecord, right: TrackRecord) -> float | None:
         return None
     score = 1.0 - abs(left.danceability_profile.score - right.danceability_profile.score)
     return min(max(score, 0.0), 1.0)
+
+
+def _score_triad(left: TrackRecord, right: TrackRecord) -> tuple[float, frozenset[str]] | None:
+    """Return the rehearsed-cluster overlap, or None when there is no evidence.
+
+    A shared identity is the rehearsed-together contract: those two tracks have
+    been played as a junction before, so the component scores 1.0. Everything
+    else is ABSENT evidence rather than bad evidence -- a track outside any
+    triad and a track in a different triad both leave this pair unrehearsed, so
+    the component is omitted and scores neutral (0.5) like any other
+    unevaluable component. Scoring disjoint identities as 0.0 would turn the
+    bonus into a penalty on every ordinary pair, which is a gate wearing a
+    bonus's weight.
+    """
+    shared = track_triad_identities(left) & track_triad_identities(right)
+    return (1.0, shared) if shared else None
 
 
 def _effective_weights(weights: ScoringWeights | None, config: TransitionScoringConfig) -> ScoringWeights:

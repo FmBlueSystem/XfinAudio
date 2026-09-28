@@ -1,4 +1,12 @@
-"""Pure recommendation candidate-pool policy — no Qt dependencies."""
+"""Pure recommendation candidate-pool policy — no Qt dependencies.
+
+Reserved tag namespace: a tag beginning with ``triad:`` (``TRIAD_TAG_PREFIX``,
+matched case-insensitively) declares that the track belongs to a rehearsed
+cluster — a triad/tanda — named by the casefolded suffix. The convention is the
+engine's own and is layered on the ordinary tag channel: Mixed In Key tags, and
+the vibe-term/genre handling below, are unaffected. ``track_triad_identities``
+reads it; ``scoring`` prices the resulting adjacency bonus.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +17,7 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.camelot import score_camelot_transition
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
 from xfinaudio.recommendation.familiarity import FamiliaritySignal
-from xfinaudio.recommendation.scoring import normalized_bpm_pair
+from xfinaudio.recommendation.scoring import TRIAD_TAG_PREFIX, normalized_bpm_pair, track_triad_identities
 
 _DEFAULT_LIMIT = 25
 
@@ -378,3 +386,15 @@ def _familiarity_adjusted(
     decorated = [(record, 1.0 - position / count) for position, record in enumerate(ranked)]
     ranked_decorated = sorted(decorated, key=lambda item: -_adjusted_score(item[1], item[0].path))
     return [record for record, _ in ranked_decorated]
+
+
+# ``track_triad_identities`` and ``TRIAD_TAG_PREFIX`` are defined in ``scoring``
+# (the lower layer: this module already imports it) and re-exported here so the
+# pool-facing API carries the reserved-namespace contract with it.
+__all__ = [
+    "TRIAD_TAG_PREFIX",
+    "anchor_preflight_warnings",
+    "build_recommendation_pool",
+    "dedupe_recommendation_duplicates",
+    "track_triad_identities",
+]

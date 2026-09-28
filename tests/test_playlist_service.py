@@ -6,6 +6,7 @@ from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation import optimizer as optimizer_module
+from xfinaudio.recommendation.candidate_pool import track_triad_identities
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.playlist_service import (
@@ -2808,3 +2809,85 @@ def test_mixed_pre_and_post_sequencing_bpm_drops_report_each_stage_count() -> No
     assert _bpm_jump_warning(2) in result.warnings
     assert _bpm_jump_warning(6) in result.warnings
     assert _bpm_jump_warning(8) not in result.warnings
+
+
+# ---------------------------------------------------------------------------
+# Engine pack slice 2 (T1 triads/tandas) — rehearsed-together provenance
+# reaches the ordered set through the same `weights_override` seam the
+# harmonic-core A/B harness uses, and it only ever changes ORDER.
+# ---------------------------------------------------------------------------
+
+
+def _triad_fixture() -> tuple[list[TrackRecord], DJControls]:
+    """Anchor, a two-track rehearsed cluster, and four plain candidates.
+
+    Every track shares bpm/key/genre and the fillers share one energy level, so
+    the only thing separating the paths is the cluster's energy spread against
+    the fillers: joining the two cluster members is a strict energy loss (levels
+    2 vs 5, outside the energy curve's useful range), while joining either of
+    them to a filler stays inside it. Without the triad bonus the engine has no
+    reason to seat them together.
+    """
+    anchor = track("/start.flac", energy_level=4, tags=["peak"])
+    rehearsed = [
+        track("/triad-a.flac", energy_level=2, tags=["peak", "triad:alpha"]),
+        track("/triad-b.flac", energy_level=5, tags=["peak", "triad:alpha"]),
+    ]
+    fillers = [track(f"/filler-{index}.flac", energy_level=4, tags=["peak"]) for index in range(4)]
+    return [anchor, *rehearsed, *fillers], DJControls(start_path="/start.flac")
+
+
+def _triad_adjacency_count(recommendation: PlaylistRecommendation, identity: str) -> int:
+    tracks = recommendation.ordered_tracks
+    return sum(
+        1
+        for left, right in zip(tracks, tracks[1:], strict=False)
+        if identity in track_triad_identities(left) & track_triad_identities(right)
+    )
+
+
+def test_triad_weight_makes_rehearsed_tracks_adjacent_more_often_than_without_it() -> None:
+    records, controls = _triad_fixture()
+    # A/B harness shape (scripts/tiv_ab_benchmark.py): both arms carry the
+    # intent's own weights and the test arm only adds the triad weight.
+    #
+    # The tags component is zeroed in BOTH arms on purpose, because the triad
+    # identity IS a tag: left on, the ordinary tag-overlap channel already pulls
+    # same-triad tracks together by itself (asserted at the end of this test, so
+    # the confound stays visible instead of lurking). Zeroing it in both arms is
+    # what isolates the new component -- the only difference left is the weight
+    # under test.
+    base = get_strategy("same_genre").weights.model_copy(update={"tags": 0.0})
+    triad_arm = base.model_copy(update={"triad": 1.0})
+
+    baseline = recommend_playlist(records, "same_genre", controls=controls, weights_override=base)
+    with_triads = recommend_playlist(records, "same_genre", controls=controls, weights_override=triad_arm)
+    repeated = recommend_playlist(records, "same_genre", controls=controls, weights_override=triad_arm)
+
+    assert _triad_adjacency_count(baseline, "alpha") == 0
+    assert _triad_adjacency_count(with_triads, "alpha") == 1
+    # Determinism: the same request returns the same set, twice.
+    assert [item.path for item in repeated.ordered_tracks] == [item.path for item in with_triads.ordered_tracks]
+    # The bonus is priced in the adjacency scores the caller receives, not only
+    # in the ordering that comes out of it.
+    assert not any("triad" in score.component_scores for score in baseline.transition_scores)
+    assert any(score.component_scores.get("triad") == 1.0 for score in with_triads.transition_scores)
+    # The confound, measured: with no override at all, the default tag channel
+    # (weight 0.30 in this intent) already seats the cluster, because the shared
+    # `triad:alpha` tag is tag overlap like any other. That is why both arms
+    # above neutralize tags to isolate the component -- and why the component is
+    # worth having as an explicit, weightable knob rather than an accident of
+    # tag arithmetic.
+    raw_default = recommend_playlist(records, "same_genre", controls=controls)
+    assert _triad_adjacency_count(raw_default, "alpha") == 1
+
+
+def test_triad_weight_never_changes_set_membership() -> None:
+    """A triad is a bonus, never a gate: the same tracks come back either way."""
+    records, controls = _triad_fixture()
+    triad_arm = get_strategy("same_genre").weights.model_copy(update={"triad": 1.0})
+
+    plain = recommend_playlist(records, "same_genre", controls=controls)
+    with_triads = recommend_playlist(records, "same_genre", controls=controls, weights_override=triad_arm)
+
+    assert {item.path for item in with_triads.ordered_tracks} == {item.path for item in plain.ordered_tracks}

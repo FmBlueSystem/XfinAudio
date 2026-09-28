@@ -48,6 +48,12 @@ _STRATEGIES: dict[StrategyName, PlaylistStrategy] = {
     # Harmonic core v2 spike: no strategy enables audio-derived tonal scoring on
     # its own. The A/B harness turns it on per arm through ScoringWeights
     # ``weights_override`` (mirroring the familiarity field's inert default).
+    #
+    # Every strategy likewise leaves the triad/tanda adjacency weight at its 0.0
+    # default (Engine pack slice 2, T1). A rehearsed-cluster bonus reorders a set
+    # for a specific gig's provenance, so it is never a strategy-wide default;
+    # production opt-in and the A/B harness turn it on per request through
+    # ``ScoringWeights`` ``weights_override``.
     "harmonic_journey": PlaylistStrategy(
         name="harmonic_journey",
         display_name="Harmonic Journey",

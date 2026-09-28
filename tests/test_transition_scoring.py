@@ -14,6 +14,7 @@ from xfinaudio.recommendation.playlist_service import recommend_playlist
 from xfinaudio.recommendation.scoring import (
     COMPATIBILITY_COMPONENTS,
     MIXABILITY_COMPONENTS,
+    NEUTRAL_COMPONENT_SCORE,
     SCORED_COMPONENTS,
     KeyShiftConfig,
     ScoringWeights,
@@ -842,3 +843,142 @@ def test_tonal_compatibility_is_symmetric() -> None:
     )
 
     assert forward.component_scores["tonal"] == reverse.component_scores["tonal"]
+
+
+# ---------------------------------------------------------------------------
+# Triad/tanda adjacency weight (Engine pack slice 2, T1) — rehearsed-together
+# provenance joins the mixability axis, disabled by default and inert at 0.0.
+#
+# Adjacency/momentum ("can these two be joined right now") is mixability, like
+# bpm/energy/spectral_edge; compatibility asks whether two tracks belong in the
+# same set, which a shared rehearsal says nothing about.
+#
+# Absent OR disjoint identities score neutral: a track that is not in a triad,
+# and a track that is in a different triad, give the engine no evidence either
+# way. Scoring disjoint identities as 0.0 would turn a provenance bonus into a
+# penalty on every unrehearsed pair, which is exactly the gate a bonus must
+# never become.
+# ---------------------------------------------------------------------------
+
+
+def _triad_only_weights(**overrides: float) -> ScoringWeights:
+    base = {
+        "harmonic": 0.0,
+        "bpm": 0.0,
+        "energy": 0.0,
+        "tags": 0.0,
+        "spectral": 0.0,
+        "danceability": 0.0,
+        "spectral_edge": 0.0,
+        "tonal": 0.0,
+        "triad": 1.0,
+    }
+    base.update(overrides)
+    return ScoringWeights(**base)
+
+
+def test_triad_default_weight_is_disabled() -> None:
+    assert ScoringWeights().triad == 0.0
+
+
+def test_triad_component_joins_the_mixability_axis() -> None:
+    assert "triad" in SCORED_COMPONENTS
+    assert "triad" in MIXABILITY_COMPONENTS
+    assert "triad" not in COMPATIBILITY_COMPONENTS
+
+
+def test_triad_default_weight_does_not_change_the_normalization_denominator() -> None:
+    """Byte-identical totals depend on this sum, so it is pinned explicitly."""
+    weights = ScoringWeights()
+
+    assert sum(getattr(weights, name) for name in SCORED_COMPONENTS) == pytest.approx(1.10)
+
+
+def test_every_builtin_strategy_leaves_triad_disabled() -> None:
+    registry = default_strategy_registry()
+
+    enabled = {name for name in registry.available() if registry.get(name).weights.triad != 0.0}
+
+    assert enabled == set()
+
+
+def test_shared_triad_identity_scores_one_and_joins_the_total() -> None:
+    result = score_transition(
+        track("left", tags=["triad:a7f3"]),
+        track("right", tags=["TRIAD:A7F3"]),
+        weights=_triad_only_weights(),
+    )
+
+    assert result.component_scores["triad"] == 1.0
+    assert result.total_score == pytest.approx(1.0)
+    assert result.mixability_score == pytest.approx(1.0)
+    assert result.compatibility_score is None
+    assert "Rehearsed triad/tanda shared: a7f3" in result.explanations
+
+
+def test_sharing_any_single_triad_identity_is_enough() -> None:
+    result = score_transition(
+        track("left", tags=["triad:alpha", "triad:bravo"]),
+        track("right", tags=["triad:bravo", "triad:charlie"]),
+        weights=_triad_only_weights(),
+    )
+
+    assert result.component_scores["triad"] == 1.0
+
+
+def test_triad_component_is_symmetric() -> None:
+    left = track("left", tags=["triad:alpha", "triad:bravo"])
+    right = track("right", tags=["triad:BRAVO"])
+
+    forward = score_transition(left, right, weights=_triad_only_weights())
+    reverse = score_transition(right, left, weights=_triad_only_weights())
+
+    assert forward.component_scores["triad"] == reverse.component_scores["triad"] == 1.0
+
+
+def test_shared_triad_identity_is_reported_even_at_zero_weight() -> None:
+    result = score_transition(track("left", tags=["triad:a7f3"]), track("right", tags=["triad:a7f3"]))
+
+    assert result.component_scores["triad"] == 1.0
+
+
+def test_absent_or_disjoint_triad_identities_are_neutral_and_never_penalized() -> None:
+    weights = _triad_only_weights()
+    shared = score_transition(
+        track("sl", tags=["triad:a7f3"]), track("sr", tags=["triad:a7f3"]), weights=weights
+    )
+    absent = score_transition(track("al", tags=[]), track("ar", tags=[]), weights=weights)
+    one_sided = score_transition(track("ol", tags=["triad:a7f3"]), track("or", tags=[]), weights=weights)
+    disjoint = score_transition(
+        track("dl", tags=["triad:a7f3"]), track("dr", tags=["triad:9c21"]), weights=weights
+    )
+
+    assert "triad" not in absent.component_scores
+    assert "triad" not in one_sided.component_scores
+    assert "triad" not in disjoint.component_scores
+    assert absent.total_score == NEUTRAL_COMPONENT_SCORE
+    assert one_sided.total_score == NEUTRAL_COMPONENT_SCORE
+    assert disjoint.total_score == NEUTRAL_COMPONENT_SCORE
+    # A bonus, never a gate: the rehearsed pair outranks the unrehearsed ones,
+    # and being in a DIFFERENT triad costs exactly as much as being in none.
+    assert shared.total_score > disjoint.total_score == absent.total_score
+
+
+def test_triad_weight_raises_the_total_above_the_same_pair_without_the_bonus() -> None:
+    """The opt-in knob, isolated: the tonal weight keeps the weight sum valid.
+
+    Tonal profiles are absent here, so the tonal component stays neutral and the
+    ONLY difference between the arms is the triad weight.
+    """
+    left = track("left", tags=["Peak", "triad:a7f3"])
+    right = track("right", tags=["Peak", "triad:a7f3"])
+    base = _triad_only_weights(tonal=0.5, triad=0.0)
+    with_triad = base.model_copy(update={"triad": 0.5})
+
+    without = score_transition(left, right, weights=base)
+    with_bonus = score_transition(left, right, weights=with_triad)
+
+    assert without.total_score == NEUTRAL_COMPONENT_SCORE
+    assert without.mixability_score is None
+    assert with_bonus.total_score > without.total_score
+    assert with_bonus.mixability_score == pytest.approx(1.0)

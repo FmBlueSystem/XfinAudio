@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation import candidate_pool
 from xfinaudio.recommendation.candidate_pool import (
     _track_similarity_key,
     build_recommendation_pool,
     dedupe_recommendation_duplicates,
+    track_triad_identities,
 )
 from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import recommend_playlist
@@ -572,3 +574,104 @@ def test_familiarity_ignores_signals_for_paths_outside_the_pool():
     boosted = build_recommendation_pool(records, controls, 40, familiarity=signals, familiarity_weight=1.0)
 
     assert [r.path for r in boosted] == [r.path for r in baseline]
+
+
+# ---------------------------------------------------------------------------
+# Engine pack slice 2 (T1 triads/tandas) — reserved `triad:` tag namespace.
+#
+# A triad is a short cluster of tracks the DJ rehearsed together. Its provenance
+# rides the existing tag channel under a reserved prefix; the suffix after the
+# prefix is the shared identity. The parser is the only new data contract, and it
+# is purely additive: Mixed In Key tags flow through the tag channel untouched.
+# ---------------------------------------------------------------------------
+
+
+def _tagged(path: str, *tags: str) -> TrackRecord:
+    return track(path).model_copy(update={"tags": list(tags)})
+
+
+def test_triad_identities_parses_the_reserved_prefix() -> None:
+    assert track_triad_identities(_tagged("/t.flac", "triad:a7f3")) == frozenset({"a7f3"})
+
+
+def test_triad_prefix_match_is_case_insensitive_and_casefolds_the_identity() -> None:
+    record = _tagged("/t.flac", "TRIAD:A7F3", "Triad:AbC")
+
+    assert track_triad_identities(record) == frozenset({"a7f3", "abc"})
+
+
+def test_triad_identities_collects_every_identity_a_track_carries() -> None:
+    record = _tagged("/t.flac", "triad:alpha", "peak", "triad:beta")
+
+    assert track_triad_identities(record) == frozenset({"alpha", "beta"})
+
+
+def test_track_without_triad_tags_has_no_triad_identity() -> None:
+    assert track_triad_identities(track("/t.flac")) == frozenset()
+
+
+def test_triad_identity_requires_a_non_empty_suffix() -> None:
+    """`triad:` alone names no cluster, so it is malformed and ignored.
+
+    The prefix alone (or with only whitespace after it) carries no identity to
+    share: treating it as one would make every such track "rehearsed together".
+    """
+    record = _tagged("/t.flac", "triad:", "triad:   ", "triad")
+
+    assert track_triad_identities(record) == frozenset()
+
+
+def test_triad_identity_tolerates_surrounding_whitespace() -> None:
+    assert track_triad_identities(_tagged("/t.flac", "  triad:a7f3  ")) == frozenset({"a7f3"})
+
+
+def test_triad_identity_is_read_from_tags_only_never_from_genre() -> None:
+    """The reserved namespace is a TAG convention: genre text is never provenance.
+
+    Genre is a comma-joined free-text field the scanner also splits into vibe
+    terms; reading it as provenance would let ordinary genre text create triads.
+    """
+    record = track("/t.flac").model_copy(update={"tags": [], "genre": "triad:a7f3"})
+
+    assert track_triad_identities(record) == frozenset()
+
+
+def test_triad_identity_helper_is_part_of_the_candidate_pool_api() -> None:
+    assert "track_triad_identities" in candidate_pool.__all__
+
+
+def test_dedupe_keeps_distinct_songs_that_share_a_triad_identity() -> None:
+    """A triad groups DIFFERENT songs; dedupe collapses duplicate VERSIONS.
+
+    Membership in a triad is never a cross-song grouping key: the grouping key
+    stays title+artist, so every member of a triad survives candidate-pool
+    dedupe and only true duplicate versions collapse.
+    """
+    first = _record("/triad-one.mp3", title="Song One", artist="Artist A").model_copy(
+        update={"tags": ["triad:a7f3"]}
+    )
+    second = _record("/triad-two.mp3", title="Song Two", artist="Artist B").model_copy(
+        update={"tags": ["triad:a7f3"]}
+    )
+
+    result = dedupe_recommendation_duplicates([first, second], controls=None)
+
+    assert [r.path for r in result] == ["/triad-one.mp3", "/triad-two.mp3"]
+
+
+def test_build_recommendation_pool_membership_and_order_ignore_triad_tags() -> None:
+    """Slice-2 decision: the pool seam is deliberately untouched.
+
+    The triad bonus is priced in `score_transition`, so it reaches ordering
+    through the optimizer's objective — where it can perturb which adjacency is
+    chosen but can never change pool membership. Pool ranking stays exactly as
+    it is today, and triad tags are inert here.
+    """
+    anchor = track("/anchor.flac")
+    plain = [track(f"/c{index:02d}.flac") for index in range(5)]
+    tagged = [r.model_copy(update={"tags": [*r.tags, "triad:alpha"]}) for r in plain]
+
+    baseline = build_recommendation_pool([anchor, *plain], DJControls(start_path="/anchor.flac"), 10)
+    with_triads = build_recommendation_pool([anchor, *tagged], DJControls(start_path="/anchor.flac"), 10)
+
+    assert [r.path for r in with_triads] == [r.path for r in baseline]
