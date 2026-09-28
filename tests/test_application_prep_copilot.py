@@ -77,3 +77,29 @@ def test_application_prep_copilot_generation_builds_intent_and_delegates() -> No
     assert intent.required_paths == ["/music/start.flac", "/music/must.flac"]
     assert intent.genre_focus == "House"
     assert calls[0][2] == LoudnessBand(-14.0, 0.5)
+
+
+def test_application_generation_forwards_the_pool_note_preamble_to_the_intent() -> None:
+    """The controller-recorded prefilter preamble must reach the domain intent."""
+    from xfinaudio.application.prep_copilot import PrepCopilotGenerationRequest, generate_prep_copilot_plan
+
+    captured_intents: list[Any] = []
+
+    def fake_plan_builder(tracks: Any, intent: Any, *, color_anchor_path: Any = None, loudness_band: Any = None) -> Any:
+        captured_intents.append(intent)
+        return object()
+
+    preamble = "Genre 'Disco' prefilter: 1 of 3 complete library track(s)"
+    generate_prep_copilot_plan(
+        [],
+        PrepCopilotGenerationRequest(strategy="build", target_track_count=10, pool_note_preamble=preamble),
+        plan_builder=fake_plan_builder,
+    )
+    assert captured_intents[0].pool_note_preamble == preamble
+
+    generate_prep_copilot_plan(
+        [],
+        PrepCopilotGenerationRequest(strategy="build", target_track_count=10),
+        plan_builder=fake_plan_builder,
+    )
+    assert captured_intents[1].pool_note_preamble is None

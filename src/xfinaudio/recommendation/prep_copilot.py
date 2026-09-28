@@ -43,6 +43,11 @@ class DJSetIntent(BaseModel):
     required_paths: list[str] = Field(default_factory=list)
     excluded_paths: set[str] = Field(default_factory=set)
     genre_focus: str | None = None
+    # Diagnostics preamble recorded by the caller BEFORE the plan ran (e.g. a
+    # desktop genre prefilter), prepended to every variant's pool notes so the
+    # Tracks tooltip explains shrink steps upstream of the incoming pool.
+    # Optional so older serialized intents stay valid.
+    pool_note_preamble: str | None = None
 
 
 class PrepCopilotVariant(BaseModel):
@@ -137,7 +142,10 @@ def _build_variant(
     blockers = [check.label for check in readiness.checks if check.status == "blocked"]
     # Pool diagnostics: the same BPM-gate drop warnings the DJ already gets,
     # restated as pool-shrink steps so the Tracks count is never unexplained.
+    # The preamble leads because it describes a shrink that happened BEFORE this
+    # pool was assembled (e.g. the desktop Build genre prefilter).
     pool_notes = [
+        *([intent.pool_note_preamble] if intent.pool_note_preamble else []),
         f"Incoming pool: {incoming_count} track(s)",
         _genre_filter_pool_note(name, intent, incoming_count, len(variant_tracks)),
         *(warning for warning in recommendation.warnings if "Dropped" in warning and "BPM jump" in warning),

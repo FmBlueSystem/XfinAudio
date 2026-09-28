@@ -78,6 +78,11 @@ class BuildScreen(QWidget):
     copilot_generate_requested = Signal()
     copilot_variant_applied = Signal(int)
     apply_without_selection_requested = Signal()
+    # Emitted when an anchor suggestion moves the genre combo off "Any genre":
+    # the DJ's next search is silently narrowed to one genre, so the change is
+    # reported to the status label instead of staying invisible (E2E finding:
+    # pool 63 -> 4 with no explanation).
+    genre_suggested_from_anchor = Signal(str)
     back_requested = Signal()
     exclude_requested = Signal()
     lock_requested = Signal()
@@ -331,6 +336,13 @@ class BuildScreen(QWidget):
         self.apply_without_selection_requested.connect(
             lambda: window.status_label.setText(self.tr("Generate and select a Prep Copilot variant before applying"))
         )
+        self.genre_suggested_from_anchor.connect(
+            lambda genre: window.status_label.setText(
+                self.tr("Genre set to {0} from the anchor — switch back to Any genre to use the whole library").format(
+                    genre
+                )
+            )
+        )
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
         self.proceed_button.clicked.connect(lambda: window.workflow_tabs.setCurrentIndex(2))
         self.exclude_requested.connect(window._library_controller.on_exclude_requested)
@@ -517,12 +529,22 @@ class BuildScreen(QWidget):
         self._genre_chosen_by_dj = True
 
     def suggest_genre_from_anchor(self, genre: str | None) -> None:
-        """Follow an anchor's offered genre until the DJ makes an explicit choice."""
+        """Follow an anchor's offered genre until the DJ makes an explicit choice.
+
+        When the suggestion moves the selection off "Any genre", the whole-library
+        search the DJ believes they are running becomes a single-genre search, so
+        the change is reported through `genre_suggested_from_anchor`. A DJ-made
+        choice is never touched, and a suggestion that changes nothing stays silent.
+        """
         if self._genre_chosen_by_dj or genre is None:
             return
         index = self.genre_combo.findText(genre.strip())
-        if index >= 0:
-            self.genre_combo.setCurrentIndex(index)
+        if index < 0:
+            return
+        was_any_genre = self.selected_genre() is None
+        self.genre_combo.setCurrentIndex(index)
+        if was_any_genre and self.selected_genre() is not None:
+            self.genre_suggested_from_anchor.emit(genre.strip())
 
     def set_available_genres(self, genres: list[str]) -> None:
         """Offer *genres*, keeping whatever the DJ already picked if it survives.

@@ -43,6 +43,11 @@ class PrepCopilotGenerationRequest:
     start_path: str | None = None
     required_paths: list[str] = field(default_factory=list)
     genre_focus: str | None = None
+    # Pool diagnostics recorded by the caller BEFORE the plan ran (e.g. the
+    # desktop Build genre prefilter), so pool notes can show shrink steps that
+    # happened upstream of the incoming pool. Optional so existing callers and
+    # serialized plans stay valid.
+    pool_note_preamble: str | None = None
 
 
 def generate_prep_copilot_plan(
@@ -68,6 +73,7 @@ def generate_prep_copilot_plan(
         start_path=request.start_path,
         required_paths=request.required_paths,
         genre_focus=request.genre_focus,
+        pool_note_preamble=request.pool_note_preamble,
     )
     return plan_builder(records, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band)
 

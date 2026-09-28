@@ -386,3 +386,20 @@ def test_build_prep_copilot_plan_forwards_the_bound_anchor_to_every_variant(monk
     build_prep_copilot_plan(tracks, intent, color_anchor_path="/music/anchor.flac")
 
     assert forwarded == ["/music/anchor.flac", "/music/anchor.flac", "/music/anchor.flac"]
+
+
+def test_pool_notes_carry_the_upstream_prefilter_preamble_first() -> None:
+    """A prefilter that ran before the plan must still lead the pool notes."""
+    tracks = [track(f"/music/t{index}.flac", bpm=120 + index, genre="Disco") for index in range(4)]
+    intent = DJSetIntent(
+        name="Prefiltered",
+        strategy="build",
+        target_track_count=3,
+        pool_note_preamble="Genre 'Disco' prefilter: 4 of 63 complete library track(s)",
+    )
+
+    plan = build_prep_copilot_plan(tracks, intent)
+
+    for variant in plan.variants:
+        assert variant.pool_notes[0] == "Genre 'Disco' prefilter: 4 of 63 complete library track(s)"
+        assert variant.pool_notes[1] == f"Incoming pool: {len(tracks)} track(s)"

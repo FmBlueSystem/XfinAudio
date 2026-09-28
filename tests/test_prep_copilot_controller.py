@@ -470,3 +470,126 @@ def test_controller_lets_an_unbound_colour_anchor_fall_back_to_internal_resoluti
         paths = [item.path for item in variant.recommendation.ordered_tracks]
         assert paths, f"{variant.name} variant failed closed instead of resolving an anchor"
         assert "/music/red.flac" not in paths
+
+
+def _prefiltered_generate_harness(
+    monkeypatch: Any, controls: Any, scanned: list[Any], records: list[Any], *, use_real_plan_chain: bool = False
+):
+    """Build a controller wired to capture the generation request and the plan.
+
+    The default injects a capturing plan builder so the request can be asserted
+    on; `use_real_plan_chain=True` runs the real application generation chain so
+    the test can assert on real domain pool notes. Plans are captured either way
+    through the applied-state transition.
+    """
+    generated_plan = SimpleNamespace(variants=[object()])
+    plans: list[Any] = []
+    generation_calls: list[Any] = []
+    build_screen = SimpleNamespace(
+        copilot_table=SimpleNamespace(setRowCount=lambda count: None, setHidden=lambda hidden: None),
+        apply_variant_button=SimpleNamespace(setEnabled=lambda enabled: None),
+        genre_focus_input=_Input(""),
+        strategy_combo=_Combo("build", "Build"),
+        target_count_input=_Input(10),
+        render=lambda build_vm_arg, state_arg: None,
+    )
+    state = SimpleNamespace(
+        _state=object(),
+        tr=lambda text: text,
+        _selected_track_controls=lambda: controls,
+        _replace_app_state=lambda updated_state: None,
+        scanned_records=scanned,
+    )
+
+    def generate_plan(records: Any, request: Any, *, color_anchor_path: Any = None, loudness_band: Any = None) -> Any:
+        generation_calls.append((records, request))
+        return generated_plan
+
+    def fake_plan_generated(state_arg: Any, plan_arg: Any) -> str:
+        plans.append(plan_arg)
+        return "updated-state"
+
+    monkeypatch.setattr("xfinaudio.desktop.prep_copilot.apply_prep_copilot_plan_generated", fake_plan_generated)
+    builder_kwargs = {} if use_real_plan_chain else {"plan_generation_builder": generate_plan}
+    controller = PrepCopilotController(
+        build_screen=build_screen,
+        build_vm=object(),
+        state=state,
+        workflow_service=object(),
+        on_state_changed=lambda: None,
+        on_status_message=lambda message: None,
+        desktop_recommendation_records=lambda *_args, **_kwargs: records,
+        desktop_color_anchor_candidate_context=_unrouted,
+        **builder_kwargs,
+    )
+    return controller, generation_calls, plans
+
+
+def test_controller_generate_reports_the_genre_prefilter_in_the_request(monkeypatch) -> None:
+    """The genre combo shrinks the pool BEFORE the plan runs, so only the
+    controller knows both sizes and must pass the missing pool note down."""
+    from tests.test_prep_copilot import track
+
+    records = [track("/music/disco.flac", genre="Disco")]
+    scanned = [
+        track("/music/disco.flac", genre="Disco"),
+        track("/music/house.flac", genre="House"),
+        track("/music/rock.flac", genre="Rock"),
+        track("/music/incomplete.flac", genre="Rock", status="incomplete"),
+    ]
+    controls = SimpleNamespace(start_path="/music/disco.flac", manual_order_paths=["/music/disco.flac"], genre="Disco")
+    controller, generation_calls, _ = _prefiltered_generate_harness(monkeypatch, controls, scanned, records)
+
+    controller.generate()
+
+    assert generation_calls[0][1].pool_note_preamble == ("Genre 'Disco' prefilter: 1 of 3 complete library track(s)")
+
+
+def test_controller_generate_without_genre_sends_no_prefilter_note(monkeypatch) -> None:
+    from tests.test_prep_copilot import track
+
+    records = [track("/music/disco.flac", genre="Disco")]
+    scanned = [track("/music/disco.flac", genre="Disco")]
+    controls = SimpleNamespace(start_path="/music/disco.flac", manual_order_paths=["/music/disco.flac"])
+    controller, generation_calls, _ = _prefiltered_generate_harness(monkeypatch, controls, scanned, records)
+
+    controller.generate()
+
+    assert generation_calls[0][1].pool_note_preamble is None
+
+
+def test_controller_genre_prefilter_note_reaches_the_variant_pool_notes(monkeypatch) -> None:
+    """The prefilter note must lead the real domain pool notes the table shows."""
+    from tests.test_prep_copilot import track
+
+    records = [track("/music/disco.flac", genre="Disco")]
+    scanned = [
+        track("/music/disco.flac", genre="Disco"),
+        track("/music/house.flac", genre="House"),
+        track("/music/rock.flac", genre="Rock"),
+    ]
+    controls = SimpleNamespace(start_path="/music/disco.flac", manual_order_paths=["/music/disco.flac"], genre="Disco")
+    controller, _, plans = _prefiltered_generate_harness(
+        monkeypatch, controls, scanned, records, use_real_plan_chain=True
+    )
+
+    controller.generate()
+
+    assert plans, "the plan must be captured from the real generation chain"
+    for variant in plans[0].variants:
+        assert variant.pool_notes[0] == "Genre 'Disco' prefilter: 1 of 3 complete library track(s)"
+        assert variant.pool_notes[1] == "Incoming pool: 1 track(s)"
+
+
+def test_controller_generate_with_an_unshrunk_genre_pool_sends_no_prefilter_note(monkeypatch) -> None:
+    """A genre filter that kept the whole library must not claim a shrink."""
+    from tests.test_prep_copilot import track
+
+    records = [track("/music/disco.flac", genre="Disco"), track("/music/disco2.flac", genre="Disco")]
+    scanned = [track("/music/disco.flac", genre="Disco"), track("/music/disco2.flac", genre="Disco")]
+    controls = SimpleNamespace(start_path="/music/disco.flac", manual_order_paths=["/music/disco.flac"], genre="Disco")
+    controller, generation_calls, _ = _prefiltered_generate_harness(monkeypatch, controls, scanned, records)
+
+    controller.generate()
+
+    assert generation_calls[0][1].pool_note_preamble is None

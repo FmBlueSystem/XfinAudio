@@ -127,6 +127,7 @@ class PrepCopilotController:
             color_anchor_context_route=self._desktop_color_anchor_candidate_context,
             loudness_band=loudness_band,
         )
+        pool_note_preamble = self._genre_prefilter_pool_note(controls, records)
         genre_focus = self._build_screen.genre_focus_input.text().strip() or None
         self._persist_genre_focus(genre_focus)
         request = PrepCopilotGenerationRequest(
@@ -135,6 +136,7 @@ class PrepCopilotController:
             start_path=controls.start_path,
             required_paths=controls.manual_order_paths,
             genre_focus=genre_focus,
+            pool_note_preamble=pool_note_preamble,
         )
         plan = self._plan_generation_builder(
             records,
@@ -148,6 +150,25 @@ class PrepCopilotController:
         self._build_screen.copilot_table.setHidden(len(plan.variants) == 0)
         self._build_screen.render(self._build_vm, self._state._state)
         self._on_state_changed()
+
+    def _genre_prefilter_pool_note(self, controls: Any, records: list[Any]) -> str | None:
+        """Explain a genre prefilter that shrank the pool before the plan saw it.
+
+        The Build genre combo filters the library BEFORE
+        `build_prep_copilot_plan`, so the domain's pool notes start from an
+        already-narrowed pool and cannot see that shrink (E2E finding: pool
+        63 -> 4 with no explanation). Only this controller knows both sizes: the
+        complete-track count of the library and the post-prefilter record count.
+        """
+        genre = getattr(controls, "genre", None)
+        if not genre:
+            return None
+        complete_count = sum(1 for record in self._state.scanned_records if record.metadata_status == "complete")
+        if not complete_count or len(records) >= complete_count:
+            return None
+        return self._state.tr("Genre '{0}' prefilter: {1} of {2} complete library track(s)").format(
+            genre, len(records), complete_count
+        )
 
     def _persist_genre_focus(self, genre_focus: str | None) -> None:
         """Persist the genre focus so the next launch restores the same build intent."""

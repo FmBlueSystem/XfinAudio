@@ -429,3 +429,64 @@ def test_dj_genre_choice_wins_over_later_anchor_suggestions(qapp: QApplication) 
     screen.suggest_genre_from_anchor("House")
 
     assert screen.genre_combo.currentText() == ANY_GENRE
+
+
+def test_anchor_genre_suggestion_reports_the_pool_narrowing_in_the_status_label(qapp: QApplication) -> None:
+    """An auto-applied anchor genre must not silently narrow the searched pool.
+
+    The E2E run observed the combo switching from "Any genre" to the anchor's
+    genre while the DJ believed the whole library was being searched (pool
+    63 -> 4 with no explanation), so the change is reported to the status label.
+    """
+    screen = BuildScreen()
+    screen.set_available_genres(["House", "Rock"])
+    window = Mock()
+    screen.connect_signals(window)
+
+    screen.suggest_genre_from_anchor("House")
+
+    assert screen.genre_combo.currentText() == "House"
+    window.status_label.setText.assert_called_once_with(
+        "Genre set to House from the anchor — switch back to Any genre to use the whole library"
+    )
+
+
+def test_anchor_genre_suggestion_does_not_re_report_the_same_genre(qapp: QApplication) -> None:
+    """A second anchor pointing at the already-suggested genre stays silent."""
+    screen = BuildScreen()
+    screen.set_available_genres(["House", "Rock"])
+    window = Mock()
+    screen.connect_signals(window)
+
+    screen.suggest_genre_from_anchor("House")
+    screen.suggest_genre_from_anchor("House")
+
+    window.status_label.setText.assert_called_once()
+
+
+def test_dj_chosen_genre_never_triggers_the_anchor_genre_status_message(qapp: QApplication) -> None:
+    """A DJ-made genre choice is never overridden and never reported as an anchor change."""
+    screen = BuildScreen()
+    screen.set_available_genres(["House", "Rock"])
+    window = Mock()
+    screen.connect_signals(window)
+    any_genre_index = screen.genre_combo.findText(ANY_GENRE)
+    screen.genre_combo.activated.emit(any_genre_index)
+
+    screen.suggest_genre_from_anchor("House")
+
+    window.status_label.setText.assert_not_called()
+    assert screen.genre_combo.currentText() == ANY_GENRE
+
+
+def test_copilot_tracks_cell_tooltip_shows_the_genre_prefilter_note(qapp: QApplication) -> None:
+    """A prefilter shrink that ran before the plan must reach the tooltip too."""
+    screen = BuildScreen()
+    vm = BuildViewModel()
+    tracks = [_track("/a.flac"), _track("/b.flac")]
+    notes = ("Genre 'Disco' prefilter: 4 of 63 complete library track(s)", "Incoming pool: 4 track(s)")
+
+    screen.render(vm, _plan_state(tracks, pool_notes=notes))
+
+    assert notes[0] in screen.copilot_table.item(0, 2).toolTip()
+    assert notes[0] in screen.copilot_table.item(0, 3).toolTip()
