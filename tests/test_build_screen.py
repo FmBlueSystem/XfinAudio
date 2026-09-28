@@ -490,3 +490,75 @@ def test_copilot_tracks_cell_tooltip_shows_the_genre_prefilter_note(qapp: QAppli
 
     assert notes[0] in screen.copilot_table.item(0, 2).toolTip()
     assert notes[0] in screen.copilot_table.item(0, 3).toolTip()
+
+# ---------------------------------------------------------------------------
+# AI copilot ask panel
+# ---------------------------------------------------------------------------
+
+
+def test_copilot_ask_request_is_emitted_by_the_button_and_the_return_key(qapp: QApplication) -> None:
+    """One signal, two entry points: click and ReturnPressed both carry the typed request."""
+    screen = BuildScreen()
+    # The ask button is render-disabled until the library has tracks to plan from.
+    screen.render(BuildViewModel(), _plan_state([_track("/a.flac")]))
+    screen.copilot_ask_input.setText("45 minutes of deep house")
+    emitted: list[str] = []
+    screen.copilot_ask_requested.connect(emitted.append)
+
+    screen.copilot_ask_button.click()
+    screen.copilot_ask_input.returnPressed.emit()
+
+    assert screen.copilot_ask_button.isEnabled() is True
+    assert emitted == ["45 minutes of deep house", "45 minutes of deep house"]
+
+
+def test_copilot_ask_panel_explains_itself_to_pointer_and_screen_reader_users(qapp: QApplication) -> None:
+    screen = BuildScreen()
+
+    assert screen.copilot_ask_input.placeholderText().strip()
+    assert screen.copilot_ask_input.accessibleName().strip()
+    assert screen.copilot_ask_button.accessibleName().strip()
+    assert screen.copilot_ask_button.toolTip().strip()
+    assert screen.copilot_ask_status.accessibleName().strip()
+    assert screen.copilot_ask_status.wordWrap() is True
+    assert screen.copilot_ask_status.maximumHeight() == 36
+    # The theme styles by object name; an inline stylesheet would bypass it.
+    assert screen.copilot_ask_button.styleSheet() == ""
+    assert screen.copilot_ask_button.objectName() == "copilot_ask_button"
+
+
+def test_render_owns_the_ask_button_enabled_state_while_a_request_is_busy(qapp: QApplication) -> None:
+    """The 200ms render loop walks every screen, so the busy flag must drive the button."""
+    screen = BuildScreen()
+    vm = BuildViewModel()
+    tracks = [_track("/a.flac")]
+    busy = _plan_state(tracks).model_copy(update={"is_asking_copilot": True})
+
+    screen.copilot_ask_button.setEnabled(True)
+    screen.render(vm, busy)
+
+    assert screen.copilot_ask_button.isEnabled() is False
+    assert "copilot" in screen.copilot_ask_status.text().casefold()
+
+    screen.render(vm, _plan_state(tracks))
+
+    assert screen.copilot_ask_button.isEnabled() is True
+
+
+def test_render_keeps_the_panel_message_written_by_the_controller(qapp: QApplication) -> None:
+    """An idle render must not wipe the last failure/success guidance off the panel."""
+    screen = BuildScreen()
+    screen.copilot_ask_status.setText("AI copilot failed: connection reset")
+
+    screen.render(BuildViewModel(), _plan_state([_track("/a.flac")]))
+
+    assert screen.copilot_ask_status.text() == "AI copilot failed: connection reset"
+
+
+def test_render_disables_the_ask_button_without_a_scanned_library(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    screen.copilot_ask_button.setEnabled(True)
+
+    screen.render(BuildViewModel(), AppState())
+
+    assert screen.copilot_ask_button.isEnabled() is False

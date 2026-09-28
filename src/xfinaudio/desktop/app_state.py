@@ -43,6 +43,11 @@ class AppState:
     last_prep_copilot_plan: PrepCopilotPlan | None = None
     applied_variant_name: Literal["safe", "balanced", "adventurous"] | None = None
 
+    # AI copilot request (transient; the text is kept so the panel can show what
+    # was last asked, the flag so render() can keep the ask controls disabled).
+    ai_copilot_request: str | None = None
+    is_asking_copilot: bool = False
+
     # Export
     serato_export_history: list[dict] = field(default_factory=list)
 

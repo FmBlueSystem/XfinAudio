@@ -21,6 +21,7 @@ from xfinaudio.config.settings import AppSettings, WindowSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop import rendering as _rendering
 from xfinaudio.desktop import shell_state_compat as _shell_state_compat
+from xfinaudio.desktop.ai_copilot import AiCopilotController
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.menu import Menu
 from xfinaudio.desktop.prep_copilot import PrepCopilotController
@@ -101,6 +102,15 @@ class MainWindow(QMainWindow):
             desktop_color_anchor_candidate_context=self._desktop_color_anchor_candidate_context,
         )
         wire_services(self._wire_scan_service, self._wire_recommendation_service)
+        self._ai_copilot = AiCopilotController(
+            build_screen=self._build_screen,
+            build_vm=self._build_vm,
+            state=self,
+            on_state_changed=self._sync_state,
+            desktop_recommendation_records=self._desktop_recommendation_records,
+            desktop_color_anchor_candidate_context=self._desktop_color_anchor_candidate_context,
+            parent=self,
+        )
 
         self._connect_screens()
         apply_visual_design(self)
@@ -118,6 +128,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_library_controller"):
             self._library_controller.shutdown()
         self._recommendation_service.cancel()
+        self._ai_copilot.cancel()
         self._persist_window_geometry()
         super().closeEvent(event)  # type: ignore[arg-type]
 
@@ -265,6 +276,9 @@ class MainWindow(QMainWindow):
 
     def generate_prep_copilot(self) -> None:
         self._prep_copilot.generate()
+
+    def ask_ai_copilot(self, request: str) -> None:
+        self._ai_copilot.ask(request)
 
     def _apply_prep_copilot_item(self, item: Any) -> None:
         self._prep_copilot.apply_item(item)

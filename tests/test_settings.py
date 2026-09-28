@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from xfinaudio.config.settings import (
+    AiSettings,
     AppSettings,
     AudioSettings,
     BuildSessionSettings,
@@ -14,6 +15,7 @@ from xfinaudio.config.settings import (
     SeratoIntegrationSettings,
     WindowSettings,
 )
+from xfinaudio.config.settings_repository import SettingsRepository
 from xfinaudio.library.scan_service import SUPPORTED_AUDIO_EXTENSIONS
 from xfinaudio.recommendation.scoring import DEFAULT_WEIGHTS, ScoringWeights
 
@@ -179,3 +181,51 @@ def test_app_settings_v1_payload_without_serato_section_hydrates_defaults() -> N
 def test_loudness_settings_rejects_out_of_band_policy_values(field: str, value: float, message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         LoudnessSettings.model_validate({field: value})
+
+
+def test_app_settings_ai_defaults_to_disabled_without_env_file() -> None:
+    settings = AppSettings()
+
+    assert settings.ai == AiSettings()
+    assert settings.ai.enabled is False
+    assert settings.ai.env_file is None
+
+
+def test_app_settings_stores_ai_enabled_and_env_file() -> None:
+    env_file = Path("/tmp/xfinaudio/apiIA.env")
+
+    settings = AppSettings(ai=AiSettings(enabled=True, env_file=env_file))
+
+    assert settings.ai.enabled is True
+    assert settings.ai.env_file == env_file
+
+
+def test_app_settings_v1_payload_without_ai_section_hydrates_defaults() -> None:
+    # `ai` is an additive section: existing version-1 payloads stay valid, so
+    # CURRENT_SETTINGS_VERSION does not need to move.
+    restored = AppSettings.model_validate({"settings_version": 1, "audio": {"preview_volume": 0.3}})
+
+    assert restored.ai == AiSettings()
+
+
+def test_app_settings_ai_round_trips_through_the_repository(tmp_path: Path) -> None:
+    repository = SettingsRepository(tmp_path / "settings.json")
+    env_file = tmp_path / "apiIA.env"
+    settings = AppSettings(ai=AiSettings(enabled=True, env_file=env_file))
+
+    repository.save(settings)
+
+    assert repository.load() == settings
+
+
+def test_settings_file_never_persists_the_ai_key_value(tmp_path: Path) -> None:
+    secret = "nan-secret-key-value-that-must-never-be-persisted"
+    env_file = tmp_path / "apiIA.env"
+    env_file.write_text(secret + "\n", encoding="utf-8")
+    repository = SettingsRepository(tmp_path / "settings.json")
+
+    repository.save(AppSettings(ai=AiSettings(enabled=True, env_file=env_file)))
+
+    persisted = (tmp_path / "settings.json").read_text(encoding="utf-8")
+    assert secret not in persisted
+    assert str(env_file) in persisted

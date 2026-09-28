@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
 
+from xfinaudio.ai.nan_client import ENABLED_ENV, ENV_FILE_ENV
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.audio.loudness_runtime import create_loudness_completion_service
 from xfinaudio.config.settings import AppSettings
@@ -61,6 +63,21 @@ def playlist_repository_for(repository) -> PlaylistRepository:
     if playlist_db_path is None:
         playlist_db_path = default_database_path().with_name("xfinaudio_playlists.db")
     return PlaylistRepository(playlist_db_path.parent / "playlists.db")
+
+
+def seed_ai_environment(settings: AppSettings) -> None:
+    """Export the AI adapter's env switches from the persisted settings.
+
+    The adapter reads its enable flag and credential-file path from the
+    environment, so the settings-driven path has to reach it before the window can
+    request an intent. ``setdefault`` keeps an explicit operator override in the
+    environment authoritative, and a disabled setting seeds nothing at all.
+    """
+    if not settings.ai.enabled:
+        return
+    os.environ.setdefault(ENABLED_ENV, "1")
+    if settings.ai.env_file is not None:
+        os.environ.setdefault(ENV_FILE_ENV, str(settings.ai.env_file))
 
 
 def initialize_window_state(
@@ -210,6 +227,8 @@ def replace_app_state(window, state: AppState) -> None:
         window._recommendation_service._state = state
     if hasattr(window, "_prep_copilot"):
         window._prep_copilot._state = window
+    if hasattr(window, "_ai_copilot"):
+        window._ai_copilot._state = window
 
 
 def initialize_app_controller(window, screen_names: list[str]) -> None:
@@ -283,6 +302,9 @@ def with_defaults(cls, db_path: Path, settings_path: Path | None = None):
     settings_repository = SettingsRepository(settings_path or default_settings_path())
     repository = TrackRepository(db_path)
     settings = settings_repository.load()
+    # The earliest point after the settings load: the adapter's switches have to be
+    # in the environment before any window code can request a copilot intent.
+    seed_ai_environment(settings)
     # One fetch serves both the restore render and build-context validation.
     display_tracks = repository.list_display_tracks()
     settings = validated_build_settings(settings, {track.path for track in display_tracks}, settings_repository)
