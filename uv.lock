@@ -1318,7 +1318,7 @@ wheels = [
 
 [[package]]
 name = "xfinaudio"
-version = "1.9.0rc1"
+version = "1.9.0"
 source = { editable = "." }
 dependencies = [
     { name = "librosa" },
