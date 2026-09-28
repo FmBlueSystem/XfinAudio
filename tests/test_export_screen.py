@@ -6,6 +6,7 @@ from datetime import datetime
 from PySide6.QtWidgets import QApplication, QFrame
 
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.export_actions import ExportActions
 from xfinaudio.desktop.export_view_model import ExportViewModel
 from xfinaudio.desktop.screens.export_screen import _HISTORY_COLUMNS, ExportScreen
 from xfinaudio.metadata.metadata_gaps import build_metadata_gap_report
@@ -325,8 +326,7 @@ def _gap_records():
     ]
 
 
-def _gap_actions(host) -> "ExportActions":
-    from xfinaudio.desktop.export_actions import ExportActions
+def _gap_actions(host) -> ExportActions:
 
     return ExportActions(_FakeExportCoordinator(host))
 

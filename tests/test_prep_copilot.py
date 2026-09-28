@@ -1,8 +1,15 @@
 from typing import Any
 
+import pytest
+from pydantic import ValidationError
+
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.recommendation.prep_copilot import DJSetIntent, build_prep_copilot_plan
+from xfinaudio.recommendation.prep_copilot import (
+    PREP_PLAYED_SECONDS_PER_TRACK,
+    DJSetIntent,
+    build_prep_copilot_plan,
+)
 
 
 def track(
@@ -14,10 +21,12 @@ def track(
     genre: str = "House",
     tags: list[str] | None = None,
     status: str = "complete",
+    duration: float | None = None,
 ) -> TrackRecord:
     return TrackRecord(
         path=path,
         title=path.rsplit("/", maxsplit=1)[-1],
+        duration=duration,
         bpm=bpm,
         camelot_key=key,
         energy_level=energy,
@@ -403,3 +412,116 @@ def test_pool_notes_carry_the_upstream_prefilter_preamble_first() -> None:
     for variant in plan.variants:
         assert variant.pool_notes[0] == "Genre 'Disco' prefilter: 4 of 63 complete library track(s)"
         assert variant.pool_notes[1] == f"Incoming pool: {len(tracks)} track(s)"
+
+
+# ---------------------------------------------------------------------------
+# T3 -- runtime budgeting. The booked slot is the planning input; track count
+# is a number the DJ derives from it, not the other way round.
+# ---------------------------------------------------------------------------
+
+
+def _slot_tracks(count: int = 20, *, duration: float = 300.0) -> list[TrackRecord]:
+    return [
+        track(f"/music/slot{index:02d}.flac", bpm=120.0 + index * 0.3, energy=5, duration=duration)
+        for index in range(count)
+    ]
+
+
+def test_intent_target_minutes_sizes_every_variant_by_runtime() -> None:
+    """A 20-minute slot of 300s tracks is ten two-minute segments each.
+
+    ``target_track_count`` is left at its default so it cannot be the binding
+    constraint: the minutes budget alone has to produce the ten-track set.
+    """
+    tracks = _slot_tracks()
+    intent = DJSetIntent(name="Slot", strategy="harmonic_journey", target_minutes=20.0)
+
+    plan = build_prep_copilot_plan(tracks, intent)
+
+    for variant in plan.variants:
+        kept = variant.recommendation.ordered_tracks
+        assert len(kept) == 10, variant.name
+        played = sum(min(item.duration or 0.0, PREP_PLAYED_SECONDS_PER_TRACK) for item in kept)
+        assert played <= 20 * 60, variant.name
+
+
+def test_intent_minutes_budget_wins_for_sizing_and_count_stays_a_hard_cap() -> None:
+    """With both set, minutes size the set and the count can only cut it down."""
+    tracks = _slot_tracks()
+
+    minutes_sized = build_prep_copilot_plan(
+        tracks,
+        DJSetIntent(name="Slot", strategy="harmonic_journey", target_minutes=20.0, target_track_count=25),
+    )
+    for variant in minutes_sized.variants:
+        assert len(variant.recommendation.ordered_tracks) == 10, variant.name
+
+    capped = build_prep_copilot_plan(
+        tracks,
+        DJSetIntent(name="Slot", strategy="harmonic_journey", target_minutes=60.0, target_track_count=3),
+    )
+    for variant in capped.variants:
+        assert len(variant.recommendation.ordered_tracks) == 3, variant.name
+
+
+def test_intent_target_minutes_is_optional_and_bounded() -> None:
+    assert DJSetIntent(name="No slot").target_minutes is None
+    assert DJSetIntent(name="Ten hours", target_minutes=600.0).target_minutes == 600.0
+
+
+@pytest.mark.parametrize("value", [0.0, -1.0, 601.0])
+def test_intent_target_minutes_must_fit_a_real_slot(value: float) -> None:
+    with pytest.raises(ValidationError):
+        DJSetIntent(name="Bad slot", target_minutes=value)
+
+
+# ---------------------------------------------------------------------------
+# T4 -- slot role decoupled from the ordering strategy. The strategy still
+# weights and orders; the slot role names the energy shape traced underneath.
+# ---------------------------------------------------------------------------
+
+
+def test_intent_forwards_target_minutes_and_slot_role_to_every_variant(monkeypatch: Any) -> None:
+    from xfinaudio.recommendation import prep_copilot as prep_copilot_module
+
+    real_recommend_playlist = prep_copilot_module.recommend_playlist
+    forwarded: list[dict[str, Any]] = []
+
+    def recording_recommend_playlist(*args: Any, **kwargs: Any) -> Any:
+        forwarded.append(kwargs)
+        return real_recommend_playlist(*args, **kwargs)
+
+    monkeypatch.setattr(prep_copilot_module, "recommend_playlist", recording_recommend_playlist)
+
+    intent = DJSetIntent(
+        name="Peak slot",
+        strategy="harmonic_journey",
+        target_minutes=20.0,
+        slot_role="peak_time",
+    )
+
+    build_prep_copilot_plan(_slot_tracks(), intent)
+
+    assert [call["target_duration_minutes"] for call in forwarded] == [20.0, 20.0, 20.0]
+    assert [call["played_seconds_per_track"] for call in forwarded] == [PREP_PLAYED_SECONDS_PER_TRACK] * 3
+    assert [call["arc_strategy"] for call in forwarded] == ["peak_time", "peak_time", "peak_time"]
+
+
+def test_intent_without_slot_or_minutes_forwards_neutral_defaults(monkeypatch: Any) -> None:
+    """Older intents keep today's behavior: no runtime cap, no arc override."""
+    from xfinaudio.recommendation import prep_copilot as prep_copilot_module
+
+    real_recommend_playlist = prep_copilot_module.recommend_playlist
+    forwarded: list[dict[str, Any]] = []
+
+    def recording_recommend_playlist(*args: Any, **kwargs: Any) -> Any:
+        forwarded.append(kwargs)
+        return real_recommend_playlist(*args, **kwargs)
+
+    monkeypatch.setattr(prep_copilot_module, "recommend_playlist", recording_recommend_playlist)
+
+    build_prep_copilot_plan(_slot_tracks(6), DJSetIntent(name="Plain", strategy="harmonic_journey"))
+
+    assert [call["target_duration_minutes"] for call in forwarded] == [None, None, None]
+    assert [call["played_seconds_per_track"] for call in forwarded] == [None, None, None]
+    assert [call["arc_strategy"] for call in forwarded] == [None, None, None]

@@ -272,6 +272,7 @@ def recommend_playlist(
     played_seconds_per_track: float | None = None,
     color_anchor_path: str | None = None,
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    arc_strategy: str | None = None,
 ) -> PlaylistRecommendation:
     """Recommend a playlist using a strategy profile and optional DJ controls.
 
@@ -297,9 +298,26 @@ def recommend_playlist(
     the mix moves on. A DJ plays a segment, not the whole record, so summing full
     durations answers "how long is this music" rather than "how long is my set".
     ``None`` counts each track in full.
+
+    ``arc_strategy`` decouples the energy SHAPE from the ordering strategy: the
+    strategy still decides weights, filters and how the set is ordered, while
+    ``arc_strategy`` names the curve the optimizer traces underneath it -- a
+    warm-up shape over `harmonic_journey` ordering, for example. ``None`` keeps
+    the legacy coupling where the strategy's own curve applies. It is trusted as
+    an explicit request, so a curve that `traces_an_arc` would not pick on its
+    own (``chill`` holds a level rather than climbing) still applies when asked
+    for by name.
     """
     strategy = (strategy_registry or default_strategy_registry()).get(str(strategy_name))
     controls = controls or DJControls()
+    # Decoupled slot role (T4): an explicit ``arc_strategy`` names the shape, and
+    # the legacy path falls back to the ordering strategy's own curve when -- and
+    # only when -- that curve actually traces an arc. ``arc_shape`` is then the
+    # single switch every arc gate below reads; ``None`` restores today's behavior
+    # exactly, so a strategy-order strategy keeps its sort when nothing is asked.
+    arc_shape: str | None = arc_strategy
+    if arc_shape is None and traces_an_arc(strategy.name):
+        arc_shape = strategy.name
     # Session-scoped transition score cache: created fresh per call, threaded into
     # the optimizer and final scoring so repeated (left, right, weights) pairs are
     # computed once. Never persists between recommend_playlist calls.
@@ -388,7 +406,7 @@ def recommend_playlist(
     if _vibe_metadata_unavailable(strategy, applied.candidate_tracks):
         warnings.append("same_vibe metadata unavailable; falling back to harmonic sequencing")
 
-    if _uses_strategy_order(strategy):
+    if _uses_strategy_order(strategy) and arc_shape is None:
         # Strategy-order strategies have a single sequencing stage (no separate optimizer
         # pass), so `sequenced_tracks` here already IS the final order — one gate call,
         # seeded with the manual anchor when present, validates the whole thing at once.
@@ -425,10 +443,10 @@ def recommend_playlist(
                 played_seconds_per_track,
                 target_count,
             )
-            if traces_an_arc(strategy.name)
+            if arc_shape is not None
             else expected_set_length
         )
-        use_arc_subset = traces_an_arc(strategy.name) and arc_subset_set_length is not None
+        use_arc_subset = arc_shape is not None and arc_subset_set_length is not None
         if not use_arc_subset:
             remaining_tracks = _shortlist_for_sequencing(
                 remaining_tracks,
@@ -455,7 +473,7 @@ def recommend_playlist(
             weights=scoring_config.weights,
             cache=_score_cache,
             config=scoring_config,
-            arc_strategy=strategy.name if traces_an_arc(strategy.name) else None,
+            arc_strategy=arc_shape,
             # A tempo jump the DJ cannot beatmatch is not a bad option, it is not
             # an option -- the sequencer routes around it instead of pricing it.
             max_bpm_difference_percent=MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,

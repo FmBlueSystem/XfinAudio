@@ -17,11 +17,11 @@ from xfinaudio.audio.spectral_profile import (
 from xfinaudio.audio.tonal_profile import CURRENT_TONAL_VERSION, TonalProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.track_repository import (
+    _RAW_METADATA_ALLOWLIST_SCHEMA_VERSION,
     SCHEMA_VERSION,
     DatabaseSchemaError,
     TrackRepository,
     UnsupportedDatabaseVersionError,
-    _RAW_METADATA_ALLOWLIST_SCHEMA_VERSION,
 )
 
 

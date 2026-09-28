@@ -1363,6 +1363,78 @@ def test_non_arc_strategy_does_not_route_through_subset_search(monkeypatch) -> N
     assert recommend_playlist(pool, "chill", target_count=4).optimizer == "strategy-order"
 
 
+def test_slot_role_traces_the_requested_arc_over_the_ordering_strategy() -> None:
+    """T4: the ordering strategy keeps its weights; the slot role names the shape.
+
+    `same_energy` sequences on transition quality and would happily open high
+    and step down. Asking for a warm-up slot keeps that ordering contract and
+    adds the ascending shape underneath it, so the set only ever climbs.
+    """
+    pool = [
+        track(f"/e{index}.flac", bpm=120.0 + index * 0.4, camelot_key="8A", energy_level=level)
+        for index, level in enumerate([5, 3, 7, 4, 6, 5])
+    ]
+
+    plain = recommend_playlist(pool, "same_energy", target_count=6)
+    shaped = recommend_playlist(pool, "same_energy", target_count=6, arc_strategy="warmup")
+
+    assert shaped.strategy.name == "same_energy"
+    assert shaped.optimizer.startswith("arc-subset")
+    assert [item.path for item in shaped.ordered_tracks] != [item.path for item in plain.ordered_tracks]
+    energies = [item.energy_level for item in shaped.ordered_tracks]
+    assert energies == sorted(energies), energies
+
+
+def test_slot_role_forces_the_arc_solver_over_a_strategy_order_strategy() -> None:
+    """A slot role turns a sort-only strategy into a shaped one.
+
+    `chill` normally hands a fixed bpm-ordered list back without the optimizer.
+    The override has to reach the arc solver instead, or the requested shape
+    never happens.
+    """
+    pool = [
+        track(f"/e{index}.flac", bpm=110.0 + index * 0.8, camelot_key="8A", energy_level=level)
+        for index, level in enumerate([2, 4, 3, 5, 2, 4])
+    ]
+
+    assert recommend_playlist(pool, "chill", target_count=6).optimizer == "strategy-order"
+
+    shaped = recommend_playlist(pool, "chill", target_count=6, arc_strategy="warmup")
+
+    assert shaped.optimizer.startswith("arc-subset")
+    energies = [item.energy_level for item in shaped.ordered_tracks]
+    # The warm-up contract: open coldest, hand over hottest.
+    assert energies[0] == min(energies), energies
+    assert energies[-1] == max(energies), energies
+
+
+@pytest.mark.parametrize("role", ["warmup", "peak_time", "chill"])
+def test_every_slot_role_name_reaches_the_arc_solver(role: str) -> None:
+    """All three existing curve names are valid slot roles, chill included."""
+    pool = [
+        track(f"/e{index}.flac", bpm=120.0 + index * 0.4, camelot_key="8A", energy_level=level)
+        for index, level in enumerate([5, 3, 7, 4, 6, 5])
+    ]
+
+    shaped = recommend_playlist(pool, "same_energy", target_count=6, arc_strategy=role)
+
+    assert shaped.optimizer.startswith("arc-subset"), role
+
+
+def test_slot_role_none_keeps_the_legacy_strategy_coupling() -> None:
+    """Omitting the slot role is byte-identical to the strategy's own curve."""
+    pool = [
+        track(f"/e{index}.flac", bpm=120.0 + index * 0.4, camelot_key="8A", energy_level=level)
+        for index, level in enumerate([5, 3, 7, 4, 6, 5])
+    ]
+
+    legacy = recommend_playlist(pool, "harmonic_journey", target_count=6)
+    explicit_none = recommend_playlist(pool, "harmonic_journey", target_count=6, arc_strategy=None)
+
+    assert [item.path for item in legacy.ordered_tracks] == [item.path for item in explicit_none.ordered_tracks]
+    assert legacy.optimizer == explicit_none.optimizer
+
+
 def test_arc_subset_preserves_anchor_locked_track_and_manual_prefix_end_to_end() -> None:
     manual = track("/manual.flac", bpm=100.0, energy_level=2)
     locked = track("/locked.flac", bpm=103.0, energy_level=7)

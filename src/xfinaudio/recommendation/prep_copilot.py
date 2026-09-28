@@ -30,6 +30,12 @@ if TYPE_CHECKING:
     from xfinaudio.quality.recommendation_quality import RecommendationQualityReport  # noqa: F401
 
 PrepVariantName = Literal["safe", "balanced", "adventurous"]
+# How long each track is on air before the mix moves on, matching the desktop
+# Build screen's slot sizing (``DESKTOP_PLAYED_SECONDS_PER_TRACK`` in
+# ``desktop/recommendation_service.py``). A DJ plays a segment, not the whole
+# record: at a 4.8 minute median a 30-minute slot is 6 tracks played whole but
+# 15 played two minutes at a time.
+PREP_PLAYED_SECONDS_PER_TRACK = 120.0
 
 
 class DJSetIntent(BaseModel):
@@ -40,6 +46,20 @@ class DJSetIntent(BaseModel):
     name: str
     strategy: StrategyName | str = "harmonic_journey"
     target_track_count: int = Field(default=25, ge=2, le=100)
+    # The booked slot length in minutes -- the number a DJ actually plans from
+    # (see odd/research/dj-mixing-techniques.md T3). A fixed track count cannot
+    # hit a slot: on the real library 10 tracks ran anywhere from 36 to 71
+    # minutes. Optional so older serialized intents stay valid; when set it sizes
+    # the set by runtime and ``target_track_count`` then acts only as a hard cap.
+    target_minutes: float | None = Field(default=None, gt=0, le=600)
+    # Which part of the night this set plays (T4), decoupled from ``strategy``:
+    # the strategy still weights, filters and orders the set, while the slot role
+    # names the energy SHAPE traced underneath -- a warm-up arc over
+    # harmonic_journey ordering, for example. These are the existing arc-capable
+    # curve names in ``energy_arc._ARCS`` (no new curves). Optional so older
+    # serialized intents stay valid; ``None`` keeps the legacy coupling where the
+    # strategy's own curve applies.
+    slot_role: Literal["warmup", "peak_time", "chill"] | None = None
     start_path: str | None = None
     end_path: str | None = None
     required_paths: list[str] = Field(default_factory=list)
@@ -147,6 +167,18 @@ def _build_variant(
     familiarity: Mapping[str, FamiliaritySignal] | None = None,
     familiarity_weight: float = 0.0,
 ) -> PrepCopilotVariant:
+    """Build one prep variant from the intent.
+
+    Precedence between the two size limits: ``target_minutes`` is the booked slot
+    and sizes the set by runtime (with ``PREP_PLAYED_SECONDS_PER_TRACK`` as the
+    on-air segment). When both fields are set the minutes budget wins for sizing
+    and ``target_track_count`` only cuts the result down to a hard cap, so a DJ
+    who names both gets a set that fits the slot without exceeding the count.
+    With no ``target_minutes`` the legacy count trim is the only limit.
+
+    ``slot_role`` is forwarded as ``arc_strategy`` while ``strategy`` stays the
+    ordering strategy, decoupling the shape from the ordering (T4).
+    """
     from xfinaudio.quality.dj_readiness import build_dj_readiness_report
     from xfinaudio.quality.recommendation_quality import build_quality_report
 
@@ -173,6 +205,9 @@ def _build_variant(
         controls=controls,
         color_anchor_path=color_anchor_path,
         loudness_band=loudness_band,
+        target_duration_minutes=intent.target_minutes,
+        played_seconds_per_track=(PREP_PLAYED_SECONDS_PER_TRACK if intent.target_minutes is not None else None),
+        arc_strategy=intent.slot_role,
     )
     recommendation = _limit_recommendation(recommendation, intent.target_track_count)
     readiness = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
