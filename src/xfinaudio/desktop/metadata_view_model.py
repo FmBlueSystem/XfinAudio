@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QCoreApplication
 
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.metadata.metadata_gaps import MetadataGapReport, build_metadata_gap_report
 
 _MISSING_FIELD_MAP = {
     "Missing BPM": "bpm",
@@ -50,6 +51,38 @@ class MetadataViewModel:
             "MetadataViewModel",
             "{0} tracks scanned — {1} complete, {2} incomplete",
         ).format(total, complete, incomplete)
+
+    def metadata_gap_report(self, state: AppState) -> MetadataGapReport:
+        """Return the deterministic gap report for the currently scanned records.
+
+        Delegates to the pure domain function so the screen never grows its own
+        completeness rule: a field is a gap when the parser recorded it as None.
+        """
+        return build_metadata_gap_report(state.scanned_records)
+
+    def gap_summary_text(self, state: AppState) -> str:
+        """One-line per-field gap summary plus informational release-year coverage.
+
+        Year coverage is stated as informational only: it is never a gap and a
+        track with no year can still be complete.
+        """
+        report = self.metadata_gap_report(state)
+        return QCoreApplication.translate(
+            "MetadataViewModel",
+            "Gaps — BPM: {0}, Key: {1}, Energy: {2} · release year known: {3}/{4} (informational only)",
+        ).format(
+            report.gaps.bpm,
+            report.gaps.camelot_key,
+            report.gaps.energy_level,
+            report.year_coverage.with_release_year,
+            report.total_tracks,
+        )
+
+    def gap_report_export_enabled(self, state: AppState) -> bool:
+        """True when the gap report has something to export and no work is in flight."""
+        if state.is_scanning or state.is_recommending:
+            return False
+        return self.metadata_gap_report(state).incomplete_count > 0
 
     def worklist_rows(
         self,
@@ -143,10 +176,11 @@ class MetadataViewModel:
         )
 
     def fix_metadata_guidance_text(self) -> str:
-        """Explain how to fix missing metadata."""
+        """Explain how to fix missing metadata, including the year note."""
         return QCoreApplication.translate(
             "MetadataViewModel",
-            "Fix missing tags in an external tag editor, then return to XfinAudio.",
+            "Fix missing tags in an external tag editor, then return to XfinAudio. "
+            "Release year is informational: Mixed In Key may not write it and completeness never depends on it.",
         )
 
     def refresh_guidance_text(self) -> str:

@@ -30,6 +30,7 @@ def test_export_shell_methods_are_explicit_main_window_methods() -> None:
         "set_safe_export_folder",
         "_format_safe_export_folder_label",
         "export_dj_readiness_report",
+        "export_metadata_gap_report",
         "preview_export",
         "export_recommendation",
         "preview_serato_export",

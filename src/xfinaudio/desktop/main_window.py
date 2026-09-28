@@ -360,6 +360,9 @@ class MainWindow(QMainWindow):
     def export_dj_readiness_report(self, *, generated_at: Any | None = None) -> None:
         self._export_actions.export_dj_readiness_report(generated_at=generated_at)
 
+    def export_metadata_gap_report(self, *, generated_at: Any | None = None) -> None:
+        self._export_actions.export_metadata_gap_report(generated_at=generated_at)
+
     def preview_export(
         self,
         *,

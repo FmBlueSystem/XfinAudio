@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime
+
 from PySide6.QtWidgets import QApplication, QFrame
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.export_view_model import ExportViewModel
 from xfinaudio.desktop.screens.export_screen import _HISTORY_COLUMNS, ExportScreen
+from xfinaudio.metadata.metadata_gaps import build_metadata_gap_report
 
 
 def test_export_progress_bar_shows_eta_and_hides_when_complete(qapp: QApplication) -> None:
@@ -256,3 +260,135 @@ def test_render_does_not_fight_the_user_after_their_own_edit(qapp: QApplication)
     screen.render(ExportViewModel(), AppState(last_recommendation=recommendation), lightweight=True)
 
     assert screen.tracks_table.selectionModel().selectedRows()[0].row() == 1
+
+
+# ---------------------------------------------------------------------------
+# Metadata gap report export (MIK enrichment slice C).
+#
+# Mirrors the DJ readiness export: safe-folder guard, deterministic timestamped
+# filenames, and both JSON and CSV written from the pure report functions.
+# ---------------------------------------------------------------------------
+
+
+class _StatusLabel:
+    def __init__(self) -> None:
+        self._text = ""
+
+    def setText(self, text: str) -> None:  # noqa: N802 - mimics QLabel API
+        self._text = text
+
+    def text(self) -> str:
+        return self._text
+
+
+class _GapExportHost:
+    def __init__(self, *, records, safe_folder, selected_folder=None) -> None:
+        from types import SimpleNamespace
+
+        self.scanned_records = records
+        self.settings = SimpleNamespace(export=SimpleNamespace(safe_export_folder=safe_folder))
+        self.selected_folder = selected_folder
+        self.status_label = _StatusLabel()
+
+    def tr(self, text: str) -> str:
+        return text
+
+
+class _FakeExportCoordinator:
+    def __init__(self, host) -> None:
+        self._host = host
+
+
+def _gap_records():
+    from xfinaudio.library.models import TrackRecord
+
+    return [
+        TrackRecord(
+            path="/music/complete.flac",
+            title="Complete",
+            artist="Artist",
+            bpm=120.0,
+            camelot_key="8A",
+            energy_level=7,
+            release_year=2001,
+            metadata_status="complete",
+        ),
+        TrackRecord(
+            path="/music/gap.flac",
+            title="Gap",
+            artist="Artist",
+            bpm=None,
+            camelot_key=None,
+            energy_level=None,
+            metadata_status="incomplete",
+        ),
+    ]
+
+
+def _gap_actions(host) -> "ExportActions":
+    from xfinaudio.desktop.export_actions import ExportActions
+
+    return ExportActions(_FakeExportCoordinator(host))
+
+
+def test_gap_export_refuses_when_there_are_no_gaps(tmp_path) -> None:
+    host = _GapExportHost(records=[_gap_records()[0]], safe_folder=tmp_path)
+
+    _gap_actions(host).export_metadata_gap_report(generated_at=datetime(2026, 6, 6, 9, 30, 0))
+
+    assert "metadata gaps" in host.status_label.text()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_gap_export_refuses_without_a_safe_export_folder() -> None:
+    host = _GapExportHost(records=_gap_records(), safe_folder=None)
+
+    _gap_actions(host).export_metadata_gap_report(generated_at=datetime(2026, 6, 6, 9, 30, 0))
+
+    assert "safe export folder" in host.status_label.text()
+    assert "gap report" in host.status_label.text()
+
+
+def test_gap_export_refuses_the_scan_folder_as_the_safe_folder(tmp_path) -> None:
+    host = _GapExportHost(records=_gap_records(), safe_folder=None, selected_folder=tmp_path)
+
+    _gap_actions(host).set_safe_export_folder(tmp_path)
+
+    assert "must be outside the selected audio folder" in host.status_label.text()
+
+
+def test_gap_export_writes_timestamped_json_and_csv(tmp_path) -> None:
+    from xfinaudio.metadata.metadata_gaps import export_metadata_gap_report_json
+
+    host = _GapExportHost(records=_gap_records(), safe_folder=tmp_path)
+
+    _gap_actions(host).export_metadata_gap_report(generated_at=datetime(2026, 6, 6, 9, 30, 0))
+
+    json_path = tmp_path / "xfinaudio-metadata-gaps-20260606-093000.json"
+    csv_path = tmp_path / "xfinaudio-metadata-gaps-20260606-093000.csv"
+    assert json_path.exists()
+    assert csv_path.exists()
+    assert json.loads(json_path.read_text(encoding="utf-8"))["incomplete_count"] == 1
+    assert csv_path.read_text(encoding="utf-8").splitlines()[0] == "path,title,artist,missing_fields,release_year"
+    assert str(json_path) in host.status_label.text()
+    assert str(csv_path) in host.status_label.text()
+    report = build_metadata_gap_report(_gap_records())
+    assert json_path.read_text(encoding="utf-8") == export_metadata_gap_report_json(report)
+
+
+def test_gap_export_uses_injected_writer_seams(tmp_path, monkeypatch) -> None:
+    host = _GapExportHost(records=_gap_records(), safe_folder=tmp_path)
+
+    monkeypatch.setattr(
+        "xfinaudio.desktop.export_actions.export_metadata_gap_report_json",
+        lambda report: "JSON-SEAM",
+    )
+    monkeypatch.setattr(
+        "xfinaudio.desktop.export_actions.export_metadata_gap_report_csv",
+        lambda report: "CSV-SEAM",
+    )
+
+    _gap_actions(host).export_metadata_gap_report(generated_at=datetime(2026, 6, 6, 9, 30, 0))
+
+    assert (tmp_path / "xfinaudio-metadata-gaps-20260606-093000.json").read_text() == "JSON-SEAM"
+    assert (tmp_path / "xfinaudio-metadata-gaps-20260606-093000.csv").read_text() == "CSV-SEAM"

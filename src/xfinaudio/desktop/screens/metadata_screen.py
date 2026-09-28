@@ -44,6 +44,7 @@ class MetadataScreen(QWidget):
 
     back_requested = Signal()
     export_requested = Signal(str, str)  # (status_filter, missing_filter)
+    gap_report_export_requested = Signal()
     filter_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -75,6 +76,12 @@ class MetadataScreen(QWidget):
         self.guidance_label.setMaximumHeight(40)
         layout.addWidget(self.guidance_label)
 
+        # Gap summary — one height-capped line above the filters so the worklist
+        # table keeps the free vertical height (see the layout test).
+        self.gap_summary_label = QLabel()
+        self.gap_summary_label.setMaximumHeight(24)
+        layout.addWidget(self.gap_summary_label)
+
         # Filter controls row
         filter_row = QHBoxLayout()
         self.status_combo = QComboBox()
@@ -82,9 +89,15 @@ class MetadataScreen(QWidget):
         self.export_button = QPushButton(self.tr("Export to Serato"))
         self.export_button.setToolTip(self.tr("Export the current playlist; needs a completed recommendation"))
         self.export_button.setEnabled(False)
+        self.gap_export_button = QPushButton(self.tr("Export gap report"))
+        self.gap_export_button.setToolTip(
+            self.tr("Export the metadata gap report as JSON and CSV to the safe export folder")
+        )
+        self.gap_export_button.setEnabled(False)
         filter_row.addWidget(self.status_combo)
         filter_row.addWidget(self.missing_combo)
         filter_row.addWidget(self.export_button)
+        filter_row.addWidget(self.gap_export_button)
         filter_row.addStretch()
         layout.addLayout(filter_row)
 
@@ -129,9 +142,11 @@ class MetadataScreen(QWidget):
         """Set accessible names for screen readers."""
         self.status_label.setAccessibleName(self.tr("Metadata status summary"))
         self.guidance_label.setAccessibleName(self.tr("Metadata worklist guidance"))
+        self.gap_summary_label.setAccessibleName(self.tr("Metadata gap summary"))
         self.status_combo.setAccessibleName(self.tr("Status filter"))
         self.missing_combo.setAccessibleName(self.tr("Missing metadata filter"))
         self.export_button.setAccessibleName(self.tr("Export metadata worklist"))
+        self.gap_export_button.setAccessibleName(self.tr("Export metadata gap report"))
         self.worklist_table.setAccessibleName(self.tr("Metadata worklist"))
         self.worklist_empty_label.setAccessibleName(self.tr("Metadata worklist empty state"))
         self.back_button.setAccessibleName(self.tr("Back to library"))
@@ -140,7 +155,8 @@ class MetadataScreen(QWidget):
         """Define a logical keyboard tab order across primary controls."""
         self.setTabOrder(self.status_combo, self.missing_combo)
         self.setTabOrder(self.missing_combo, self.export_button)
-        self.setTabOrder(self.export_button, self.worklist_table)
+        self.setTabOrder(self.export_button, self.gap_export_button)
+        self.setTabOrder(self.gap_export_button, self.worklist_table)
         self.setTabOrder(self.worklist_table, self.back_button)
 
     def _connect_signals(self) -> None:
@@ -148,11 +164,13 @@ class MetadataScreen(QWidget):
         self.status_combo.currentTextChanged.connect(lambda _: self.filter_changed.emit())
         self.missing_combo.currentTextChanged.connect(lambda _: self.filter_changed.emit())
         self.export_button.clicked.connect(self._on_export_clicked)
+        self.gap_export_button.clicked.connect(self.gap_report_export_requested)
 
     def connect_signals(self, window: Any) -> None:
         self.status_combo.currentTextChanged.connect(lambda _text: window._apply_song_filter())
         self.missing_combo.currentTextChanged.connect(lambda _text: window._apply_song_filter())
         self.export_button.clicked.connect(lambda: window.export_metadata_status_to_serato())
+        self.gap_report_export_requested.connect(lambda: window.export_metadata_gap_report())
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
         self.filter_changed.connect(window._sync_state)
         self.export_requested.connect(window._library_controller.on_metadata_export_requested)
@@ -172,6 +190,8 @@ class MetadataScreen(QWidget):
             vm = MetadataViewModel()
 
         self.status_label.setText(vm.status_text(state))
+        self.gap_summary_label.setText(vm.gap_summary_text(state))
+        self.gap_summary_label.setVisible(bool(state.scanned_records))
 
         if state.scanned_records:
             self.guidance_label.setText(
@@ -206,6 +226,7 @@ class MetadataScreen(QWidget):
                 self._last_worklist_signature = signature
 
         self.export_button.setEnabled(vm.export_enabled(state))
+        self.gap_export_button.setEnabled(vm.gap_report_export_enabled(state))
 
     def _populate_table(self, rows: list[WorklistRow]) -> None:
         """Rebuild the worklist table, restoring same-path selection when possible.

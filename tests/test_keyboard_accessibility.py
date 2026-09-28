@@ -125,6 +125,7 @@ def test_metadata_screen_widgets_have_accessible_names() -> None:
     assert screen.status_combo.accessibleName()
     assert screen.missing_combo.accessibleName()
     assert screen.export_button.accessibleName()
+    assert screen.gap_export_button.accessibleName()
     assert screen.worklist_table.accessibleName()
     assert screen.back_button.accessibleName()
 
@@ -261,6 +262,7 @@ def test_primary_controls_accept_tab_focus() -> None:
         window._metadata_screen.status_combo,
         window._metadata_screen.missing_combo,
         window._metadata_screen.export_button,
+        window._metadata_screen.gap_export_button,
         window._metadata_screen.worklist_table,
         window._metadata_screen.back_button,
     ]

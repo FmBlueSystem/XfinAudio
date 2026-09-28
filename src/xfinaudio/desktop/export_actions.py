@@ -10,6 +10,11 @@ from PySide6.QtWidgets import QFileDialog
 
 from xfinaudio.application.dj_readiness import write_application_dj_readiness_report
 from xfinaudio.config.settings import ExportSettings
+from xfinaudio.metadata.metadata_gaps import (
+    build_metadata_gap_report,
+    export_metadata_gap_report_csv,
+    export_metadata_gap_report_json,
+)
 
 
 class ExportActions:
@@ -54,6 +59,32 @@ class ExportActions:
         csv_path = safe_folder / f"xfinaudio-dj-readiness-{timestamp}.csv"
         json_path, csv_path = write_application_dj_readiness_report(host.last_dj_readiness_report, json_path, csv_path)
         host.status_label.setText(host.tr("Exported DJ readiness report: {0} and {1}").format(json_path, csv_path))
+
+    def export_metadata_gap_report(self, *, generated_at: datetime | None = None) -> None:
+        """Write the deterministic metadata gap report as JSON and CSV.
+
+        Mirrors ``export_dj_readiness_report``: guard on nothing to export and on
+        a missing safe folder, then write both files with a timestamped,
+        deterministic filename. The report itself comes from the pure domain
+        function over the currently scanned records; the export never decides
+        which tracks are gaps.
+        """
+        host = self._host
+        report = build_metadata_gap_report(host.scanned_records)
+        if report.incomplete_count == 0:
+            host.status_label.setText(host.tr("Scan a library with metadata gaps before exporting the gap report"))
+            return
+        safe_folder = host.settings.export.safe_export_folder
+        if safe_folder is None:
+            host.status_label.setText(host.tr("Choose a safe export folder before exporting the gap report"))
+            return
+        generated_at = generated_at or datetime.now()
+        timestamp = generated_at.strftime("%Y%m%d-%H%M%S")
+        json_path = safe_folder / f"xfinaudio-metadata-gaps-{timestamp}.json"
+        csv_path = safe_folder / f"xfinaudio-metadata-gaps-{timestamp}.csv"
+        json_path.write_text(export_metadata_gap_report_json(report), encoding="utf-8")
+        csv_path.write_text(export_metadata_gap_report_csv(report), encoding="utf-8")
+        host.status_label.setText(host.tr("Exported metadata gap report: {0} and {1}").format(json_path, csv_path))
 
     def preview_export(
         self,

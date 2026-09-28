@@ -984,129 +984,154 @@
 <context>
     <name>MetadataScreen</name>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="82"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="89"/>
         <source>Export to Serato</source>
         <translation>Exportar a Serato</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="83"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="90"/>
         <source>Export the current playlist; needs a completed recommendation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="107"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="120"/>
         <source>No library scanned yet. Choose a folder on the Library tab to scan metadata.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="119"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="132"/>
         <source>← Library</source>
         <translation>← Biblioteca</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="120"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="133"/>
         <source>Return to the Library screen</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="130"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="143"/>
         <source>Metadata status summary</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="131"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="144"/>
         <source>Metadata worklist guidance</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="132"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="146"/>
         <source>Status filter</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="133"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="147"/>
         <source>Missing metadata filter</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="134"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="148"/>
         <source>Export metadata worklist</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="135"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="150"/>
         <source>Metadata worklist</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="136"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="151"/>
         <source>Metadata worklist empty state</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="137"/>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="152"/>
         <source>Back to library</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="92"/>
+        <source>Export gap report</source>
+        <translation>Exportar reporte de faltantes</translation>
+    </message>
+    <message>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="94"/>
+        <source>Export the metadata gap report as JSON and CSV to the safe export folder</source>
+        <translation>Exportar el reporte de faltantes de metadata en JSON y CSV a la carpeta de exportación segura</translation>
+    </message>
+    <message>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="145"/>
+        <source>Metadata gap summary</source>
+        <translation>Resumen de faltantes de metadata</translation>
+    </message>
+    <message>
+        <location filename="../src/xfinaudio/desktop/screens/metadata_screen.py" line="149"/>
+        <source>Export metadata gap report</source>
+        <translation>Exportar reporte de faltantes de metadata</translation>
     </message>
 </context>
 <context>
     <name>MetadataViewModel</name>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="42"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="43"/>
         <source>Scan your library first to see metadata status</source>
         <translation>Escanee su biblioteca primero para ver el estado de metadata</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="49"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="50"/>
         <source>{0} tracks scanned — {1} complete, {2} incomplete</source>
         <translation>{0} tracks escaneados — {1} completos, {2} incompletos</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="67"/>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="118"/>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="127"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="100"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="151"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="160"/>
         <source>All</source>
         <translation>Todos</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="69"/>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="119"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="102"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="152"/>
         <source>Complete</source>
         <translation>Completos</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="70"/>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="120"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="103"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="153"/>
         <source>Incomplete</source>
         <translation>Incompletos</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="128"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="161"/>
         <source>Missing BPM</source>
         <translation>Falta BPM</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="129"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="162"/>
         <source>Missing Key</source>
         <translation>Falta Key</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="130"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="163"/>
         <source>Missing Energy</source>
         <translation>Falta Energía</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="139"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="70"/>
+        <source>Gaps — BPM: {0}, Key: {1}, Energy: {2} · release year known: {3}/{4} (informational only)</source>
+        <translation>Faltantes — BPM: {0}, Key: {1}, Energía: {2} · año de lanzamiento conocido: {3}/{4} (solo informativo)</translation>
+    </message>
+    <message>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="172"/>
         <source>The worklist shows tracks missing BPM, Key, or Energy. These fields are required for harmonic mixing recommendations.</source>
         <translation>El worklist muestra tracks faltando BPM, Key o Energía. Estos campos son requeridos para recomendaciones de harmonic mixing.</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="147"/>
-        <source>Fix missing tags in an external tag editor, then return to XfinAudio.</source>
-        <translation>Arregle tags faltantes en un editor de tags externo, luego regrese a XfinAudio.</translation>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="180"/>
+        <source>Fix missing tags in an external tag editor, then return to XfinAudio. Release year is informational: Mixed In Key may not write it and completeness never depends on it.</source>
+        <translation>Arreglá los tags faltantes en un editor de tags externo, después volvé a XfinAudio. El año de lanzamiento es informativo: puede que Mixed In Key no lo escriba y la completitud nunca depende de él.</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="154"/>
+        <location filename="../src/xfinaudio/desktop/metadata_view_model.py" line="188"/>
         <source>Refresh the library scan to pick up corrected metadata.</source>
         <translation>Refresque el escaneo de biblioteca para capturar metadata corregida.</translation>
     </message>
@@ -1686,29 +1711,44 @@
 <context>
     <name>host</name>
     <message>
-        <location filename="../src/xfinaudio/desktop/export_actions.py" line="31"/>
+        <location filename="../src/xfinaudio/desktop/export_actions.py" line="36"/>
         <source>Safe export folder must be outside the selected audio folder</source>
         <translation type="unfinished">La carpeta de exportación segura debe estar fuera de la carpeta de audio seleccionada</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/export_actions.py" line="39"/>
+        <location filename="../src/xfinaudio/desktop/export_actions.py" line="44"/>
         <source>Safe export folder selected</source>
         <translation type="unfinished">Carpeta de exportación segura seleccionada</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/export_actions.py" line="45"/>
+        <location filename="../src/xfinaudio/desktop/export_actions.py" line="50"/>
         <source>Generate a recommendation before exporting DJ readiness</source>
         <translation type="unfinished">Genere una recomendación antes de exportar DJ readiness</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/export_actions.py" line="49"/>
+        <location filename="../src/xfinaudio/desktop/export_actions.py" line="54"/>
         <source>Choose a safe export folder before exporting DJ readiness</source>
         <translation type="unfinished">Elija una carpeta de exportación segura antes de exportar DJ readiness</translation>
     </message>
     <message>
-        <location filename="../src/xfinaudio/desktop/export_actions.py" line="56"/>
+        <location filename="../src/xfinaudio/desktop/export_actions.py" line="61"/>
         <source>Exported DJ readiness report: {0} and {1}</source>
         <translation type="unfinished">Reporte de DJ readiness exportado: {0} y {1}</translation>
+    </message>
+    <message>
+        <location filename="../src/xfinaudio/desktop/export_actions.py" line="75"/>
+        <source>Scan a library with metadata gaps before exporting the gap report</source>
+        <translation>Escaneá una biblioteca con faltantes de metadata antes de exportar el reporte de faltantes</translation>
+    </message>
+    <message>
+        <location filename="../src/xfinaudio/desktop/export_actions.py" line="79"/>
+        <source>Choose a safe export folder before exporting the gap report</source>
+        <translation>Elegí una carpeta de exportación segura antes de exportar el reporte de faltantes</translation>
+    </message>
+    <message>
+        <location filename="../src/xfinaudio/desktop/export_actions.py" line="87"/>
+        <source>Exported metadata gap report: {0} and {1}</source>
+        <translation>Reporte de faltantes de metadata exportado: {0} y {1}</translation>
     </message>
     <message>
         <location filename="../src/xfinaudio/desktop/export_coordinator.py" line="168"/>
@@ -2055,7 +2095,7 @@
 <context>
     <name>self._host</name>
     <message>
-        <location filename="../src/xfinaudio/desktop/export_actions.py" line="24"/>
+        <location filename="../src/xfinaudio/desktop/export_actions.py" line="29"/>
         <source>Choose safe export folder</source>
         <translation type="unfinished">Elegir carpeta de exportación segura</translation>
     </message>

@@ -101,3 +101,81 @@ def test_worklist_table_updates_when_rows_change(qapp: QApplication) -> None:
     table = screen.worklist_table
     assert table.rowCount() == 1
     assert table.item(0, 0).data(Qt.ItemDataRole.UserRole) == "/music/c.mp3"
+
+
+# ----------------------------------------------------------------------
+# Gap summary row (MIK enrichment slice C)
+# ----------------------------------------------------------------------
+
+
+def _incomplete_record(path: str) -> TrackRecord:
+    return TrackRecord(
+        path=path,
+        title=path,
+        artist="Test Artist",
+        bpm=None,
+        camelot_key=None,
+        energy_level=None,
+        metadata_status="incomplete",
+    )
+
+
+def test_gap_summary_label_is_height_capped_and_sits_above_the_filters(qapp: QApplication) -> None:
+    """A new row may not eat the worklist height: it is capped and placed above the filters."""
+    screen = MetadataScreen()
+    screen.resize(1200, 660)
+    screen.show()
+    qapp.processEvents()
+
+    label = screen.gap_summary_label
+    assert 0 < label.maximumHeight() <= 32
+    assert label.y() < screen.status_combo.y()
+
+
+def test_gap_summary_label_renders_counts_from_scanned_records(qapp: QApplication) -> None:
+    screen = MetadataScreen()
+    state = AppState(scanned_records=[_incomplete_record("/music/gap.flac")])
+
+    screen.render(state)
+
+    text = screen.gap_summary_label.text()
+    assert "BPM: 1" in text
+    assert "Key: 1" in text
+    assert "Energy: 1" in text
+    assert screen.gap_summary_label.isVisibleTo(screen) is True
+
+
+def test_gap_summary_label_hides_without_scanned_records(qapp: QApplication) -> None:
+    screen = MetadataScreen()
+
+    screen.render(AppState())
+
+    assert screen.gap_summary_label.isVisibleTo(screen) is False
+
+
+def test_gap_export_button_has_tooltip_and_accessible_name(qapp: QApplication) -> None:
+    screen = MetadataScreen()
+
+    assert screen.gap_export_button.toolTip().strip()
+    assert screen.gap_export_button.accessibleName().strip()
+
+
+def test_gap_export_button_emits_the_export_signal(qapp: QApplication) -> None:
+    screen = MetadataScreen()
+    screen.gap_export_button.setEnabled(True)
+    emitted: list[bool] = []
+    screen.gap_report_export_requested.connect(lambda: emitted.append(True))
+
+    screen.gap_export_button.click()
+
+    assert emitted == [True]
+
+
+def test_gap_export_button_enabled_follows_state_gaps(qapp: QApplication) -> None:
+    screen = MetadataScreen()
+
+    screen.render(AppState(scanned_records=[_record("/music/complete.flac")]))
+    assert screen.gap_export_button.isEnabled() is False
+
+    screen.render(AppState(scanned_records=[_incomplete_record("/music/gap.flac")]))
+    assert screen.gap_export_button.isEnabled() is True
