@@ -11,6 +11,7 @@ from xfinaudio.config.settings import (
     LibrarySettings,
     LoudnessSettings,
     ScoringSettings,
+    SeratoIntegrationSettings,
     WindowSettings,
 )
 from xfinaudio.library.scan_service import SUPPORTED_AUDIO_EXTENSIONS
@@ -135,6 +136,35 @@ def test_app_settings_defaults_to_enabled_loudness_analysis_policy() -> None:
     assert settings.loudness.enabled is True
     assert settings.loudness.target_lufs == pytest.approx(-10.0)
     assert settings.loudness.tolerance_lu == pytest.approx(2.0)
+
+
+def test_serato_integration_settings_defaults_to_disabled_without_a_directory() -> None:
+    settings = SeratoIntegrationSettings()
+
+    assert settings.enabled is False
+    assert settings.serato_dir is None
+
+
+def test_app_settings_serato_section_defaults_to_disabled() -> None:
+    settings = AppSettings()
+
+    assert settings.serato == SeratoIntegrationSettings()
+    assert settings.serato.enabled is False
+    assert settings.serato.serato_dir is None
+
+
+def test_app_settings_serato_round_trips_through_json() -> None:
+    settings = AppSettings(serato=SeratoIntegrationSettings(enabled=True, serato_dir=Path("/Music/_Serato_")))
+
+    restored = AppSettings.model_validate(settings.model_dump(mode="json"))
+
+    assert restored.serato == settings.serato
+
+
+def test_app_settings_v1_payload_without_serato_section_hydrates_defaults() -> None:
+    restored = AppSettings.model_validate({"settings_version": 1, "audio": {"preview_volume": 0.3}})
+
+    assert restored.serato == SeratoIntegrationSettings()
 
 
 @pytest.mark.parametrize(

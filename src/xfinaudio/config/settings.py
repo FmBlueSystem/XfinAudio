@@ -91,6 +91,15 @@ class WindowSettings(BaseModel):
     y: int | None = None
 
 
+class SeratoIntegrationSettings(BaseModel):
+    """Configuration for the read-only Serato integration (spike, default off)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = False
+    serato_dir: Path | None = None
+
+
 class BuildSessionSettings(BaseModel):
     """DJ build context restored across restarts for the current library.
 
@@ -123,6 +132,7 @@ class AppSettings(BaseModel):
     loudness: LoudnessSettings = Field(default_factory=LoudnessSettings)
     window: WindowSettings = Field(default_factory=WindowSettings)
     build: BuildSessionSettings = Field(default_factory=BuildSessionSettings)
+    serato: SeratoIntegrationSettings = Field(default_factory=SeratoIntegrationSettings)
 
     @field_validator("settings_version")
     @classmethod
@@ -144,6 +154,7 @@ __all__ = [
     "OptimizerSettings",
     "ScanSettings",
     "ScoringSettings",
+    "SeratoIntegrationSettings",
     "UiSettings",
     "WindowSettings",
 ]
