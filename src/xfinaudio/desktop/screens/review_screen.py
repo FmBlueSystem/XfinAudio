@@ -335,7 +335,7 @@ class ReviewScreen(QWidget):
             # cleared table no longer matches the signature even when the
             # ViewModel rows are unchanged, so the rebuild still happens.
             if signature != self._last_recommendation_signature or self.recommendation_table.rowCount() != len(rows):
-                self._populate_recommendation_table(rows)
+                self._populate_recommendation_table(rows, self._track_reasons(state))
                 self._last_recommendation_signature = signature
         # readiness_table and transition_table are populated imperatively by
         # _populate_dj_readiness_table / show_transition_review / clear_recommendation_review
@@ -399,7 +399,56 @@ class ReviewScreen(QWidget):
                 if cell is not None:
                     cell.setSelected(True)
 
-    def _populate_recommendation_table(self, rows: list[RecommendationRow]) -> None:
+    def _track_reasons(self, state: AppState) -> dict[str, str]:
+        """Build a per-path "why this track is here" tooltip from existing state.
+
+        The DJ readiness report is playlist-level, so no per-track readiness
+        status is claimed. Only data that already exists per track is surfaced:
+        playlist position, opener/closer role, metadata completeness, and the
+        warnings of the transitions that touch the track.
+
+        Args:
+            state: Application state carrying the last recommendation.
+
+        Returns:
+            Mapping of track path to a short multi-line reason. Tracks removed
+            from the playlist are skipped, with positions renumbered to match
+            the recommendation rows.
+        """
+        recommendation = state.last_recommendation
+        if recommendation is None:
+            return {}
+        remaining = [t for t in recommendation.ordered_tracks if t.path not in state.playlist_removed_paths]
+        warnings_by_path: dict[str, list[str]] = {}
+        for transition in recommendation.transition_scores:
+            for path in (transition.left_path, transition.right_path):
+                warnings_by_path.setdefault(path, []).extend(transition.warnings)
+        total = len(remaining)
+        reasons: dict[str, str] = {}
+        for position, track in enumerate(remaining, start=1):
+            lines = [self.tr("Track #{0} of {1}").format(position, total)]
+            if total > 1 and position == 1:
+                lines.append(self.tr("Playlist opener"))
+            elif total > 1 and position == total:
+                lines.append(self.tr("Playlist closer"))
+            if track.metadata_status != "complete" or track.missing_required_fields:
+                missing = ", ".join(track.missing_required_fields) or track.metadata_status
+                lines.append(self.tr("Incomplete metadata: {0}").format(missing))
+            else:
+                lines.append(self.tr("Metadata complete: BPM, key, and energy available"))
+            warnings = warnings_by_path.get(track.path, [])
+            if warnings:
+                lines.append(self.tr("Transition warnings:"))
+                lines.extend("• " + warning for warning in warnings)
+            else:
+                lines.append(self.tr("No warnings in adjacent transitions"))
+            reasons[track.path] = "\n".join(lines)
+        return reasons
+
+    def _populate_recommendation_table(
+        self, rows: list[RecommendationRow], reasons: dict[str, str] | None = None
+    ) -> None:
+        """Populate recommendation rows; per-track reasons replace the generic tooltip when available."""
         previous_selected_paths = self._selected_recommendation_paths()
         current_row_item = self.recommendation_table.item(self.recommendation_table.currentRow(), 0)
         previous_current_path = (
@@ -419,7 +468,7 @@ class ReviewScreen(QWidget):
                 row_data.spectral_color,
             ]
             tooltips = [
-                self.tr("Track #{0} in playlist").format(row_data.position),
+                (reasons or {}).get(row_data.path) or self.tr("Track #{0} in playlist").format(row_data.position),
                 row_data.title,
                 row_data.artist,
                 self.tr("BPM: {0}").format(row_data.bpm),

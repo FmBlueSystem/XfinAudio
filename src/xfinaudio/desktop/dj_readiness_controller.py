@@ -6,6 +6,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from PySide6.QtCore import QCoreApplication
+
 from xfinaudio.application.dj_readiness import (
     build_application_dj_readiness_report,
     format_application_dj_readiness_summary,
@@ -54,8 +56,28 @@ class DjReadinessController:
         )
         self._last_report_setter(report)
         self._sync_state()
-        self._review_screen.dj_readiness_label.setText(format_application_dj_readiness_summary(report))
+        summary = format_application_dj_readiness_summary(report)
+        energy_arc = self._energy_arc(recommendation)
+        if energy_arc:
+            summary = f"{summary} | {energy_arc}"
+        self._review_screen.dj_readiness_label.setText(summary)
         self.populate_table(report)
+
+    def _energy_arc(self, recommendation: PlaylistRecommendation) -> str:
+        """Return the energy-arc fragment (opener → closer energy), or "" when unavailable.
+
+        Gives the DJ the shape of the set at a glance without opening the JSON
+        export; single-track playlists have no arc to describe. The
+        recommendation is otherwise an opaque builder input, so anything without
+        an ordered_tracks shape simply yields no arc.
+        """
+        tracks = getattr(recommendation, "ordered_tracks", None)
+        energies = [track.energy_level for track in tracks] if tracks else []
+        if len(energies) < 2 or energies[0] is None or energies[-1] is None:
+            return ""
+        return QCoreApplication.translate("DjReadinessController", "Energy arc {0}→{1}").format(
+            energies[0], energies[-1]
+        )
 
     def populate_table(self, report: DjReadinessReport) -> None:
         populate_dj_readiness_table(

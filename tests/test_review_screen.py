@@ -6,11 +6,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.dj_readiness_controller import DjReadinessController
 from xfinaudio.desktop.review_view_model import RecommendationRow, ReviewViewModel
 from xfinaudio.desktop.screens.review_screen import _READINESS_COLUMNS, _TRANSITION_COLUMNS, ReviewScreen
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
-from xfinaudio.recommendation.scoring import ScoringWeights
+from xfinaudio.recommendation.scoring import ScoringWeights, TransitionScore
 from xfinaudio.recommendation.strategies import PlaylistStrategy
 
 
@@ -339,6 +341,123 @@ def test_double_click_without_path_reports_status(qapp: QApplication) -> None:
 
     window.status_label.setText.assert_called_once_with("That track has no playable file path")
     window._library_controller.on_track_play_requested.assert_not_called()
+
+
+# ----------------------------------------------------------------------
+# Per-track explainability on the Review screen (Plan 3 T4)
+# ----------------------------------------------------------------------
+
+
+def _recommendation_with_transitions(
+    tracks: list[TrackRecord], transition_scores: list[TransitionScore]
+) -> PlaylistRecommendation:
+    return _recommendation(tracks).model_copy(update={"transition_scores": transition_scores})
+
+
+def test_recommendation_rows_explain_why_each_track_is_listed(qapp: QApplication) -> None:
+    """Each recommendation row tooltip states the track's role, metadata, and warnings.
+
+    The DJ must see WHY a track is in the playlist without opening JSON exports.
+    Only data that exists per-track is surfaced: position, opener/closer role,
+    metadata completeness, and transition warnings touching the track.
+    """
+    tracks = [_track("/music/a.mp3"), _track("/music/b.mp3"), _track("/music/c.mp3")]
+    warned_transition = TransitionScore(
+        left_path="/music/a.mp3",
+        right_path="/music/b.mp3",
+        total_score=0.85,
+        component_scores={"harmonic": 0.9},
+        explanations=[],
+        warnings=["BPM jump 6.2% exceeds threshold"],
+    )
+    state = AppState(
+        scanned_records=tracks,
+        last_recommendation=_recommendation_with_transitions(tracks, [warned_transition]),
+    )
+
+    screen = ReviewScreen()
+    screen.render(ReviewViewModel(), state)
+
+    opener_tip = screen.recommendation_table.item(0, 0).toolTip()
+    assert "Track #1 of 3" in opener_tip
+    assert "Playlist opener" in opener_tip
+    assert "Metadata complete" in opener_tip
+    assert "BPM jump 6.2% exceeds threshold" in opener_tip
+
+    middle_tip = screen.recommendation_table.item(1, 0).toolTip()
+    assert "Track #2 of 3" in middle_tip
+    assert "BPM jump 6.2% exceeds threshold" in middle_tip
+
+    closer_tip = screen.recommendation_table.item(2, 0).toolTip()
+    assert "Track #3 of 3" in closer_tip
+    assert "Playlist closer" in closer_tip
+    assert "No warnings" in closer_tip
+
+
+def test_track_reason_tooltip_reports_incomplete_metadata(qapp: QApplication) -> None:
+    """A track with missing required metadata says so in its reason tooltip."""
+    track = _track("/music/x.mp3").model_copy(
+        update={"metadata_status": "incomplete", "missing_required_fields": ["bpm"]}
+    )
+    state = AppState(scanned_records=[track], last_recommendation=_recommendation([track]))
+
+    screen = ReviewScreen()
+    screen.render(ReviewViewModel(), state)
+
+    tip = screen.recommendation_table.item(0, 0).toolTip()
+    assert "Incomplete metadata" in tip
+    assert "bpm" in tip
+
+
+def test_track_reason_positions_skip_removed_tracks(qapp: QApplication) -> None:
+    """Removed tracks disappear from the reasons and remaining positions renumber.
+
+    The tooltip numbering must match the visible rows (the review view model
+    renumbers positions after removals), otherwise the DJ sees "Track #3 of 3"
+    on the second visible row.
+    """
+    tracks = [_track("/music/a.mp3"), _track("/music/b.mp3"), _track("/music/c.mp3")]
+    state = AppState(
+        scanned_records=tracks,
+        last_recommendation=_recommendation(tracks),
+        playlist_removed_paths=frozenset({"/music/a.mp3"}),
+    )
+
+    screen = ReviewScreen()
+    screen.render(ReviewViewModel(), state)
+
+    assert screen.recommendation_table.rowCount() == 2
+    assert "Track #1 of 2" in screen.recommendation_table.item(0, 0).toolTip()
+    assert "Track #2 of 2" in screen.recommendation_table.item(1, 0).toolTip()
+
+
+def test_dj_readiness_summary_surfaces_the_energy_arc(qapp: QApplication) -> None:
+    """The DJ readiness summary line states the energy arc from opener to closer."""
+    tracks = [
+        _track("/music/a.mp3").model_copy(update={"energy_level": 3}),
+        _track("/music/b.mp3").model_copy(update={"energy_level": 7}),
+    ]
+    screen = ReviewScreen()
+    controller = DjReadinessController(
+        state=AppState(),
+        review_screen=screen,
+        sync_state=Mock(),
+        last_report_setter=Mock(),
+    )
+
+    controller.show(
+        _recommendation(tracks),
+        RecommendationQualityReport(
+            track_count=2,
+            transition_count=1,
+            average_transition_score=0.9,
+            bpm_jumps=[],
+            energy_jumps=[0],
+            warning_count=0,
+        ),
+    )
+
+    assert "Energy arc 3→7" in screen.dj_readiness_label.text()
 
 
 def test_table_still_updates_when_rows_change(qapp: QApplication) -> None:
