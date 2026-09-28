@@ -29,6 +29,9 @@ class TrackRecord(BaseModel):
     energy_peak: int | None = None
     duration: float | None = None
     genre: str | None = None
+    # Optional and informational: excluded from metadata_status and
+    # missing_required_fields so no completeness gate changes behavior.
+    release_year: int | None = None
     tags: list[str] = Field(default_factory=list)
     metadata_status: MetadataStatus = "incomplete"
     missing_required_fields: list[str] = Field(default_factory=list)

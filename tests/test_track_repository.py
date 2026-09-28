@@ -20,6 +20,7 @@ from xfinaudio.library.track_repository import (
     DatabaseSchemaError,
     TrackRepository,
     UnsupportedDatabaseVersionError,
+    _RAW_METADATA_ALLOWLIST_SCHEMA_VERSION,
 )
 
 
@@ -75,6 +76,85 @@ def test_track_repository_round_trips_audio_md5_for_full_and_display_reads(tmp_p
 
     assert repository.list_tracks()[0].audio_md5 == checksum
     assert repository.list_display_tracks()[0].audio_md5 == checksum
+
+
+def test_track_repository_round_trips_release_year_for_full_and_display_reads(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    original = TrackRecord(path="/music/year.flac", title="Track One", release_year=2001)
+
+    repository.save_scan_results([original])
+
+    assert repository.list_tracks()[0].release_year == 2001
+    assert repository.list_display_tracks()[0].release_year == 2001
+
+
+@pytest.mark.parametrize("suffix", [".mp3", ".flac", ".wav", ".aiff", ".m4a"])
+def test_list_display_tracks_restores_release_year_across_supported_formats(tmp_path, suffix: str) -> None:
+    """The relaunch-restore read path must carry release_year, not just list_tracks."""
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    audio_file = tmp_path / f"year{suffix}"
+    audio_file.write_text("audio")
+    repository.save_scan_results([TrackRecord(path=str(audio_file), title="Year", release_year=1999)])
+
+    restored = [record for record in repository.list_display_tracks() if record.path == str(audio_file)]
+
+    assert restored[0].release_year == 1999
+
+
+def test_save_scan_results_prefers_new_release_year_and_preserves_stored_when_absent(tmp_path) -> None:
+    repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
+    path = "/music/year.flac"
+    repository.save_scan_results([TrackRecord(path=path, title="Original", release_year=1997)])
+
+    repository.save_scan_results([TrackRecord(path=path, title="Rescanned", release_year=2004)])
+    assert repository.list_tracks()[0].release_year == 2004
+
+    repository.save_scan_results([TrackRecord(path=path, title="Rescanned again")])
+    assert repository.list_tracks()[0].release_year == 2004
+    assert repository.list_display_tracks()[0].release_year == 2004
+
+
+def test_track_repository_adds_release_year_column_to_v4_database_without_data_loss(tmp_path) -> None:
+    """A v4 database gets a nullable release_year column; existing rows keep their data."""
+    db_path = tmp_path / "xfinaudio.sqlite3"
+    TrackRepository(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("ALTER TABLE tracks RENAME TO tracks_old")
+        connection.execute(
+            """
+            CREATE TABLE tracks AS
+            SELECT path, title, artist, bpm, camelot_key, energy_level,
+                   energy_in, energy_out, energy_peak, duration, genre, tags_json,
+                   metadata_status, missing_required_fields_json, source_fields_json,
+                   raw_metadata_json, audio_md5, spectral_profile_json,
+                   danceability_profile_json, edge_spectral_profile_json,
+                   loudness_profile_json, file_mtime_ns, file_size_bytes
+            FROM tracks_old
+            """
+        )
+        connection.execute("DROP TABLE tracks_old")
+        connection.execute("PRAGMA user_version = 4")
+        connection.execute(
+            "INSERT INTO tracks (path, title, metadata_status) VALUES (?, ?, ?)",
+            ("/music/legacy.flac", "Legacy", "complete"),
+        )
+
+    TrackRepository(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(tracks)")}
+        row = connection.execute(
+            "SELECT title, metadata_status, release_year FROM tracks WHERE path = ?",
+            ("/music/legacy.flac",),
+        ).fetchone()
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+
+    assert "release_year" in columns
+    assert version == SCHEMA_VERSION
+    assert row["title"] == "Legacy"
+    assert row["metadata_status"] == "complete"
+    assert row["release_year"] is None
 
 
 def test_track_repository_replaces_existing_record_for_same_path(tmp_path) -> None:
@@ -214,9 +294,9 @@ def test_track_repository_trims_legacy_raw_metadata_blobs_on_upgrade(tmp_path) -
             )
         ]
     )
-    # Simulate a database written by the previous schema version.
+    # Simulate a database written before the raw-metadata allowlist existed.
     with sqlite3.connect(db_path) as connection:
-        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION - 1}")
+        connection.execute(f"PRAGMA user_version = {_RAW_METADATA_ALLOWLIST_SCHEMA_VERSION - 1}")
 
     TrackRepository(db_path)
 

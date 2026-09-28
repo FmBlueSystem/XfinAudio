@@ -14,11 +14,13 @@ from xfinaudio.library.scan_service import (
     ScanCancellationToken,
     ScanCancelledError,
     ScanProgress,
+    _build_record,
     _coerce_tag_value,
     _lookup_previous_profile,
     read_mutagen_tags,
     scan_folder,
 )
+from xfinaudio.metadata.mixedinkey_contract import parse_mixedinkey_tags
 
 
 def test_scan_folder_recursively_reads_supported_audio_metadata() -> None:
@@ -484,6 +486,60 @@ def test_scan_folder_keeps_only_parsed_tags_in_raw_metadata() -> None:
     assert records[0].camelot_key == "11B"
     assert records[0].energy_level == 7
     assert records[0].metadata_status == "complete"
+
+
+def test_build_record_maps_release_year_from_parsed_metadata() -> None:
+    metadata = parse_mixedinkey_tags({"title": ["Track"], "date": ["2001-07-01"]})
+
+    record = _build_record(Path("/library/track.flac"), metadata, {"date": ["2001-07-01"]}, 210.0, None, None)
+
+    assert record.release_year == 2001
+    assert record.raw_metadata == {"date": ["2001-07-01"]}
+
+
+def test_build_record_leaves_release_year_none_without_a_year_tag() -> None:
+    metadata = parse_mixedinkey_tags({"title": ["Track"]})
+
+    record = _build_record(Path("/library/track.flac"), metadata, {"title": ["Track"]}, 210.0, None, None)
+
+    assert record.release_year is None
+
+
+def test_scan_folder_keeps_year_tags_in_raw_metadata() -> None:
+    """Year tags join the parsed allowlist, so they survive the raw-metadata trim."""
+    root = Path("/library")
+
+    def read_tags(path: Path) -> dict[str, object]:
+        return {
+            "title": ["Track One"],
+            "TDRC": ["2001-07-01"],
+            "date": ["2001"],
+            "originaldate": ["1998"],
+            "serato_overview": ["B" * 50_000],
+        }
+
+    records = scan_folder(root, list_paths=lambda folder: [root / "track.flac"], read_tags=read_tags)
+
+    raw = records[0].raw_metadata
+    assert raw["TDRC"] == ["2001-07-01"]
+    assert raw["date"] == ["2001"]
+    assert raw["originaldate"] == ["1998"]
+    assert "serato_overview" not in raw
+    assert records[0].release_year == 2001
+
+
+def test_scan_folder_maps_release_year_without_changing_completeness() -> None:
+    root = Path("/library")
+
+    records = scan_folder(
+        root,
+        list_paths=lambda folder: [root / "track.flac"],
+        read_tags=lambda path: {"bpm": ["128"], "initialkey": ["8A"], "energylevel": ["7"], "date": ["2011"]},
+    )
+
+    assert records[0].release_year == 2011
+    assert records[0].metadata_status == "complete"
+    assert records[0].missing_required_fields == []
 
 
 def test_read_mutagen_tags_formats_nonzero_audio_md5(monkeypatch) -> None:

@@ -136,6 +136,15 @@ def test_parsed_tag_keys_exclude_unreliable_energy_fields() -> None:
         "subgenre",
         "dj_zone",
         "genre_category",
+        "tdrc",
+        "tdor",
+        "tyer",
+        "tory",
+        "date",
+        "originaldate",
+        "year",
+        "originalyear",
+        "\xa9day",
     } == PARSED_TAG_KEYS
 
 
@@ -282,6 +291,83 @@ def test_parser_returns_empty_energy_curve_for_malformed_cuepoints(cuepoints: st
     metadata = parse_mixedinkey_tags({"cuepoints": [cuepoints]})
 
     assert (metadata.energy_in, metadata.energy_out, metadata.energy_peak) == (None, None, None)
+
+
+RELEASE_YEAR_TAG_VARIANTS = [
+    ("TDRC", "2001"),
+    ("TDOR", "1998"),
+    ("TYER", "1994"),
+    ("TORY", "1990"),
+    ("date", "2003"),
+    ("originaldate", "1988"),
+    ("year", "2005"),
+    ("originalyear", "1985"),
+    ("\xa9day", "2007"),
+]
+
+
+@pytest.mark.parametrize(("tag_key", "tag_value"), RELEASE_YEAR_TAG_VARIANTS)
+def test_parser_reads_release_year_from_every_supported_tag_spelling(tag_key: str, tag_value: str) -> None:
+    metadata = parse_mixedinkey_tags({tag_key: [tag_value]})
+
+    assert metadata.release_year == int(tag_value)
+    assert metadata.source_fields["release_year"] == tag_key
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2001-07-01", 2001),
+        ("2001/07", 2001),
+        ("2001-07-01T12:00:00", 2001),
+        ("20010701", 2001),
+        ("  2001  ", 2001),
+    ],
+)
+def test_parser_normalizes_full_dates_to_the_leading_year(value: str, expected: int) -> None:
+    assert parse_mixedinkey_tags({"date": [value]}).release_year == expected
+
+
+@pytest.mark.parametrize("value", ["1799", "2101", "0001", "9999"])
+def test_parser_rejects_out_of_range_release_years(value: str) -> None:
+    metadata = parse_mixedinkey_tags({"date": [value]})
+
+    assert metadata.release_year is None
+    assert "release_year" not in metadata.source_fields
+
+
+@pytest.mark.parametrize("value", ["not-a-year", "", "07/2001", "20", "abc2001"])
+def test_parser_returns_none_for_unparseable_release_year_values(value: str) -> None:
+    assert parse_mixedinkey_tags({"date": [value]}).release_year is None
+
+
+def test_parser_release_year_is_none_without_a_year_tag() -> None:
+    metadata = parse_mixedinkey_tags({"title": ["Track - 8A - Energy 7"]})
+
+    assert metadata.release_year is None
+    assert "release_year" not in metadata.source_fields
+
+
+def test_parser_falls_through_to_the_next_year_tag_when_the_first_is_invalid() -> None:
+    metadata = parse_mixedinkey_tags({"TDRC": ["not-a-date"], "year": ["1999"]})
+
+    assert metadata.release_year == 1999
+    assert metadata.source_fields["release_year"] == "year"
+
+
+def test_release_year_is_optional_and_never_part_of_completeness() -> None:
+    with_year = parse_mixedinkey_tags(
+        {"bpm": ["128"], "initialkey": ["8A"], "energylevel": ["7"], "date": ["2001"]}
+    )
+    without_year = parse_mixedinkey_tags({"bpm": ["128"], "initialkey": ["8A"], "energylevel": ["7"]})
+
+    assert with_year.release_year == 2001
+    assert with_year.missing_required_fields == []
+    assert with_year.is_complete is True
+    assert without_year.release_year is None
+    assert without_year.missing_required_fields == []
+    assert without_year.is_complete is True
+    assert "release_year" not in with_year.missing_required_fields
 
 
 def test_parser_energy_curve_is_optional_and_cuepoint_blob_is_not_persisted() -> None:

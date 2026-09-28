@@ -11,6 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 CAMELot_RE = re.compile(r"^(?:1[0-2]|[1-9])[AB]$")
 ENERGY_TEXT_RE = re.compile(r"Energy\s+([1-9]|10)\b", re.IGNORECASE)
+# Release years outside this window are tag corruption (e.g. a stray "0000"),
+# not real recordings, so they degrade to None rather than poisoning the report.
+_MIN_RELEASE_YEAR = 1800
+_MAX_RELEASE_YEAR = 2100
+_YEAR_RE = re.compile(r"\s*(\d{4})")
 TAG_FIELDS = ("genre", "mood", "subgenre", "dj_zone", "genre_category")
 
 # Every tag key parse_mixedinkey_tags() can consult, casefolded to match
@@ -37,8 +42,34 @@ PARSED_TAG_KEYS = frozenset(
         "tkey",
         "energy",
         "energylevel",
+        # Release-year spellings. ID3 frames are the raw (easy=False) IDs, so
+        # they arrive uppercase and land here casefolded like tit2/tpe1/tcon.
+        "tdrc",
+        "tdor",
+        "tyer",
+        "tory",
+        "date",
+        "originaldate",
+        "year",
+        "originalyear",
+        "\xa9day",
         *TAG_FIELDS,
     }
+)
+
+# Ordered so a recording/release date beats an "original" date, and the raw ID3
+# frames beat the Vorbis/MP4 spellings of the same value. _parse_release_year
+# keeps scanning after an unparseable candidate, like _parse_bpm does.
+_YEAR_TAG_CANDIDATES = (
+    "TDRC",  # ID3v2.4 recording time (ISO 8601, often a full date)
+    "TYER",  # ID3v2.3 year
+    "date",  # Vorbis comment, also ISO 8601
+    "year",  # Vorbis/Mixed In Key alternate spelling
+    "\xa9day",  # MP4/iTunes
+    "TDOR",  # ID3v2.4 original release time
+    "TORY",  # ID3v2.3 original release year
+    "originaldate",  # Vorbis original release date
+    "originalyear",  # Vorbis original release year
 )
 
 # Mixed In Key frequently writes the key as a standard musical name (e.g. "Cm", "Bbm", "G")
@@ -99,6 +130,9 @@ class MixedInKeyMetadata(BaseModel):
     energy_out: int | None = None
     energy_peak: int | None = None
     genre: str | None = None
+    # Optional and informational: never contributes to is_complete or
+    # missing_required_fields, so no completeness gate changes behavior.
+    release_year: int | None = None
     tags: list[str] = Field(default_factory=list)
     source_fields: dict[str, str] = Field(default_factory=dict)
     missing_required_fields: list[str] = Field(default_factory=list)
@@ -140,6 +174,10 @@ def parse_mixedinkey_tags(raw_tags: dict[str, Any]) -> MixedInKeyMetadata:
 
     energy_in, energy_out, energy_peak = _parse_energy_cues(tags)
 
+    release_year, release_year_source = _parse_release_year(tags)
+    if release_year is not None and release_year_source is not None:
+        source_fields["release_year"] = release_year_source
+
     normalized_tags = _parse_tags(tags)
     missing_required_fields = [
         field_name
@@ -157,6 +195,7 @@ def parse_mixedinkey_tags(raw_tags: dict[str, Any]) -> MixedInKeyMetadata:
         energy_out=energy_out,
         energy_peak=energy_peak,
         genre=genre,
+        release_year=release_year,
         tags=normalized_tags,
         source_fields=source_fields,
         missing_required_fields=missing_required_fields,
@@ -287,6 +326,33 @@ def _parse_energy_cues(
         return levels[0], levels[-1], max(levels)
     except (KeyError, TypeError, ValueError):
         return None, None, None
+
+
+def _parse_release_year(tags: dict[str, tuple[str, Any]]) -> tuple[int | None, str | None]:
+    for field_name in _YEAR_TAG_CANDIDATES:
+        value = _first_text(tags, field_name)
+        if value is None:
+            continue
+        year = _normalize_release_year(value)
+        if year is not None:
+            return year, _source_key(tags, field_name)
+    return None, None
+
+
+def _normalize_release_year(value: str) -> int | None:
+    """Return the leading four-digit year, or None when absent or out of range.
+
+    Tag conventions disagree on precision: ID3v2.3 ``TYER`` holds ``2001``,
+    ID3v2.4 ``TDRC`` and Vorbis ``date`` hold ISO 8601 strings like
+    ``2001-07-01`` or ``2001-07``. Only the leading year is meaningful here.
+    """
+    match = _YEAR_RE.match(value)
+    if match is None:
+        return None
+    year = int(match.group(1))
+    if not _MIN_RELEASE_YEAR <= year <= _MAX_RELEASE_YEAR:
+        return None
+    return year
 
 
 def _parse_tags(tags: dict[str, tuple[str, Any]]) -> list[str]:

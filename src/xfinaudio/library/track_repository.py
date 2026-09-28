@@ -24,7 +24,13 @@ from xfinaudio.audio.spectral_profile import (
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.metadata.mixedinkey_contract import PARSED_TAG_KEYS
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
+
+# Schema version that introduced the PARSED_TAG_KEYS allowlist for raw metadata
+# (see library/scan_service.py). Databases older than this still hold blobs the
+# parser never reads and are trimmed once on open. Named rather than inlined so a
+# later SCHEMA_VERSION bump cannot silently disable or widen the trim.
+_RAW_METADATA_ALLOWLIST_SCHEMA_VERSION = 4
 
 # Bound placeholders per IN (...) clause. Modern SQLite allows 32766, older
 # builds only 999; 900 stays safe everywhere and keeps queries small.
@@ -60,15 +66,20 @@ class TrackRepository:
             # them directly rather than preserving stale values like a profile.
             # The mtime branch alone discarded 1,266 byte-identical files on a
             # real re-scan, so prefer the FLAC audio checksum when available.
+            # release_year is tag-derived too, but a later scan may legitimately
+            # stop exposing it (a re-tag in another tool drops the date frame).
+            # Preferring the new value when present and keeping the stored one
+            # when the new scan is NULL preserves a year the user already saw
+            # while still accepting corrections, matching the loudness CASE.
             connection.executemany(
                 """
                 INSERT INTO tracks (
                     path, title, artist, bpm, camelot_key, energy_level,
-                    energy_in, energy_out, energy_peak, duration, genre, tags_json,
+                    energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
                     metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                     audio_md5, spectral_profile_json, danceability_profile_json,
                     edge_spectral_profile_json, loudness_profile_json, file_mtime_ns, file_size_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     title = excluded.title,
                     artist = excluded.artist,
@@ -80,6 +91,10 @@ class TrackRepository:
                     energy_peak = excluded.energy_peak,
                     duration = excluded.duration,
                     genre = excluded.genre,
+                    release_year = CASE
+                        WHEN excluded.release_year IS NOT NULL THEN excluded.release_year
+                        ELSE tracks.release_year
+                    END,
                     tags_json = excluded.tags_json,
                     metadata_status = excluded.metadata_status,
                     missing_required_fields_json = excluded.missing_required_fields_json,
@@ -146,7 +161,7 @@ class TrackRepository:
             rows = connection.execute(
                 """
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
-                       energy_in, energy_out, energy_peak, duration, genre, tags_json,
+                       energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
                        metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                        audio_md5, spectral_profile_json, danceability_profile_json,
                        edge_spectral_profile_json, loudness_profile_json
@@ -162,7 +177,7 @@ class TrackRepository:
             rows = connection.execute(
                 """
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
-                       energy_in, energy_out, energy_peak, duration, genre, tags_json,
+                       energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
                        metadata_status, missing_required_fields_json, spectral_profile_json,
                        danceability_profile_json, edge_spectral_profile_json, loudness_profile_json, audio_md5,
                        file_mtime_ns, file_size_bytes
@@ -503,7 +518,7 @@ class TrackRepository:
                     "refusing to mark it as schema v1 without an explicit migration"
                 )
             self._ensure_schema(connection)
-            needs_raw_metadata_trim = 0 < schema_version < 4
+            needs_raw_metadata_trim = 0 < schema_version < _RAW_METADATA_ALLOWLIST_SCHEMA_VERSION
             if needs_raw_metadata_trim:
                 self._trim_legacy_raw_metadata(connection)
             if schema_version < SCHEMA_VERSION:
@@ -566,6 +581,7 @@ class TrackRepository:
                 energy_peak INTEGER,
                 duration REAL,
                 genre TEXT,
+                release_year INTEGER,
                 tags_json TEXT NOT NULL DEFAULT '[]',
                 metadata_status TEXT NOT NULL CHECK(metadata_status IN ('complete', 'incomplete')),
                 missing_required_fields_json TEXT NOT NULL DEFAULT '[]',
@@ -604,6 +620,8 @@ class TrackRepository:
             connection.execute("ALTER TABLE tracks ADD COLUMN file_size_bytes INTEGER")
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN audio_md5 TEXT")
+        with contextlib.suppress(sqlite3.OperationalError):
+            connection.execute("ALTER TABLE tracks ADD COLUMN release_year INTEGER")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_tracks_metadata_status ON tracks (metadata_status)")
 
     def _connect(self) -> sqlite3.Connection:
@@ -633,6 +651,7 @@ class TrackRepository:
             record.energy_peak,
             record.duration,
             record.genre,
+            record.release_year,
             json.dumps(record.tags, sort_keys=True),
             record.metadata_status,
             json.dumps(record.missing_required_fields, sort_keys=True),
@@ -661,6 +680,7 @@ class TrackRepository:
             energy_peak=row["energy_peak"],
             duration=row["duration"],
             genre=row["genre"],
+            release_year=row["release_year"],
             tags=json.loads(row["tags_json"]),
             metadata_status=row["metadata_status"],
             missing_required_fields=json.loads(row["missing_required_fields_json"]),
@@ -687,6 +707,7 @@ class TrackRepository:
             energy_peak=row["energy_peak"],
             duration=row["duration"],
             genre=row["genre"],
+            release_year=row["release_year"],
             tags=json.loads(row["tags_json"]),
             metadata_status=row["metadata_status"],
             missing_required_fields=json.loads(row["missing_required_fields_json"]),

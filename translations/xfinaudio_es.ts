@@ -676,6 +676,10 @@
 </context>
 <context>
     <name>LibraryScreen</name>
+        <message>
+            <source>LUFS</source>
+            <translation>LUFS</translation>
+        </message>
     <message>
         <location filename="../src/xfinaudio/desktop/library_screen_rendering.py" line="163"/>
         <source>Analyzing loudness {0:,}/{1:,}</source>

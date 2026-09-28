@@ -291,6 +291,7 @@ def _build_record(
         energy_peak=metadata.energy_peak,
         duration=duration,
         genre=metadata.genre,
+        release_year=metadata.release_year,
         tags=metadata.tags,
         metadata_status="complete" if metadata.is_complete else "incomplete",
         missing_required_fields=metadata.missing_required_fields,
