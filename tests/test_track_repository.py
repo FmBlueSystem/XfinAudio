@@ -1717,9 +1717,7 @@ def test_profile_family_update_clears_every_sibling_when_identity_changes(
 
 
 @pytest.mark.parametrize("updater", _ALL_UPDATERS)
-def test_profile_family_update_preserves_every_sibling_when_identity_matches(
-    tmp_path, updater: str
-) -> None:
+def test_profile_family_update_preserves_every_sibling_when_identity_matches(tmp_path, updater: str) -> None:
     repository = TrackRepository(tmp_path / "xfinaudio.sqlite3")
     audio_file = tmp_path / "track.flac"
     audio_file.write_text("audio")

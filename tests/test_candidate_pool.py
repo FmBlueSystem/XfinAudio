@@ -647,12 +647,8 @@ def test_dedupe_keeps_distinct_songs_that_share_a_triad_identity() -> None:
     stays title+artist, so every member of a triad survives candidate-pool
     dedupe and only true duplicate versions collapse.
     """
-    first = _record("/triad-one.mp3", title="Song One", artist="Artist A").model_copy(
-        update={"tags": ["triad:a7f3"]}
-    )
-    second = _record("/triad-two.mp3", title="Song Two", artist="Artist B").model_copy(
-        update={"tags": ["triad:a7f3"]}
-    )
+    first = _record("/triad-one.mp3", title="Song One", artist="Artist A").model_copy(update={"tags": ["triad:a7f3"]})
+    second = _record("/triad-two.mp3", title="Song Two", artist="Artist B").model_copy(update={"tags": ["triad:a7f3"]})
 
     result = dedupe_recommendation_duplicates([first, second], controls=None)
 

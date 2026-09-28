@@ -420,18 +420,13 @@ def test_build_dmg_script_gates_signing_and_notarization_behind_credentials() ->
     assert 'sign_identity="${XFINAUDIO_SIGN_IDENTITY:-}"' in script_text
     assert 'if [[ -n "${sign_identity}" ]]; then' in script_text
     assert 'if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" ]]; then' in script_text
-    assert (
-        'if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" && -z "${sign_identity}" ]]; then'
-        in script_text
-    )
+    assert 'if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" && -z "${sign_identity}" ]]; then' in script_text
     assert "hint: unsigned build; set XFINAUDIO_SIGN_IDENTITY" in script_text
 
     # Notarization without a signing identity must fail closed before any heavy
     # work, not after the DMG has been built.
-    fail_closed_guard = script_text.index(
-        'if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" && -z "${sign_identity}" ]]; then'
-    )
-    first_heavy_step = script_text.index('==> Building')
+    fail_closed_guard = script_text.index('if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" && -z "${sign_identity}" ]]; then')
+    first_heavy_step = script_text.index("==> Building")
     assert fail_closed_guard < first_heavy_step
 
     # Every signing/notarization invocation must live inside its env-gated

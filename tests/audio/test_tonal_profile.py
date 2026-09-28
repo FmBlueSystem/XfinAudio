@@ -155,4 +155,3 @@ def test_librosa_tonal_analyzer_delegates_to_profile_function(monkeypatch: pytes
 
     assert analyzer.analyze(Path("/music/a.wav")) == expected
     assert calls == [Path("/music/a.wav")]
-

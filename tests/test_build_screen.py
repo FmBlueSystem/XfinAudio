@@ -491,6 +491,7 @@ def test_copilot_tracks_cell_tooltip_shows_the_genre_prefilter_note(qapp: QAppli
     assert notes[0] in screen.copilot_table.item(0, 2).toolTip()
     assert notes[0] in screen.copilot_table.item(0, 3).toolTip()
 
+
 # ---------------------------------------------------------------------------
 # AI copilot ask panel
 # ---------------------------------------------------------------------------

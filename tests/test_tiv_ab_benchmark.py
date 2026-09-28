@@ -171,9 +171,7 @@ def test_main_runs_both_arms_over_a_scratch_database(
     db_path = tmp_path / "scratch.sqlite3"
     TrackRepository(db_path).save_scan_results(_synthetic_library())
 
-    exit_code = tiv_ab_benchmark.main(
-        ["--db", str(db_path), "--anchors", "1", "--target-count", "3", "--verbose"]
-    )
+    exit_code = tiv_ab_benchmark.main(["--db", str(db_path), "--anchors", "1", "--target-count", "3", "--verbose"])
 
     out = capsys.readouterr().out
     assert exit_code == 0

@@ -944,14 +944,10 @@ def test_shared_triad_identity_is_reported_even_at_zero_weight() -> None:
 
 def test_absent_or_disjoint_triad_identities_are_neutral_and_never_penalized() -> None:
     weights = _triad_only_weights()
-    shared = score_transition(
-        track("sl", tags=["triad:a7f3"]), track("sr", tags=["triad:a7f3"]), weights=weights
-    )
+    shared = score_transition(track("sl", tags=["triad:a7f3"]), track("sr", tags=["triad:a7f3"]), weights=weights)
     absent = score_transition(track("al", tags=[]), track("ar", tags=[]), weights=weights)
     one_sided = score_transition(track("ol", tags=["triad:a7f3"]), track("or", tags=[]), weights=weights)
-    disjoint = score_transition(
-        track("dl", tags=["triad:a7f3"]), track("dr", tags=["triad:9c21"]), weights=weights
-    )
+    disjoint = score_transition(track("dl", tags=["triad:a7f3"]), track("dr", tags=["triad:9c21"]), weights=weights)
 
     assert "triad" not in absent.component_scores
     assert "triad" not in one_sided.component_scores

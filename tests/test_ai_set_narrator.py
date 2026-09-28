@@ -264,8 +264,7 @@ def test_narrate_set_says_so_when_no_transition_carries_a_warning(ai_env: None) 
     recommendation = make_recommendation().model_copy(
         update={
             "transition_scores": [
-                transition.model_copy(update={"warnings": []})
-                for transition in make_recommendation().transition_scores
+                transition.model_copy(update={"warnings": []}) for transition in make_recommendation().transition_scores
             ]
         }
     )

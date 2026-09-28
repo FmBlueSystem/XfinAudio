@@ -356,9 +356,7 @@ def test_parser_falls_through_to_the_next_year_tag_when_the_first_is_invalid() -
 
 
 def test_release_year_is_optional_and_never_part_of_completeness() -> None:
-    with_year = parse_mixedinkey_tags(
-        {"bpm": ["128"], "initialkey": ["8A"], "energylevel": ["7"], "date": ["2001"]}
-    )
+    with_year = parse_mixedinkey_tags({"bpm": ["128"], "initialkey": ["8A"], "energylevel": ["7"], "date": ["2001"]})
     without_year = parse_mixedinkey_tags({"bpm": ["128"], "initialkey": ["8A"], "energylevel": ["7"]})
 
     assert with_year.release_year == 2001

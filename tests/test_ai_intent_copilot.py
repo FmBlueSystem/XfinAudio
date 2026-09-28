@@ -402,9 +402,7 @@ def test_extract_intent_drops_an_unknown_slot_role(ai_env: None) -> None:
         ("  chill  ", "chill"),
     ],
 )
-def test_extract_intent_normalizes_slot_role_case_and_separators(
-    ai_env: None, requested: str, expected: str
-) -> None:
+def test_extract_intent_normalizes_slot_role_case_and_separators(ai_env: None, requested: str, expected: str) -> None:
     transport = FakeTransport(
         fenced(
             {
