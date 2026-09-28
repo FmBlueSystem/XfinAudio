@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "mode": "run",
+  "project_root": "/Users/freddymolina/Desktop/XfinAudio/repo",
+  "gates": [
+    {
+      "name": "tests and coverage",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "--cov",
+        "-q"
+      ],
+      "status": "passed",
+      "return_code": 0
+    },
+    {
+      "name": "type-check",
+      "command": [
+        "uv",
+        "run",
+        "pyright",
+        "src",
+        "tests"
+      ],
+      "status": "passed",
+      "return_code": 0
+    },
+    {
+      "name": "lint",
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "check",
+        "."
+      ],
+      "status": "passed",
+      "return_code": 0
+    },
+    {
+      "name": "format",
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "format",
+        "--check",
+        "."
+      ],
+      "status": "passed",
+      "return_code": 0
+    },
+    {
+      "name": "release readiness smoke",
+      "command": [
+        "uv",
+        "run",
+        "python",
+        "scripts/smoke_release_readiness.py"
+      ],
+      "status": "passed",
+      "return_code": 0
+    },
+    {
+      "name": "open-source publication docs",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_open_source_license_docs.py",
+        "tests/test_public_open_source_docs.py",
+        "tests/test_github_community_templates.py",
+        "tests/test_repository_publication_checklist.py",
+        "tests/test_harmonic_mixing_doc.py"
+      ],
+      "status": "passed",
+      "return_code": 0
+    },
+    {
+      "name": "publication artifact hygiene",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_publication_artifact_hygiene.py"
+      ],
+      "status": "passed",
+      "return_code": 0
+    },
+    {
+      "name": "source package hygiene",
+      "command": [
+        "uv",
+        "run",
+        "python",
+        "scripts/source_package_hygiene_check.py"
+      ],
+      "status": "passed",
+      "return_code": 0
+    },
+    {
+      "name": "PyInstaller check-only",
+      "command": [
+        "uv",
+        "run",
+        "python",
+        "scripts/pyinstaller_build_smoke.py",
+        "--check-only"
+      ],
+      "status": "passed",
+      "return_code": 0
+    },
+    {
+      "name": "root artifact hygiene",
+      "command": [],
+      "status": "passed",
+      "return_code": 0
+    }
+  ],
+  "manual_gates": [
+    {
+      "name": "real Mixed In Key audio QA",
+      "status": "completed"
+    }
+  ],
+  "overall_status": "passed",
+  "limitations": [
+    "Automated tests and fixtures do not prove real Mixed In Key audio QA; see docs/qa-manual-mik-evidence.md."
+  ]
+}
