@@ -44,4 +44,11 @@ version"). Major bump justified: scoring semantics change.
 
 ## Evidence
 
-- (per slice, appended as tasks close)
+- Harmonic core v2 spike: commit 6f105f2 (TIV precomputation chroma->6-dim
+  fold, tiv_compatibility cosine, schema v6 storage parity, scoring tonal
+  weight default 0.0 joining COMPATIBILITY axis, scripts/tiv_ab_benchmark.py
+  dual-arm harness). 53 new tests; full suite 2386; pinned totals byte-identical.
+- Engine pack slice 1 (T3 target_minutes + T4 slot_role): in flight (writer).
+- Engine pack slice 2 (T1 triads + provenance tags): pending.
+- T9 contingency branches: deferred to a follow-up slice (medium value,
+  sequential per-branch runs feasible; not blocking 2.0).
