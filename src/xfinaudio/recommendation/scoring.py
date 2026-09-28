@@ -29,6 +29,16 @@ class ScoringWeights(BaseModel):
     spectral: float = 0.10
     danceability: float = 0.0
     spectral_edge: float = 0.0
+    # Opt-in familiarity preference signal (Plan 3 T3). Familiarity is a
+    # PER-TRACK signal, not a transition-pair component, so it is deliberately
+    # NOT in SCORED_COMPONENTS: _weighted_total normalizes by the sum of
+    # SCORED_COMPONENTS weights, which this field therefore does not change —
+    # with the 0.0 default every transition score stays byte-identical, and a
+    # nonzero value is still inert here. The weight is consumed at the
+    # candidate-pool seam (build_recommendation_pool's ``familiarity_weight``)
+    # where production wiring passes this field's value. It is never negative
+    # (validated with the other components) and never blocks a track.
+    familiarity: float = 0.0
 
     @model_validator(mode="after")
     def validate_weights(self) -> ScoringWeights:

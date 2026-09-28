@@ -691,3 +691,40 @@ def test_ordinary_harmonic_transition_says_nothing_about_cutting() -> None:
     result = score_transition(track("left", camelot_key="8A"), track("right", camelot_key="9A"))
 
     assert not any("cut" in explanation.lower() for explanation in result.explanations)
+
+
+# ---------------------------------------------------------------------------
+# Familiarity preference weight (Plan 3 T3) — declared on ScoringWeights,
+# consumed at the candidate-pool seam, inert in transition scoring.
+# ---------------------------------------------------------------------------
+
+
+def test_familiarity_weight_defaults_to_inert_zero() -> None:
+    assert ScoringWeights().familiarity == 0.0
+
+
+def test_familiarity_weight_is_not_a_transition_component() -> None:
+    """Familiarity is per-track, not a transition-pair component.
+
+    Transition totals normalize by the sum of SCORED_COMPONENTS weights; the
+    familiarity weight must stay outside that set so the normalization (and
+    every transition score) is byte-identical whether the weight is 0.0 or set.
+    """
+    assert "familiarity" not in SCORED_COMPONENTS
+
+
+def test_familiarity_weight_does_not_change_transition_scores() -> None:
+    left = track("left", bpm=120.0, energy_level=4, tags=["Peak", "Vocal"])
+    right = track("right", bpm=123.0, energy_level=6, tags=["Peak", "Deep"])
+    baseline = score_transition(left, right, weights=ScoringWeights())
+    with_weight = score_transition(left, right, weights=ScoringWeights(familiarity=0.3))
+
+    assert with_weight.total_score == baseline.total_score
+    assert with_weight.compatibility_score == baseline.compatibility_score
+    assert with_weight.mixability_score == baseline.mixability_score
+    assert with_weight.component_scores == baseline.component_scores
+
+
+def test_familiarity_weight_reject_negative_values() -> None:
+    with pytest.raises(ValueError, match="component weights cannot be negative"):
+        ScoringWeights(familiarity=-0.1)

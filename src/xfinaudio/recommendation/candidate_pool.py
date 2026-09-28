@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from xfinaudio.library.duplicate_grouping import duplicate_representative_sort_key, playlist_duplicate_group_key
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.camelot import score_camelot_transition
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
+from xfinaudio.recommendation.familiarity import FamiliaritySignal
 from xfinaudio.recommendation.scoring import normalized_bpm_pair
 
 _DEFAULT_LIMIT = 25
+
+# Familiarity boost cap: transition scores live in [0, 1], so the opt-in
+# per-track boost is capped at 5% of that range. The pool's base ranking is
+# rescaled to rank fractions (adjacent ranks differ by 1/n), so a capped
+# track can climb at most ~5% of the candidate-list depth — it can perturb
+# the tail of the ranking but never dominate the compatibility gates.
+_FAMILIARITY_ADJUSTMENT_CAP = 0.05
 
 
 def _track_vibe_terms(track: TrackRecord) -> set[str]:
@@ -221,6 +231,8 @@ def build_recommendation_pool(
     *,
     spread_energy: bool = False,
     protected_path: str | None = None,
+    familiarity: Mapping[str, FamiliaritySignal] | None = None,
+    familiarity_weight: float = 0.0,
 ) -> list[TrackRecord]:
     """Return an interactive-size recommendation pool while preserving control tracks at the front.
 
@@ -233,8 +245,24 @@ def build_recommendation_pool(
     cap. It is retained WITHOUT being promoted to a control (its playlist-order
     position is unchanged); it simply cannot be trimmed away by the interactive
     cap, so downstream final enforcement can still bind it.
+
+    ``familiarity``/``familiarity_weight`` are the opt-in preference signal
+    (Plan 3 T3): aggregated Serato play/crate evidence plus a weight (typically
+    ``ScoringWeights.familiarity``). Both must be provided for any effect —
+    when the mapping is None/empty or the weight is <= 0, behavior is
+    byte-identical to the pre-familiarity pool. When opted in, played tracks
+    get a bounded boost (normalized play count, capped at 5% of the [0, 1]
+    score range) that only REORDERS candidates within one similarity class;
+    pool membership is never changed, so familiarity never blocks a track.
     """
-    pool = _build_recommendation_pool(scanned_records, controls, limit, spread_energy=spread_energy)
+    pool = _build_recommendation_pool(
+        scanned_records,
+        controls,
+        limit,
+        spread_energy=spread_energy,
+        familiarity=familiarity,
+        familiarity_weight=familiarity_weight,
+    )
     if protected_path is None or any(track.path == protected_path for track in pool):
         return pool
     protected = next((track for track in scanned_records if track.path == protected_path), None)
@@ -261,6 +289,8 @@ def _build_recommendation_pool(
     limit: int = _DEFAULT_LIMIT,
     *,
     spread_energy: bool = False,
+    familiarity: Mapping[str, FamiliaritySignal] | None = None,
+    familiarity_weight: float = 0.0,
 ) -> list[TrackRecord]:
     complete_records = [r for r in scanned_records if r.metadata_status == "complete"]
 
@@ -297,7 +327,54 @@ def _build_recommendation_pool(
     fallback = [r for r in remaining_records if r.path not in compatible_paths]
     compatible = sorted(compatible, key=lambda r: _track_similarity_key(anchor_terms, priority_records, r))
     fallback = sorted(fallback, key=lambda r: _track_similarity_key(anchor_terms, priority_records, r))
+    compatible = _familiarity_adjusted(compatible, familiarity, familiarity_weight)
+    fallback = _familiarity_adjusted(fallback, familiarity, familiarity_weight)
     if spread_energy:
         ranked = _interleave_by_energy([*compatible, *fallback], remaining_slots)
         return [*priority_records, *ranked][:limit]
     return [*priority_records, *compatible, *fallback][:limit]
+
+
+def _familiarity_adjusted(
+    ranked: list[TrackRecord],
+    familiarity: Mapping[str, FamiliaritySignal] | None,
+    familiarity_weight: float,
+) -> list[TrackRecord]:
+    """Re-rank one similarity class by rank fraction plus a bounded familiarity boost.
+
+    Opt-in: with ``familiarity`` None/empty or ``familiarity_weight <= 0`` the
+    input list is returned UNCHANGED (the same object), so the default pool is
+    byte-identical to the pre-familiarity behavior. When opted in, the base
+    score is the track's similarity-rank fraction (1.0 for the best-ranked
+    candidate, decreasing by 1/n per rank — monotone with the existing
+    ordering, so a zero boost would be a no-op) plus
+    ``min(familiarity_weight * play_count / max_play_count,
+    _FAMILIARITY_ADJUSTMENT_CAP)``. The sort is stable, so equal boosts
+    preserve the existing similarity order.
+
+    Familiarity NEVER blocks a track: this only reorders within one similarity
+    class — membership, size, and the compatible/fallback split are untouched,
+    and control/priority tracks are never ranked here at all.
+    """
+    if not familiarity or not ranked:
+        return ranked
+    if not (familiarity_weight > 0):  # excludes 0 and NaN — negative is rejected upstream
+        return ranked
+    max_play_count = max(
+        (signal.play_count for signal in (familiarity.get(record.path) for record in ranked) if signal is not None),
+        default=0,
+    )
+    if max_play_count <= 0:
+        return ranked
+    count = len(ranked)
+
+    def _adjusted_score(position_score: float, path: str) -> float:
+        signal = familiarity.get(path)
+        if signal is None or signal.play_count <= 0:
+            return position_score
+        boost = min(familiarity_weight * signal.play_count / max_play_count, _FAMILIARITY_ADJUSTMENT_CAP)
+        return position_score + boost
+
+    decorated = [(record, 1.0 - position / count) for position, record in enumerate(ranked)]
+    ranked_decorated = sorted(decorated, key=lambda item: -_adjusted_score(item[1], item[0].path))
+    return [record for record, _ in ranked_decorated]

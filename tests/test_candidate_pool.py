@@ -474,3 +474,101 @@ def test_protected_anchor_never_displaces_a_control_track() -> None:
     pool = build_recommendation_pool(records, controls, 3, protected_path="/anchor.flac")
 
     assert {item.path for item in pool} == {"/start.flac", "/end.flac", "/locked.flac"}
+
+
+# ---------------------------------------------------------------------------
+# Opt-in familiarity preference signal (Plan 3 T3).
+#
+# Contract: INERT by default (None signals or weight 0 -> byte-identical
+# behavior); when opted in, a bounded boost only REORDERS candidates within
+# one similarity class — it never changes pool membership, so familiarity
+# never blocks a track.
+# ---------------------------------------------------------------------------
+
+
+def _familiarity_pool_records() -> list[TrackRecord]:
+    """Anchor + 25 tag-identical candidates ranked purely by path tiebreak.
+
+    With identical bpm/key/energy/tags every similarity key ties except the
+    final path component, so the baseline rank order is exactly the path
+    order: /t01 .. /t24, then /z_familiar last.
+    """
+    anchor = track("/anchor.flac")
+    others = [track(f"/t{index:02d}.flac") for index in range(1, 25)]
+    return [anchor, *others, track("/z_familiar.flac")]
+
+
+def _familiarity_signals() -> dict:
+    from xfinaudio.recommendation.familiarity import FamiliaritySignal
+
+    return {"/z_familiar.flac": FamiliaritySignal(play_count=10, last_played=None, crate_count=1)}
+
+
+def test_familiarity_signals_with_zero_weight_are_identity():
+    records = _familiarity_pool_records()
+    controls = DJControls(start_path="/anchor.flac")
+    baseline = build_recommendation_pool(records, controls, 40)
+    inert = build_recommendation_pool(records, controls, 40, familiarity=_familiarity_signals(), familiarity_weight=0.0)
+
+    assert [r.path for r in inert] == [r.path for r in baseline]
+
+
+def test_empty_familiarity_mapping_with_positive_weight_is_identity():
+    records = _familiarity_pool_records()
+    controls = DJControls(start_path="/anchor.flac")
+    baseline = build_recommendation_pool(records, controls, 40)
+    inert = build_recommendation_pool(records, controls, 40, familiarity={}, familiarity_weight=1.0)
+
+    assert [r.path for r in inert] == [r.path for r in baseline]
+
+
+def test_familiarity_weight_reorders_candidates_within_similarity_class():
+    records = _familiarity_pool_records()
+    controls = DJControls(start_path="/anchor.flac")
+    baseline = build_recommendation_pool(records, controls, 40)
+    assert baseline[-1].path == "/z_familiar.flac"  # pre-condition: ranked last by path tiebreak
+
+    boosted = build_recommendation_pool(
+        records, controls, 40, familiarity=_familiarity_signals(), familiarity_weight=1.0
+    )
+
+    # With 25 ranked candidates the base rank fraction drops by 1/25 per rank,
+    # so the capped 5% boost lifts the familiar track exactly one position.
+    assert boosted[-2].path == "/z_familiar.flac"
+    assert boosted[-1].path == "/t24.flac"
+
+
+def test_familiarity_boost_is_capped_at_five_percent_of_score_range():
+    records = _familiarity_pool_records()
+    controls = DJControls(start_path="/anchor.flac")
+
+    uncapped_would_win = build_recommendation_pool(
+        records, controls, 40, familiarity=_familiarity_signals(), familiarity_weight=100.0
+    )
+
+    # Uncapped, a weight of 100 would carry the familiar track to the top of
+    # the pool; capped at 5% of the [0, 1] score range it climbs one rank.
+    assert uncapped_would_win[1].path == "/t01.flac"
+    assert uncapped_would_win[-2].path == "/z_familiar.flac"
+
+
+def test_familiarity_never_changes_pool_membership():
+    records = _familiarity_pool_records()
+    controls = DJControls(start_path="/anchor.flac")
+    baseline = build_recommendation_pool(records, controls, 40)
+    boosted = build_recommendation_pool(
+        records, controls, 40, familiarity=_familiarity_signals(), familiarity_weight=1.0
+    )
+
+    assert {r.path for r in boosted} == {r.path for r in baseline}
+
+
+def test_familiarity_ignores_signals_for_paths_outside_the_pool():
+    records = _familiarity_pool_records()
+    controls = DJControls(start_path="/anchor.flac")
+    baseline = build_recommendation_pool(records, controls, 40)
+    signals = {"/not-in-pool.flac": _familiarity_signals()["/z_familiar.flac"]}
+
+    boosted = build_recommendation_pool(records, controls, 40, familiarity=signals, familiarity_weight=1.0)
+
+    assert [r.path for r in boosted] == [r.path for r in baseline]

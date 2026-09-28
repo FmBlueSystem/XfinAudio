@@ -7,6 +7,7 @@ algorithm only proposes auditable options.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation import candidate_pool
 from xfinaudio.recommendation.controls import DJControls
+from xfinaudio.recommendation.familiarity import FamiliaritySignal
 from xfinaudio.recommendation.loudness_policy import DEFAULT_LOUDNESS_BAND, LoudnessBand
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
@@ -83,6 +85,8 @@ def build_prep_copilot_plan(
     *,
     color_anchor_path: str | None = None,
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    familiarity: Mapping[str, FamiliaritySignal] | None = None,
+    familiarity_weight: float = 0.0,
 ) -> PrepCopilotPlan:
     """Build safe, balanced, and adventurous playlist variants for one DJ set intent.
 
@@ -91,14 +95,44 @@ def build_prep_copilot_plan(
     the intent models what the human asked for, the anchor path is machine-bound
     identity. Every variant gates against that exact track, so a variant filter that
     removes it fails closed instead of rebinding a different anchor.
+
+    ``familiarity``/``familiarity_weight`` pass the opt-in Serato preference
+    signal (Plan 3 T3) through to `build_recommendation_pool`. INERT BY
+    DEFAULT: callers omit them (or pass weight 0) unless the Serato
+    integration is enabled and actually yielded data. Familiarity only
+    reorders the candidate pool; it never blocks a track.
     """
     from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
 
     PrepCopilotVariant.model_rebuild()
     variants = [
-        _build_variant("safe", tracks, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band),
-        _build_variant("balanced", tracks, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band),
-        _build_variant("adventurous", tracks, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band),
+        _build_variant(
+            "safe",
+            tracks,
+            intent,
+            color_anchor_path=color_anchor_path,
+            loudness_band=loudness_band,
+            familiarity=familiarity,
+            familiarity_weight=familiarity_weight,
+        ),
+        _build_variant(
+            "balanced",
+            tracks,
+            intent,
+            color_anchor_path=color_anchor_path,
+            loudness_band=loudness_band,
+            familiarity=familiarity,
+            familiarity_weight=familiarity_weight,
+        ),
+        _build_variant(
+            "adventurous",
+            tracks,
+            intent,
+            color_anchor_path=color_anchor_path,
+            loudness_band=loudness_band,
+            familiarity=familiarity,
+            familiarity_weight=familiarity_weight,
+        ),
     ]
     return PrepCopilotPlan(intent=intent, variants=variants)
 
@@ -110,6 +144,8 @@ def _build_variant(
     *,
     color_anchor_path: str | None = None,
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    familiarity: Mapping[str, FamiliaritySignal] | None = None,
+    familiarity_weight: float = 0.0,
 ) -> PrepCopilotVariant:
     from xfinaudio.quality.dj_readiness import build_dj_readiness_report
     from xfinaudio.quality.recommendation_quality import build_quality_report
@@ -128,6 +164,8 @@ def _build_variant(
         variant_tracks,
         controls,
         protected_path=color_anchor_path,
+        familiarity=familiarity,
+        familiarity_weight=familiarity_weight,
     )
     recommendation = recommend_playlist(
         recommendation_pool,
