@@ -50,6 +50,15 @@ version"). Major bump justified: scoring semantics change.
   dual-arm harness). 53 new tests; full suite 2386; pinned totals byte-identical.
 - Engine pack slice 1 (T3 target_minutes + T4 slot_role): in flight (writer).
 - Engine pack slice 2 (T1 triads + provenance tags): committed bf7bd7a (reserved 'triad:' tag namespace, triad component 1.0/neutral on MIXABILITY axis default 0.0, bonus-never-gate, +22 tests; tags-channel confound neutralized in the A/B service test).
-- Copilot intent wiring (target_minutes/slot_role via chat): in flight (final v2 slice).
+- Copilot intent wiring: committed 4b26ac4 (schema + normalization in the prompt, slot_role case/space-insensitive with unknown->None, minutes via pydantic validators; +13 cases; suite 2435).
+
+## V2 STATUS: CODE-COMPLETE
+
+All slices landed on feat/ai-set-narrative (13 commits over main@62ab58b).
+Suite 2435 passed; ruff/pyright clean repo-wide; coverage 93.14%.
+Pending USER decisions: (1) ear-validation A/B via scripts/tiv_ab_benchmark.py
+(Camelot vs TIV on real sets), (2) version bump 2.0.0 + release cut, (3) push.
+Note for merge planning: T1 slice diff was 444 lines (above the 400 budget) —
+consider a chained review if required.
 - T9 contingency branches: deferred to a follow-up slice (medium value,
   sequential per-branch runs feasible; not blocking 2.0).
