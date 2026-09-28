@@ -39,10 +39,10 @@ Fase 2 (branch feat/ai-set-narrative):
 5. [x] Work-unit commit + ledger evidence (single unit: service+UI+tests+i18n).
 
 MIK enrichment (separate ledger slice after Fase 2):
-6. [ ] Detection/report of incomplete tracks (metadata_status, missing fields).
-7. [ ] Guided enrichment workflow (MIK external pass + rescan; optional inferred
+6. [x] Detection/report (committed 9d47c69: release_year informational + metadata_gaps.py pure report) of incomplete tracks (metadata_status, missing fields).
+7. [x] Guided enrichment UI (committed 60d9ede: metadata screen gap summary + safe-folder JSON/CSV export; year note in guidance) workflow (MIK external pass + rescan; optional inferred
       values clearly marked, never presented as MIK official).
-8. [ ] Verify + commit.
+8. [x] Verify (86 targeted + 2333 full suite; anchors 0 diff lines; .qm regenerated with LUFS re-insertion) + commits.
 
 ## Constraints
 
