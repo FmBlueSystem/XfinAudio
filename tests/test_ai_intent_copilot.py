@@ -319,3 +319,147 @@ def test_extract_intent_genre_vocabulary_drops_a_library_genre_it_does_not_conta
     )
 
     assert intent.genre_focus is None
+
+
+def test_extract_intent_prompt_documents_the_v2_intent_fields(ai_env: None) -> None:
+    transport = FakeTransport(
+        fenced({"name": "set", "strategy": "build", "target_track_count": 8, "genre_focus": None})
+    )
+
+    extract_intent("set", make_tracks(), transport=transport)
+
+    prompt = message_text(transport)
+    assert '"target_minutes": number between 5 and 600 or null' in prompt
+    assert '"slot_role": one of ["warmup", "peak_time", "chill"] or null' in prompt
+    assert "target_minutes is the number of minutes the set must fill" in prompt
+    assert "slot_role is the arc curve for the set's role in the night" in prompt
+    assert "independent of the ordering strategy" in prompt
+
+
+def test_extract_intent_fills_target_minutes_and_slot_role(ai_env: None) -> None:
+    transport = FakeTransport(
+        fenced(
+            {
+                "name": "Closing set",
+                "strategy": "build",
+                "target_track_count": 12,
+                "genre_focus": None,
+                "target_minutes": 90,
+                "slot_role": "chill",
+            }
+        )
+    )
+
+    intent = extract_intent("set de cierre de 90 minutos", make_tracks(), transport=transport)
+
+    assert intent.target_minutes == 90.0
+    assert intent.slot_role == "chill"
+
+
+def test_extract_intent_accepts_a_numeric_string_for_target_minutes(ai_env: None) -> None:
+    transport = FakeTransport(
+        fenced(
+            {
+                "name": "set",
+                "strategy": "build",
+                "target_track_count": 8,
+                "genre_focus": None,
+                "target_minutes": "120",
+            }
+        )
+    )
+
+    intent = extract_intent("two hour set", make_tracks(), transport=transport)
+
+    assert intent.target_minutes == 120.0
+
+
+def test_extract_intent_drops_an_unknown_slot_role(ai_env: None) -> None:
+    transport = FakeTransport(
+        fenced(
+            {
+                "name": "set",
+                "strategy": "build",
+                "target_track_count": 8,
+                "genre_focus": None,
+                "slot_role": "afterhours",
+            }
+        )
+    )
+
+    intent = extract_intent("afterhours set", make_tracks(), transport=transport)
+
+    assert intent.slot_role is None
+
+
+@pytest.mark.parametrize(
+    ("requested", "expected"),
+    [
+        ("WARMUP", "warmup"),
+        ("peak time", "peak_time"),
+        ("Peak Time", "peak_time"),
+        ("peak-time", "peak_time"),
+        ("  chill  ", "chill"),
+    ],
+)
+def test_extract_intent_normalizes_slot_role_case_and_separators(
+    ai_env: None, requested: str, expected: str
+) -> None:
+    transport = FakeTransport(
+        fenced(
+            {
+                "name": "set",
+                "strategy": "build",
+                "target_track_count": 8,
+                "genre_focus": None,
+                "slot_role": requested,
+            }
+        )
+    )
+
+    intent = extract_intent("set", make_tracks(), transport=transport)
+
+    assert intent.slot_role == expected
+
+
+@pytest.mark.parametrize("value", [601, 0, -5])
+def test_extract_intent_rejects_an_out_of_range_target_minutes(ai_env: None, value: float) -> None:
+    transport = FakeTransport(
+        fenced(
+            {
+                "name": "set",
+                "strategy": "build",
+                "target_track_count": 8,
+                "genre_focus": None,
+                "target_minutes": value,
+            }
+        )
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        extract_intent("set", make_tracks(), transport=transport)
+
+    message = str(excinfo.value)
+    assert API_KEY not in message
+    assert API_KEY not in repr(excinfo.value)
+    assert len(message) < 300, "the error must echo at most a bounded snippet"
+
+
+def test_extract_intent_keeps_the_v2_fields_null_by_default(ai_env: None) -> None:
+    transport = FakeTransport(
+        fenced(
+            {
+                "name": "set",
+                "strategy": "build",
+                "target_track_count": 8,
+                "genre_focus": None,
+                "target_minutes": None,
+                "slot_role": None,
+            }
+        )
+    )
+
+    intent = extract_intent("set", make_tracks(), transport=transport)
+
+    assert intent.target_minutes is None
+    assert intent.slot_role is None

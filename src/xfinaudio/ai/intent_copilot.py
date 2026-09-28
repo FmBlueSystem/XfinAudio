@@ -28,6 +28,9 @@ if TYPE_CHECKING:
 #: Fallback strategy when the LLM names something the engine cannot resolve.
 _STRATEGY_FALLBACK = "harmonic_journey"
 
+#: The slot-role arcs the engine can render, decoupled from the ordering strategy.
+_SLOT_ROLES = ("warmup", "peak_time", "chill")
+
 #: Upper bound on how much of the raw LLM response an error may echo. Keeps the
 #: message bounded and keeps a stray key out of any user-visible error.
 _MAX_RAW_ECHO = 200
@@ -52,9 +55,12 @@ def extract_intent(
     the provided library: ``genre_focus`` is mapped to the library's exact
     casing (or an explicit ``genre_vocabulary`` override), ``strategy`` is
     validated against :func:`available_strategies` with a ``harmonic_journey``
-    fallback, and ``start_title``/``end_title`` are resolved to track paths by
-    case-insensitive title match (unmatched titles drop the path rather than
-    inventing one).
+    fallback, ``slot_role`` is matched case/space-insensitively to the known role
+    names (or ``None`` when unknown), and ``start_title``/``end_title`` are
+    resolved to track paths by case-insensitive title match (unmatched titles drop
+    the path rather than inventing one). ``target_minutes`` is left to the
+    ``DJSetIntent`` field validators, which coerce a numeric value and enforce the
+    ``gt=0``/``le=600`` bounds.
 
     Raises:
         NanConfigError: when AI is not enabled via ``XFINAUDIO_AI_ENABLED``.
@@ -80,6 +86,7 @@ def extract_intent(
     data = _extract_json_object(raw)
     raw_start = data.pop("start_title", None)
     raw_end = data.pop("end_title", None)
+    raw_slot_role = data.pop("slot_role", None)
     try:
         intent = DJSetIntent.model_validate(data)
     except ValidationError:
@@ -90,6 +97,7 @@ def extract_intent(
         update={
             "genre_focus": _normalize_genre(intent.genre_focus, genres),
             "strategy": _normalize_strategy(intent.strategy, strategy_names),
+            "slot_role": _normalize_slot_role(raw_slot_role),
             "start_path": _match_title(raw_start, title_lookup),
             "end_path": _match_title(raw_end, title_lookup),
         }
@@ -103,8 +111,17 @@ def _build_system_prompt(strategy_names: list[str]) -> str:
         "and no prose.\n"
         f"Allowed strategy values: {json.dumps(strategy_names)}.\n"
         'Schema: {"name": string, "strategy": string, "target_track_count": integer '
-        'between 2 and 100, "genre_focus": string or null, "start_title": string or '
+        'between 2 and 100, "target_minutes": number between 5 and 600 or null, '
+        '"slot_role": one of ["warmup", "peak_time", "chill"] or null, '
+        '"genre_focus": string or null, "start_title": string or '
         'null, "end_title": string or null}.\n'
+        "target_minutes is the number of minutes the set must fill; use it only "
+        "when the DJ's request states or clearly implies a set length in time "
+        "(minutes or hours), else null.\n"
+        "slot_role is the arc curve for the set's role in the night; use it only "
+        "when the DJ's request describes the set's role (for example an opening "
+        "set, a closing set or peak time), not when it only describes the music's "
+        "shape, else null. It is independent of the ordering strategy.\n"
         "genre_focus must be copied verbatim from the library genre vocabulary.\n"
         "start_title and end_title, when present, must match a title in the track "
         "list exactly; otherwise use null.\n"
@@ -162,6 +179,19 @@ def _normalize_strategy(value: str, allowed: list[str]) -> str:
     """Match the LLM's strategy case-insensitively, falling back to harmonic_journey."""
     lookup = {_SEPARATOR.sub("_", name.strip().casefold()): name for name in allowed}
     return lookup.get(_SEPARATOR.sub("_", value.strip().casefold()), _STRATEGY_FALLBACK)
+
+
+def _normalize_slot_role(value: object) -> str | None:
+    """Match the LLM's slot role case/space-insensitively, else ``None``.
+
+    Mirrors :func:`_normalize_strategy`'s separator handling. An unknown or
+    non-string role maps to ``None`` rather than guessing, so the engine keeps its
+    legacy strategy-coupled curve.
+    """
+    if not isinstance(value, str):
+        return None
+    lookup = {_SEPARATOR.sub("_", role): role for role in _SLOT_ROLES}
+    return lookup.get(_SEPARATOR.sub("_", value.strip().casefold()))
 
 
 def _title_lookup(tracks: list[TrackRecord]) -> dict[str, str]:
