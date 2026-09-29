@@ -79,8 +79,9 @@ exact commit being tagged:
   `docs/reviews/2026-09-v2-gate-remediation/README.md`).
 - Locally built DMGs are release artifacts too: build them only after
   `release_gate_check.py --run` passed on the exact packaged commit.
-- The publish workflow re-runs the gates on the tag and refuses to publish on
-  failure. That guard exists; it is the last line of defense, not the process.
+- The publish workflow (manual-only since 2026-09-29; PyPI is not a release
+  channel for this project) re-runs the gates before any publish. That guard
+  exists; it is the last line of defense, not the process.
 
 ## Agent checklist
 

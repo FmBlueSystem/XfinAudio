@@ -1,17 +1,23 @@
 name: Publish to PyPI
 
+# Disabled as a release channel (2026-09-29): XfinAudio is distributed as the
+# macOS DMG only, and PyPI publishing has actually been broken since v1.0.2
+# (expired PYPI_API_TOKEN secret, then 403s) without anyone missing it.
+# Kept manual-only so the fully gated publish path stays tested and returns
+# by restoring the tag trigger below.
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   publish:
     name: Build and publish to PyPI
     runs-on: macos-latest
+    # Must match the environment configured on the PyPI trusted publisher.
+    environment: pypi
     # The suite imports Qt during collection. A headless runner with no
     # platform hint is where two jobs stalled to the 20-minute timeout
     # without emitting a single line of pytest output.
@@ -82,7 +88,9 @@ jobs:
       - name: Build package
         run: uv build
 
+      # Publishes via PyPI trusted publishing (OIDC): the job's id-token
+      # permission plus the publisher registered on pypi.org authorize the
+      # upload, so no API token exists to expire (the PYPI_API_TOKEN secret
+      # silently broke every publish since v1.0.2 with 403s).
       - name: Publish to PyPI
-        env:
-          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        run: uv publish --token "$PYPI_API_TOKEN"
+        run: uv publish
