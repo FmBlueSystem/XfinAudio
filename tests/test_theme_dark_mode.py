@@ -33,6 +33,24 @@ _PALETTE = {
     "warm status amber": "#ffb000",
 }
 
+# R6: widget classes that previously fell back to native Qt styling now need
+# explicit stylesheet coverage. Each prefix must begin at least one block.
+_R6_REQUIRED_SELECTOR_PREFIXES = {
+    "QProgressBar": "scan/recommend/export progress bars",
+    "QScrollBar": "vertical and horizontal scrollbars",
+    "QCheckBox": "settings-dialog checkboxes",
+    "QSpinBox": "target-count spin box",
+    "QDoubleSpinBox": "loudness settings spin boxes",
+    "QSlider": "spectral cohesion slider",
+    "QGroupBox": "settings-dialog groups",
+    "QMenu": "undo-history menu and menu bar",
+    "QToolBar": "undo/redo toolbar",
+    "QPushButton:checked": "checkable quick-filter chips",
+    "QComboBox QAbstractItemView": "combo-box dropdown popup",
+    "QHeaderView::section:up": "sorted header column indicator",
+    "QListWidget::item:selected": "generic playlist list selection",
+}
+
 
 def _relative_luminance(hex_color: str) -> float:
     raw = hex_color.lstrip("#")
@@ -120,3 +138,11 @@ def test_r5_selection_highlights_meet_wcag_aa() -> None:
     for selection in ("selection highlight", "active selection highlight"):
         ratio = _contrast_ratio("#ffffff", _PALETTE[selection])
         assert ratio >= 4.5, f"{selection}: white text only {ratio:.2f}:1"
+
+
+def test_r6_widget_classes_have_stylesheet_coverage() -> None:
+    selectors = _blocks()
+    for prefix, description in _R6_REQUIRED_SELECTOR_PREFIXES.items():
+        assert any(selector.startswith(prefix) for selector in selectors), (
+            f"no stylesheet block for {prefix} ({description})"
+        )
