@@ -29,12 +29,13 @@ stop control outside the Library tab.
        _PALETTE, test_main_window accent, test_library_screen_preview highlight,
        library_screen_rendering row colors) + THEME-NOTES v2 section. Contrast
        all >= 4.5:1; 146 targeted tests green; pyright/ruff clean.
-2. [ ] T2 theme coverage for native-fallback widgets: QProgressBar,
-       QScrollBar, QCheckBox, QSpinBox/QDoubleSpinBox, QSlider, QGroupBox,
-       QMenu/QMenuBar, QToolBar (+#undoRedoToolbar), QComboBox popup
-       (QAbstractItemView), generic QListWidget (My Playlists), generic
-       QPushButton:checked (replaces library_screen_builder chip local style),
-       QHeaderView sort indicators.
+2. [x] T2 theme coverage for native-fallback widgets. DONE — commit on
+       feat/v2-visual-celebration: +287 lines of additive rules in theme.py
+       (QProgressBar, QScrollBar, QCheckBox, QSpinBox/QDoubleSpinBox, QSlider,
+       QGroupBox, QMenu/QMenuBar, QToolBar, QComboBox popup, generic
+       QListWidget/QListView, QPushButton:checked, sort indicators); chip
+       inline style removed from library_screen_builder.py; test_r6 pins
+       coverage. 213 targeted tests green; pyright/ruff clean.
 3. [ ] T3 orphaned objectNames get real styles: readinessBadge (color states
        ready/needs_review/blocked), ai_narrate_button, ai_narrative_label,
        ai_narrate_status, copilot_ask_input/button/status, loudnessDetailPane/
@@ -70,3 +71,4 @@ stop control outside the Library tab.
 ## Evidence
 
 - c98aadd feat(desktop): Aurora palette renewal for the v2 celebration (T1)
+- 84b726d feat(desktop): theme coverage for all native-fallback widgets (T2)
