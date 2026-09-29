@@ -30,13 +30,23 @@ cannot ship again without fresh gate evidence.
        `release_gate_check.py --run` all PASS; evidence committed at
        docs/reviews/2026-09-v2-gate-remediation/ (README + JSON). Manual MIK QA
        gate: COMPLETED.
-3. [ ] R3 structural guard (design pending user decision): make the gate or a
-       pre-bump check refuse a release whose commit does not carry fresh gate
-       evidence; decide release policy for the already-pushed v2.0.0 tag
-       (fix-forward v2.0.1 recommended; moving a pushed tag is bad practice).
+3. [x] R3 structural guard. DONE, adjusted to the facts: publish-to-pypi.yml
+       ALREADY gated the publish (v2.0.0 tag run 36417902188 failed at the
+       gate step; PyPI never received the release). The real gaps were the
+       unattended red CI on main and the ungated local DMG. Added the explicit
+       rule to AGENTS.md (commit fa7ec42): red gate on main blocks any tag,
+       bump, or DMG. Fix-forward executed: main @ fc88e70 (bump 2.0.1), local
+       tag v2.0.1 created; push pending user authorization.
 
 ## Evidence
 
 - 46fa8dd fix(tests): tighten typing to satisfy pyright on the v2.0.0 candidate
 - f1e0d31 style(tests): apply ruff format to 10 files deviating from the formatter
+- 7b395a4 docs(release): record v2.0.0 gate remediation evidence
+- fa7ec42 docs(process): a red gate on main blocks any release cut
+- fc88e70 → amended as c700bdb chore(release): bump version to 2.0.1 (tag
+  v2.0.1); main pushed to origin, CI green (run 36501954792). Publish workflow
+  gate PASSED on the tag but PyPI upload failed 403: the repo's
+  PYPI_API_TOKEN secret is expired/invalid — owner-side action, run
+  36501957014 re-runnable after the secret is fixed (no new tag needed).
 - Gate evidence: docs/reviews/2026-09-v2-gate-remediation/release-gate-evidence.json
