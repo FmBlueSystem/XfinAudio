@@ -1,3 +1,51 @@
+# v2.0.1 Aurora Renewal
+
+The version 2.0.0 celebration refresh, an evolution of the v1.8.3 "Spectrum"
+palette. The dark-console identity is unchanged: the window stays pure black and
+the warm amber (`#ffb000`) and status colors (`#1fd16a` / `#ffb000` /
+`#ff4d4f`) remain identity anchors. What shifts is the signal spectrum: the
+accent family widens from pure cyan into an **aurora mint-to-sky sweep**, the
+selection moves to a more luminous **electric violet**, and the text ramp gains
+a touch more separation. Surfaces deepen and cool slightly so the brighter
+accents read as emitted light. No layout, selector, or structural stylesheet
+change — values only.
+
+## Before / after
+
+| Role | Before | After |
+| --- | --- | --- |
+| Button gradient top | `#24354a` | `#263a52` |
+| Button gradient bottom | `#1a2534` | `#1b2738` |
+| Button hover gradient top | `#2d4159` | `#2f465f` |
+| Button hover gradient bottom | `#223145` | `#233349` |
+| Secondary button gradient top | `#151f2b` | `#162434` |
+| Secondary button gradient bottom | `#0f1721` | `#101b28` |
+| Secondary button hover top | `#1b2939` | `#1c2c3e` |
+| Secondary button hover bottom | `#151f2b` | `#162434` |
+| Panel surface (status, sidebar, input) | `#0f1721` | `#101b28` |
+| Elevated surface (combo, sidebar hover) | `#151f2b` | `#162434` |
+| Table background | `#0e161e` | `#0f1a24` |
+| Table alternate row | `#121d27` | `#13202c` |
+| Header section | `#131c26` | `#142130` |
+| Table corner button | `#16222f` | `#17242f` |
+| Tooltip background | `#182430` | `#1a2a38` |
+| Disabled surface | `#12181f` | `#131923` |
+| Divider / grid line | `#1c2b3b` | `#1e2f42` |
+| Secondary text | `#cfe0f0` | `#d2e4f5` |
+| Muted / guidance text | `#93aac4` | `#98b0cb` |
+| Table header text | `#63d3d8` | `#6fe0e0` |
+| Signal accent (focus, hover border, tooltip border) | `#2ce8f5` | `#3df2dd` |
+| Primary action gradient | `#3ef0d2` → `#00c2e6` | `#46f3c5` → `#00c8f0` |
+| Primary action hover | `#6ff7de` → `#22d6f7` | `#7df7d8` → `#35dcf8` |
+| Selection | `#463ac4` | `#5240d8` |
+| Active selection / selected row | `#5a4be0` | `#6a55f0` |
+
+Unchanged anchors: window background `#000000`, primary text `#eaf4ff`, warm
+status/Serato amber `#ffb000`, and the `#1fd16a` / `#ffb000` / `#ff4d4f` status
+family.
+
+---
+
 # Theme Renewal — "Spectrum" Palette
 
 Celebration refresh for the EBU R128 loudness-analysis milestone. This is a

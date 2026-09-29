@@ -24,9 +24,9 @@ from xfinaudio.desktop.library_view_model import (
 from xfinaudio.desktop.scan_service import progress_percent, progress_status_text
 
 _EMPTY = QTableWidgetItem("")
-_ROW_COLOR_EVEN = QColor("#0e161e")
-_ROW_COLOR_ODD = QColor("#121d27")
-_ROW_COLOR_SELECTED = QColor("#5a4be0")
+_ROW_COLOR_EVEN = QColor("#0f1a24")
+_ROW_COLOR_ODD = QColor("#13202c")
+_ROW_COLOR_SELECTED = QColor("#6a55f0")
 _COLUMNS = list(COLUMNS)
 _MISSING_COLUMN = column_index("Missing")
 _TITLE_COLUMN = _COLUMNS.index("Title")

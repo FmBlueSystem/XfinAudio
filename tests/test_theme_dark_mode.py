@@ -13,23 +13,23 @@ from xfinaudio.desktop.theme import _DJ_VISUAL_STYLESHEET
 
 _BACKGROUND = "#000000"
 
-# Spectrum palette key colors. Pinned so a future refresh is a deliberate edit
+# Aurora palette key colors. Pinned so a future refresh is a deliberate edit
 # here, not an accident somewhere in the stylesheet.
 _PALETTE = {
     "window background": "#000000",
-    "panel surface": "#0f1721",
-    "elevated surface": "#151f2b",
-    "table background": "#0e161e",
-    "table alternate row": "#121d27",
+    "panel surface": "#101b28",
+    "elevated surface": "#162434",
+    "table background": "#0f1a24",
+    "table alternate row": "#13202c",
     "primary text": "#eaf4ff",
-    "secondary text": "#cfe0f0",
-    "muted text": "#93aac4",
-    "signal cyan accent": "#2ce8f5",
-    "primary sweep start": "#3ef0d2",
-    "primary sweep end": "#00c2e6",
-    "selection highlight": "#463ac4",
-    "active selection highlight": "#5a4be0",
-    "header text": "#63d3d8",
+    "secondary text": "#d2e4f5",
+    "muted text": "#98b0cb",
+    "signal cyan accent": "#3df2dd",
+    "primary sweep start": "#46f3c5",
+    "primary sweep end": "#00c8f0",
+    "selection highlight": "#5240d8",
+    "active selection highlight": "#6a55f0",
+    "header text": "#6fe0e0",
     "warm status amber": "#ffb000",
 }
 
