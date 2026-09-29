@@ -67,6 +67,21 @@ number a maintainer edits in `pyproject.toml` would stop being the number that g
 
 For focused work, run the smallest relevant `pytest` target first, then the full suite.
 
+## Cutting a release
+
+A release is cut only from a green state, and the gate result must belong to the
+exact commit being tagged:
+
+- The `Non-audio release gates` workflow on `main` must be green for the commit
+  the tag will point at. A red run on `main` blocks any tag, bump, or DMG build
+  until it is fixed — cutting a release over a red run is how v2.0.0 shipped a
+  candidate that failed its own type-check (see
+  `docs/reviews/2026-09-v2-gate-remediation/README.md`).
+- Locally built DMGs are release artifacts too: build them only after
+  `release_gate_check.py --run` passed on the exact packaged commit.
+- The publish workflow re-runs the gates on the tag and refuses to publish on
+  failure. That guard exists; it is the last line of defense, not the process.
+
 ## Agent checklist
 
 - [ ] I understand the change as a gentle-ai SDD/TDD change.
