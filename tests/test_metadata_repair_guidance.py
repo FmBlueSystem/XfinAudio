@@ -53,6 +53,7 @@ def test_metadata_screen_explains_selection_and_priorities_without_writes(qapp):
     screen.render(AppState())
     assert not screen.repair_help_button.isEnabled()
     assert screen.repair_help.toPlainText() == ""
+    assert screen.repair_help.isHidden()
 
 
 def test_repair_help_follows_filtered_selection_and_bounds_plan(qapp):

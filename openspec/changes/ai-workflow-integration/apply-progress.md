@@ -15,3 +15,9 @@ Editor shell slice: RED proved missing editor route and widget; a second RED
 proved stale loaded-id after editor clear. GREEN: 75 navigation/state/playlist
 checks pass. Editor appended at index 7, enabled only for an idle loaded set;
 sidebar/stack/state synchronization preserves existing indices and snapshots.
+
+Live/narrator shell slice: RED proved unavailable ready-session navigation and
+in-flight narrator surviving a recommendation switch. GREEN: 42 domain/navigation
+and actual shell interaction tests pass, including current-set reranking and
+exclusion invalidation. Cancellation is wired, configuration route follows in the
+Settings integration slice. Empty-library guidance now hides its empty panel.

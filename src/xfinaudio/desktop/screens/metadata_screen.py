@@ -215,6 +215,7 @@ class MetadataScreen(QWidget):
 
         self._repair_state = state
         self.repair_help_button.setEnabled(bool(state.scanned_records))
+        self.repair_help.setVisible(bool(state.scanned_records) and self.repair_help_button.isChecked())
         self._render_repair_help()
         self.status_label.setText(vm.status_text(state))
         self.gap_summary_label.setText(vm.gap_summary_text(state))

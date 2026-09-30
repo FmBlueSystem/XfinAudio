@@ -270,6 +270,18 @@ class MainWindow(QMainWindow):
         self._app_controller.request_sync()
 
     def _render_screens(self) -> None:
+        self._ai_narrator.invalidate_if_context_changed()
+        state = self._state
+        if getattr(self, "_closing", False) or state.is_scanning or state.is_recommending:
+            self._live_assistant_screen.clear_session()
+        else:
+            self._live_assistant_screen.set_session(
+                state.last_recommendation,
+                state.last_dj_readiness_report,
+                locked_paths=state.locked_paths,
+                excluded_paths=state.excluded_paths,
+                spectral_cohesion=state.settings.scoring.spectral_cohesion,
+            )
         self._app_controller.render_screens()
 
     def _on_tab_changed(self, index: int) -> None:
@@ -507,6 +519,7 @@ class MainWindow(QMainWindow):
             self._live_assistant_screen,
         ):
             screen.connect_signals(self)
+        self._review_screen.ai_narrate_cancel_requested.connect(self._ai_narrator.cancel)
         self._playlist_coordinator.connect_signals()
         self._playlist_coordinator.refresh_list()
         for table in (

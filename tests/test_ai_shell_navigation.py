@@ -53,3 +53,62 @@ def test_unavailable_optional_screens_explain_next_step(qapp, tmp_path):
         assert "saved playlist" in window.workflow_sidebar.item(7).toolTip().lower()
     finally:
         window.close()
+
+
+def test_live_navigation_and_session_follow_current_engine_readiness(qapp, tmp_path):
+    from tests.test_ai_narrator_controller import _readiness
+    from tests.test_live_assistance import _set
+
+    window = MainWindow(scan_service=EmptyScanner(), repository=TrackRepository(tmp_path / "tracks.db"))
+    try:
+        recommendation = _set()
+        state = window._state.with_scanned_records(recommendation.ordered_tracks).model_copy(
+            update={"last_recommendation": recommendation, "last_dj_readiness_report": _readiness()}
+        )
+        window._replace_app_state(state)
+        window._sync_state()
+        assert window.workflow_tabs.isTabEnabled(6)
+        window.workflow_sidebar.setCurrentRow(6)
+        assert window._state.current_screen == "live"
+        live = window._live_assistant_screen
+        assert live._current_track.path == "/a"
+        live.load_next("/c")
+        window._sync_state()
+        assert live._current_track.path == "/c"
+        assert live._history_table.rowCount() == 1
+        window._replace_app_state(window._state.model_copy(update={"excluded_paths": frozenset({"/b"})}))
+        window._sync_state()
+        assert not window.workflow_tabs.isTabEnabled(6)
+        assert live._current_track is None
+        assert live._candidates == []
+    finally:
+        window.close()
+
+
+def test_shell_sync_invalidates_inflight_narrator_when_set_changes(qapp, tmp_path, monkeypatch):
+    from tests.test_ai_narrator_controller import _readiness
+    from tests.test_live_assistance import _set
+
+    window = MainWindow(scan_service=EmptyScanner(), repository=TrackRepository(tmp_path / "tracks.db"))
+    try:
+        first = _set()
+        window._replace_app_state(
+            window._state.model_copy(update={"last_recommendation": first, "last_dj_readiness_report": _readiness()})
+        )
+        window._sync_state()
+        window.workflow_sidebar.setCurrentRow(2)
+        starts = []
+        monkeypatch.setattr(
+            window._ai_narrator, "_start_worker", lambda operation, request_id: starts.append(request_id)
+        )
+        window._review_screen.ai_narrate_button.click()
+        assert window._state.is_narrating and len(starts) == 1
+        window._replace_app_state(window._state.model_copy(update={"last_recommendation": _set()}))
+        window._sync_state()
+        assert not window._state.is_narrating
+        window._ai_narrator._on_worker_finished("Old response", starts[0])
+        qapp.processEvents()
+        assert window._state.ai_narrative_text is None
+        assert "Set changed" in window._review_screen.ai_narrate_status.text()
+    finally:
+        window.close()
