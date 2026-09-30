@@ -12,3 +12,8 @@ Reuse the existing deterministic transition data and score tooltip explanations 
 
 ## I1
 Source inspection: SeratoRecommendationExportMixin._plan_current_serato_export resolves the discovered/explicit Serato library; safe_export_folder currently only changes readiness sidecars. Do not change writer semantics through a cosmetic CTA. Parent to choose accurate existing-destination guidance versus a separately specified staged-export change.
+
+### I1 alternatives prepared, neither applied
+- Preserve direct Serato: preview the resolved full Subcrates path and track count before confirming the write; identify whether an existing crate is replaced and where its backup lives. Label the configurable folder as reports-only. Keep metadata-worklist destination explicit too.
+- Stage artifacts: use the selected safe output root for crate bytes and reports, but keep track-path encoding tied to the intended Serato audio volume/library. Do not derive audio-relative paths from the staging directory. Preview output and later manual-copy instructions; avoid selecting or mutating a live library as a side effect.
+- Both alternatives need explicit recovery tests before claiming durability: atomic replacement, validation failure, preexisting backup, write failure and rollback. Current direct writer only copies an existing target to a fixed .bak, writes bytes directly, and returns a readback-equality flag. Generated names avoid collisions at planning time; concurrent writers are not established safe.
