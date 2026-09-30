@@ -180,8 +180,7 @@ def test_can_go_to_export_with_blocked_readiness_returns_false(ctrl, state_with_
 
 
 def test_can_go_to_export_while_recommending_returns_false(ctrl, state_recommending):
-    s = state_recommending
-    s.last_dj_readiness_report = _ready_readiness()
+    s = state_recommending.model_copy(update={"last_dj_readiness_report": _ready_readiness()})
     assert ctrl.can_go_to("export", s) is False
 
 

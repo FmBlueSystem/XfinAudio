@@ -19,3 +19,6 @@ Final focused delivery: G1/G2/H1/I1 are applied; Spanish/English source catalogs
 
 ## Integrated protocol verification
 Full-tree Pyright caught six test-double protocol errors after the optional cancellation checkpoint parameter was added. The integration slice updates the five builder fixtures to accept the same typed keyword. The runtime production contract is unchanged; application/controller/checkpoint tests and the full type checker are rerun before the aggregate gate.
+
+## Final integrated fixture reconciliation
+The combined gate reproduced six obsolete Serato-copy assertions: the old tests promised staging/manual-copy behavior, conflicting with the approved direct crate export. Updated them to require destination preview, direct Serato writing, backup-before-replacement, no audio copying, and full independent report-folder labels. No assertion was removed without a replacement contract; writer safety tests are unchanged.

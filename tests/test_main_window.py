@@ -208,12 +208,11 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
     assert window.library_guidance_label.text() == "Choose a folder to scan metadata."
     assert window.recommendation_guidance_label.text() == "Scan metadata before recommending a playlist."
     assert window._export_screen.export_guidance_label.text() == (
-        "Review recommendations before exporting. "
-        "Live Serato writes are not part of the verified release candidate; "
-        "back up your library and verify any manual copy."
+        "Preview the destination, then export directly to Serato. "
+        "Existing crates are backed up before replacement; audio files are not copied."
     )
     assert window.status_label.text() == "Ready"
-    assert window._export_screen.safe_export_folder_label.text() == "No safe export folder selected"
+    assert window._export_screen.safe_export_folder_label.text() == "Report folder: optional for Serato crates"
     assert window._build_screen.applied_copilot_variant_label.text() == "Applied Variant: none"
     assert window._library_screen.search_input.placeholderText() == "Search songs"
     assert window._build_screen.genre_focus_input.placeholderText() == "Genre focus"
@@ -421,10 +420,12 @@ def test_main_window_displays_initial_empty_state_guidance() -> None:
 
     assert window.library_guidance_label.text() == "Choose a folder to scan metadata."
     assert "Scan metadata before recommending" in window.recommendation_guidance_label.text()
-    assert "Review recommendations before exporting" in window._export_screen.export_guidance_label.text()
+    assert (
+        "Preview the destination, then export directly to Serato" in window._export_screen.export_guidance_label.text()
+    )
     assert window._review_screen.review_summary_label.text() == "No recommendation is ready for review."
     assert window._review_screen.transition_table.rowCount() == 0
-    assert window._export_screen.safe_export_folder_label.text() == "No safe export folder selected"
+    assert window._export_screen.safe_export_folder_label.text() == "Report folder: optional for Serato crates"
 
 
 def test_main_window_initial_flow_disables_invalid_next_actions() -> None:
@@ -511,7 +512,10 @@ def test_main_window_displays_existing_safe_export_folder(tmp_path) -> None:
         settings_repository=FakeSettingsRepository(),
     )
 
-    assert window._export_screen.safe_export_folder_label.text() == f"Safe export folder: {export_folder}"
+    assert (
+        window._export_screen.safe_export_folder_label.text()
+        == f"Report folder: {export_folder} (Serato crates go directly to Serato)"
+    )
 
 
 def test_main_window_restores_last_scan_folder_without_clearing_saved_library(tmp_path) -> None:
@@ -550,7 +554,10 @@ def test_main_window_setting_safe_export_folder_persists_and_updates_label(tmp_p
 
     window.set_safe_export_folder(export_folder)
 
-    assert window._export_screen.safe_export_folder_label.text() == f"Safe export folder: {export_folder}"
+    assert (
+        window._export_screen.safe_export_folder_label.text()
+        == f"Report folder: {export_folder} (Serato crates go directly to Serato)"
+    )
     assert settings_repository.saved_settings is not None
     assert settings_repository.saved_settings.export.safe_export_folder == export_folder
 
@@ -586,7 +593,7 @@ def test_main_window_rejects_safe_export_folder_equal_to_audio_scan_folder(tmp_p
     assert settings_repository.saved_settings == saved_after_folder
     assert settings_repository.saved_settings is not None
     assert settings_repository.saved_settings.export.safe_export_folder is None
-    assert window._export_screen.safe_export_folder_label.text() == "No safe export folder selected"
+    assert window._export_screen.safe_export_folder_label.text() == "Report folder: optional for Serato crates"
     assert "must be outside the selected audio folder" in window.status_label.text()
 
 

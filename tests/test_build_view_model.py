@@ -114,16 +114,12 @@ def state_with_tracks(tracks: list[TrackRecord]) -> AppState:
 
 @pytest.fixture()
 def state_is_recommending(tracks: list[TrackRecord]) -> AppState:
-    s = AppState(scanned_records=tracks)
-    s.is_recommending = True
-    return s
+    return AppState(scanned_records=tracks, is_recommending=True)
 
 
 @pytest.fixture()
 def state_is_scanning(tracks: list[TrackRecord]) -> AppState:
-    s = AppState(scanned_records=tracks)
-    s.is_scanning = True
-    return s
+    return AppState(scanned_records=tracks, is_scanning=True)
 
 
 @pytest.fixture()

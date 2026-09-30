@@ -22,3 +22,6 @@ Implementation and verification evidence follows in the next chained slices.
 - Final focused subset: 193 passed; full-source/test Pyright: 0 errors/0 warnings; repository-wide Ruff lint/format and diff whitespace checks pass.
 - An initial aggregate run exposed the sandbox's read-only HOME rather than a migration failure. With an isolated writable HOME, the repeat was deliberately stopped at the integration owner's request; the combined-tree release gate remains pending there.
 - Review chain: regression contract, production migration plus fixture conversion, then type contracts/evidence. Each implementation slice stays below the 400-line review budget.
+
+## Final integrated fixture reconciliation
+The combined gate found three remaining tests assigning frozen state fields directly (Build busy fixtures and navigation readiness setup). Their fixtures now use constructors or model_copy; all busy/navigation behavior assertions remain intact. Together with the Serato-copy contract checks, 71 focused tests pass in 5.62 seconds. Production immutability was not weakened.
