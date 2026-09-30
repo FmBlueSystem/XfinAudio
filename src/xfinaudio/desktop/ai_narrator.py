@@ -15,7 +15,7 @@ from typing import Any, Protocol, cast
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from xfinaudio.ai import NanConfigError, narrate_set
-from xfinaudio.desktop._workers import BackgroundWorker
+from xfinaudio.desktop._workers import BackgroundWorker, WorkerRegistry
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.app_state_transitions import (
     apply_ai_narrative_finished,
@@ -65,6 +65,7 @@ class AiNarratorController(QObject):
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
+        self._worker_registry = WorkerRegistry(self)
         self._review_screen = review_screen
         self._review_vm = review_vm
         # ``state`` is the window, like AiCopilotController: the AppState lives on
@@ -138,13 +139,14 @@ class AiNarratorController(QObject):
 
     def cancel(self) -> None:
         """Request interruption of an in-flight narration (window close path)."""
+        self._current_request_id += 1
         if self._narrate_thread is not None and self._narrate_thread.isRunning():
             self._narrate_thread.requestInterruption()
-            self._narrate_thread.wait(500)
 
     def _start_worker(self, operation: Callable[[], str], request_id: int) -> None:
         thread = QThread(self)
         worker = BackgroundWorker(operation, request_id=request_id)
+        self._worker_registry.retain(thread, worker)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(lambda result, rid=request_id: self._on_worker_finished(result, rid))

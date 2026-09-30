@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, Qt, QThread, QTimer
 from PySide6.QtWidgets import QMainWindow
 
 from xfinaudio.application.playlist_workflow import ScanService
@@ -130,14 +130,29 @@ class MainWindow(QMainWindow):
         self._sync_state()
 
     def closeEvent(self, event: object) -> None:
-        self._audio_player.shutdown()
-        self._library_watch_service.stop()
-        self._scan_service.cancel()
-        if hasattr(self, "_library_controller"):
+        if not getattr(self, "_closing", False):
+            self._closing = True
+            self.centralWidget().setEnabled(False)
+            self._audio_player.shutdown()
+            self._library_watch_service.stop()
+            self._scan_service.shutdown()
+            self._recommendation_service.cancel()
+            self._ai_copilot.cancel()
+            self._ai_narrator.cancel()
             self._library_controller.shutdown()
-        self._recommendation_service.cancel()
-        self._ai_copilot.cancel()
-        self._ai_narrator.cancel()
+            # Include superseded requests still finishing in their original owners.
+            for thread in self.findChildren(QThread):
+                if thread.isRunning():
+                    thread.requestInterruption()
+            self._close_timer = QTimer(self)
+            self._close_timer.setInterval(50)
+            self._close_timer.timeout.connect(self.close)
+        if any(thread.isRunning() for thread in self.findChildren(QThread)):
+            self.status_label.setText(self.tr("Closing safely; waiting for background work to finish"))
+            self._close_timer.start()
+            event.ignore()  # type: ignore[attr-defined]
+            return
+        self._close_timer.stop()
         self._persist_window_geometry()
         super().closeEvent(event)  # type: ignore[arg-type]
 

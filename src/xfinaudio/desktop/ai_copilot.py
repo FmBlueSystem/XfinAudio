@@ -18,7 +18,7 @@ from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from xfinaudio.ai import NanConfigError, extract_intent
 from xfinaudio.config.settings import AppSettings
-from xfinaudio.desktop._workers import BackgroundWorker
+from xfinaudio.desktop._workers import BackgroundWorker, WorkerRegistry
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.app_state_transitions import (
     apply_ai_copilot_request_finished,
@@ -84,6 +84,7 @@ class AiCopilotController(QObject):
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
+        self._worker_registry = WorkerRegistry(self)
         self._build_screen = build_screen
         self._build_vm = build_vm
         # ``state`` is the window, like PrepCopilotController: the AppState lives on
@@ -196,13 +197,14 @@ class AiCopilotController(QObject):
 
     def cancel(self) -> None:
         """Request interruption of an in-flight request (window close path)."""
+        self._current_request_id += 1
         if self._copilot_thread is not None and self._copilot_thread.isRunning():
             self._copilot_thread.requestInterruption()
-            self._copilot_thread.wait(500)
 
     def _start_worker(self, operation: Callable[[], PrepCopilotPlan], request_id: int) -> None:
         thread = QThread(self)
         worker = BackgroundWorker(operation, request_id=request_id)
+        self._worker_registry.retain(thread, worker)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(lambda result, rid=request_id: self._on_worker_finished(result, rid))

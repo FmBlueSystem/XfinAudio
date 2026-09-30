@@ -7,9 +7,19 @@ import pytest
 from xfinaudio.desktop.main_window import MainWindow
 
 
+class _Scan:
+    def scan(self, folder, **kwargs):
+        return []
+
+
+class _Repository:
+    def save_scan_results(self, records, **kwargs):
+        pass
+
+
 @pytest.mark.parametrize("watch_fails", [False, True])
 def test_completed_scan_publishes_clean_state_even_if_watch_unavailable(qapp, tmp_path, monkeypatch, watch_fails):
-    window = MainWindow(scan_service=SimpleNamespace(), repository=SimpleNamespace())
+    window = MainWindow(scan_service=_Scan(), repository=_Repository())
     monkeypatch.setattr(window._library_controller, "start_spectral_completion_worker", lambda records: None)
     window.set_selected_folder(tmp_path)
     window._library_watch_service._on_settle_timeout()

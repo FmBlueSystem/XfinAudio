@@ -427,7 +427,7 @@ def test_cancel_interrupts_a_running_worker_and_is_safe_without_one(monkeypatch:
     harness.controller.cancel()
 
     assert interrupted == [True]
-    assert waits == [500]
+    assert waits == []
 
 
 def test_a_superseded_thread_does_not_clear_the_current_worker_reference(

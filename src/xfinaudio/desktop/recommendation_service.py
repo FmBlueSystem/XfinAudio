@@ -9,7 +9,7 @@ from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.application.recommendation_candidates import RecommendationCandidateContext
-from xfinaudio.desktop._workers import BackgroundWorker
+from xfinaudio.desktop._workers import BackgroundWorker, WorkerRegistry
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.app_state_transitions import apply_recommendation_completion
 from xfinaudio.desktop.candidate_routes import resolve_candidate_route
@@ -42,6 +42,7 @@ class RecommendationService(QObject):
 
     def __init__(self, workflow_service: PlaylistWorkflowService, *, parent: QObject | None = None) -> None:
         super().__init__(parent)
+        self._worker_registry = WorkerRegistry(self)
         self.workflow_service = workflow_service
         self._recommendation_thread: QThread | None = None
         self._recommendation_worker: BackgroundWorker | None = None
@@ -143,7 +144,6 @@ class RecommendationService(QObject):
         """Start a background recommendation in a worker thread."""
         if self._recommendation_thread is not None and self._recommendation_thread.isRunning():
             self.cancel()
-            self._recommendation_thread.wait(500)
         self._current_request_id += 1
         rid = self._current_request_id
         self._start_recommendation_worker(
@@ -158,9 +158,9 @@ class RecommendationService(QObject):
 
     def cancel(self) -> None:
         """Request thread interruption if a recommendation is running."""
+        self._current_request_id += 1
         if self._recommendation_thread is not None and self._recommendation_thread.isRunning():
             self._recommendation_thread.requestInterruption()
-            self._recommendation_thread.wait(500)
 
     def recommend(self) -> None:
         """Generate and display a playlist recommendation from scanned records."""
@@ -294,6 +294,7 @@ class RecommendationService(QObject):
             ),
             request_id=request_id,
         )
+        self._worker_registry.retain(thread, worker)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(lambda result, rid=request_id: self._on_worker_finished(result, rid))

@@ -5,11 +5,25 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from xfinaudio.library.scan_service import ScanProgress
 
 LOGGER = logging.getLogger(__name__)
+
+
+class WorkerRegistry(QObject):
+    """Retain every request, including superseded workers, until its thread exits."""
+
+    def __init__(self, parent: QObject) -> None:
+        super().__init__(parent)
+        self._workers: dict[QThread, QObject] = {}
+
+    def retain(self, thread: QThread, worker: QObject) -> None:
+        self._workers[thread] = worker
+        # Keep Python wrappers alive through Qt's deferred worker deletion, not
+        # merely until finished is queued while the worker thread still unwinds.
+        thread.destroyed.connect(lambda: self._workers.pop(thread, None))
 
 
 class BackgroundWorker(QObject):

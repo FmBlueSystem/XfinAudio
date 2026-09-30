@@ -10,7 +10,7 @@ from typing import Any
 from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal, Slot
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
-from xfinaudio.desktop._workers import ScanWorker
+from xfinaudio.desktop._workers import ScanWorker, WorkerRegistry
 from xfinaudio.desktop.library_watch_service import LibraryWatchService
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken, ScanProgress
@@ -56,12 +56,14 @@ class ScanService(QObject):
 
     def __init__(self, workflow_service: PlaylistWorkflowService, *, parent: QObject | None = None) -> None:
         super().__init__(parent)
+        self._worker_registry = WorkerRegistry(self)
         self.workflow_service = workflow_service
         self.current_scan_cancellation_token: ScanCancellationToken | None = None
         self._scan_thread: QThread | None = None
         self._scan_worker: ScanWorker | None = None
         self._current_token: ScanCancellationToken | None = None
         self._current_request_id: int = 0
+        self._shutting_down = False
         self._pre_scan_records_by_path: dict[str, TrackRecord] = {}
         self._watch_service: LibraryWatchService | None = None
         self._selected_folder: Callable[[], Path | None] = _unwired
@@ -149,7 +151,6 @@ class ScanService(QObject):
         """Start a background metadata scan for *folder* using the given *token*."""
         if self._scan_thread is not None and self._scan_thread.isRunning():
             self.cancel()
-            self._scan_thread.wait(500)
         self._current_token = token
         self._current_request_id += 1
         rid = self._current_request_id
@@ -163,11 +164,15 @@ class ScanService(QObject):
             self._current_token.cancel()
         if self._scan_thread is not None and self._scan_thread.isRunning():
             self._scan_thread.requestInterruption()
-            self._scan_thread.wait(500)
         if self._library_screen is not None:
             self._library_screen.cancel_button.setEnabled(False)
         if self._status_label is not None:
             self._status_label.setText(self._tr("Cancel requested; waiting for current file to finish"))
+
+    def shutdown(self) -> None:
+        self._shutting_down = True
+        self._current_request_id += 1
+        self.cancel()
 
     def scan_selected_folder(self) -> None:
         """Scan the selected folder, persist records, and refresh table/status widgets."""
@@ -226,6 +231,8 @@ class ScanService(QObject):
     @Slot(object)
     def on_completed(self, result: Any) -> None:
         """Render a completed background scan result."""
+        if self._shutting_down:
+            return
         self._require_wired()
         if result.cancelled:
             self._clear_scan_dependent_state()
@@ -259,12 +266,16 @@ class ScanService(QObject):
     @Slot(object)
     def on_failed(self, error: object) -> None:
         """Recover the UI if a background scan fails."""
+        if self._shutting_down:
+            return
         self._require_wired()
         self._end_scan_state()
         self._status_label.setText(self._tr("Scan failed: {0}").format(error))
 
     def on_progress(self, progress: ScanProgress) -> None:
         """Render scan progress from the workflow service."""
+        if self._shutting_down:
+            return
         self._require_wired()
         self._scan_progress_label.setText(
             self._tr("Scan progress: {0}/{1} - {2}").format(
@@ -297,6 +308,7 @@ class ScanService(QObject):
             ),
             request_id=request_id,
         )
+        self._worker_registry.retain(thread, worker)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progress.connect(self._on_worker_progress)
