@@ -10,3 +10,9 @@ or Windows separators, including filename spaces and fully quoted paths with
 spaced directory names. REFACTOR: preserve genre/ratio prose before and after
 paths by requiring whitespace-free unquoted directory components. Free-text
 privacy disclosure now accurately describes known/recognizable path removal.
+
+R2 RED: three prompt/persistence cases failed against immediate deletion. GREEN:
+the existing signal now requires explicit named, permanent-deletion confirmation;
+Cancel is default. Raw names are stored separately, so parentheses and markup
+cannot truncate the selected name; the dialog renders plain text. REFACTOR/VERIFY:
+actual modal Enter activation cancels; no coordinator/repository behavior changed.

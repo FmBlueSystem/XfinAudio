@@ -12,3 +12,11 @@ adjacent paths and preservation of musical genre/ratio context.
 Unquoted directory names containing spaces are ambiguous in free text; quote
 those paths for complete recognition. The visible disclosure does not promise
 removal of arbitrary private text. Focused lint, format and type checks passed.
+
+## R2
+29 focused tests passed across saved-set screen, main-window wiring, saved-set AI,
+application saved playlists and AI editor integration. The synthetic SQLite
+fixtures prove Cancel and close preserve both sets, acceptance deletes only the
+named selection, and no selection does not prompt. A real offscreen modal plus
+Enter key confirms the default action preserves data. Focused Ruff/format and
+Pyright pass (explicit saved IDs narrow the repository's optional ID type).

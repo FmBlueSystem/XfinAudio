@@ -5,10 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication, QLineEdit
+import pytest
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox
 
 from xfinaudio.desktop.screens.my_playlists_screen import MyPlaylistsScreen
 from xfinaudio.library.playlist_models import PlaylistSummary
+from xfinaudio.library.playlist_repository import PlaylistRepository
 
 
 class TestConstruction:
@@ -78,3 +82,84 @@ class TestSignals:
             screen._on_rename_clicked()
 
         assert emitted == []
+
+
+@pytest.mark.parametrize("answer", [QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.NoButton])
+def test_delete_cancel_or_close_preserves_synthetic_saved_set(qapp, tmp_path, monkeypatch, answer):
+    screen, repository, selected, other = deletion_screen(tmp_path)
+    assert selected.id is not None and other.id is not None
+    prompts = []
+
+    def confirm(dialog):
+        prompts.append(dialog)
+        assert dialog.textFormat() == Qt.TextFormat.PlainText
+        assert selected.name in dialog.text()
+        assert "permanently" in dialog.text()
+        assert "cannot be undone" in dialog.text()
+        assert dialog.defaultButton() == dialog.button(QMessageBox.StandardButton.Cancel)
+        return int(answer)
+
+    monkeypatch.setattr(QMessageBox, "exec", confirm)
+    screen.delete_button.click()
+    assert len(prompts) == 1
+    assert repository.get_by_id(selected.id) == selected
+    assert repository.get_by_id(other.id) == other
+
+
+def test_delete_acceptance_removes_only_named_synthetic_set(qapp, tmp_path, monkeypatch):
+    screen, repository, selected, other = deletion_screen(tmp_path)
+    assert selected.id is not None and other.id is not None
+    prompts = []
+
+    def confirm(dialog):
+        prompts.append(dialog)
+        assert selected.name in dialog.text()
+        assert dialog.button(QMessageBox.StandardButton.Discard).text() == "Delete"
+        return int(QMessageBox.StandardButton.Discard)
+
+    monkeypatch.setattr(QMessageBox, "exec", confirm)
+    screen.delete_button.click()
+    assert len(prompts) == 1
+    assert repository.get_by_id(selected.id) is None
+    assert repository.get_by_id(other.id) == other
+
+
+def test_delete_without_selection_does_not_prompt_or_emit(qapp, monkeypatch):
+    screen = MyPlaylistsScreen()
+    emitted = []
+    screen.delete_requested.connect(emitted.append)
+    with patch.object(QMessageBox, "exec") as prompt:
+        screen.delete_button.click()
+    prompt.assert_not_called()
+    assert emitted == []
+
+
+def deletion_screen(tmp_path):
+    repository = PlaylistRepository(tmp_path / "synthetic-sets.db")
+    selected = repository.create("Selected  (warm) <b>set</b>", ["synthetic.wav"])
+    other = repository.create("Keep this set", ["other-synthetic.wav"])
+    screen = MyPlaylistsScreen()
+    screen.populate_list(repository.list_summaries())
+    selected_row = next(
+        row
+        for row in range(screen.list_widget.count())
+        if screen.list_widget.item(row).data(Qt.ItemDataRole.UserRole) == selected.id
+    )
+    screen.list_widget.setCurrentRow(selected_row)
+    screen.delete_requested.connect(repository.delete)
+    return screen, repository, selected, other
+
+
+def test_delete_dialog_enter_activates_default_cancel(qapp, tmp_path, monkeypatch):
+    screen, repository, selected, other = deletion_screen(tmp_path)
+    assert selected.id is not None and other.id is not None
+    real_exec = QMessageBox.exec
+
+    def confirm(dialog):
+        QTimer.singleShot(0, lambda: QTest.keyClick(dialog, Qt.Key.Key_Return))
+        return real_exec(dialog)
+
+    monkeypatch.setattr(QMessageBox, "exec", confirm)
+    screen.delete_button.click()
+    assert repository.get_by_id(selected.id) == selected
+    assert repository.get_by_id(other.id) == other

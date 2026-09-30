@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -116,6 +117,7 @@ class MyPlaylistsScreen(QWidget):
             text = f"{summary.name}  ({summary.track_count} tracks)"
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, summary.id)
+            item.setData(Qt.ItemDataRole.UserRole + 1, summary.name)
             self.list_widget.addItem(item)
         self.empty_label.setText(self.tr("No saved playlists yet. Generate a playlist and click Save."))
         self.empty_label.setVisible(len(summaries) == 0)
@@ -159,8 +161,23 @@ class MyPlaylistsScreen(QWidget):
 
     def _on_delete_clicked(self) -> None:
         playlist_id = self.selected_playlist_id()
-        if playlist_id is not None:
+        item = self.list_widget.currentItem()
+        if playlist_id is None or item is None:
+            return
+        name = item.data(Qt.ItemDataRole.UserRole + 1)
+        dialog = QMessageBox(
+            QMessageBox.Icon.Warning,
+            self.tr("Delete Playlist"),
+            self.tr('Delete "{0}" permanently? This cannot be undone. Audio files will not be deleted.').format(name),
+            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            self,
+        )
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.button(QMessageBox.StandardButton.Discard).setText(self.tr("Delete"))
+        dialog.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if dialog.exec() == QMessageBox.StandardButton.Discard:
             self.delete_requested.emit(playlist_id)
+        dialog.deleteLater()
 
     def show_assistant_result(self, playlists: list[Playlist], text: str) -> None:
         self.populate_list(
