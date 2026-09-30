@@ -21,7 +21,7 @@ def metadata():
     ]
 
 
-def live():
+def live() -> list[dict[str, object]]:
     return [{"id": "c0", "rank": 1, "score": 0.8, "bpm_delta": 1.5, "energy_delta": 1, "readiness": "ready"}]
 
 
