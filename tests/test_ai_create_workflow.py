@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from xfinaudio.ai import NanConfigError
+from xfinaudio.application.recommendation_candidates import RecommendationCandidateContext
 from xfinaudio.desktop.ai_copilot import AiCopilotController
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.build_view_model import BuildViewModel
@@ -30,9 +31,9 @@ def workflow(qapp, monkeypatch):
     jobs, plans = [], []
     intent = DJSetIntent(name="House", target_minutes=30, genre_focus="House")
 
-    def builder(records, requested, **kwargs):
-        plans.append((records, requested, kwargs))
-        return PrepCopilotPlan(intent=requested, variants=[])
+    def builder(tracks, intent, **kwargs):
+        plans.append((tracks, intent, kwargs))
+        return PrepCopilotPlan(intent=intent, variants=[])
 
     controller = AiCopilotController(
         build_screen=screen,
@@ -40,7 +41,7 @@ def workflow(qapp, monkeypatch):
         state=host,
         on_state_changed=lambda: None,
         desktop_recommendation_records=lambda *a, **kw: tracks,
-        desktop_color_anchor_candidate_context=lambda *a, **kw: None,
+        desktop_color_anchor_candidate_context=lambda *a, **kw: RecommendationCandidateContext(),
         intent_extractor=lambda *a, **kw: intent,
         plan_generation_builder=builder,
     )
@@ -124,3 +125,67 @@ def test_configuration_failure_exposes_action_and_allows_retry(workflow):
     assert w.screen.copilot_configure_button.isEnabled()
     assert "Configure AI" in w.screen.copilot_ask_status.text()
     assert w.screen.copilot_ask_button.isEnabled()
+
+
+def test_preview_cannot_start_while_another_local_generator_is_busy(workflow):
+    w = workflow
+    w.screen.copilot_ask_button.click()
+    w.finish(0)
+    w.host._state = w.host._state.model_copy(update={"is_preparing_copilot": True})
+    w.screen.intent_preview.confirm_button.click()
+    assert len(w.jobs) == 1
+    assert "Wait" in w.screen.copilot_ask_status.text()
+
+
+def test_plan_busy_message_survives_render_and_duplicate_confirmation(workflow):
+    w = workflow
+    w.screen.copilot_ask_button.click()
+    w.finish(0)
+    w.screen.intent_preview.confirm_button.click()
+    w.controller.confirm()
+    w.screen.render(BuildViewModel(), w.host._state)
+    assert len(w.jobs) == 2
+    assert "locally" in w.screen.copilot_ask_status.text()
+
+
+def test_opt_in_is_per_request_and_routes_capture_confirmed_style(workflow):
+    w = workflow
+    flags, routed = [], []
+    w.controller._intent_extractor = lambda *a, **kw: (
+        flags.append(kw.get("include_track_titles", False)) or DJSetIntent(name="Test", genre_focus="House")
+    )
+    w.controller._candidate_routes_factory = lambda: (
+        lambda controls, strategy, **kw: routed.append(controls) or list(w.host._state.scanned_records),
+        lambda *a, **kw: RecommendationCandidateContext(),
+    )
+    w.screen.copilot_share_titles.setChecked(True)
+    w.screen.copilot_ask_button.click()
+    w.finish(0)
+    assert flags == [True] and not w.screen.copilot_share_titles.isChecked()
+    w.screen.intent_preview.genre.setText("Techno")
+    w.screen.intent_preview.confirm_button.click()
+    w.finish(1)
+    assert routed[0].genre == "Techno"
+    assert routed[0].locked_paths == {"a"} and routed[0].excluded_paths == {"c"}
+    w.screen.copilot_ask_button.click()
+    w.finish(2)
+    assert flags == [True, False]
+
+
+def test_prompt_change_invalidates_preview_even_without_text_edited_signal(workflow):
+    w = workflow
+    w.screen.copilot_ask_button.click()
+    w.finish(0)
+    w.screen.copilot_ask_input.setText("Changed request")
+    w.screen.intent_preview.confirm_button.click()
+    assert len(w.jobs) == 1
+    assert "changed" in w.screen.copilot_ask_status.text()
+
+
+def test_invalid_model_constraints_report_guidance_without_a_plan(workflow):
+    w = workflow
+    w.controller._intent_extractor = lambda *a, **kw: DJSetIntent(name="Invalid", required_paths=["missing"])
+    w.screen.copilot_ask_button.click()
+    w.finish(0)
+    assert "no longer" in w.screen.copilot_ask_status.text()
+    assert not w.plans and not w.host._state.is_asking_copilot

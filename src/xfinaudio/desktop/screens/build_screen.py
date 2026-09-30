@@ -100,6 +100,7 @@ class BuildScreen(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._last_vm: BuildViewModel | None = None
+        self.copilot_is_planning = False
         # Signature of the copilot rows currently in the table. render() runs on
         # every state sync for the visible tab, and rebuilding the table would
         # wipe the DJ's selection even when the rows are identical.
@@ -504,7 +505,11 @@ class BuildScreen(QWidget):
         if vm.is_asking_copilot(state):
             # Only the busy text is render-owned. The success/failure message is
             # written by the controller and must survive the next idle render.
-            self.copilot_ask_status.setText(self.tr("Asking the AI copilot... this can take up to a minute"))
+            self.copilot_ask_status.setText(
+                self.tr("Generating confirmed variants locally...")
+                if self.copilot_is_planning
+                else self.tr("Asking the AI copilot... this can take up to a minute")
+            )
         self._render_recommend_progress(state)
         no_recommendation = state.last_recommendation is None
         self.empty_state_label.setText(

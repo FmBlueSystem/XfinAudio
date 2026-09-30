@@ -54,3 +54,10 @@ Slice 7a RED: original conversational opening example failed parsing. GREEN:
 14 Library tests pass, including actual widgets showing the documented gentle/
 opening energy 2–5 suggestion, editable override and missing-energy exclusion.
 The suggestion changes filters only; no track metadata is inferred or written.
+
+Slice 7b RED: four added widget scenarios exposed concurrent-generator confirm,
+busy-stage label reset, candidate routes retaining the wrong genre, and prompt
+changes retaining an obsolete preview. GREEN: 28 lifecycle/controller cases pass.
+Confirmation now binds candidate hard constraints and edited genre, waits for other
+generation/scan, and snapshots request text. Per-request opt-in resets immediately.
+Focused type-check also identified two test seam annotations, now corrected.

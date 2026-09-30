@@ -1,12 +1,7 @@
-"""AI copilot controller: a natural-language set request -> Prep Copilot variants.
+"""Interpret, visibly confirm, then generate Create variants with the local engine.
 
-The LLM only fills the intent: ``extract_intent`` normalizes the request into a
-validated :class:`DJSetIntent`, and the deterministic engine
-(``build_prep_copilot_plan``) still owns track selection and ordering. The request
-never reads the DJ's strategy/target-count combos -- the intent carries what the DJ
-asked for, and the resulting plan is stored through the same
-``apply_prep_copilot_plan_generated`` transition the Prep Copilot button uses, so
-the existing variants table displays it.
+Provider suggestions never select/order tracks or mutate current recommendations.
+The controller snapshots inputs on the UI thread and invalidates stale completions.
 """
 
 from __future__ import annotations
@@ -32,6 +27,7 @@ from xfinaudio.desktop.candidate_routes import (
     resolve_candidate_route,
 )
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, PrepCopilotPlan, build_prep_copilot_plan
 
@@ -187,6 +183,7 @@ class AiCopilotController(QObject):
             list(self._app_state().scanned_records),
             self._state._selected_track_controls(),
             LoudnessBand(loudness.target_lufs, loudness.tolerance_lu),
+            self._build_screen.copilot_ask_input.text() if hasattr(self._build_screen, "copilot_ask_input") else None,
         )
 
     def _clear_preview(self) -> None:
@@ -212,8 +209,11 @@ class AiCopilotController(QObject):
             self.cancel()
             self._set_status(self._tr("Library or constraints changed. Ask again before generating."))
             return
+        if self._app_state().is_preparing_copilot or self._app_state().is_recommending or self._app_state().is_scanning:
+            self._set_status(self._tr("Wait for the current scan or generation to finish, then confirm."))
+            return
         assert self._request_context is not None
-        library, controls, band = self._request_context
+        library, controls, band = self._request_context[:3]
         try:
             chosen = confirmed_intent(
                 intent if isinstance(intent, DJSetIntent) else self._pending_intent, controls, library
@@ -226,6 +226,14 @@ class AiCopilotController(QObject):
             if self._candidate_routes_factory is not None
             else (self._desktop_recommendation_records, self._desktop_color_anchor_candidate_context)
         )
+        controls = DJControls(
+            start_path=chosen.start_path,
+            end_path=chosen.end_path,
+            locked_paths=frozenset(chosen.required_paths),
+            excluded_paths=frozenset(chosen.excluded_paths),
+            manual_order_paths=list(controls.manual_order_paths) if controls else [],
+            genre=chosen.genre_focus,
+        )
         self._clear_preview()
         self._stage = "plan"
         self._current_request_id += 1
@@ -236,6 +244,7 @@ class AiCopilotController(QObject):
     def _begin_asking_state(self, request: str) -> None:
         """Mark the request in flight so render() disables the ask controls."""
         self._set_cancel_enabled(True)
+        self._build_screen.copilot_is_planning = self._stage == "plan"
         self._replace_state(apply_ai_copilot_request_started(self._app_state(), request))
         self._build_screen.render(self._build_vm, self._app_state())
         self._on_state_changed()
@@ -331,7 +340,7 @@ class AiCopilotController(QObject):
             return
         if self._stage == "interpret":
             assert self._request_context is not None
-            library, controls, band = self._request_context
+            library, controls, band = self._request_context[:3]
             try:
                 self._pending_intent = confirmed_intent(cast(DJSetIntent, payload), controls, library)
             except ValueError as error:

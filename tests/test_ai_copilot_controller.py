@@ -216,7 +216,7 @@ def test_ask_plans_with_the_ai_intent_and_the_candidate_route_never_the_ui_combo
     harness.run(1)
 
     band = LoudnessBand(-14.0, 0.5)
-    assert harness.route_calls == [(controls, "harmonic_journey", band)]
+    assert harness.route_calls == [(controls.model_copy(update={"genre": "House"}), "harmonic_journey", band)]
     assert harness.builder_calls == [
         (harness.pool, _INTENT.model_copy(update={"start_path": controls.start_path}), None, band)
     ]
@@ -230,7 +230,7 @@ def test_ask_plans_from_the_library_when_the_dj_selected_no_track(monkeypatch: p
     harness.controller.confirm()
     harness.run(1)
 
-    assert harness.route_calls == [(None, "harmonic_journey", LoudnessBand(-14.0, 0.5))]
+    assert harness.route_calls == [(DJControls(genre="House"), "harmonic_journey", LoudnessBand(-14.0, 0.5))]
     assert harness.host._state.last_prep_copilot_plan is harness.plan
 
 
