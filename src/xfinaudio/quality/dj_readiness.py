@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.exporting.csv_safety import spreadsheet_safe_text
 from xfinaudio.exporting.serato_crate import SeratoExportPlan, validate_serato_crate_file
+from xfinaudio.metadata.tempo import is_valid_bpm
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import MAX_ADJACENT_BPM_DIFFERENCE_PERCENT, PlaylistRecommendation
 from xfinaudio.recommendation.scoring import bpm_difference_percent, effective_energy_delta
@@ -197,7 +198,7 @@ def _metadata_check(recommendation: PlaylistRecommendation) -> DjReadinessCheck:
     absent_required_values = [
         track
         for track in recommendation.ordered_tracks
-        if track.bpm is None or track.camelot_key is None or track.energy_level is None
+        if not is_valid_bpm(track.bpm) or track.camelot_key is None or track.energy_level is None
     ]
     if incomplete or missing or absent_required_values:
         affected_paths = {track.path for track in [*incomplete, *missing, *absent_required_values]}
@@ -214,6 +215,12 @@ def _metadata_check(recommendation: PlaylistRecommendation) -> DjReadinessCheck:
 
 
 def _bpm_continuity_check(recommendation: PlaylistRecommendation) -> DjReadinessCheck:
+    if any(not is_valid_bpm(track.bpm) for track in recommendation.ordered_tracks):
+        return DjReadinessCheck(
+            label="BPM continuity",
+            status="blocked",
+            detail="BPM continuity unavailable: repair missing or invalid tempo metadata",
+        )
     max_jump = _max_bpm_jump_percent(recommendation)
     if max_jump > MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:
         return DjReadinessCheck(

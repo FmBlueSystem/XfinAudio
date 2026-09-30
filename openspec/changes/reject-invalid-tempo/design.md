@@ -1,0 +1,2 @@
+# Design
+Add a shared finite-positive numeric tempo predicate in metadata/tempo.py. Apply after conversion and existing rounding in both parser candidate paths. Preserve invalid-candidate fallback. Scoring rejects malformed values before arithmetic; public BPM difference helper returns conservative 100 percent for invalid inputs. Readiness validates BPM independently of persisted completeness flags and blocks unavailable continuity. No model/schema/dependency changes, mutation or I/O added.

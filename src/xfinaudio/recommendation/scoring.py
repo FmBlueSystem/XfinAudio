@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from xfinaudio.audio.spectral_profile import score_spectral_similarity
 from xfinaudio.audio.tonal_profile import tiv_compatibility
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.metadata.tempo import is_valid_bpm
 from xfinaudio.recommendation.camelot import (
     BoostRule,
     is_energy_boost,
@@ -350,6 +351,8 @@ def _metadata_warnings(left: TrackRecord, right: TrackRecord, required_fields: t
         missing = [field for field in required_fields if getattr(track, field) is None]
         if missing:
             warnings.append(f"{label} missing required metadata: {', '.join(missing)}")
+        if track.bpm is not None and not is_valid_bpm(track.bpm):
+            warnings.append(f"{label} has invalid BPM: expected a finite positive tempo")
     return warnings
 
 
@@ -372,7 +375,7 @@ HALF_TIME_RATIO_TOLERANCE = 0.02
 
 def normalized_bpm_pair(left_bpm: float, right_bpm: float) -> tuple[float, float]:
     """Return a BPM pair with a half-time/double-time side folded down."""
-    if left_bpm <= 0 or right_bpm <= 0:
+    if not is_valid_bpm(left_bpm) or not is_valid_bpm(right_bpm):
         return left_bpm, right_bpm
     ratio = max(left_bpm, right_bpm) / min(left_bpm, right_bpm)
     if abs(ratio - 2.0) > HALF_TIME_RATIO_TOLERANCE * 2.0:
@@ -384,6 +387,8 @@ def normalized_bpm_pair(left_bpm: float, right_bpm: float) -> tuple[float, float
 
 def bpm_difference_percent(left_bpm: float, right_bpm: float) -> float:
     """Return the symmetric BPM difference after half-time normalization."""
+    if not is_valid_bpm(left_bpm) or not is_valid_bpm(right_bpm):
+        return 100.0
     left_bpm, right_bpm = normalized_bpm_pair(left_bpm, right_bpm)
     lower = min(left_bpm, right_bpm)
     upper = max(left_bpm, right_bpm)
