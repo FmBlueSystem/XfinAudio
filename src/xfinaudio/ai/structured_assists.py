@@ -104,3 +104,4 @@ from xfinaudio.ai.saved_assists import (  # noqa: E402, F401
     build_saved_descriptors,
     interpret_saved_request,
 )
+from xfinaudio.ai.grounded_evidence import explain_grounded_evidence  # noqa: E402, F401

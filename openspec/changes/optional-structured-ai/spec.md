@@ -5,3 +5,4 @@
 - GIVEN Editor language WHEN a supported operation arrives THEN a canonical local edit command is returned; arbitrary actions, paths, extra fields and invalid targets are rejected.
 - GIVEN saved-set aggregates with temporary IDs WHEN retrieval/compare JSON arrives THEN only provided IDs are returned; comparisons require at least two sets and all descriptions/comparisons remain locally computed.
 - GIVEN malformed, oversized, nonfinite, duplicate-key or unsupported model JSON WHEN parsed THEN bounded errors do not echo response content.
+- GIVEN approved Metadata or Live explanation WHEN optional AI commentary is requested THEN only aggregate metadata gaps or actual ranked candidate metrics are shared; response fact IDs must exist and commentary cannot change tags, readiness or ranking.
