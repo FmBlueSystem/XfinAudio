@@ -403,6 +403,42 @@
         <source>AI copilot status</source>
         <translation>AI copilot status</translation>
     </message>
+    <message>
+        <source>Prep generation progress</source>
+        <translation>Prep generation progress</translation>
+    </message>
+    <message>
+        <source>Cancel Prep</source>
+        <translation>Cancel Prep</translation>
+    </message>
+    <message>
+        <source>Cancel Prep generation</source>
+        <translation>Cancel Prep generation</translation>
+    </message>
+    <message>
+        <source>Stop after the current stage; keep previous Prep results</source>
+        <translation>Stop after the current stage; keep previous Prep results</translation>
+    </message>
+    <message>
+        <source>Preparing candidate tracks...</source>
+        <translation>Preparing candidate tracks...</translation>
+    </message>
+    <message>
+        <source>Generating safe variant (1/3)...</source>
+        <translation>Generating safe variant (1/3)...</translation>
+    </message>
+    <message>
+        <source>Generating balanced variant (2/3)...</source>
+        <translation>Generating balanced variant (2/3)...</translation>
+    </message>
+    <message>
+        <source>Generating adventurous variant (3/3)...</source>
+        <translation>Generating adventurous variant (3/3)...</translation>
+    </message>
+    <message>
+        <source>Finishing Prep variants...</source>
+        <translation>Finishing Prep variants...</translation>
+    </message>
 </context>
 <context>
     <name>BuildViewModel</name>
@@ -1479,6 +1515,30 @@
         <source>AI set narrator status</source>
         <translation>AI set narrator status</translation>
     </message>
+    <message>
+        <source>Select a score with the arrow keys or mouse for details below. Tab moves to the details.</source>
+        <translation>Select a score with the arrow keys or mouse for details below. Tab moves to the details.</translation>
+    </message>
+    <message>
+        <source>Selected transition details</source>
+        <translation>Selected transition details</translation>
+    </message>
+    <message>
+        <source>No warnings for this transition</source>
+        <translation>No warnings for this transition</translation>
+    </message>
+    <message>
+        <source>No score explanation available</source>
+        <translation>No score explanation available</translation>
+    </message>
+    <message>
+        <source>Transition #{0}: {1} → {2}</source>
+        <translation>Transition #{0}: {1} → {2}</translation>
+    </message>
+    <message>
+        <source>Warnings: {0}</source>
+        <translation>Warnings: {0}</translation>
+    </message>
 </context>
 <context>
     <name>ReviewViewModel</name>
@@ -2158,6 +2218,21 @@
         <location filename="../src/xfinaudio/desktop/prep_copilot.py" line="247"/>
         <source>This variant will be used for Serato preview/export.</source>
         <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>PrepGenerationTask</name>
+    <message>
+        <source>Generating Prep Copilot variants...</source>
+        <translation>Generating Prep Copilot variants...</translation>
+    </message>
+    <message>
+        <source>Prep generation cancelled; previous results kept</source>
+        <translation>Prep generation cancelled; previous results kept</translation>
+    </message>
+    <message>
+        <source>Prep generation failed; previous results kept: {0}</source>
+        <translation>Prep generation failed; previous results kept: {0}</translation>
     </message>
 </context>
 </TS>
