@@ -1370,7 +1370,7 @@ def _loudness_profile(
     path: Path,
     *,
     status: LoudnessStatus = LoudnessStatus.MEASURED,
-    version: int = 1,
+    version: int = CURRENT_LOUDNESS_VERSION,
     fingerprint: str = "ffmpeg-8",
 ) -> LoudnessProfile:
     stat = path.stat()

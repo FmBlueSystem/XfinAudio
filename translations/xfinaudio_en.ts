@@ -760,6 +760,10 @@
 </context>
 <context>
     <name>LibraryScreen</name>
+    <message>
+        <source>LUFS: {0:.1f} · LRA: not stable (under 60 s) · True peak: {1:.1f} dBTP</source>
+        <translation>LUFS: {0:.1f} · LRA: not stable (under 60 s) · True peak: {1:.1f} dBTP</translation>
+    </message>
         <message>
             <source>LUFS</source>
             <translation>LUFS</translation>

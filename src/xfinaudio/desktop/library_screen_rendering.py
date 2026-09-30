@@ -189,6 +189,12 @@ class LibraryScreenRenderingMixin:
                 self.loudness_detail_label.setText(
                     QCoreApplication.translate("LibraryScreen", "Loudness: unavailable (too short)")
                 )
+            elif profile.true_peak_dbtp is not None:
+                self.loudness_detail_label.setText(
+                    QCoreApplication.translate(
+                        "LibraryScreen", "LUFS: {0:.1f} · LRA: not stable (under 60 s) · True peak: {1:.1f} dBTP"
+                    ).format(profile.lufs_integrated, profile.true_peak_dbtp)
+                )
             else:
                 self.loudness_detail_label.setText(
                     QCoreApplication.translate(

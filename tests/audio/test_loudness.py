@@ -20,6 +20,7 @@ from mutagen.id3 import APIC
 from mutagen.wave import WAVE
 
 from xfinaudio.audio.loudness import (
+    CURRENT_LOUDNESS_VERSION,
     MINIMUM_LOUDNESS_DURATION_SECONDS,
     FfmpegCapabilityError,
     FfmpegLoudnessAdapter,
@@ -59,7 +60,7 @@ def test_profile_carries_versioned_post_write_identity() -> None:
         source_audio_md5="0123456789abcdef0123456789abcdef",
     )
 
-    assert profile.analysis_version == 1
+    assert profile.analysis_version == CURRENT_LOUDNESS_VERSION
     assert profile.source_mtime_ns == 123
     assert profile.source_size_bytes == 456
 
@@ -130,8 +131,8 @@ sys.stderr.write({golden_stderr!r})
         audio_file, duration_seconds=3.0
     )
 
-    assert profile.status is LoudnessStatus.MEASURED
-    assert (profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp) == (-20.0, 20.0, -17.0)
+    assert profile.status is LoudnessStatus.TOO_SHORT
+    assert (profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp) == (-20.0, None, -17.0)
 
 
 def test_adapter_parses_the_pinned_synthetic_golden_output_with_lufs_sanity() -> None:
@@ -140,9 +141,9 @@ def test_adapter_parses_the_pinned_synthetic_golden_output_with_lufs_sanity() ->
 
     profile = adapter.parse_stderr(stderr, duration_seconds=3.0)
 
-    assert profile.status is LoudnessStatus.MEASURED
+    assert profile.status is LoudnessStatus.TOO_SHORT
     assert profile.lufs_integrated == pytest.approx(-20.0, abs=0.1)
-    assert profile.loudness_range_lra == pytest.approx(20.0)
+    assert profile.loudness_range_lra is None
     assert profile.true_peak_dbtp == pytest.approx(-17.0)
     samples = 0.142 * np.sin(2 * np.pi * 1_000 * np.arange(48_000 * 3) / 48_000)
     oracle_lufs = pyln.Meter(48_000).integrated_loudness(samples)
@@ -153,7 +154,7 @@ def test_adapter_rejects_malformed_pinned_output() -> None:
     adapter = FfmpegLoudnessAdapter("/bundle/ffmpeg", engine_fingerprint="ffmpeg-8.0.1-ebur128")
 
     with pytest.raises(LoudnessParseError):
-        adapter.parse_stderr("Integrated loudness:\n  I: -20.0 LUFS\n", duration_seconds=10.0)
+        adapter.parse_stderr("Integrated loudness:\n  I: -20.0 LUFS\n", duration_seconds=60.0)
 
 
 def test_short_material_keeps_integrated_lufs_but_omits_lra_and_true_peak() -> None:
@@ -243,7 +244,7 @@ def test_analyze_uses_injected_shell_free_process_with_devnull_and_parses_output
 
     profile = adapter.analyze(audio_file, duration_seconds=3.0)
 
-    assert profile.status is LoudnessStatus.MEASURED
+    assert profile.status is LoudnessStatus.TOO_SHORT
     assert process.timeouts == [9.5]
     assert launches == [
         (
@@ -412,7 +413,7 @@ def test_cancel_and_shutdown_cover_spawn_registration_race_and_wait_for_reaping(
     assert killed == [process.pid]
     assert process.reaped.is_set()
     if action_name == "cancel":
-        assert adapter.analyze(tmp_path / "restart.flac", duration_seconds=3.0).status is LoudnessStatus.MEASURED
+        assert adapter.analyze(tmp_path / "restart.flac", duration_seconds=3.0).status is LoudnessStatus.TOO_SHORT
 
 
 @pytest.mark.parametrize("fixture_name", ["synthetic_tone_1khz_aac.m4a", "synthetic_tone_1khz_alac.m4a"])
@@ -431,14 +432,13 @@ def test_frozen_resolved_ffmpeg_measures_real_synthetic_m4a(fixture_name: str, t
         FIXTURES / fixture_name, duration_seconds=3.0
     )
 
-    assert profile.status is LoudnessStatus.MEASURED
+    assert profile.status is LoudnessStatus.TOO_SHORT
     lufs = profile.lufs_integrated
     lra = profile.loudness_range_lra
     true_peak = profile.true_peak_dbtp
-    assert lufs is not None and lra is not None and true_peak is not None
-    assert all(math.isfinite(value) for value in (lufs, lra, true_peak))
+    assert lufs is not None and lra is None and true_peak is not None
+    assert all(math.isfinite(value) for value in (lufs, true_peak))
     assert -80.0 < lufs < 0.0
-    assert 0.0 <= lra < 80.0
     assert -80.0 < true_peak <= 10.0
 
 

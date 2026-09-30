@@ -14,7 +14,7 @@ from mutagen._file import File as MutagenFile
 from mutagen.id3 import COMM, TXXX
 from mutagen.mp4 import AtomDataType, MP4FreeForm
 
-from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus, is_complete_measurement
+from xfinaudio.audio.loudness import CURRENT_LOUDNESS_VERSION, LoudnessProfile, LoudnessStatus, is_complete_measurement
 
 _LOUDNESS_TAG = "XFINAUDIO_LOUDNESS"
 _ID3_SUFFIXES = frozenset({".mp3", ".wav", ".aif", ".aiff"})
@@ -51,7 +51,7 @@ def write_loudness_tags(
     load_audio: AudioLoader | None = None,
     save_audio: AudioSaver | None = None,
 ) -> LoudnessTagWriteResult:
-    """Overwrite v1 loudness tags only when a complete measured profile differs."""
+    """Overwrite current-version loudness tags only when a complete measured profile differs."""
     target = Path(path)
     if not is_complete_measurement(profile) or _tag_family(target) is None:
         return LoudnessTagWriteResult(LoudnessTagWriteStatus.UNSUPPORTED)
@@ -78,7 +78,7 @@ def write_loudness_tags(
 def recover_loudness_profile(
     path: Path | str, tags: Mapping[str, Any], *, audio_md5: str | None = None
 ) -> LoudnessProfile | None:
-    """Recover only this app's v1 structured tag, stamped from current disk identity."""
+    """Recover only this app's current-version structured tag, stamped from current disk identity."""
     target = Path(path)
     family = _tag_family(target)
     if family == "vorbis":
@@ -136,13 +136,17 @@ def _parse_payload(payload: str) -> tuple[float, float, float, str] | None:
         if not separator or not key or key in fields:
             return None
         fields[key] = value
-    if set(fields) != {"lufs", "lra", "dbtp", "v", "engine"} or fields["v"] != "1" or not fields["engine"]:
+    if (
+        set(fields) != {"lufs", "lra", "dbtp", "v", "engine"}
+        or fields["v"] != str(CURRENT_LOUDNESS_VERSION)
+        or not fields["engine"]
+    ):
         return None
     try:
         metrics = {key: float(fields[key]) for key in ("lufs", "lra", "dbtp")}
     except ValueError:
         return None
-    if not all(math.isfinite(value) for value in metrics.values()):
+    if not all(math.isfinite(value) for value in metrics.values()) or metrics["lra"] < 0 or metrics["lufs"] <= -70:
         return None
     return metrics["lufs"], metrics["lra"], metrics["dbtp"], fields["engine"]
 
@@ -185,7 +189,7 @@ def _formatted_values(profile: LoudnessProfile) -> tuple[str, str]:
     )
     payload = (
         f"lufs={profile.lufs_integrated:.1f};lra={profile.loudness_range_lra:.1f};"
-        f"dbtp={profile.true_peak_dbtp:.1f};v=1;engine={profile.engine_fingerprint}"
+        f"dbtp={profile.true_peak_dbtp:.1f};v={CURRENT_LOUDNESS_VERSION};engine={profile.engine_fingerprint}"
     )
     return comment, payload
 

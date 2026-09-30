@@ -9,7 +9,7 @@ from functools import cache
 
 from pydantic import BaseModel, ConfigDict
 
-from xfinaudio.audio.loudness import LoudnessStatus
+from xfinaudio.audio.loudness import is_complete_measurement
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls, preserved_control_paths
@@ -1025,7 +1025,7 @@ def _apply_strategy_filters(
 
 def _measured_lufs(track: TrackRecord) -> float | None:
     profile = track.loudness_profile
-    if profile is None or profile.status is not LoudnessStatus.MEASURED:
+    if profile is None or not is_complete_measurement(profile):
         return None
     return profile.lufs_integrated
 
