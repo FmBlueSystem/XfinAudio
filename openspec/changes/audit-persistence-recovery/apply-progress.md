@@ -10,3 +10,8 @@ Planning phases complete before production edits. Strict RED/GREEN evidence foll
 - RED: eight regression cases failed before Apply (settings-recovery-red.log).
 - GREEN/REFACTOR: preserve invalid JSON/encoding/schema bytes in unique sibling backup; strict read errors remain typed; visible startup diagnostic. Settings UI saves before publishing and keeps prior state on failure.
 - VERIFY: settings repository, recovery UI and settings controller: 21 passed (settings-recovery-green.log).
+
+## SQLite ownership/integrity slice
+- RED: 4 failures proved missing cascade, legacy orphan cleanup and deterministic close for both repositories (sqlite-red.log).
+- GREEN/REFACTOR: operation-local shared connection context manager enables foreign keys, commits/rolls back and always closes; idempotent startup migration removes only orphan playlist references. VACUUM remains outside an active transaction.
+- VERIFY: 133 playlist/track/connection tests pass (sqlite-green.log); tracked handles are closed after 20 reads per repository even when references remain alive, plus error path.

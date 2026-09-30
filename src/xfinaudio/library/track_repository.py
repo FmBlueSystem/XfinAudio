@@ -6,6 +6,7 @@ import contextlib
 import json
 import sqlite3
 from collections.abc import Iterable
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ from xfinaudio.audio.spectral_profile import (
 )
 from xfinaudio.audio.tonal_profile import CURRENT_TONAL_VERSION, TonalProfile
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.sqlite_connection import database_connection
 from xfinaudio.metadata.mixedinkey_contract import PARSED_TAG_KEYS
 
 SCHEMA_VERSION = 6
@@ -693,11 +695,8 @@ class TrackRepository:
         Must run outside the migration transaction; without it SQLite keeps the
         freed pages and the file never shrinks.
         """
-        connection = self._connect()
-        try:
+        with self._connect() as connection:
             connection.execute("VACUUM")
-        finally:
-            connection.close()
 
     @staticmethod
     def _tracks_table_exists(connection: sqlite3.Connection) -> bool:
@@ -766,10 +765,8 @@ class TrackRepository:
             connection.execute("ALTER TABLE tracks ADD COLUMN release_year INTEGER")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_tracks_metadata_status ON tracks (metadata_status)")
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        return database_connection(self.db_path)
 
     @staticmethod
     def _record_to_row(record: TrackRecord) -> tuple[Any, ...]:

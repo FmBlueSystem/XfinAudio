@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
 
 from xfinaudio.library.playlist_models import Playlist, PlaylistSummary
+from xfinaudio.library.sqlite_connection import database_connection
 
 
 class PlaylistRepository:
@@ -122,6 +124,7 @@ class PlaylistRepository:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             self._ensure_schema(connection)
+            self._migrate_orphan_references(connection)
 
     @staticmethod
     def _ensure_schema(connection: sqlite3.Connection) -> None:
@@ -149,6 +152,14 @@ class PlaylistRepository:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id)")
 
     @staticmethod
+    def _migrate_orphan_references(connection: sqlite3.Connection) -> None:
+        """Idempotently repair legacy rows created while foreign keys were off."""
+        connection.execute(
+            "DELETE FROM playlist_tracks WHERE NOT EXISTS "
+            "(SELECT 1 FROM playlists WHERE playlists.id = playlist_tracks.playlist_id)"
+        )
+
+    @staticmethod
     def _insert_tracks(
         connection: sqlite3.Connection,
         playlist_id: int,
@@ -162,7 +173,5 @@ class PlaylistRepository:
             [(playlist_id, path, idx) for idx, path in enumerate(track_paths)],
         )
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        return database_connection(self.db_path)
