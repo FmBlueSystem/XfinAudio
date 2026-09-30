@@ -7,6 +7,7 @@ from weakref import ref
 
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import (
+    QAbstractScrollArea,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -14,8 +15,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QVBoxLayout,
+    QWidget,
 )
 
 from xfinaudio.desktop.library_query_panel import LibraryQueryPanel
@@ -27,9 +30,20 @@ def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int
     screen._filter_query = ""
     screen._missing_column_visible = False
 
-    layout = QVBoxLayout(screen)
-    layout.setContentsMargins(12, 12, 12, 12)
+    outer = QVBoxLayout(screen)
+    outer.setContentsMargins(12, 12, 12, 12)
+    outer.setSpacing(8)
+    controls_widget = QWidget()
+    layout = QVBoxLayout(controls_widget)
+    layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(8)
+    screen.controls_scroll = QScrollArea()
+    screen.controls_scroll.setWidgetResizable(True)
+    screen.controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
+    screen.controls_scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+    screen.controls_scroll.setMinimumHeight(120)
+    screen.controls_scroll.setWidget(controls_widget)
+    outer.addWidget(screen.controls_scroll)
 
     # Top controls row
     controls = QHBoxLayout()
@@ -129,6 +143,9 @@ def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int
     filter_actions.addStretch()
     layout.addLayout(filter_actions)
 
+    # Only controls scroll on short displays; selection details and navigation
+    # stay beside the track table instead of raising the whole window minimum.
+    layout = outer
     # Section divider between controls and table
     screen.section_divider = QFrame()
     screen.section_divider.setObjectName("sectionDivider")
@@ -178,7 +195,7 @@ def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int
     screen.tracks_table.setColumnHidden(len(columns) - 1, True)
     # Hide Missing column by default — useful on demand, but cramped during browsing.
     screen.tracks_table.setColumnHidden(missing_column, True)
-    layout.addWidget(screen.tracks_table)
+    layout.addWidget(screen.tracks_table, 1)
 
     screen.loudness_detail_pane = QFrame()
     screen.loudness_detail_pane.setObjectName("loudnessDetailPane")

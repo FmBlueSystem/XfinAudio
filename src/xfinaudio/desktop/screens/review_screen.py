@@ -8,11 +8,13 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -117,6 +119,14 @@ def _recommendation_rows_signature(rows: list[RecommendationRow]) -> tuple:
     )
 
 
+class _ReviewContent(QWidget):
+    def heightForWidth(self, width: int) -> int:
+        # QScrollArea otherwise treats preferred table heights as mandatory
+        # when wrapping labels participate in height-for-width calculation.
+        layout = self.layout()
+        return layout.minimumHeightForWidth(width) if isinstance(layout, QVBoxLayout) else -1
+
+
 class ReviewScreen(QWidget):
     """Displays readiness status, track list, and transition analysis."""
 
@@ -148,9 +158,18 @@ class ReviewScreen(QWidget):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 8, 12, 8)
+        outer.setSpacing(6)
+        content = _ReviewContent()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+        self.content_scroll = QScrollArea()
+        self.content_scroll.setWidgetResizable(True)
+        self.content_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.content_scroll.setWidget(content)
+        outer.addWidget(self.content_scroll, 1)
 
         # 1. Decision banner — primary semaphore, large and prominent
         self.readiness_badge = QLabel()
@@ -202,6 +221,11 @@ class ReviewScreen(QWidget):
         actions.addWidget(self.ai_narrate_cancel_button)
         self.configure_ai_button = QPushButton(self.tr("Configure AI"))
         actions.addWidget(self.configure_ai_button)
+        actions.addStretch()
+        layout.addLayout(actions)
+        # Local evidence gets its own row; optional AI controls must not widen
+        # the entire workflow stack when Review is not even the visible screen.
+        actions = QHBoxLayout()
         self.engine_facts_button = QPushButton(self.tr("Engine facts & alternatives"))
         self.engine_facts_button.setCheckable(True)
         self.engine_facts_button.setEnabled(False)
@@ -329,7 +353,7 @@ class ReviewScreen(QWidget):
         nav.addWidget(self.back_button)
         nav.addStretch()
         nav.addWidget(self.export_button)
-        layout.addLayout(nav)
+        outer.addLayout(nav)
 
         self._setup_button_tooltips()
         self._setup_accessibility()
