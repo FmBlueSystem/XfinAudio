@@ -7,9 +7,11 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QTableWidget,
@@ -132,6 +134,7 @@ class ReviewScreen(QWidget):
         # runs on every state sync for the visible tab, and rebuilding the table
         # would wipe the DJ's selection even when the rows are identical.
         self._last_recommendation_signature: tuple | None = None
+        self._selected_transition_context: tuple[str, ...] | None = None
         self._build_ui()
         self._connect_signals()
 
@@ -141,8 +144,8 @@ class ReviewScreen(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(6)
 
         # 1. Decision banner — primary semaphore, large and prominent
         self.readiness_badge = QLabel()
@@ -220,7 +223,7 @@ class ReviewScreen(QWidget):
             self.tr(
                 "💡 Each row shows how two consecutive tracks blend. "
                 "Green = excellent, Yellow = acceptable, Red = risky. "
-                "Hover over any score for details."
+                "Select a score with the arrow keys or mouse for details below. Tab moves to the details."
             )
         )
         self.transition_help_label.setWordWrap(True)
@@ -241,11 +244,27 @@ class ReviewScreen(QWidget):
             transition_header.setSectionResizeMode(
                 _TRANSITION_COLUMNS.index(name), QHeaderView.ResizeMode.ResizeToContents
             )
+        self.transition_table.setTabKeyNavigation(False)
+        self.transition_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.transition_table.setAlternatingRowColors(True)
         self.transition_table.verticalHeader().setVisible(False)
         self.transition_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._apply_header_tooltips(self.transition_table, _TRANSITION_HEADER_TOOLTIPS)
         layout.addWidget(self.transition_table, 1)
+
+        # Reuse the deterministic table explanations; keyboard users can select,
+        # copy and scroll long details without relying on hover or an AI request.
+        self.transition_details = QPlainTextEdit()
+        self.transition_details.setObjectName("transition_details")
+        self.transition_details.setReadOnly(True)
+        self.transition_details.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.transition_details.setTabChangesFocus(True)
+        self.transition_details.setMinimumHeight(64)
+        self.transition_details.setMaximumHeight(96)
+        self.transition_details.setVisible(False)
+        layout.addWidget(self.transition_details)
 
         # 6. Readiness checks table (secondary)
         self.readiness_table = QTableWidget(0, len(_READINESS_COLUMNS))
@@ -308,6 +327,7 @@ class ReviewScreen(QWidget):
         self.ai_narrative_label.setAccessibleName(self.tr("AI set narrative"))
         self.ai_narrate_status.setAccessibleName(self.tr("AI set narrator status"))
         self.transition_table.setAccessibleName(self.tr("Transition analysis"))
+        self.transition_details.setAccessibleName(self.tr("Selected transition details"))
         self.readiness_table.setAccessibleName(self.tr("Readiness checks"))
         self.back_button.setAccessibleName(self.tr("Back to build"))
         self.export_button.setAccessibleName(self.tr("Proceed to export"))
@@ -319,7 +339,8 @@ class ReviewScreen(QWidget):
         self.setTabOrder(self.remove_track_button, self.save_to_playlists_button)
         self.setTabOrder(self.save_to_playlists_button, self.ai_narrate_button)
         self.setTabOrder(self.ai_narrate_button, self.transition_table)
-        self.setTabOrder(self.transition_table, self.readiness_table)
+        self.setTabOrder(self.transition_table, self.transition_details)
+        self.setTabOrder(self.transition_details, self.readiness_table)
         self.setTabOrder(self.readiness_table, self.back_button)
         self.setTabOrder(self.back_button, self.export_button)
 
@@ -340,6 +361,11 @@ class ReviewScreen(QWidget):
         self.recommendation_table.itemSelectionChanged.connect(self._on_recommendation_selection_changed)
         self.remove_track_button.clicked.connect(self._on_remove_clicked)
         self.recommendation_table.itemDoubleClicked.connect(self._on_rec_double_clicked)
+        self.transition_table.currentCellChanged.connect(self._update_transition_details)
+        self.transition_table.itemSelectionChanged.connect(self._update_transition_details)
+        self.transition_table.itemChanged.connect(self._on_transition_item_changed)
+        self.transition_table.model().modelReset.connect(self._clear_transition_details)
+        self.transition_table.model().rowsRemoved.connect(self._on_transition_rows_removed)
 
     def connect_signals(self, window: Any) -> None:
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(1))
@@ -544,6 +570,66 @@ class ReviewScreen(QWidget):
     # ------------------------------------------------------------------
     # Internal slots
     # ------------------------------------------------------------------
+
+    def _clear_transition_details(self) -> None:
+        self._selected_transition_context = None
+        self.transition_details.clear()
+        self.transition_details.setVisible(False)
+
+    def _on_transition_rows_removed(self) -> None:
+        self.transition_table.clearSelection()
+        self._clear_transition_details()
+
+    def _transition_context(self) -> tuple[str, ...]:
+        row = self.transition_table.currentRow()
+        return tuple(
+            item.text() if (item := self.transition_table.item(row, column)) is not None else "" for column in (0, 1, 2)
+        )
+
+    def _on_transition_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.row() != self.transition_table.currentRow():
+            return
+        if (
+            self._selected_transition_context is not None
+            and self._transition_context() != self._selected_transition_context
+        ):
+            # Imperative repopulation can replace a row without changing its
+            # index. Never silently attach the old selection to a new pair.
+            self.transition_table.clearSelection()
+            self.transition_table.setCurrentCell(-1, -1)
+            self._clear_transition_details()
+            return
+        self._update_transition_details()
+
+    def _update_transition_details(self) -> None:
+        table = self.transition_table
+        current = table.currentItem()
+        if current is None or not current.isSelected():
+            self._clear_transition_details()
+            return
+        context = self._transition_context()
+        row = table.currentRow()
+        score_column = current.column() if 3 <= current.column() <= 9 else 9
+        score = table.item(row, score_column)
+        warning = table.item(row, 10)
+        if not all(context) or score is None or warning is None:
+            self._clear_transition_details()
+            return
+        warning_text = warning.toolTip() or warning.text() or self.tr("No warnings for this transition")
+        header = table.horizontalHeaderItem(score_column)
+        explanation = score.toolTip() or self.tr("No score explanation available")
+        text = "\n".join(
+            [
+                self.tr("Transition #{0}: {1} → {2}").format(*context),
+                self.tr("Warnings: {0}").format(warning_text),
+                f"{header.text()}: {score.text()} — {explanation}",
+            ]
+        )
+        self._selected_transition_context = context
+        # Preserve the text cursor/selection across idempotent state syncs.
+        if text != self.transition_details.toPlainText():
+            self.transition_details.setPlainText(text)
+        self.transition_details.setVisible(True)
 
     def _on_recommendation_selection_changed(self) -> None:
         self.remove_track_button.setEnabled(bool(self.recommendation_table.selectedItems()))
