@@ -74,3 +74,9 @@ def test_untrusted_or_unready_input_fails_before_network(kind, facts):
     with pytest.raises(ValueError):
         explain_grounded_evidence(kind, facts, transport=transport)
     assert not transport.requests
+
+
+def test_commentary_cannot_hide_an_unknown_candidate_id_in_the_prose():
+    transport = FakeTransport('{"commentary":"Choose c99 instead.","fact_ids":["c0"]}')
+    with pytest.raises(ValueError, match="AI interpretation"):
+        explain_grounded_evidence("live", live(), transport=transport)

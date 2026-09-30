@@ -75,7 +75,12 @@ def extract_intent(
     genres = _genre_vocabulary(tracks, genre_vocabulary)
     raw = chat(
         redact_paths(
-            _build_user_message(user_request, tracks if include_track_titles else [], genres),
+            _build_user_message(
+                user_request,
+                tracks if include_track_titles else [],
+                genres,
+                known_paths=[track.path for track in tracks],
+            ),
             (track.path for track in tracks),
         ),
         system=_build_system_prompt(strategy_names),
@@ -145,7 +150,11 @@ def _build_system_prompt(strategy_names: list[str]) -> str:
     )
 
 
-def _build_user_message(user_request: str, tracks: list[TrackRecord], genres: list[str]) -> str:
+def _build_user_message(
+    user_request: str, tracks: list[TrackRecord], genres: list[str], *, known_paths: list[str]
+) -> str:
+    user_request = redact_paths(user_request, known_paths)
+    genres = [redact_paths(genre, known_paths) for genre in genres]
     return (
         f"DJ request:\n{user_request}\n\n"
         f"Library genre vocabulary (use this exact casing): {json.dumps(genres)}\n\n"

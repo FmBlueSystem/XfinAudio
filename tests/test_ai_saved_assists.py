@@ -116,3 +116,9 @@ def test_invalid_metadata_stays_unknown_and_path_genres_are_not_shared():
     assert descriptor.genres == ()
     assert descriptor.bpm_known == descriptor.energy_known == 0
     assert descriptor.bpm_min is descriptor.energy_min is None
+
+
+def test_unicode_saved_names_are_removed_before_network():
+    playlists, _ = examples()
+    playlists[0] = Playlist(7, "Straße Sunset", playlists[0].created_at, playlists[0].updated_at, [])
+    assert anonymize_saved_request("compare Straße Sunset and Evening", playlists) == "compare s0 and s1"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import Literal
 
@@ -105,6 +106,7 @@ def explain_grounded_evidence(
         or redact_paths(text) != text
         or set(refs) - ids
         or len(set(refs)) != len(refs)
+        or set(re.findall(r"\b[cm]\d+\b", text, re.IGNORECASE)) - ids
     ):
         raise ValueError(_ERROR)
     return text

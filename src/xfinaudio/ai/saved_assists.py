@@ -85,6 +85,7 @@ def anonymize_saved_request(request: str, playlists: Sequence[Playlist]) -> str:
     """Map named references locally in one pass; duplicate names need clarification."""
     lookup: dict[str, str] = {}
     duplicates: set[str] = set()
+    original_names = {playlist.name.strip() for playlist in playlists if playlist.name.strip()}
     for index, playlist in enumerate(playlists):
         name = playlist.name.strip().casefold()
         if name in lookup:
@@ -92,7 +93,9 @@ def anonymize_saved_request(request: str, playlists: Sequence[Playlist]) -> str:
         elif name:
             lookup[name] = f"s{index}"
     pattern = re.compile(
-        r"(?<!\w)(?:" + "|".join(re.escape(name) for name in sorted(lookup, key=len, reverse=True)) + r")(?!\w)",
+        r"(?<!\w)(?:"
+        + "|".join(re.escape(name) for name in sorted(original_names, key=len, reverse=True))
+        + r")(?!\w)",
         re.IGNORECASE,
     )
 

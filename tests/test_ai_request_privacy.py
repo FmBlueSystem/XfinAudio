@@ -52,3 +52,47 @@ def test_default_intent_also_redacts_malicious_genre(monkeypatch):
     transport = FakeTransport('{"name":"safe","target_track_count":4}')
     extract_intent("house", [TrackRecord(path=path, genre=path)], transport=transport)
     assert path not in message_text(transport)
+
+
+def test_known_paths_redact_when_adjacent_to_words_or_wrapped_in_metadata():
+    path = "/Users/Private/Music/song.wav"
+    assert redact_paths(f"prefix{path}suffix house", [path]) == "prefix[private path]suffix house"
+
+
+def test_known_windows_path_matching_is_case_insensitive():
+    path = r"C:\Users\Private\Song.wav"
+    assert redact_paths(f"prefix{path.lower()}suffix", [path]) == "prefix[private path]suffix"
+
+
+def test_known_windows_paths_are_redacted_before_json_genre_escaping(monkeypatch):
+    monkeypatch.setenv("XFINAUDIO_AI_ENABLED", "1")
+    monkeypatch.setenv("NAN_API_KEY", "synthetic-only")
+    path = r"C:\Users\Private\Song.wav"
+    transport = FakeTransport('{"name":"safe","target_track_count":4}')
+    extract_intent("four tracks", [TrackRecord(path=path, genre=f"prefix{path}suffix")], transport=transport)
+    assert "Private" not in message_text(transport)
+
+
+def test_narrator_redacts_unrelated_paths_with_spaces_without_losing_engine_facts(monkeypatch):
+    from tests.test_ai_set_narrator import make_readiness, make_recommendation
+    from xfinaudio.ai.set_narrator import narrate_set
+
+    monkeypatch.setenv("XFINAUDIO_AI_ENABLED", "1")
+    monkeypatch.setenv("NAN_API_KEY", "synthetic-only")
+    recommendation = make_recommendation()
+    unknown_path = "/Different Private Folder/Hidden Song.wav"
+    readiness = make_readiness().model_copy(update={"summary": f"Review '{unknown_path}' while BPM remains 124"})
+    transport = FakeTransport("Review the local evidence.")
+    narrate_set(recommendation, readiness, transport=transport)
+    prompt = message_text(transport)
+    assert "Hidden Song" not in prompt
+    assert "Different Private" not in prompt
+    assert "while BPM remains 124" in prompt
+    assert "1.44" in prompt
+
+
+@pytest.mark.parametrize("path", ["/Users/Private/song.wav", r"C:\Users\Private\song.wav", "/Volumes/Private/song.wav"])
+def test_recognizable_paths_embedded_in_text_are_redacted_even_without_library_context(path):
+    result = redact_paths(f"prefix{path}suffix with house energy 5")
+    assert "Private" not in result
+    assert "with house energy 5" in result

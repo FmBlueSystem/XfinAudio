@@ -97,6 +97,7 @@ def interpret_editor_request(
 
 
 # Stable UI entrypoint; implementation modules keep each review slice bounded.
+from xfinaudio.ai.grounded_evidence import explain_grounded_evidence  # noqa: E402, F401
 from xfinaudio.ai.saved_assists import (  # noqa: E402, F401
     SavedInterpretation,
     SavedSetDescriptor,
@@ -104,4 +105,3 @@ from xfinaudio.ai.saved_assists import (  # noqa: E402, F401
     build_saved_descriptors,
     interpret_saved_request,
 )
-from xfinaudio.ai.grounded_evidence import explain_grounded_evidence  # noqa: E402, F401

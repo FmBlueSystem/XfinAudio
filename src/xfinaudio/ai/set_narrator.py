@@ -19,10 +19,10 @@ the language decision lives in the system prompt it builds, not in the caller.
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 from xfinaudio.ai.nan_client import ENABLED_ENV, NanConfigError, chat, is_ai_enabled
+from xfinaudio.ai.privacy import redact_paths
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
@@ -139,7 +139,7 @@ def _build_facts(recommendation: PlaylistRecommendation, readiness: DjReadinessR
     for index, track in enumerate(recommendation.ordered_tracks, start=1):
         if track.path:
             facts = facts.replace(track.path, f"[track {index}]")
-    return re.sub(r"(?<!\w)(?:[A-Za-z]:\\|/)[^\s;,|]+", "[private path]", facts)
+    return redact_paths(facts, (track.path for track in recommendation.ordered_tracks))
 
 
 def _track_lines(recommendation: PlaylistRecommendation) -> str:
