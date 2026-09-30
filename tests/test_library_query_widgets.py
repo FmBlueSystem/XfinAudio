@@ -62,7 +62,6 @@ def test_invalid_edit_retains_applied_filters_and_retry_works(qapp):
 def test_main_window_filter_callback_preserves_described_filters(qapp, monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     from tests.test_main_window import FakeRepository, FakeScanService
-
     from xfinaudio.desktop.main_window import MainWindow
 
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())

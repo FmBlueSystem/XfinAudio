@@ -77,9 +77,12 @@ def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int
     screen.search_input.setMaximumWidth(220)
     layout.addWidget(screen.search_input)
 
+    owner = ref(screen)
     screen.query_panel = LibraryQueryPanel(
         lambda: (
-            [r.genre for r in screen._last_state.scanned_records if r.genre] if screen._last_state is not None else []
+            [r.genre for r in owner()._last_state.scanned_records if r.genre]
+            if owner() is not None and owner()._last_state is not None
+            else []
         ),
         screen,
     )
