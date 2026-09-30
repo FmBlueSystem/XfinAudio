@@ -82,7 +82,13 @@ def test_prep_copilot_returns_three_comparable_variants_with_same_intent() -> No
     assert plan.intent == intent
     assert all(variant.recommendation.ordered_tracks[0].path == "/music/start.flac" for variant in plan.variants)
     assert all(len(variant.recommendation.ordered_tracks) <= 3 for variant in plan.variants)
-    assert all(variant.readiness.status == "ready" for variant in plan.variants)
+    # The arc now spans the requested three tracks rather than a larger pool
+    # later prefix-trimmed to three. Reaching E7 from E4 needs a two-level seam.
+    assert all(variant.readiness.status == "needs_review" for variant in plan.variants)
+    assert all(
+        any(check.label == "Energy continuity" and check.status == "needs_review" for check in variant.readiness.checks)
+        for variant in plan.variants
+    )
 
 
 def test_prep_copilot_wide_library_does_not_collapse_every_variant_to_one_track() -> None:

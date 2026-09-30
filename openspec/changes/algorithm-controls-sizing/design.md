@@ -1,0 +1,4 @@
+# Design
+Use a small ordered-subsequence selector only when trimming would remove protected controls; retain existing order, mandatory paths, terminal, and BPM edge validity. Exact dynamic programming over sequence position and count selects the earliest compatible subsequence. It does not change non-arc legacy optimizer selection. Fail closed with a warning if the ordered selection cannot satisfy controls; do not claim global infeasibility.
+Forward Prep target count into recommend_playlist before generation. Share control-aware finalization for additional count cap when minutes also supplied.
+Size duration arcs with ceiling, then retry increasing target length if actual known selected duration is short, bounded by finite pool size. Unknown durations count as unknown rather than as invented playback time. Append explicit shortage diagnostics.

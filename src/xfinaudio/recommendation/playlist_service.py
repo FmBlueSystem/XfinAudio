@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import math
 from dataclasses import dataclass
+from functools import cache
 
 from pydantic import BaseModel, ConfigDict
 
@@ -466,27 +467,43 @@ def recommend_playlist(
                 f"{len(manual_prefix)} manually ordered track(s); no generated tracks were added"
             )
         generated_mandatory_paths = preserved_control_paths(controls) - manual_paths
-        sequenced = recommend_sequence(
-            remaining_tracks,
-            start_path=start_path,
-            end_path=applied.end_path,
-            weights=scoring_config.weights,
-            cache=_score_cache,
-            config=scoring_config,
-            arc_strategy=arc_shape,
-            # A tempo jump the DJ cannot beatmatch is not a bad option, it is not
-            # an option -- the sequencer routes around it instead of pricing it.
-            max_bpm_difference_percent=MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
-            # The shape must span the set the DJ plays, not the pool it is drawn
-            # from. Sizing it by the pool showed only the opening fraction of the
-            # curve, so a warm-up never climbed and a journey's peak sat past the
-            # end of the set.
-            arc_length=arc_subset_set_length,
-            target_length=generated_target_length,
-            mandatory_paths=generated_mandatory_paths,
-            external_start=manual_prefix[-1] if manual_prefix else None,
-            arc_slot_offset=len(manual_prefix),
-        )
+        while True:
+            sequenced = recommend_sequence(
+                remaining_tracks,
+                start_path=start_path,
+                end_path=applied.end_path,
+                weights=scoring_config.weights,
+                cache=_score_cache,
+                config=scoring_config,
+                arc_strategy=arc_shape,
+                # A tempo jump the DJ cannot beatmatch is not a bad option, it is not
+                # an option -- the sequencer routes around it instead of pricing it.
+                max_bpm_difference_percent=MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
+                # The shape must span the set the DJ plays, not the pool it is drawn
+                # from. Sizing it by the pool showed only the opening fraction of the
+                # curve, so a warm-up never climbed and a journey's peak sat past the
+                # end of the set.
+                arc_length=(
+                    generated_target_length + len(manual_prefix)
+                    if generated_target_length is not None
+                    else arc_subset_set_length
+                ),
+                target_length=generated_target_length,
+                mandatory_paths=generated_mandatory_paths,
+                external_start=manual_prefix[-1] if manual_prefix else None,
+                arc_slot_offset=len(manual_prefix),
+            )
+            selected = [*manual_prefix, *sequenced.ordered_tracks]
+            if (
+                target_duration_minutes is None
+                or generated_target_length is None
+                or not sequenced.ordered_tracks
+                or any(track.duration is None for track in selected)
+                or generated_target_length >= len(remaining_tracks)
+                or _played_duration(selected, played_seconds_per_track) >= target_duration_minutes * 60
+            ):
+                break
+            generated_target_length += 1
         sequenced_tracks = sequenced.ordered_tracks
         optimizer = sequenced.optimizer
         warnings.extend(sequenced.warnings)
@@ -520,14 +537,34 @@ def recommend_playlist(
                 )
 
     ordered_tracks = [*manual_prefix, *sequenced_tracks]
-    # Trim after sequencing, not before: the optimizer needs the whole pool to
-    # choose good adjacencies, and the DJ only plays the front of the result.
+    preserve_paths = preserved_control_paths(controls)
     if target_duration_minutes is not None:
-        ordered_tracks = _trim_to_duration(
-            ordered_tracks, target_duration_minutes, played_seconds_per_track=played_seconds_per_track
+        desired = len(
+            _trim_to_duration(
+                ordered_tracks, target_duration_minutes, played_seconds_per_track=played_seconds_per_track
+            )
         )
-    elif target_count is not None and len(ordered_tracks) > target_count:
-        ordered_tracks = ordered_tracks[:target_count]
+        desired = max(desired, len(preserve_paths))
+        full_order = ordered_tracks
+        while True:
+            ordered_tracks, trim_warnings = _trim_preserving_controls(full_order, desired, preserve_paths)
+            if (
+                not ordered_tracks
+                or desired >= len(full_order)
+                or _played_duration(ordered_tracks, played_seconds_per_track) >= target_duration_minutes * 60
+            ):
+                warnings.extend(trim_warnings)
+                break
+            desired += 1
+        if any(track.duration is None for track in ordered_tracks):
+            warnings.append("Duration is unknown for one or more tracks; slot coverage cannot be verified")
+        elif _played_duration(ordered_tracks, played_seconds_per_track) < target_duration_minutes * 60:
+            warnings.append("Duration shortfall: the selected playable tracks do not cover the requested slot")
+    elif target_count is not None:
+        ordered_tracks, trim_warnings = _trim_preserving_controls(ordered_tracks, target_count, preserve_paths)
+        warnings.extend(trim_warnings)
+        if len(ordered_tracks) < target_count:
+            warnings.append(f"Track count shortfall: selected {len(ordered_tracks)} of {target_count} requested tracks")
 
     # "Genre locked to 'Classical'" is true and useless on its own when the DJ
     # asked for thirty minutes and got four. Some genres are simply too small a
@@ -550,6 +587,72 @@ def recommend_playlist(
         applied_controls=applied.summary(),
         optimizer=optimizer,
         total_score=sum(score.total_score for score in transition_scores),
+    )
+
+
+def _played_duration(tracks: list[TrackRecord], segment: float | None) -> float:
+    return sum(min(track.duration or 0.0, segment) if segment else (track.duration or 0.0) for track in tracks)
+
+
+def _trim_preserving_controls(
+    tracks: list[TrackRecord], count: int, mandatory: set[str]
+) -> tuple[list[TrackRecord], list[str]]:
+    """Choose an ordered, BPM-valid subsequence without discarding DJ controls."""
+    paths = {track.path for track in tracks}
+    if mandatory - paths:
+        return [], ["Mandatory control tracks are missing after playlist gates; no complete controlled set returned"]
+    if len(mandatory) > count:
+        return [], ["Mandatory controls exceed the requested track count; no tracks were silently discarded"]
+    if len(tracks) <= count or mandatory <= {track.path for track in tracks[:count]}:
+        return tracks[:count], []
+    required = {index for index, track in enumerate(tracks) if track.path in mandatory}
+
+    @cache
+    def choose(previous: int, slots: int) -> tuple[int, ...] | None:
+        pending = [index for index in required if index > previous]
+        if slots == 0:
+            return () if not pending else None
+        if len(pending) > slots or len(tracks) - previous - 1 < slots:
+            return None
+        stop = min(pending) + 1 if pending else len(tracks)
+        for index in range(previous + 1, stop):
+            if previous >= 0:
+                left, right = tracks[previous], tracks[index]
+                if (
+                    left.bpm is not None
+                    and right.bpm is not None
+                    and bpm_difference_percent(left.bpm, right.bpm) > MAX_ADJACENT_BPM_DIFFERENCE_PERCENT
+                ):
+                    continue
+            tail = choose(index, slots - 1)
+            if tail is not None:
+                return (index, *tail)
+        return None
+
+    selected = choose(-1, count)
+    if selected is None:
+        return [], [
+            "No BPM-valid ordered selection fits the requested count and mandatory controls; "
+            "revise the count or controls"
+        ]
+    return [tracks[index] for index in selected], []
+
+
+def recommendation_limited(recommendation: PlaylistRecommendation, count: int) -> PlaylistRecommendation:
+    """Cap a prepared set while preserving its recorded mandatory controls."""
+    controls = DJControls.model_validate(recommendation.applied_controls)
+    ordered, warnings = _trim_preserving_controls(
+        recommendation.ordered_tracks, count, preserved_control_paths(controls)
+    )
+    config = TransitionScoringConfig(weights=recommendation.strategy.weights)
+    scores = _score_ordered_tracks(ordered, config)
+    return recommendation.model_copy(
+        update={
+            "ordered_tracks": ordered,
+            "transition_scores": scores,
+            "total_score": sum(score.total_score for score in scores),
+            "warnings": [*recommendation.warnings, *warnings],
+        }
     )
 
 
@@ -648,7 +751,7 @@ def _expected_set_length(
         seconds = sum(durations) / len(durations) if durations else None
     if not seconds:
         return target_count
-    return max(1, round(target_duration_minutes * 60 / seconds))
+    return max(1, math.ceil(target_duration_minutes * 60 / seconds))
 
 
 def _expected_arc_subset_length(
@@ -669,7 +772,7 @@ def _expected_arc_subset_length(
     effective = [min(track.duration, played_seconds_per_track) for track in candidates if track.duration]
     if not effective:
         return expected
-    return max(1, round(target_duration_minutes * 60 / (sum(effective) / len(effective))))
+    return max(1, math.ceil(target_duration_minutes * 60 / (sum(effective) / len(effective))))
 
 
 def _uses_strategy_order(strategy: PlaylistStrategy) -> bool:

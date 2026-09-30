@@ -22,6 +22,7 @@ from xfinaudio.recommendation.playlist_service import (
     matches_requested_genre,
     matches_requested_genre_tag,
     recommend_playlist,
+    recommendation_limited,
 )
 from xfinaudio.recommendation.strategies import StrategyName
 
@@ -193,8 +194,9 @@ def _build_variant(
     # Without an anchor-narrowed pool, the optimizer receives a scattered BPM
     # sample and the 3% adjacency gate can leave only the anchor behind.
     recommendation_pool = candidate_pool.build_recommendation_pool(
-        variant_tracks,
+        [track for track in variant_tracks if track.path not in intent.excluded_paths],
         controls,
+        limit=max(25, intent.target_track_count),
         protected_path=color_anchor_path,
         familiarity=familiarity,
         familiarity_weight=familiarity_weight,
@@ -205,6 +207,7 @@ def _build_variant(
         controls=controls,
         color_anchor_path=color_anchor_path,
         loudness_band=loudness_band,
+        target_count=intent.target_track_count,
         target_duration_minutes=intent.target_minutes,
         played_seconds_per_track=(PREP_PLAYED_SECONDS_PER_TRACK if intent.target_minutes is not None else None),
         arc_strategy=intent.slot_role,
@@ -330,17 +333,7 @@ def _protected_paths(intent: DJSetIntent) -> set[str]:
 
 
 def _limit_recommendation(recommendation: PlaylistRecommendation, target_track_count: int) -> PlaylistRecommendation:
-    if len(recommendation.ordered_tracks) <= target_track_count:
-        return recommendation
-    ordered_tracks = recommendation.ordered_tracks[:target_track_count]
-    transition_scores = recommendation.transition_scores[: max(target_track_count - 1, 0)]
-    return recommendation.model_copy(
-        update={
-            "ordered_tracks": ordered_tracks,
-            "transition_scores": transition_scores,
-            "total_score": sum(score.total_score for score in transition_scores),
-        }
-    )
+    return recommendation_limited(recommendation, target_track_count)
 
 
 def _add_required_track_gate(
