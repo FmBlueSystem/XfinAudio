@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import shutil
+import os
+import stat
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 
@@ -13,6 +15,10 @@ SERATO_CRATE_VERSION = "1.0/Serato ScratchLive Crate"
 
 class SeratoCrateParseError(ValueError):
     """Raised when Serato crate fixture bytes do not match the supported TLV subset."""
+
+
+class SeratoCrateWriteError(OSError):
+    """A crate could not be safely published or recovered; inspect the message before retrying."""
 
 
 class ParsedSeratoCrate(BaseModel):
@@ -161,18 +167,47 @@ def write_serato_crate(plan: SeratoExportPlan, *, confirm: bool = False) -> Sera
     if not confirm:
         raise PermissionError("Serato crate export requires confirm=True")
 
-    plan.target_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        expected = build_serato_crate_bytes(plan.relative_paths)
+        if expected != plan.crate_bytes:
+            raise ValueError("bytes do not match validated paths and supported TLV layout")
+    except ValueError as error:
+        raise SeratoCrateWriteError(f"Invalid Serato payload: {error}") from error
+    if plan.backup_path.parent != plan.target_path.parent or plan.backup_path == plan.target_path:
+        raise SeratoCrateWriteError("Backup must be a separate file beside the target crate")
+
     backup_path: Path | None = None
-    if plan.target_path.exists():
-        backup_path = plan.backup_path
-        shutil.copy2(plan.target_path, backup_path)
-    plan.target_path.write_bytes(plan.crate_bytes)
-    validated = validate_serato_crate_file(plan)
+    try:
+        plan.target_path.parent.mkdir(parents=True, exist_ok=True)
+        previous_identity = _file_identity(plan.target_path)
+        previous = _read_regular_file(plan.target_path) if previous_identity is not None else None
+        if previous is not None:
+            backup_path = _create_backup(plan.backup_path, previous)
+        published_identity = _atomic_replace(plan.target_path, plan.crate_bytes, previous_identity)
+    except OSError as error:
+        raise SeratoCrateWriteError(f"Serato write failed; inspect {plan.target_path}: {error}") from error
+    try:
+        if not validate_serato_crate_file(plan):
+            raise OSError("written bytes differ from the plan")
+    except OSError as error:
+        try:
+            if previous is None:
+                _remove_unchanged(plan.target_path, published_identity)
+            else:
+                _atomic_replace(plan.target_path, previous, published_identity)
+        except OSError as recovery_error:
+            raise SeratoCrateWriteError(
+                f"Serato readback failed; manual recovery required for {plan.target_path}; "
+                f"backup: {backup_path}. {recovery_error}"
+            ) from error
+        raise SeratoCrateWriteError(
+            f"Serato readback failed; recovered the previous state of {plan.target_path}. Check disk access and retry."
+        ) from error
     return SeratoWriteResult(
         written_path=plan.target_path,
         backup_path=backup_path,
         bytes_written=len(plan.crate_bytes),
-        validated=validated,
+        validated=True,
         rollback_available=True,
         rollback_action="restore_backup" if backup_path is not None else "delete_created_crate",
     )
@@ -180,16 +215,88 @@ def write_serato_crate(plan: SeratoExportPlan, *, confirm: bool = False) -> Sera
 
 def validate_serato_crate_file(plan: SeratoExportPlan) -> bool:
     """Validate that the written crate matches the planned deterministic artifact bytes."""
-    return plan.target_path.exists() and plan.target_path.read_bytes() == plan.crate_bytes
+    try:
+        return _read_regular_file(plan.target_path) == plan.crate_bytes
+    except OSError:
+        return False
 
 
 def rollback_serato_crate_write(result: SeratoWriteResult) -> None:
-    """Rollback a confirmed Serato crate write by restoring backup or deleting a new crate."""
-    if result.backup_path is not None:
-        shutil.copy2(result.backup_path, result.written_path)
-        return
-    if result.written_path.exists():
-        result.written_path.unlink()
+    """Restore a backup atomically or remove a new crate without following symlinks."""
+    try:
+        identity = _file_identity(result.written_path)
+        if result.backup_path is not None:
+            _atomic_replace(result.written_path, _read_regular_file(result.backup_path), identity)
+        elif identity is not None:
+            _remove_unchanged(result.written_path, identity)
+    except OSError as error:
+        raise SeratoCrateWriteError(f"Rollback failed; inspect {result.written_path}: {error}") from error
+
+
+FileIdentity = tuple[int, int, int, int]
+
+
+def _file_identity(path: Path) -> FileIdentity | None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(info.st_mode):
+        raise OSError(f"Refusing symlink: {path}")
+    if not stat.S_ISREG(info.st_mode):
+        raise OSError(f"Not a regular file: {path}")
+    return (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+
+
+def _read_regular_file(path: Path) -> bytes:
+    _file_identity(path)
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise OSError(f"Not a regular file: {path}")
+        return handle.read()
+
+
+def _create_backup(base: Path, previous: bytes) -> Path:
+    index = 0
+    while True:
+        candidate = base if index == 0 else base.with_name(f"{base.name}.{index}")
+        try:
+            descriptor = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            break
+        except FileExistsError:
+            index += 1
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(previous)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError:
+        candidate.unlink(missing_ok=True)
+        raise
+    return candidate
+
+
+def _atomic_replace(target: Path, data: bytes, expected: FileIdentity | None) -> FileIdentity:
+    descriptor, name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+            info = os.fstat(handle.fileno())
+        if _file_identity(target) != expected:
+            raise OSError("Target changed concurrently; refusing replacement")
+        os.replace(temporary, target)
+        return (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _remove_unchanged(target: Path, expected: FileIdentity) -> None:
+    if _file_identity(target) != expected:
+        raise OSError("Target changed concurrently; refusing removal")
+    target.unlink()
 
 
 def _iter_tlv_records(data: bytes) -> Iterator[tuple[str, bytes]]:
@@ -245,6 +352,7 @@ def _validate_relative_crate_path(path: str) -> str:
     pure_path = PurePosixPath(normalized)
     if (
         not normalized
+        or "\0" in normalized
         or pure_path.is_absolute()
         or _looks_drive_qualified(normalized)
         or any(part in {"", ".."} for part in pure_path.parts)
@@ -267,6 +375,7 @@ __all__ = [
     "SERATO_CRATE_VERSION",
     "ParsedSeratoCrate",
     "SeratoCrateParseError",
+    "SeratoCrateWriteError",
     "SeratoCrateValidationReport",
     "SeratoExportPlan",
     "SeratoWriteResult",

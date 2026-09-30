@@ -1,0 +1,22 @@
+schema: gentle-ai.sdd-state.v1
+change: serato-write-integrity
+artifact_store: openspec
+status: verification-pending
+created: 2026-09-30
+updated: 2026-09-30
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: pending
+next_recommended: integrated-release-gate
+blocked_reasons:
+  - Final integrated aggregate gate delegated to lead
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400

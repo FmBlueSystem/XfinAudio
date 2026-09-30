@@ -1,0 +1,4 @@
+# Safe Serato writer integrity
+Protect confirmed crate writes regardless of the caller-approved destination. Validate payloads before touching disk, preserve existing backups, atomically replace crates, and recover failed readback. Only synthetic temporary fixtures are used. Destination selection, UI policy, live Serato DB V2 and audio writes are excluded. Risk: concurrent filesystem changes; refuse unsafe targets rather than following links. Rollback: revert this isolated local commit. Success means failed writes cannot silently report success or redirect bytes through final/backup symlinks.
+
+Review plan: keep this writer slice within 400 changed lines; if exceeded, chain payload/atomic-write and recovery/rollback slices, each with RED/GREEN and focused verification. No pushes or releases.

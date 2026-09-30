@@ -1,0 +1,2 @@
+# Apply progress
+Lead approved Apply after first correctness gate completed. RED: all 13 initial new safety cases failed against original writer (2026-09-30); GREEN: all 51 focused crate/application cases now pass, including two additional I/O failure regressions. Implemented payload prevalidation, exclusive backup history, no-follow regular-file reads, same-directory atomic writes, and typed readback recovery errors. Refactored public rollback to share safe primitives. Destination and UI policies unchanged.
