@@ -23,3 +23,13 @@ Not started: planning only. No implementation or verification claims for G1/G2/H
 - 10 isolated shutdown cases passed, including slow Prep close with a live event-loop heartbeat and retained ownership.
 - Focused Pyright: 0 errors. Ruff lint/format pass.
 - Limits: cancellation drains the current non-cooperative candidate/variant stage; it never forcibly terminates a thread. Native macOS lifecycle and real audio remain untested here.
+
+## H1 keyboard Review
+- 18 new tests confirmed RED before implementation; 52 focused Review/populator tests pass after implementation.
+- Selected context, warnings and scores are visible and selectable; long details scroll with the keyboard; stale details clear and unchanged renders retain text selection.
+- Synthetic generated/applied 1000x700 Review screenshot inspected. Focused Pyright and Ruff checks pass.
+
+## I1 direct Serato guidance and settings disclosure
+- RED: 6 tests expose misleading staging copy, absent report/backup context and missing loudness comment-write disclosure.
+- GREEN: 62 export/settings tests pass. Preview does not change existing synthetic crate bytes or create a backup; it displays exact crate and report paths plus backup directory.
+- Focused type/lint checks pass. No new writer semantics or loudness enablement changes.

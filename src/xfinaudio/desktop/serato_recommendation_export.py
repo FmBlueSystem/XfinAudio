@@ -131,11 +131,14 @@ class SeratoRecommendationExportMixin:
             else host.tr("Not available")
         )
         will_write = host.tr("yes") if not plan.target_path.exists() else host.tr("replace with backup")
-        host._export_screen.export_guidance_label.setText(
-            host.tr(
-                "Serato export preview: {0} | Variant: {1} | Tracks: {2} | Will write: {3} | Readiness: {4}"
-            ).format(plan.target_path, variant, len(plan.relative_paths), will_write, readiness)
-        )
+        report_folder = host.settings.export.safe_export_folder or plan.target_path.parent
+        details = host.tr(
+            "Serato export preview: {0} | Variant: {1} | Tracks: {2} | Will write: {3} | Readiness: {4}"
+        ).format(plan.target_path, variant, len(plan.relative_paths), will_write, readiness)
+        details += "\n" + host.tr("Readiness report folder: {0}").format(report_folder)
+        if plan.target_path.exists():
+            details += "\n" + host.tr("Backup beside crate: {0}").format(plan.target_path.parent)
+        host._export_screen.export_guidance_label.setText(details)
         host.status_label.setText(host.tr("Serato export preview: {0}").format(plan.target_path))
 
     def export_recommendation_to_serato(

@@ -63,7 +63,7 @@ class SettingsDialog(QDialog):
         # Export Settings group
         export_group = QGroupBox(self.tr("Export Settings"))
         export_layout = QHBoxLayout(export_group)
-        export_layout.addWidget(QLabel(self.tr("Safe export folder:")))
+        export_layout.addWidget(QLabel(self.tr("Report folder (Serato crates go directly to Serato):")))
         self._safe_export_folder_label = QLabel(self._format_folder_label(self._pending_safe_export_folder))
         self._safe_export_folder_label.setMinimumWidth(220)
         export_layout.addWidget(self._safe_export_folder_label, 1)
@@ -88,6 +88,12 @@ class SettingsDialog(QDialog):
         self._loudness_enabled_checkbox.setObjectName("loudness_enabled_checkbox")
         self._loudness_enabled_checkbox.setChecked(self._settings.loudness.enabled)
         loudness_layout.addWidget(self._loudness_enabled_checkbox)
+        disclosure = QLabel(
+            self.tr("When enabled, analysis automatically writes loudness tags and replaces existing comments.")
+        )
+        disclosure.setObjectName("loudness_write_disclosure")
+        disclosure.setWordWrap(True)
+        loudness_layout.addWidget(disclosure)
         band_layout = QHBoxLayout()
         band_layout.addWidget(QLabel(self.tr("Target LUFS:")))
         self._loudness_target_lufs_spinbox = QDoubleSpinBox()
@@ -124,7 +130,7 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _choose_safe_export_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, self.tr("Choose safe export folder"))
+        folder = QFileDialog.getExistingDirectory(self, self.tr("Choose report folder"))
         if folder:
             self._pending_safe_export_folder = Path(folder)
             self._safe_export_folder_label.setText(self._format_folder_label(self._pending_safe_export_folder))

@@ -9,5 +9,5 @@ GIVEN a previous valid plan WHEN a new request fails or is cancelled THEN the pr
 ## H1 Keyboard-visible explanations
 GIVEN a transition table WHEN a row/cell is selected using the keyboard THEN plain-language transition context, warnings and relevant score explanations appear in a visible, selectable detail area without hovering. GIVEN data clear/replacement WHEN the prior selection is invalid THEN stale explanations clear. Compact controls and navigation remain reachable.
 
-## I1 Destination truthfulness (decision pending)
-Serato export labels and next steps must describe the actual crate destination and the separate report folder. A missing report folder must not imply that selecting it changes the crate's destination. Preserve existing writer behavior unless staging is explicitly selected for the scope before Apply.
+## I1 Direct Serato destination truthfulness
+Serato export labels and next steps must describe the actual crate destination and the separate report folder. A missing report folder must not imply that selecting it changes the crate's destination. The authorized flow writes the crate directly into the resolved Serato Subcrates folder with backup/recovery. Preview shows the full target and separate report destination. A report folder is optional for crate export. A visible loudness-setting disclosure states automatic tag writes replace existing comments; default-enabled behavior remains unchanged.

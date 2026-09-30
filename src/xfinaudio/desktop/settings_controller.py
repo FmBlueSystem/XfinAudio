@@ -86,5 +86,5 @@ class SettingsController:
     def format_safe_export_folder_label(self) -> str:
         folder = self._settings_getter().export.safe_export_folder
         if folder is None:
-            return self._tr("No safe export folder selected")
-        return self._tr("Safe export folder: {0}").format(folder)
+            return self._tr("Report folder: optional for Serato crates")
+        return self._tr("Report folder: {0} (Serato crates go directly to Serato)").format(folder)

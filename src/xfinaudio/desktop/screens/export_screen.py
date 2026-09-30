@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -73,7 +73,9 @@ class ExportScreen(QWidget):
         for name in ["Serato", "Rekordbox", "Traktor", "VirtualDJ"]:
             self.software_selector.addItem(name)
         self.safe_folder_label = QLabel()
-        self.safe_folder_button = QPushButton(self.tr("Choose Folder"))
+        self.safe_folder_label.setWordWrap(True)
+        self.safe_folder_label.setMaximumWidth(260)
+        self.safe_folder_button = QPushButton(self.tr("Report Folder"))
         info_row.addWidget(self.variant_label)
         info_row.addWidget(self.software_selector)
         info_row.addStretch()
@@ -84,17 +86,20 @@ class ExportScreen(QWidget):
         # Export guidance label (set imperatively by main_window)
         self.export_guidance_label = QLabel(
             self.tr(
-                "Review recommendations before exporting. "
-                "Live Serato writes are not part of the verified release candidate; "
-                "back up your library and verify any manual copy."
+                "Preview the destination, then export directly to Serato. "
+                "Existing crates are backed up before replacement; audio files are not copied."
             )
         )
         self.export_guidance_label.setWordWrap(True)
-        self.export_guidance_label.setMaximumHeight(32)
+        self.export_guidance_label.setMaximumHeight(100)
+        self.export_guidance_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.export_guidance_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
         layout.addWidget(self.export_guidance_label)
 
         # Safe export folder label (set imperatively by main_window)
-        self.safe_export_folder_label = QLabel(self.tr("No safe export folder selected"))
+        self.safe_export_folder_label = QLabel(self.tr("Report folder: optional for Serato crates"))
         self.safe_export_folder_label.setMaximumHeight(24)
         layout.addWidget(self.safe_export_folder_label)
 
@@ -143,7 +148,7 @@ class ExportScreen(QWidget):
         # Empty-state / guidance label
         self.empty_state_label = QLabel()
         self.empty_state_label.setWordWrap(True)
-        self.empty_state_label.setMaximumHeight(32)
+        self.empty_state_label.setMaximumHeight(64)
         layout.addWidget(self.empty_state_label)
 
         # Action buttons
@@ -212,7 +217,7 @@ class ExportScreen(QWidget):
     def _setup_button_tooltips(self) -> None:
         """Explain every button so users understand each control (R1)."""
         tips = {
-            self.safe_folder_button: "Choose the safe folder where exports are written",
+            self.safe_folder_button: "Choose the report folder; Serato crates still go directly to Serato",
             self.preview_button: "Preview the export without writing any files",
             self.export_button: "Write the playlist to your DJ software's crate",
             self.export_readiness_button: "Export the readiness report as JSON and CSV",
@@ -228,8 +233,8 @@ class ExportScreen(QWidget):
         """Set accessible names for screen readers."""
         self.variant_label.setAccessibleName(self.tr("Applied variant"))
         self.software_selector.setAccessibleName(self.tr("DJ software selector"))
-        self.safe_folder_label.setAccessibleName(self.tr("Safe export folder"))
-        self.safe_folder_button.setAccessibleName(self.tr("Choose safe export folder"))
+        self.safe_folder_label.setAccessibleName(self.tr("Report folder"))
+        self.safe_folder_button.setAccessibleName(self.tr("Choose report folder"))
         self.export_guidance_label.setAccessibleName(self.tr("Export guidance"))
         self.preview_button.setAccessibleName(self.tr("Preview export"))
         self.export_button.setAccessibleName(self.tr("Export recommendation"))
@@ -404,6 +409,7 @@ class ExportScreen(QWidget):
         """
         self.variant_label.setText(vm.applied_variant_label(state))
         self.safe_folder_label.setText(vm.safe_folder_label(state))
+        self.safe_folder_label.setToolTip(vm.safe_folder_label(state))
         self.playlist_info_label.setText(vm.preview_text(state) or "—")
         self._populate_tracks_table(state)
         self._render_export_progress(state)
