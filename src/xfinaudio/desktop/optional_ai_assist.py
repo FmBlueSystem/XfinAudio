@@ -9,6 +9,7 @@ from typing import cast
 from PySide6.QtCore import QObject, Qt, QThread, Slot
 from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
+from xfinaudio.ai.connection_test import endpoint_label
 from xfinaudio.ai.nan_client import NanConfigError, is_ai_enabled
 from xfinaudio.desktop._workers import BackgroundWorker, WorkerRegistry
 
@@ -34,6 +35,7 @@ class OptionalAssistPanel(QWidget):
             row.addWidget(widget)
         row.addStretch()
         layout.addLayout(row)
+        self.recipient = endpoint_label()
         self.disclosure = QLabel(disclosure)
         self.status = QLabel(self.tr("Optional AI is off until you consent and click Ask AI."))
         for label in (self.disclosure, self.status):
@@ -58,10 +60,13 @@ class OptionalAssistController(QObject):
         configure: Callable[[], None],
         enabled: Callable[[], bool] = is_ai_enabled,
         parent: QObject | None = None,
+        clear: Callable[[], None] = lambda: None,
     ) -> None:
         super().__init__(parent)
         self.panel, self.request = panel, request
         self._prepare, self._context, self._enabled = prepare, context, enabled
+        self._clear = clear
+        self._shown = False
         self._registry = WorkerRegistry(self)
         self._token = 0
         self._snapshot: object = None
@@ -75,7 +80,7 @@ class OptionalAssistController(QObject):
         panel.consent.toggled.connect(self._invalidate)
 
     def _invalidate(self, *_args: object) -> None:
-        if self.busy:
+        if self.busy or self._shown:
             self.cancel()
 
     def _set_busy(self, busy: bool) -> None:
@@ -86,6 +91,13 @@ class OptionalAssistController(QObject):
     def ask(self) -> None:
         if self.busy:
             return
+        recipient = endpoint_label()
+        if self.panel.recipient != recipient:
+            self.panel.disclosure.setText(
+                self.panel.disclosure.text().replace(self.panel.recipient, recipient) + f" Recipient: {recipient}."
+            )
+            self.panel.recipient = recipient
+            self.panel.consent.setChecked(False)
         if not self.panel.consent.isChecked():
             self.panel.status.setText(self.tr("Review the disclosure and allow this AI request first."))
             return
@@ -99,9 +111,11 @@ class OptionalAssistController(QObject):
         try:
             self._snapshot = (text, self._context())
             operation, self._apply = self._prepare(text)
-        except ValueError:
-            self.panel.status.setText(self.tr("No valid current evidence. Refresh or open a set, then retry."))
+        except ValueError as error:
+            self.panel.status.setText(str(error))
             return
+        self._clear()
+        self._shown = False
         self._token += 1
         token = self._token
         thread = QThread(self)
@@ -130,12 +144,21 @@ class OptionalAssistController(QObject):
     def cancel(self) -> None:
         self._token += 1
         self._apply = None
+        self._shown = False
+        self._clear()
         self._set_busy(False)
         # All older threads remain owned and retained; MainWindow drains them.
         if self._thread is not None:
             with suppress(RuntimeError):
                 self._thread.requestInterruption()
         self.panel.status.setText(self.tr("AI canceled. Already-sent data cannot be recalled. You can retry."))
+
+    def invalidate_if_context_changed(self) -> None:
+        if not (self.busy or self._shown):
+            return
+        if self._snapshot != (self.request.text().strip(), self._context()) or not self._enabled():
+            self.cancel()
+            self.panel.status.setText(self.tr("Context changed. Ask AI again for the current view."))
 
     @Slot(object)
     def _receive(self, delivery: object) -> None:
@@ -154,7 +177,9 @@ class OptionalAssistController(QObject):
         if success:
             try:
                 cast(Callable[[object], None], self._apply)(value)
-            except (ValueError, TypeError):
+                self._snapshot = (self.request.text().strip(), self._context())
+                self._shown = True
+            except Exception:
                 self.panel.status.setText(
                     self.tr("AI response could not be validated. Simplify the request and retry.")
                 )

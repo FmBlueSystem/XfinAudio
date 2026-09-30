@@ -124,3 +124,35 @@ def test_failure_is_actionable_without_echoing_raw_exception(qapp):
     drain(qapp, c)
     assert "retry" in panel.status.text().lower()
     assert "SYNTHETIC_SECRET" not in panel.status.text()
+
+
+def test_context_invalidation_clears_completed_commentary(qapp):
+    current, cleared = [1], []
+    panel, request = OptionalAssistPanel("facts only"), QLineEdit("explain")
+    controller = OptionalAssistController(
+        panel,
+        request,
+        prepare=lambda _: (lambda: "answer", lambda _: None),
+        context=lambda: current[0],
+        configure=lambda: None,
+        enabled=lambda: True,
+        clear=lambda: cleared.append(True),
+    )
+    panel.consent.setChecked(True)
+    panel.ask_button.click()
+    drain(qapp, controller)
+    cleared.clear()
+    current[0] = 2
+    controller.invalidate_if_context_changed()
+    assert cleared == [True]
+    assert "changed" in panel.status.text().lower()
+
+
+def test_changed_recipient_requires_fresh_consent(qapp, monkeypatch):
+    c, panel, _, _, called, _, enabled = setup(qapp, lambda: "ok")
+    enabled[0] = True
+    panel.consent.setChecked(True)
+    monkeypatch.setenv("NAN_API_BASE", "https://other.example/v1/chat/completions")
+    panel.ask_button.click()
+    assert not called and not panel.consent.isChecked()
+    assert "other.example" in panel.disclosure.text()
