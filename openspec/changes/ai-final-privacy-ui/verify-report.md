@@ -20,3 +20,10 @@ fixtures prove Cancel and close preserve both sets, acceptance deletes only the
 named selection, and no selection does not prompt. A real offscreen modal plus
 Enter key confirms the default action preserves data. Focused Ruff/format and
 Pyright pass (explicit saved IDs narrow the repository's optional ID type).
+
+## R3 core controls
+25 tests pass across core AI/deletion, existing loudness and Prep translations.
+Both TS and compiled QM catalogs are tested; actual Spanish widgets confirm all
+six reported labels plus configuration and interpreted-request confirmation.
+Existing pyside6-lrelease compiled both catalogs without broad lupdate churn.
+Focused Ruff/format and Pyright pass. Privacy disclosure translation follows.

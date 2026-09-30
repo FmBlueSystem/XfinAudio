@@ -92,16 +92,17 @@ def test_delete_cancel_or_close_preserves_synthetic_saved_set(qapp, tmp_path, mo
 
     def confirm(dialog):
         prompts.append(dialog)
-        assert dialog.textFormat() == Qt.TextFormat.PlainText
-        assert selected.name in dialog.text()
-        assert "permanently" in dialog.text()
-        assert "cannot be undone" in dialog.text()
-        assert dialog.defaultButton() == dialog.button(QMessageBox.StandardButton.Cancel)
         return int(answer)
 
     monkeypatch.setattr(QMessageBox, "exec", confirm)
     screen.delete_button.click()
     assert len(prompts) == 1
+    dialog = prompts[0]
+    assert dialog.textFormat() == Qt.TextFormat.PlainText
+    assert selected.name in dialog.text()
+    assert "permanently" in dialog.text()
+    assert "cannot be undone" in dialog.text()
+    assert dialog.defaultButton() == dialog.button(QMessageBox.StandardButton.Cancel)
     assert repository.get_by_id(selected.id) == selected
     assert repository.get_by_id(other.id) == other
 
@@ -113,13 +114,13 @@ def test_delete_acceptance_removes_only_named_synthetic_set(qapp, tmp_path, monk
 
     def confirm(dialog):
         prompts.append(dialog)
-        assert selected.name in dialog.text()
-        assert dialog.button(QMessageBox.StandardButton.Discard).text() == "Delete"
         return int(QMessageBox.StandardButton.Discard)
 
     monkeypatch.setattr(QMessageBox, "exec", confirm)
     screen.delete_button.click()
     assert len(prompts) == 1
+    assert selected.name in prompts[0].text()
+    assert prompts[0].button(QMessageBox.StandardButton.Discard).text() == "Delete"
     assert repository.get_by_id(selected.id) is None
     assert repository.get_by_id(other.id) == other
 

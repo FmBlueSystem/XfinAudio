@@ -16,3 +16,9 @@ the existing signal now requires explicit named, permanent-deletion confirmation
 Cancel is default. Raw names are stored separately, so parentheses and markup
 cannot truncate the selected name; the dialog renders plain text. REFACTOR/VERIFY:
 actual modal Enter activation cancels; no coordinator/repository behavior changed.
+
+R3 RED: source/QM assertions and actual widgets fell back to English. GREEN:
+26 core strings are translated in actual QObject contexts. Runtime confirmation
+also exposed Qt's untranslated default Cancel; that button now uses this catalog.
+Tests assert outside Qt signal callbacks so swallowed slot exceptions cannot pass.
+The final privacy-disclosure catalog addition is a fourth small review slice.

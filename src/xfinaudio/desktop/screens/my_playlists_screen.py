@@ -174,6 +174,7 @@ class MyPlaylistsScreen(QWidget):
         )
         dialog.setTextFormat(Qt.TextFormat.PlainText)
         dialog.button(QMessageBox.StandardButton.Discard).setText(self.tr("Delete"))
+        dialog.button(QMessageBox.StandardButton.Cancel).setText(self.tr("Cancel"))
         dialog.setDefaultButton(QMessageBox.StandardButton.Cancel)
         if dialog.exec() == QMessageBox.StandardButton.Discard:
             self.delete_requested.emit(playlist_id)

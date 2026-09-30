@@ -439,6 +439,14 @@
         <source>Finishing Prep variants...</source>
         <translation>Finishing Prep variants...</translation>
     </message>
+    <message>
+        <source>Configure AI</source>
+        <translation>Configure AI</translation>
+    </message>
+    <message>
+        <source>Cancel AI request</source>
+        <translation>Cancel AI request</translation>
+    </message>
 </context>
 <context>
     <name>BuildViewModel</name>
@@ -1248,7 +1256,7 @@
     <message>
         <location filename="../src/xfinaudio/desktop/screens/my_playlists_screen.py" line="47"/>
         <source>Delete</source>
-        <translation type="unfinished"></translation>
+        <translation>Delete</translation>
     </message>
     <message>
         <location filename="../src/xfinaudio/desktop/screens/my_playlists_screen.py" line="67"/>
@@ -1264,6 +1272,18 @@
         <location filename="../src/xfinaudio/desktop/screens/my_playlists_screen.py" line="116"/>
         <source>Playlist name:</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Delete Playlist</source>
+        <translation>Delete Playlist</translation>
+    </message>
+    <message>
+        <source>Delete "{0}" permanently? This cannot be undone. Audio files will not be deleted.</source>
+        <translation>Delete "{0}" permanently? This cannot be undone. Audio files will not be deleted.</translation>
     </message>
 </context>
 <context>
@@ -1317,6 +1337,22 @@
         <location filename="../src/xfinaudio/desktop/screens/playlist_editor.py" line="94"/>
         <source>Remove</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Preview edit</source>
+        <translation>Preview edit</translation>
+    </message>
+    <message>
+        <source>Apply preview to draft</source>
+        <translation>Apply preview to draft</translation>
+    </message>
+    <message>
+        <source>Dismiss preview</source>
+        <translation>Dismiss preview</translation>
+    </message>
+    <message>
+        <source>Discard draft</source>
+        <translation>Discard draft</translation>
     </message>
 </context>
 <context>
@@ -1594,6 +1630,10 @@
     <message>
         <source>Warnings: {0}</source>
         <translation>Warnings: {0}</translation>
+    </message>
+    <message>
+        <source>Configure AI</source>
+        <translation>Configure AI</translation>
     </message>
 </context>
 <context>
@@ -2301,6 +2341,78 @@
     <message>
         <source>Prep generation failed; previous results kept: {0}</source>
         <translation>Prep generation failed; previous results kept: {0}</translation>
+    </message>
+</context>
+<context>
+    <name>OptionalAssistPanel</name>
+    <message>
+        <source>Allow this AI request</source>
+        <translation>Allow this AI request</translation>
+    </message>
+    <message>
+        <source>Ask AI</source>
+        <translation>Ask AI</translation>
+    </message>
+    <message>
+        <source>Cancel AI</source>
+        <translation>Cancel AI</translation>
+    </message>
+    <message>
+        <source>Configure AI</source>
+        <translation>Configure AI</translation>
+    </message>
+</context>
+<context>
+    <name>AiSettingsPanel</name>
+    <message>
+        <source>AI Settings</source>
+        <translation>AI Settings</translation>
+    </message>
+    <message>
+        <source>Enable AI for actions I request</source>
+        <translation>Enable AI for actions I request</translation>
+    </message>
+    <message>
+        <source>Test connection</source>
+        <translation>Test connection</translation>
+    </message>
+    <message>
+        <source>Cancel test</source>
+        <translation>Cancel test</translation>
+    </message>
+</context>
+<context>
+    <name>LibraryQueryPanel</name>
+    <message>
+        <source>Interpret locally</source>
+        <translation>Interpret locally</translation>
+    </message>
+    <message>
+        <source>Edit filters</source>
+        <translation>Edit filters</translation>
+    </message>
+    <message>
+        <source>Apply edited filters</source>
+        <translation>Apply edited filters</translation>
+    </message>
+    <message>
+        <source>Clear described filters</source>
+        <translation>Clear described filters</translation>
+    </message>
+</context>
+<context>
+    <name>CreateIntentPreview</name>
+    <message>
+        <source>Confirm and generate locally</source>
+        <translation>Confirm and generate locally</translation>
+    </message>
+    <message>
+        <source>Edit request</source>
+        <translation>Edit request</translation>
+    </message>
+    <message>
+        <source>Review the interpreted request before generating local variants</source>
+        <translation>Review the interpreted request before generating local variants</translation>
     </message>
 </context>
 </TS>

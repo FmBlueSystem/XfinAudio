@@ -439,6 +439,14 @@
         <source>Finishing Prep variants...</source>
         <translation>Finalizando variantes de Prep...</translation>
     </message>
+    <message>
+        <source>Configure AI</source>
+        <translation>Configurar IA</translation>
+    </message>
+    <message>
+        <source>Cancel AI request</source>
+        <translation>Cancelar solicitud de IA</translation>
+    </message>
 </context>
 <context>
     <name>BuildViewModel</name>
@@ -1248,7 +1256,7 @@
     <message>
         <location filename="../src/xfinaudio/desktop/screens/my_playlists_screen.py" line="47"/>
         <source>Delete</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar</translation>
     </message>
     <message>
         <location filename="../src/xfinaudio/desktop/screens/my_playlists_screen.py" line="67"/>
@@ -1264,6 +1272,18 @@
         <location filename="../src/xfinaudio/desktop/screens/my_playlists_screen.py" line="116"/>
         <source>Playlist name:</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancelar</translation>
+    </message>
+    <message>
+        <source>Delete Playlist</source>
+        <translation>Eliminar playlist</translation>
+    </message>
+    <message>
+        <source>Delete "{0}" permanently? This cannot be undone. Audio files will not be deleted.</source>
+        <translation>¿Eliminar "{0}" permanentemente? Esta acción no se puede deshacer. No se eliminarán archivos de audio.</translation>
     </message>
 </context>
 <context>
@@ -1317,6 +1337,22 @@
         <location filename="../src/xfinaudio/desktop/screens/playlist_editor.py" line="94"/>
         <source>Remove</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Preview edit</source>
+        <translation>Previsualizar edición</translation>
+    </message>
+    <message>
+        <source>Apply preview to draft</source>
+        <translation>Aplicar vista previa al borrador</translation>
+    </message>
+    <message>
+        <source>Dismiss preview</source>
+        <translation>Descartar vista previa</translation>
+    </message>
+    <message>
+        <source>Discard draft</source>
+        <translation>Descartar borrador</translation>
     </message>
 </context>
 <context>
@@ -1594,6 +1630,10 @@
     <message>
         <source>Warnings: {0}</source>
         <translation>Advertencias: {0}</translation>
+    </message>
+    <message>
+        <source>Configure AI</source>
+        <translation>Configurar IA</translation>
     </message>
 </context>
 <context>
@@ -2301,6 +2341,78 @@
     <message>
         <source>Prep generation failed; previous results kept: {0}</source>
         <translation>Falló la generación de Prep; se conservaron los resultados anteriores: {0}</translation>
+    </message>
+</context>
+<context>
+    <name>OptionalAssistPanel</name>
+    <message>
+        <source>Allow this AI request</source>
+        <translation>Permitir esta solicitud de IA</translation>
+    </message>
+    <message>
+        <source>Ask AI</source>
+        <translation>Consultar IA</translation>
+    </message>
+    <message>
+        <source>Cancel AI</source>
+        <translation>Cancelar IA</translation>
+    </message>
+    <message>
+        <source>Configure AI</source>
+        <translation>Configurar IA</translation>
+    </message>
+</context>
+<context>
+    <name>AiSettingsPanel</name>
+    <message>
+        <source>AI Settings</source>
+        <translation>Configuración de IA</translation>
+    </message>
+    <message>
+        <source>Enable AI for actions I request</source>
+        <translation>Activar IA para las acciones que solicite</translation>
+    </message>
+    <message>
+        <source>Test connection</source>
+        <translation>Probar conexión</translation>
+    </message>
+    <message>
+        <source>Cancel test</source>
+        <translation>Cancelar prueba</translation>
+    </message>
+</context>
+<context>
+    <name>LibraryQueryPanel</name>
+    <message>
+        <source>Interpret locally</source>
+        <translation>Interpretar localmente</translation>
+    </message>
+    <message>
+        <source>Edit filters</source>
+        <translation>Editar filtros</translation>
+    </message>
+    <message>
+        <source>Apply edited filters</source>
+        <translation>Aplicar filtros editados</translation>
+    </message>
+    <message>
+        <source>Clear described filters</source>
+        <translation>Borrar filtros descritos</translation>
+    </message>
+</context>
+<context>
+    <name>CreateIntentPreview</name>
+    <message>
+        <source>Confirm and generate locally</source>
+        <translation>Confirmar y generar localmente</translation>
+    </message>
+    <message>
+        <source>Edit request</source>
+        <translation>Editar solicitud</translation>
+    </message>
+    <message>
+        <source>Review the interpreted request before generating local variants</source>
+        <translation>Revise la solicitud interpretada antes de generar variantes locales</translation>
     </message>
 </context>
 </TS>
