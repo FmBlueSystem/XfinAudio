@@ -39,3 +39,8 @@ Slice 7b: RED empty/oversized provider replies and rich-text rendering; GREEN
 71 narrator/controller/Review tests. Replies are bounded to 150 words/2400 chars,
 empty output is retryable, and HTML remains literal PlainText. Success explicitly
 labels generated commentary for checking against authoritative local facts.
+
+Corrective slice: RED wrong-origin/arc-history Live ranking; GREEN 5 pure tests.
+Start track and arc sequence now remain bound even against direct invalid calls.
+Focused pyright with the explicit shared-venv python path is clean; a nullable
+QTableWidgetItem test assertion was made explicit for the widget overload.

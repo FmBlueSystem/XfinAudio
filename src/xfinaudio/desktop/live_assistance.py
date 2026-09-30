@@ -100,9 +100,13 @@ def rank_live_candidates(
         return []
     if not _controls_allow(recommendation, paths, locked_paths, excluded_paths):
         return []
+    if played_paths[0] != paths[0]:
+        return []
     remaining = [path for path in paths if path not in played_paths]
     ranked = []
     preserve_order = recommendation.strategy.name in {"warmup", "build", "peak_time", "chill"}
+    if preserve_order and list(played_paths) != paths[: len(played_paths)]:
+        return []
     for candidate in remaining[:1] if preserve_order else remaining:
         proposed = [*played_paths, candidate, *(path for path in remaining if path != candidate)]
         if not _controls_allow(recommendation, proposed, locked_paths, excluded_paths):

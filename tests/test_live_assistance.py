@@ -60,3 +60,11 @@ def test_live_never_offers_a_transition_or_remaining_order_needing_review() -> N
     unsafe = recommendation.model_copy(update={"ordered_tracks": tracks})
     assert not live_session_ready(unsafe, _readiness())
     assert rank_live_candidates(unsafe, ("/a",)) == []
+
+
+def test_live_arc_keeps_original_order_and_rejects_wrong_start() -> None:
+    recommendation = _set()
+    assert rank_live_candidates(recommendation, ("/b",)) == []
+    arc = recommendation.model_copy(update={"strategy": recommendation.strategy.model_copy(update={"name": "warmup"})})
+    assert [item.track.path for item in rank_live_candidates(arc, ("/a",))] == ["/b"]
+    assert rank_live_candidates(arc, ("/a", "/c")) == []

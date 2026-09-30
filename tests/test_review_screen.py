@@ -636,6 +636,7 @@ def test_review_selected_replacement_is_preview_only_and_clears_on_change(qapp: 
     state = _review_state(["/a", "/b"], scanned_records=[_track("/alternative")])
     screen.render(ReviewViewModel(), state)
     item = screen.recommendation_table.item(1, 0)
+    assert item is not None
     QTest.mouseClick(
         screen.recommendation_table.viewport(),
         Qt.MouseButton.LeftButton,
