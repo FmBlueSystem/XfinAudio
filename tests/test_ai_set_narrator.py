@@ -306,7 +306,7 @@ def test_narrate_set_sends_the_constraints_as_the_system_message(ai_env: None) -
     assert "Set facts" in user_message["content"]
 
 
-def test_narrate_set_falls_back_to_the_path_for_a_removed_track_warning(ai_env: None) -> None:
+def test_narrate_set_uses_anonymous_label_for_removed_track_warning(ai_env: None) -> None:
     """A warning can reference a track that is no longer in the set; it must still render."""
     recommendation = make_recommendation().model_copy(
         update={
@@ -327,5 +327,26 @@ def test_narrate_set_falls_back_to_the_path_for_a_removed_track_warning(ai_env: 
     narrate_set(recommendation, make_readiness(), transport=transport)
 
     prompt = message_text(transport)
-    assert "/Music/removed.wav -> Amanecer En Tokyo" in prompt
+    assert "(unavailable track) -> Amanecer En Tokyo" in prompt
+    assert "/Music/removed.wav" not in prompt
     assert "Track was removed from the playlist" in prompt
+
+
+def test_narration_includes_actual_scores_and_readiness_checks_without_paths(ai_env: None) -> None:
+    recommendation = make_recommendation()
+    first = recommendation.transition_scores[0].model_copy(
+        update={
+            "explanations": ["harmonic compatibility 0.90"],
+            "warnings": ["Missing: /Music/a.wav", "Unknown /private/elsewhere.wav"],
+        }
+    )
+    recommendation = recommendation.model_copy(update={"transition_scores": [first]})
+    readiness = make_readiness().model_copy(update={"summary": "Review /Music/a.wav"})
+    transport = FakeTransport()
+    narrate_set(recommendation, readiness, transport=transport)
+    prompt = message_text(transport)
+    assert "score 0.72" in prompt
+    assert "harmonic compatibility 0.90" in prompt
+    assert "Two tracks miss energy" in prompt
+    assert "/Music" not in prompt
+    assert "/private" not in prompt
