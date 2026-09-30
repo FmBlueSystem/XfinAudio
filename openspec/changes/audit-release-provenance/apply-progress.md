@@ -9,3 +9,9 @@ Blocked pending parent confirmation of preceding correctness-tranche gate.
 finished with 2748 passed / 5 failed; parent and algorithm owner retain those
 regressions and final integrated verification. This is permission to proceed,
 not a claim that the preceding gate was green.
+
+Helper RED: 27 failing fixture assertions because the required enforcement
+helper was absent (captured outside the repository). GREEN: all 27 helper tests
+pass after implementation, including dirty source, changed SHA/version/content,
+missing/malformed evidence, permission/link mutation, unsafe links/special files,
+and root-artifact output refusal. Refactored with Ruff; focused checks green.
