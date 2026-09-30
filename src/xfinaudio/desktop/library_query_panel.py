@@ -26,7 +26,12 @@ class LibraryQueryPanel(QWidget):
         self.interpret_button = QPushButton(self.tr("Interpret locally"))
         row.addWidget(self.request_input, 1)
         row.addWidget(self.interpret_button)
+        self.edit_button = QPushButton(self.tr("Edit filters"))
+        row.addWidget(self.edit_button)
         layout.addLayout(row)
+        self.editor = QWidget()
+        editor_layout = QVBoxLayout(self.editor)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
         grid = QGridLayout()
         self.fields: dict[str, QLineEdit] = {}
         for column, (name, label) in enumerate(
@@ -47,7 +52,7 @@ class LibraryQueryPanel(QWidget):
             grid.addWidget(QLabel(self.tr(label)), 0, column)
             grid.addWidget(field, 1, column)
             field.returnPressed.connect(self.apply_fields)
-        layout.addLayout(grid)
+        editor_layout.addLayout(grid)
         actions = QHBoxLayout()
         self.apply_button = QPushButton(self.tr("Apply edited filters"))
         self.clear_button = QPushButton(self.tr("Clear described filters"))
@@ -56,13 +61,24 @@ class LibraryQueryPanel(QWidget):
         actions.addWidget(self.apply_button)
         actions.addWidget(self.clear_button)
         actions.addWidget(self.status, 1)
-        layout.addLayout(actions)
+        editor_layout.addLayout(actions)
+        layout.addWidget(self.editor)
+        self.editor.hide()
+        self.edit_button.clicked.connect(self.editor.show)
+        for button, tip in (
+            (self.interpret_button, "Translate the sentence into local, editable metadata filters without AI"),
+            (self.edit_button, "Show the editable genre, BPM, key and energy filters"),
+            (self.apply_button, "Validate and apply the visible metadata filters"),
+            (self.clear_button, "Remove the described filters while keeping existing quick filters"),
+        ):
+            button.setToolTip(self.tr(tip))
         self.interpret_button.clicked.connect(self.interpret)
         self.request_input.returnPressed.connect(self.interpret)
         self.apply_button.clicked.connect(self.apply_fields)
         self.clear_button.clicked.connect(self.clear)
 
     def interpret(self) -> None:
+        self.editor.show()
         try:
             query = parse_library_query(self.request_input.text(), self._genres())
         except ValueError as error:
@@ -105,3 +121,4 @@ class LibraryQueryPanel(QWidget):
         self.request_input.clear()
         self._show_query(LibraryQuery())
         self._apply(LibraryQuery())
+        self.editor.hide()

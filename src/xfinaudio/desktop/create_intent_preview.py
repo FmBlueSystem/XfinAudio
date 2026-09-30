@@ -58,6 +58,8 @@ class CreateIntentPreview(QWidget):
         layout.addWidget(self.constraints)
         self.confirm_button = QPushButton(self.tr("Confirm and generate locally"))
         self.edit_button = QPushButton(self.tr("Edit request"))
+        self.confirm_button.setToolTip(self.tr("Approve these fields and generate with the deterministic local engine"))
+        self.edit_button.setToolTip(self.tr("Discard this interpretation and return to editing the request"))
         actions = QHBoxLayout()
         actions.addWidget(self.confirm_button)
         actions.addWidget(self.edit_button)

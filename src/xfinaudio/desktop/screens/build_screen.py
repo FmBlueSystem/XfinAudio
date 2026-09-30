@@ -129,6 +129,7 @@ class BuildScreen(QWidget):
         self.controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.controls_scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self.controls_scroll.setMinimumHeight(120)
+        self.controls_scroll.setMaximumHeight(280)
         self.controls_scroll.setWidget(controls)
         outer.addWidget(self.controls_scroll)
 
@@ -368,7 +369,9 @@ class BuildScreen(QWidget):
             self.lock_button: "Lock the selected tracks so they always appear",
             self.clear_constraints_button: "Remove all exclude and lock constraints",
             self.copilot_button: "Generate several Prep Copilot playlist variants",
-            self.copilot_ask_button: "Ask the AI copilot to turn your request into Prep Copilot variants",
+            self.copilot_ask_button: "Interpret your request for review before local generation",
+            self.copilot_cancel_button: "Cancel this interpretation or generation; retain previous results",
+            self.copilot_configure_button: "Open AI settings to configure or test the provider",
             self.apply_variant_button: "Apply the selected Prep Copilot variant",
             self.back_button: "Return to the Library screen",
             self.proceed_button: "Move on to review the recommended playlist",

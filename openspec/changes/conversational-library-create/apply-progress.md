@@ -61,3 +61,9 @@ changes retaining an obsolete preview. GREEN: 28 lifecycle/controller cases pass
 Confirmation now binds candidate hard constraints and edited genre, waits for other
 generation/scan, and snapshots request text. Per-request opt-in resets immediately.
 Focused type-check also identified two test seam annotations, now corrected.
+
+Slice 7c aggregate RED: existing accessibility/compact-layout tests found missing
+new-button tooltips, reduced variant-table space and 743px minimum window height.
+GREEN: new buttons have tooltips, Library's editable controls expand on request,
+and Create's control scroller reserves table space while scrolling the confirmation
+into view. 20 affected real-widget tests pass, including 1000×700 MainWindow.

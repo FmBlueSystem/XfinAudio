@@ -358,6 +358,7 @@ class AiCopilotController(QObject):
                     if path:
                         summary += f" · {label}: {labels.get(path, 'Unknown track')}"
                 self._build_screen.intent_preview.show_intent(chosen, summary)
+                self._build_screen.controls_scroll.ensureWidgetVisible(self._build_screen.intent_preview)
             self._set_status(self._tr("Review the interpretation, then confirm to generate locally."))
             return
         plan = cast(PrepCopilotPlan, payload)
