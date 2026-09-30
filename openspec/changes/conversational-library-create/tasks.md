@@ -7,4 +7,4 @@
 5. [x] RED/GREEN/REFACTOR/VERIFY staged asynchronous controller and constraints
 6. [x] RED/GREEN/REFACTOR/VERIFY least-data intent adapter
 7. [x] Focused regressions (361), full-tree lint/format/type checks
-8. [ ] Coordinator exact-integrated-HEAD release gate
+8. [x] Coordinator exact-integrated-HEAD release gate

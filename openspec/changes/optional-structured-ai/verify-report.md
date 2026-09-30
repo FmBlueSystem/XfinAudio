@@ -21,3 +21,20 @@
 
 ## Integration boundary
 Coordinator owns the full release gate on final integrated HEAD. The UI slice owns per-request consent, asynchronous execution, stale-context rejection and labels. Commentary remains a model interpretation even after structural/ID validation and must be displayed as optional AI commentary beside authoritative local facts. This service slice does not claim live-provider quality, macOS GUI validation or a completed integrated release gate.
+
+## Integrated verification — 2026-09-30
+
+The complete local release gate passed at `df4d610de2637be45ced9614a2344b9d852d42f5` (clean start/end).
+3,240 tests passed, 94.26% coverage; Pyright, Ruff lint/format, smoke, publication
+documentation/hygiene, source sdist/wheel build and inspection, PyInstaller
+check-only and root artifact hygiene passed. Coverage floor remains 89%.
+All provider tests used synthetic inputs/injected transports; no live credentials
+or provider calls were used. Native interactive macOS, real Serato import and
+listening quality remain unverified. The repository's historical manual-QA marker
+is not new evidence for this candidate.
+
+These closure edits only record evidence. Branch/draft-PR publication is now
+user-authorized, without merge, tag or deployment. Git Data may assign different
+commit identities while preserving every tree/message/parent ordering. The final
+published SHA receives independent tree comparison, full gate and CI verification;
+its receipt and distribution checksums are recorded in the delivery and draft PR.

@@ -7,4 +7,4 @@
 5. [x] RED/GREEN/REFACTOR grounded saved-set retrieval/comparison
 6. [x] RED/GREEN/REFACTOR saved-set query widgets
 7. [x] VERIFY focused tests, lint/types
-8. [ ] Parent integrated exact-commit full release gate
+8. [x] Parent integrated exact-commit full release gate

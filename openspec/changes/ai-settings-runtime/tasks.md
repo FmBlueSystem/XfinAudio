@@ -9,4 +9,4 @@
 7. [x] GREEN/REFACTOR: lifecycle implementation.
 8. [x] RED/GREEN: controller persist-before-apply and Configure AI route.
 9. [x] VERIFY: focused tests, type/lint/format checks and requirement evidence.
-10. [ ] Coordinator: integrated exact-commit release gate.
+10. [x] Coordinator: integrated exact-commit release gate.

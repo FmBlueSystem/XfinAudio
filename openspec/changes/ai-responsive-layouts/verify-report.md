@@ -35,3 +35,20 @@ and captures after adding the separately developed optional AI helper rows.
 A long global Export Preview status path can widen all later screens. This
 belongs to the MainWindow status owner and was reported separately; it is not
 caused by the screen layouts and is not changed in this scope.
+
+## Integrated verification — 2026-09-30
+
+The complete local release gate passed at `df4d610de2637be45ced9614a2344b9d852d42f5` (clean start/end).
+3,240 tests passed, 94.26% coverage; Pyright, Ruff lint/format, smoke, publication
+documentation/hygiene, source sdist/wheel build and inspection, PyInstaller
+check-only and root artifact hygiene passed. Coverage floor remains 89%.
+All provider tests used synthetic inputs/injected transports; no live credentials
+or provider calls were used. Native interactive macOS, real Serato import and
+listening quality remain unverified. The repository's historical manual-QA marker
+is not new evidence for this candidate.
+
+These closure edits only record evidence. Branch/draft-PR publication is now
+user-authorized, without merge, tag or deployment. Git Data may assign different
+commit identities while preserving every tree/message/parent ordering. The final
+published SHA receives independent tree comparison, full gate and CI verification;
+its receipt and distribution checksums are recorded in the delivery and draft PR.

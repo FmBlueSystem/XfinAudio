@@ -12,7 +12,7 @@ phases:
   tasks: complete
   apply: complete
   verify: complete
-next_recommended: parent-integration-gate
+next_recommended: native-validation-before-release
 blocked_reasons: []
 delivery:
   strategy: auto-chain

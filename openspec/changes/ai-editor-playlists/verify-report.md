@@ -24,3 +24,20 @@ Focused test command includes tests/test_playlist_edit_intents.py, tests/test_pl
 Parent owns shell layout/navigation, AppState editor identity, and host._show_playlist_editor(). Editor provides back_requested (coordinator returns to index 4), set_context(), clear_playlist(), and session-safe draft state. No AppState fields are mutated by this branch.
 
 Full release_gate_check.py --run on the exact integrated commit remains the parent coordinator's gate. This branch does not claim a completed release gate or native macOS validation.
+
+## Integrated verification — 2026-09-30
+
+The complete local release gate passed at `df4d610de2637be45ced9614a2344b9d852d42f5` (clean start/end).
+3,240 tests passed, 94.26% coverage; Pyright, Ruff lint/format, smoke, publication
+documentation/hygiene, source sdist/wheel build and inspection, PyInstaller
+check-only and root artifact hygiene passed. Coverage floor remains 89%.
+All provider tests used synthetic inputs/injected transports; no live credentials
+or provider calls were used. Native interactive macOS, real Serato import and
+listening quality remain unverified. The repository's historical manual-QA marker
+is not new evidence for this candidate.
+
+These closure edits only record evidence. Branch/draft-PR publication is now
+user-authorized, without merge, tag or deployment. Git Data may assign different
+commit identities while preserving every tree/message/parent ordering. The final
+published SHA receives independent tree comparison, full gate and CI verification;
+its receipt and distribution checksums are recorded in the delivery and draft PR.

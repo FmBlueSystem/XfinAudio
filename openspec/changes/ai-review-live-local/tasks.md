@@ -9,4 +9,4 @@
 7. [x] REFACTOR focused lint/type; update evidence; hand off for final full gate
 
 8. [x] Selected-track replacement preview, bounded commentary and real recovery interactions
-9. [ ] Integration coordinator: final full exact-tree release gate
+9. [x] Integration coordinator: final full exact-tree release gate
