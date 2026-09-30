@@ -1,0 +1,2 @@
+# Correct directional Camelot diagonals
+Primary source https://mixedinkey.com/book/use-advanced-harmonic-mixing-techniques/ explicitly permits B→A +1 and A→B −1, rejecting opposite cross-ring diagonals. Current code awards both0.9. Correct the generic rule, preserve explicitly configured creative boosts, accurately describe semitone vs whole-step lifts. No DSP or listening-quality claim. Rollback: revert isolated slice. Under400 changed lines.

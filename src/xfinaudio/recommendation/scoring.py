@@ -280,8 +280,9 @@ def score_transition(
         )
     )
     if is_energy_boost(left_key, right_key):
+        interval = "a semitone" if shift_camelot_key(left_key, 1) == right_key else "a whole step"
         explanations.append(
-            f"Energy boost {left_key} → {right_key}: a whole step up lifts the floor, "
+            f"Energy boost {left_key} → {right_key}: {interval} up lifts the floor, "
             "but cut rather than blend — overlapping these keys clashes"
         )
 
