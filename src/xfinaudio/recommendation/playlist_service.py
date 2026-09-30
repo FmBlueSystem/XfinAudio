@@ -1370,17 +1370,68 @@ def _bpm_reachable_from(
         [*measurable, anchor] if anchored and anchor is not None else measurable,
         key=lambda item: (item.bpm or 0.0, item.path),
     )
-    runs: list[list[TrackRecord]] = [[line[0]]]
-    for previous, current in zip(line, line[1:], strict=False):
-        if bpm_difference_percent(previous.bpm or 0.0, current.bpm or 0.0) > max_bpm_difference_percent:
-            runs.append([current])
-        else:
-            runs[-1].append(current)
+    # Folded edges can jump over unrelated sorted tempos (60 -> 120 over 90).
+    # Discover real components lazily, skipping positions already visited rather
+    # than constructing a quadratic adjacency graph for dense BPM libraries.
+    from bisect import bisect_left, bisect_right
+
+    from xfinaudio.recommendation.scoring import HALF_TIME_RATIO_TOLERANCE
+
+    bpms = [item.bpm or 0.0 for item in line]
+    successor = list(range(len(line) + 1))
+
+    def unseen(index: int) -> int:
+        while successor[index] != index:
+            successor[index] = successor[successor[index]]
+            index = successor[index]
+        return index
+
+    factor = 1.0 + max(0.0, max_bpm_difference_percent) / 100.0
+    fold_low = max(2.0 - 2.0 * HALF_TIME_RATIO_TOLERANCE, 2.0 / factor)
+    fold_high = min(2.0 + 2.0 * HALF_TIME_RATIO_TOLERANCE, 2.0 * factor)
+    components: list[list[TrackRecord]] = []
+    for root in range(len(line)):
+        if unseen(root) != root:
+            continue
+        successor[root] = unseen(root + 1)
+        component = [line[root]]
+        frontier = [root]
+        expanded_bpms: set[float] = set()
+        while frontier:
+            bpm = bpms[frontier.pop()]
+            if bpm in expanded_bpms or max_bpm_difference_percent < 0:
+                continue
+            expanded_bpms.add(bpm)
+            windows: list[tuple[float, float]] = []
+            if bpm > 0:
+                windows = [(bpm / factor, bpm * factor)]
+                if fold_low <= fold_high:
+                    windows.extend([(bpm / fold_high, bpm / fold_low), (bpm * fold_low, bpm * fold_high)])
+            if max_bpm_difference_percent >= 100:
+                windows.append((-math.inf, math.inf if bpm <= 0 else 0.0))
+            for low, high in windows:
+                # A conservative rounding margin cannot invent an edge: the
+                # shared comparator is authoritative, including at boundaries.
+                low -= abs(low) * 1e-12 if math.isfinite(low) else 0.0
+                high += abs(high) * 1e-12 if math.isfinite(high) else 0.0
+                stop = bisect_right(bpms, high)
+                index = unseen(bisect_left(bpms, low))
+                while index < stop:
+                    if bpm_difference_percent(bpm, bpms[index]) <= max_bpm_difference_percent:
+                        component.append(line[index])
+                        frontier.append(index)
+                        successor[index] = unseen(index + 1)
+                        index = unseen(index)
+                    else:
+                        # Duplicate BPMs have the same rejected edge. Leave them
+                        # unvisited for another component, but inspect it once.
+                        index = unseen(bisect_right(bpms, bpms[index]))
+        components.append(component)
     chosen: list[TrackRecord] | None = None
     if anchored:
-        chosen = next((run for run in runs if any(item.path == anchor_path for item in run)), None)
+        chosen = next((part for part in components if any(item.path == anchor_path for item in part)), None)
     if chosen is None:
-        chosen = max(runs, key=len)
+        chosen = max(components, key=len)
     reachable = {item.path for item in chosen}
     kept = [item for item in tracks if item.path in reachable or item in passthrough]
     return kept, len(tracks) - len(kept)
