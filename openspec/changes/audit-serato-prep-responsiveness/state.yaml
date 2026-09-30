@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: audit-serato-prep-responsiveness
 artifact_store: openspec
-status: apply
+status: verify
 created: 2026-09-30
 updated: 2026-09-30
 strict_tdd: true
@@ -10,17 +10,19 @@ phases:
   specs: complete
   design: complete
   tasks: complete
-  apply: in-progress
-  verify: pending
-next_recommended: apply
+  apply: complete
+  verify: in-progress
+next_recommended: integrated-release-gate
 blocked_reasons:
-  - I1 destination-semantics decision pending; G1/G2/H1 independently authorized.
-  - I1 needs destination-semantics decision before its specification is final.
+  - Final release gate belongs to the exact combined integration commit; isolated UX branch has older algorithm test expectations.
 delivery:
   strategy: auto-chain
   chained_prs_recommended: true
   chain_strategy: feature-branch-chain
   review_budget_changed_lines: 400
 notes:
-  - No production implementation in this planning commit.
-  - Reuse retained workers and asynchronous MainWindow shutdown.
+  - G1, G2, H1 and I1 implemented in individually reviewable local commits; no push.
+  - Direct Serato export authorized; hardened writer integrated separately as 1a7fab3.
+  - Cooperative cancellation drains current stage; no forced thread termination.
+  - English and Spanish source catalogs and compiled assets updated and tested.
+  - No native macOS or real Serato import validation claimed.
