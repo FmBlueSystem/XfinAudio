@@ -99,3 +99,24 @@ def test_settings_repository_round_trips_custom_loudness_analysis_policy(tmp_pat
     repository.save(settings)
 
     assert repository.load().loudness == settings.loudness
+
+
+@pytest.mark.parametrize("failure", ["fsync", "replace"])
+def test_atomic_save_preserves_previous_settings_on_failure(tmp_path: Path, monkeypatch, failure: str) -> None:
+    import os
+
+    path = tmp_path / "settings.json"
+    repository = SettingsRepository(path)
+    previous = AppSettings(loudness=LoudnessSettings(enabled=False))
+    repository.save(previous)
+    original_bytes = path.read_bytes()
+
+    def fail(*args, **kwargs):
+        raise OSError("synthetic disk failure")
+
+    monkeypatch.setattr(os, failure, fail)
+    with pytest.raises(SettingsRepositoryError, match="Unable to write"):
+        repository.save(AppSettings())
+    assert path.read_bytes() == original_bytes
+    assert repository.load() == previous
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["settings.json"]

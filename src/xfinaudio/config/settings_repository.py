@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -44,14 +46,28 @@ class SettingsRepository:
     def save(self, settings: AppSettings) -> None:
         """Save settings as deterministic, supportable JSON."""
         payload: dict[str, Any] = settings.model_dump(mode="json")
+        serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        temporary_path: Path | None = None
         try:
             self.settings_path.parent.mkdir(parents=True, exist_ok=True)
-            self.settings_path.write_text(
-                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            with tempfile.NamedTemporaryFile(
+                mode="w",
                 encoding="utf-8",
-            )
+                dir=self.settings_path.parent,
+                prefix=f".{self.settings_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                temporary.write(serialized)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, self.settings_path)
         except OSError as exc:
             raise SettingsRepositoryError(f"Unable to write settings file: {self.settings_path}") from exc
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
 
 __all__ = ["SettingsRepository", "SettingsRepositoryError"]
