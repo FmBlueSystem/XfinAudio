@@ -9,3 +9,8 @@
   THEN exclusions win, control exceptions survive, and surviving slots stay put.
 - GIVEN a legacy recommendation without context, WHEN its policy needs original
   context, THEN generated backfill fails closed with a warning; removal remains.
+
+- GIVEN an explicitly supplied replacement loudness band, WHEN backfilling, THEN
+  that band overrides the saved band for this edit without rebinding other anchors.
+  Desktop passes the current setting, preserving its existing behavior; direct
+  callers without an override continue to use the saved generation-time band.

@@ -18,3 +18,6 @@
   closed with a warning; removal and valid control exceptions remain available.
 - Full aggregate gate intentionally not run here. Integration owner runs it on
   the combined commit; focused success does not establish release readiness.
+
+## Integrated current-setting compatibility
+An explicit loudness override is tested with real measured profiles rather than a mocked private prefilter. The desktop honors its current target; direct API defaults preserve the saved target. Legacy objects accept an explicit band only where it resolves the missing loudness context, while other missing anchors remain closed. Three initial RED failures plus the non-default legacy-band RED were followed by 305 passing focused tests.

@@ -14,3 +14,8 @@
   full Pyright/Ruff lint/format and diff checks pass. Exact E5/E10 reproduction
   now returns paths a,c with energies 5,5 (no out-of-band replacement).
 - No music, Serato, dependency, push, merge or deployment writes.
+
+## Current desktop loudness override integration
+The combined gate exposed an existing desktop current-settings contract whose old test mocked the removed prefilter seam. Replaced that mock with measured old-target/new-target tracks, confirmed three RED failures, then added an explicit optional band override to the helper and forwarded the current desktop setting. Direct callers still default to the saved band, and other anchors never rebind. A strengthened legacy fixture used a non-default target plus a default-band distractor and reproduced one further RED before selecting the explicit effective band correctly. Existing snapshots remain unchanged.
+
+GREEN: 305 helper/controller/playlist regressions passed in 20.53 s; full Ruff lint/format and whitespace checks pass. The prior full Pyright run was clean; the final aggregate gate reruns it on the exact commit.

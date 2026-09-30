@@ -208,6 +208,7 @@ def recommendation_with_replacement(
     spectral_cohesion: float = 0.0,
     locked_paths: frozenset[str] = frozenset(),
     excluded_paths: frozenset[str] = frozenset(),
+    loudness_band: LoudnessBand | None = None,
 ) -> PlaylistRecommendation:
     """Replace a removed track with the best-fitting candidate at the same slot.
 
@@ -216,6 +217,7 @@ def recommendation_with_replacement(
     back to plain removal when no candidate is eligible. Eligibility retains the
     generation-time policy even after anchors disappear. Current locks/exclusions
     are additive; exclusions always win and never rebind the original anchors.
+    An explicit loudness band overrides only that setting for this edit.
     """
     paths = [item.path for item in recommendation.ordered_tracks]
     if removed_path not in paths:
@@ -226,23 +228,29 @@ def recommendation_with_replacement(
     excluded = controls.excluded_paths | excluded_paths
     preserved = (preserved_control_paths(controls) | locked_paths) - excluded
     policy = recommendation.replacement_policy
+    if policy is not None and loudness_band is not None:
+        policy = policy.model_copy(update={"loudness_band": loudness_band})
+        recommendation = recommendation.model_copy(update={"replacement_policy": policy})
     strategy = recommendation.strategy
     if policy is None and (
         strategy.energy_tolerance is not None
         or strategy.name in COLOR_FILTER_STRATEGIES
         or strategy.name == "same_genre"
-        or strategy.loudness_band
+        or (strategy.loudness_band and loudness_band is None)
         or controls.genre
     ):
         candidates = [candidate for candidate in candidates if candidate.path in preserved]
         warning = "Replacement policy context unavailable; only control exceptions may backfill"
         if warning not in recommendation.warnings:
             recommendation = recommendation.model_copy(update={"warnings": [*recommendation.warnings, warning]})
+    effective_band = loudness_band
+    if effective_band is None:
+        effective_band = policy.loudness_band if policy is not None else DEFAULT_LOUDNESS_BAND
     candidates, _ = _apply_strategy_filters(
         candidates,
         strategy,
         preserved,
-        policy.loudness_band if policy is not None else DEFAULT_LOUDNESS_BAND,
+        effective_band,
         sort_candidates=False,
     )
     if policy is not None:

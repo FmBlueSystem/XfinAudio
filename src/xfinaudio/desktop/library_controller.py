@@ -51,6 +51,7 @@ from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorke
 from xfinaudio.desktop.table_populators import populate_library_table
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.ports import TrackLoudnessProfileCachePort
+from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
     recommendation_with_replacement,
@@ -376,6 +377,7 @@ class LibraryController:
             spectral_cohesion=settings.scoring.spectral_cohesion,
             locked_paths=self._state.locked_paths,
             excluded_paths=self._state.excluded_paths | self._state.playlist_removed_paths,
+            loudness_band=LoudnessBand(settings.loudness.target_lufs, settings.loudness.tolerance_lu),
         )
 
     def on_track_play_requested(self, path: str) -> None:

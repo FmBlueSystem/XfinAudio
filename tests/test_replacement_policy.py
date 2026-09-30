@@ -175,3 +175,24 @@ def test_replacement_keeps_input_tie_order_after_filtering() -> None:
     first, second = _track("z", 6), _track("y", 4)
     result = recommendation_with_replacement(original, "b", [first, second])
     assert first in result.ordered_tracks
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_explicit_loudness_override_filters_backfill_without_rebinding_anchors(legacy: bool) -> None:
+    original = recommend_playlist(
+        [_loud("a", -18), _loud("b", -18)], "consistent_loudness", loudness_band=LoudnessBand(-18, 1)
+    )
+    if legacy:
+        original = original.model_copy(update={"replacement_policy": None})
+    result = recommendation_with_replacement(
+        original,
+        "b",
+        [_loud("old-band", -18), _loud("default-band", -10), _loud("new-band", -14)],
+        loudness_band=LoudnessBand(-14, 0.5),
+    )
+    assert [track.path for track in result.ordered_tracks] == ["a", "new-band"]
+    if not legacy:
+        assert original.replacement_policy is not None
+        assert original.replacement_policy.loudness_band == LoudnessBand(-18, 1)
+        assert result.replacement_policy is not None
+        assert result.replacement_policy.loudness_band == LoudnessBand(-14, 0.5)

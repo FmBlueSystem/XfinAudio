@@ -254,30 +254,40 @@ def test_library_selection_and_profile_completion_refresh_loudness_detail() -> N
     assert window._library_screen.loudness_detail_pane.isHidden() is True
 
 
-def test_replacement_backfill_uses_the_current_loudness_band(monkeypatch) -> None:
+def test_replacement_backfill_uses_the_current_loudness_band() -> None:
     _ensure_app()
     window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
     controller = window._library_controller
-    removed = TrackRecord(path="/removed.flac", metadata_status="complete")
-    replacement = TrackRecord(path="/replacement.flac", metadata_status="complete")
-    recommendation = recommend_playlist([removed], "consistent_loudness")
+
+    def measured(path: str, lufs: float) -> TrackRecord:
+        return TrackRecord(
+            path=path,
+            bpm=120,
+            camelot_key="8A",
+            energy_level=5,
+            metadata_status="complete",
+            loudness_profile=_loudness_profile().model_copy(update={"lufs_integrated": lufs}),
+        )
+
+    removed = measured("/removed.flac", -10)
+    old_target = measured("/old-target.flac", -10)
+    replacement = measured("/replacement.flac", -14)
+    original_band = LoudnessBand(-10, 2)
+    recommendation = recommend_playlist([removed], "consistent_loudness", loudness_band=original_band)
     controller._state = controller._state.model_copy(
-        update={"scanned_records": [removed, replacement], "last_recommendation": recommendation}
+        update={"scanned_records": [removed, old_target, replacement], "last_recommendation": recommendation}
     )
     settings = LoudnessSettings(target_lufs=-14, tolerance_lu=0.5)
     window.settings = window.settings.model_copy(update={"loudness": settings})
-    captured: dict[str, object] = {}
-
-    def prefilter(*_args: object, **kwargs: object) -> list[TrackRecord]:
-        captured.update(kwargs)
-        return [replacement]
-
-    monkeypatch.setattr("xfinaudio.desktop.library_controller.prefilter_strategy_candidates", prefilter)
 
     result = controller._replacement_recommendation(removed.path)
 
-    assert captured["loudness_band"] == LoudnessBand(-14.0, 0.5)
+    assert result is not None
     assert [item.path for item in result.ordered_tracks] == [replacement.path]
+    assert recommendation.replacement_policy is not None
+    assert recommendation.replacement_policy.loudness_band == original_band
+    assert result.replacement_policy is not None
+    assert result.replacement_policy.loudness_band == LoudnessBand(-14, 0.5)
 
 
 def _window_with_settings_repository() -> tuple[MainWindow, _FakeSettingsRepository]:
