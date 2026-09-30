@@ -12,4 +12,5 @@
   apply, save and back. Changed Python files pass lint and format checks.
 - Inspected actual Linux offscreen Review pixels at 1200x660 and 1000x700, idle
   and nonempty status. No clipping. Idle tables total 454/479px respectively.
-- Full release gate in progress; native macOS rerun remains coordinator-owned.
+- Full release gate passed: 3,246 tests / 94.28% coverage, every stage green.
+  Native macOS rerun remains coordinator-owned.
