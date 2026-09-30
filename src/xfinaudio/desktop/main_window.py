@@ -134,6 +134,9 @@ class MainWindow(QMainWindow):
         )
 
         self._connect_screens()
+        from xfinaudio.desktop.optional_ai_integration import install_optional_assist_controls
+
+        self._optional_ai_assists = install_optional_assist_controls(self)
         apply_visual_design(self)
         self._build_layout()
         self._initialize_app_controller()
@@ -165,6 +168,8 @@ class MainWindow(QMainWindow):
             self._prep_task.cancel()
             self._ai_copilot.cancel()
             self._ai_narrator.cancel()
+            for controller in self._optional_ai_assists.values():
+                controller.cancel()
             self._library_controller.shutdown()
             # Include superseded requests still finishing in their original owners.
             for thread in self.findChildren(QThread):
@@ -295,6 +300,8 @@ class MainWindow(QMainWindow):
                 excluded_paths=state.excluded_paths,
                 spectral_cohesion=state.settings.scoring.spectral_cohesion,
             )
+        for controller in getattr(self, "_optional_ai_assists", {}).values():
+            controller.invalidate_if_context_changed()
         self._app_controller.render_screens()
 
     def _on_tab_changed(self, index: int) -> None:

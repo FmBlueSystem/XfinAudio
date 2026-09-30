@@ -245,3 +245,29 @@ def test_long_status_path_does_not_force_window_wider(qapp, tmp_path):
         assert window.status_label.accessibleDescription() == window.status_label.text()
     finally:
         window.close()
+
+
+def test_live_ai_commentary_clears_on_same_library_set_switch(qapp, tmp_path):
+    from tests.test_ai_narrator_controller import _readiness
+    from tests.test_live_assistance import _set
+
+    window = MainWindow(scan_service=EmptyScanner(), repository=TrackRepository(tmp_path / "tracks.db"))
+    try:
+        recommendation = _set()
+        window._replace_app_state(
+            window._state.with_scanned_records(recommendation.ordered_tracks).model_copy(
+                update={"last_recommendation": recommendation, "last_dj_readiness_report": _readiness()}
+            )
+        )
+        window._sync_state()
+        controller = window._optional_ai_assists["live"]
+        controller._enabled = lambda: True
+        controller._snapshot = (controller.request.text().strip(), controller._context())
+        controller._shown = True
+        window._live_assistant_screen.ai_assist.commentary.setPlainText("OLD SET COMMENTARY")
+        window._replace_app_state(window._state.model_copy(update={"last_recommendation": recommendation.model_copy()}))
+        window._sync_state()
+        assert window._live_assistant_screen.ai_assist.commentary.toPlainText() == ""
+        assert not controller._shown
+    finally:
+        window.close()

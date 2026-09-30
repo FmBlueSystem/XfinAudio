@@ -52,3 +52,10 @@ Responsive capture found long export destinations could force later screens
 wider through the shared status line. RED reproduces the oversized window;
 GREEN (12 shell checks) bounds and wraps plain status text while retaining the
 complete destination in the tooltip and accessibility description.
+
+All five optional remote assistants are installed in the actual main window,
+with cancel on close and context invalidation during state rendering. Library
+AI suggestions remain unapplied until the existing Apply action. Editor uses
+existing musical preview/confirm/save boundaries. A new RED caught Live prose
+surviving a set switch within the same library; GREEN invalidates after the
+local session is refreshed so old commentary clears on that same sync.
