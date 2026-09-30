@@ -1097,7 +1097,7 @@ def _spectral_profile_close(anchor: SpectralProfile, candidate: SpectralProfile)
     if sum(anchor_rgb) <= 0.0 or sum(candidate_rgb) <= 0.0:
         return False
     l1 = sum(abs(a - b) for a, b in zip(anchor_rgb, candidate_rgb, strict=True))
-    if l1 > COLOR_RGB_L1_MAX:
+    if l1 > COLOR_RGB_L1_MAX and not math.isclose(l1, COLOR_RGB_L1_MAX, rel_tol=0.0, abs_tol=1e-12):
         return False
 
     centroid_delta = _relative_delta(candidate.centroid_hz, anchor.centroid_hz)

@@ -212,7 +212,22 @@ def _build_variant(
         played_seconds_per_track=(PREP_PLAYED_SECONDS_PER_TRACK if intent.target_minutes is not None else None),
         arc_strategy=intent.slot_role,
     )
+    before_cap_count = len(recommendation.ordered_tracks)
     recommendation = _limit_recommendation(recommendation, intent.target_track_count)
+    if intent.target_minutes is not None and len(recommendation.ordered_tracks) < before_cap_count:
+        played_seconds = sum(
+            min(track.duration or 0.0, PREP_PLAYED_SECONDS_PER_TRACK) for track in recommendation.ordered_tracks
+        )
+        if played_seconds < intent.target_minutes * 60:
+            recommendation = recommendation.model_copy(
+                update={
+                    "warnings": [
+                        *recommendation.warnings,
+                        "Duration shortfall: the hard track count cap prevents this variant "
+                        "from covering the booked slot",
+                    ],
+                }
+            )
     readiness = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
     readiness = _add_required_track_gate(readiness, recommendation, intent)
     blockers = [check.label for check in readiness.checks if check.status == "blocked"]
@@ -223,7 +238,11 @@ def _build_variant(
     pool_notes = [
         *([intent.pool_note_preamble] if intent.pool_note_preamble else []),
         f"Incoming pool: {incoming_count} track(s)",
-        _genre_filter_pool_note(name, intent, incoming_count, len(variant_tracks)),
+        (
+            f"Genre focus '{intent.genre_focus}': no match; full candidate pool retained"
+            if any(warning.startswith("No tracks match genre focus") for warning in variant_warnings)
+            else _genre_filter_pool_note(name, intent, incoming_count, len(variant_tracks))
+        ),
         *(warning for warning in recommendation.warnings if "Dropped" in warning and "BPM jump" in warning),
     ]
     warnings = [*variant_warnings, *recommendation.warnings]
