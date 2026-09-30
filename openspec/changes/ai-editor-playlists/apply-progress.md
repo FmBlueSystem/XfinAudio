@@ -7,3 +7,5 @@ Slice 2: RED missing application module; GREEN 12 focused edit-engine tests. Bou
 Slice 3: RED four widget tests failed on missing context controls; GREEN 8 editor tests. UI now has offline preview, explicit draft application, dismiss/discard, move controls, lock-aware removal, plain-text names, and dirty export protection.
 
 Slice 4: RED exposed hidden removal/reorder writes, missing editor navigation, and stale Save overwrite; GREEN 20 targeted screen/coordinator/shell tests with synthetic HOME. Reorder undo is session-bound and draft-only. Full-save repository snapshot and current constraints are validated. Initial wider test invocation encountered read-only default HOME; rerun used isolated temporary HOME.
+
+Slice 5: RED missing saved-set assistant module; GREEN 4 evidence-based retrieval/comparison tests. Local name/metadata matching, numeric bounds, metadata coverage and shared tracks; no network or writes.
