@@ -94,3 +94,13 @@ def interpret_editor_request(
         return EditorInterpretation.model_validate(data)
     except ValidationError:
         raise ValueError(_ERROR) from None
+
+
+# Stable UI entrypoint; implementation modules keep each review slice bounded.
+from xfinaudio.ai.saved_assists import (  # noqa: E402, F401
+    SavedInterpretation,
+    SavedSetDescriptor,
+    anonymize_saved_request,
+    build_saved_descriptors,
+    interpret_saved_request,
+)

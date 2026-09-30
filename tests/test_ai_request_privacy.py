@@ -38,6 +38,7 @@ def test_intent_redacts_paths_in_request_genres_and_opt_in_titles(monkeypatch, t
     extract_intent(f"four house tracks like {path}", [track], include_track_titles=True, transport=transport)
     prompt = message_text(transport)
     assert path not in prompt
+    assert isinstance(transport.request.data, bytes)
     assert path not in json.loads(transport.request.data)["messages"][1]["content"]
     assert "Private Music" not in prompt
     assert "four house tracks like" in prompt

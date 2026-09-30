@@ -27,6 +27,7 @@ def test_library_calls_configured_chat_with_only_request_and_sanitized_genres():
     assert not query.matches(TrackRecord(path="unknown", genre="House"))
     assert query.matches(TrackRecord(path="known", genre="House", energy_level=3))
     assert "/Users/private" not in message_text(transport)
+    assert isinstance(transport.request.data, bytes)
     body = json.loads(transport.request.data)
     assert body["model"]
     assert transport.timeouts == [30.0]
