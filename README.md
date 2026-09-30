@@ -1361,3 +1361,9 @@ Todas las demás marcas comerciales, nombres comerciales y logotipos mencionados
 El código fuente se distribuye bajo GPL-3.0-only. La redistribución debe cumplir GPLv3 y obligaciones de dependencias de terceros.
 
 No legal advice or legal clearance is implied by this repository documentation. La redistribución binaria/app bundle requiere revisión legal para PySide6/Qt, mutagen y otras dependencias. Ver `NOTICE.md`, `docs/open-source-license.md` y `docs/third-party-license-inventory.md`.
+
+## Optional AI workflows
+
+See [AI workflow boundaries and examples](docs/ai-workflows.md) and [secure AI Settings](docs/ai-settings.md). Remote interpretation is optional and consent-gated; deterministic local tools and Serato export remain available offline.
+
+Consulta los [flujos IA y ejemplos en español](docs/ai-workflows.md#ejemplos-para-revisar): la IA interpreta o explica, y el motor local conserva la selección, validación y escritura explícita.
