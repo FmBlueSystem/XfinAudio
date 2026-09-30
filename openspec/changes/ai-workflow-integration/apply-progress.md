@@ -39,3 +39,11 @@ of saved sets once the window event loop settled. Stronger RED processes show
  events before pressing Return. GREEN (11 shell checks) scopes Return to the
 Library table and Delete to the Review table, preserving text fields and native
 saved-list activation. Existing shortcut names/key sequences remain unchanged.
+
+2026-09-30 expanded interpretation completion: the existing local query/edit/set
+helpers are retained as fallbacks. Dedicated optional NaN structured-intent and
+asynchronous UI slices now complete the original AI proposal on those screens;
+Metadata/Live add optional evidence-only commentary. No provider is contacted by
+development tests. Interim full suite: 3,084 pass, 94.12% coverage, four failures
+limited to confirmed compact-layout and missing-button-tooltip regressions, being
+repaired before final acceptance.

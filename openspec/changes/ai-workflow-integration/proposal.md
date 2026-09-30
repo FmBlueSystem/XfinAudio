@@ -26,3 +26,15 @@ Rollback is a local revert of the relevant chained commits.
 Success: all screen workflows are reachable, cancellable and honest about data,
 local functionality works offline, no metadata is fabricated, and the exact
 packaged SHA passes the project's configured gate.
+
+## Approved AI interpretation completion
+
+The reviewed AI opportunities require actual optional provider interpretation,
+not a relabeling of bounded local heuristics. Additional chained slices add:
+
+10. Strict, privacy-minimized remote Library/Editor/saved-set intents; local
+    fallbacks remain honestly labeled and engine validation remains authoritative
+11. Optional grounded Metadata/Live commentary from already-computed evidence,
+    with explicit consent, cancellation and no effect on tags or ranking
+12. Shared async UI, context/request guards, payload adversarial tests and renewed
+    independent acceptance. No live API validation or credential setup is added.

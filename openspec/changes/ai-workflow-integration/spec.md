@@ -12,3 +12,14 @@
   THEN late results cannot attach to the new recommendation
 - GIVEN the complete integrated code WHEN release gates run THEN lint, formatting,
   types, coverage, build hygiene and packaging evidence correspond to that exact SHA
+
+- GIVEN explicit optional AI action and configured consent WHEN a Library request
+  returns THEN only validated editable filters may change, never track metadata
+- GIVEN an Editor AI interpretation WHEN it returns THEN only a bounded local
+  operation is previewed; Apply and Save remain separate explicit user actions
+- GIVEN a saved-set AI query WHEN it returns THEN only IDs in the captured
+  ephemeral whitelist may be used and all displayed comparisons are computed locally
+- GIVEN Metadata or Live AI commentary WHEN context changes/cancels THEN stale
+  commentary is rejected; neither tags nor candidate rankings can be changed
+- GIVEN no consent, disabled AI or provider failure THEN local tools remain usable
+  and remote recovery links directly to configuration with no silent retry
