@@ -44,3 +44,8 @@ Corrective slice: RED wrong-origin/arc-history Live ranking; GREEN 5 pure tests.
 Start track and arc sequence now remain bound even against direct invalid calls.
 Focused pyright with the explicit shared-venv python path is clean; a nullable
 QTableWidgetItem test assertion was made explicit for the widget overload.
+
+Final focused verification: 143 tests pass, pyright 0 errors/warnings, Ruff lint
+and format pass on all 13 touched Python files. Additional real controller/widget
+interactions cover disabled-service Configure AI, injected retry, Cancel and set
+switch. Integration/full release gate is explicitly left to the coordinator.
