@@ -20,14 +20,12 @@ from pathlib import Path, PurePosixPath
 class FfmpegSourceManifest:
     archive_url: str
     archive_sha256: str
-    signature_url: str
     source_directory: str
 
 
 FFMPEG_SOURCE = FfmpegSourceManifest(
     archive_url="https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz",
     archive_sha256="733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1",
-    signature_url="https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz.asc",
     source_directory="ffmpeg-7.1.1",
 )
 ARCHITECTURES = ("arm64", "x86_64")
@@ -160,9 +158,8 @@ def build_universal_ffmpeg(
     sources = work_directory / "sources"
     sources.mkdir(parents=True, exist_ok=True)
     archive_path = sources / Path(manifest.archive_url).name
-    signature_path = sources / Path(manifest.signature_url).name
+    # Integrity is pinned by the reviewed checksum; no PGP verification is claimed.
     download(manifest.archive_url, archive_path)
-    download(manifest.signature_url, signature_path)
     if _sha256(archive_path) != manifest.archive_sha256:
         raise BuildError("FFmpeg source checksum did not match the pinned manifest")
 

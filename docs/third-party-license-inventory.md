@@ -31,6 +31,10 @@ It is evidence for release readiness review, not legal clearance.
 | Target | macOS universal2 (`arm64`, `x86_64`), macOS 11.0 minimum. |
 | Bundled location | Bundle root `ffmpeg`, resolved by the frozen runtime as `_MEIPASS/ffmpeg`. |
 
+The source builder downloads only this archive and checks its pinned SHA-256 before
+extraction or compiler execution. It does not download or verify a detached PGP
+signature. This is checksum-based integrity, not an independently verified signer identity.
+
 ### Exact build surface
 
 Disabled: `--disable-everything`, `--disable-gpl`, `--disable-nonfree`, `--disable-network`, `--disable-doc`,

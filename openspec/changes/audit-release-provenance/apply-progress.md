@@ -24,3 +24,9 @@ GREEN: 69 provenance/shell/packaging tests passed with the shared virtualenv on
 PATH and offscreen Qt. Tests include gate failure, dirty/changed source, failed
 build/smoke, tampered/stale reuse, and optional signing/notary failure propagation.
 No native macOS tools were run: the shell fixture uses synthetic executables.
+
+Supply-chain RED: three failures demonstrate mutable workflow tags and an extra
+unused signature download. GREEN: 40 action-pin, FFmpeg, and workflow tests pass
+with all eight workflow action references on the reviewed official SHAs and only
+the checksum-verified FFmpeg archive downloaded. The checksum mismatch rejection
+and safe extraction tests remain green; no compiler/network download ran.
