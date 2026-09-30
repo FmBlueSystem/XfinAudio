@@ -80,8 +80,14 @@ class OptionalAssistController(QObject):
         panel.consent.toggled.connect(self._invalidate)
 
     def _invalidate(self, *_args: object) -> None:
-        if self.busy or self._shown:
+        if self.busy:
             self.cancel()
+        elif self._shown:
+            self._token += 1
+            self._apply = None
+            self._shown = False
+            self._clear()
+            self.panel.status.setText(self.tr("Continue locally or ask AI again for the current view."))
 
     def _set_busy(self, busy: bool) -> None:
         self.busy = busy

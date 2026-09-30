@@ -113,3 +113,51 @@ def test_editor_context_change_clears_ai_preview_but_local_preview_survives(qapp
     editor.preview_requested.connect(window._playlist_coordinator.preview_edit)
     editor.preview_button.click()
     assert editor._preview == ("a", "b")
+    assert "canceled" not in controller.panel.status.text().lower()
+
+
+def test_library_apply_and_edit_completed_ai_result_has_neutral_status(qapp, tmp_path, monkeypatch):
+    from PySide6.QtTest import QTest
+
+    window = host(qapp, tmp_path, monkeypatch)
+    services = SimpleNamespace(interpret_library_query=lambda *_: LibraryQuery(genre="House", bpm_min=120))
+    controller = install_library_editor_controls(window, services=services)["library"]
+    query = window._library_screen.query_panel
+    query.request_input.setText("House from 120 BPM")
+    controller.panel.consent.setChecked(True)
+    for edit in (False, True):
+        controller.panel.ask_button.click()
+        drain(qapp, controller)
+        if edit:
+            QTest.keyClicks(query.fields["genre"], " music")
+        else:
+            query.apply_button.click()
+            assert query.query.genre == "House"
+        assert "canceled" not in controller.panel.status.text().lower()
+        assert "already-sent" not in controller.panel.status.text().lower()
+        assert not controller._shown
+
+
+def test_editor_completed_ai_result_consumed_or_dismissed_has_neutral_status(qapp, tmp_path, monkeypatch):
+    window = host(qapp, tmp_path, monkeypatch)
+    saved = window._playlist_repository.create("Set", ["a", "b", "c"])
+    editor = window._playlist_editor
+    editor.set_playlist(saved)
+    editor.confirm_requested.connect(editor.confirm_preview)
+    services = SimpleNamespace(
+        interpret_editor_request=lambda *_: EditorInterpretation(operation="shorten_tracks", target=2)
+    )
+    controller = install_library_editor_controls(window, services=services)["editor"]
+    controller.request.setText("shorten to 2 tracks")
+    controller.panel.consent.setChecked(True)
+    controller.panel.ask_button.click()
+    drain(qapp, controller)
+    editor.cancel_preview_button.click()
+    assert editor._preview is None
+    assert "canceled" not in controller.panel.status.text().lower()
+    controller.panel.ask_button.click()
+    drain(qapp, controller)
+    editor.confirm_button.click()
+    assert editor._track_paths == ["a", "b"]
+    assert "canceled" not in controller.panel.status.text().lower()
+    assert window._playlist_repository.get_by_id(saved.id) == saved

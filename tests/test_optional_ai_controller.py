@@ -84,6 +84,8 @@ def test_cancel_retry_retains_old_worker_and_rejects_old_delivery(qapp):
     panel.ask_button.click()
     assert len(calls) == 1
     panel.cancel_button.click()
+    assert "AI canceled" in panel.status.text()
+    assert "Already-sent data cannot be recalled" in panel.status.text()
     panel.ask_button.click()
     wait(qapp, lambda: bool(results))
     assert results[0][0] == "new"
