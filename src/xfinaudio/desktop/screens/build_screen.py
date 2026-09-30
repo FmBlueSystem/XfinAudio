@@ -363,21 +363,39 @@ class BuildScreen(QWidget):
         self._setup_tab_order()
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        if watched is self.controls_scroll.widget() and event.type() == QEvent.Type.LayoutRequest:
-            # Wait until Qt has laid out a newly shown interpretation or status.
-            # Calling ensureWidgetVisible synchronously uses stale geometry.
-            QTimer.singleShot(0, self._reveal_ai_response)
-        return super().eventFilter(watched, event)
+        # Qt can deliver layout/destruction events before construction finishes
+        # or after a child C++ object has been deleted.
+        scroll = getattr(self, "controls_scroll", None)
+        if scroll is None:
+            return False
+        try:
+            if event.type() == QEvent.Type.LayoutRequest and watched is scroll.widget():
+                # Bind the callback to this QObject's lifetime as well as
+                # guarding the child widgets used by the deferred callback.
+                QTimer.singleShot(0, self, self._reveal_ai_response)
+            return super().eventFilter(watched, event)
+        except RuntimeError:
+            return False
 
     def _reveal_ai_response(self) -> None:
-        presentation = (self.copilot_ask_status.text(), not self.intent_preview.isHidden())
-        if presentation == self._last_ai_presentation:
+        scroll = getattr(self, "controls_scroll", None)
+        status = getattr(self, "copilot_ask_status", None)
+        preview = getattr(self, "intent_preview", None)
+        configure = getattr(self, "copilot_configure_button", None)
+        if any(widget is None for widget in (scroll, status, preview, configure)):
             return
-        self._last_ai_presentation = presentation
-        if presentation[1]:
-            self.controls_scroll.ensureWidgetVisible(self.intent_preview.confirm_button)
-        elif presentation[0]:
-            self.controls_scroll.ensureWidgetVisible(self.copilot_configure_button)
+        try:
+            presentation = (status.text(), not preview.isHidden())
+            if presentation == getattr(self, "_last_ai_presentation", None):
+                return
+            if presentation[1]:
+                scroll.ensureWidgetVisible(preview.confirm_button)
+            elif presentation[0]:
+                scroll.ensureWidgetVisible(configure)
+            self._last_ai_presentation = presentation
+        except RuntimeError:
+            # A queued reveal may outlive any of the child C++ widgets.
+            return
 
     def _setup_button_tooltips(self) -> None:
         """Explain every button so users understand each control (R1)."""
