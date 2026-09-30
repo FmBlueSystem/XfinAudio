@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from xfinaudio.ai.nan_client import ENABLED_ENV, NanConfigError, chat, is_ai_enabled
+from xfinaudio.ai.privacy import redact_paths
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.prep_copilot import DJSetIntent
 from xfinaudio.recommendation.strategies import available_strategies
@@ -73,7 +74,10 @@ def extract_intent(
     strategy_names = [str(name) for name in available_strategies()]
     genres = _genre_vocabulary(tracks, genre_vocabulary)
     raw = chat(
-        _build_user_message(user_request, tracks if include_track_titles else [], genres),
+        redact_paths(
+            _build_user_message(user_request, tracks if include_track_titles else [], genres),
+            (track.path for track in tracks),
+        ),
         system=_build_system_prompt(strategy_names),
         model=model,
         timeout=timeout,

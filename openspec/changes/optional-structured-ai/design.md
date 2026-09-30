@@ -1,0 +1,4 @@
+# Design
+A reusable ai/privacy.py redacts known paths before generic path patterns. intent_copilot applies it to requests and outgoing metadata, keeping path resolution local. ai/structured_assists.py owns Library and Editor entrypoints and strict JSON parsing; ai/saved_assists.py owns ephemeral aggregate descriptors and saved-set selection and is re-exported from structured_assists. Existing nan_client.chat owns enablement, credentials, HTTPS and request errors. Strict Pydantic models reject coercion and extra fields. Response size is bounded before decoding. LibraryQuery remains the local matcher, propose_edit the editor engine, compare_saved_sets the comparison renderer.
+
+Saved descriptors contain s0/s1 IDs, count, genres, known-count coverage and actual finite numeric summaries. No playlist name, title, artist, tag, path or persisted key is shared. A local request helper replaces playlist-name mentions with temporary IDs before redaction.
