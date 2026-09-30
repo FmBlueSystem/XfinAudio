@@ -4,8 +4,10 @@ Implement the reviewed Library, Create, Review, saved-playlist Editor, My Playli
 Metadata, Live Assistant and Settings improvements while preserving the audited
 local recommendation/export engine. The user approved this scope on 2026-09-30.
 
-Out of scope: provider credentials, live API use during development, GitHub
-publication, macOS packaging, audio analysis expansion or live Serato DB writes.
+Out of scope: provider credential setup, live API use during development,
+macOS packaging, tags/releases, merge/deployment, audio analysis expansion or live
+Serato DB writes. Subsequent user authorization permits publishing a branch and
+a draft GitHub PR after validation; it does not authorize merging or a release.
 
 ## Chained review plan (each implementation slice <=400 changed lines)
 
@@ -38,3 +40,25 @@ not a relabeling of bounded local heuristics. Additional chained slices add:
     with explicit consent, cancellation and no effect on tags or ranking
 12. Shared async UI, context/request guards, payload adversarial tests and renewed
     independent acceptance. No live API validation or credential setup is added.
+
+## Publication review chain
+
+The final integration PR intentionally includes the earlier audited repairs plus
+this AI workflow chain. It is not represented as a small PR. Individual local
+commits are review slices, backed by the capability proposals and RED/GREEN
+records; new AI slices remain within 400 changed lines. Review in order:
+
+1. Audited security, immutable state, algorithms, Serato integrity and build gates
+2. AI Settings and secure opt-in runtime boundary
+3. Local Library/Create/Editor/saved-set workflows and shell reachability
+4. Grounded Review/Live/Metadata evidence and request-context isolation
+5. Optional structured remote interpreters and explicit-consent UI
+6. Independent acceptance fixes, compact layouts, safe deletion, localization
+7. Final verification evidence and candidate version alignment
+
+An authenticated Git transport is unavailable in this execution environment. The
+user's authorized GitHub connector may reconstruct the same ordered trees and
+messages with new commit identities. Every tree must match exactly; the final
+remote SHA is fetched independently and receives its own full gate and CI review.
+Original local and remote SHA identities are reported separately. No remote
+branch may be overwritten, and current main must be checked before publication.
