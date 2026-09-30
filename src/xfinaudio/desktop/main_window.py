@@ -520,6 +520,7 @@ class MainWindow(QMainWindow):
         ):
             screen.connect_signals(self)
         self._review_screen.ai_narrate_cancel_requested.connect(self._ai_narrator.cancel)
+        self._review_screen.configure_ai_requested.connect(self._settings_controller.open_ai_settings_dialog)
         self._playlist_coordinator.connect_signals()
         self._playlist_coordinator.refresh_list()
         for table in (

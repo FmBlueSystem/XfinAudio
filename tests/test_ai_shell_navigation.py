@@ -112,3 +112,37 @@ def test_shell_sync_invalidates_inflight_narrator_when_set_changes(qapp, tmp_pat
         assert "Set changed" in window._review_screen.ai_narrate_status.text()
     finally:
         window.close()
+
+
+def test_review_configure_ai_opens_real_settings_without_enabling(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QTimer
+
+    from tests.test_ai_narrator_controller import _readiness
+    from tests.test_live_assistance import _set
+
+    monkeypatch.setenv("XFINAUDIO_AI_ENABLED", "0")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    window = MainWindow(scan_service=EmptyScanner(), repository=TrackRepository(tmp_path / "tracks.db"))
+    seen = []
+    try:
+        window._replace_app_state(
+            window._state.model_copy(update={"last_recommendation": _set(), "last_dj_readiness_report": _readiness()})
+        )
+        window._sync_state()
+        window.workflow_sidebar.setCurrentRow(2)
+
+        def inspect_dialog():
+            dialog = window._settings_dialog
+            seen.append(dialog is not None)
+            if dialog is not None:
+                assert not dialog._ai_panel.enabled_checkbox.isChecked()
+                assert "never audio" in dialog._ai_panel.privacy_label.text()
+                dialog.reject()
+
+        QTimer.singleShot(0, inspect_dialog)
+        window._review_screen.configure_ai_button.click()
+        qapp.processEvents()
+        assert seen == [True]
+        assert not window.settings.ai.enabled
+    finally:
+        window.close()
