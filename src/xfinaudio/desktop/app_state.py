@@ -40,6 +40,7 @@ class AppState:
 
     # Prep Copilot
     is_preparing_copilot: bool = False
+    prep_progress: str | None = None
     prep_progress_count: int = 0
     prep_progress_total: int = 0
     last_prep_copilot_plan: PrepCopilotPlan | None = None

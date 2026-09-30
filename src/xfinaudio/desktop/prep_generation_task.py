@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import CancelledError
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
@@ -14,6 +15,7 @@ from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
 class PrepGenerationTask(QObject):
     completed = Signal(object, int)
     failed = Signal(object, int)
+    progress = Signal(str, int)
 
     def __init__(
         self,
@@ -36,17 +38,30 @@ class PrepGenerationTask(QObject):
         self._thread: QThread | None = None
         self.completed.connect(self._on_completed)
         self.failed.connect(self._on_failed)
+        self.progress.connect(self._on_progress)
 
-    def start(self, operation: Callable[[], PrepCopilotPlan]) -> None:
+    def start(self, operation: Callable[[Callable[[str], None]], PrepCopilotPlan]) -> None:
         if self._get().is_preparing_copilot:
             return
         self._request_id += 1
         request_id = self._request_id
-        self._set(self._get().model_copy(update={"is_preparing_copilot": True}))
+        self._set(self._get().model_copy(update={"is_preparing_copilot": True, "prep_progress": "candidates"}))
         self._changed()
         self._status(self.tr("Generating Prep Copilot variants..."))
         thread = QThread(self)
-        worker = BackgroundWorker(operation, request_id=request_id)
+
+        def checkpoint(stage: str) -> None:
+            if thread.isInterruptionRequested():
+                raise CancelledError()
+            self.progress.emit(stage, request_id)
+
+        def run() -> PrepCopilotPlan | None:
+            try:
+                return operation(checkpoint)
+            except CancelledError:
+                return None
+
+        worker = BackgroundWorker(run, request_id=request_id)
         self._registry.retain(thread, worker)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -69,8 +84,14 @@ class PrepGenerationTask(QObject):
             self._status(self.tr("Prep generation cancelled; previous results kept"))
 
     def _finish(self) -> None:
-        self._set(self._get().model_copy(update={"is_preparing_copilot": False}))
+        self._set(self._get().model_copy(update={"is_preparing_copilot": False, "prep_progress": None}))
         self._changed()
+
+    @Slot(str, int)
+    def _on_progress(self, stage: str, request_id: int) -> None:
+        if request_id == self._request_id and self._get().is_preparing_copilot:
+            self._set(self._get().model_copy(update={"prep_progress": stage}))
+            self._changed()
 
     @Slot(object, int)
     def _on_completed(self, result: object, request_id: int) -> None:

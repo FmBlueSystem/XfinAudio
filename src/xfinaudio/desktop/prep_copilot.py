@@ -48,6 +48,7 @@ class PlanGenerationBuilder(Protocol):
         *,
         color_anchor_path: str | None = None,
         loudness_band: LoudnessBand,
+        checkpoint: Callable[[str], None] | None = None,
     ) -> PrepCopilotPlan: ...
 
 
@@ -99,7 +100,7 @@ class PrepCopilotController:
         self._variant_application_builder = variant_application_builder
         self._plan_generation_builder = plan_generation_builder
         self._candidate_routes_factory = candidate_routes_factory
-        self.submit_plan: Callable[[Callable[[], PrepCopilotPlan]], None] | None = None
+        self.submit_plan: Callable[[Callable[[Callable[[str], None]], PrepCopilotPlan]], None] | None = None
 
     def _replace_state(self, updated_state: Any) -> None:
         if hasattr(self._state, "_replace_app_state"):
@@ -108,6 +109,8 @@ class PrepCopilotController:
             self._state._state = updated_state
 
     def generate(self) -> None:
+        if getattr(self._state._state, "is_preparing_copilot", False) or getattr(self._state, "_closing", False):
+            return
         controls = self._state._selected_track_controls()
         if controls is None:
             self._replace_state(apply_prep_copilot_plan_cleared(self._state._state))
@@ -145,7 +148,9 @@ class PrepCopilotController:
         )
         builder = self._plan_generation_builder
 
-        def operation() -> PrepCopilotPlan:
+        def operation(checkpoint: Callable[[str], None] | None = None) -> PrepCopilotPlan:
+            if checkpoint is not None:
+                checkpoint("candidates")
             records, color_anchor_path = resolve_candidate_route(
                 controls,
                 strategy_name,
@@ -158,6 +163,15 @@ class PrepCopilotController:
                 if genre and complete_count and len(records) < complete_count
                 else None
             )
+            if checkpoint is not None:
+                checkpoint("safe")
+                return builder(
+                    records,
+                    replace(request, pool_note_preamble=preamble),
+                    color_anchor_path=color_anchor_path,
+                    loudness_band=loudness_band,
+                    checkpoint=checkpoint,
+                )
             return builder(
                 records,
                 replace(request, pool_note_preamble=preamble),

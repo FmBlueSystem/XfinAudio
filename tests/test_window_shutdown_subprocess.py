@@ -14,6 +14,7 @@ import pytest
         "recommendation",
         "scan",
         "copilot",
+        "prep",
         "narrator",
         "replacement",
         "spectral",
@@ -53,6 +54,8 @@ if kind in ("recommendation", "replacement"):
     service.start_recommendation([], "harmonic_journey")
     if kind == "replacement":
         QTimer.singleShot(30, lambda: service.start_recommendation([], "harmonic_journey"))
+elif kind == "prep":
+    window._prep_task.start(lambda checkpoint: slow())
 elif kind == "scan":
     service = window._scan_service
     service.workflow_service = SimpleNamespace(scan_folder=slow)

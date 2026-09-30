@@ -16,3 +16,10 @@ Not started: planning only. No implementation or verification claims for G1/G2/H
 - GREEN: 27 tests pass across checkpoint, Prep domain and application suites.
 - Checkpoints preserve output by default and stop subsequent variants when cancellation is raised.
 - Focused Ruff lint and format pass. Desktop wiring and full integrated gate remain pending.
+
+## G2b desktop cancellation and recovery
+- New RED failures: missing visible progress/cancel controls and candidate cancellation did not stop the builder.
+- GREEN: 81 focused Prep controller/Build tests pass. Cancel preserves prior plan, applied recommendation and variant; retry rejects old result, failure and progress.
+- 10 isolated shutdown cases passed, including slow Prep close with a live event-loop heartbeat and retained ownership.
+- Focused Pyright: 0 errors. Ruff lint/format pass.
+- Limits: cancellation drains the current non-cooperative candidate/variant stage; it never forcibly terminates a thread. Native macOS lifecycle and real audio remain untested here.

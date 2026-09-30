@@ -241,6 +241,18 @@ class BuildScreen(QWidget):
         copilot_row.addWidget(self.variant_label)
         copilot_row.addStretch()
         layout.addLayout(copilot_row)
+        prep_row = QHBoxLayout()
+        self.prep_progress_label = QLabel()
+        self.prep_progress_label.setAccessibleName(self.tr("Prep generation progress"))
+        self.prep_cancel_button = QPushButton(self.tr("Cancel Prep"))
+        self.prep_cancel_button.setAccessibleName(self.tr("Cancel Prep generation"))
+        self.prep_cancel_button.setEnabled(False)
+        self.prep_cancel_button.setToolTip(self.tr("Stop after the current stage; keep previous Prep results"))
+        self.prep_progress_label.hide()
+        self.prep_cancel_button.hide()
+        prep_row.addWidget(self.prep_progress_label, 1)
+        prep_row.addWidget(self.prep_cancel_button)
+        layout.addLayout(prep_row)
         ask_row = QHBoxLayout()
         ask_row.addWidget(self.copilot_ask_input, 1)
         ask_row.addWidget(self.copilot_ask_button)
@@ -372,7 +384,8 @@ class BuildScreen(QWidget):
         self.setTabOrder(self.clear_constraints_button, self.target_count_input)
         self.setTabOrder(self.target_count_input, self.genre_focus_input)
         self.setTabOrder(self.genre_focus_input, self.copilot_button)
-        self.setTabOrder(self.copilot_button, self.copilot_ask_input)
+        self.setTabOrder(self.copilot_button, self.prep_cancel_button)
+        self.setTabOrder(self.prep_cancel_button, self.copilot_ask_input)
         self.setTabOrder(self.copilot_ask_input, self.copilot_ask_button)
         self.setTabOrder(self.copilot_ask_button, self.copilot_table)
         self.setTabOrder(self.copilot_table, self.apply_variant_button)
@@ -399,6 +412,7 @@ class BuildScreen(QWidget):
         self.recommend_requested.connect(window._on_recommend_requested)
         self.spectral_cohesion_changed.connect(window._settings_controller.on_spectral_cohesion_changed)
         self.copilot_generate_requested.connect(window.generate_prep_copilot)
+        self.prep_cancel_button.clicked.connect(window._prep_task.cancel)
         self.copilot_ask_requested.connect(window.ask_ai_copilot)
         self.copilot_variant_applied.connect(window._on_copilot_variant_applied)
         self.apply_without_selection_requested.connect(
@@ -446,6 +460,17 @@ class BuildScreen(QWidget):
 
         self.recommend_button.setEnabled(vm.recommend_button_enabled(state))
         self.copilot_button.setEnabled(vm.copilot_button_enabled(state))
+        self.prep_cancel_button.setEnabled(state.is_preparing_copilot)
+        self.prep_cancel_button.setVisible(state.is_preparing_copilot)
+        self.prep_progress_label.setVisible(state.is_preparing_copilot)
+        progress_labels = {
+            "candidates": self.tr("Preparing candidate tracks..."),
+            "safe": self.tr("Generating safe variant (1/3)..."),
+            "balanced": self.tr("Generating balanced variant (2/3)..."),
+            "adventurous": self.tr("Generating adventurous variant (3/3)..."),
+            "complete": self.tr("Finishing Prep variants..."),
+        }
+        self.prep_progress_label.setText(progress_labels.get(state.prep_progress or "", ""))
         # Render-driven on purpose: the coalesced 200ms render walks every screen, so
         # an enabled state set imperatively here would come back on the next sync.
         self.copilot_ask_button.setEnabled(vm.copilot_ask_button_enabled(state))
