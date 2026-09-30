@@ -193,6 +193,8 @@ class FfmpegLoudnessAdapter:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 shell=False,
                 start_new_session=True,
             )

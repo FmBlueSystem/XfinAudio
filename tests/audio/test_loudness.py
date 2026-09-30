@@ -254,6 +254,8 @@ def test_analyze_uses_injected_shell_free_process_with_devnull_and_parses_output
                 "stdout": subprocess.DEVNULL,
                 "stderr": subprocess.PIPE,
                 "text": True,
+                "encoding": "utf-8",
+                "errors": "replace",
                 "shell": False,
                 "start_new_session": True,
             },
