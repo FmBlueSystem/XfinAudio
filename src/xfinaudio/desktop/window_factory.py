@@ -301,7 +301,7 @@ def with_defaults(cls, db_path: Path, settings_path: Path | None = None):
 
     settings_repository = SettingsRepository(settings_path or default_settings_path())
     repository = TrackRepository(db_path)
-    settings = settings_repository.load()
+    settings = settings_repository.load_with_recovery()
     # The earliest point after the settings load: the adapter's switches have to be
     # in the environment before any window code can request a copilot intent.
     seed_ai_environment(settings)
@@ -315,4 +315,6 @@ def with_defaults(cls, db_path: Path, settings_path: Path | None = None):
         settings_repository=settings_repository,
     )
     window.restore_persisted_tracks(display_tracks)
+    if settings_repository.recovery_warning:
+        window.statusBar().showMessage(settings_repository.recovery_warning)
     return window

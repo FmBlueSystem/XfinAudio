@@ -5,3 +5,8 @@ Planning phases complete before production edits. Strict RED/GREEN evidence foll
 ## Atomic save slice
 - RED: two fsync/replace failure injections failed before production edit (settings-atomic-red.log).
 - GREEN/REFACTOR: same-directory temporary write, flush/fsync, atomic replacement and finally cleanup; 10 focused tests pass.
+
+## Explicit recovery and UI slice
+- RED: eight regression cases failed before Apply (settings-recovery-red.log).
+- GREEN/REFACTOR: preserve invalid JSON/encoding/schema bytes in unique sibling backup; strict read errors remain typed; visible startup diagnostic. Settings UI saves before publishing and keeps prior state on failure.
+- VERIFY: settings repository, recovery UI and settings controller: 21 passed (settings-recovery-green.log).

@@ -120,3 +120,35 @@ def test_atomic_save_preserves_previous_settings_on_failure(tmp_path: Path, monk
     assert path.read_bytes() == original_bytes
     assert repository.load() == previous
     assert sorted(p.name for p in tmp_path.iterdir()) == ["settings.json"]
+
+
+@pytest.mark.parametrize("content", [b"{broken", b"[]", b'{"settings_version":999}', b"\xff"])
+def test_load_with_recovery_preserves_invalid_bytes_and_reports_path(tmp_path: Path, content: bytes) -> None:
+    path = tmp_path / "settings.json"
+    path.write_bytes(content)
+    repository = SettingsRepository(path)
+    assert repository.load_with_recovery() == AppSettings()
+    backups = list(tmp_path.glob("settings.json.recovery-*"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == content
+    assert not path.exists()
+    assert str(backups[0]) in repository.recovery_warning
+    repository.save(AppSettings())
+    assert backups[0].read_bytes() == content
+
+
+def test_load_recovery_preservation_failure_leaves_original(tmp_path: Path, monkeypatch) -> None:
+    import os
+
+    path = tmp_path / "settings.json"
+    path.write_bytes(b"{broken")
+    repository = SettingsRepository(path)
+
+    def fail(*args):
+        raise OSError("synthetic read-only directory")
+
+    monkeypatch.setattr(os, "replace", fail)
+    with pytest.raises(SettingsRepositoryError, match="preserve"):
+        repository.load_with_recovery()
+    assert path.read_bytes() == b"{broken"
+    assert list(tmp_path.iterdir()) == [path]

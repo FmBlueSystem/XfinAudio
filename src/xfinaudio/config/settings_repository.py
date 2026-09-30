@@ -17,11 +17,16 @@ class SettingsRepositoryError(Exception):
     """Raised when the app-owned settings file cannot be loaded or saved safely."""
 
 
+class InvalidSettingsError(SettingsRepositoryError):
+    """The file was readable, but its contents cannot be used."""
+
+
 class SettingsRepository:
     """Persist application settings to a caller-provided JSON file path."""
 
     def __init__(self, settings_path: Path) -> None:
         self.settings_path = settings_path
+        self.recovery_warning: str | None = None
 
     def load(self) -> AppSettings:
         """Load settings, returning defaults when the settings file does not exist."""
@@ -30,18 +35,43 @@ class SettingsRepository:
 
         try:
             payload = json.loads(self.settings_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise SettingsRepositoryError(f"Malformed settings JSON: {self.settings_path}") from exc
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise InvalidSettingsError(f"Malformed settings JSON: {self.settings_path}") from exc
         except OSError as exc:
             raise SettingsRepositoryError(f"Unable to read settings file: {self.settings_path}") from exc
 
         if not isinstance(payload, dict):
-            raise SettingsRepositoryError(f"Unsupported settings file shape: {self.settings_path}")
+            raise InvalidSettingsError(f"Unsupported settings file shape: {self.settings_path}")
 
         try:
             return AppSettings.model_validate(payload)
         except ValidationError as exc:
-            raise SettingsRepositoryError(f"Unsupported settings file: {self.settings_path}") from exc
+            raise InvalidSettingsError(f"Unsupported settings file: {self.settings_path}") from exc
+
+    def load_with_recovery(self) -> AppSettings:
+        """Preserve invalid settings before returning defaults for desktop recovery."""
+        self.recovery_warning = None
+        try:
+            return self.load()
+        except InvalidSettingsError:
+            recovery_path: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=self.settings_path.parent,
+                    prefix=f"{self.settings_path.name}.recovery-",
+                    delete=False,
+                ) as recovery:
+                    recovery_path = Path(recovery.name)
+                os.replace(self.settings_path, recovery_path)
+            except OSError as exc:
+                if recovery_path is not None:
+                    recovery_path.unlink(missing_ok=True)
+                raise SettingsRepositoryError(f"Unable to preserve invalid settings: {self.settings_path}") from exc
+            self.recovery_warning = (
+                f"Settings could not be loaded; original preserved at {recovery_path}. "
+                "Defaults are active. Open Settings to review your preferences."
+            )
+            return AppSettings()
 
     def save(self, settings: AppSettings) -> None:
         """Save settings as deterministic, supportable JSON."""
