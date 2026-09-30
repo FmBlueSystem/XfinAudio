@@ -2,7 +2,7 @@
 
 Scope: shared application correctness/security, Serato export workflows, musical algorithm contracts, and measured incremental reliability/performance improvements. Other DJ exporters are preserved but their specific enhancements are excluded by owner request. Changes remain local; no push, pull request, release or deployment is authorized.
 
-Status vocabulary: **Implemented** = regression-tested focused slice, still subject to the final integrated gate; **In progress** = planned/being implemented; **Accepted** = intentional product behavior; **Excluded** = owner-scoped out; **Blocked validation** = requires unavailable native/external environment, not an untested claim of success.
+Status vocabulary: **Implemented** = integrated and passed the automated code-complete gate; native/external validation remains separate; **In progress** = planned/being implemented; **Accepted** = intentional product behavior; **Excluded** = owner-scoped out; **Blocked validation** = requires unavailable native/external environment, not an untested claim of success.
 
 | Audit finding | Status | Change / evidence |
 |---|---|---|
@@ -37,7 +37,7 @@ Status vocabulary: **Implemented** = regression-tested focused slice, still subj
 | Prep prefix trimming drops end/locks | Implemented | Count applied before sequencing; exclusions before candidate cap; counts above 25 supported |
 | Invalid zero/negative/nonfinite BPM accepted | Implemented | Finite-positive parse/fallback contract, defensive legacy scoring and readiness blocking |
 | Camelot diagonal direction/explanation wrong | Implemented | Primary-source directional rule, full 24-key truth table, semitone vs whole-step lift descriptions |
-| Replacement/backfill can restore excluded tracks | Implemented | Preserve original applied controls, exclusions and strategy eligibility across UI and pure-helper replacement |
+| Replacement/backfill can restore excluded tracks | Implemented | Shared pure-helper enforcement retains resolved energy/color/genre/loudness policy, original/current exclusions and control exceptions through edits; explicit current loudness override supported |
 
 | Serato overwrite/incomplete-write recovery | Implemented | Validate payload and file identity, atomic replacement, unique recoverable backups, readback recovery, safe explicit rollback and symlink rejection; no database V2 writes |
 | Redundant local-search scoring under coverage | Implemented | Score the unchanged incumbent once per pass; deterministic operation-count RED/GREEN without relaxed time thresholds |
@@ -52,4 +52,8 @@ Status vocabulary: **Implemented** = regression-tested focused slice, still subj
 - Whole-model/QAbstractTableModel rewrites are not necessary to close these findings; changes stay in reviewable local SDD/TDD slices.
 
 ## Integrated release gate
-The recovered correctness tranche at `6f7a769` passed all automated gates: 2,775 tests, 93.49% coverage, clean types/lint/format, smoke, source/wheel hygiene and PyInstaller check-only. All remaining slices are now integrated; the final combined exact-commit `uv run python scripts/release_gate_check.py --run` remains pending. Coverage threshold remains owned solely by `pyproject.toml` (89%).
+Passed at code-complete commit `9e7c894dcbe482ea1b6d6f02c9c9ca05a30c53b0`: **2921 tests**, **93.54% coverage**, zero type-check errors/warnings, clean lint/format, release smoke, publication hygiene, source/wheel build and inspection, PyInstaller check-only, and no root build/dist. The configured floor remains 89%; performance budgets were not relaxed.
+
+The same aggregate gate is rerun after these documentation-only closure commits, before delivering a clean final SHA. Exact final evidence is included with the portable delivery. The independent matrix now rejects the public E5-to-E10 backfill bypass, and the final reachability run matches an all-pairs BFS oracle on 20,000 corpora.
+
+The historical real-MIK completion marker is evidence for an earlier version, not native or listening validation of this candidate. Native macOS/real Serato/music checks remain the boundaries listed above.

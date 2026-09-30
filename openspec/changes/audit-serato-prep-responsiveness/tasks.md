@@ -6,5 +6,7 @@
 - [x] H1 RED keyboard selection/detail/clear/compact tests; GREEN deterministic visible details; REFACTOR shared explanation source; VERIFY Review + layout suites
 - [x] I1 Resolve direct Serato semantics, update spec/design, then RED/GREEN/REFACTOR/VERIFY destination and visible loudness-write disclosure separately
 - [x] Catalog RED/GREEN: English/Spanish source + compiled QMs; verify Spanish cancel/Review strings and actual Settings/export rendering
-- [ ] Full integrated release gate on the exact final combined code; integration owner runs it after all audit slices land
+- [x] Full integrated release gate on the exact final combined code; integration owner runs it after all audit slices land
 - [x] Truthful limits documented: synthetic/offscreen fixtures only; native Mac/real Serato imports not verified
+
+Integrated verification completed on 2026-09-30 at `9e7c894`: all automated release gates passed, 2921 tests and 93.54% coverage. Native validation remains separate.

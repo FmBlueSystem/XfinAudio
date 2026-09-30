@@ -9,3 +9,5 @@
 7. [x] Disclosure: correct English/Spanish loudness safety promises, preserve behavior.
 8. VERIFY: lint/type/focused tests here; integrated release gate by parent; update
    progress, requirement evidence, and state without claiming an unrun full gate.
+
+Integrated verification completed on 2026-09-30 at `9e7c894`: all automated release gates passed, 2921 tests and 93.54% coverage. Native validation remains separate.

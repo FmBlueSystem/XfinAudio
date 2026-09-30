@@ -13,6 +13,8 @@
    and existing completion tests. Two local slices <=400 changed lines each.
 6. [complete] Benchmark all requested sizes and record exact method/limitations;
    verify profile/persistence equivalence and responsiveness.
-7. [focused complete; integration pending] 262 focused tests, lint, format and
+7. [complete] 262 focused tests, lint, format and
    scoped type check passed; parent runs integrated release_gate_check.py --run.
    Coverage floor remains exclusively in pyproject.toml.
+
+Integrated verification completed on 2026-09-30 at `9e7c894`: all automated release gates passed, 2921 tests and 93.54% coverage. Native validation remains separate.

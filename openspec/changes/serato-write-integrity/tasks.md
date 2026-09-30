@@ -4,3 +4,5 @@
 3. GREEN: implement the smallest safe writer and shared recovery primitives.
 4. REFACTOR: retain API compatibility and remove duplicated unsafe I/O.
 5. VERIFY: focused crate/application tests, then mandated aggregate release gate; record exact outcomes and limitations.
+
+Integrated verification completed on 2026-09-30 at `9e7c894`: all automated release gates passed, 2921 tests and 93.54% coverage. Native validation remains separate.

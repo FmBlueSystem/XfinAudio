@@ -8,4 +8,6 @@
 7. [x] RED: immutable action references and archive-only download regression.
 8. [x] GREEN/REFACTOR: pins and unused-signature cleanup; document integrity scope.
 9. [x] VERIFY: focused synthetic suite, shell syntax, type/lint/format checks.
-10. [ ] Parent VERIFY: full integrated release gate on committed exact HEAD.
+10. [x] Parent VERIFY: full integrated release gate on committed exact HEAD.
+
+Integrated verification completed on 2026-09-30 at `9e7c894`: all automated release gates passed, 2921 tests and 93.54% coverage. Native validation remains separate.

@@ -5,4 +5,6 @@
 - [x] C RED fractional display/default filter/labels regressions; GREEN shared formatting and initial filter; REFACTOR consistent display; VERIFY relevant view-model/screen tests
 - [x] D RED missing-anchor and next-step tests; GREEN eligibility/navigation; REFACTOR common eligibility; VERIFY generation UI tests
 - [x] E RED compact geometry and existing Color regression; GREEN targeted layout fix; REFACTOR minimal sizing rules; VERIFY Qt layout tests
-- [ ] Parent final VERIFY integrated release_gate_check.py --run; update artifacts with exact result
+- [x] Parent final VERIFY integrated release_gate_check.py --run; update artifacts with exact result
+
+Integrated verification completed on 2026-09-30 at `9e7c894`: all automated release gates passed, 2921 tests and 93.54% coverage. Native validation remains separate.
