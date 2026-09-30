@@ -18,3 +18,8 @@ with current locks/exclusions, and compare normalized scores plus readiness.
 Slice 4: RED missing widget actions; GREEN 28 Review widget tests including real
 QTest mouse clicks for Configure AI, Cancel and offline local facts. Facts panel is
 opt-in/collapsible so idle Review retains its table space.
+
+Slice 5: RED absent readiness/ranking module; GREEN 4 pure-engine tests. Live
+recomputes all adjacencies, requires zero readiness concerns, preserves the exact
+pool and constraints, and ranks actual scores. No position-derived score remains
+in the new engine contract. The screen integration follows in slice 6.
