@@ -53,3 +53,20 @@ def test_metadata_screen_explains_selection_and_priorities_without_writes(qapp):
     screen.render(AppState())
     assert not screen.repair_help_button.isEnabled()
     assert screen.repair_help.toPlainText() == ""
+
+
+def test_repair_help_follows_filtered_selection_and_bounds_plan(qapp):
+    from xfinaudio.metadata.repair_guidance import repair_plan_text
+
+    source = [TrackRecord(path=f"/{index:02}.mp3", title=f"Missing {index}") for index in range(12)]
+    assert "2 more tracks" in repair_plan_text(source)
+    assert "No required metadata gaps" in repair_plan_text([records()[2]])
+    screen = MetadataScreen()
+    state = AppState(scanned_records=source)
+    screen.render(state)
+    screen.worklist_table.selectRow(0)
+    assert screen.repair_help.toPlainText().startswith("Missing 0\n")
+    screen.status_combo.setCurrentText("Complete")
+    screen.render(state)
+    assert screen.worklist_table.rowCount() == 0
+    assert screen.repair_help.toPlainText().startswith("Local repair assistant")

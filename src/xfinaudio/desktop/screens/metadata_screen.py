@@ -254,6 +254,7 @@ class MetadataScreen(QWidget):
             if signature != self._last_worklist_signature or self.worklist_table.rowCount() != len(rows):
                 self._populate_table(rows)
                 self._last_worklist_signature = signature
+                self._render_repair_help()
 
         self.refresh_button.setEnabled(
             state.selected_folder is not None and not state.is_scanning and not state.is_recommending
