@@ -171,6 +171,21 @@ structured loudness tags. Unrelated FLAC DESCRIPTION text is preserved when the
 loudness line is added/refreshed. Disabling this setting later does not restore replaced comments.
 Audio samples are not rewritten by this tag writer.
 
+**Loudness completeness:** for otherwise measurable inputs shorter than 60 seconds,
+the `too_short` partial status retains valid integrated LUFS and true peak but
+omits LRA. Such results cannot write the complete three-metric automatic loudness
+comment/tags. Inputs of at least 60 seconds remain eligible when all other validity
+checks pass. Below-gate input without measurable integrated loudness is rejected;
+a reported floor value is not accepted as a real LUFS measurement. Results stored with older analysis
+cache/tag schemas are no longer trusted as complete; re-analysis is needed.
+
+This is XfinAudio's conservative **LRA completeness policy**. [EBU Tech 3341,
+§2.4, p.6](https://tech.ebu.ch/docs/tech/tech3341.pdf#page=6) requires an indication
+that LRA is not yet stable during the first 60 seconds; XfinAudio chooses to omit
+that LRA from a complete profile. It does not mean LUFS requires 60 seconds or
+that all short clips are unmeasurable. Synthetic checks exercise the production
+FFmpeg path; they are not official meter certification or native macOS/audio-listening QA.
+
 During scan, the app:
 
 - Reads tags using mutagen.
@@ -855,6 +870,22 @@ reemplaza FLAC COMMENT y MP4 ©cmt, y escribe tags estructurados de loudness. El
 ajeno de FLAC DESCRIPTION se conserva al añadir/actualizar la línea de loudness.
 Desactivar el ajuste después no restaura los comentarios reemplazados. Esta escritura
 de tags no modifica las muestras de audio.
+
+**Validez del resultado de loudness:** si una entrada medible dura menos de 60
+segundos, el estado parcial `too_short` conserva LUFS integrado y true peak válidos,
+pero omite LRA. No permite escribir el comentario/tags automáticos completos de
+tres métricas. Las entradas de al menos 60 segundos siguen siendo elegibles si
+superan las demás validaciones. Una entrada bajo el umbral sin sonoridad integrada
+medible se rechaza; no se acepta un valor de piso como medición LUFS real. Los
+resultados guardados con esquemas antiguos de caché/tags requieren nuevo análisis
+antes de considerarse completos y confiables.
+
+Es una **política conservadora de completitud de LRA** de XfinAudio. [EBU Tech 3341,
+§2.4, p.6](https://tech.ebu.ch/docs/tech/tech3341.pdf#page=6) pide indicar que LRA aún
+no es estable durante los primeros 60 segundos; XfinAudio decide omitir ese LRA
+del perfil completo. No significa que LUFS necesite 60 segundos ni que todos los
+clips cortos sean imposibles de medir. Las pruebas sintéticas recorren el código
+real con FFmpeg; no constituyen certificación oficial, QA nativa macOS ni escucha musical.
 
 Durante el scan, la app:
 

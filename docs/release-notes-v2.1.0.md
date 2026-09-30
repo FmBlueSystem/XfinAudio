@@ -53,6 +53,10 @@ no deben sustituir el contexto actual. Cancelar no retira lo ya enviado.
 
 ## Motor, interfaz y exportación
 
+- **Acerca de / About** muestra la versión instalada desde los metadatos del
+  paquete, actualmente 2.1.0, en lugar del texto fijo 1.0. El spec de PyInstaller
+  incluye esos metadatos para la app empaquetada; si faltan, se indica versión
+  desconocida. Esto no afirma que se haya construido o validado un binario macOS.
 - Rechazo de BPM no finito o no positivo; precisión fraccionaria visible;
   compatibilidad Camelot direccional y alcance BPM half-time corregidos.
 - Selecciones obligatorias, pistas finales, bloqueos y exclusiones se conservan
@@ -71,6 +75,23 @@ no deben sustituir el contexto actual. Cancelar no retira lo ya enviado.
 El [informe de auditoría](reviews/2026-09-audit-remediation.md) conserva el detalle
 histórico de cada corrección. Las mejoras específicas de otros exportadores DJ
 quedaron fuera de esta revisión.
+
+## Validez de loudness en entradas cortas o bajo el umbral
+
+- Las entradas medibles de menos de 60 segundos quedan parciales (`too_short`):
+  se conservan LUFS integrado y true peak válidos, se omite LRA y se bloquea la
+  escritura automática del comentario/tags completos de tres métricas.
+- Se refuerzan las comprobaciones de valores finitos/rangos y se rechaza la falsa
+  lectura de piso de LUFS para entradas bajo el umbral. Los esquemas de análisis
+  y tags pasan a v2 para invalidar resultados antiguos que ya no son confiables.
+- Las pistas de al menos 60 segundos siguen siendo elegibles si cumplen las demás
+  validaciones. El umbral es una política conservadora de completitud de LRA,
+  basada en la indicación de inestabilidad inicial de [EBU Tech 3341, §2.4,
+  p.6](https://tech.ebu.ch/docs/tech/tech3341.pdf#page=6). No exige 60 segundos para
+  medir LUFS ni declara que todos los clips cortos sean imposibles de medir.
+- Se comprueba la cadena de producción con FFmpeg y señales sintéticas, incluidos
+  casos cortos y bajo el umbral. Esta evidencia no es certificación oficial del
+  medidor, un binario macOS validado ni evaluación mediante escucha.
 
 ## Actualización y límites de verificación
 
