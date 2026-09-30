@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -40,6 +40,39 @@ class PrepCopilotVariantApplication:
     quality_report: RecommendationQualityReport
     readiness_report: DjReadinessReport
     variant_name: str
+
+
+def apply_profile_batch(
+    state: AppState,
+    profiles: Mapping[str, dict[str, object]],
+    *,
+    state_updates: dict[str, object] | None = None,
+) -> AppState:
+    """Publish one immutable snapshot in O(library size + batch size).
+
+    The keyed view owns updated records; the list retains its existing order.
+    Both views share a single replacement for each canonical record. Progress
+    without profile results leaves the library collections untouched.
+    """
+    updates = dict(state_updates or {})
+    if profiles:
+        by_path = dict(state.records_by_path)
+        for path, fields in profiles.items():
+            if path in by_path:
+                by_path[path] = by_path[path].model_copy(update=fields)
+        records = []
+        for record in state.scanned_records:
+            fields = profiles.get(record.path)
+            if fields is None:
+                records.append(record)
+            elif state.records_by_path.get(record.path) is record:
+                records.append(by_path[record.path])
+            else:
+                # Preserve compatibility with a list-only/independently loaded
+                # view without overwriting its unrelated metadata.
+                records.append(record.model_copy(update=fields))
+        updates.update(scanned_records=records, records_by_path=by_path)
+    return state.model_copy(update=updates)
 
 
 def apply_spectral_profile(state: AppState, *, path: str, profile: SpectralProfile) -> AppState:
