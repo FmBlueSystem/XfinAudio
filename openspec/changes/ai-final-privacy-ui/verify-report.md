@@ -27,3 +27,13 @@ Both TS and compiled QM catalogs are tested; actual Spanish widgets confirm all
 six reported labels plus configuration and interpreted-request confirmation.
 Existing pyside6-lrelease compiled both catalogs without broad lupdate churn.
 Focused Ruff/format and Pyright pass. Privacy disclosure translation follows.
+
+## Final focused verification
+65 tests passed together: AI workflow translations, loudness translations, Prep
+translations, AI Settings panel, responsive AI layouts, saved-set deletion and
+outbound privacy. Both compiled catalogs contain all 44 reviewed messages; live
+Spanish widgets show the privacy limits, credential warning and quota disclosure.
+All seven changed Python files pass Ruff, Ruff format and Pyright with the shared
+interpreter. Each commit remains within 400 changed lines (QM assets are binary).
+Full suite/coverage/exact-tree release gate remains explicitly owned by the
+coordinator; this worker does not claim that aggregate gate passed.

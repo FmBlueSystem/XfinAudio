@@ -22,3 +22,9 @@ R3 RED: source/QM assertions and actual widgets fell back to English. GREEN:
 also exposed Qt's untranslated default Cancel; that button now uses this catalog.
 Tests assert outside Qt signal callbacks so swallowed slot exceptions cannot pass.
 The final privacy-disclosure catalog addition is a fourth small review slice.
+
+R3 disclosure RED: actual Settings privacy/security text and source/QM entries
+were untranslated. GREEN/VERIFY: 18 settings disclosures, configuration labels
+and safe statuses now translate in AiSettingsPanel. Placeholder tokens and the
+synthetic probe text remain intact. Compiled with existing tools, no full catalog
+regeneration. All local cycles complete; coordinator's aggregate gate is pending.

@@ -2380,6 +2380,78 @@
         <source>Cancel test</source>
         <translation>Cancel test</translation>
     </message>
+    <message>
+        <source>Provider:</source>
+        <translation>Provider:</translation>
+    </message>
+    <message>
+        <source>Choose existing env file…</source>
+        <translation>Choose existing env file…</translation>
+    </message>
+    <message>
+        <source>Use default file</source>
+        <translation>Use default file</translation>
+    </message>
+    <message>
+        <source>Choose existing AI env file</source>
+        <translation>Choose existing AI env file</translation>
+    </message>
+    <message>
+        <source>Credential file: {0}</source>
+        <translation>Credential file: {0}</translation>
+    </message>
+    <message>
+        <source>Testing connection…</source>
+        <translation>Testing connection…</translation>
+    </message>
+    <message>
+        <source>AI disabled. Offline tools remain available.</source>
+        <translation>AI disabled. Offline tools remain available.</translation>
+    </message>
+    <message>
+        <source>Configuration found, not tested. No data has been sent by this dialog.</source>
+        <translation>Configuration found, not tested. No data has been sent by this dialog.</translation>
+    </message>
+    <message>
+        <source>Credential not found. Configure NAN_API_KEY outside the app or choose an existing env file.</source>
+        <translation>Credential not found. Configure NAN_API_KEY outside the app or choose an existing env file.</translation>
+    </message>
+    <message>
+        <source>Authentication rejected. Check your provider credential outside the app, then retry.</source>
+        <translation>Authentication rejected. Check your provider credential outside the app, then retry.</translation>
+    </message>
+    <message>
+        <source>Connection unavailable. Check network or provider, then retry. Offline tools still work.</source>
+        <translation>Connection unavailable. Check network or provider, then retry. Offline tools still work.</translation>
+    </message>
+    <message>
+        <source>Connection successful. No library content was sent.</source>
+        <translation>Connection successful. No library content was sent.</translation>
+    </message>
+    <message>
+        <source>Invalid configuration. Check the HTTPS endpoint and NAN_API_KEY outside the app, then retry.</source>
+        <translation>Invalid configuration. Check the HTTPS endpoint and NAN_API_KEY outside the app, then retry.</translation>
+    </message>
+    <message>
+        <source>The provider returned an invalid response. Check the endpoint, then retry.</source>
+        <translation>The provider returned an invalid response. Check the endpoint, then retry.</translation>
+    </message>
+    <message>
+        <source>Test cancelled. An already sent request may finish; retry when it stops. No settings were saved.</source>
+        <translation>Test cancelled. An already sent request may finish; retry when it stops. No settings were saved.</translation>
+    </message>
+    <message>
+        <source>AI actions send your request text and track/set metadata (titles, artists, genres, BPM, key, energy and transition/readiness summaries) to {0}; never audio. Known and recognizable file paths are removed. Avoid private information in free text. Opening Settings sends nothing. Offline tools remain available.</source>
+        <translation>AI actions send your request text and track/set metadata (titles, artists, genres, BPM, key, energy and transition/readiness summaries) to {0}; never audio. Known and recognizable file paths are removed. Avoid private information in free text. Opening Settings sends nothing. Offline tools remain available.</translation>
+    </message>
+    <message>
+        <source>Configure NAN_API_KEY outside this app, in your launch environment or an operator-owned env file. Keep that file private (owner-only access). The environment key takes precedence. Never paste keys here; XfinAudio stores only the file path.</source>
+        <translation>Configure NAN_API_KEY outside this app, in your launch environment or an operator-owned env file. Keep that file private (owner-only access). The environment key takes precedence. Never paste keys here; XfinAudio stores only the file path.</translation>
+    </message>
+    <message>
+        <source>Test connection sends only "{0}" plus the model name and app identifier to {1}, authenticated with your key. No library content is sent. It may use provider quota. Testing does not save or enable AI for other actions.</source>
+        <translation>Test connection sends only "{0}" plus the model name and app identifier to {1}, authenticated with your key. No library content is sent. It may use provider quota. Testing does not save or enable AI for other actions.</translation>
+    </message>
 </context>
 <context>
     <name>LibraryQueryPanel</name>

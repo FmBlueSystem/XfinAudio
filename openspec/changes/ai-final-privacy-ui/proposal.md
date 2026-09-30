@@ -12,4 +12,5 @@ Risks: path matching can consume musical text; modal deletion can regress Cancel
 translation context mismatches can silently fall back to English. Regression
 coverage must preserve genre/ratio text, denial, and runtime translations.
 Rollback each independent conventional-commit slice. Chained review slices stay
-under 400 changed lines: privacy, deletion, then catalogs and compiled assets.
+under 400 changed lines: privacy, deletion, core-control catalogs, then privacy
+disclosure catalogs and compiled assets.

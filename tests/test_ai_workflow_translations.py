@@ -27,6 +27,68 @@ CORE = {
         "Enable AI for actions I request": "Activar IA para las acciones que solicite",
         "Test connection": "Probar conexión",
         "Cancel test": "Cancelar prueba",
+        "Provider:": "Proveedor:",
+        "Choose existing env file…": "Elegir archivo env existente…",
+        "Use default file": "Usar archivo predeterminado",
+        "Choose existing AI env file": "Elegir archivo env de IA existente",
+        "Credential file: {0}": "Archivo de credenciales: {0}",
+        "Testing connection…": "Probando conexión…",
+        "AI disabled. Offline tools remain available.": "IA desactivada. Las herramientas locales siguen disponibles.",
+        "Configuration found, not tested. No data has been sent by this dialog.": (
+            "Configuración encontrada, sin probar. Este diálogo no ha enviado datos."
+        ),
+        "Credential not found. Configure NAN_API_KEY outside the app or choose an existing env file.": (
+            "Credencial no encontrada. Configure NAN_API_KEY fuera de la app o elija un archivo env existente."
+        ),
+        "Authentication rejected. Check your provider credential outside the app, then retry.": (
+            "Autenticación rechazada. Revise la credencial del proveedor fuera de la app e inténtelo de nuevo."
+        ),
+        "Connection unavailable. Check network or provider, then retry. Offline tools still work.": (
+            "Conexión no disponible. Revise la red o el proveedor e inténtelo de nuevo. "
+            "Las herramientas locales funcionan."
+        ),
+        "Connection successful. No library content was sent.": (
+            "Conexión correcta. No se envió contenido de la biblioteca."
+        ),
+        "Invalid configuration. Check the HTTPS endpoint and NAN_API_KEY outside the app, then retry.": (
+            "Configuración no válida. Revise el destino HTTPS y NAN_API_KEY fuera de la app e inténtelo de nuevo."
+        ),
+        "The provider returned an invalid response. Check the endpoint, then retry.": (
+            "El proveedor devolvió una respuesta no válida. Revise el destino e inténtelo de nuevo."
+        ),
+        "Test cancelled. An already sent request may finish; retry when it stops. No settings were saved.": (
+            "Prueba cancelada. Una solicitud ya enviada puede terminar; reintente cuando se detenga. "
+            "No se guardó la configuración."
+        ),
+        (
+            "AI actions send your request text and track/set metadata (titles, artists, genres, BPM, key, energy "
+            "and transition/readiness summaries) to {0}; never audio. "
+            "Known and recognizable file paths are removed. Avoid private information in free text. "
+            "Opening Settings sends nothing. Offline tools remain available."
+        ): (
+            "Las acciones de IA envían su solicitud y metadatos de pistas/sets (títulos, artistas, géneros, BPM, "
+            "tonalidad, energía y resúmenes de transiciones/preparación) a {0}; nunca audio. "
+            "Se eliminan las rutas de archivo conocidas y reconocibles. Evite información privada en el texto libre. "
+            "Abrir Configuración no envía nada. Las herramientas locales siguen disponibles."
+        ),
+        (
+            "Configure NAN_API_KEY outside this app, in your launch environment or an operator-owned env file. "
+            "Keep that file private (owner-only access). The environment key takes precedence. "
+            "Never paste keys here; XfinAudio stores only the file path."
+        ): (
+            "Configure NAN_API_KEY fuera de esta app, en el entorno de inicio o en un archivo env de su propiedad. "
+            "Mantenga ese archivo privado (acceso solo para el propietario). La clave del entorno tiene prioridad. "
+            "Nunca pegue claves aquí; XfinAudio solo guarda la ruta del archivo."
+        ),
+        (
+            'Test connection sends only "{0}" plus the model name and app identifier to {1}, authenticated '
+            "with your key. No library content is sent. It may use provider quota. "
+            "Testing does not save or enable AI for other actions."
+        ): (
+            'Probar conexión envía solo "{0}", el nombre del modelo y el identificador de la app a {1}, usando '
+            "su clave para autenticarse. No se envía contenido de la biblioteca. Puede consumir cuota del proveedor. "
+            "La prueba no guarda la configuración ni activa la IA para otras acciones."
+        ),
     },
     "LibraryQueryPanel": {
         "Interpret locally": "Interpretar localmente",
@@ -97,6 +159,12 @@ def test_spanish_core_controls_render_in_actual_widgets(qapp, tmp_path, monkeypa
         assert assist.configure_button.text() == "Configurar IA"
         assert assist.consent.text() == "Permitir esta solicitud de IA"
         assert settings.title() == "Configuración de IA"
+        assert "nunca audio" in settings.privacy_label.text()
+        assert "rutas de archivo conocidas y reconocibles" in settings.privacy_label.text()
+        assert "Evite información privada en el texto libre" in settings.privacy_label.text()
+        assert "Nunca pegue claves aquí" in settings.guidance_label.text()
+        assert "Puede consumir cuota del proveedor" in settings.test_disclosure.text()
+        assert settings.status_label.text() == "IA desactivada. Las herramientas locales siguen disponibles."
         assert library.interpret_button.text() == "Interpretar localmente"
         assert editor.preview_button.text() == "Previsualizar edición"
         assert editor.confirm_button.text() == "Aplicar vista previa al borrador"

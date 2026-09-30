@@ -2380,6 +2380,78 @@
         <source>Cancel test</source>
         <translation>Cancelar prueba</translation>
     </message>
+    <message>
+        <source>Provider:</source>
+        <translation>Proveedor:</translation>
+    </message>
+    <message>
+        <source>Choose existing env file…</source>
+        <translation>Elegir archivo env existente…</translation>
+    </message>
+    <message>
+        <source>Use default file</source>
+        <translation>Usar archivo predeterminado</translation>
+    </message>
+    <message>
+        <source>Choose existing AI env file</source>
+        <translation>Elegir archivo env de IA existente</translation>
+    </message>
+    <message>
+        <source>Credential file: {0}</source>
+        <translation>Archivo de credenciales: {0}</translation>
+    </message>
+    <message>
+        <source>Testing connection…</source>
+        <translation>Probando conexión…</translation>
+    </message>
+    <message>
+        <source>AI disabled. Offline tools remain available.</source>
+        <translation>IA desactivada. Las herramientas locales siguen disponibles.</translation>
+    </message>
+    <message>
+        <source>Configuration found, not tested. No data has been sent by this dialog.</source>
+        <translation>Configuración encontrada, sin probar. Este diálogo no ha enviado datos.</translation>
+    </message>
+    <message>
+        <source>Credential not found. Configure NAN_API_KEY outside the app or choose an existing env file.</source>
+        <translation>Credencial no encontrada. Configure NAN_API_KEY fuera de la app o elija un archivo env existente.</translation>
+    </message>
+    <message>
+        <source>Authentication rejected. Check your provider credential outside the app, then retry.</source>
+        <translation>Autenticación rechazada. Revise la credencial del proveedor fuera de la app e inténtelo de nuevo.</translation>
+    </message>
+    <message>
+        <source>Connection unavailable. Check network or provider, then retry. Offline tools still work.</source>
+        <translation>Conexión no disponible. Revise la red o el proveedor e inténtelo de nuevo. Las herramientas locales funcionan.</translation>
+    </message>
+    <message>
+        <source>Connection successful. No library content was sent.</source>
+        <translation>Conexión correcta. No se envió contenido de la biblioteca.</translation>
+    </message>
+    <message>
+        <source>Invalid configuration. Check the HTTPS endpoint and NAN_API_KEY outside the app, then retry.</source>
+        <translation>Configuración no válida. Revise el destino HTTPS y NAN_API_KEY fuera de la app e inténtelo de nuevo.</translation>
+    </message>
+    <message>
+        <source>The provider returned an invalid response. Check the endpoint, then retry.</source>
+        <translation>El proveedor devolvió una respuesta no válida. Revise el destino e inténtelo de nuevo.</translation>
+    </message>
+    <message>
+        <source>Test cancelled. An already sent request may finish; retry when it stops. No settings were saved.</source>
+        <translation>Prueba cancelada. Una solicitud ya enviada puede terminar; reintente cuando se detenga. No se guardó la configuración.</translation>
+    </message>
+    <message>
+        <source>AI actions send your request text and track/set metadata (titles, artists, genres, BPM, key, energy and transition/readiness summaries) to {0}; never audio. Known and recognizable file paths are removed. Avoid private information in free text. Opening Settings sends nothing. Offline tools remain available.</source>
+        <translation>Las acciones de IA envían su solicitud y metadatos de pistas/sets (títulos, artistas, géneros, BPM, tonalidad, energía y resúmenes de transiciones/preparación) a {0}; nunca audio. Se eliminan las rutas de archivo conocidas y reconocibles. Evite información privada en el texto libre. Abrir Configuración no envía nada. Las herramientas locales siguen disponibles.</translation>
+    </message>
+    <message>
+        <source>Configure NAN_API_KEY outside this app, in your launch environment or an operator-owned env file. Keep that file private (owner-only access). The environment key takes precedence. Never paste keys here; XfinAudio stores only the file path.</source>
+        <translation>Configure NAN_API_KEY fuera de esta app, en el entorno de inicio o en un archivo env de su propiedad. Mantenga ese archivo privado (acceso solo para el propietario). La clave del entorno tiene prioridad. Nunca pegue claves aquí; XfinAudio solo guarda la ruta del archivo.</translation>
+    </message>
+    <message>
+        <source>Test connection sends only "{0}" plus the model name and app identifier to {1}, authenticated with your key. No library content is sent. It may use provider quota. Testing does not save or enable AI for other actions.</source>
+        <translation>Probar conexión envía solo "{0}", el nombre del modelo y el identificador de la app a {1}, usando su clave para autenticarse. No se envía contenido de la biblioteca. Puede consumir cuota del proveedor. La prueba no guarda la configuración ni activa la IA para otras acciones.</translation>
+    </message>
 </context>
 <context>
     <name>LibraryQueryPanel</name>

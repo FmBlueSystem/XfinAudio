@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: ai-final-privacy-ui
 artifact_store: openspec
-status: apply
+status: verify
 created: 2026-09-30
 updated: 2026-09-30
 strict_tdd: true
@@ -10,9 +10,9 @@ phases:
   specs: complete
   design: complete
   tasks: complete
-  apply: in-progress
-  verify: pending
-next_recommended: apply
+  apply: complete
+  verify: in-progress
+next_recommended: integration-release-gate
 blocked_reasons: []
 delivery:
   strategy: auto-chain
@@ -20,4 +20,4 @@ delivery:
   chain_strategy: feature-branch-chain
   review_budget_changed_lines: 400
 notes:
-  - Three bounded review slices; final release gate belongs to coordinator.
+  - Four bounded review slices; final release gate belongs to coordinator.
