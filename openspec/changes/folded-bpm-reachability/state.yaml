@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: folded-bpm-reachability
 artifact_store: openspec
-status: verification-blocked
+status: complete
 created: 2026-09-30
 updated: 2026-09-30
 strict_tdd: true
@@ -11,10 +11,9 @@ phases:
   design: complete
   tasks: complete
   apply: complete
-  verify: blocked
-next_recommended: integrated-release-gate
-blocked_reasons:
-  - Six unrelated desktop/test failures on base 34550a4; integration owners notified.
+  verify: complete
+next_recommended: native-validation-before-release
+blocked_reasons: []
 delivery:
   strategy: single-pr
   chained_prs_recommended: false

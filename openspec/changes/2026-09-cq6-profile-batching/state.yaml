@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: 2026-09-cq6-profile-batching
 artifact_store: openspec
-status: verify
+status: complete
 created: 2026-09-30
 updated: 2026-09-30
 strict_tdd: true
@@ -11,8 +11,8 @@ phases:
   design: complete
   tasks: complete
   apply: complete
-  verify: in-progress
-next_recommended: integrated-release-gate
+  verify: complete
+next_recommended: native-validation-before-release
 blocked_reasons: []
 delivery:
   strategy: auto-chain

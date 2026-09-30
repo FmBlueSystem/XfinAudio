@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: audit-serato-prep-responsiveness
 artifact_store: openspec
-status: verify
+status: complete
 created: 2026-09-30
 updated: 2026-09-30
 strict_tdd: true
@@ -11,10 +11,9 @@ phases:
   design: complete
   tasks: complete
   apply: complete
-  verify: in-progress
-next_recommended: integrated-release-gate
-blocked_reasons:
-  - Final release gate belongs to the exact combined integration commit; isolated UX branch has older algorithm test expectations.
+  verify: complete
+next_recommended: native-validation-before-release
+blocked_reasons: []
 delivery:
   strategy: auto-chain
   chained_prs_recommended: true

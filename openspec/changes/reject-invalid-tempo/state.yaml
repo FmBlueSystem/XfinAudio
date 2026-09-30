@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: reject-invalid-tempo
 artifact_store: openspec
-status: verify
+status: complete
 created: 2026-09-30
 updated: 2026-09-30
 strict_tdd: true
@@ -11,10 +11,9 @@ phases:
   design: complete
   tasks: complete
   apply: complete
-  verify: pending
-next_recommended: verify
-blocked_reasons:
-  - Final integrated release gate pending integration lead
+  verify: complete
+next_recommended: native-validation-before-release
+blocked_reasons: []
 delivery:
   strategy: auto-chain
   chained_prs_recommended: false
