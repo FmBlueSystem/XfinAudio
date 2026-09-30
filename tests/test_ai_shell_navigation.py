@@ -146,3 +146,41 @@ def test_review_configure_ai_opens_real_settings_without_enabling(qapp, tmp_path
         assert not window.settings.ai.enabled
     finally:
         window.close()
+
+
+def test_saved_playlist_keyboard_open_preview_apply_and_save(qapp, tmp_path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from tests.test_live_assistance import _set
+
+    window = MainWindow(scan_service=EmptyScanner(), repository=TrackRepository(tmp_path / "tracks.db"))
+    try:
+        tracks = _set().ordered_tracks
+        window._replace_app_state(window._state.with_scanned_records(tracks))
+        playlist = window._playlist_repository.create("Synthetic draft", [track.path for track in tracks])
+        window._playlist_coordinator.refresh_list()
+        window._sync_state()
+        window.show()
+        window.workflow_sidebar.setCurrentRow(4)
+        listing = window._playlists_screen.list_widget
+        listing.setCurrentRow(0)
+        listing.setFocus()
+        QTest.keyClick(listing, Qt.Key.Key_Return)
+        qapp.processEvents()
+        assert window._state.current_screen == "editor"
+        editor = window._playlist_editor
+        editor.edit_input.setText("shorten to 2 tracks")
+        QTest.mouseClick(editor.preview_button, Qt.MouseButton.LeftButton)
+        assert editor.confirm_button.isEnabled()
+        assert window._playlist_repository.get_by_id(playlist.id).track_paths == [track.path for track in tracks]
+        QTest.mouseClick(editor.confirm_button, Qt.MouseButton.LeftButton)
+        assert editor.is_dirty and len(editor._track_paths) == 2
+        assert len(window._playlist_repository.get_by_id(playlist.id).track_paths) == 3
+        QTest.mouseClick(editor.save_button, Qt.MouseButton.LeftButton)
+        assert not editor.is_dirty
+        assert len(window._playlist_repository.get_by_id(playlist.id).track_paths) == 2
+        QTest.mouseClick(editor.back_button, Qt.MouseButton.LeftButton)
+        assert window._state.current_screen == "playlists"
+    finally:
+        window.close()

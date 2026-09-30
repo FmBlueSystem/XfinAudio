@@ -21,3 +21,9 @@ in-flight narrator surviving a recommendation switch. GREEN: 42 domain/navigatio
 and actual shell interaction tests pass, including current-set reranking and
 exclusion invalidation. Cancellation is wired, configuration route follows in the
 Settings integration slice. Empty-library guidance now hides its empty panel.
+
+Editor integration: actual QListWidget Return-key opening, button-click preview,
+Apply, Save and Back verified against a temporary SQLite repository. Preview and
+Apply leave the saved set untouched; only Save persists. Settings route verified
+with the actual modal event loop and Cancel, leaving AI disabled. Shared component
+lifecycle and shell integration currently pass all focused checks.
