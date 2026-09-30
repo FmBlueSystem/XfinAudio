@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtWidgets import QFileDialog, QLabel, QWidget
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
@@ -19,18 +19,15 @@ from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.app_state_transitions import (
-    apply_danceability_profile,
-    apply_edge_spectral_profile,
     apply_library_folder_selected,
     apply_library_records_loaded,
     apply_loudness_completion_finished,
-    apply_loudness_completion_result,
     apply_loudness_completion_started,
     apply_playlist_track_removed,
     apply_playlist_track_replaced,
     apply_playlist_track_restored,
+    apply_profile_batch,
     apply_scan_context_reset,
-    apply_spectral_profile,
     apply_track_constraints_cleared,
     apply_tracks_excluded,
     apply_tracks_locked,
@@ -41,6 +38,7 @@ from xfinaudio.desktop.danceability_completion_worker import DanceabilityComplet
 from xfinaudio.desktop.edge_spectral_completion_worker import EdgeSpectralCompletionWorker
 from xfinaudio.desktop.library_columns import column_index
 from xfinaudio.desktop.library_filter import metadata_missing_field_records, metadata_status_records
+from xfinaudio.desktop.library_path_index import LibraryPathIndex
 from xfinaudio.desktop.rendering import (
     _format_missing_metadata,
     _format_spectral_color,
@@ -147,6 +145,13 @@ class LibraryController:
         self._loudness_completion_stages: list[BackgroundCompletionStage] = []
         self._active_song_search_query = ""
         self._shutting_down = False
+        self._pending_profiles: dict[str, dict[str, object]] = {}
+        self._pending_progress: dict[str, object] = {}
+        self._pending_loudness_count = 0
+        self._profile_timer = QTimer(parent)
+        self._profile_timer.setSingleShot(True)
+        self._profile_timer.timeout.connect(self._flush_profile_batch)
+        self._path_index = LibraryPathIndex(widgets.library_screen.tracks_table, path_column=_TRACK_PATH_COLUMN)
         # Ensure analysis workers are shut down before this controller is
         # destroyed. Otherwise their QThreads outlive the
         # MainWindow and Qt prints "QThread: Destroyed while thread '' is
@@ -171,6 +176,7 @@ class LibraryController:
             self.set_selected_folder(Path(folder))
 
     def set_selected_folder(self, folder: Path) -> None:
+        self._discard_profile_batch()
         self._state = apply_library_folder_selected(self._state, folder)
         self._access.state_setter(self._state)
         self._persist_last_scan_folder(folder)
@@ -202,6 +208,7 @@ class LibraryController:
             self._access.settings_repository.save(settings)
 
     def populate_track_table(self, records: list[TrackRecord]) -> None:
+        self._discard_profile_batch()
         populate_library_table(
             self._widgets.library_screen.tracks_table,
             records,
@@ -518,6 +525,7 @@ class LibraryController:
         worker.start(missing, self._workflow_service.repository)
 
     def cancel_spectral_completion_worker(self) -> None:
+        self._flush_profile_batch()
         self._dispose_spectral_completion_worker()
         if self._state.is_completing_spectral:
             self._replace_state(
@@ -529,6 +537,7 @@ class LibraryController:
 
     def shutdown(self) -> None:
         """Request cancellation without discarding running thread ownership."""
+        self._flush_profile_batch()
         self._shutting_down = True
         worker = self._spectral_completion_worker
         self._spectral_completion_worker = None
@@ -573,46 +582,74 @@ class LibraryController:
         worker.cancel()
         worker.dispose_when_idle()
 
+    def _queue_profile(self, path: str, field: str, profile: object) -> None:
+        if self._shutting_down:
+            return
+        self._pending_profiles.setdefault(path, {})[field] = profile
+        if not self._profile_timer.isActive():
+            self._profile_timer.start(0)
+
+    def _discard_profile_batch(self) -> None:
+        self._profile_timer.stop()
+        self._pending_profiles = {}
+        self._pending_progress = {}
+        self._pending_loudness_count = 0
+
+    def _flush_profile_batch(self) -> None:
+        if not self._pending_profiles and not self._pending_progress:
+            return
+        profiles = self._pending_profiles
+        updates = self._pending_progress
+        loudness_count = self._pending_loudness_count
+        self._discard_profile_batch()
+        if loudness_count:
+            updates["loudness_progress_count"] = min(
+                self._state.loudness_progress_count + loudness_count, self._state.loudness_total_count
+            )
+        self._state = apply_profile_batch(self._state, profiles, state_updates=updates)
+        self._access.state_setter(self._state)
+        self._paint_spectral_batch([path for path, fields in profiles.items() if "spectral_profile" in fields])
+        if loudness_count:
+            self._refresh_loudness_details()
+        self._request_sync()
+
+    def _paint_spectral_batch(self, paths: list[str]) -> None:
+        if not paths:
+            return
+        table = self._widgets.library_screen.tracks_table
+        sorting = table.isSortingEnabled()
+        if sorting:
+            table.setSortingEnabled(False)
+        try:
+            for path in paths:
+                row = self._path_index.row_for_path(path)
+                if row is None:
+                    continue
+                item = table.item(row, _TRACK_COLOR_COLUMN)
+                if item is not None:
+                    record = self._state.records_by_path.get(path)
+                    item.setText(_format_spectral_color(record) if record is not None else "")
+        finally:
+            if sorting:
+                table.setSortingEnabled(True)
+
     @Slot(int, int)
     def on_spectral_progress_updated(self, processed_count: int, total_count: int) -> None:
-        self._replace_state(
+        if self._shutting_down:
+            return
+        self._pending_progress.update(
             is_completing_spectral=True,
             spectral_progress_count=processed_count,
             spectral_total_count=total_count,
         )
-        # Fires once per analyzed track; coalesce so the UI is not re-rendered
-        # thousands of times mid-scan.
-        self._request_sync()
+        if not self._profile_timer.isActive():
+            self._profile_timer.start(0)
 
     @Slot(str, object)
     def on_spectral_profile_ready(self, path: str, profile: object) -> None:
-        """Record a finished spectral profile and paint its Color cell now.
-
-        The in-place write below is load-bearing, not an optimization: library
-        sync renders are lightweight by design (app_controller.py hardcodes
-        ``lightweight=True`` for the library tab), and ``render(lightweight=``
-        ``True)`` returns before painting rows. So the coalesced sync render
-        triggered by ``_request_sync()`` never paints this cell — this direct
-        write is the production painter for the spectral pass's only visible
-        output.
-
-        Signature divergence is impossible: ``apply_spectral_profile`` updates
-        the state first, and the row signature includes ``spectral_color``, so
-        the changed state forces a full rebuild (sort/filter/tab-change/re-scan)
-        to repaint the row from state. The write-behind cannot drift from state.
-        """
-        self._state = apply_spectral_profile(self._state, path=path, profile=profile)  # type: ignore[arg-type]
-        self._access.state_setter(self._state)
-        for row_index in range(self._widgets.library_screen.tracks_table.rowCount()):
-            path_item = self._widgets.library_screen.tracks_table.item(row_index, _TRACK_PATH_COLUMN)
-            if path_item is not None and path_item.text() == path:
-                record = self._state.records_by_path.get(path)
-                color_text = _format_spectral_color(record) if record is not None else ""
-                self._widgets.library_screen.tracks_table.item(row_index, _TRACK_COLOR_COLUMN).setText(color_text)
-                break
-        # Fires once per analyzed track; coalesce so the UI is not re-rendered
-        # thousands of times mid-scan. Refreshes the other screens only.
-        self._request_sync()
+        # Lightweight renders do not paint library rows. The batch flush must
+        # paint cells directly after publishing their matching immutable state.
+        self._queue_profile(path, "spectral_profile", profile)
 
     def on_spectral_completion_finished(self, completed_worker: SpectralCompletionWorker | None = None) -> None:
         # Normal completion: the worker itself signalled us, so we are inside its
@@ -620,6 +657,7 @@ class LibraryController:
         # segfaults) -- just release it so it stops living as a MainWindow child.
         if completed_worker is not None and completed_worker is not self._spectral_completion_worker:
             return
+        self._flush_profile_batch()
         worker = self._spectral_completion_worker
         self._spectral_completion_worker = None
         if worker is not None:
@@ -661,6 +699,7 @@ class LibraryController:
 
     def cancel_danceability_completion_worker(self) -> None:
         """Cancel danceability completion without blocking the UI thread."""
+        self._flush_profile_batch()
         worker = self._danceability_completion_worker
         if worker is None:
             return
@@ -670,13 +709,12 @@ class LibraryController:
 
     @Slot(str, object)
     def on_danceability_profile_ready(self, path: str, profile: object) -> None:
-        self._state = apply_danceability_profile(self._state, path=path, profile=profile)  # type: ignore[arg-type]
-        self._access.state_setter(self._state)
-        self._request_sync()
+        self._queue_profile(path, "danceability_profile", profile)
 
     def on_danceability_completion_finished(self, completed_worker: DanceabilityCompletionWorker | None = None) -> None:
         if completed_worker is not None and completed_worker is not self._danceability_completion_worker:
             return
+        self._flush_profile_batch()
         worker = self._danceability_completion_worker
         self._danceability_completion_worker = None
         if worker is not None:
@@ -709,6 +747,7 @@ class LibraryController:
 
     def cancel_edge_spectral_completion_worker(self) -> None:
         """Cancel edge spectral completion without blocking the UI thread."""
+        self._flush_profile_batch()
         worker = self._edge_spectral_completion_worker
         if worker is None:
             return
@@ -718,15 +757,14 @@ class LibraryController:
 
     @Slot(str, object)
     def on_edge_spectral_profile_ready(self, path: str, profile: object) -> None:
-        self._state = apply_edge_spectral_profile(self._state, path=path, profile=profile)  # type: ignore[arg-type]
-        self._access.state_setter(self._state)
-        self._request_sync()
+        self._queue_profile(path, "edge_spectral_profile", profile)
 
     def on_edge_spectral_completion_finished(
         self, completed_worker: EdgeSpectralCompletionWorker | None = None
     ) -> None:
         if completed_worker is not None and completed_worker is not self._edge_spectral_completion_worker:
             return
+        self._flush_profile_batch()
         worker = self._edge_spectral_completion_worker
         self._edge_spectral_completion_worker = None
         if worker is not None:
@@ -792,6 +830,7 @@ class LibraryController:
         )
 
     def cancel_loudness_completion(self) -> None:
+        self._flush_profile_batch()
         stage = self._loudness_completion_stage
         self._loudness_completion_stage = None
         if stage is not None:
@@ -816,15 +855,16 @@ class LibraryController:
     ) -> None:
         if completed_stage is not None and completed_stage is not self._loudness_completion_stage:
             return
-        self._state = apply_loudness_completion_result(self._state, path=path, profile=profile)  # type: ignore[arg-type]
-        self._access.state_setter(self._state)
-        self._refresh_loudness_details()
-        self._request_sync()
+        if self._shutting_down:
+            return
+        self._pending_loudness_count += 1
+        self._queue_profile(path, "loudness_profile", profile)
 
     def on_loudness_completion_finished(self, completed_stage: BackgroundCompletionStage | None = None) -> None:
         if completed_stage is not None and completed_stage is not self._loudness_completion_stage:
             stage = completed_stage
         else:
+            self._flush_profile_batch()
             stage = self._loudness_completion_stage
             self._loudness_completion_stage = None
             if self._state.is_completing_loudness:
@@ -850,6 +890,7 @@ class LibraryController:
         )
 
     def clear_scan_dependent_state(self) -> None:
+        self._discard_profile_batch()
         self._state = apply_scan_context_reset(self._state)
         self._access.state_setter(self._state)
         self._clear_scan_dependent_ui()

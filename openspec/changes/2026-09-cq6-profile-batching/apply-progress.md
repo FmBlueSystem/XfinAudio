@@ -15,3 +15,16 @@ RED: indexed-row tests could not import the missing helper. GREEN/REFACTOR:
 index live Path items (Qt updates row() during native sorting), invalidate on
 structural/Path-cell changes only. VERIFY: sort, hidden rows, rebuild, removal,
 Path edits, repeated lookups, and active Color sorting pass without rescanning.
+
+
+Controller RED: 13 intended assertions failed after selecting a writable test
+HOME (the first attempt only exposed the sandbox's read-only default home).
+A 1,000-record burst published 3,001 snapshots instead of zero before its tick;
+terminal and paint assertions also exposed synchronous result handling.
+GREEN/REFACTOR: parent-owned zero-delay single-shot timer, coalesced latest
+profiles/progress, bounded per-delivery loudness progress, direct indexed batch
+painting with one sort suspension, terminal flushing, and context invalidation.
+VERIFY: all new regressions pass; focused Pyright and lint/format are clean.
+Parent confirmed the three unrelated broad MainWindow readiness fixture failures
+are already corrected on integration commit 6f7a769; their expectations remain
+unchanged here. Final aggregate release gate stays with the integration parent.

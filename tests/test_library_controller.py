@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from unittest.mock import Mock
 
+import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from xfinaudio.audio.danceability import DanceabilityProfile
 from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, EdgeSpectralProfile, SpectralProfile
 from xfinaudio.config.settings import AppSettings, LoudnessSettings
+from xfinaudio.desktop.library_columns import column_index
 from xfinaudio.desktop.main_window import MainWindow
+from xfinaudio.desktop.rendering import _format_spectral_color
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.playlist_service import recommend_playlist
@@ -142,6 +147,7 @@ def test_danceability_profile_ready_updates_state_and_requests_sync(monkeypatch)
     profile = _danceability_profile()
 
     controller.on_danceability_profile_ready(record.path, profile)
+    _ensure_app().processEvents()
 
     assert controller._state.scanned_records[0].danceability_profile == profile
     assert controller._state.records_by_path[record.path].danceability_profile == profile
@@ -183,6 +189,7 @@ def test_edge_profile_ready_updates_state_and_requests_sync(monkeypatch) -> None
     profile = EdgeSpectralProfile(intro=edge, outro=edge)
 
     controller.on_edge_spectral_profile_ready(record.path, profile)
+    _ensure_app().processEvents()
 
     assert controller._state.scanned_records[0].edge_spectral_profile == profile
     assert controller._state.records_by_path[record.path].edge_spectral_profile == profile
@@ -240,6 +247,7 @@ def test_library_selection_and_profile_completion_refresh_loudness_detail() -> N
     assert window._library_screen.loudness_detail_label.text() == "Loudness: not measured"
 
     controller.on_loudness_profile_ready(record.path, _loudness_profile())
+    _ensure_app().processEvents()
     assert window._library_screen.loudness_detail_label.text().startswith("LUFS: -9.5")
 
     controller.on_library_selection_changed([])
@@ -325,3 +333,150 @@ def test_rescan_does_not_clear_persisted_build_constraints() -> None:
     window._library_controller.clear_scan_dependent_state()
 
     assert settings_repository.saved_settings[-1].build.excluded_paths == frozenset({"/music/track.flac"})
+
+
+def test_cached_result_burst_publishes_once_per_tick_with_latest_values() -> None:
+    app = _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    controller = window._library_controller
+    records = [TrackRecord(path=f"/{i}.flac") for i in range(1000)]
+    window._replace_app_state(
+        window._state.with_scanned_records(records).model_copy(
+            update={"is_completing_loudness": True, "loudness_total_count": 1000}
+        )
+    )
+    original = window._state
+    published = Mock(wraps=controller._access.state_setter)
+    controller._access = replace(controller._access, state_setter=published)
+    controller._request_sync = Mock()
+    for i, record in enumerate(records):
+        controller.on_spectral_profile_ready(record.path, _spectral_profile())
+        controller.on_spectral_progress_updated(i + 1, 1000)
+        controller.on_loudness_profile_ready(record.path, _loudness_profile())
+    controller.on_spectral_profile_ready(records[0].path, None)
+    assert published.call_count == 0
+    assert window._state is original
+
+    app.processEvents()
+
+    assert published.call_count == 1
+    controller._request_sync.assert_called_once()
+    assert window._state.spectral_progress_count == window._state.loudness_progress_count == 1000
+    assert window._state.scanned_records[0].spectral_profile is None
+    assert all(r.spectral_profile == _spectral_profile() for r in window._state.scanned_records[1:])
+    assert all(r.loudness_profile == _loudness_profile() for r in window._state.scanned_records)
+    assert all(r.loudness_profile is None for r in original.scanned_records)
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [
+        "on_spectral_completion_finished",
+        "on_danceability_completion_finished",
+        "on_edge_spectral_completion_finished",
+        "on_loudness_completion_finished",
+        "cancel_spectral_completion_worker",
+        "cancel_danceability_completion_worker",
+        "cancel_edge_spectral_completion_worker",
+        "cancel_loudness_completion",
+        "shutdown",
+    ],
+)
+def test_terminal_callback_flushes_received_results_before_handoff(terminal, monkeypatch) -> None:
+    app = _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    controller = window._library_controller
+    record = TrackRecord(path="/cached.flac")
+    window._replace_app_state(window._state.with_scanned_records([record]))
+
+    def check_handoff(*_args):
+        assert window._state.scanned_records[0].spectral_profile == _spectral_profile()
+
+    for method in (
+        "start_danceability_completion_worker",
+        "start_edge_spectral_completion_worker",
+        "start_loudness_completion",
+    ):
+        monkeypatch.setattr(controller, method, Mock(side_effect=check_handoff))
+    controller.on_spectral_profile_ready(record.path, _spectral_profile())
+    assert window._state.scanned_records[0].spectral_profile is None
+    getattr(controller, terminal)()
+    assert window._state.scanned_records[0].spectral_profile == _spectral_profile()
+    after = window._state
+    app.processEvents()
+    assert window._state is after
+
+
+def test_replaced_library_discards_pending_batch_and_keeps_new_metadata() -> None:
+    app = _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    controller = window._library_controller
+    record = TrackRecord(path="/same.flac", title="Old")
+    controller.populate_track_table([record])
+    controller.on_spectral_profile_ready(record.path, _spectral_profile())
+    controller.populate_track_table([record.model_copy(update={"title": "Rescanned"})])
+    after = window._state
+    app.processEvents()
+    assert window._state is after
+    assert window._state.scanned_records[0].title == "Rescanned"
+    assert window._state.scanned_records[0].spectral_profile is None
+    assert window._library_screen.tracks_table.item(0, column_index("Color")).text() == ""
+
+
+def test_batch_paints_correct_paths_after_sort_filter_and_suspends_native_sort(monkeypatch) -> None:
+    app = _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    controller = window._library_controller
+    records = [TrackRecord(path=f"/{i}.flac", title=f"{10 - i}") for i in range(10)]
+    controller.populate_track_table(records)
+    table = window._library_screen.tracks_table
+    table.setSortingEnabled(True)
+    table.sortItems(column_index("Color"), Qt.SortOrder.DescendingOrder)
+    table.setRowHidden(3, True)
+    sorting_changes = Mock(wraps=table.setSortingEnabled)
+    monkeypatch.setattr(table, "setSortingEnabled", sorting_changes)
+    for record in records[::2]:
+        controller.on_spectral_profile_ready(record.path, _spectral_profile())
+    app.processEvents()
+    assert [call.args for call in sorting_changes.call_args_list] == [(False,), (True,)]
+    assert table.isSortingEnabled()
+    for row in range(table.rowCount()):
+        path = table.item(row, column_index("Path")).text()
+        assert table.item(row, column_index("Color")).text() == _format_spectral_color(
+            window._state.records_by_path[path]
+        )
+
+
+def test_duplicate_loudness_deliveries_count_before_profile_coalescing_and_clamp() -> None:
+    app = _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    controller = window._library_controller
+    record = TrackRecord(path="/repeat.flac")
+    window._replace_app_state(
+        window._state.with_scanned_records([record]).model_copy(
+            update={"is_completing_loudness": True, "loudness_total_count": 2}
+        )
+    )
+    for _ in range(3):
+        controller.on_loudness_profile_ready(record.path, _loudness_profile())
+    controller.on_danceability_profile_ready(record.path, _danceability_profile())
+    app.processEvents()
+    assert window._state.loudness_progress_count == 2
+    assert window._state.scanned_records[0].danceability_profile == _danceability_profile()
+    assert window._state.scanned_records[0].loudness_profile == _loudness_profile()
+
+
+def test_progress_only_tick_reuses_collections_and_keeps_intervening_updates() -> None:
+    app = _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    controller = window._library_controller
+    records = [TrackRecord(path="/a.flac")]
+    window._replace_app_state(window._state.with_scanned_records(records))
+    before = window._state
+    controller.on_spectral_progress_updated(1, 2)
+    window._replace_app_state(window._state.model_copy(update={"changes_detected_since_scan": True}))
+    app.processEvents()
+    assert window._state.scanned_records is before.scanned_records
+    assert window._state.records_by_path is before.records_by_path
+    assert window._state.changes_detected_since_scan
+    assert window._state.spectral_progress_count == 1

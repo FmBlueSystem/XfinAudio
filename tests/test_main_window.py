@@ -895,7 +895,9 @@ def test_main_window_spectral_progress_update_replaces_app_state_immutably() -> 
 
     window._on_spectral_progress_updated(2, 5)
 
-    # State changes immediately; the render is coalesced behind the sync timer.
+    assert window._state is previous_state
+    ensure_app().processEvents()
+    # Snapshot publication occurs on a tick; rendering remains coalesced.
     assert window._state is not previous_state
     assert window._state.is_completing_spectral is True
     assert window._state.spectral_progress_count == 2
