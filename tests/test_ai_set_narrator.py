@@ -350,3 +350,11 @@ def test_narration_includes_actual_scores_and_readiness_checks_without_paths(ai_
     assert "Two tracks miss energy" in prompt
     assert "/Music" not in prompt
     assert "/private" not in prompt
+
+
+@pytest.mark.parametrize(
+    "content", ["", "   ", "word " * 151, "x" * 2401], ids=["empty", "blank", "words", "characters"]
+)
+def test_narrator_rejects_empty_and_unbounded_commentary(ai_env: None, content: str) -> None:
+    with pytest.raises(ValueError, match="narrative"):
+        narrate_set(make_recommendation(), make_readiness(), transport=FakeTransport(content))

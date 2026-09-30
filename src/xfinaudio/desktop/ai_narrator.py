@@ -231,7 +231,7 @@ class AiNarratorController(QObject):
         self._replace_state(updated_state)
         self._review_screen.render(self._review_vm, updated_state)
         self._on_state_changed()
-        self._set_status(self.tr("Set narrative ready"))
+        self._set_status(self.tr("Set narrative ready. AI-generated commentary; verify against local engine facts."))
 
     @Slot(object)
     def on_failed(self, error: object) -> None:

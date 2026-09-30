@@ -648,3 +648,11 @@ def test_review_selected_replacement_is_preview_only_and_clears_on_change(qapp: 
     assert [track.path for track in state.last_recommendation.ordered_tracks] == ["/a", "/b"]
     screen.render(ReviewViewModel(), _review_state(["/new-a", "/new-b"]))
     assert not screen.replacement_details.toPlainText()
+
+
+def test_model_commentary_is_plain_text_even_for_html(qapp: QApplication) -> None:
+    screen = ReviewScreen()
+    narrative = '<img src="https://invalid.example/private">'
+    screen.render(ReviewViewModel(), _review_state(["/a", "/b"], ai_narrative_text=narrative))
+    assert screen.ai_narrative_label.textFormat() == Qt.TextFormat.PlainText
+    assert screen.ai_narrative_label.text() == narrative

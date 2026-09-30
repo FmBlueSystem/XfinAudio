@@ -235,6 +235,8 @@ class ReviewScreen(QWidget):
         self.ai_narrative_label = QLabel()
         self.ai_narrative_label.setObjectName("ai_narrative_label")
         self.ai_narrative_label.setWordWrap(True)
+        self.ai_narrative_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.ai_narrative_label.setToolTip(self.tr("AI-generated commentary; verify against local engine facts"))
         self.ai_narrative_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.ai_narrative_label.setMaximumHeight(150)
         self.ai_narrative_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -246,6 +248,7 @@ class ReviewScreen(QWidget):
         self.ai_narrate_status = QLabel("")
         self.ai_narrate_status.setObjectName("ai_narrate_status")
         self.ai_narrate_status.setWordWrap(True)
+        self.ai_narrate_status.setTextFormat(Qt.TextFormat.PlainText)
         self.ai_narrate_status.setMaximumHeight(36)
         layout.addWidget(self.ai_narrate_status)
 

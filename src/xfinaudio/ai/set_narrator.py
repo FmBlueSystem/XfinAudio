@@ -78,13 +78,16 @@ def narrate_set(
     if not recommendation.ordered_tracks:
         raise ValueError("There is nothing to narrate: the recommendation holds no ordered tracks.")
 
-    return chat(
+    narrative = chat(
         _build_facts(recommendation, readiness),
         system=_build_system_prompt(),
         model=model,
         timeout=timeout,
         transport=transport,
     )
+    if not narrative.strip() or len(narrative.split()) > _MAX_WORDS or len(narrative) > 2400:
+        raise ValueError("The narrative was empty or exceeded the short-commentary limit. Please retry.")
+    return narrative
 
 
 def _build_system_prompt() -> str:

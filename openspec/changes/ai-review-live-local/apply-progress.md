@@ -34,3 +34,8 @@ Slice 7a: RED missing replacement helper and UI action; GREEN 34 Review pure/wid
 tests. Real table+button mouse interaction previews original/proposed scores and
 readiness, protects locked/manual/start/end tracks, excludes forbidden candidates,
 passes current loudness/scoring and preserves generation policy. No apply action.
+
+Slice 7b: RED empty/oversized provider replies and rich-text rendering; GREEN
+71 narrator/controller/Review tests. Replies are bounded to 150 words/2400 chars,
+empty output is retryable, and HTML remains literal PlainText. Success explicitly
+labels generated commentary for checking against authoritative local facts.
