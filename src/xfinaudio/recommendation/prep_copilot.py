@@ -7,7 +7,7 @@ algorithm only proposes auditable options.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -108,6 +108,7 @@ def build_prep_copilot_plan(
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
     familiarity: Mapping[str, FamiliaritySignal] | None = None,
     familiarity_weight: float = 0.0,
+    checkpoint: Callable[[str], None] | None = None,
 ) -> PrepCopilotPlan:
     """Build safe, balanced, and adventurous playlist variants for one DJ set intent.
 
@@ -126,35 +127,24 @@ def build_prep_copilot_plan(
     from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
 
     PrepCopilotVariant.model_rebuild()
-    variants = [
-        _build_variant(
-            "safe",
-            tracks,
-            intent,
-            color_anchor_path=color_anchor_path,
-            loudness_band=loudness_band,
-            familiarity=familiarity,
-            familiarity_weight=familiarity_weight,
-        ),
-        _build_variant(
-            "balanced",
-            tracks,
-            intent,
-            color_anchor_path=color_anchor_path,
-            loudness_band=loudness_band,
-            familiarity=familiarity,
-            familiarity_weight=familiarity_weight,
-        ),
-        _build_variant(
-            "adventurous",
-            tracks,
-            intent,
-            color_anchor_path=color_anchor_path,
-            loudness_band=loudness_band,
-            familiarity=familiarity,
-            familiarity_weight=familiarity_weight,
-        ),
-    ]
+    variants = []
+    names: tuple[PrepVariantName, ...] = ("safe", "balanced", "adventurous")
+    for name in names:
+        if checkpoint is not None:
+            checkpoint(name)
+        variants.append(
+            _build_variant(
+                name,
+                tracks,
+                intent,
+                color_anchor_path=color_anchor_path,
+                loudness_band=loudness_band,
+                familiarity=familiarity,
+                familiarity_weight=familiarity_weight,
+            )
+        )
+    if checkpoint is not None:
+        checkpoint("complete")
     return PrepCopilotPlan(intent=intent, variants=variants)
 
 

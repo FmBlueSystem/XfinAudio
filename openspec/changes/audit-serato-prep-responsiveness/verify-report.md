@@ -10,3 +10,9 @@ Not started: planning only. No implementation or verification claims for G1/G2/H
 - GREEN: 77 focused tests pass; heartbeat continues, duplicate requests produce one worker call, execution is off GUI, publication returns to GUI, failed work retains prior plan.
 - MainWindow Prep/compact group: 9 pass, 1 preexisting algorithm readiness expectation mismatch (Needs Review versus Ready), already assigned to algorithm owner.
 - Focused lint/format pass. Type check identified only a test's open-ended **kwargs inference after adding a typed factory parameter; annotated that test dictionary explicitly.
+
+## G2a cooperative domain boundary
+- RED: 2 callback-contract tests fail on the pre-change implementation.
+- GREEN: 27 tests pass across checkpoint, Prep domain and application suites.
+- Checkpoints preserve output by default and stop subsequent variants when cancellation is raised.
+- Focused Ruff lint and format pass. Desktop wiring and full integrated gate remain pending.

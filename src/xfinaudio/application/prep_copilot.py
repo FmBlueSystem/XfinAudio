@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -31,6 +32,7 @@ class PlanBuilder(Protocol):
         *,
         color_anchor_path: str | None = None,
         loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+        checkpoint: Callable[[str], None] | None = None,
     ) -> PrepCopilotPlan: ...
 
 
@@ -57,6 +59,7 @@ def generate_prep_copilot_plan(
     plan_builder: PlanBuilder = build_prep_copilot_plan,
     color_anchor_path: str | None = None,
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    checkpoint: Callable[[str], None] | None = None,
 ) -> PrepCopilotPlan:
     """Generate a Prep Copilot plan from UI-derived generation parameters.
 
@@ -75,6 +78,10 @@ def generate_prep_copilot_plan(
         genre_focus=request.genre_focus,
         pool_note_preamble=request.pool_note_preamble,
     )
+    if checkpoint is not None:
+        return plan_builder(
+            records, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band, checkpoint=checkpoint
+        )
     return plan_builder(records, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band)
 
 
