@@ -2,3 +2,5 @@
 2026-09-30: Proposal, specification, design and tasks initialized before production changes. Chained review budget: each commit <=400 changed lines. RED privacy tests next.
 
 Slice 1: RED reproduced missing privacy module, then GREEN 45 focused tests including the original path-in-title/genre disclosure bug and generic quoted POSIX/Windows paths. Additional Windows intent regression passes (46 combined tests). No live requests.
+
+Slice 2: RED missing structured service, GREEN 35 new Library/Editor contracts and 81 combined focused tests. Shared parser rejects extra fields, duplicate keys, nonfinite/oversized/fenced JSON and invalid numbers; errors are bounded. Library validates existing genres and filters; Editor emits only four canonical local commands. Refactored shared transport/JSON utilities for subsequent saved/evidence services.
