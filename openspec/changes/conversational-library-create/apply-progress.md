@@ -35,3 +35,10 @@ Slice 5b RED: 5 actual-widget controller scenarios fail as expected: old code
 plans before confirmation, lacks cancellation/retry wiring, accepts stale context,
 and directs configuration failures to restart. Tests committed as the red boundary;
 next linked slice implements the two-stage lifecycle.
+
+Slice 5c GREEN: interpretation and local generation are separate workers with
+mandatory visible confirmation, editable fields, cancel/retry, snapshot validity
+checks before confirmation and publication, and queued request-ID checks. Existing
+controller tests now explicitly confirm before expecting a plan; real QThread test
+still proves extraction is off UI thread. 23 controller/workflow tests pass.
+Candidate-route factory is an explicit coordinator integration hook.
