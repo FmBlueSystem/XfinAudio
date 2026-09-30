@@ -37,7 +37,7 @@ class _LiveFact(_Fact):
     rank: int = Field(ge=1, le=20)
     score: float = Field(ge=0, le=1)
     bpm_delta: float | None = Field(ge=0, le=40_000)
-    energy_delta: float | None = Field(ge=-10, le=10)
+    energy_delta: float | None = Field(ge=0, le=10)
     readiness: Literal["ready"]
 
 
@@ -74,13 +74,21 @@ def explain_grounded_evidence(
         raise ValueError("Evidence references must be unique.")
     if kind == "live" and [fact["rank"] for fact in facts] != list(range(1, len(facts) + 1)):
         raise ValueError("Candidate facts must preserve the local ranking.")
-    context = {"kind": kind, "facts": [fact.model_dump(mode="json") for fact in models]}
+    context: dict[str, object] = {"kind": kind, "facts": [fact.model_dump(mode="json") for fact in models]}
+    if kind == "live":
+        context["metric_definitions"] = {
+            "score": "Unitless local compatibility score from 0 to 1; not a probability.",
+            "bpm_delta": "Absolute symmetric percentage difference after half-time normalization, not BPM units.",
+            "energy_delta": "An absolute energy-level gap on the 1-10 scale; outgoing-to-incoming where known, "
+            "otherwise whole-track energy.",
+            "direction": "No increase or decrease direction is supplied for either gap; do not infer one.",
+        }
     detail = (
         "Explain why absent BPM prevents tempo checking, absent key prevents harmonic checking, "
         "and absent energy prevents progression checking. Actual repair priority is locked tracks first, "
         "then fewer missing fields. No per-track data is supplied; do not name tracks or invent tag values."
         if kind == "metadata"
-        else "Explain the existing candidate ranking from supplied scores and deltas only. "
+        else "Explain the existing candidate ranking from supplied scores and explicitly defined absolute gaps only. "
         "Candidate IDs map to the displayed ranks; readiness belongs to the local validator. "
         "Do not claim transition timing, cue points, audio analysis or safety beyond those facts."
     )

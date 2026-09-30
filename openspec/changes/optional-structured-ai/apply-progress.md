@@ -16,3 +16,9 @@ saved-name anonymity or raise KeyError. RED covers STRASSE/Straße, Istanbul/İ,
 decomposed accents and ambiguous normalized names. GREEN maps normalized alias
 spans back to the original request, preserving unrelated text, and fails closed
 on ambiguous names. 31 saved-set/privacy checks pass.
+
+Final musical review: Live commentary now receives explicit metric definitions:
+BPM is the absolute symmetric percentage after half-time normalization, energy
+is an absolute level gap, and no upward/downward direction is supplied. Scores
+are unitless compatibility, not probability. Negative directional energy gaps
+are rejected before transport. RED/GREEN: 25 evidence/UI tests pass.

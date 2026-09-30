@@ -45,7 +45,7 @@ def install_explanation_controls(
             window._live_assistant_screen,
             2,
             "Explain current choices with AI using anonymous candidate IDs, local ranks, scores, "
-            "BPM/energy differences and readiness.",
+            "half-time-normalized BPM percentage gaps, absolute energy-level gaps and readiness.",
         ),
     ):
         panel, output = _commentary_panel(window, screen, index, disclosure)

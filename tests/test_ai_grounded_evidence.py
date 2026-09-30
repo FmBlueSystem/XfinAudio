@@ -80,3 +80,20 @@ def test_commentary_cannot_hide_an_unknown_candidate_id_in_the_prose():
     transport = FakeTransport('{"commentary":"Choose c99 instead.","fact_ids":["c0"]}')
     with pytest.raises(ValueError, match="AI interpretation"):
         explain_grounded_evidence("live", live(), transport=transport)
+
+
+def test_live_evidence_declares_percent_normalization_and_nondirectional_energy_gap():
+    transport = FakeTransport('{"commentary":"Compare the supplied absolute gaps.","fact_ids":["c0"]}')
+    explain_grounded_evidence("live", live(), transport=transport)
+    prompt = message_text(transport)
+    assert "percentage" in prompt and "half-time normalization" in prompt
+    assert "absolute energy-level gap" in prompt
+    assert "No increase or decrease direction is supplied" in prompt
+    assert "not a probability" in prompt
+
+
+def test_live_energy_gap_cannot_be_negative_directional_evidence():
+    transport = FakeTransport("{}")
+    with pytest.raises(ValueError):
+        explain_grounded_evidence("live", [live()[0] | {"energy_delta": -2}], transport=transport)
+    assert not transport.requests
