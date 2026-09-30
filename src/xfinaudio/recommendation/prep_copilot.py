@@ -361,11 +361,11 @@ def _add_required_track_gate(
             status="blocked",
             detail=f"{missing_required_count} required track(s) could not pass playlist gates",
         )
-        if any("BPM jump" in warning for warning in recommendation.warnings):
+        if any("BPM jump" in warning or "BPM ceiling" in warning for warning in recommendation.warnings):
             bpm_check = DjReadinessCheck(
                 label="BPM continuity",
                 status="blocked",
-                detail="A required track was dropped because it would exceed the adjacent BPM gate",
+                detail="A required transition cannot satisfy the adjacent BPM gate",
             )
             checks = [*readiness.checks, bpm_check, missing_check]
         else:

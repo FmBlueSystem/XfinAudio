@@ -328,8 +328,10 @@ def recommend_playlist(
         weights=weights_override or strategy.weights,
         spectral_cohesion=spectral_cohesion,
     )
-    complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
-    incomplete_count = len(tracks) - len(complete_tracks)
+    complete_tracks = [
+        track for track in tracks if track.metadata_status == "complete" and track.path not in controls.excluded_paths
+    ]
+    incomplete_count = sum(track.metadata_status != "complete" for track in tracks)
     if incomplete_count:
         warnings.append(f"Excluded {incomplete_count} incomplete track(s)")
 
@@ -398,6 +400,21 @@ def recommend_playlist(
         )
 
     manual_prefix = _manual_prefix_without_terminal_end(applied.manual_prefix, applied.end_path)
+    if arc_shape is not None and any(
+        left.bpm is not None
+        and right.bpm is not None
+        and bpm_difference_percent(left.bpm, right.bpm) > MAX_ADJACENT_BPM_DIFFERENCE_PERCENT
+        for left, right in zip(manual_prefix, manual_prefix[1:], strict=False)
+    ):
+        return PlaylistRecommendation(
+            ordered_tracks=[],
+            transition_scores=[],
+            strategy=strategy,
+            warnings=[*warnings, "Mandatory manual prefix exceeds the BPM ceiling; revise the manual order"],
+            applied_controls=applied.summary(),
+            optimizer="constraint-validation",
+            total_score=0.0,
+        )
     manual_paths = {track.path for track in manual_prefix}
     remaining_tracks = [track for track in applied.candidate_tracks if track.path not in manual_paths]
     start_path = applied.start_path if not manual_prefix else None
@@ -974,7 +991,9 @@ def prefilter_strategy_candidates(
     strategy = (strategy_registry or default_strategy_registry()).get(str(strategy_name))
     controls = controls or DJControls()
     preserve_paths = preserved_control_paths(controls)
-    complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
+    complete_tracks = [
+        track for track in tracks if track.metadata_status == "complete" and track.path not in controls.excluded_paths
+    ]
 
     filtered, _ = _apply_strategy_filters(
         complete_tracks, strategy, preserve_paths=preserve_paths, loudness_band=loudness_band
@@ -1022,7 +1041,9 @@ def resolve_color_anchor_path(
     strategy = default_strategy_registry().get(str(strategy_name))
     controls = controls or DJControls()
     preserve_paths = preserved_control_paths(controls)
-    complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
+    complete_tracks = [
+        track for track in tracks if track.metadata_status == "complete" and track.path not in controls.excluded_paths
+    ]
     filtered, _ = _apply_strategy_filters(
         complete_tracks, strategy, preserve_paths=preserve_paths, loudness_band=loudness_band
     )

@@ -106,7 +106,7 @@ def _validate_known_paths(by_path: dict[str, TrackRecord], controls: DJControls)
         if path is not None and path not in by_path:
             raise ValueError(f"Unknown {label}: {path}")
     for path in sorted(controls.manual_order_paths):
-        if path not in by_path:
+        if path not in controls.excluded_paths and path not in by_path:
             raise ValueError(f"Unknown manual_order_path: {path}")
     for path in sorted(controls.locked_paths):
         if path not in by_path:

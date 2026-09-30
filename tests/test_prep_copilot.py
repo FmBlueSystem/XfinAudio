@@ -293,7 +293,7 @@ def test_pool_notes_do_not_warn_when_variant_simply_meets_the_requested_cap() ->
         assert not any("only the anchor" in warning.casefold() for warning in variant.warnings)
 
 
-def test_prep_copilot_surfaces_review_variant_when_required_track_breaks_bpm_gate() -> None:
+def test_prep_copilot_blocks_variant_when_required_track_breaks_bpm_gate() -> None:
     tracks = [
         track("/music/start.flac", bpm=100, key="8A", energy=4, genre="House"),
         track("/music/required.flac", bpm=110, key="8A", energy=5, genre="House"),
@@ -309,9 +309,9 @@ def test_prep_copilot_surfaces_review_variant_when_required_track_breaks_bpm_gat
 
     plan = build_prep_copilot_plan(tracks, intent)
 
-    assert any(variant.readiness.status == "needs_review" for variant in plan.variants)
+    assert all(variant.readiness.status == "blocked" for variant in plan.variants)
     assert any(
-        check.label == "BPM continuity" and check.status == "needs_review"
+        check.label == "BPM continuity" and check.status == "blocked"
         for variant in plan.variants
         for check in variant.readiness.checks
     )

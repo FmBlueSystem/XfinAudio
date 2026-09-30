@@ -395,7 +395,7 @@ def test_half_time_candidate_lands_in_closest_bpm_bucket() -> None:
 
 def test_diagonal_key_reaches_default_pool_despite_adjacent_key_crowd() -> None:
     anchor = track("/anchor.flac").model_copy(update={"camelot_key": "7A"})
-    diagonal = track("/00-diagonal.flac").model_copy(update={"camelot_key": "8B"})
+    diagonal = track("/00-diagonal.flac").model_copy(update={"camelot_key": "6B"})
     adjacent = [track(f"/adjacent-{index:02d}.flac").model_copy(update={"camelot_key": "8A"}) for index in range(25)]
 
     pool = build_recommendation_pool(
@@ -410,7 +410,7 @@ def test_candidate_pool_orders_camelot_score_bands() -> None:
     anchor = track("/anchor.flac").model_copy(update={"camelot_key": "7A"})
     candidates = [
         track("/a-same.flac").model_copy(update={"camelot_key": "7A"}),
-        track("/b-diagonal.flac").model_copy(update={"camelot_key": "8B"}),
+        track("/b-diagonal.flac").model_copy(update={"camelot_key": "6B"}),
         track("/c-relative.flac").model_copy(update={"camelot_key": "7B"}),
         track("/d-energy-boost.flac").model_copy(update={"camelot_key": "9A"}),
         track("/e-semitone-lift.flac").model_copy(update={"camelot_key": "2A"}),

@@ -158,6 +158,8 @@ def dedupe_recommendation_duplicates(
     song outright downstream — this is the exact defect this restriction
     prevents.
     """
+    if controls is not None:
+        records = [record for record in records if record.path not in controls.excluded_paths]
     preserve = preserved_control_paths(controls) if controls is not None else set()
     # A bound colour-gate anchor is a protected identity: it must survive
     # dedupe intact so a duplicate sibling can never become the representative
@@ -271,6 +273,8 @@ def build_recommendation_pool(
         familiarity=familiarity,
         familiarity_weight=familiarity_weight,
     )
+    if controls is not None and protected_path in controls.excluded_paths:
+        return pool
     if protected_path is None or any(track.path == protected_path for track in pool):
         return pool
     protected = next((track for track in scanned_records if track.path == protected_path), None)
@@ -300,7 +304,11 @@ def _build_recommendation_pool(
     familiarity: Mapping[str, FamiliaritySignal] | None = None,
     familiarity_weight: float = 0.0,
 ) -> list[TrackRecord]:
-    complete_records = [r for r in scanned_records if r.metadata_status == "complete"]
+    complete_records = [
+        r
+        for r in scanned_records
+        if r.metadata_status == "complete" and (controls is None or r.path not in controls.excluded_paths)
+    ]
 
     priority_paths: list[str] = []
     if controls is not None:
