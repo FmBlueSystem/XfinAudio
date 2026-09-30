@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from collections.abc import Sequence
 from typing import Literal
 
@@ -81,32 +82,47 @@ def build_saved_descriptors(
     return tuple(result)
 
 
+def _folded_spans(value: str) -> tuple[str, list[tuple[int, int]]]:
+    """Normalize aliases while preserving original offsets, including expanding folds."""
+    folded: list[str] = []
+    spans: list[tuple[int, int]] = []
+    index = 0
+    while index < len(value):
+        end = index + 1
+        while end < len(value) and unicodedata.combining(value[end]):
+            end += 1
+        normalized = unicodedata.normalize("NFKD", value[index:end].casefold())
+        chunk = "".join(char for char in normalized if not unicodedata.combining(char))
+        folded.extend(chunk)
+        spans.extend([(index, end)] * len(chunk))
+        index = end
+    return "".join(folded), spans
+
+
 def anonymize_saved_request(request: str, playlists: Sequence[Playlist]) -> str:
-    """Map named references locally in one pass; duplicate names need clarification."""
+    """Map Unicode-equivalent names in one pass, retaining unrelated request text."""
     lookup: dict[str, str] = {}
     duplicates: set[str] = set()
-    original_names = {playlist.name.strip() for playlist in playlists if playlist.name.strip()}
     for index, playlist in enumerate(playlists):
-        name = playlist.name.strip().casefold()
+        name, _ = _folded_spans(playlist.name.strip())
         if name in lookup:
             duplicates.add(name)
         elif name:
             lookup[name] = f"s{index}"
+    normalized, spans = _folded_spans(request)
     pattern = re.compile(
-        r"(?<!\w)(?:"
-        + "|".join(re.escape(name) for name in sorted(original_names, key=len, reverse=True))
-        + r")(?!\w)",
-        re.IGNORECASE,
+        r"(?<!\w)(?:" + "|".join(re.escape(name) for name in sorted(lookup, key=len, reverse=True)) + r")(?!\w)"
     )
-
-    def replace(match: re.Match[str]) -> str:
-        name = match[0].casefold()
-        if name in duplicates:
+    pieces: list[str] = []
+    cursor = 0
+    for match in pattern.finditer(normalized) if lookup else ():
+        if match[0] in duplicates:
             raise ValueError("Several saved sets have the same name. Rename them or select them manually.")
-        return lookup[name]
-
-    text = pattern.sub(replace, request) if lookup else request
-    return redact_paths(text, (path for playlist in playlists for path in playlist.track_paths))
+        start, end = spans[match.start()][0], spans[match.end() - 1][1]
+        pieces.extend((request[cursor:start], lookup[match[0]]))
+        cursor = end
+    pieces.append(request[cursor:])
+    return redact_paths("".join(pieces), (path for playlist in playlists for path in playlist.track_paths))
 
 
 def interpret_saved_request(

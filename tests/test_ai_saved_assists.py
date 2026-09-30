@@ -122,3 +122,26 @@ def test_unicode_saved_names_are_removed_before_network():
     playlists, _ = examples()
     playlists[0] = Playlist(7, "Straße Sunset", playlists[0].created_at, playlists[0].updated_at, [])
     assert anonymize_saved_request("compare Straße Sunset and Evening", playlists) == "compare s0 and s1"
+
+
+@pytest.mark.parametrize(
+    ("name", "reference"),
+    [("Straße Sunset", "STRASSE SUNSET"), ("İstanbul", "istanbul"), ("Café", "Cafe\u0301")],
+)
+def test_saved_name_unicode_equivalents_are_anonymous_and_preserve_other_text(name, reference):
+    playlists, _ = examples()
+    playlists[0] = Playlist(7, name, playlists[0].created_at, playlists[0].updated_at, [])
+    assert (
+        anonymize_saved_request(f"Compara {reference} y Evening para mañana", playlists)
+        == "Compara s0 y s1 para mañana"
+    )
+
+
+def test_normalization_ambiguous_saved_names_fail_closed():
+    playlists, _ = examples()
+    playlists = [
+        Playlist(index, name, p.created_at, p.updated_at, [])
+        for index, (name, p) in enumerate(zip(["Café", "Cafe"], playlists, strict=True))
+    ]
+    with pytest.raises(ValueError, match="same name"):
+        anonymize_saved_request("find café", playlists)

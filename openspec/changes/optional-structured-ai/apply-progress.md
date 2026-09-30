@@ -10,3 +10,9 @@ Slice 3: RED missing saved-set exports, GREEN 11 anonymous descriptor/selection 
 Slice 4 approved extension: RED missing evidence commentary entrypoint, GREEN 18 Metadata/Live tests. Input schemas reject paths/titles/extra fields, nonfinite scores, impossible gap counts and unready or reordered candidates. Output is bounded, plain, read-only commentary with validated fact IDs. Narrative semantics remain optional model interpretation, not authoritative measurements; UI must keep that label and local facts visible.
 
 Slice 5 hardening: RED reproduced adjacent known-path leaks, Windows case variants, Unicode saved-name leakage, unknown IDs hidden in commentary, and unrelated spaced paths in narrator facts. GREEN preserves musical language and computed numbers while removing those paths/references. Shared sanitizer now also protects narrator facts. 138 focused service/privacy/narrator tests and focused typing pass; lint/import cleanup included.
+
+Independent acceptance found expanding Unicode folds and dotted-I could bypass
+saved-name anonymity or raise KeyError. RED covers STRASSE/Straße, Istanbul/İ,
+decomposed accents and ambiguous normalized names. GREEN maps normalized alias
+spans back to the original request, preserving unrelated text, and fails closed
+on ambiguous names. 31 saved-set/privacy checks pass.
