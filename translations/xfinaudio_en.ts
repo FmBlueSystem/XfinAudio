@@ -644,6 +644,30 @@
         <source>Export to {name}</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Report Folder</source>
+        <translation>Report Folder</translation>
+    </message>
+    <message>
+        <source>Preview the destination, then export directly to Serato. Existing crates are backed up before replacement; audio files are not copied.</source>
+        <translation>Preview the destination, then export directly to Serato. Existing crates are backed up before replacement; audio files are not copied.</translation>
+    </message>
+    <message>
+        <source>Report folder: optional for Serato crates</source>
+        <translation>Report folder: optional for Serato crates</translation>
+    </message>
+    <message>
+        <source>Choose the report folder; Serato crates still go directly to Serato</source>
+        <translation>Choose the report folder; Serato crates still go directly to Serato</translation>
+    </message>
+    <message>
+        <source>Report folder</source>
+        <translation>Report folder</translation>
+    </message>
+    <message>
+        <source>Choose report folder</source>
+        <translation>Choose report folder</translation>
+    </message>
 </context>
 <context>
     <name>ExportViewModel</name>
@@ -708,6 +732,22 @@
         <location filename="../src/xfinaudio/desktop/export_view_model.py" line="128"/>
         <source>Preview shows the planned crate contents without writing any files.</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Report folder: optional</source>
+        <translation>Report folder: optional</translation>
+    </message>
+    <message>
+        <source>Report folder: {0}</source>
+        <translation>Report folder: {0}</translation>
+    </message>
+    <message>
+        <source>Build a playlist first. Preview shows the full destination without writing files. Crates export directly to _Serato_/Subcrates with backup before replacement. The optional report folder only changes report destinations for Serato.</source>
+        <translation>Build a playlist first. Preview shows the full destination without writing files. Crates export directly to _Serato_/Subcrates with backup before replacement. The optional report folder only changes report destinations for Serato.</translation>
+    </message>
+    <message>
+        <source>Crates export directly to _Serato_/Subcrates with backup before replacement. The optional report folder only changes report destinations for Serato.</source>
+        <translation>Crates export directly to _Serato_/Subcrates with backup before replacement. The optional report folder only changes report destinations for Serato.</translation>
     </message>
 </context>
 <context>
@@ -1015,6 +1055,22 @@
         <location filename="../src/xfinaudio/desktop/main_window.py" line="357"/>
         <source>Safe export folder: {0}</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Report folder: optional for Serato crates</source>
+        <translation>Report folder: optional for Serato crates</translation>
+    </message>
+    <message>
+        <source>Report folder: {0} (Serato crates go directly to Serato)</source>
+        <translation>Report folder: {0} (Serato crates go directly to Serato)</translation>
+    </message>
+    <message>
+        <source>Readiness report folder: {0}</source>
+        <translation>Readiness report folder: {0}</translation>
+    </message>
+    <message>
+        <source>Backup beside crate: {0}</source>
+        <translation>Backup beside crate: {0}</translation>
     </message>
 </context>
 <context>
@@ -1659,6 +1715,18 @@
         <location filename="../src/xfinaudio/desktop/settings_dialog.py" line="137"/>
         <source>Restore all settings to their default values?</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Report folder (Serato crates go directly to Serato):</source>
+        <translation>Report folder (Serato crates go directly to Serato):</translation>
+    </message>
+    <message>
+        <source>Choose report folder</source>
+        <translation>Choose report folder</translation>
+    </message>
+    <message>
+        <source>When enabled, analysis automatically writes loudness tags and replaces existing comments.</source>
+        <translation>When enabled, analysis automatically writes loudness tags and replaces existing comments.</translation>
     </message>
 </context>
 <context>
