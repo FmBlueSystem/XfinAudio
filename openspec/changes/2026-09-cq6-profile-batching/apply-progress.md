@@ -10,3 +10,8 @@ for the missing transition (after correcting an invalid loudness test fixture).
 GREEN/REFACTOR: one keyed immutable transition, shared replacement records,
 ordered-view compatibility, unknown-path handling, progress-only cheap copies.
 Focused VERIFY: batch and existing transition tests pass.
+
+RED: indexed-row tests could not import the missing helper. GREEN/REFACTOR:
+index live Path items (Qt updates row() during native sorting), invalidate on
+structural/Path-cell changes only. VERIFY: sort, hidden rows, rebuild, removal,
+Path edits, repeated lookups, and active Color sorting pass without rescanning.

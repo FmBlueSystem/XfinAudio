@@ -17,8 +17,10 @@ timer heartbeat delay at 1k/10k/50k. Separate table setup from result replay.
   render, paints changed spectral cells directly, and refreshes loudness detail.
 - Flush received work before terminal lifecycle transitions/context replacement;
   stopped timers must not leave callbacks that can contaminate a new library.
-- Add a small lazy path-row index over QTableWidget. Structural/model layout
-  changes and Path-cell edits invalidate it; Color-cell updates do not. Native
+- Add a lazy path-to-live-Path-item index over QTableWidget. Structural changes
+  and Path-cell edits invalidate it; live item.row() follows native sorting.
+  Color-cell updates do not invalidate it. Batch painting suspends active native
+  sorting and restores it once, avoiding per-cell resort work. Native
   sort, screen rebuild, row removal, hidden search rows, and quick-filter subset
   rebuilds stay correct. No QAbstractTableModel migration.
 
