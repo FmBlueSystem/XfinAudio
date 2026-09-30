@@ -113,15 +113,17 @@ def chat(
     timeout: float = 30.0,
     transport: Transport | None = None,
     env_file: Path | None = None,
+    enabled: bool | None = None,
 ) -> str:
     """Send one chat completion request and return the assistant's text.
 
     AI must be enabled and keyed before this is reached, so failure is always an
     exception (``NanConfigError`` for configuration, ``NanRequestError`` for the
     request itself) rather than a silent empty answer. The API key value is
-    never included in the raised errors.
+    never included in the raised errors. ``enabled`` is an explicit per-call
+    opt-in for a user-triggered connection probe; it never changes runtime state.
     """
-    if not is_ai_enabled():
+    if not (is_ai_enabled() if enabled is None else enabled):
         raise NanConfigError(
             f"AI is disabled: set {ENABLED_ENV}=1 in the environment before starting XfinAudio "
             "to allow Nan Builders requests."
