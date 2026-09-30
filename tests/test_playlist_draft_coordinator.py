@@ -89,8 +89,38 @@ def test_external_edit_blocks_save_and_old_undo_cannot_modify_another_set(qapp, 
     assert host._playlist_repository.get_by_id(id_).track_paths == ["c"]
     assert "changed" in editor.status_label.text()
     other = host._playlist_repository.create("Other", ["x"])
+    editor.cancel_button.click()
     coordinator.open_playlist(other.id)
     host._undo_manager.undo()
     assert editor._track_paths == ["x"]
     coordinator.delete_playlist(other.id)
     assert editor._playlist_id is None
+
+
+def test_dirty_open_is_blocked_and_explicit_discard_allows_navigation(qapp, tmp_path):
+    host, coordinator, id_ = setup(qapp, tmp_path)
+    editor = host._playlist_editor
+    editor._on_remove_clicked(0)
+    other = host._playlist_repository.create("Other", ["x"])
+    coordinator.open_playlist(other.id)
+    assert editor._playlist_id == id_
+    assert editor._track_paths == ["b", "c"]
+    assert "discard" in editor.status_label.text()
+    editor.back_button.click()
+    host.workflow_tabs.setCurrentIndex.assert_called_with(4)
+    assert editor._track_paths == ["b", "c"]
+    editor.cancel_button.click()
+    coordinator.open_playlist(other.id)
+    assert editor._playlist_id == other.id
+
+
+def test_repository_change_invalidates_preview_before_confirmation(qapp, tmp_path):
+    host, coordinator, id_ = setup(qapp, tmp_path)
+    editor = host._playlist_editor
+    editor.edit_input.setText("shorten to 2 tracks")
+    editor.preview_button.click()
+    host._playlist_repository.update_tracks(id_, ["c"])
+    editor.confirm_button.click()
+    assert editor._track_paths == ["a", "b", "c"]
+    assert not editor.confirm_button.isEnabled()
+    assert "changed" in editor.status_label.text()

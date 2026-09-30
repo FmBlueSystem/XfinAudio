@@ -88,6 +88,13 @@ class PlaylistCoordinator:
 
     def open_playlist(self, playlist_id: int) -> None:
         """Load a saved playlist into the editor."""
+        editor = self._host._playlist_editor
+        if editor.is_dirty is True:
+            editor.status_label.setText(self._host.tr("Save or discard the current draft before opening another set."))
+            show_editor = getattr(self._host, "_show_playlist_editor", None)
+            if show_editor is not None:
+                show_editor()
+            return
         playlist = self._host._playlist_repository.get_by_id(playlist_id)
         if playlist is None:
             LOGGER.warning("Playlist %s not found on open", playlist_id)
@@ -197,13 +204,28 @@ class PlaylistCoordinator:
             excluded_paths=getattr(state, "excluded_paths", frozenset()),
         )
 
+    def _editor_matches_saved(self) -> bool:
+        editor = self._host._playlist_editor
+        saved = (
+            self._host._playlist_repository.get_by_id(editor._playlist_id) if editor._playlist_id is not None else None
+        )
+        if saved is None or tuple(saved.track_paths) != editor._saved_paths:
+            editor.dismiss_preview()
+            editor.status_label.setText(
+                self._host.tr("Saved playlist changed or was deleted. Reopen it before editing.")
+            )
+            return False
+        return True
+
     def preview_edit(self, request: str) -> None:
-        self._refresh_editor_context()
-        self._host._playlist_editor.preview_edit(request)
+        if self._editor_matches_saved():
+            self._refresh_editor_context()
+            self._host._playlist_editor.preview_edit(request)
 
     def confirm_edit(self) -> None:
-        self._refresh_editor_context()
-        self._host._playlist_editor.confirm_preview()
+        if self._editor_matches_saved():
+            self._refresh_editor_context()
+            self._host._playlist_editor.confirm_preview()
 
     def remove_track(self, path: str) -> None:
         """Removal is draft-only; Save is the sole persistence boundary."""
