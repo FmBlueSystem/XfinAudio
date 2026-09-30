@@ -17,8 +17,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from xfinaudio.desktop.live_assistance import LiveCandidate, live_session_ready, rank_live_candidates
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.quality.dj_readiness import DjReadinessReport
 from xfinaudio.recommendation.camelot import score_camelot_transition
+from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.scoring import bpm_difference_percent, effective_energy_delta
 
 
@@ -80,10 +83,12 @@ class _CandidateRow(QWidget):
         self._load_button.clicked.connect(self._on_load)
         layout.addWidget(self._load_button)
 
-        self.setVisible(False)
+        self.hide_row()
 
     def set_candidate(self, rank: int, track: TrackRecord, score: float, alerts: list[str]) -> None:
         self._track_path = track.path
+        self._load_button.setEnabled(True)
+        self._preview_button.setEnabled(True)
         self._rank_label.setText(str(rank))
         self._title_label.setText(track.title or "Unknown")
         self._artist_label.setText(track.artist or "Unknown")
@@ -100,6 +105,9 @@ class _CandidateRow(QWidget):
         self.setVisible(True)
 
     def hide_row(self) -> None:
+        self._track_path = ""
+        self._load_button.setEnabled(False)
+        self._preview_button.setEnabled(False)
         self.setVisible(False)
 
     def _on_preview(self) -> None:
@@ -127,6 +135,14 @@ class LiveAssistantScreen(QWidget):
         self._records_by_path: dict[str, TrackRecord] = {}
         self._scanned_records: list[TrackRecord] = []
         self._session_start = datetime.now()
+        self._session_recommendation: PlaylistRecommendation | None = None
+        self._session_readiness: DjReadinessReport | None = None
+        self._session_signature: tuple | None = None
+        self._played_paths: tuple[str, ...] = ()
+        self._ranked_candidates: list[LiveCandidate] = []
+        self._locked_paths: frozenset[str] = frozenset()
+        self._excluded_paths: frozenset[str] = frozenset()
+        self._spectral_cohesion = 0.0
 
         layout = QVBoxLayout(self)
 
@@ -154,11 +170,15 @@ class LiveAssistantScreen(QWidget):
         self._guidance_label.setWordWrap(True)
         layout.addWidget(self._guidance_label)
 
+        self._context_label = QLabel(self.tr("Apply a ready set in Review to start local Live guidance."))
+        self._context_label.setWordWrap(True)
+        layout.addWidget(self._context_label)
+
         # Empty state
         self._empty_state_widget = QWidget()
         empty_layout = QVBoxLayout(self._empty_state_widget)
         empty_layout.addWidget(
-            QLabel("Scan or load a playlist to start Live Assistant"),
+            QLabel("Apply a ready recommendation to start Live Assistant"),
             alignment=Qt.AlignmentFlag.AlignCenter,
         )
         layout.addWidget(self._empty_state_widget)
@@ -169,7 +189,7 @@ class LiveAssistantScreen(QWidget):
 
         # Now Playing
         now_playing_group = QVBoxLayout()
-        now_playing_group.addWidget(QLabel("<h2>Now Playing</h2>"))
+        now_playing_group.addWidget(QLabel("<h2>Current track (manual)</h2>"))
         np_row = QHBoxLayout()
         self._now_playing_title = QLabel("—")
         self._now_playing_title.setStyleSheet("font-size: 18px; font-weight: bold;")
@@ -208,7 +228,7 @@ class LiveAssistantScreen(QWidget):
         self._suggestion_rows: list[_CandidateRow] = []
         for _rank in range(1, 4):
             row = _CandidateRow()
-            row.preview_requested.connect(self.preview_requested.emit)
+            row.preview_requested.connect(self._preview_candidate)
             row.load_next_requested.connect(self._on_load_next)
             self._suggestion_rows.append(row)
             suggestions_group.addWidget(row)
@@ -261,16 +281,101 @@ class LiveAssistantScreen(QWidget):
         self._guidance_label.setVisible(False)
 
     def set_candidates(self, candidates: list[TrackRecord]) -> None:
-        self._candidates = candidates
+        """Display only freshly validated members of the applied session pool."""
+        self._ranked_candidates = []
+        if self._session_recommendation is not None:
+            self._ranked_candidates = rank_live_candidates(
+                self._session_recommendation,
+                self._played_paths,
+                locked_paths=self._locked_paths,
+                excluded_paths=self._excluded_paths,
+                spectral_cohesion=self._spectral_cohesion,
+            )
+        allowed = {track.path for track in candidates}
+        self._ranked_candidates = [item for item in self._ranked_candidates if item.track.path in allowed]
+        self._candidates = [item.track for item in self._ranked_candidates]
         for idx, row in enumerate(self._suggestion_rows):
-            if idx < len(candidates):
-                track = candidates[idx]
-                # Simple placeholder score; real scores come from recommendation engine
-                score = max(0.95 - idx * 0.1, 0.0)
-                alerts = self._generate_alerts(track)
-                row.set_candidate(idx + 1, track, score, alerts)
+            if idx < len(self._ranked_candidates):
+                item = self._ranked_candidates[idx]
+                row.set_candidate(idx + 1, item.track, item.score.total_score, item.score.warnings)
+                row.setToolTip("Local engine: " + "; ".join(item.score.explanations) + "\n" + item.readiness.summary)
             else:
                 row.hide_row()
+        if self._session_recommendation is not None:
+            self._context_label.setText(
+                self.tr(
+                    "Local engine scores; only ready continuations from this set. "
+                    "Manual track selection, not playback detection."
+                )
+                if self._ranked_candidates
+                else self.tr("No ready continuation remains in this set.")
+            )
+
+    def set_session(
+        self,
+        recommendation: PlaylistRecommendation | None,
+        readiness: DjReadinessReport | None,
+        *,
+        locked_paths: frozenset[str] = frozenset(),
+        excluded_paths: frozenset[str] = frozenset(),
+        spectral_cohesion: float = 0.0,
+    ) -> bool:
+        """Bind an idempotent safe session; context changes invalidate all old actions."""
+        if not live_session_ready(
+            recommendation,
+            readiness,
+            locked_paths=locked_paths,
+            excluded_paths=excluded_paths,
+            spectral_cohesion=spectral_cohesion,
+        ):
+            self.clear_session()
+            return False
+        assert recommendation is not None and readiness is not None
+        signature = (
+            id(recommendation),
+            recommendation.model_dump_json(),
+            id(readiness),
+            readiness.model_dump_json(),
+            locked_paths,
+            excluded_paths,
+            spectral_cohesion,
+        )
+        if signature == self._session_signature:
+            return True
+        self.clear_session()
+        self._session_signature = signature
+        self._session_recommendation = recommendation
+        self._session_readiness = readiness
+        self._locked_paths, self._excluded_paths = locked_paths, excluded_paths
+        self._spectral_cohesion = spectral_cohesion
+        first = recommendation.ordered_tracks[0]
+        self._played_paths = (first.path,)
+        self.set_current_track(first)
+        self.set_candidates(recommendation.ordered_tracks)
+        return True
+
+    def clear_session(self) -> None:
+        self._session_recommendation = None
+        self._session_readiness = None
+        self._session_signature = None
+        self._current_track = None
+        self._played_paths = ()
+        self._ranked_candidates = []
+        self._candidates = []
+        self._elapsed_timer.stop()
+        self._history_table.setRowCount(0)
+        for row in self._suggestion_rows:
+            row.hide_row()
+        self._content_widget.setVisible(False)
+        self._empty_state_widget.setVisible(True)
+        self._guidance_label.setVisible(True)
+        self._context_label.setText(self.tr("Apply a ready set in Review to start local Live guidance."))
+
+    def _preview_candidate(self, path: str) -> None:
+        if self._session_recommendation is not None:
+            self.set_candidates(self._session_recommendation.ordered_tracks)
+        if any(item.track.path == path for item in self._ranked_candidates):
+            self.preview_requested.emit(path)
 
     def append_history(self, track: TrackRecord) -> None:
         row = self._history_table.rowCount()
@@ -291,21 +396,26 @@ class LiveAssistantScreen(QWidget):
         """Wire screen-local signals to the owning window."""
         self.exit_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
         self.preview_requested.connect(window._library_controller.on_preview_play_requested)
-        self.load_next_requested.connect(self.load_next)
 
     def load_next(self, path: str) -> None:
-        """Handle load-next: update current track and recalculate suggestions."""
-        record = self._records_by_path.get(path)
-        if record is None:
+        """Commit only a freshly validated next choice, never a raw library path."""
+        recommendation = self._session_recommendation
+        if recommendation is None:
             return
-        self.set_current_track(record)
-        candidates = [r for r in self._scanned_records if r.path != path and r.metadata_status == "complete"][:25]
-        self.set_candidates(candidates)
+        self.set_candidates(recommendation.ordered_tracks)
+        candidate = next((item.track for item in self._ranked_candidates if item.track.path == path), None)
+        if candidate is None or self._current_track is None:
+            return
+        self.append_history(self._current_track)
+        self._played_paths = (*self._played_paths, path)
+        self.set_current_track(candidate)
+        self.set_candidates(recommendation.ordered_tracks)
 
     def _on_load_next(self, path: str) -> None:
-        if self._current_track:
-            self.append_history(self._current_track)
-        self.load_next_requested.emit(path)
+        previous = self._played_paths
+        self.load_next(path)
+        if previous != self._played_paths:
+            self.load_next_requested.emit(path)
 
     def _on_space_load(self) -> None:
         if self._suggestion_rows and self._suggestion_rows[0].isVisible():

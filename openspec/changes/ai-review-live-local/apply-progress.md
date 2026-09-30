@@ -23,3 +23,9 @@ Slice 5: RED absent readiness/ranking module; GREEN 4 pure-engine tests. Live
 recomputes all adjacencies, requires zero readiness concerns, preserves the exact
 pool and constraints, and ranks actual scores. No position-derived score remains
 in the new engine contract. The screen integration follows in slice 6.
+
+Slice 6: RED 3 missing/unsafe session behaviors; GREEN 31 Live pure/widget/window
+smoke tests using temporary HOME. Raw library candidate bypass now fails closed.
+Real mouse click proves engine-ranked selection, history, duplicate/stale rejection;
+periodic identical context preserves the manual session, invalid context clears it.
+The four legacy tests that opened unvalidated candidates now supply a ready set.
