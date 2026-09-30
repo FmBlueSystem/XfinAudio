@@ -30,3 +30,8 @@ and unchecked per-request inventory consent; 2 widget tests pass.
 Slice 5a RED: absent constraint merger. GREEN: 5 tests verify preservation of
 selected order, locks/exclusions/start and fail-closed unknown/overlap/count inputs.
 This is a separate <=400-line review slice before asynchronous controller changes.
+
+Slice 5b RED: 5 actual-widget controller scenarios fail as expected: old code
+plans before confirmation, lacks cancellation/retry wiring, accepts stale context,
+and directs configuration failures to restart. Tests committed as the red boundary;
+next linked slice implements the two-stage lifecycle.
