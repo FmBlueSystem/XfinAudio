@@ -581,6 +581,7 @@ def test_fresh_visible_build_exposes_apply_and_inline_variant_details(qapp: QApp
     assert screen.apply_variant_button.isVisible()
     assert screen.copilot_table.currentRow() == 1
     assert screen.apply_variant_button.text() == "Use balanced · 2 tracks"
+    assert "Use" in screen.empty_state_label.text()
     assert "2 of 25 requested" in screen.variant_details_label.text()
     assert notes[0] in screen.variant_details_label.text()
     screen.copilot_table.selectRow(0)
@@ -627,3 +628,13 @@ def test_return_cannot_bypass_disabled_copilot_prerequisites(qapp: QApplication)
     screen.copilot_ask_input.setText("A house set")
     screen.copilot_ask_input.returnPressed.emit()
     assert emitted == []
+
+
+def test_compact_build_keeps_natural_language_request_readable(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    screen.resize(760, 560)
+    screen.show()
+    qapp.processEvents()
+    assert screen.copilot_ask_input.width() >= 360
+    assert screen.copilot_ask_input.y() > screen.copilot_button.y()
+    assert screen.proceed_button.geometry().bottom() <= screen.height()

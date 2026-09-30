@@ -46,4 +46,7 @@ def test_wheel_declares_runtime_assets() -> None:
     root = Path(__file__).resolve().parents[1]
     config = tomllib.loads((root / "pyproject.toml").read_text())
     included = config["tool"]["hatch"]["build"]["targets"]["wheel"].get("force-include", {})
-    assert included.get("assets") == "xfinaudio/assets"
+    assert included == {
+        "assets/icons": "xfinaudio/assets/icons",
+        "assets/translations": "xfinaudio/assets/translations",
+    }

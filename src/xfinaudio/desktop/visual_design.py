@@ -32,7 +32,7 @@ def apply_compact_mac_layout(window: Any, layout: QVBoxLayout, status_controls: 
     window._metadata_screen.status_combo.setMaximumWidth(170)
     window._metadata_screen.missing_combo.setMaximumWidth(220)
     window._metadata_screen.export_button.setMaximumWidth(220)
-    window._library_screen.tracks_table.setMinimumHeight(400)
+    window._library_screen.tracks_table.setMinimumHeight(180)
     window._library_screen.tracks_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     window._review_screen.transition_table.setMinimumHeight(_COMPACT_REVIEW_TABLE_MIN_HEIGHT)
     window._review_screen.transition_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)

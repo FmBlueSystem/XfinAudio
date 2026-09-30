@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QAbstractScrollArea,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QSpinBox,
@@ -108,9 +110,20 @@ class BuildScreen(QWidget):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 12, 12, 12)
+        outer.setSpacing(8)
+        controls = QWidget()
+        layout = QVBoxLayout(controls)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        self.controls_scroll = QScrollArea()
+        self.controls_scroll.setWidgetResizable(True)
+        self.controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.controls_scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        self.controls_scroll.setMinimumHeight(120)
+        self.controls_scroll.setWidget(controls)
+        outer.addWidget(self.controls_scroll)
 
         # Strategy row
         strategy_row = QHBoxLayout()
@@ -210,9 +223,8 @@ class BuildScreen(QWidget):
         self.genre_focus_input = QLineEdit()
         self.genre_focus_input.setPlaceholderText(self.tr("Genre focus"))
         self.copilot_button = QPushButton(self.tr("Generate Prep Copilot"))
-        # The natural-language request sits with the other copilot controls rather
-        # than on a row of its own: an extra row here is taken straight out of the
-        # variants table, which owns the free vertical space.
+        # Give the natural-language prompt its own row so compact windows keep
+        # enough typing space instead of collapsing it between action buttons.
         self.copilot_ask_input = QLineEdit()
         self.copilot_ask_input.setObjectName("copilot_ask_input")
         self.copilot_ask_input.setPlaceholderText(
@@ -226,11 +238,13 @@ class BuildScreen(QWidget):
         copilot_row.addWidget(self.target_count_input)
         copilot_row.addWidget(self.genre_focus_input)
         copilot_row.addWidget(self.copilot_button)
-        copilot_row.addWidget(self.copilot_ask_input, 1)
-        copilot_row.addWidget(self.copilot_ask_button)
         copilot_row.addWidget(self.variant_label)
         copilot_row.addStretch()
         layout.addLayout(copilot_row)
+        ask_row = QHBoxLayout()
+        ask_row.addWidget(self.copilot_ask_input, 1)
+        ask_row.addWidget(self.copilot_ask_button)
+        layout.addLayout(ask_row)
 
         # AI copilot status line: its own row, because the controls row above cannot
         # give a wrapping message the width it needs without squeezing the input.
@@ -240,6 +254,9 @@ class BuildScreen(QWidget):
         self.copilot_ask_status.setMaximumHeight(36)
         layout.addWidget(self.copilot_ask_status)
 
+        # Scroll only the controls on short displays; variants and Apply remain
+        # outside the scroll area and reachable without hunting for the action.
+        layout = outer
         # Section divider between controls and copilot table
         self.section_divider = QFrame()
         self.section_divider.setObjectName("sectionDivider")
@@ -268,6 +285,7 @@ class BuildScreen(QWidget):
         self.copilot_table.setAlternatingRowColors(True)
         self.copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.copilot_table.setMinimumHeight(130)
         self.copilot_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.copilot_table, 1)
 
@@ -446,6 +464,8 @@ class BuildScreen(QWidget):
         self.variant_label.setText(vm.applied_variant_label(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
         rows = vm.copilot_variants_for_display(state)
+        if rows and no_recommendation:
+            self.empty_state_label.setText(self.tr("Select a variant, then click Use to review this set."))
         self._variant_rows = rows
         if state.last_prep_copilot_plan is not None:
             self._variant_target_count = state.last_prep_copilot_plan.intent.target_track_count

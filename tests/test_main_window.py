@@ -2133,7 +2133,7 @@ def test_main_window_uses_compact_macbook_layout_for_library_section() -> None:
     layout = window.centralWidget().layout()
     assert layout is not None
     assert layout.spacing() <= 6
-    assert _library_tracks_table(window).minimumHeight() >= 400
+    assert 0 < _library_tracks_table(window).minimumHeight() <= 180
     assert _library_tracks_table(window).verticalHeader().defaultSectionSize() <= 24
     headers = _track_table_headers(window)
     assert _library_tracks_table(window).columnWidth(headers.index("Genre")) >= 140
@@ -3494,3 +3494,35 @@ def test_close_event_cancels_an_in_flight_ai_narrator_request(monkeypatch) -> No
     window.closeEvent(QCloseEvent())
 
     assert cancelled == [True]
+
+
+def test_compact_window_accepts_1000_by_700_with_loaded_build(tmp_path) -> None:
+    app = ensure_app()
+    window = MainWindow.with_defaults(tmp_path / "db.sqlite3", tmp_path / "settings.json")
+    try:
+        window.show_tracks(
+            [
+                TrackRecord(
+                    path="/synthetic.flac",
+                    title="Synthetic",
+                    bpm=120.5,
+                    camelot_key="8A",
+                    energy_level=5,
+                    metadata_status="complete",
+                )
+            ]
+        )
+        window._on_library_selection_changed(["/synthetic.flac"])
+        window.workflow_tabs.setCurrentIndex(1)
+        window.generate_prep_copilot()
+        window._build_screen.apply_variant_button.click()
+        window.resize(1000, 700)
+        window.show()
+        app.processEvents()
+        window.resize(1000, 700)
+        app.processEvents()
+        assert window.width() <= 1000
+        assert window.height() <= 700
+        assert window._build_screen.copilot_ask_input.width() >= 360
+    finally:
+        window.close()

@@ -27,3 +27,13 @@ Pending. Focused RED/GREEN evidence is recorded per slice below; integrated gate
 - GREEN: 206 tests passed across Build view model/screen/genre, Prep controller and MainWindow. Excluded only known baseline watcher and Color geometry tests, handled separately.
 - Natural-language route intentionally supports automatic anchor choice; no complete pool disables it. Deterministic generation requires a complete selected anchor. Next-step buttons route to complete Library filter or metadata repair.
 - Lint/format passed. Read-only navigation and display state only.
+
+## R5 / Slice E
+- RED: narrow prompt under 360px, compact window grew to 769px/753px high, and existing Color regression failed (837px right edge in 809px viewport).
+- GREEN: 239 library/visual/Build/MainWindow tests passed; only unrelated preexisting watcher case excluded for the lifecycle owner's patch. Direct fresh synthetic generation and Apply, then resize: exactly 1000x700.
+- Inspected `/workspace/shared/xfinaudio-audit/ux-fixed-screenshots/02-build-generated.png` and `05-build-compact.png`: three variants and Apply stay visible; controls scroll independently and the prompt has its own row. This is offscreen Linux evidence, not native macOS/VoiceOver/200%-scale acceptance.
+- `pyright src tests`: 0 errors/warnings; repository `ruff check .` and `ruff format --check .`: passed (339 files).
+- Integrated-gate fixture follow-up: 36 app/assets/packaging tests passed with real icon assertions. Rebuilt wheel has icons/catalogs and no synthetic test audio.
+
+## Remaining gate
+All planned A–E implementation slices are applied. Parent must run `release_gate_check.py --run` on the combined exact commit before this change is declared fully verified. The isolated UX branch intentionally does not patch the baseline watcher failure owned by another slice. No native macOS build, real Serato import, private audio scan, or external publication performed.
