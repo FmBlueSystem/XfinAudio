@@ -104,6 +104,19 @@ _COLOR_GATES: dict[str, _ColorGate] = {
 COLOR_FILTER_STRATEGIES: frozenset[str] = frozenset(_COLOR_GATES)
 
 
+class ReplacementPolicy(BaseModel):
+    """Bounded generation-time eligibility snapshot; never rebound during edits."""
+
+    model_config = ConfigDict(frozen=True)
+
+    energy_anchor: int | None = None
+    genre: str | None = None  # None retains the original no-filter/fallback decision.
+    color_anchor_path: str | None = None
+    color_anchor_energy: int | None = None
+    color_anchor_profile: SpectralProfile | None = None
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND
+
+
 class PlaylistRecommendation(BaseModel):
     """Product-level playlist recommendation returned to desktop callers."""
 
@@ -116,6 +129,7 @@ class PlaylistRecommendation(BaseModel):
     applied_controls: dict[str, object]
     optimizer: str
     total_score: float
+    replacement_policy: ReplacementPolicy | None = None
 
 
 def recommendation_without_paths(
@@ -345,15 +359,27 @@ def recommend_playlist(
     warnings.extend(filter_warnings)
     # The DJ's explicit choice comes first; `same_genre` still infers one from
     # the anchor when nothing was asked for.
+    active_genre = (
+        normalize_requested_genre(controls.genre)
+        if any(matches_requested_genre(track, controls.genre) for track in filtered_tracks)
+        else None
+    )
     filtered_tracks, requested_genre_warnings = _apply_requested_genre(
         filtered_tracks, controls.genre if controls is not None else None, preserved_control_paths(controls)
     )
     warnings.extend(requested_genre_warnings)
     if strategy.name == "same_genre" and not (controls is not None and controls.genre):
+        anchor_genre = _resolve_anchor_genre(filtered_tracks, controls)
         filtered_tracks, genre_warnings = _apply_genre_filter(
             filtered_tracks, controls, preserve_paths=preserved_control_paths(controls)
         )
         warnings.extend(genre_warnings)
+        if any(
+            track.path not in preserved_control_paths(controls) and _normalized_genre(track) == anchor_genre
+            for track in filtered_tracks
+        ):
+            active_genre = anchor_genre
+    bound_anchor = None
     if strategy.name in COLOR_FILTER_STRATEGIES:
         gate = _COLOR_GATES[strategy.name]
         preserve_paths = preserved_control_paths(controls)
@@ -388,6 +414,14 @@ def recommend_playlist(
     applied = apply_controls(filtered_tracks, controls)
 
     anchor_energy = _resolve_anchor_energy(applied)
+    replacement_policy = ReplacementPolicy(
+        energy_anchor=anchor_energy,
+        genre=active_genre,
+        color_anchor_path=bound_anchor.path if bound_anchor is not None else None,
+        color_anchor_energy=bound_anchor.energy_level if bound_anchor is not None else None,
+        color_anchor_profile=bound_anchor.spectral_profile if bound_anchor is not None else None,
+        loudness_band=loudness_band,
+    )
     if strategy.energy_tolerance is not None and anchor_energy is not None:
         preserve_paths = preserved_control_paths(controls)
         tolerance_filtered, tolerance_warnings = _apply_energy_tolerance(
@@ -419,6 +453,7 @@ def recommend_playlist(
             applied_controls=applied.summary(),
             optimizer="constraint-validation",
             total_score=0.0,
+            replacement_policy=replacement_policy,
         )
     manual_paths = {track.path for track in manual_prefix}
     remaining_tracks = [track for track in applied.candidate_tracks if track.path not in manual_paths]
@@ -609,6 +644,7 @@ def recommend_playlist(
         applied_controls=applied.summary(),
         optimizer=optimizer,
         total_score=sum(score.total_score for score in transition_scores),
+        replacement_policy=replacement_policy,
     )
 
 
