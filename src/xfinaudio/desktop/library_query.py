@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 
@@ -30,9 +31,7 @@ class LibraryQuery(BaseModel):
         return self
 
     def matches(self, track: TrackRecord) -> bool:
-        if self.text and not any(
-            self.text.casefold() in (value or "").casefold() for value in (track.title, track.artist)
-        ):
+        if self.text and not any(_plain(self.text) in _plain(value or "") for value in (track.title, track.artist)):
             return False
         if self.genre and self.genre.casefold() != (track.genre or "").casefold():
             return False
@@ -44,7 +43,13 @@ class LibraryQuery(BaseModel):
         ):
             if low is None and high is None:
                 continue
-            if value is None or value <= 0 or (low is not None and value < low) or (high is not None and value > high):
+            if (
+                value is None
+                or not math.isfinite(value)
+                or value <= 0
+                or (low is not None and value < low)
+                or (high is not None and value > high)
+            ):
                 return False
         return True
 

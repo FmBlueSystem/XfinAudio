@@ -67,3 +67,7 @@ new-button tooltips, reduced variant-table space and 743px minimum window height
 GREEN: new buttons have tooltips, Library's editable controls expand on request,
 and Create's control scroller reserves table space while scrolling the confirmation
 into view. 20 affected real-widget tests pass, including 1000×700 MainWindow.
+
+Independent review follow-up RED reproduced NaN metadata passing a bounded BPM
+query and accented quoted text failing a matching title. GREEN: 18 Library tests
+pass after finite numeric checks and consistent accent-insensitive text matching.

@@ -44,3 +44,14 @@ def test_gentle_opening_is_a_visible_suggestion_and_never_fills_missing_energy()
     assert not query.matches(TrackRecord(path="unknown", genre="House"))
     explicit = parse_library_query("House suave para abrir energy 6-7", ["House"])
     assert (explicit.energy_min, explicit.energy_max) == (6, 7)
+
+
+@pytest.mark.parametrize("bpm", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_metadata_never_matches_a_numeric_filter(bpm):
+    assert not LibraryQuery(bpm_min=120, bpm_max=128).matches(TrackRecord(path="invalid", bpm=bpm))
+
+
+def test_accented_quoted_text_matches_local_metadata_consistently():
+    query = parse_library_query('título "Canción"', [])
+    assert query.matches(TrackRecord(path="accented", title="Mi Canción"))
+    assert query.matches(TrackRecord(path="unaccented", title="Mi Cancion"))
