@@ -206,12 +206,16 @@ def recommendation_with_replacement(
     candidates: list[TrackRecord],
     *,
     spectral_cohesion: float = 0.0,
+    locked_paths: frozenset[str] = frozenset(),
+    excluded_paths: frozenset[str] = frozenset(),
 ) -> PlaylistRecommendation:
     """Replace a removed track with the best-fitting candidate at the same slot.
 
     The candidate maximizing the summed transition score against the slot's
     neighbors wins; adjacency scores are recomputed for the whole order. Falls
-    back to plain removal when no candidate is eligible.
+    back to plain removal when no candidate is eligible. Eligibility retains the
+    generation-time policy even after anchors disappear. Current locks/exclusions
+    are additive; exclusions always win and never rebind the original anchors.
     """
     paths = [item.path for item in recommendation.ordered_tracks]
     if removed_path not in paths:
@@ -219,6 +223,55 @@ def recommendation_with_replacement(
 
     playlist_paths = set(paths)
     controls = DJControls.model_validate(recommendation.applied_controls)
+    excluded = controls.excluded_paths | excluded_paths
+    preserved = (preserved_control_paths(controls) | locked_paths) - excluded
+    policy = recommendation.replacement_policy
+    strategy = recommendation.strategy
+    if policy is None and (
+        strategy.energy_tolerance is not None
+        or strategy.name in COLOR_FILTER_STRATEGIES
+        or strategy.name == "same_genre"
+        or strategy.loudness_band
+        or controls.genre
+    ):
+        candidates = [candidate for candidate in candidates if candidate.path in preserved]
+        warning = "Replacement policy context unavailable; only control exceptions may backfill"
+        if warning not in recommendation.warnings:
+            recommendation = recommendation.model_copy(update={"warnings": [*recommendation.warnings, warning]})
+    candidates, _ = _apply_strategy_filters(
+        candidates,
+        strategy,
+        preserved,
+        policy.loudness_band if policy is not None else DEFAULT_LOUDNESS_BAND,
+        sort_candidates=False,
+    )
+    if policy is not None:
+        if policy.genre is not None:
+            candidates = [
+                candidate
+                for candidate in candidates
+                if candidate.path in preserved or matches_requested_genre(candidate, policy.genre)
+            ]
+        if strategy.name in COLOR_FILTER_STRATEGIES:
+            anchor = (
+                TrackRecord(
+                    path=policy.color_anchor_path,
+                    energy_level=policy.color_anchor_energy,
+                    spectral_profile=policy.color_anchor_profile,
+                )
+                if policy.color_anchor_path is not None
+                else None
+            )
+            candidates, _ = _apply_color_filter(
+                candidates,
+                controls,
+                preserved,
+                gate=_COLOR_GATES[strategy.name],
+                anchor=anchor,
+                resolve_when_unbound=False,
+            )
+        if strategy.energy_tolerance is not None and policy.energy_anchor is not None:
+            candidates, _ = _apply_energy_tolerance(candidates, strategy, policy.energy_anchor, preserved)
     index = paths.index(removed_path)
     left_neighbor = recommendation.ordered_tracks[index - 1] if index > 0 else None
     right_neighbor = recommendation.ordered_tracks[index + 1] if index + 1 < len(paths) else None
@@ -242,7 +295,7 @@ def recommendation_with_replacement(
         candidate
         for candidate in candidates
         if candidate.path not in playlist_paths
-        and candidate.path not in controls.excluded_paths
+        and candidate.path not in excluded
         and candidate.metadata_status == "complete"
         and _is_mixable(candidate)
     ]
@@ -913,7 +966,12 @@ def _apply_requested_genre(
 
 
 def _apply_strategy_filters(
-    tracks: list[TrackRecord], strategy: PlaylistStrategy, preserve_paths: set[str], loudness_band: LoudnessBand
+    tracks: list[TrackRecord],
+    strategy: PlaylistStrategy,
+    preserve_paths: set[str],
+    loudness_band: LoudnessBand,
+    *,
+    sort_candidates: bool = True,
 ) -> tuple[list[TrackRecord], list[str]]:
     filtered = tracks
     warnings: list[str] = []
@@ -954,7 +1012,7 @@ def _apply_strategy_filters(
         left_in = before - len(measured)
         if left_in:
             warnings.append(f"Loudness coverage {len(measured)} of {before} applied; {left_in} left in")
-    return _sort_by_hint(filtered, strategy), warnings
+    return (_sort_by_hint(filtered, strategy) if sort_candidates else filtered), warnings
 
 
 def _measured_lufs(track: TrackRecord) -> float | None:

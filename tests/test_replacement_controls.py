@@ -119,3 +119,21 @@ def test_current_exclusion_overrides_original_locked_exception(qapp, tmp_path) -
     result = controller._replacement_recommendation("/b")
     assert result is not None
     assert [track.path for track in result.ordered_tracks] == ["/anchor"]
+
+
+def test_desktop_backfill_does_not_rebind_an_implicit_removed_anchor(qapp, tmp_path) -> None:
+    anchor, b, c, wrong = _track("a"), _track("b", energy=6), _track("c", energy=6), _track("wrong", energy=7)
+    original = recommend_playlist([anchor, b, c], "same_energy")
+    original = original.model_copy(update={"ordered_tracks": [c, b]})
+    window = MainWindow(scan_service=Mock(), repository=Mock(db_path=tmp_path / "library.db"))
+    controller = window._library_controller
+    controller._state = controller._state.model_copy(
+        update={
+            "scanned_records": [c, b, wrong],
+            "last_recommendation": original,
+            "playlist_removed_paths": frozenset({anchor.path}),
+        }
+    )
+    result = controller._replacement_recommendation("b")
+    assert result is not None
+    assert [track.path for track in result.ordered_tracks] == ["c"]

@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: backfill-policy-context
 artifact_store: openspec
-status: apply
+status: verify
 created: 2026-09-30
 updated: 2026-09-30
 strict_tdd: true
@@ -10,10 +10,11 @@ phases:
   specs: complete
   design: complete
   tasks: complete
-  apply: in-progress
+  apply: complete
   verify: pending
-next_recommended: apply
-blocked_reasons: []
+next_recommended: verify
+blocked_reasons:
+  - Integration owner must run the aggregate gate on the combined commit.
 delivery:
   strategy: auto-chain
   chained_prs_recommended: true
