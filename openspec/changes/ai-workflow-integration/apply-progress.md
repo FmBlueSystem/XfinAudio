@@ -59,3 +59,8 @@ AI suggestions remain unapplied until the existing Apply action. Editor uses
 existing musical preview/confirm/save boundaries. A new RED caught Live prose
 surviving a set switch within the same library; GREEN invalidates after the
 local session is refreshed so old commentary clears on that same sync.
+
+With all optional assistant rows installed, one large-window Library visibility
+check failed. Increasing the controls/table stretch ratio keeps all primary
+controls visible at 1440x1000 while preserving the compact scroll and table
+minimum. All 16 focused responsive/Library boundary checks pass.
