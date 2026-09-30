@@ -480,3 +480,21 @@ def test_progress_only_tick_reuses_collections_and_keeps_intervening_updates() -
     assert window._state.records_by_path is before.records_by_path
     assert window._state.changes_detected_since_scan
     assert window._state.spectral_progress_count == 1
+
+
+def test_parent_destruction_discards_unpaintable_batch_after_render_timer_teardown(monkeypatch) -> None:
+    import sys
+
+    from shiboken6 import delete
+
+    _ensure_app()
+    window = MainWindow(scan_service=_FakeScanService(), repository=_FakeRepository())
+    controller = window._library_controller
+    controller.on_spectral_profile_ready("/pending.flac", _spectral_profile())
+    exceptions = []
+    monkeypatch.setattr(sys, "excepthook", lambda _kind, error, _trace: exceptions.append(error))
+    delete(window._app_controller._sync_timer)
+    delete(window)
+    assert not exceptions
+    assert controller._shutting_down
+    assert not controller._pending_profiles

@@ -257,6 +257,8 @@ def test_controller_starts_after_edge_without_missing_work_uses_priority_and_upd
         "force_reanalyze": False,
         "on_result": stage.result.emit,
     }
+    assert window._state.records_by_path[records[0].path].loudness_profile is None
+    app.processEvents()
     assert window._state is not previous
     assert window._state.records_by_path[records[0].path].loudness_profile == _profile()
     assert window._state.is_completing_loudness is True

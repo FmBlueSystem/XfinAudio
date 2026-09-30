@@ -28,3 +28,11 @@ VERIFY: all new regressions pass; focused Pyright and lint/format are clean.
 Parent confirmed the three unrelated broad MainWindow readiness fixture failures
 are already corrected on integration commit 6f7a769; their expectations remain
 unchanged here. Final aggregate release gate stays with the integration parent.
+
+Extended worker/persistence verification found one loudness test still asserting
+synchronous publication; it now explicitly checks the pending state and UI tick.
+It also exposed a destruction-only Qt error when a pending batch requested a
+render after the app render timer was deleted. RED reproduces that exact order;
+GREEN separates the last-resort parent-destruction callback (discard unpaintable
+pending UI data) from ordinary shutdown (flush before cancellation). Worker
+persistence still precedes delivery; no saved result is discarded.

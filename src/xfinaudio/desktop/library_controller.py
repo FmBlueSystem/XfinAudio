@@ -156,7 +156,7 @@ class LibraryController:
         # destroyed. Otherwise their QThreads outlive the
         # MainWindow and Qt prints "QThread: Destroyed while thread '' is
         # still running" at interpreter exit.
-        self._parent.destroyed.connect(self.shutdown)
+        self._parent.destroyed.connect(self._on_parent_destroyed)
 
     @property
     def spectral_completion_worker(self) -> SpectralCompletionWorker | None:
@@ -534,6 +534,15 @@ class LibraryController:
                 spectral_total_count=0,
             )
             self._sync_state()
+
+    def _on_parent_destroyed(self) -> None:
+        # Normal close calls shutdown while widgets are alive and flushes first.
+        # This last-resort fallback may run after other Qt objects were deleted;
+        # persisted worker results remain safe, but no UI publication is possible.
+        self._pending_profiles = {}
+        self._pending_progress = {}
+        self._pending_loudness_count = 0
+        self.shutdown()
 
     def shutdown(self) -> None:
         """Request cancellation without discarding running thread ownership."""
