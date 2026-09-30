@@ -21,6 +21,7 @@ from xfinaudio.recommendation.playlist_service import (
     recommendation_without_paths,
 )
 from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
+from xfinaudio.recommendation.scoring import TransitionScoringConfig, score_transition
 
 
 class CompletedRecommendationResult(Protocol):
@@ -427,8 +428,30 @@ def apply_export_track_removal(state: AppState, path: str, *, spectral_cohesion:
 
 
 def apply_saved_playlist_export_recommendation(state: AppState, recommendation: PlaylistRecommendation) -> AppState:
-    """Return a new state with a saved-playlist export recommendation applied."""
-    return state.model_copy(update={"last_recommendation": recommendation, "ai_narrative_text": None})
+    """Bind exact saved contents to fresh facts, independent of the previous set."""
+    config = TransitionScoringConfig(
+        weights=recommendation.strategy.weights,
+        spectral_cohesion=state.settings.scoring.spectral_cohesion,
+    )
+    tracks = recommendation.ordered_tracks
+    scores = [score_transition(left, right, config=config) for left, right in zip(tracks, tracks[1:], strict=False)]
+    current = recommendation.model_copy(
+        update={"transition_scores": scores, "total_score": sum(score.total_score for score in scores)}
+    )
+    quality = build_quality_report(current)
+    return state.model_copy(
+        update={
+            "last_recommendation": current,
+            "last_playlist_explanation": build_playlist_explanation(current),
+            "last_quality_report": quality,
+            "last_dj_readiness_report": build_dj_readiness_report(current, quality),
+            "playlist_removed_paths": frozenset(),
+            "last_prep_copilot_plan": None,
+            "applied_variant_name": None,
+            "ai_narrative_text": None,
+            "is_narrating": False,
+        }
+    )
 
 
 __all__ = [

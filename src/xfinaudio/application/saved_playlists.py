@@ -69,7 +69,13 @@ class SavedPlaylistService:
             return None
         tracks_by_path = {track.path: track for track in scanned_records}
         tracks = [
-            tracks_by_path.get(path) or TrackRecord(path=path, title=Path(path).stem, metadata_status="complete")
+            tracks_by_path.get(path)
+            or TrackRecord(
+                path=path,
+                title=Path(path).stem,
+                metadata_status="incomplete",
+                missing_required_fields=["bpm", "camelot_key", "energy_level"],
+            )
             for path in playlist.track_paths
         ]
         recommendation = PlaylistRecommendation(

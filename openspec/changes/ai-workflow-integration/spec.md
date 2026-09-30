@@ -23,3 +23,9 @@
   commentary is rejected; neither tags nor candidate rankings can be changed
 - GIVEN no consent, disabled AI or provider failure THEN local tools remain usable
   and remote recovery links directly to configuration with no silent retry
+
+- GIVEN a saved set [A, B] and a previous set with A removed or blocked readiness
+  WHEN exporting the saved set THEN preserve [A, B] exactly and rebuild quality,
+  readiness and explanation from current metadata; do not reuse prior set removals
+- GIVEN missing metadata in the current saved set WHEN exporting THEN current
+  blockers still apply, regardless of a previously ready recommendation

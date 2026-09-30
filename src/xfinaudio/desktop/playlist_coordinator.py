@@ -191,6 +191,7 @@ class PlaylistCoordinator:
         host._playlist_editor.set_playlist(export.playlist)
         if hasattr(host, "_replace_app_state") and hasattr(host, "_state"):
             host._replace_app_state(apply_saved_playlist_export_recommendation(host._state, export.recommendation))
+            host._sync_state()
         else:
             host.last_recommendation = export.recommendation
         host._export_coordinator.export_recommendation_to_serato(crate_name=export.playlist.name)

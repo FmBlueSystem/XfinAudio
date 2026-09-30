@@ -64,3 +64,11 @@ With all optional assistant rows installed, one large-window Library visibility
 check failed. Increasing the controls/table stretch ratio keeps all primary
 controls visible at 1440x1000 while preserving the compact scroll and table
 minimum. All 16 focused responsive/Library boundary checks pass.
+
+Final review P1: saved exports inherited prior set removals/readiness. RED proved
+both omitted A and wrongly inherited readiness. GREEN (41 transition/coordinator/
+saved-service tests) exports exact [A,B] through the actual Serato writer in an
+isolated temporary fixture; current missing metadata still blocks. Transition
+recomputes scores, quality, readiness and explanation; clears only set-derived
+removals/narration/Prep plan/variant, preserving global Library controls. Unknown
+saved records are now explicitly incomplete rather than falsely marked complete.
