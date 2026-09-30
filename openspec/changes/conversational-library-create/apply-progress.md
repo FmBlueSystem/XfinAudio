@@ -71,3 +71,9 @@ into view. 20 affected real-widget tests pass, including 1000×700 MainWindow.
 Independent review follow-up RED reproduced NaN metadata passing a bounded BPM
 query and accented quoted text failing a matching title. GREEN: 18 Library tests
 pass after finite numeric checks and consistent accent-insensitive text matching.
+
+
+Final worker verification at 3da90ca: 361 focused/neighboring tests pass in 61.60s;
+full-tree Ruff lint/format and Pyright pass. No skips, no dependency/coverage changes.
+All review commits are under 400 changed lines. Exact integrated release gate and
+Configure AI/candidate-route shell wiring remain coordinator-owned.
