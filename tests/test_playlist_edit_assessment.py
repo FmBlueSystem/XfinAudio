@@ -44,3 +44,8 @@ def test_unknown_tracks_or_too_small_set_are_blocked_without_fabrication():
         assess_playlist_edit(("a", "unknown"), tracks())
     with pytest.raises(ValueError, match="2 tracks"):
         assess_playlist_edit(("a",), tracks())
+
+
+def test_assessment_cannot_score_excluded_paths_as_an_approved_order():
+    with pytest.raises(ValueError, match="excluded"):
+        assess_playlist_edit(("a", "b"), tracks(), excluded_paths={"b"})

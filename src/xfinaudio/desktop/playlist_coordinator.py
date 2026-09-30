@@ -247,11 +247,15 @@ class PlaylistCoordinator:
         revision = editor.session_revision
         if not self._apply_track_order(playlist_id, new_paths, revision):
             return
+
+        def replay(paths: list[str]) -> None:
+            self._apply_track_order(playlist_id, paths, revision)
+
         self._host._undo_manager.push(
             Command(
                 label=self._host.tr("Reorder playlist"),
-                execute=lambda: self._apply_track_order(playlist_id, new_paths, revision),
-                undo=lambda: self._apply_track_order(playlist_id, previous_paths, revision),
+                execute=lambda: replay(new_paths),
+                undo=lambda: replay(previous_paths),
             )
         )
         self._host._undo_toolbar.refresh()
@@ -282,7 +286,7 @@ class PlaylistCoordinator:
                     "Playlist names not found or ambiguous. Select at least two saved sets and use Compare selected."
                 )
                 return
-            self.compare_saved_playlists([group[0].id for group in matches])
+            self.compare_saved_playlists([group[0].id for group in matches if group[0].id is not None])
             return
         result = search_saved_sets(request, playlists, self._host.scanned_records)
         description = "\n".join(describe_saved_set(p, self._host.scanned_records) for p in result)

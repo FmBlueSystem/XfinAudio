@@ -162,6 +162,7 @@ class PlaylistEditor(QWidget):
     def _on_remove_clicked(self, row: int) -> None:
         if 0 <= row < len(self._track_paths) and self._track_paths[row] not in self._locked_paths:
             path = self._track_paths.pop(row)
+            self.session_revision += 1
             self.dismiss_preview()
             self._populate_table()
             self.status_label.setText(self.tr("Unsaved draft. Save or discard your changes."))
@@ -239,8 +240,8 @@ class PlaylistEditor(QWidget):
         )
 
     def confirm_preview(self) -> None:
-        if self._preview is not None:
-            self.apply_order(list(self._preview))
+        if self._preview is not None and self.apply_order(list(self._preview)):
+            self.session_revision += 1
 
     def apply_order(self, paths: list[str]) -> bool:
         try:

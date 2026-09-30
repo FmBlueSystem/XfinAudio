@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
+from xfinaudio.application.playlist_edit_intents import validate_edit
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.metadata.tempo import is_valid_bpm
 from xfinaudio.quality.dj_readiness import DjReadinessReport, build_dj_readiness_report
@@ -32,6 +33,7 @@ def assess_playlist_edit(
     excluded_paths: Collection[str] = (),
 ) -> PlaylistEditAssessment:
     """Score the exact order, reject hard blockers, and retain review warnings."""
+    validate_edit(paths, paths, locked_paths=locked_paths, excluded_paths=excluded_paths)
     by_path = {record.path: record for record in records}
     if any(path not in by_path for path in paths):
         raise ValueError("Scan this saved set first: real track metadata is required for musical validation.")

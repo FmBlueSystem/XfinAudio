@@ -15,6 +15,7 @@ from xfinaudio.library.playlist_repository import PlaylistRepository
 def setup(qapp, tmp_path):
     repository = PlaylistRepository(tmp_path / "sets.db")
     playlist = repository.create("Saved", ["a", "b", "c"])
+    assert playlist.id is not None
     host = SimpleNamespace(
         _playlist_repository=repository,
         _playlist_editor=PlaylistEditor(),
@@ -33,7 +34,7 @@ def setup(qapp, tmp_path):
             for p, e in (("a", 5), ("b", 2), ("c", 8))
         ],
     )
-    coordinator = PlaylistCoordinator(host)
+    coordinator = PlaylistCoordinator(host)  # type: ignore[arg-type]
     coordinator.connect_signals()
     coordinator.open_playlist(playlist.id)
     return host, coordinator, playlist.id
@@ -124,3 +125,26 @@ def test_repository_change_invalidates_preview_before_confirmation(qapp, tmp_pat
     assert editor._track_paths == ["a", "b", "c"]
     assert not editor.confirm_button.isEnabled()
     assert "changed" in editor.status_label.text()
+
+
+def test_manual_removal_invalidates_prior_reorder_undo(qapp, tmp_path):
+    host, coordinator, id_ = setup(qapp, tmp_path)
+    editor = host._playlist_editor
+    editor.tracks_table.selectRow(1)
+    editor.move_up_button.click()
+    editor._on_remove_clicked(2)
+    host._undo_manager.undo()
+    assert editor._track_paths == ["b", "a"]
+    assert "Unsaved draft" in editor.status_label.text()
+
+
+def test_new_metadata_after_preview_prevents_confirmation(qapp, tmp_path):
+    host, coordinator, id_ = setup(qapp, tmp_path)
+    editor = host._playlist_editor
+    editor.edit_input.setText("raise energy")
+    editor.preview_button.click()
+    assert editor.confirm_button.isEnabled()
+    host.scanned_records = [record.model_copy(update={"energy_level": 1}) for record in host.scanned_records]
+    editor.confirm_button.click()
+    assert editor._track_paths == ["a", "b", "c"]
+    assert not editor.confirm_button.isEnabled()

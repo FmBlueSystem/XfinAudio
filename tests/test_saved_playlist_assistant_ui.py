@@ -14,6 +14,7 @@ def test_search_and_compare_controls_are_grounded_and_read_only(qapp, tmp_path):
     repository = PlaylistRepository(tmp_path / "sets.db")
     first = repository.create("Sunset", ["a", "b"])
     second = repository.create("Peak", ["b", "c"])
+    assert first.id is not None and second.id is not None
     screen = MyPlaylistsScreen()
     host = SimpleNamespace(
         _playlist_repository=repository,
@@ -23,7 +24,7 @@ def test_search_and_compare_controls_are_grounded_and_read_only(qapp, tmp_path):
         workflow_tabs=MagicMock(),
         scanned_records=[TrackRecord(path="a", genre="House", energy_level=3)],
     )
-    coordinator = PlaylistCoordinator(host)
+    coordinator = PlaylistCoordinator(host)  # type: ignore[arg-type]
     coordinator.connect_signals()
     coordinator.refresh_list()
     screen.query_input.setText("find playlists with house")
@@ -51,7 +52,7 @@ def test_query_error_and_empty_results_do_not_invent_sets(qapp, tmp_path):
     repository.create("Set", [])
     screen = MyPlaylistsScreen()
     host = SimpleNamespace(_playlist_repository=repository, _playlists_screen=screen, scanned_records=[])
-    coordinator = PlaylistCoordinator(host)
+    coordinator = PlaylistCoordinator(host)  # type: ignore[arg-type]
     coordinator.search_saved_playlists("compare Set and nonexistent")
     assert "not found" in screen.assistant_output.toPlainText()
     coordinator.search_saved_playlists("find techno playlists")
