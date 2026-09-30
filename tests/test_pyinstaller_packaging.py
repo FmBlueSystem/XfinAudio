@@ -121,6 +121,7 @@ def test_app_path_helpers_use_environment_overrides(tmp_path: Path, monkeypatch:
     assert desktop_app.settings_path_from_environment() == settings_path
 
 
+@pytest.mark.usefixtures("qapp")
 def test_desktop_main_exits_before_event_loop_in_package_smoke_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

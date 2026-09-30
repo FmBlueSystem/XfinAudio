@@ -15,3 +15,12 @@ helper was absent (captured outside the repository). GREEN: all 27 helper tests
 pass after implementation, including dirty source, changed SHA/version/content,
 missing/malformed evidence, permission/link mutation, unsafe links/special files,
 and root-artifact output refusal. Refactored with Ruff; focused checks green.
+
+Shell RED (prior preserved log): 10 failures, 7 passes before orchestration changes.
+Recovery on 2026-09-30: offscreen alone did not resolve the packaging test abort;
+the fake QApplication test needed the shared qapp fixture for its real QIcon.
+The separate check-only failure was an unset virtualenv PATH, not product behavior.
+GREEN: 69 provenance/shell/packaging tests passed with the shared virtualenv on
+PATH and offscreen Qt. Tests include gate failure, dirty/changed source, failed
+build/smoke, tampered/stale reuse, and optional signing/notary failure propagation.
+No native macOS tools were run: the shell fixture uses synthetic executables.

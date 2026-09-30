@@ -12,7 +12,7 @@ phases:
   tasks: complete
   apply: in-progress
   verify: pending
-next_recommended: strict-red
+next_recommended: verify-release-chain
 authorization: local-changes-only
 blocked_reasons: []
 delivery:
