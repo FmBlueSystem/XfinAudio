@@ -18,3 +18,8 @@ Rollback: revert the chained slices; Live remains closed without valid prerequis
 Each slice is committed separately and depends on its predecessor. No push,
 merge or release. The integration coordinator owns navigation/state/window wiring
 and the final exact-tree release gate.
+
+Follow-on slice 7a adds the approved selected-track replacement comparison, using
+the existing engine replacement service with locks, exclusions, generation policy
+and current loudness/scoring settings. It previews only; no apply or network call.
+Slice 7b bounds optional model commentary and treats it as plain unverified text.

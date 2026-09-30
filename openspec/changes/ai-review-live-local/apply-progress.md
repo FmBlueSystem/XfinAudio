@@ -29,3 +29,8 @@ smoke tests using temporary HOME. Raw library candidate bypass now fails closed.
 Real mouse click proves engine-ranked selection, history, duplicate/stale rejection;
 periodic identical context preserves the manual session, invalid context clears it.
 The four legacy tests that opened unvalidated candidates now supply a ready set.
+
+Slice 7a: RED missing replacement helper and UI action; GREEN 34 Review pure/widget
+tests. Real table+button mouse interaction previews original/proposed scores and
+readiness, protects locked/manual/start/end tracks, excludes forbidden candidates,
+passes current loudness/scoring and preserves generation policy. No apply action.

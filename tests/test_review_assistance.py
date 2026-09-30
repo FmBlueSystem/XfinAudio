@@ -55,3 +55,32 @@ def test_comparison_omits_alternatives_conflicting_with_current_controls() -> No
     for controls in ({"excluded_paths": frozenset({"/a"})}, {"locked_paths": frozenset({"/missing"})}):
         text = review_engine_facts(state.model_copy(update={"last_prep_copilot_plan": plan, **controls}))
         assert "safe: 2 tracks" not in text
+
+
+def test_selected_replacement_is_engine_preview_and_never_mutates_state() -> None:
+    from xfinaudio.desktop.review_assistance import preview_engine_replacement
+
+    state = _state()
+    candidate = _track("/candidate").model_copy(update={"title": "Alternative", "genre": "House"})
+    state = state.model_copy(update={"scanned_records": [candidate]})
+    before = state.last_recommendation
+    text = preview_engine_replacement(state, "/b")
+    assert "Alternative" in text
+    assert "Original" in text and "Proposed" in text
+    assert "score" in text and "review" in text.lower()
+    assert state.last_recommendation is before
+    assert [track.path for track in before.ordered_tracks] == ["/a", "/b"]
+
+
+def test_replacement_preview_refuses_protected_excluded_and_unknown_choices() -> None:
+    from xfinaudio.desktop.review_assistance import preview_engine_replacement
+
+    state = _state().model_copy(update={"scanned_records": [_track("/candidate")]})
+    assert "protected" in preview_engine_replacement(state.model_copy(update={"locked_paths": frozenset({"/b"})}), "/b")
+    assert "No eligible" in preview_engine_replacement(
+        state.model_copy(update={"excluded_paths": frozenset({"/candidate"})}), "/b"
+    )
+    assert "Select" in preview_engine_replacement(state, "/unknown")
+    assert "Select" in preview_engine_replacement(AppState(), "/b")
+    manual = state.last_recommendation.model_copy(update={"applied_controls": {"manual_order_paths": ["/a", "/b"]}})
+    assert "protected" in preview_engine_replacement(state.model_copy(update={"last_recommendation": manual}), "/b")

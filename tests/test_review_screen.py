@@ -626,3 +626,25 @@ def test_review_local_facts_toggle_works_with_ai_disabled(qapp: QApplication, mo
     screen.render(ReviewViewModel(), AppState())
     assert not screen.engine_facts_button.isEnabled()
     assert not screen.engine_facts_details.toPlainText()
+
+
+def test_review_selected_replacement_is_preview_only_and_clears_on_change(qapp: QApplication) -> None:
+    from PySide6.QtTest import QTest
+
+    screen = ReviewScreen()
+    screen.show()
+    state = _review_state(["/a", "/b"], scanned_records=[_track("/alternative")])
+    screen.render(ReviewViewModel(), state)
+    item = screen.recommendation_table.item(1, 0)
+    QTest.mouseClick(
+        screen.recommendation_table.viewport(),
+        Qt.MouseButton.LeftButton,
+        pos=screen.recommendation_table.visualItemRect(item).center(),
+    )
+    QTest.mouseClick(screen.compare_replacement_button, Qt.MouseButton.LeftButton)
+    assert "Original:" in screen.replacement_details.toPlainText()
+    assert "Proposed:" in screen.replacement_details.toPlainText()
+    assert "Preview only" in screen.replacement_details.toPlainText()
+    assert [track.path for track in state.last_recommendation.ordered_tracks] == ["/a", "/b"]
+    screen.render(ReviewViewModel(), _review_state(["/new-a", "/new-b"]))
+    assert not screen.replacement_details.toPlainText()

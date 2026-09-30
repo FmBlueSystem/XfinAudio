@@ -17,3 +17,6 @@
   local engine transition scores determine order, previously played/excluded paths
   stay out, manual/start/end/locked controls remain respected, and risky transitions
   cannot be loaded. No network request is needed.
+- R7 GIVEN one selected unprotected track WHEN Compare replacement is clicked
+  THEN the local engine selects an eligible replacement and compares original
+  versus proposed scores/readiness without changing the set; stale previews clear.

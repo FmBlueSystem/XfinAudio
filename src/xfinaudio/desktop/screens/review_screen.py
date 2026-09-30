@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.desktop.app_state import AppState
-from xfinaudio.desktop.review_assistance import review_engine_facts
+from xfinaudio.desktop.review_assistance import preview_engine_replacement, review_engine_facts
 from xfinaudio.desktop.review_view_model import (
     ReadinessCheckRow,
     RecommendationRow,
@@ -138,6 +138,8 @@ class ReviewScreen(QWidget):
         # would wipe the DJ's selection even when the rows are identical.
         self._last_recommendation_signature: tuple | None = None
         self._selected_transition_context: tuple[str, ...] | None = None
+        self._rendered_state = AppState()
+        self._replacement_context: tuple | None = None
         self._build_ui()
         self._connect_signals()
 
@@ -204,6 +206,9 @@ class ReviewScreen(QWidget):
         self.engine_facts_button.setCheckable(True)
         self.engine_facts_button.setEnabled(False)
         actions.addWidget(self.engine_facts_button)
+        self.compare_replacement_button = QPushButton(self.tr("Compare replacement"))
+        self.compare_replacement_button.setEnabled(False)
+        actions.addWidget(self.compare_replacement_button)
         actions.addStretch()
         layout.addLayout(actions)
 
@@ -213,6 +218,13 @@ class ReviewScreen(QWidget):
         self.engine_facts_details.setVisible(False)
         self.engine_facts_details.setAccessibleName(self.tr("Local engine facts and alternative comparison"))
         layout.addWidget(self.engine_facts_details)
+
+        self.replacement_details = QPlainTextEdit()
+        self.replacement_details.setReadOnly(True)
+        self.replacement_details.setMaximumHeight(100)
+        self.replacement_details.setVisible(False)
+        self.replacement_details.setAccessibleName(self.tr("Engine replacement comparison preview"))
+        layout.addWidget(self.replacement_details)
 
         # The narrative is read-only text from state, so a wrapping label is
         # enough -- a text edit would claim focus and look like an input the DJ
@@ -332,6 +344,7 @@ class ReviewScreen(QWidget):
             self.ai_narrate_cancel_button: "Cancel this narrative request; local analysis remains available",
             self.configure_ai_button: "Open AI settings to enable or configure the optional narrator",
             self.engine_facts_button: "Explain risks and compare existing engine variants without a network call",
+            self.compare_replacement_button: "Preview an engine replacement for the selected track without applying it",
             self.back_button: "Return to the Build screen",
             self.export_button: "Move on to export this playlist",
         }
@@ -349,6 +362,9 @@ class ReviewScreen(QWidget):
         self.ai_narrate_cancel_button.setAccessibleName(self.tr("Cancel AI narration"))
         self.configure_ai_button.setAccessibleName(self.tr("Configure AI"))
         self.engine_facts_button.setAccessibleName(self.tr("Show local engine facts and alternatives"))
+        self.compare_replacement_button.setAccessibleName(
+            self.tr("Compare an engine replacement for the selected track")
+        )
         self.ai_narrative_label.setAccessibleName(self.tr("AI set narrative"))
         self.ai_narrate_status.setAccessibleName(self.tr("AI set narrator status"))
         self.transition_table.setAccessibleName(self.tr("Transition analysis"))
@@ -367,7 +383,9 @@ class ReviewScreen(QWidget):
         self.setTabOrder(self.ai_narrate_cancel_button, self.configure_ai_button)
         self.setTabOrder(self.configure_ai_button, self.engine_facts_button)
         self.setTabOrder(self.engine_facts_button, self.engine_facts_details)
-        self.setTabOrder(self.engine_facts_details, self.transition_table)
+        self.setTabOrder(self.engine_facts_details, self.compare_replacement_button)
+        self.setTabOrder(self.compare_replacement_button, self.replacement_details)
+        self.setTabOrder(self.replacement_details, self.transition_table)
         self.setTabOrder(self.transition_table, self.transition_details)
         self.setTabOrder(self.transition_details, self.readiness_table)
         self.setTabOrder(self.readiness_table, self.back_button)
@@ -390,6 +408,7 @@ class ReviewScreen(QWidget):
         self.configure_ai_button.clicked.connect(self.configure_ai_requested)
         self.ai_narrate_cancel_button.clicked.connect(self.ai_narrate_cancel_requested)
         self.engine_facts_button.toggled.connect(self.engine_facts_details.setVisible)
+        self.compare_replacement_button.clicked.connect(self._compare_replacement)
         self.recommendation_table.itemSelectionChanged.connect(self._on_recommendation_selection_changed)
         self.remove_track_button.clicked.connect(self._on_remove_clicked)
         self.recommendation_table.itemDoubleClicked.connect(self._on_rec_double_clicked)
@@ -423,6 +442,20 @@ class ReviewScreen(QWidget):
             lightweight: If True, skip expensive recommendation table population
                         (used for non-visible tabs during state sync).
         """
+        self._rendered_state = state
+        context = (
+            id(state.last_recommendation),
+            id(state.last_dj_readiness_report),
+            id(state.scanned_records),
+            state.locked_paths,
+            state.excluded_paths,
+            state.settings.scoring,
+            state.settings.loudness,
+        )
+        if context != self._replacement_context:
+            self._replacement_context = context
+            self.replacement_details.clear()
+            self.replacement_details.setVisible(False)
         self.readiness_badge.setText(vm.readiness_badge_text(state))
         self.export_button.setEnabled(vm.can_export(state))
         self.save_to_playlists_button.setEnabled(state.last_recommendation is not None)
@@ -672,6 +705,21 @@ class ReviewScreen(QWidget):
 
     def _on_recommendation_selection_changed(self) -> None:
         self.remove_track_button.setEnabled(bool(self.recommendation_table.selectedItems()))
+        self.compare_replacement_button.setEnabled(bool(self._selected_replacement_path()))
+        self.replacement_details.clear()
+        self.replacement_details.setVisible(False)
+
+    def _selected_replacement_path(self) -> str:
+        rows = {item.row() for item in self.recommendation_table.selectedItems()}
+        if len(rows) != 1:
+            return ""
+        item = self.recommendation_table.item(next(iter(rows)), 0)
+        return str(item.data(Qt.ItemDataRole.UserRole) or "") if item is not None else ""
+
+    def _compare_replacement(self) -> None:
+        path = self._selected_replacement_path()
+        self.replacement_details.setPlainText(preview_engine_replacement(self._rendered_state, path))
+        self.replacement_details.setVisible(True)
 
     def _on_remove_clicked(self) -> None:
         selected = self.recommendation_table.selectedItems()
