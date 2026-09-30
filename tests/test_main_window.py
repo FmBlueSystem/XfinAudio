@@ -269,7 +269,7 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
 
     assert isinstance(window.workflow_sidebar, QListWidget)
     assert isinstance(window.workflow_tabs, QStackedWidget)
-    assert window.workflow_tabs.count() == 7
+    assert window.workflow_tabs.count() == 8
     assert sidebar_labels == [
         "Library",
         "Build Playlist",
@@ -278,6 +278,7 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "My Playlists",
         "Metadata Worklist",
         "Live Assistant",
+        "Playlist Editor",
     ]
     assert [
         window.workflow_sidebar.item(index).data(main_window.Qt.ItemDataRole.AccessibleTextRole)
@@ -2214,8 +2215,9 @@ def test_main_window_exposes_dj_workflow_modules_with_decision_points() -> None:
         "My Playlists",
         "Metadata Worklist",
         "Live Assistant",
+        "Playlist Editor",
     ]
-    assert window.workflow_tabs.count() == 7
+    assert window.workflow_tabs.count() == 8
     assert window.library_decision_label.text() == "DJ Decision Point: choose source, filters, and the track anchor."
     assert (
         window.metadata_decision_label.text()
@@ -3142,6 +3144,7 @@ def test_main_window_wide_resize_restores_sidebar_labels() -> None:
         "My Playlists",
         "Metadata Worklist",
         "Live Assistant",
+        "Playlist Editor",
     ]
 
 
