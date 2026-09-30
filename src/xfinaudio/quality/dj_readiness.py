@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from xfinaudio.exporting.csv_safety import spreadsheet_safe_text
 from xfinaudio.exporting.serato_crate import SeratoExportPlan, validate_serato_crate_file
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import MAX_ADJACENT_BPM_DIFFERENCE_PERCENT, PlaylistRecommendation
@@ -117,7 +118,13 @@ def export_dj_readiness_csv(report: DjReadinessReport) -> str:
     writer = csv.DictWriter(output, fieldnames=["check", "status", "detail"], lineterminator="\n")
     writer.writeheader()
     for check in report.checks:
-        writer.writerow({"check": check.label, "status": check.status, "detail": check.detail})
+        writer.writerow(
+            {
+                "check": spreadsheet_safe_text(check.label),
+                "status": check.status,
+                "detail": spreadsheet_safe_text(check.detail),
+            }
+        )
     return output.getvalue()
 
 

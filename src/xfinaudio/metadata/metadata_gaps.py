@@ -21,6 +21,7 @@ from io import StringIO
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from xfinaudio.exporting.csv_safety import spreadsheet_safe_text
 from xfinaudio.library.models import TrackRecord
 
 # The parser's required fields, in its own order. A field is a gap when its value
@@ -135,10 +136,10 @@ def export_metadata_gap_report_csv(report: MetadataGapReport) -> str:
     for entry in report.entries:
         writer.writerow(
             {
-                "path": entry.path,
-                "title": entry.title or "",
-                "artist": entry.artist or "",
-                "missing_fields": ";".join(entry.missing_fields),
+                "path": spreadsheet_safe_text(entry.path),
+                "title": spreadsheet_safe_text(entry.title or ""),
+                "artist": spreadsheet_safe_text(entry.artist or ""),
+                "missing_fields": spreadsheet_safe_text(";".join(entry.missing_fields)),
                 "release_year": entry.release_year if entry.release_year is not None else "",
             }
         )

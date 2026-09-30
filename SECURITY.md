@@ -42,3 +42,14 @@ No legal advice or legal clearance is implied by this security policy.
 Configured Nan/OpenAI-compatible endpoints must use HTTPS without URL credentials.
 Requests do not follow redirects, including same-origin redirects: configure the
 final HTTPS completion URL directly. Bearer keys are not copied to redirected requests.
+
+## Spreadsheet CSV reports
+
+Playlist, metadata-gap, and DJ readiness CSV reports prefix formula-like text cells
+with an apostrophe. Detection covers `=`, `+`, `-`, and `@` after leading whitespace,
+control, or format characters; numeric columns remain numeric. CSV quoting still
+preserves commas, quotes, and line breaks. Depending on the spreadsheet/import mode,
+the apostrophe may be visible. Import text columns as text and do not enable formula
+evaluation or external content for untrusted metadata. JSON keeps raw metadata
+unchanged and is the lossless interchange format. Automated tests check the output;
+behavior in a particular spreadsheet application has not been manually certified.

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 
+from xfinaudio.exporting.csv_safety import spreadsheet_safe_text
 from xfinaudio.exporting.explainability import build_playlist_explanation
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
@@ -76,7 +77,10 @@ def export_playlist_csv(recommendation: PlaylistRecommendation) -> str:
     writer = csv.DictWriter(output, fieldnames=CSV_COLUMNS, lineterminator="\n")
     writer.writeheader()
     for index, track in enumerate(recommendation.ordered_tracks, start=1):
-        writer.writerow(_track_payload(index, track))
+        row = _track_payload(index, track)
+        for column in ("path", "title", "artist", "camelot_key", "status"):
+            row[column] = spreadsheet_safe_text(str(row[column]))
+        writer.writerow(row)
     return output.getvalue()
 
 
