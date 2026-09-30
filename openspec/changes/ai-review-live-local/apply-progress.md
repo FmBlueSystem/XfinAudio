@@ -10,3 +10,7 @@ releases loading and permits retry while WorkerRegistry retains old workers.
 Slice 3a: RED reproduced missing numeric transition explanations and path fallback
 transmission; GREEN 15 injected-transport narrator tests. Facts now include existing
 scores/explanations/readiness checks; paths are redacted including warning text.
+
+Slice 3b: RED absent local-facts module; GREEN 3 pure tests. Comparisons use only
+an engine Prep plan containing the exact applied recommendation, omit conflicts
+with current locks/exclusions, and compare normalized scores plus readiness.
