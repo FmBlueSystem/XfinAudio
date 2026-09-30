@@ -116,3 +116,58 @@ def test_review_expanded_details_preserve_real_window_size(desktop: MainWindow, 
         assert widget.isVisible()
         _reachable(screen.content_scroll, widget, qapp)
     _reachable(screen.content_scroll, screen.configure_ai_button, qapp)
+
+
+def _wait_for_copilot(desktop: MainWindow, qapp: QApplication) -> None:
+    deadline = time.monotonic() + 5
+    while (
+        desktop._state.is_asking_copilot or desktop._ai_copilot._copilot_thread is not None
+    ) and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.005)
+    assert desktop._ai_copilot._copilot_thread is None
+    _settle(qapp)
+
+
+@pytest.mark.parametrize("size", [(1000, 700), (1440, 1000)])
+def test_create_recovery_uses_space_and_is_visible(desktop: MainWindow, qapp: QApplication, size) -> None:
+    desktop.workflow_tabs.setCurrentIndex(1)
+    desktop.resize(*size)
+    screen = desktop._build_screen
+    screen.copilot_ask_input.setText("Build a House set")
+    screen.copilot_ask_button.click()
+    _wait_for_copilot(desktop, qapp)
+    assert "Configure AI" in screen.copilot_ask_status.text()
+    assert (desktop.width(), desktop.height()) == size
+    assert _inside(screen.copilot_ask_status, screen.controls_scroll.viewport())
+    assert _inside(screen.copilot_configure_button, screen.controls_scroll.viewport())
+    assert _inside(screen.proceed_button, desktop)
+    if size[0] == 1440:
+        assert screen.controls_scroll.height() > 500
+
+
+@pytest.mark.parametrize("size", [(1000, 700), (1440, 1000)])
+def test_create_confirmation_is_revealed_without_forcing_window_size(
+    desktop: MainWindow, qapp: QApplication, size, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from xfinaudio.recommendation.prep_copilot import DJSetIntent
+
+    monkeypatch.setattr(
+        desktop._ai_copilot,
+        "_intent_extractor",
+        lambda *args, **kwargs: DJSetIntent(name="Synthetic House", target_track_count=6, genre_focus="House"),
+    )
+    desktop.workflow_tabs.setCurrentIndex(1)
+    desktop.resize(*size)
+    screen = desktop._build_screen
+    screen.copilot_ask_input.setText("Build a House set")
+    screen.copilot_ask_button.click()
+    _wait_for_copilot(desktop, qapp)
+    assert screen.intent_preview.isVisible()
+    assert (desktop.width(), desktop.height()) == size
+    assert _inside(screen.intent_preview.confirm_button, screen.controls_scroll.viewport())
+    assert _inside(screen.intent_preview.edit_button, screen.controls_scroll.viewport())
+    screen.controls_scroll.verticalScrollBar().setValue(0)
+    desktop._sync_state()
+    _settle(qapp)
+    assert screen.controls_scroll.verticalScrollBar().value() == 0

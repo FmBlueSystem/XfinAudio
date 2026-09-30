@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -109,8 +109,10 @@ class BuildScreen(QWidget):
         self._variant_target_count = 25
         self._needs_metadata_repair = False
         self._genre_chosen_by_dj = False
+        self._last_ai_presentation: tuple[str, bool] = ("", False)
         self._build_ui()
         self._connect_signals()
+        self.controls_scroll.widget().installEventFilter(self)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -129,9 +131,8 @@ class BuildScreen(QWidget):
         self.controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.controls_scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self.controls_scroll.setMinimumHeight(120)
-        self.controls_scroll.setMaximumHeight(280)
         self.controls_scroll.setWidget(controls)
-        outer.addWidget(self.controls_scroll)
+        outer.addWidget(self.controls_scroll, 1)
 
         # Strategy row
         strategy_row = QHBoxLayout()
@@ -360,6 +361,23 @@ class BuildScreen(QWidget):
         self._setup_button_tooltips()
         self._setup_accessibility()
         self._setup_tab_order()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self.controls_scroll.widget() and event.type() == QEvent.Type.LayoutRequest:
+            # Wait until Qt has laid out a newly shown interpretation or status.
+            # Calling ensureWidgetVisible synchronously uses stale geometry.
+            QTimer.singleShot(0, self._reveal_ai_response)
+        return super().eventFilter(watched, event)
+
+    def _reveal_ai_response(self) -> None:
+        presentation = (self.copilot_ask_status.text(), not self.intent_preview.isHidden())
+        if presentation == self._last_ai_presentation:
+            return
+        self._last_ai_presentation = presentation
+        if presentation[1]:
+            self.controls_scroll.ensureWidgetVisible(self.intent_preview.confirm_button)
+        elif presentation[0]:
+            self.controls_scroll.ensureWidgetVisible(self.copilot_configure_button)
 
     def _setup_button_tooltips(self) -> None:
         """Explain every button so users understand each control (R1)."""
