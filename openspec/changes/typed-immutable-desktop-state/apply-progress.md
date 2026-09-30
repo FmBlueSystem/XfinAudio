@@ -15,3 +15,10 @@ Implementation and verification evidence follows in the next chained slices.
 - Converted helper methods, scan start/progress/finish, runtime refresh and legacy shell writes to replacement snapshots. Legacy token reads are side-effect free.
 - Added narrow typed current-state/publication callbacks and corrected screen literals to include existing playlists/live screens. Updated fixture setup to use supported replacements.
 - GREEN: the original 4 snapshot contracts and the full 190-test state/scan/view-model subset pass after recovery. The final validation slice adds standalone accessor/type contracts and broader gate evidence.
+
+## Final slice verification
+
+- Added accessor tests for latest-snapshot derivation, exactly-once publication, atomic rejection of unknown fields, and five actual negative Pyright diagnostics alongside valid typed usage.
+- Final focused subset: 193 passed; full-source/test Pyright: 0 errors/0 warnings; repository-wide Ruff lint/format and diff whitespace checks pass.
+- An initial aggregate run exposed the sandbox's read-only HOME rather than a migration failure. With an isolated writable HOME, the repeat was deliberately stopped at the integration owner's request; the combined-tree release gate remains pending there.
+- Review chain: regression contract, production migration plus fixture conversion, then type contracts/evidence. Each implementation slice stays below the 400-line review budget.
