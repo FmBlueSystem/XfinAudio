@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: optional-structured-ai
 artifact_store: openspec
-status: apply
+status: verify
 created: 2026-09-30
 updated: 2026-09-30
 strict_tdd: true
@@ -10,9 +10,9 @@ phases:
   specs: complete
   design: complete
   tasks: complete
-  apply: in-progress
-  verify: pending
-next_recommended: apply
+  apply: complete
+  verify: in-progress
+next_recommended: integrated-release-gate
 blocked_reasons: []
 delivery:
   strategy: auto-chain
@@ -22,3 +22,4 @@ delivery:
 notes:
   - Every production change follows a failing behavior test.
   - No live API tests; coordinator owns integrated gate.
+  - 283 focused tests and focused lint/format/type checks pass.
