@@ -54,6 +54,11 @@ def build_main_window_layout(self: Any) -> None:
         item.setToolTip(label)
         self.workflow_sidebar.addItem(item)
 
+    self.workflow_sidebar.item(6).setToolTip(
+        self.tr("Apply an engine-ready set with at least two complete tracks to use local Live guidance.")
+    )
+    self.workflow_sidebar.item(7).setToolTip(self.tr("Open a saved playlist from My Playlists to edit it."))
+
     self.workflow_tabs = WorkflowStack(workflow_labels)
     self.workflow_tabs.addWidget(self._library_screen)
     self.workflow_tabs.addWidget(self._build_screen)

@@ -44,3 +44,12 @@ def test_editor_is_reachable_in_main_window_and_state_remains_immutable(qapp, tm
         assert not window.workflow_tabs.isTabEnabled(7)
     finally:
         window.close()
+
+
+def test_unavailable_optional_screens_explain_next_step(qapp, tmp_path):
+    window = MainWindow(scan_service=EmptyScanner(), repository=TrackRepository(tmp_path / "tracks.db"))
+    try:
+        assert "ready" in window.workflow_sidebar.item(6).toolTip().lower()
+        assert "saved playlist" in window.workflow_sidebar.item(7).toolTip().lower()
+    finally:
+        window.close()
