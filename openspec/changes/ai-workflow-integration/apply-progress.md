@@ -27,3 +27,9 @@ Apply, Save and Back verified against a temporary SQLite repository. Preview and
 Apply leave the saved set untouched; only Save persists. Settings route verified
 with the actual modal event loop and Cancel, leaving AI disabled. Shared component
 lifecycle and shell integration currently pass all focused checks.
+
+Create integration: actual modal Configure AI routes from Build and Review now
+pass; local candidate-route snapshots are supplied before worker execution.
+Independent acceptance identified unsaved draft loss at app-close. RED reproduced
+both Close choices without a prompt; GREEN verifies default Cancel keeps the
+window alive, Discard closes, and neither implicitly saves the draft.

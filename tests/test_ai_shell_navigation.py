@@ -1,5 +1,7 @@
 """Actual Qt shell routes for the approved assistant workflows."""
 
+import pytest
+
 from xfinaudio.desktop.app_state import VALID_SCREENS, AppState
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.desktop.navigation import Navigation
@@ -114,7 +116,8 @@ def test_shell_sync_invalidates_inflight_narrator_when_set_changes(qapp, tmp_pat
         window.close()
 
 
-def test_review_configure_ai_opens_real_settings_without_enabling(qapp, tmp_path, monkeypatch):
+@pytest.mark.parametrize("screen_index", [1, 2])
+def test_configure_ai_opens_real_settings_without_enabling(qapp, tmp_path, monkeypatch, screen_index):
     from PySide6.QtCore import QTimer
 
     from tests.test_ai_narrator_controller import _readiness
@@ -126,10 +129,12 @@ def test_review_configure_ai_opens_real_settings_without_enabling(qapp, tmp_path
     seen = []
     try:
         window._replace_app_state(
-            window._state.model_copy(update={"last_recommendation": _set(), "last_dj_readiness_report": _readiness()})
+            window._state.with_scanned_records(_set().ordered_tracks).model_copy(
+                update={"last_recommendation": _set(), "last_dj_readiness_report": _readiness()}
+            )
         )
         window._sync_state()
-        window.workflow_sidebar.setCurrentRow(2)
+        window.workflow_sidebar.setCurrentRow(screen_index)
 
         def inspect_dialog():
             dialog = window._settings_dialog
@@ -140,7 +145,12 @@ def test_review_configure_ai_opens_real_settings_without_enabling(qapp, tmp_path
                 dialog.reject()
 
         QTimer.singleShot(0, inspect_dialog)
-        window._review_screen.configure_ai_button.click()
+        button = (
+            window._build_screen.copilot_configure_button
+            if screen_index == 1
+            else window._review_screen.configure_ai_button
+        )
+        button.click()
         qapp.processEvents()
         assert seen == [True]
         assert not window.settings.ai.enabled
@@ -183,4 +193,37 @@ def test_saved_playlist_keyboard_open_preview_apply_and_save(qapp, tmp_path):
         QTest.mouseClick(editor.back_button, Qt.MouseButton.LeftButton)
         assert window._state.current_screen == "playlists"
     finally:
+        window.close()
+
+
+def test_create_candidate_routes_are_snapshotted_on_ui_thread(qapp, tmp_path):
+    window = MainWindow(scan_service=EmptyScanner(), repository=TrackRepository(tmp_path / "tracks.db"))
+    try:
+        assert window._ai_copilot._candidate_routes_factory == window._prep_candidate_routes
+    finally:
+        window.close()
+
+
+@pytest.mark.parametrize("discard", [False, True])
+def test_window_close_protects_unsaved_editor_draft(qapp, tmp_path, monkeypatch, discard):
+    from PySide6.QtWidgets import QMessageBox
+
+    window = MainWindow(scan_service=EmptyScanner(), repository=TrackRepository(tmp_path / "tracks.db"))
+    playlist = window._playlist_repository.create("Draft", ["/a", "/b"])
+    window._playlist_editor.set_playlist(playlist)
+    window._playlist_editor._on_remove_clicked(1)
+    assert window._playlist_editor.is_dirty
+    window.show()
+    questions = []
+    answer = QMessageBox.StandardButton.Discard if discard else QMessageBox.StandardButton.Cancel
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: questions.append(args) or answer)
+    try:
+        window.close()
+        assert len(questions) == 1
+        assert "unsaved" in questions[0][2].lower()
+        assert bool(getattr(window, "_closing", False)) is discard
+        assert window.isVisible() is not discard
+        assert window._playlist_repository.get_by_id(playlist.id).track_paths == ["/a", "/b"]
+    finally:
+        window._playlist_editor.discard_draft()
         window.close()

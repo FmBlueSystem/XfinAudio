@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QCoreApplication, Qt, QThread, QTimer
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from xfinaudio.application.playlist_workflow import ScanService
 from xfinaudio.application.recommendation_candidates import (
@@ -122,6 +122,7 @@ class MainWindow(QMainWindow):
             on_state_changed=self._sync_state,
             desktop_recommendation_records=self._desktop_recommendation_records,
             desktop_color_anchor_candidate_context=self._desktop_color_anchor_candidate_context,
+            candidate_routes_factory=self._prep_candidate_routes,
             parent=self,
         )
         self._ai_narrator = AiNarratorController(
@@ -143,6 +144,18 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: object) -> None:
         if not getattr(self, "_closing", False):
+            if self._playlist_editor.is_dirty:
+                decision = QMessageBox.question(
+                    self,
+                    self.tr("Unsaved playlist draft"),
+                    self.tr("This playlist has unsaved changes. Discard the draft and close XfinAudio?"),
+                    QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                if decision != QMessageBox.StandardButton.Discard:
+                    event.ignore()  # type: ignore[attr-defined]
+                    return
+                self._playlist_editor.discard_draft()
             self._closing = True
             self.setEnabled(False)
             self._audio_player.shutdown()
@@ -521,6 +534,7 @@ class MainWindow(QMainWindow):
             screen.connect_signals(self)
         self._review_screen.ai_narrate_cancel_requested.connect(self._ai_narrator.cancel)
         self._review_screen.configure_ai_requested.connect(self._settings_controller.open_ai_settings_dialog)
+        self._build_screen.configure_ai_requested.connect(self._settings_controller.open_ai_settings_dialog)
         self._playlist_coordinator.connect_signals()
         self._playlist_coordinator.refresh_list()
         for table in (
