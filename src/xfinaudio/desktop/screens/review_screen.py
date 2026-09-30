@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.review_assistance import review_engine_facts
 from xfinaudio.desktop.review_view_model import (
     ReadinessCheckRow,
     RecommendationRow,
@@ -123,6 +124,8 @@ class ReviewScreen(QWidget):
     proceed_to_export_requested = Signal()
     save_to_playlists_requested = Signal()
     ai_narrate_requested = Signal()  # "Explícame este set": ask the AI to narrate the set
+    configure_ai_requested = Signal()
+    ai_narrate_cancel_requested = Signal()
     track_remove_requested = Signal(str)  # emits the track path
     track_play_requested = Signal(str)  # emits the track path
     remove_without_selection_requested = Signal()  # no valid row selected for removal
@@ -192,8 +195,24 @@ class ReviewScreen(QWidget):
         self.ai_narrate_button.setObjectName("ai_narrate_button")
         self.ai_narrate_button.setEnabled(False)
         actions.addWidget(self.ai_narrate_button)
+        self.ai_narrate_cancel_button = QPushButton(self.tr("Cancel"))
+        self.ai_narrate_cancel_button.setVisible(False)
+        actions.addWidget(self.ai_narrate_cancel_button)
+        self.configure_ai_button = QPushButton(self.tr("Configure AI"))
+        actions.addWidget(self.configure_ai_button)
+        self.engine_facts_button = QPushButton(self.tr("Engine facts & alternatives"))
+        self.engine_facts_button.setCheckable(True)
+        self.engine_facts_button.setEnabled(False)
+        actions.addWidget(self.engine_facts_button)
         actions.addStretch()
         layout.addLayout(actions)
+
+        self.engine_facts_details = QPlainTextEdit()
+        self.engine_facts_details.setReadOnly(True)
+        self.engine_facts_details.setMaximumHeight(110)
+        self.engine_facts_details.setVisible(False)
+        self.engine_facts_details.setAccessibleName(self.tr("Local engine facts and alternative comparison"))
+        layout.addWidget(self.engine_facts_details)
 
         # The narrative is read-only text from state, so a wrapping label is
         # enough -- a text edit would claim focus and look like an input the DJ
@@ -310,6 +329,9 @@ class ReviewScreen(QWidget):
                 "Ask the AI to explain this set: how it opens, how it moves, and where it lands, "
                 "using only the facts the engine produced"
             ),
+            self.ai_narrate_cancel_button: "Cancel this narrative request; local analysis remains available",
+            self.configure_ai_button: "Open AI settings to enable or configure the optional narrator",
+            self.engine_facts_button: "Explain risks and compare existing engine variants without a network call",
             self.back_button: "Return to the Build screen",
             self.export_button: "Move on to export this playlist",
         }
@@ -324,6 +346,9 @@ class ReviewScreen(QWidget):
         self.remove_track_button.setAccessibleName(self.tr("Remove selected track from playlist"))
         self.save_to_playlists_button.setAccessibleName(self.tr("Save recommendation to My Playlists"))
         self.ai_narrate_button.setAccessibleName(self.tr("Explain this set with the AI narrator"))
+        self.ai_narrate_cancel_button.setAccessibleName(self.tr("Cancel AI narration"))
+        self.configure_ai_button.setAccessibleName(self.tr("Configure AI"))
+        self.engine_facts_button.setAccessibleName(self.tr("Show local engine facts and alternatives"))
         self.ai_narrative_label.setAccessibleName(self.tr("AI set narrative"))
         self.ai_narrate_status.setAccessibleName(self.tr("AI set narrator status"))
         self.transition_table.setAccessibleName(self.tr("Transition analysis"))
@@ -338,7 +363,11 @@ class ReviewScreen(QWidget):
         self.setTabOrder(self.recommendation_table, self.remove_track_button)
         self.setTabOrder(self.remove_track_button, self.save_to_playlists_button)
         self.setTabOrder(self.save_to_playlists_button, self.ai_narrate_button)
-        self.setTabOrder(self.ai_narrate_button, self.transition_table)
+        self.setTabOrder(self.ai_narrate_button, self.ai_narrate_cancel_button)
+        self.setTabOrder(self.ai_narrate_cancel_button, self.configure_ai_button)
+        self.setTabOrder(self.configure_ai_button, self.engine_facts_button)
+        self.setTabOrder(self.engine_facts_button, self.engine_facts_details)
+        self.setTabOrder(self.engine_facts_details, self.transition_table)
         self.setTabOrder(self.transition_table, self.transition_details)
         self.setTabOrder(self.transition_details, self.readiness_table)
         self.setTabOrder(self.readiness_table, self.back_button)
@@ -358,6 +387,9 @@ class ReviewScreen(QWidget):
         self.export_button.clicked.connect(self.proceed_to_export_requested)
         self.save_to_playlists_button.clicked.connect(self.save_to_playlists_requested)
         self.ai_narrate_button.clicked.connect(self.ai_narrate_requested)
+        self.configure_ai_button.clicked.connect(self.configure_ai_requested)
+        self.ai_narrate_cancel_button.clicked.connect(self.ai_narrate_cancel_requested)
+        self.engine_facts_button.toggled.connect(self.engine_facts_details.setVisible)
         self.recommendation_table.itemSelectionChanged.connect(self._on_recommendation_selection_changed)
         self.remove_track_button.clicked.connect(self._on_remove_clicked)
         self.recommendation_table.itemDoubleClicked.connect(self._on_rec_double_clicked)
@@ -397,6 +429,13 @@ class ReviewScreen(QWidget):
         # The narrative is cheap idempotent text from state, so it is re-applied on
         # every render (including lightweight ones) instead of needing a signature
         # cache. It is never cleared here: only a new recommendation invalidates it.
+        facts = review_engine_facts(state)
+        self.engine_facts_button.setEnabled(bool(facts))
+        if self.engine_facts_details.toPlainText() != facts:
+            self.engine_facts_details.setPlainText(facts)
+        if not facts:
+            self.engine_facts_button.setChecked(False)
+        self.ai_narrate_cancel_button.setVisible(vm.is_narrating(state))
         self.ai_narrate_button.setEnabled(vm.narrate_button_enabled(state))
         if vm.is_narrating(state):
             # Only the busy text is render-owned. The success/failure message is

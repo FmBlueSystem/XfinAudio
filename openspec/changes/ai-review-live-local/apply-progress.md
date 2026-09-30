@@ -14,3 +14,7 @@ scores/explanations/readiness checks; paths are redacted including warning text.
 Slice 3b: RED absent local-facts module; GREEN 3 pure tests. Comparisons use only
 an engine Prep plan containing the exact applied recommendation, omit conflicts
 with current locks/exclusions, and compare normalized scores plus readiness.
+
+Slice 4: RED missing widget actions; GREEN 28 Review widget tests including real
+QTest mouse clicks for Configure AI, Cancel and offline local facts. Facts panel is
+opt-in/collapsible so idle Review retains its table space.

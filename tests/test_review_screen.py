@@ -592,3 +592,37 @@ def test_a_new_recommendation_clears_the_narrative_on_the_screen(qapp: QApplicat
 
     assert screen.ai_narrative_label.text() == ""
     assert not screen.ai_narrative_label.isVisibleTo(screen)
+
+
+def test_review_configure_and_cancel_are_real_clickable_actions(qapp: QApplication) -> None:
+    from PySide6.QtTest import QTest
+
+    screen = ReviewScreen()
+    screen.show()
+    configured: list[bool] = []
+    cancelled: list[bool] = []
+    screen.configure_ai_requested.connect(lambda: configured.append(True))
+    screen.ai_narrate_cancel_requested.connect(lambda: cancelled.append(True))
+    screen.render(ReviewViewModel(), _review_state(["/a", "/b"], is_narrating=True))
+    QTest.mouseClick(screen.configure_ai_button, Qt.MouseButton.LeftButton)
+    QTest.mouseClick(screen.ai_narrate_cancel_button, Qt.MouseButton.LeftButton)
+    assert configured == [True]
+    assert cancelled == [True]
+    screen.render(ReviewViewModel(), _review_state(["/a", "/b"]))
+    assert not screen.ai_narrate_cancel_button.isVisibleTo(screen)
+
+
+def test_review_local_facts_toggle_works_with_ai_disabled(qapp: QApplication, monkeypatch) -> None:
+    from PySide6.QtTest import QTest
+
+    monkeypatch.setenv("XFINAUDIO_AI_ENABLED", "0")
+    screen = ReviewScreen()
+    screen.show()
+    screen.render(ReviewViewModel(), _review_state(["/a", "/b"]))
+    QTest.mouseClick(screen.engine_facts_button, Qt.MouseButton.LeftButton)
+    assert screen.engine_facts_details.isVisibleTo(screen)
+    assert "Local engine" in screen.engine_facts_details.toPlainText()
+    assert "average transition score" in screen.engine_facts_details.toPlainText()
+    screen.render(ReviewViewModel(), AppState())
+    assert not screen.engine_facts_button.isEnabled()
+    assert not screen.engine_facts_details.toPlainText()
