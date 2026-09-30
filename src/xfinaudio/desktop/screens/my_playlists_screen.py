@@ -12,17 +12,20 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from xfinaudio.library.playlist_models import PlaylistSummary
+from xfinaudio.library.playlist_models import Playlist, PlaylistSummary
 
 
 class MyPlaylistsScreen(QWidget):
     """Displays saved playlists and emits CRUD signals."""
 
+    query_requested = Signal(str)
+    compare_requested = Signal(list)
     open_requested = Signal(int)
     create_requested = Signal()
     rename_requested = Signal(int, str)
@@ -59,8 +62,26 @@ class MyPlaylistsScreen(QWidget):
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
+        self.query_input = QLineEdit()
+        self.query_input.setPlaceholderText(self.tr("Offline: find house playlists / compare Sunset and Peak"))
+        self.find_button = QPushButton(self.tr("Find / compare"))
+        self.compare_button = QPushButton(self.tr("Compare selected"))
+        query_row = QHBoxLayout()
+        query_row.addWidget(self.query_input)
+        query_row.addWidget(self.find_button)
+        query_row.addWidget(self.compare_button)
+        layout.addLayout(query_row)
+        self.assistant_output = QPlainTextEdit()
+        self.assistant_output.setReadOnly(True)
+        self.assistant_output.setMaximumHeight(150)
+        self.assistant_output.setPlaceholderText(
+            self.tr("Local saved-set evidence only. Select multiple sets to compare.")
+        )
+        layout.addWidget(self.assistant_output)
+
         # List
         self.list_widget = QListWidget()
+        self.list_widget.setSelectionMode(self.list_widget.SelectionMode.ExtendedSelection)
         layout.addWidget(self.list_widget)
 
         # Empty state label (shown when list is empty)
@@ -69,6 +90,13 @@ class MyPlaylistsScreen(QWidget):
         layout.addWidget(self.empty_label)
 
     def _connect_signals(self) -> None:
+        self.find_button.clicked.connect(lambda: self.query_requested.emit(self.query_input.text()))
+        self.query_input.returnPressed.connect(lambda: self.query_requested.emit(self.query_input.text()))
+        self.compare_button.clicked.connect(
+            lambda: self.compare_requested.emit(
+                [item.data(Qt.ItemDataRole.UserRole) for item in self.list_widget.selectedItems()]
+            )
+        )
         self.create_button.clicked.connect(self._on_create_clicked)
         self.rename_button.clicked.connect(self._on_rename_clicked)
         self.duplicate_button.clicked.connect(self._on_duplicate_clicked)
@@ -87,6 +115,7 @@ class MyPlaylistsScreen(QWidget):
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, summary.id)
             self.list_widget.addItem(item)
+        self.empty_label.setText(self.tr("No saved playlists yet. Generate a playlist and click Save."))
         self.empty_label.setVisible(len(summaries) == 0)
 
     def selected_playlist_id(self) -> int | None:
@@ -130,3 +159,11 @@ class MyPlaylistsScreen(QWidget):
         playlist_id = self.selected_playlist_id()
         if playlist_id is not None:
             self.delete_requested.emit(playlist_id)
+
+    def show_assistant_result(self, playlists: list[Playlist], text: str) -> None:
+        self.populate_list(
+            [PlaylistSummary(p.id, p.name, len(p.track_paths), p.updated_at) for p in playlists if p.id is not None]
+        )
+        self.assistant_output.setPlainText(text)
+        if not playlists:
+            self.empty_label.setText(self.tr("No saved playlists match. Clear the query to show all saved sets."))

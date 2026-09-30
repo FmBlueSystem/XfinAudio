@@ -11,8 +11,35 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_models import Playlist
 
 _STOPWORDS = frozenset(
-    "find show me my saved playlists playlist sets set with containing named called please "
-    "busca buscar muestra mis listas lista guardadas guardados con de nombre canciones temas".split()
+    [
+        "find",
+        "show",
+        "me",
+        "my",
+        "saved",
+        "playlists",
+        "playlist",
+        "sets",
+        "set",
+        "with",
+        "containing",
+        "named",
+        "called",
+        "please",
+        "busca",
+        "buscar",
+        "muestra",
+        "mis",
+        "listas",
+        "lista",
+        "guardadas",
+        "guardados",
+        "con",
+        "de",
+        "nombre",
+        "canciones",
+        "temas",
+    ]
 )
 
 

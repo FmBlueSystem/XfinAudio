@@ -13,13 +13,16 @@ coordinator is the wiring home (see ``connect_signals``), not ``MainWindow``.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Protocol
 
-from xfinaudio.application.playlist_edit_intents import validate_edit
+from xfinaudio.application.playlist_edit_intents import normalize_request, validate_edit
+from xfinaudio.application.saved_playlist_assistant import compare_saved_sets, describe_saved_set, search_saved_sets
 from xfinaudio.application.saved_playlists import SavedPlaylistService
 from xfinaudio.desktop.app_state_transitions import apply_saved_playlist_export_recommendation
 from xfinaudio.desktop.undo_manager import Command, UndoManager
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.playlist_models import Playlist
 from xfinaudio.library.ports import PlaylistRepositoryPort
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 
@@ -65,6 +68,8 @@ class PlaylistCoordinator:
         """Wire all MyPlaylistsScreen and PlaylistEditor signals (net-new wiring)."""
         host = self._host
         screen = host._playlists_screen
+        screen.query_requested.connect(self.search_saved_playlists)
+        screen.compare_requested.connect(self.compare_saved_playlists)
         screen.open_requested.connect(self.open_playlist)
         screen.create_requested.connect(self.create_playlist)
         screen.rename_requested.connect(self.rename_playlist)
@@ -239,3 +244,35 @@ class PlaylistCoordinator:
             return False
         self._host._sync_state()
         return True
+
+    def _saved_sets(self) -> list[Playlist]:
+        repository = self._host._playlist_repository
+        return [p for s in repository.list_summaries() if (p := repository.get_by_id(s.id)) is not None]
+
+    def search_saved_playlists(self, request: str) -> None:
+        playlists = self._saved_sets()
+        text = normalize_request(request)
+        if text.startswith(("compare ", "compara ")):
+            names = re.split(r"\s+(?:and|y|vs)\s+", text.split(" ", 1)[1])
+            matches = [[p for p in playlists if normalize_request(p.name) == name] for name in names]
+            if len(names) < 2 or any(len(group) != 1 for group in matches):
+                self._host._playlists_screen.assistant_output.setPlainText(
+                    "Playlist names not found or ambiguous. Select at least two saved sets and use Compare selected."
+                )
+                return
+            self.compare_saved_playlists([group[0].id for group in matches])
+            return
+        result = search_saved_sets(request, playlists, self._host.scanned_records)
+        description = "\n".join(describe_saved_set(p, self._host.scanned_records) for p in result)
+        self._host._playlists_screen.show_assistant_result(
+            result, description or "No saved playlists match. Search actual names, genres or track metadata."
+        )
+
+    def compare_saved_playlists(self, ids: list[int]) -> None:
+        playlists = [p for p in self._saved_sets() if p.id in ids]
+        try:
+            description = compare_saved_sets(playlists, self._host.scanned_records)
+        except ValueError as error:
+            self._host._playlists_screen.assistant_output.setPlainText(str(error))
+            return
+        self._host._playlists_screen.show_assistant_result(playlists, description)
