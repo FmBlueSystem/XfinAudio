@@ -1,0 +1,25 @@
+schema: gentle-ai.sdd-state.v1
+change: 2026-09-30-audit-security
+artifact_store: openspec
+status: apply
+created: 2026-09-30
+updated: 2026-09-30
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: in-progress
+  verify: pending
+next_recommended: apply
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Three local review slices; no push, PR, or deployment authorized.
+  - Non-Serato-specific fixes excluded by latest owner scope.
+  - Parent owns the full integrated release gate.

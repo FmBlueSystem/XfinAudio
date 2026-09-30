@@ -36,3 +36,9 @@ If you can show a path that violates those boundaries, report it as a security i
 Binary/app bundle redistribution still needs legal review for PySide6/Qt, mutagen, and other third-party dependencies. Dependency metadata in this repository is evidence for review, not a clearance statement.
 
 No legal advice or legal clearance is implied by this security policy.
+
+## AI transport boundary
+
+Configured Nan/OpenAI-compatible endpoints must use HTTPS without URL credentials.
+Requests do not follow redirects, including same-origin redirects: configure the
+final HTTPS completion URL directly. Bearer keys are not copied to redirected requests.

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -40,7 +41,18 @@ ENV_FILE_ENV = "XFINAUDIO_AI_ENV_FILE"
 #: so a caller can supply a fake and keep the adapter fully offline.
 Transport = Callable[..., Any]
 
-_urlopen: Transport = urllib.request.urlopen
+
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    """Credential-bearing API calls must target their final HTTPS endpoint."""
+
+    def redirect_request(
+        self, req: urllib.request.Request, fp: Any, code: int, msg: str, headers: Any, newurl: str
+    ) -> None:
+        return None
+
+
+def _urlopen(request: urllib.request.Request, *, timeout: float) -> Any:
+    return urllib.request.build_opener(_RejectRedirects()).open(request, timeout=timeout)
 
 
 class NanConfigError(Exception):
@@ -163,12 +175,28 @@ def _build_request(message: str, *, system: str | None, model: str | None, api_k
     request = urllib.request.Request(_resolve_endpoint(), data=body, method="POST")
     request.add_header("Content-Type", "application/json")
     request.add_header("User-Agent", USER_AGENT)
-    request.add_header("Authorization", f"Bearer {api_key}")
+    request.add_unredirected_header("Authorization", f"Bearer {api_key}")
     return request
 
 
 def _resolve_endpoint() -> str:
-    return os.environ.get(ENDPOINT_ENV) or DEFAULT_ENDPOINT
+    endpoint = os.environ.get(ENDPOINT_ENV) or DEFAULT_ENDPOINT
+    try:
+        parsed = urllib.parse.urlsplit(endpoint)
+        valid = (
+            parsed.scheme == "https"
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.fragment
+            and (parsed.port is None or 0 < parsed.port <= 65535)
+            and not any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in endpoint)
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise NanConfigError(f"{ENDPOINT_ENV} must be an absolute HTTPS URL without credentials or fragments.")
+    return endpoint
 
 
 def _resolve_model(model: str | None) -> str:
