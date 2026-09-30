@@ -40,6 +40,7 @@ def build_main_window_layout(self: Any) -> None:
         self.tr("My Playlists"),
         self.tr("Metadata Worklist"),
         self.tr("Live Assistant"),
+        self.tr("Playlist Editor"),
     ]
     self._workflow_labels = workflow_labels
     self.workflow_sidebar = QListWidget()
@@ -61,6 +62,7 @@ def build_main_window_layout(self: Any) -> None:
     self.workflow_tabs.addWidget(self._playlists_screen)
     self.workflow_tabs.addWidget(self._metadata_screen)
     self.workflow_tabs.addWidget(self._live_assistant_screen)
+    self.workflow_tabs.addWidget(self._playlist_editor)
     self._current_tab_index = self.workflow_tabs.currentIndex()
     self.workflow_tabs.currentChanged.connect(self._on_tab_changed)
     self.workflow_tabs.currentChanged.connect(self.workflow_sidebar.setCurrentRow)

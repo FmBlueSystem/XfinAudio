@@ -255,6 +255,7 @@ def initialize_app_controller(window, screen_names: list[str]) -> None:
             metadata=window._metadata_vm,
         ),
         access=AppControllerStateAccess(
+            editor_playlist_id=lambda: window._playlist_editor._playlist_id,
             state=AppStateAccess(current=lambda: window._state, replace=window._replace_app_state),
             settings=lambda: window.settings,
             is_scanning=lambda: window.current_scan_cancellation_token is not None,

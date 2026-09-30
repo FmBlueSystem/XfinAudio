@@ -63,6 +63,7 @@ class AppControllerStateAccess:
     scanned_records: Callable[[], list[TrackRecord]]
     render_screens: Callable[[], None]
     state: AppStateAccess | None = None
+    editor_playlist_id: Callable[[], int | None] | None = None
 
 
 class AppController:
@@ -142,6 +143,9 @@ class AppController:
                 if 0 <= tab_index < len(self._screen_names)
                 else "library",
                 "selected_library_paths": list(self._access.selected_library_paths()),
+                "editor_playlist_id": self._access.editor_playlist_id()
+                if self._access.editor_playlist_id is not None
+                else current.editor_playlist_id,
             }
         )
         if self._access.state is not None:

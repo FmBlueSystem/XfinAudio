@@ -64,7 +64,7 @@ _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
     "Selected row starts the playlist; multiple selected rows set the opening order. "
     "Choose a strategy, then click Recommend Playlist.",
 )
-_SCREEN_NAMES = ["library", "build", "review", "export", "playlists", "metadata", "live"]
+_SCREEN_NAMES = ["library", "build", "review", "export", "playlists", "metadata", "live", "editor"]
 
 _APP_STATE_ATTRIBUTES = _shell_state_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES
 
@@ -174,6 +174,14 @@ class MainWindow(QMainWindow):
 
     def _build_layout(self) -> None:
         _layout.build_main_window_layout(self)
+
+    def _show_playlist_editor(self) -> None:
+        self._replace_app_state(
+            self._state.model_copy(update={"editor_playlist_id": self._playlist_editor._playlist_id})
+        )
+        self._sync_state()
+        if self._nav.can_go_to("editor", self._state):
+            self.workflow_tabs.setCurrentIndex(7)
 
     def _on_sidebar_row_changed(self, index: int) -> None:
         previous_index = self.workflow_tabs.currentIndex()

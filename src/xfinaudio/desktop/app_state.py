@@ -17,7 +17,7 @@ from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
 
-ScreenName = Literal["library", "build", "review", "export", "playlists", "metadata", "live"]
+ScreenName = Literal["library", "build", "review", "export", "playlists", "metadata", "live", "editor"]
 
 VALID_SCREENS: frozenset[str] = frozenset(get_args(ScreenName))
 
@@ -77,6 +77,7 @@ class AppState:
 
     # Navigation
     current_screen: ScreenName = "library"
+    editor_playlist_id: int | None = None
 
     # Transient scan state (not persisted)
     is_scanning: bool = False

@@ -18,6 +18,9 @@ class Navigation:
         if screen in ("library", "playlists", "metadata"):
             return True
 
+        if screen == "editor":
+            return state.editor_playlist_id is not None and not state.is_scanning and not state.is_recommending
+
         if screen == "build":
             return len(state.scanned_records) > 0 and not state.is_scanning
 
@@ -64,6 +67,8 @@ class Navigation:
             return None
 
         current = state.current_screen
+        if current == "editor":
+            return "playlists"
         if current in ("library", "metadata"):
             return None
 

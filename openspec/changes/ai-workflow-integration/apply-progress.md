@@ -10,3 +10,8 @@ exist. GREEN now passes 25 metadata domain/widget/layout checks. Guidance uses
 actual missing values, prioritizes locked tracks then fewer fields, and never
 writes. Selected-track explanation and empty-library reset verified. Ruff and
 focused Pyright with the project interpreter pass.
+
+Editor shell slice: RED proved missing editor route and widget; a second RED
+proved stale loaded-id after editor clear. GREEN: 75 navigation/state/playlist
+checks pass. Editor appended at index 7, enabled only for an idle loaded set;
+sidebar/stack/state synchronization preserves existing indices and snapshots.
