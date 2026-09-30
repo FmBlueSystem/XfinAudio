@@ -1,14 +1,14 @@
 """Nan Builders (OpenAI-compatible) chat client for XfinAudio.
 
-Fase 0 spike: function-level, stdlib-only, and offline by default. Nothing here
+Function-level, stdlib-only, and offline by default. Nothing here
 opens a socket unless ``XFINAUDIO_AI_ENABLED`` opts in *and* an API key is
 available. The key value only ever reaches the ``Authorization`` header: it is
 not logged, echoed in errors, or stored anywhere else.
 
 Keys resolve environment first (``NAN_API_KEY``), then an operator-owned env
 file whose path comes from an explicit argument, ``XFINAUDIO_AI_ENV_FILE``, or
-``~/.xfinaudio/apiIA.env``. Live calls are intentionally out of scope for this
-spike; ``transport`` exists so tests can pin the request without the network.
+``~/.xfinaudio/apiIA.env``. Configured user-requested actions may call the provider; ``transport`` exists
+so automated tests can verify the request without using the network.
 """
 
 from __future__ import annotations
