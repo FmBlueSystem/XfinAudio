@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QTableWidget,
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.metadata_view_model import MetadataViewModel, WorklistRow
+from xfinaudio.metadata.repair_guidance import explain_track_gaps, repair_plan_text
 
 _WORKLIST_COLUMNS = ["Title", "Artist", "BPM", "Key", "Energy", "Missing", "Status"]
 
@@ -53,6 +55,7 @@ class MetadataScreen(QWidget):
         # on every state sync for the visible tab, and rebuilding the table
         # would wipe the DJ's selection even when the rows are identical.
         self._last_worklist_signature: tuple | None = None
+        self._repair_state = AppState()
         self._build_ui()
         self._connect_signals()
 
@@ -103,6 +106,18 @@ class MetadataScreen(QWidget):
         filter_row.addWidget(self.gap_export_button)
         filter_row.addStretch()
         layout.addLayout(filter_row)
+
+        self.repair_help_button = QPushButton(self.tr("Explain & prioritize repairs"))
+        self.repair_help_button.setCheckable(True)
+        self.repair_help_button.setToolTip(self.tr("Show read-only local guidance based on missing metadata"))
+        self.repair_help_button.setAccessibleName(self.tr("Explain and prioritize metadata repairs"))
+        layout.addWidget(self.repair_help_button)
+        self.repair_help = QPlainTextEdit()
+        self.repair_help.setReadOnly(True)
+        self.repair_help.setMaximumHeight(150)
+        self.repair_help.setAccessibleName(self.tr("Local metadata repair explanation"))
+        self.repair_help.hide()
+        layout.addWidget(self.repair_help)
 
         # Worklist table — expanding so it absorbs spare vertical space.
         self.worklist_table = QTableWidget(0, len(_WORKLIST_COLUMNS))
@@ -168,6 +183,9 @@ class MetadataScreen(QWidget):
         self.setTabOrder(self.back_button, self.refresh_button)
 
     def _connect_signals(self) -> None:
+        self.repair_help_button.toggled.connect(self.repair_help.setVisible)
+        self.repair_help_button.toggled.connect(lambda _: self._render_repair_help())
+        self.worklist_table.itemSelectionChanged.connect(self._render_repair_help)
         self.back_button.clicked.connect(self.back_requested)
         self.status_combo.currentTextChanged.connect(lambda _: self.filter_changed.emit())
         self.missing_combo.currentTextChanged.connect(lambda _: self.filter_changed.emit())
@@ -195,6 +213,9 @@ class MetadataScreen(QWidget):
         if vm is None:
             vm = MetadataViewModel()
 
+        self._repair_state = state
+        self.repair_help_button.setEnabled(bool(state.scanned_records))
+        self._render_repair_help()
         self.status_label.setText(vm.status_text(state))
         self.gap_summary_label.setText(vm.gap_summary_text(state))
         self.gap_summary_label.setVisible(bool(state.scanned_records))
@@ -239,6 +260,20 @@ class MetadataScreen(QWidget):
         )
         self.export_button.setEnabled(vm.export_enabled(state))
         self.gap_export_button.setEnabled(vm.gap_report_export_enabled(state))
+
+    def _render_repair_help(self) -> None:
+        state = self._repair_state
+        if not state.scanned_records:
+            self.repair_help.clear()
+            return
+        selected = self.worklist_table.item(self.worklist_table.currentRow(), 0)
+        path = selected.data(Qt.ItemDataRole.UserRole) if selected is not None else None
+        record = next((record for record in state.scanned_records if record.path == path), None)
+        if record is not None:
+            text = f"{record.title or self.tr('Untitled')}\n{explain_track_gaps(record)}"
+        else:
+            text = repair_plan_text(state.scanned_records, locked_paths=state.locked_paths)
+        self.repair_help.setPlainText(text)
 
     def _populate_table(self, rows: list[WorklistRow]) -> None:
         """Rebuild the worklist table, restoring same-path selection when possible.
