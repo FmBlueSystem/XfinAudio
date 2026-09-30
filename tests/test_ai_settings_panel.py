@@ -28,6 +28,8 @@ def test_default_panel_has_disclosures_no_key_field_and_no_request(qapp):
     assert not panel.findChildren(QLineEdit)
     assert "never audio" in panel.privacy_label.text().lower()
     assert "provider.invalid" in panel.privacy_label.text()
+    assert "Known and recognizable file paths are removed" in panel.privacy_label.text()
+    assert "Avoid private information in free text" in panel.privacy_label.text()
     assert "Reply with OK. XfinAudio connection test." in panel.test_disclosure.text()
     assert "quota" in panel.test_disclosure.text()
     assert "outside" in panel.guidance_label.text()

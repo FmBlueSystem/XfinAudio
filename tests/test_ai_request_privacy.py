@@ -96,3 +96,42 @@ def test_recognizable_paths_embedded_in_text_are_redacted_even_without_library_c
     result = redact_paths(f"prefix{path}suffix with house energy 5")
     assert "Private" not in result
     assert "with house energy 5" in result
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "Music/Private Client Set.wav",
+        r"Music\Private Client Set.wav",
+        "Music/Client/Private Set.aiff",
+        "Música/Private Client Set.FLAC",
+        '"Private Music/Private Client Set.wav"',
+        r"'Private Music\Private Client Set.wav'",
+    ],
+)
+def test_editor_transport_redacts_relative_audio_paths(monkeypatch, tmp_path, path):
+    from xfinaudio.ai.structured_assists import interpret_editor_request
+
+    monkeypatch.setenv("XFINAUDIO_AI_ENABLED", "1")
+    monkeypatch.setenv("NAN_API_KEY", "synthetic-never-live")
+    monkeypatch.setenv("XFINAUDIO_AI_ENV_FILE", str(tmp_path / "absent"))
+    transport = FakeTransport('{"operation":"rising_energy"}')
+    result = interpret_editor_request(f"raise energy using {path}, keep funk/soul at 120/128 bpm", transport=transport)
+    prompt = message_text(transport)
+    assert result.command == "raise energy"
+    assert "Private" not in prompt and "Secret" not in prompt
+    assert "[private path]" in prompt
+    assert "raise energy using" in prompt
+    assert "keep funk/soul at 120/128 bpm" in prompt
+
+
+def test_relative_path_redaction_keeps_adjacent_musical_text():
+    assert redact_paths("use Music/Song.mp3 then Other/Set.wav; house 120/128") == (
+        "use [private path] then [private path]; house 120/128"
+    )
+
+
+def test_genre_and_ratio_before_relative_path_remain_musical_context():
+    assert redact_paths("funk/soul at 120/128 bpm using Music/Private Song.wav") == (
+        "funk/soul at 120/128 bpm using [private path]"
+    )

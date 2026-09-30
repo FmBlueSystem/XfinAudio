@@ -46,7 +46,8 @@ class AiSettingsPanel(QGroupBox):
         self.privacy_label = self._label(
             self.tr(
                 "AI actions send your request text and track/set metadata (titles, artists, genres, BPM, key, energy "
-                "and transition/readiness summaries) to {0}; never audio or local file paths. "
+                "and transition/readiness summaries) to {0}; never audio. "
+                "Known and recognizable file paths are removed. Avoid private information in free text. "
                 "Opening Settings sends nothing. Offline tools remain available."
             ).format(endpoint_label()),
             "ai_data_sharing_disclosure",
