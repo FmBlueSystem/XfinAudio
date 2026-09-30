@@ -1038,6 +1038,15 @@
 <context>
     <name>MainWindow</name>
     <message>
+        <location filename="../src/xfinaudio/desktop/menu.py" line="67"/>
+        <source>Version {version}</source>
+        <translation>Versión {version}</translation>
+    </message>
+    <message>
+        <source>Unknown</source>
+        <translation>Desconocida</translation>
+    </message>
+    <message>
         <location filename="../src/xfinaudio/desktop/main_window.py" line="59"/>
         <source>No recommendation is ready for review.</source>
         <translation>No hay recomendación lista para revisar.</translation>
@@ -1979,11 +1988,6 @@
         <location filename="../src/xfinaudio/desktop/menu.py" line="54"/>
         <source>Help</source>
         <translation type="unfinished">Ayuda</translation>
-    </message>
-    <message>
-        <location filename="../src/xfinaudio/desktop/menu.py" line="67"/>
-        <source>Version 1.0</source>
-        <translation type="unfinished">Versión 1.0</translation>
     </message>
     <message>
         <location filename="../src/xfinaudio/desktop/menu.py" line="70"/>
