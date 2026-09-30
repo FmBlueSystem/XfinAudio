@@ -12,10 +12,30 @@ credential outside the application, enable the preference explicitly, then use
 only the AI action whose disclosure you accept. Each additional assistant shows
 what context it sends and the configured recipient. No audio files are uploaded.
 Connection tests send disclosed synthetic text and can consume provider quota.
+The new optional panels start unconsented; a recipient change requires fresh consent.
 
 A request already sent may finish after cancellation. Cancellation prevents its
 result from being applied; it cannot recall a request received by the provider.
 A changed library, request, set or relevant constraint invalidates stale results.
+
+## Data sent by each action
+
+| Action | Disclosed provider context |
+|---|---|
+| Library | request text and sanitized genre vocabulary; no track list |
+| Create | request and genres; titles only when explicitly selected for that request |
+| Review | ordered track titles, artists, BPM, key and energy, computed transitions, warnings and readiness summaries |
+| Editor | request text only; no saved playlist or track list |
+| My Playlists | request with known saved names replaced by temporary IDs, plus anonymous aggregate descriptors; no persistent IDs |
+| Metadata | aggregate track/missing-field counts and count of locked tracks with gaps |
+| Live | temporary candidate IDs, existing ranks/scores, defined BPM/energy gaps and readiness facts |
+
+No action uploads audio. Dedicated path fields are omitted and known/recognizable
+paths are redacted from text; arbitrary private text cannot be reliably removed.
+Do not type secrets or private details into a request. Commentary can still be
+wrong; validation of a response's shape does not prove its musical relevance.
+My Playlists limits semantic context to 200 saved sets and directs larger
+collections to local search without a provider call.
 
 ## Screen boundaries
 
@@ -57,6 +77,39 @@ another audio-write path or disable that separately documented behavior.
   aplica al borrador y guarda solo si quieres conservar el cambio
 - Mis playlists: describe el set que buscas o compara dos sets guardados. Si faltan
   duraciones o energía, la comparación lo indica en lugar de rellenar los datos
+
+## Privacidad y control en español
+
+La IA recibe únicamente el contexto indicado para la acción elegida. Biblioteca
+comparte la petición y géneros saneados; Editor, solo la petición. Mis playlists
+sustituye nombres conocidos por IDs temporales y usa descriptores agregados;
+limita el contexto a 200 sets guardados y ofrece búsqueda local por encima de ese
+límite. Metadatos comparte cantidades y faltantes; Live, candidatos anónimos con
+puntuaciones y hechos ya calculados.
+
+Crear comparte petición y géneros, con títulos solo si lo eliges para esa petición.
+Revisar puede compartir títulos, artistas, BPM, tonalidad, energía y resúmenes de
+transiciones/validación del set. No asumas que todas las pantallas son anónimas:
+revisa su aviso antes de enviar. Nunca se envía audio. Se ocultan rutas conocidas
+o reconocibles, pero el texto libre puede contener información privada que no se
+pueda detectar; no la incluyas.
+
+El motor local sigue decidiendo el orden, las restricciones y la disponibilidad.
+En Editor, aplicar una propuesta cambia el borrador; guardar es otra acción.
+En Live, indicar la pista actual es una acción manual, no es detección automática de reproducción.
+Las diferencias de BPM se expresan como porcentaje simétrico absoluto con
+normalización half-time; la distancia de energía no indica por sí sola subida o
+bajada. Una puntuación local no es una probabilidad.
+
+La exportación directa a Serato mantiene vista previa, confirmación, copias,
+validación y recuperación; ningún comentario IA escribe crates o modifica la base
+Serato V2 activa. El comportamiento de loudness es independiente: su opción,
+activada por defecto, puede escribir tags y reemplazar comentarios automáticamente.
+
+Ante errores, usa **Configurar IA**, continúa localmente o reintenta explícitamente.
+Cancelar evita aplicar respuestas tardías; no borra lo ya recibido por el proveedor.
+Las pruebas sintéticas no sustituyen una conexión NaN real, escucha musical,
+importación real en Serato ni QA interactiva en macOS.
 
 ## Recovery and verification limits
 
