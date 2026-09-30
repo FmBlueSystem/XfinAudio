@@ -385,8 +385,16 @@ class BuildScreen(QWidget):
         if any(widget is None for widget in (scroll, status, preview, configure)):
             return
         try:
+            if not scroll.isVisible():
+                return
             presentation = (status.text(), not preview.isHidden())
             if presentation == getattr(self, "_last_ai_presentation", None):
+                return
+            # An earlier status callback can beat the scroll area's resize
+            # after showing the preview. Do not remember stale geometry.
+            content = scroll.widget()
+            if content.height() < content.minimumSizeHint().height():
+                QTimer.singleShot(0, self, self._reveal_ai_response)
                 return
             if presentation[1]:
                 scroll.ensureWidgetVisible(preview.confirm_button)

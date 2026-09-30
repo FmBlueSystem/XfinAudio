@@ -7,7 +7,7 @@ from contextlib import suppress
 from typing import cast
 
 from PySide6.QtCore import QObject, Qt, QThread, Slot
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from xfinaudio.ai.connection_test import endpoint_label
 from xfinaudio.ai.nan_client import NanConfigError, is_ai_enabled
@@ -21,6 +21,7 @@ class OptionalAssistPanel(QWidget):
 
     def __init__(self, disclosure: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()

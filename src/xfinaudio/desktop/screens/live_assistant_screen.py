@@ -8,10 +8,12 @@ from typing import Any
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QShortcut
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -72,6 +74,7 @@ class _CandidateRow(QWidget):
 
         self._preview_button = QPushButton("▶")
         self._preview_button.setFixedWidth(32)
+        self._preview_button.setMinimumHeight(32)
         # The glyph alone says nothing on screen and nothing at all to a screen
         # reader, so both the tooltip and the accessible name carry the meaning.
         self._preview_button.setToolTip(self.tr("Preview this suggestion"))
@@ -80,6 +83,7 @@ class _CandidateRow(QWidget):
         layout.addWidget(self._preview_button)
 
         self._load_button = QPushButton("Load Next")
+        self._load_button.setMinimumHeight(32)
         self._load_button.setToolTip(self.tr("Load this suggestion as the next track"))
         self._load_button.clicked.connect(self._on_load)
         layout.addWidget(self._load_button)
@@ -242,6 +246,7 @@ class LiveAssistantScreen(QWidget):
         history_group = QVBoxLayout()
         history_group.addWidget(QLabel("<h2>Set History</h2>"))
         self._history_table = QTableWidget()
+        self._history_table.setMinimumHeight(130)
         self._history_table.setColumnCount(6)
         self._history_table.setHorizontalHeaderLabels(["#", "Title", "Artist", "BPM", "Key", "Time"])
         self._history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -250,9 +255,15 @@ class LiveAssistantScreen(QWidget):
         for column in (0, 3, 4, 5):
             history_header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         history_group.addWidget(self._history_table)
-        content_layout.addLayout(history_group)
+        content_layout.addLayout(history_group, 1)
 
-        layout.addWidget(self._content_widget)
+        # Preserve readable candidate actions when commentary uses vertical
+        # space. The session scrolls rather than forcing the window taller.
+        self.content_scroll = QScrollArea()
+        self.content_scroll.setWidgetResizable(True)
+        self.content_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.content_scroll.setWidget(self._content_widget)
+        layout.addWidget(self.content_scroll, 1)
         self._content_widget.setVisible(False)
 
         # Timer. Started by set_current_track(), not here: the screen is built

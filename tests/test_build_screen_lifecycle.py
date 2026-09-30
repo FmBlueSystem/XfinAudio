@@ -43,3 +43,26 @@ def test_queued_reveal_after_screen_deletion_is_harmless(qapp):
     delete(screen)
     screen._reveal_ai_response()
     qapp.processEvents()
+
+
+def test_reveal_uses_current_layout_before_recording_presentation(qapp):
+    from PySide6.QtCore import QPoint
+
+    from xfinaudio.recommendation.prep_copilot import DJSetIntent
+
+    screen = BuildScreen()
+    screen.resize(760, 460)
+    screen.show()
+    for _ in range(8):
+        qapp.processEvents()
+    screen.intent_preview.show_intent(DJSetIntent(name="House"), "1 locked track")
+    screen.copilot_ask_status.setText("Review this interpretation")
+    # A previously queued status reveal can run before the new child layout.
+    screen._reveal_ai_response()
+    for _ in range(8):
+        qapp.processEvents()
+    button = screen.intent_preview.confirm_button
+    viewport = screen.controls_scroll.viewport()
+    assert viewport.rect().contains(button.mapTo(viewport, QPoint()))
+    assert viewport.rect().contains(button.mapTo(viewport, button.rect().bottomRight()))
+    screen.close()

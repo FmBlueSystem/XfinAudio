@@ -210,3 +210,42 @@ def test_live_history_shares_spare_width_between_track_names(desktop: MainWindow
     assert table.columnWidth(2) > table.columnWidth(3) * 2
     assert abs(header.length() - table.viewport().width()) <= 2
     assert (desktop.width(), desktop.height()) == size
+
+
+@pytest.mark.parametrize("size", [(1000, 700), (1440, 1000)])
+def test_live_commentary_history_and_candidate_actions_remain_reachable(
+    desktop: MainWindow, qapp: QApplication, size, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.test_ai_narrator_controller import _readiness, _recommendation
+    from tests.test_optional_ai_controller import drain
+    from xfinaudio.ai import structured_assists
+
+    monkeypatch.setenv("XFINAUDIO_AI_ENABLED", "1")
+    monkeypatch.setattr(
+        structured_assists,
+        "explain_grounded_evidence",
+        lambda *_: "Synthetic explanation: verify local ranking and readiness before loading the next track.",
+    )
+    screen = desktop._live_assistant_screen
+    desktop.workflow_tabs.setTabEnabled(6, True)
+    desktop.workflow_tabs.setCurrentIndex(6)
+    tracks = desktop._state.scanned_records
+    assert screen.set_session(_recommendation(tracks), _readiness())
+    screen.append_history(tracks[0])
+    controller = desktop._optional_ai_assists["live"]
+    controller.panel.consent.setChecked(True)
+    controller.panel.ask_button.click()
+    drain(qapp, controller)
+    assert controller.panel.commentary.isVisible()
+    desktop.resize(*size)
+    _settle(qapp)
+    assert (desktop.width(), desktop.height()) == size
+    assert controller.panel.height() <= 205
+    for row in screen._suggestion_rows:
+        assert row.isVisible()
+        for button in (row._preview_button, row._load_button):
+            assert button.height() >= max(32, button.sizeHint().height())
+            _reachable(screen.content_scroll, button, qapp)
+    _reachable(screen.content_scroll, screen._history_table, qapp)
+    assert screen._history_table.height() >= 130
+    assert screen.content_scroll.horizontalScrollBar().maximum() == 0

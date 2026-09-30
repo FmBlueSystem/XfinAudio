@@ -11,3 +11,12 @@ Slice 2 RED: 3 real-click regressions reproduced misleading cancellation on
 Library Apply, Editor dismiss and local preview replacement. GREEN: completed
 results are invalidated with neutral local-work guidance; active cancellation
 retains its data-recall warning. Existing preview identity protection remains.
+
+Slice 3 RED: shown Live tests reproduced the exact 1000×709 forced geometry and
+317px wide-screen AI panel. GREEN: session content scrolls, optional panels use
+compact preferred height, candidate actions retain a 32px minimum hit target.
+
+Broader verification also exposed a deterministic Create reveal ordering edge:
+a prior queued status callback records the newly shown preview before the scroll
+area resizes its content. A direct failing test now covers it; deferred reveal
+waits for current content geometry before recording the presentation.
