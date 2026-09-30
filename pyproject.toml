@@ -113,6 +113,9 @@ indent-style = "space"
 [tool.hatch.build.targets.wheel]
 packages = ["src/xfinaudio"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"assets" = "xfinaudio/assets"
+
 # Planning and review scratch stays in git but out of the distribution. Without
 # this the published sdist shipped PLAN.md, the PLAN-REVIEW-LOG files and every
 # document under docs/reviews/.

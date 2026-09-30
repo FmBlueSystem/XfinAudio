@@ -13,16 +13,12 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QLocale, QTranslator
 
+from xfinaudio.desktop.assets import asset_path
+
 
 def translations_dir() -> Path:
     """Return the directory holding compiled .qm translation files."""
-    # Development: repo root / assets / translations
-    here = Path(__file__).resolve().parent
-    dev = here.parents[1] / "assets" / "translations"
-    if dev.exists():
-        return dev
-    # Fallback for installed package
-    return here.parent / "assets" / "translations"
+    return asset_path("translations")
 
 
 _ACTIVE_TRANSLATOR: QTranslator | None = None

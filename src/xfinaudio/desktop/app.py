@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+from xfinaudio.desktop.assets import asset_path
 from xfinaudio.desktop.i18n import install_translator
 from xfinaudio.desktop.main_window import MainWindow
 
@@ -152,7 +153,7 @@ def main(*, macos_configurator: Callable[[str, Path | None], None] | None = None
     app = QApplication(sys.argv)
     app.setApplicationName("XfinAudio")
     app.setApplicationDisplayName("XfinAudio")
-    icon_path = Path(__file__).resolve().parents[2] / "assets" / "icons" / "app-icon-512x512.png"
+    icon_path = asset_path("icons", "app-icon-512x512.png")
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
     lang = os.environ.get("XFINAUDIO_LANG") or _load_settings_language()
