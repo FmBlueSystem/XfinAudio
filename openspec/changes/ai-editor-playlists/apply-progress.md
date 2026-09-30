@@ -11,3 +11,5 @@ Slice 4: RED exposed hidden removal/reorder writes, missing editor navigation, a
 Slice 5: RED missing saved-set assistant module; GREEN 4 evidence-based retrieval/comparison tests. Local name/metadata matching, numeric bounds, metadata coverage and shared tracks; no network or writes.
 
 Slice 6: RED missing saved-query controls/coordinator handlers; GREEN 16 assistant and UI regression tests. Search, exact-name conversational comparison, multiselect comparison, empty/error states and deleted-set freshness run against real temporary SQLite repositories.
+
+Slice 7: Parent review required actual musical-engine evaluation, beyond path invariants. RED missing assessment helper; GREEN 28 focused tests. Preview now scores every actual proposed adjacency with the existing build strategy, builds quality/readiness reports, rejects hard blockers and malformed/missing BPM/key/energy, and displays warnings before explicit confirmation. Added gradual Spanish energy requests and target clarification for ambiguous shortening. Fixtures now contain genuine synthetic complete metadata where engine approval is expected.

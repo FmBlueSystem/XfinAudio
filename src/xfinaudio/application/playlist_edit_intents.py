@@ -50,6 +50,8 @@ def propose_edit(
         raise ValueError("A track is both locked and excluded; resolve the conflicting controls.")
     source = [p for p in paths if p not in excluded]
     text = normalize_request(request)
+    if text in {"hazlo mas corto", "make it shorter", "shorten it"}:
+        raise ValueError("Choose a target: 'acorta a 10 temas' / 'shorten to 10 tracks' / 'shorten to 30 minutes'.")
     count = re.fullmatch(
         r"(?:shorten(?: this (?:set|playlist))? to|acorta(?: este set)? a) (\d+) "
         r"(tracks?|canciones?|temas?|minutes?|minutos?)",
@@ -65,15 +67,17 @@ def propose_edit(
         "increase energy",
         "rising energy",
         "sube la energia",
+        "sube gradualmente la energia",
         "lower energy",
         "falling energy",
         "baja la energia",
+        "baja gradualmente la energia",
     }:
         by_path = {record.path: record for record in records}
         movable = [p for p in source if p not in locked]
         if any(p not in by_path or by_path[p].energy_level is None for p in movable):
             raise ValueError("Known energy metadata is required for every unlocked track.")
-        descending = text in {"lower energy", "falling energy", "baja la energia"}
+        descending = text in {"lower energy", "falling energy", "baja la energia", "baja gradualmente la energia"}
         ordered = iter(sorted(movable, key=lambda p: by_path[p].energy_level or 0, reverse=descending))
         result = [p if p in locked else next(ordered) for p in source]
     else:

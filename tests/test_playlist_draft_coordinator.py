@@ -28,7 +28,10 @@ def setup(qapp, tmp_path):
         _show_playlist_editor=MagicMock(),
         tr=lambda t: t,
         _state=AppState(),
-        scanned_records=[TrackRecord(path=p, energy_level=e) for p, e in (("a", 5), ("b", 2), ("c", 8))],
+        scanned_records=[
+            TrackRecord(path=p, energy_level=e, bpm=120, camelot_key="8A", metadata_status="complete")
+            for p, e in (("a", 5), ("b", 2), ("c", 8))
+        ],
     )
     coordinator = PlaylistCoordinator(host)
     coordinator.connect_signals()
@@ -64,7 +67,7 @@ def test_open_preview_confirm_remove_reorder_cancel_and_save(qapp, tmp_path):
 def test_changed_constraints_invalidate_preview_and_block_unsafe_save(qapp, tmp_path):
     host, coordinator, id_ = setup(qapp, tmp_path)
     editor = host._playlist_editor
-    editor.edit_input.setText("shorten to 1 track")
+    editor.edit_input.setText("shorten to 2 tracks")
     editor.preview_button.click()
     host._state = host._state.model_copy(update={"locked_paths": frozenset({"c"})})
     editor.confirm_button.click()

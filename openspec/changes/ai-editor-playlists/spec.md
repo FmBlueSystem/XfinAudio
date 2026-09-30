@@ -10,3 +10,5 @@
 - GIVEN repository changes after opening WHEN Save is clicked THEN overwriting those changes is refused.
 - GIVEN saved sets WHEN queried in natural language by name or compared by selection THEN output is derived only from those sets and known metadata, including explicit unknown coverage.
 - GIVEN search/comparison WHEN run THEN no provider/network call or persistence occurs.
+- GIVEN a conversational proposal WHEN previewed THEN existing transition scoring, quality and DJ readiness rules evaluate its exact order; hard blockers reject application, review warnings stay visible before confirmation.
+- GIVEN unsaved changes WHEN another saved set is opened THEN the draft is preserved with a Save/discard instruction.

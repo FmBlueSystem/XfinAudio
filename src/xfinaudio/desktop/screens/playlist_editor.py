@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from xfinaudio.application.playlist_edit_assessment import assess_playlist_edit
 from xfinaudio.application.playlist_edit_intents import propose_edit, validate_edit
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_models import Playlist
@@ -212,13 +213,21 @@ class PlaylistEditor(QWidget):
                 locked_paths=self._locked_paths,
                 excluded_paths=self._excluded_paths,
             )
+            assessment = assess_playlist_edit(
+                self._preview,
+                self._records,
+                locked_paths=self._locked_paths,
+                excluded_paths=self._excluded_paths,
+            )
         except ValueError as error:
+            self._preview = None
             self.status_label.setText(str(error))
             return
         titles = {r.path: r.title or Path(r.path).name for r in self._records}
         self.preview_text.setPlainText(
             "\n".join(f"{index + 1}. {titles.get(path, Path(path).name)}" for index, path in enumerate(self._preview))
         )
+        self.preview_text.appendPlainText("\n" + assessment.description)
         self.preview_text.show()
         self.confirm_button.setEnabled(True)
         self.export_button.setEnabled(False)
