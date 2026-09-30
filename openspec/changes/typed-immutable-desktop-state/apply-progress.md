@@ -8,3 +8,10 @@
 - Kept unrelated completion batching, audio, DSP, export and lifecycle work untouched.
 
 Implementation and verification evidence follows in the next chained slices.
+
+## Replacement publication implementation
+
+- Froze AppState fields; `model_copy` uses `dataclasses.replace` and rejects unknown field names without publishing a partial update.
+- Converted helper methods, scan start/progress/finish, runtime refresh and legacy shell writes to replacement snapshots. Legacy token reads are side-effect free.
+- Added narrow typed current-state/publication callbacks and corrected screen literals to include existing playlists/live screens. Updated fixture setup to use supported replacements.
+- GREEN: the original 4 snapshot contracts and the full 190-test state/scan/view-model subset pass after recovery. The final validation slice adds standalone accessor/type contracts and broader gate evidence.

@@ -45,6 +45,7 @@ from xfinaudio.desktop.screens import (
     ReviewScreen,
 )
 from xfinaudio.desktop.settings_controller import SettingsController
+from xfinaudio.desktop.state_access import AppStateAccess
 from xfinaudio.desktop.undo_manager import UndoManager
 from xfinaudio.library.playlist_repository import PlaylistRepository
 from xfinaudio.library.scan_service import MetadataScanService
@@ -254,6 +255,7 @@ def initialize_app_controller(window, screen_names: list[str]) -> None:
             metadata=window._metadata_vm,
         ),
         access=AppControllerStateAccess(
+            state=AppStateAccess(current=lambda: window._state, replace=window._replace_app_state),
             settings=lambda: window.settings,
             is_scanning=lambda: window.current_scan_cancellation_token is not None,
             is_recommending=lambda: window._is_recommending,

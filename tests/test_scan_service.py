@@ -779,10 +779,10 @@ def test_on_progress_publishes_live_progress_that_reaches_the_library_screen(qap
     _wire_desktop_scan_service(service, state=state, folder=Path("/library"))
 
     service.begin_scan_state()
-    state.is_scanning = True
     clock["now"] = 130.0
     service.on_progress(ScanProgress(processed_count=1, total_count=4, current_path=Path("/library/a.flac")))
 
+    state = service._read_state()
     screen = LibraryScreen()
     screen.render(LibraryViewModel(), state, lightweight=True)
 
@@ -801,8 +801,9 @@ def test_on_progress_without_an_active_scan_publishes_no_elapsed_time() -> None:
 
     service.on_progress(ScanProgress(processed_count=1, total_count=2, current_path=Path("/library/a.flac")))
 
-    assert state.scan_elapsed_seconds == 0.0
-    assert (state.scan_progress_count, state.scan_progress_total) == (1, 2)
+    current = service._read_state()
+    assert current.scan_elapsed_seconds == 0.0
+    assert (current.scan_progress_count, current.scan_progress_total) == (1, 2)
 
 
 def test_begin_scan_state_resets_published_progress_before_a_new_scan() -> None:
@@ -812,7 +813,9 @@ def test_begin_scan_state_resets_published_progress_before_a_new_scan() -> None:
 
     service.begin_scan_state()
 
-    assert (state.scan_progress_count, state.scan_progress_total, state.scan_elapsed_seconds) == (0, 0, 0.0)
+    current = service._read_state()
+    assert (current.scan_progress_count, current.scan_progress_total, current.scan_elapsed_seconds) == (0, 0, 0.0)
+    assert (state.scan_progress_count, state.scan_progress_total, state.scan_elapsed_seconds) == (9, 9, 9.0)
 
 
 def test_cancelled_scan_reports_kept_incremental_results() -> None:

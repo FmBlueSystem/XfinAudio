@@ -33,6 +33,6 @@ def test_empty_state_text_is_empty_when_recommendation_exists() -> None:
     """When a recommendation exists, the empty-state text is empty."""
     vm = ExportViewModel()
     state = AppState(last_recommendation=None)
-    state.last_recommendation = object()  # type: ignore[assignment]
+    state = state.model_copy(update={"last_recommendation": object()})
 
     assert vm.empty_state_text(state) == ""

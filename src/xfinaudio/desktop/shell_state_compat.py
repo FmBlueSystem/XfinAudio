@@ -31,22 +31,23 @@ def try_set_legacy_app_state_attribute(target: Any, name: str, value: object) ->
     if state is None or name not in LEGACY_APP_STATE_WRITE_ATTRIBUTES:
         return False
 
-    if name == "_records_by_path":
-        state.records_by_path = value
-    elif name == "applied_prep_copilot_variant_name":
-        state.applied_variant_name = value
-    elif name == "workflow_service":
-        state.workflow_service = value
+    field_name = {
+        "_records_by_path": "records_by_path",
+        "applied_prep_copilot_variant_name": "applied_variant_name",
+    }.get(name, name)
+    updated = state.model_copy(update={field_name: value})
+    publish = getattr(target, "_replace_app_state", None)
+    if publish is not None:
+        publish(updated)
+    else:
+        target._state = updated
+    if name == "workflow_service":
         if hasattr(target, "_scan_service"):
             target._scan_service.workflow_service = value
         if hasattr(target, "_recommendation_service"):
             target._recommendation_service.workflow_service = value
-    elif name == "current_scan_cancellation_token":
-        state.current_scan_cancellation_token = value
-        if hasattr(target, "_scan_service"):
-            target._scan_service.current_scan_cancellation_token = value
-    else:
-        setattr(state, name, value)
+    elif name == "current_scan_cancellation_token" and hasattr(target, "_scan_service"):
+        target._scan_service.current_scan_cancellation_token = value
     return True
 
 
@@ -74,7 +75,7 @@ def try_get_legacy_app_state_attribute(target: Any, name: str) -> object:
     if name == "applied_prep_copilot_variant_name":
         return state.applied_variant_name
     if name == "current_scan_cancellation_token" and hasattr(target, "_scan_service"):
-        state.current_scan_cancellation_token = target._scan_service.current_scan_cancellation_token
+        return target._scan_service.current_scan_cancellation_token
     return getattr(state, name)
 
 

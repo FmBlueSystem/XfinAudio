@@ -30,7 +30,7 @@ def make_track(path: str = "/library/track.mp3", title: str = "Test Track") -> T
 def make_state(tracks: list[TrackRecord]) -> AppState:
     state = AppState()
     state = state.with_scanned_records(tracks)
-    state.selected_folder = Path("/library")
+    state = state.model_copy(update={"selected_folder": Path("/library")})
     return state
 
 

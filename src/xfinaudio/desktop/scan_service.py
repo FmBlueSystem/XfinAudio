@@ -11,6 +11,7 @@ from PySide6.QtCore import QCoreApplication, QObject, QThread, Signal, Slot
 
 from xfinaudio.application.playlist_workflow import PlaylistWorkflowService
 from xfinaudio.desktop._workers import ScanWorker, WorkerRegistry
+from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.library_watch_service import LibraryWatchService
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken, ScanProgress
@@ -69,9 +70,9 @@ class ScanService(QObject):
         self._selected_folder: Callable[[], Path | None] = _unwired
         self._scanned_records: Callable[[], list[TrackRecord]] = _unwired
         self._set_scanned_records: Callable[[list[TrackRecord]], None] = _unwired
-        self._state: Any = None
-        self._get_state: Callable[[], Any] = lambda: self._state
-        self._set_state: Callable[[Any], None] | None = None
+        self._state: AppState | None = None
+        self._get_state: Callable[[], AppState] = self._read_state
+        self._set_state: Callable[[AppState], None] | None = None
         self._library_screen: Any = None
         self._build_screen: Any = None
         self._status_label: Any = None
@@ -93,15 +94,25 @@ class ScanService(QObject):
         selected_folder: Callable[[], Path | None],
         scanned_records: Callable[[], list[TrackRecord]],
         set_scanned_records: Callable[[list[TrackRecord]], None],
-        state: Any,
-        set_state: Callable[[Any], None] | None = None,
+        state: AppState | Callable[[], AppState],
+        set_state: Callable[[AppState], None] | None = None,
     ) -> None:
         self._selected_folder = selected_folder
         self._scanned_records = scanned_records
         self._set_scanned_records = set_scanned_records
-        self._get_state = state if callable(state) else lambda: self._state
+        self._get_state = state if callable(state) else self._read_state
         self._state = state() if callable(state) else state
         self._set_state = set_state
+
+    def _read_state(self) -> AppState:
+        if self._state is None:
+            raise RuntimeError("ScanService state was not wired")
+        return self._state
+
+    def _publish_state(self, **changes: object) -> None:
+        self._state = self._get_state().model_copy(update=changes)
+        if self._set_state is not None:
+            self._set_state(self._state)
 
     def set_watch_service(self, watch_service: LibraryWatchService | None) -> None:
         """Wire the optional filesystem-change watcher this service pauses/resumes."""
@@ -208,18 +219,26 @@ class ScanService(QObject):
         self._scan_started_at = time.monotonic()
         # The library screen renders a 0..100 bar and an ETA label from these
         # fields; leaving them at the previous scan's values would freeze both.
-        self._state.scan_progress_count = 0
-        self._state.scan_progress_total = 0
-        self._state.scan_elapsed_seconds = 0.0
+        self._publish_state(
+            scan_progress_count=0,
+            scan_progress_total=0,
+            scan_elapsed_seconds=0.0,
+            is_scanning=self.current_scan_cancellation_token is not None,
+            current_scan_cancellation_token=self.current_scan_cancellation_token,
+        )
         self._show_status_bar()
         self._sync_state()
 
     def _end_scan_state(self) -> None:
         self.current_scan_cancellation_token = None
         self._scan_started_at = None
-        self._state.scan_progress_count = 0
-        self._state.scan_progress_total = 0
-        self._state.scan_elapsed_seconds = 0.0
+        self._publish_state(
+            scan_progress_count=0,
+            scan_progress_total=0,
+            scan_elapsed_seconds=0.0,
+            is_scanning=self.current_scan_cancellation_token is not None,
+            current_scan_cancellation_token=self.current_scan_cancellation_token,
+        )
         if self._watch_service is not None:
             self._watch_service.resume()
         self._refresh_idle_action_state()
@@ -247,9 +266,7 @@ class ScanService(QObject):
             self._recommendation_guidance_label.setText(self._tr("Scan metadata before recommending a playlist."))
             return
         self._set_scanned_records(result.records)
-        self._state = self._get_state().model_copy(update={"changes_detected_since_scan": False})
-        if self._set_state is not None:
-            self._set_state(self._state)
+        self._publish_state(changes_detected_since_scan=False)
         if self._watch_service is not None:
             folder = self._selected_folder()
             if folder is not None:
@@ -284,12 +301,14 @@ class ScanService(QObject):
                 progress.processed_count, progress.total_count, progress.current_path
             )
         )
-        self._state.scan_progress_count = progress.processed_count
         # The library screen turns count/total/elapsed into the percent bar and
         # the ETA label; nothing else writes them, so a scan that skipped this
         # would sit on "0% · estimating remaining" until it finished.
-        self._state.scan_progress_total = progress.total_count
-        self._state.scan_elapsed_seconds = self._elapsed_scan_seconds()
+        self._publish_state(
+            scan_progress_count=progress.processed_count,
+            scan_progress_total=progress.total_count,
+            scan_elapsed_seconds=self._elapsed_scan_seconds(),
+        )
         # Fires once per scanned file for the whole scan, so coalesce into at
         # most one render per interval instead of one per file.
         self._request_sync()
