@@ -89,3 +89,27 @@ def test_missing_context_does_not_start_ai(qapp, tmp_path, monkeypatch):
         assert not controller.busy
     services.interpret_library_query.assert_not_called()
     services.interpret_editor_request.assert_not_called()
+
+
+def test_editor_context_change_clears_ai_preview_but_local_preview_survives(qapp, tmp_path, monkeypatch):
+    window = host(qapp, tmp_path, monkeypatch)
+    saved = window._playlist_repository.create("Set", ["a", "b", "c"])
+    editor = window._playlist_editor
+    editor.set_playlist(saved)
+    services = SimpleNamespace(
+        interpret_editor_request=MagicMock(return_value=EditorInterpretation(operation="shorten_tracks", target=2))
+    )
+    controller = install_library_editor_controls(window, services=services)["editor"]
+    controller.request.setText("shorten to 2 tracks")
+    controller.panel.consent.setChecked(True)
+    controller.panel.ask_button.click()
+    drain(qapp, controller)
+    assert editor._preview is not None
+    window.scanned_records = list(window.scanned_records)
+    controller.invalidate_if_context_changed()
+    assert editor._preview is None
+    controller.panel.ask_button.click()
+    drain(qapp, controller)
+    editor.preview_requested.connect(window._playlist_coordinator.preview_edit)
+    editor.preview_button.click()
+    assert editor._preview == ("a", "b")

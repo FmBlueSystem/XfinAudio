@@ -16,7 +16,13 @@ from xfinaudio.desktop.optional_ai_assist import OptionalAssistController, Optio
 
 def library_context(window: Any) -> tuple:
     state = window._state
-    return (state.selected_folder, id(window.scanned_records), state.locked_paths, state.excluded_paths)
+    return (
+        state.selected_folder,
+        id(window.scanned_records),
+        len(window.scanned_records),
+        state.locked_paths,
+        state.excluded_paths,
+    )
 
 
 def playlist_context(playlist: Any) -> tuple | None:
@@ -75,6 +81,12 @@ def install_library_editor_controls(
         field.textEdited.connect(library._invalidate)
 
     editor_panel = add_panel(window, editor, 3, "Share only your typed edit request with AI. Avoid private details.")
+    displayed_preview: list[object] = [None]
+
+    def clear_preview() -> None:
+        if displayed_preview[0] is not None and editor._preview is displayed_preview[0]:
+            editor.dismiss_preview()
+        displayed_preview[0] = None
 
     def editor_context() -> tuple:
         return (
@@ -102,6 +114,7 @@ def install_library_editor_controls(
             if snapshot != playlist_context(window._playlist_repository.get_by_id(editor._playlist_id)):
                 raise ValueError("Saved set changed")
             window._playlist_coordinator.preview_edit(value.command)
+            displayed_preview[0] = editor._preview
             editor.status_label.setText(
                 editor.tr("AI interpretation: ") + value.command + "\n" + editor.status_label.text()
             )
@@ -113,6 +126,7 @@ def install_library_editor_controls(
         editor.edit_input,
         prepare=prepare_edit,
         context=editor_context,
+        clear=clear_preview,
         configure=configure,
         parent=window,
     )
