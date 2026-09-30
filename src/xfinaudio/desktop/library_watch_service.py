@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -73,6 +74,7 @@ class LibraryWatchService(QObject):
         self._suppressed_paths: dict[Path, float] = {}
         self._suppression_lock = Lock()
         self._watched_folder: Path | None = None
+        self.last_error: OSError | None = None
         self._paused_folder: Path | None = None
         self._state: Any = None
         self._sync_state: Callable[[], None] = _unwired
@@ -111,9 +113,17 @@ class LibraryWatchService(QObject):
     def start(self, folder: Path) -> None:
         """Arm the watch on *folder*, stopping any previous watch."""
         self._debounce_timer.stop()
-        self._watched_folder = folder
+        self._watched_folder = None
         self._paused_folder = None
-        self._folder_watcher.start(folder, self._on_raw_event_background_thread)
+        self.last_error = None
+        try:
+            self._folder_watcher.start(folder, self._on_raw_event_background_thread)
+        except OSError as error:
+            self.last_error = error
+            logging.getLogger(__name__).warning("Folder watch unavailable: %s", error)
+            self._folder_watcher.stop()
+            return
+        self._watched_folder = folder
 
     def stop(self) -> None:
         """Stop the watch entirely (app shutdown, explicit teardown)."""

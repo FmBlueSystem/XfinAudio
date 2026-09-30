@@ -68,6 +68,8 @@ class ScanService(QObject):
         self._scanned_records: Callable[[], list[TrackRecord]] = _unwired
         self._set_scanned_records: Callable[[list[TrackRecord]], None] = _unwired
         self._state: Any = None
+        self._get_state: Callable[[], Any] = lambda: self._state
+        self._set_state: Callable[[Any], None] | None = None
         self._library_screen: Any = None
         self._build_screen: Any = None
         self._status_label: Any = None
@@ -90,11 +92,14 @@ class ScanService(QObject):
         scanned_records: Callable[[], list[TrackRecord]],
         set_scanned_records: Callable[[list[TrackRecord]], None],
         state: Any,
+        set_state: Callable[[Any], None] | None = None,
     ) -> None:
         self._selected_folder = selected_folder
         self._scanned_records = scanned_records
         self._set_scanned_records = set_scanned_records
-        self._state = state
+        self._get_state = state if callable(state) else lambda: self._state
+        self._state = state() if callable(state) else state
+        self._set_state = set_state
 
     def set_watch_service(self, watch_service: LibraryWatchService | None) -> None:
         """Wire the optional filesystem-change watcher this service pauses/resumes."""
@@ -212,6 +217,11 @@ class ScanService(QObject):
             self._watch_service.resume()
         self._refresh_idle_action_state()
         self._sync_state()
+        self._show_watch_warning()
+
+    def _show_watch_warning(self) -> None:
+        if self._watch_service is not None and getattr(self._watch_service, "last_error", None):
+            self._status_label.setText(self._tr("Folder watch unavailable; use Scan Metadata to refresh"))
 
     @Slot(object)
     def on_completed(self, result: Any) -> None:
@@ -228,7 +238,9 @@ class ScanService(QObject):
             self._recommendation_guidance_label.setText(self._tr("Scan metadata before recommending a playlist."))
             return
         self._set_scanned_records(result.records)
-        self._state = self._state.model_copy(update={"changes_detected_since_scan": False})
+        self._state = self._get_state().model_copy(update={"changes_detected_since_scan": False})
+        if self._set_state is not None:
+            self._set_state(self._state)
         if self._watch_service is not None:
             folder = self._selected_folder()
             if folder is not None:
@@ -237,6 +249,7 @@ class ScanService(QObject):
         self._show_tracks(result.records, result.complete_count, result.incomplete_count)
         self._end_scan_state()
         self._show_scan_completion_status(result.records)
+        self._show_watch_warning()
         self._recommendation_guidance_label.setText(
             _RECOMMENDATION_READY_GUIDANCE
             if self._scanned_records()

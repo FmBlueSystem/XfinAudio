@@ -58,7 +58,8 @@ def wire_main_scan_service(self: Any) -> None:
         selected_folder=lambda: self.selected_folder,
         scanned_records=lambda: self.scanned_records,
         set_scanned_records=lambda records: setattr(self, "scanned_records", records),
-        state=self._state,
+        state=lambda: self._state,
+        set_state=self._replace_app_state,
     )
     self._scan_service.set_ui(
         library_screen=self._library_screen,

@@ -436,6 +436,8 @@ def test_main_window_changing_folder_clears_stale_scan_and_recommendation_state(
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
     first_folder = tmp_path / "first"
     second_folder = tmp_path / "second"
+    first_folder.mkdir()
+    second_folder.mkdir()
 
     window.set_selected_folder(first_folder)
     window.scan_selected_folder()

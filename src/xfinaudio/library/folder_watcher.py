@@ -43,7 +43,13 @@ class WatchdogEventSource:
         observer = Observer()
         handler = _ForwardingEventHandler(on_raw_event)
         observer.schedule(handler, str(folder), recursive=True)
-        observer.start()
+        try:
+            observer.start()
+        except OSError:
+            observer.stop()
+            if observer.is_alive():
+                observer.join()
+            raise
         self._observer = observer
 
     def stop(self) -> None:
@@ -66,8 +72,12 @@ class FolderWatcher:
     def start(self, folder: Path, on_event: Callable[[str], None]) -> None:
         """Start watching *folder* recursively. Replaces any active watch."""
         self.stop()
+        try:
+            self._event_source.start(folder, on_event)
+        except OSError:
+            self._event_source.stop()
+            raise
         self._watching_folder = folder
-        self._event_source.start(folder, on_event)
 
     def stop(self) -> None:
         """Stop the active watch, if any. No-op if not watching."""
