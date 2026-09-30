@@ -21,3 +21,9 @@ Pending. Focused RED/GREEN evidence is recorded per slice below; integrated gate
 - MainWindow regression asserts metadata's Incomplete default does not hide complete Library tracks. Explicit All remains selected after rerender.
 - Confirmed original Serato metadata button exports a metadata worklist, not the playlist. Updated its misleading tooltip and removed the duplicate call; one click has one filtered export request.
 - Focused lint/format passed. No export destination beyond Serato changed; no recommendation math changed.
+
+## R4 / Slice D
+- RED: five missing-prerequisite/next-step cases failed; independent Return-key test proved disabled-button bypass.
+- GREEN: 206 tests passed across Build view model/screen/genre, Prep controller and MainWindow. Excluded only known baseline watcher and Color geometry tests, handled separately.
+- Natural-language route intentionally supports automatic anchor choice; no complete pool disables it. Deterministic generation requires a complete selected anchor. Next-step buttons route to complete Library filter or metadata repair.
+- Lint/format passed. Read-only navigation and display state only.

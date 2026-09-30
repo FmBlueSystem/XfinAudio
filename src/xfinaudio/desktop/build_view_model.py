@@ -64,27 +64,28 @@ class BuildViewModel:
             for strategy in list_strategy_catalog()
         ]
 
+    @staticmethod
+    def has_complete_anchor(state: AppState) -> bool:
+        return any(
+            (record := state.records_by_path.get(path)) is not None and record.metadata_status == "complete"
+            for path in state.selected_library_paths
+        )
+
+    @staticmethod
+    def generation_idle(state: AppState) -> bool:
+        return not (state.is_scanning or state.is_recommending or state.is_asking_copilot)
+
     def recommend_button_enabled(self, state: AppState) -> bool:
-        """True if there are scanned tracks and no operation is in progress."""
-        return bool(state.scanned_records) and not state.is_scanning and not state.is_recommending
+        """Anchor-dependent generation requires a complete selection and idle state."""
+        return self.has_complete_anchor(state) and self.generation_idle(state)
 
     def copilot_button_enabled(self, state: AppState) -> bool:
-        """True if there are scanned tracks and neither scanning nor recommending."""
-        return bool(state.scanned_records) and not state.is_scanning and not state.is_recommending
+        """Deterministic Prep Copilot shares the recommendation prerequisites."""
+        return self.recommend_button_enabled(state)
 
     def copilot_ask_button_enabled(self, state: AppState) -> bool:
-        """True when the DJ can ask the AI copilot for a set.
-
-        ``is_asking_copilot`` is part of the contract rather than a one-off
-        ``setEnabled(False)`` in the controller: render() runs for every state
-        sync, so any enabled state it does not recompute is resurrected mid-request.
-        """
-        return (
-            bool(state.scanned_records)
-            and not state.is_scanning
-            and not state.is_recommending
-            and not state.is_asking_copilot
-        )
+        """AI can select an anchor, but still needs a complete pool and idle state."""
+        return self.generation_idle(state) and any(r.metadata_status == "complete" for r in state.scanned_records)
 
     @staticmethod
     def is_asking_copilot(state: AppState) -> bool:
@@ -126,7 +127,14 @@ class BuildViewModel:
         """Return a human-readable anchor summary, or None if no track is selected."""
         if not state.selected_library_paths:
             return None
-        anchor = state.records_by_path.get(state.selected_library_paths[0])
+        anchor = next(
+            (
+                state.records_by_path[path]
+                for path in state.selected_library_paths
+                if path in state.records_by_path and state.records_by_path[path].metadata_status == "complete"
+            ),
+            None,
+        )
         if anchor is None:
             return None
         parts = []

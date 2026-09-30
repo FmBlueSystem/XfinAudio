@@ -591,3 +591,39 @@ def test_fresh_visible_build_exposes_apply_and_inline_variant_details(qapp: QApp
     screen.render(vm, AppState(), lightweight=True)
     assert screen.apply_variant_button.isHidden()
     assert screen.variant_details_label.isHidden()
+
+
+def test_missing_anchor_has_visible_direct_next_step(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    window = Mock()
+    screen.connect_signals(window)
+    vm = BuildViewModel()
+    screen.render(vm, AppState(scanned_records=[_track("/complete.flac")]))
+    assert not screen.copilot_button.isEnabled()
+    assert screen.anchor_action_button.isVisibleTo(screen)
+    assert screen.anchor_action_button.text() == "Choose a starting track"
+    screen.anchor_action_button.click()
+    window.workflow_tabs.setCurrentIndex.assert_called_with(0)
+    screen.render(vm, AppState(scanned_records=[TrackRecord(path="/incomplete.flac")]))
+    assert screen.anchor_action_button.text() == "Fix missing metadata"
+    screen.anchor_action_button.click()
+    window.workflow_tabs.setCurrentIndex.assert_called_with(5)
+    tracks = [_track("/complete.flac")]
+    screen.render(
+        vm,
+        AppState(
+            scanned_records=tracks, records_by_path={tracks[0].path: tracks[0]}, selected_library_paths=[tracks[0].path]
+        ),
+    )
+    assert screen.copilot_button.isEnabled()
+    assert screen.anchor_action_button.isHidden()
+
+
+def test_return_cannot_bypass_disabled_copilot_prerequisites(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    screen.render(BuildViewModel(), AppState(scanned_records=[TrackRecord(path="/missing.flac")]))
+    emitted: list[str] = []
+    screen.copilot_ask_requested.connect(emitted.append)
+    screen.copilot_ask_input.setText("A house set")
+    screen.copilot_ask_input.returnPressed.emit()
+    assert emitted == []

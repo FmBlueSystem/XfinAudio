@@ -98,6 +98,7 @@ class BuildScreen(QWidget):
         self._last_copilot_signature: tuple | None = None
         self._variant_rows: list[CopilotVariantRow] = []
         self._variant_target_count = 25
+        self._needs_metadata_repair = False
         self._genre_chosen_by_dj = False
         self._build_ui()
         self._connect_signals()
@@ -141,7 +142,14 @@ class BuildScreen(QWidget):
         self.anchor_label = QLabel()
         self.anchor_label.setWordWrap(True)
         self.anchor_label.setMaximumHeight(40)
-        layout.addWidget(self.anchor_label)
+        anchor_row = QHBoxLayout()
+        anchor_row.addWidget(self.anchor_label, 1)
+        self.anchor_action_button = QPushButton(self.tr("Choose a starting track"))
+        self.anchor_action_button.setToolTip(self.tr("Select a complete track in Library, or repair missing metadata"))
+        self.anchor_action_button.setAccessibleName(self.tr("Choose starting track or repair metadata"))
+        self.anchor_action_button.hide()
+        anchor_row.addWidget(self.anchor_action_button)
+        layout.addLayout(anchor_row)
 
         self.strategy_explanation_label = QLabel()
         self.strategy_explanation_label.setWordWrap(True)
@@ -338,7 +346,8 @@ class BuildScreen(QWidget):
         """Define a logical keyboard tab order across primary controls."""
         self.setTabOrder(self.strategy_combo, self.genre_combo)
         self.setTabOrder(self.genre_combo, self.recommend_button)
-        self.setTabOrder(self.recommend_button, self.spectral_cohesion_slider)
+        self.setTabOrder(self.recommend_button, self.anchor_action_button)
+        self.setTabOrder(self.anchor_action_button, self.spectral_cohesion_slider)
         self.setTabOrder(self.spectral_cohesion_slider, self.exclude_button)
         self.setTabOrder(self.exclude_button, self.lock_button)
         self.setTabOrder(self.lock_button, self.clear_constraints_button)
@@ -385,6 +394,7 @@ class BuildScreen(QWidget):
             )
         )
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
+        self.anchor_action_button.clicked.connect(lambda: self._choose_anchor(window))
         self.proceed_button.clicked.connect(lambda: window.workflow_tabs.setCurrentIndex(2))
         self.exclude_requested.connect(window._library_controller.on_exclude_requested)
         self.lock_requested.connect(window._library_controller.on_lock_requested)
@@ -416,7 +426,7 @@ class BuildScreen(QWidget):
             for option in vm.available_strategies():
                 self.strategy_combo.addItem(option.display_name, option.name)
 
-        # recommend_button enabled state is managed by MainWindow._refresh_idle_action_state
+        self.recommend_button.setEnabled(vm.recommend_button_enabled(state))
         self.copilot_button.setEnabled(vm.copilot_button_enabled(state))
         # Render-driven on purpose: the coalesced 200ms render walks every screen, so
         # an enabled state set imperatively here would come back on the next sync.
@@ -457,6 +467,16 @@ class BuildScreen(QWidget):
         )
         self.anchor_label.setText(text)
         self.anchor_label.setVisible(bool(state.scanned_records))
+        self._needs_metadata_repair = not any(r.metadata_status == "complete" for r in state.scanned_records)
+        self.anchor_action_button.setText(
+            self.tr("Fix missing metadata") if self._needs_metadata_repair else self.tr("Choose a starting track")
+        )
+        self.anchor_action_button.setVisible(bool(state.scanned_records) and not vm.has_complete_anchor(state))
+        self.anchor_action_button.setEnabled(vm.generation_idle(state))
+        if self._needs_metadata_repair and state.scanned_records:
+            self.anchor_label.setText(
+                self.tr("No complete tracks. Fix missing metadata, then refresh the library scan.")
+            )
 
         self._refresh_strategy_explanation(vm)
 
@@ -572,13 +592,24 @@ class BuildScreen(QWidget):
     # Internal slots
     # ------------------------------------------------------------------
 
+    def _choose_anchor(self, window: Any) -> None:
+        if self._needs_metadata_repair:
+            window.workflow_tabs.setCurrentIndex(5)
+            return
+        library = window._library_screen
+        library.clear_quick_filters(emit_signal=False)
+        library.search_input.clear()
+        library.complete_filter_button.click()
+        window.workflow_tabs.setCurrentIndex(0)
+
     def _on_recommend(self) -> None:
         strategy = self.strategy_combo.currentData()
         self.recommend_requested.emit(strategy, [])
 
     def _on_copilot_ask(self) -> None:
         """Emit the typed request from both entry points (button and Return)."""
-        self.copilot_ask_requested.emit(self.copilot_ask_input.text())
+        if self.copilot_ask_button.isEnabled():
+            self.copilot_ask_requested.emit(self.copilot_ask_input.text())
 
     def _on_strategy_changed(self, _index: int) -> None:
         if self._last_vm is not None:
