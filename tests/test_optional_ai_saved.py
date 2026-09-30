@@ -61,3 +61,17 @@ def test_stale_repository_or_unrecognized_id_cannot_publish_results(qapp, tmp_pa
     drain(qapp, controller)
     assert not window._playlists_screen.assistant_output.toPlainText()
     assert "validated" in controller.panel.status.text()
+
+
+def test_large_repository_gives_honest_offline_fallback(qapp, tmp_path, monkeypatch):
+    window = host(qapp, tmp_path, monkeypatch)
+    for index in range(201):
+        window._playlist_repository.create(f"Set {index}", [])
+    services = service(SavedInterpretation(action="find", selected_ids=()))
+    controller = install_saved_control(window, services=services)
+    controller.request.setText("find a house set")
+    controller.panel.consent.setChecked(True)
+    controller.panel.ask_button.click()
+    assert not controller.busy
+    services.interpret_saved_request.assert_not_called()
+    assert "local Find / Compare selected" in controller.panel.status.text()

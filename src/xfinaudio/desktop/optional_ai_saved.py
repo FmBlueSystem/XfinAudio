@@ -43,6 +43,8 @@ def install_saved_control(window: Any, *, services: Any = structured_assists) ->
         playlists, records = saved_sets(), list(window.scanned_records)
         if not playlists:
             raise ValueError("Save a playlist before asking AI to find or compare sets.")
+        if len(playlists) > 200:
+            raise ValueError("AI retrieval is unavailable above 200 saved sets. Use local Find / Compare selected.")
         snapshot = tuple(playlist_context(p) for p in playlists)
         safe_request = services.anonymize_saved_request(request, playlists)
         descriptors = services.build_saved_descriptors(playlists, records)
