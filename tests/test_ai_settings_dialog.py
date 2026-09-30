@@ -63,4 +63,5 @@ def test_configure_ai_focus_and_scrollable_layout_work_on_small_window(qapp):
     assert scroll.widgetResizable()
     assert dialog._ai_panel.enabled_checkbox.hasFocus()
     assert dialog._ai_panel.enabled_checkbox.visibleRegion().isEmpty() is False
+    assert dialog._ai_panel.test_button.visibleRegion().isEmpty() is False
     dialog.reject()

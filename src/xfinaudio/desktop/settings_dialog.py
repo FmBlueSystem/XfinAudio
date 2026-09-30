@@ -173,7 +173,7 @@ class SettingsDialog(QDialog):
 
     def _focus_ai_controls(self) -> None:
         self._ai_panel.enabled_checkbox.setFocus()
-        self._scroll.ensureWidgetVisible(self._ai_panel.enabled_checkbox)
+        self._scroll.ensureWidgetVisible(self._ai_panel)
 
     def apply(self) -> None:
         """Apply the current dialog values."""

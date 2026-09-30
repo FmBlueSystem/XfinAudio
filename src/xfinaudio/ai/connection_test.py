@@ -34,7 +34,7 @@ def configuration_status(settings: AiSettings) -> ConnectionStatus:
     try:
         nan_client._resolve_endpoint()
         key_present = bool(os.environ.get(nan_client.API_KEY_ENV, "").strip())
-        file_present = nan_client._resolve_env_file_path(settings.env_file).is_file()
+        file_present = not key_present and nan_client._resolve_env_file_path(settings.env_file).is_file()
     except (nan_client.NanConfigError, OSError, ValueError):
         return _invalid_configuration()
     if not key_present and not file_present:

@@ -96,3 +96,13 @@ def test_file_presence_is_not_claimed_as_valid_credentials(monkeypatch, tmp_path
     assert configuration_status(settings).state == "untested"
     result = run_connection_test(settings, transport=lambda *args, **kwargs: pytest.fail("unexpected transmission"))
     assert result.state == "invalid_configuration"
+
+
+def test_environment_key_precedence_does_not_require_access_to_file(monkeypatch):
+    from pathlib import Path
+
+    def denied_stat(*args, **kwargs):
+        raise OSError("synthetic inaccessible path")
+
+    monkeypatch.setattr(Path, "is_file", denied_stat)
+    assert configuration_status(AiSettings(enabled=True)).state == "untested"
