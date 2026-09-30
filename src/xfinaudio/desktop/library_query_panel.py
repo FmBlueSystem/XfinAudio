@@ -87,7 +87,8 @@ class LibraryQueryPanel(QWidget):
         except ValueError:
             self.status.setText(
                 self.tr(
-                    "Check filters: minimum ≤ maximum, BPM 1-400, key 1A-12B, energy 1-10. Previous filters remain applied."
+                    "Check filters: minimum ≤ maximum, BPM 1-400, key 1A-12B, energy 1-10. "
+                    "Previous filters remain applied."
                 )
             )
             return

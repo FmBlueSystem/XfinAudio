@@ -57,3 +57,24 @@ def test_invalid_edit_retains_applied_filters_and_retry_works(qapp):
     assert "unsupported" in panel.status.text()
     assert visible_count(screen) == 2
     screen.close()
+
+
+def test_main_window_filter_callback_preserves_described_filters(qapp, monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from tests.test_main_window import FakeRepository, FakeScanService
+
+    from xfinaudio.desktop.main_window import MainWindow
+
+    window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
+    records = [TrackRecord(path="a", title="Song", bpm=124), TrackRecord(path="b", title="Song", bpm=130)]
+    window.scanned_records = records
+    window._records_by_path = {record.path: record for record in records}
+    screen = window._library_screen
+    screen.render(window._library_vm, window._state)
+    screen.query_panel.request_input.setText("bpm 120-128")
+    screen.query_panel.interpret_button.click()
+    assert visible_count(screen) == 1
+    screen.search_input.setText("Song")
+    window._apply_song_filter()
+    assert visible_count(screen) == 1
+    window.close()

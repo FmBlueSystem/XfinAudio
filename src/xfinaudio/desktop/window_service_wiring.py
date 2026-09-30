@@ -137,10 +137,13 @@ def apply_main_song_filter(self: Any, query: str | None = None, *, clear_selecti
         missing_mismatch = missing_filter is not None and (
             record is None or missing_filter not in record.missing_required_fields
         )
+        query_panel = getattr(self._library_screen, "query_panel", None)
+        described_mismatch = query_panel is not None and record is not None and not query_panel.query.matches(record)
         self._library_screen.tracks_table.setRowHidden(
             row_index,
-            search_mismatch or status_mismatch or missing_mismatch,
+            search_mismatch or status_mismatch or missing_mismatch or described_mismatch,
         )
+    self._library_screen._apply_duplicate_filter()
     self._refresh_idle_action_state()
 
 
