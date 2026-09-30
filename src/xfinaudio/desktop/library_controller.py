@@ -146,6 +146,7 @@ class LibraryController:
         self._loudness_completion_stage: BackgroundCompletionStage | None = None
         self._loudness_completion_stages: list[BackgroundCompletionStage] = []
         self._active_song_search_query = ""
+        self._shutting_down = False
         # Ensure analysis workers are shut down before this controller is
         # destroyed. Otherwise their QThreads outlive the
         # MainWindow and Qt prints "QThread: Destroyed while thread '' is
@@ -472,6 +473,8 @@ class LibraryController:
         self.start_spectral_completion_worker(records)
 
     def start_spectral_completion_worker(self, records: list[TrackRecord]) -> None:
+        if self._shutting_down:
+            return
         self.cancel_spectral_completion_worker()
         self.cancel_danceability_completion_worker()
         self.cancel_edge_spectral_completion_worker()
@@ -514,18 +517,8 @@ class LibraryController:
             self._sync_state()
 
     def shutdown(self) -> None:
-        """Stop and release both analysis completion workers.
-
-        Called automatically when the parent MainWindow is destroyed. Without
-        this, the worker's QThread is destroyed while still running (librosa
-        analysis does not cooperatively cancel mid-operation), and Qt prints
-        "QThread: Destroyed while thread '' is still running" and aborts the
-        process at interpreter exit (returncode 134).
-
-        Teardown is the one place a forced ``shutdown()`` is warranted: the
-        process is going away, so terminating a thread stuck inside librosa is
-        preferable to hanging on exit.
-        """
+        """Request cancellation without discarding running thread ownership."""
+        self._shutting_down = True
         worker = self._spectral_completion_worker
         self._spectral_completion_worker = None
         if worker is not None:
@@ -549,7 +542,7 @@ class LibraryController:
             stages.append(loudness_stage)
         for stage in stages:
             stage.shutdown()
-            stage.deleteLater()
+            stage.dispose_when_idle()
 
     def _dispose_spectral_completion_worker(self) -> None:
         """Ask the worker to stop and release it once it actually does.
@@ -632,6 +625,8 @@ class LibraryController:
 
     def start_danceability_completion_worker(self, records: list[TrackRecord]) -> None:
         """Start progressive danceability analysis for missing or stale profiles."""
+        if self._shutting_down:
+            return
         if self._spectral_completion_worker is not None:
             self._danceability_completion_records = records
             return
@@ -679,6 +674,8 @@ class LibraryController:
 
     def start_edge_spectral_completion_worker(self, records: list[TrackRecord]) -> None:
         """Start edge analysis only after mid-track and danceability workers finish."""
+        if self._shutting_down:
+            return
         if self._spectral_completion_worker is not None or self._danceability_completion_worker is not None:
             self._edge_spectral_completion_records = records
             return
@@ -727,6 +724,8 @@ class LibraryController:
 
     def start_loudness_completion(self, records: list[TrackRecord], *, force_reanalyze: bool = False) -> None:
         """Start the disk-bound stage only after all three existing stages finish."""
+        if self._shutting_down:
+            return
         service = self._loudness_completion_service
         if service is None:
             self._log.warning(

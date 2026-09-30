@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
+from shiboken6 import isValid
 
 from xfinaudio.audio.danceability import DanceabilityProfile
 from xfinaudio.audio.spectral_profile import EdgeSpectralProfile, SpectralProfile
@@ -137,7 +138,7 @@ def _no_worker_outlives_its_test() -> Any:
     for registry in _in_flight_registries():
         for worker in list(registry):
             with contextlib.suppress(RuntimeError):
-                worker.shutdown()
+                worker.shutdown(timeout_ms=5000)
         registry.clear()
     _pump_events_until(lambda: True, timeout=0.05)
 
@@ -279,4 +280,31 @@ def test_deleting_a_worker_mid_run_does_not_abort_on_a_live_thread(
     worker.deleteLater()
     threading.Timer(0.02, analyzer.release.set).start()
 
-    assert _pump_events_until(lambda: not thread.isRunning())
+    assert _pump_events_until(lambda: not isValid(thread) or not thread.isRunning())
+
+
+@pytest.mark.parametrize(("worker_class", "analyzer_argument", "profile_factory"), WORKER_CASES)
+def test_shutdown_requests_interruption_without_termination_or_wait(worker_class, analyzer_argument, profile_factory):
+    from unittest.mock import Mock
+
+    worker = worker_class()
+    thread = Mock()
+    thread.isRunning.return_value = True
+    worker._thread = thread
+    worker.shutdown()
+    thread.requestInterruption.assert_called_once()
+    thread.terminate.assert_not_called()
+    thread.wait.assert_not_called()
+    assert worker._thread is thread
+
+
+@pytest.mark.parametrize(("worker_class", "analyzer_argument", "profile_factory"), WORKER_CASES)
+def test_repeated_start_retains_running_analysis(worker_class, analyzer_argument, profile_factory, monkeypatch):
+    import sys
+    from unittest.mock import Mock
+
+    worker = worker_class()
+    original = worker._thread = Mock()
+    monkeypatch.setattr(sys.modules[worker_class.__module__], "QThread", Mock(side_effect=AssertionError("replaced")))
+    worker.start([], Mock())
+    assert worker._thread is original

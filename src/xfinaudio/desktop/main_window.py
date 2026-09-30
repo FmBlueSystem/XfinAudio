@@ -18,6 +18,7 @@ from xfinaudio.application.recommendation_candidates import (
     pool_size_for_slot,
 )
 from xfinaudio.config.settings import AppSettings, WindowSettings
+from xfinaudio.config.settings_repository import SettingsRepositoryError
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop import rendering as _rendering
 from xfinaudio.desktop import shell_state_compat as _shell_state_compat
@@ -132,7 +133,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: object) -> None:
         if not getattr(self, "_closing", False):
             self._closing = True
-            self.centralWidget().setEnabled(False)
+            self.setEnabled(False)
             self._audio_player.shutdown()
             self._library_watch_service.stop()
             self._scan_service.shutdown()
@@ -153,7 +154,10 @@ class MainWindow(QMainWindow):
             event.ignore()  # type: ignore[attr-defined]
             return
         self._close_timer.stop()
-        self._persist_window_geometry()
+        try:
+            self._persist_window_geometry()
+        except SettingsRepositoryError:
+            LOGGER.exception("Could not save window settings; previous settings were preserved")
         super().closeEvent(event)  # type: ignore[arg-type]
 
     def _build_layout(self) -> None:

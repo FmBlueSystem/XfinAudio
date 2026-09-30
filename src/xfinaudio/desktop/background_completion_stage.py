@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+
+from xfinaudio.desktop._workers import WorkerRegistry
 
 LOGGER = logging.getLogger(__name__)
 CompletionTask = Callable[[Callable[[str, object], None]], object]
@@ -37,6 +39,7 @@ class BackgroundCompletionStage(QObject):
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
+        self._worker_registry = WorkerRegistry(self)
         self._thread: QThread | None = None
         self._runner: _Runner | None = None
         self._cancel: Callable[[], None] | None = None
@@ -46,33 +49,37 @@ class BackgroundCompletionStage(QObject):
         if self.is_running():
             return
         self._cancel = cancel
-        thread, runner = QThread(), _Runner(task)
+        thread, runner = QThread(self.parent()), _Runner(task)
+        self._worker_registry.retain(thread, runner)
         runner.moveToThread(thread)
         thread.started.connect(runner.run)
         runner.result.connect(self.result)
-        runner.finished.connect(self.finished)
-        runner.finished.connect(thread.quit)
+        runner.finished.connect(thread.quit, Qt.ConnectionType.DirectConnection)
         thread.finished.connect(self._clear)
+        thread.finished.connect(self.finished)
         thread.finished.connect(runner.deleteLater)
         thread.finished.connect(thread.deleteLater)
         self._thread, self._runner = thread, runner
         thread.start()
 
-    def cancel(self, timeout_ms: int = 500) -> None:
+    def cancel(self, timeout_ms: int = 0) -> None:
         if self._cancel is not None:
             self._cancel()
         if self._thread is not None and self._thread.isRunning():
             self._thread.requestInterruption()
             self._thread.quit()
-            self._thread.wait(timeout_ms)
+            if timeout_ms:
+                self._thread.wait(timeout_ms)
 
     def shutdown(self) -> None:
-        if self._cancel is not None:
-            self._cancel()
+        """Request cancellation; the shell keeps the event loop alive until idle."""
+        self.cancel()
+
+    def dispose_when_idle(self) -> None:
         if self._thread is not None and self._thread.isRunning():
-            self._thread.requestInterruption()
-            self._thread.quit()
-            self._thread.wait()
+            self._thread.finished.connect(self.deleteLater)
+        else:
+            self.deleteLater()
 
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.isRunning()

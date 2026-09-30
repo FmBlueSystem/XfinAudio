@@ -66,7 +66,8 @@ def test_extracted_boundaries_own_real_responsibilities() -> None:
 
     assert [name for name, _kwargs in calls] == ["watch-state", "watch", "state", "ui", "actions"]
     assert calls[0][1]["state"] is host._state
-    assert calls[2][1]["state"] is host._state
+    assert calls[2][1]["state"]() is host._state
+    assert calls[2][1]["set_state"] is host._replace_app_state
     assert calls[3][1]["library_screen"] is host._library_screen
 
 

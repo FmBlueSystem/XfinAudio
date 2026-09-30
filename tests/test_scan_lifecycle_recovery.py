@@ -46,3 +46,39 @@ def test_completed_scan_publishes_clean_state_even_if_watch_unavailable(qapp, tm
         assert not window._library_watch_service.is_watching
         assert "watch" in window.status_label.text().lower()
     window.close()
+
+
+def test_close_survives_geometry_save_failure(qapp, monkeypatch, caplog):
+    from xfinaudio.config.settings_repository import SettingsRepositoryError
+
+    window = MainWindow(scan_service=_Scan(), repository=_Repository())
+
+    def fail():
+        raise SettingsRepositoryError("disk full")
+
+    monkeypatch.setattr(window, "_persist_window_geometry", fail)
+    from PySide6.QtGui import QCloseEvent
+
+    event = QCloseEvent()
+    window.closeEvent(event)
+    assert event.isAccepted()
+    assert "settings" in caplog.text.lower()
+
+
+def test_replacement_scan_cancels_only_previous_token(monkeypatch):
+    from unittest.mock import Mock
+
+    from xfinaudio.desktop.scan_service import ScanService
+    from xfinaudio.library.scan_service import ScanCancellationToken
+
+    service = ScanService(Mock())
+    service._scan_thread = Mock()
+    previous, replacement = ScanCancellationToken(), ScanCancellationToken()
+    service._current_token = previous
+    service.current_scan_cancellation_token = replacement
+    monkeypatch.setattr(service, "_start_scan_worker", lambda *args: None)
+    from pathlib import Path
+
+    service.start_scan(Path("/synthetic"), replacement)
+    assert previous.is_cancelled
+    assert not replacement.is_cancelled

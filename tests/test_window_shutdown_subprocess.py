@@ -8,7 +8,21 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.parametrize("kind", ["recommendation", "scan", "copilot", "narrator", "replacement"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "recommendation",
+        "scan",
+        "copilot",
+        "narrator",
+        "replacement",
+        "spectral",
+        "danceability",
+        "edge",
+        "loudness",
+        "retired_analysis",
+    ],
+)
 def test_close_drains_slow_work_without_freezing_or_losing_committed_records(tmp_path, kind):
     script = r"""
 import sys, time
@@ -43,6 +57,26 @@ elif kind == "scan":
     service = window._scan_service
     service.workflow_service = SimpleNamespace(scan_folder=slow)
     service.start_scan(Path(sys.argv[1]).parent, ScanCancellationToken())
+elif kind == "loudness":
+    from xfinaudio.desktop.background_completion_stage import BackgroundCompletionStage
+    stage = BackgroundCompletionStage(window)
+    window._library_controller._loudness_completion_stage = stage
+    stage.start(slow)
+elif kind in ("spectral", "danceability", "edge", "retired_analysis"):
+    from xfinaudio.desktop.spectral_completion_worker import SpectralCompletionWorker
+    from xfinaudio.desktop.danceability_completion_worker import DanceabilityCompletionWorker
+    from xfinaudio.desktop.edge_spectral_completion_worker import EdgeSpectralCompletionWorker
+    cls, argument, attribute = {
+        "spectral": (SpectralCompletionWorker, "spectral_analyzer", "_spectral_completion_worker"),
+        "danceability": (DanceabilityCompletionWorker, "danceability_analyzer", "_danceability_completion_worker"),
+        "edge": (EdgeSpectralCompletionWorker, "edge_spectral_analyzer", "_edge_spectral_completion_worker"),
+        "retired_analysis": (SpectralCompletionWorker, "spectral_analyzer", "_spectral_completion_worker"),
+    }[kind]
+    worker = cls(window, **{argument: SimpleNamespace(analyze=slow)})
+    setattr(window._library_controller, attribute, worker)
+    worker.start([TrackRecord(path="/synthetic.flac")], repo, max_workers=1)
+    if kind == "retired_analysis":
+        QTimer.singleShot(30, window._library_controller.cancel_spectral_completion_worker)
 else:
     service = window._ai_copilot if kind == "copilot" else window._ai_narrator
     service._start_worker(slow, 0)

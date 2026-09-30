@@ -150,7 +150,9 @@ class ScanService(QObject):
     def start_scan(self, folder: Path, token: ScanCancellationToken) -> None:
         """Start a background metadata scan for *folder* using the given *token*."""
         if self._scan_thread is not None and self._scan_thread.isRunning():
-            self.cancel()
+            if self._current_token is not None:
+                self._current_token.cancel()
+            self._scan_thread.requestInterruption()
         self._current_token = token
         self._current_request_id += 1
         rid = self._current_request_id
