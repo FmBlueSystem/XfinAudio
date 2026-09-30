@@ -26,3 +26,7 @@ focused cases successfully. The screen no longer owns a callback closing over it
 Slice 4 RED: real BuildScreen lacked confirmation signals. GREEN: QTest confirms
 preview duration/style/constraints, edited duration, edit/cancel/configure signals
 and unchecked per-request inventory consent; 2 widget tests pass.
+
+Slice 5a RED: absent constraint merger. GREEN: 5 tests verify preservation of
+selected order, locks/exclusions/start and fail-closed unknown/overlap/count inputs.
+This is a separate <=400-line review slice before asynchronous controller changes.
