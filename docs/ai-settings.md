@@ -20,7 +20,7 @@ Settings displays effective initial enable/file overrides. Pressing **OK** expli
 
 ## What is sent
 
-Requested AI actions may send request text and track/set metadata such as titles, artists, genres, BPM, key, energy and transition/readiness summaries. They do not send audio files or local file paths. The UI shows this disclosure before opt-in.
+Requested AI actions may send request text and track/set metadata such as titles, artists, genres, BPM, key, energy and transition/readiness summaries. They never send audio files. Dedicated local path fields are omitted; known and recognizable paths, including relative audio-file paths, are redacted from text. Arbitrary free text cannot be guaranteed free of private information, so avoid private details in prompts. The UI shows this disclosure before opt-in.
 
 **Test connection** sends only `Reply with OK. XfinAudio connection test.`, plus the selected model name and app identifier, authenticated with the configured credential. No library content is sent. This may consume provider quota. Testing uses the staged configuration and does not save it or enable other AI actions.
 
