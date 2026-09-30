@@ -132,6 +132,7 @@ def test_load_with_recovery_preserves_invalid_bytes_and_reports_path(tmp_path: P
     assert len(backups) == 1
     assert backups[0].read_bytes() == content
     assert not path.exists()
+    assert repository.recovery_warning is not None
     assert str(backups[0]) in repository.recovery_warning
     repository.save(AppSettings())
     assert backups[0].read_bytes() == content
