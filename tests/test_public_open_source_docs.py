@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -29,7 +30,7 @@ def test_readme_describes_project_scope_workflow_and_release_caveats() -> None:
 
     required_fragments = [
         "XfinAudio is a GPL-3.0-only desktop DJ playlist assistant",
-        "Python 3.11",
+        "Python 3.12",
         "uv sync --locked",
         "uv run pytest -q",
         "uv run ruff check .",
@@ -68,7 +69,7 @@ def test_contributing_sets_dev_workflow_tdd_and_safety_boundaries() -> None:
     text = read(CONTRIBUTING)
 
     required_fragments = [
-        "Python 3.11",
+        "Python 3.12",
         "uv sync --locked",
         "uv run pytest -q",
         "uv run ruff check .",
@@ -98,6 +99,38 @@ def test_loudness_disclosure_matches_default_enabled_comment_replacement() -> No
     assert "reemplaza los comentarios existentes" in readme
     assert "all ID3 COMM frames" in readme
     assert "does not restore replaced comments" in readme
+
+
+def test_readme_describes_current_optional_ai_without_release_overclaims() -> None:
+    project = tomllib.loads(read(PROJECT_ROOT / "pyproject.toml"))["project"]
+    text = read(README)
+    assert f"XfinAudio {project['version']}" in text
+    assert f"Python {project['requires-python'].removeprefix('>=')}" in text
+    notes_path = f"docs/release-notes-v{project['version']}.md"
+    assert notes_path in text
+    assert f"XfinAudio {project['version']}" in read(PROJECT_ROOT / notes_path)
+    for fragment in (
+        "## Optional AI and local control",
+        "## IA opcional y control local",
+        "NaN (Nan Builders)",
+        "[secure AI setup](docs/ai-settings.md)",
+        "[configuración segura de IA](docs/ai-settings.md#configuración-segura-en-español)",
+        "No playback detection",
+        "No detecta la reproducción",
+        "Historical manual QA",
+        "QA manual histórico",
+    ):
+        assert fragment in text
+    for stale_claim in (
+        "Python 3.11",
+        "Full internationalization",
+        "Internacionalización completa",
+        "validated on macOS",
+        "validado en macOS",
+        "XfinAudio ships as an unsigned",
+        "XfinAudio se distribuye como `.app`/`.dmg` sin firmar",
+    ):
+        assert stale_claim not in text
 
 
 def test_security_sets_disclosure_placeholder_scope_and_dependency_caveats() -> None:

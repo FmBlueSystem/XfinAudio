@@ -4,7 +4,7 @@ Thanks for helping improve XfinAudio. Keep changes small, tested, and aligned wi
 
 ## Development setup
 
-Requirements: Python 3.11 and `uv`.
+Requirements: Python 3.12 and `uv`.
 
 ```bash
 uv sync --locked
