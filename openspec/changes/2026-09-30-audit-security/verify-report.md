@@ -1,6 +1,6 @@
 # Verification
 
-Pending. Only synthetic/offline test fixtures are permitted. The integrated
+Focused verification complete. Only synthetic/offline fixtures were used. The integrated
 release gate will be run by the parent after all review slices are combined.
 
 ## R1/R2: transport (focused pass)
@@ -12,7 +12,7 @@ success. Intercepted HTTPS/HTTP handlers return in-memory data; no socket is use
 
 `python -m pyright --pythonpath <shared-venv>/bin/python` for the two changed Python
 files: 0 errors. Focused `ruff check` and `ruff format --check` pass after formatting.
-Integrated gate still pending; S2 and disclosure not implemented yet.
+Integrated gate pending; subsequent slices are recorded below.
 
 ## R3/R4: CSV and JSON (focused pass)
 `python -m pytest tests/test_csv_security.py tests/test_metadata_gaps.py
@@ -27,3 +27,15 @@ including negative numbers. Focused pyright: 0 errors; lint/format: pass.
 No spreadsheet UI was available or used. Literal-cell behavior is validated at the
 serialized boundary; documentation requires text import and discloses this limit.
 The integrated release gate remains pending with the parent.
+
+## R5: truthful loudness disclosure (focused pass)
+`python -m pytest tests/test_public_open_source_docs.py tests/test_harmonic_mixing_doc.py -q`
+passed 9 tests; documentation RED was 2 failed / 5 passed before edits. Runtime
+behavior is unchanged. Disclosures match enabled=True, automatic completion write-back,
+ID3 COMM deletion, FLAC COMMENT / MP4 ©cmt replacement, and FLAC DESCRIPTION preservation.
+
+## Remaining verification / excluded scope
+Parent must run `uv run python scripts/release_gate_check.py --run` after integration.
+No full-gate, macOS UI, real audio, spreadsheet UI, or live-provider certification
+is claimed here. No push, PR, deployment, or real credential use occurred.
+S3/non-Serato containment was deliberately excluded by the owner's narrowed scope.

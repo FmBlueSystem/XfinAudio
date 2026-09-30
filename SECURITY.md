@@ -24,10 +24,17 @@ Relevant reports include unsafe file writes, export path traversal, dependency v
 Not expected by design:
 
 - No live Serato writes by design.
-- XfinAudio does not mutate audio files outside the loudness module's explicit tag-write setting.
-- The loudness module is the single documented exception and may write loudness tags only through its explicit setting.
+- XfinAudio does not mutate audio files outside loudness tag writing.
+- The loudness setting is enabled by default and gates both analysis and automatic tag writing; it replaces existing comments. There is no separate tag-write switch.
 - XfinAudio does not mutate live Serato database V2 files.
-- The app writes only app-owned database, settings, and export files, plus explicit user-requested exports.
+- Other writes are limited to app-owned database, settings, and export files, plus explicit user-requested exports.
+
+Before processing a library, back up any comments you need to retain or disable
+“Enable loudness analysis” in Settings. That one setting controls analysis and
+write-back together. ID3 writing removes all COMM frames, including custom comments;
+FLAC COMMENT and MP4 ©cmt are replaced. Existing unrelated FLAC DESCRIPTION text is
+preserved when the loudness line is added/refreshed. Disabling loudness later does
+not restore replaced comments. Audio samples are not rewritten by this tag writer.
 
 If you can show a path that violates those boundaries, report it as a security issue.
 

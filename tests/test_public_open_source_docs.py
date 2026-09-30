@@ -85,26 +85,19 @@ def test_contributing_sets_dev_workflow_tdd_and_safety_boundaries() -> None:
         assert fragment in text
 
 
-def test_loudness_is_the_single_explicitly_configured_audio_write_exception() -> None:
-    exception = (
-        "The loudness module is the single documented exception and may write loudness tags only through its explicit "
-        "setting."
-    )
-    assert (
-        "Scanning remains read-only. The loudness module is the single documented exception and may write loudness "
-        "tags only through its explicit setting."
-    ) in read(AGENTS)
-    assert (
-        "Scanning remains read-only. The loudness module is the single documented exception and may write loudness "
-        "tags only through its explicit setting."
-    ) in read(CONTRIBUTING)
+def test_loudness_disclosure_matches_default_enabled_comment_replacement() -> None:
+    for path in (AGENTS, CONTRIBUTING, README, SECURITY):
+        text = read(path)
+        assert "enabled by default" in text
+        assert "both analysis and automatic tag writing" in text
+        assert "replaces existing comments" in text
+        assert "explicit tag-write setting" not in text
     readme = read(README)
-    assert exception in readme
-    assert exception in read(SECURITY)
-    assert (
-        "El módulo de loudness es la única excepción documentada y puede escribir tags de loudness solo mediante su "
-        "ajuste explícito."
-    ) in readme
+    assert "activado por defecto" in readme
+    assert "análisis y la escritura automática" in readme
+    assert "reemplaza los comentarios existentes" in readme
+    assert "all ID3 COMM frames" in readme
+    assert "does not restore replaced comments" in readme
 
 
 def test_security_sets_disclosure_placeholder_scope_and_dependency_caveats() -> None:
@@ -115,7 +108,7 @@ def test_security_sets_disclosure_placeholder_scope_and_dependency_caveats() -> 
         "Responsible disclosure",
         "Do not include private audio libraries",
         "No live Serato writes by design",
-        "does not mutate audio files outside the loudness module's explicit tag-write setting",
+        "does not mutate audio files outside loudness tag writing",
         "PySide6/Qt",
         "mutagen",
         "third-party dependencies",

@@ -123,7 +123,15 @@ The desktop app scans supported audio files recursively:
 - `.mp3`
 - `.wav`
 
-The scan is read-only. It does not mutate audio files. The loudness module is the single documented exception and may write loudness tags only through its explicit setting.
+Metadata scanning itself is read-only. The automatic loudness stage is the exception:
+The loudness setting is enabled by default and gates both analysis and automatic tag writing; it replaces existing comments. There is no separate tag-write switch.
+
+Before processing your library, back up comments you want to keep or disable **Enable
+loudness analysis** in Settings. Loudness write-back removes all ID3 COMM frames
+(including custom comment frames), replaces FLAC COMMENT and MP4 ©cmt, and writes
+structured loudness tags. Unrelated FLAC DESCRIPTION text is preserved when the
+loudness line is added/refreshed. Disabling this setting later does not restore replaced comments.
+Audio samples are not rewritten by this tag writer.
 
 During scan, the app:
 
@@ -492,8 +500,8 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 
 ### Safety and release workflow
 
-- Read-only audio scanning, except for loudness tags written only through the loudness module's explicit setting.
-- App-owned database/settings/export writes only.
+- Read-only metadata scanning; default-enabled loudness automatically writes tags and replaces comments (see scan warning above).
+- Other writes are limited to app-owned database/settings/exports and explicit user-requested exports.
 - Serato crate write planning before write.
 - Confirmed crate writes only.
 - Backup when replacing an existing crate.
@@ -561,13 +569,13 @@ These exports follow the same strategy-grouped, timestamped, non-overwriting con
 
 ## Safety posture and non-goals
 
-XfinAudio is intentionally non-destructive:
+XfinAudio has these write boundaries:
 
-- It does not mutate audio files outside the loudness module's explicit tag-write setting.
+- It does not mutate audio files outside loudness tag writing. Default-enabled loudness analysis also writes tags and replaces existing comments; there is no separate write switch.
 - It does not render, mix, time-stretch, pitch-shift, or analyze waveforms.
 - It does not perform key detection, BPM detection, beat tracking, or cue/phrase detection.
 - It does not mutate live Serato database V2 files.
-- The app writes only its app-owned database, settings, and export files.
+- Other writes are limited to app-owned database, settings, and export files, plus explicit user-requested exports.
 - Serato crate writes are only through the explicit safe export/backup/validation flow documented in the project.
 
 Non-goals:
@@ -776,7 +784,18 @@ La app escanea recursivamente archivos soportados:
 - `.mp3`
 - `.wav`
 
-El escaneo es de solo lectura. No modifica archivos de audio. El módulo de loudness es la única excepción documentada y puede escribir tags de loudness solo mediante su ajuste explícito.
+La lectura inicial de metadata es de solo lectura. La etapa automática de loudness
+es la excepción: su ajuste está activado por defecto, controla conjuntamente el
+análisis y la escritura automática de tags, y reemplaza los comentarios existentes.
+No existe un interruptor separado para la escritura de tags.
+
+Antes de procesar tu biblioteca, respalda los comentarios que quieras conservar o
+desactiva **Activar análisis de sonoridad** (Enable loudness analysis) en Ajustes.
+La escritura elimina todos los frames ID3 COMM, incluidos comentarios personalizados,
+reemplaza FLAC COMMENT y MP4 ©cmt, y escribe tags estructurados de loudness. El texto
+ajeno de FLAC DESCRIPTION se conserva al añadir/actualizar la línea de loudness.
+Desactivar el ajuste después no restaura los comentarios reemplazados. Esta escritura
+de tags no modifica las muestras de audio.
 
 Durante el scan, la app:
 
@@ -1145,8 +1164,8 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 
 ### Seguridad y release
 
-- Scan de audio read-only, excepto los tags de loudness escritos solo mediante el ajuste explícito del módulo de loudness.
-- Escrituras solo en base/settings/export propios de la app.
+- Lectura de metadata de solo lectura; loudness, activado por defecto, escribe tags y reemplaza comentarios automáticamente (ver advertencia anterior).
+- Las demás escrituras se limitan a base/settings/export propios y exportaciones solicitadas explícitamente.
 - Plan de Serato crate antes de escribir.
 - Escritura confirmada únicamente.
 - Backup si reemplaza un crate existente.
@@ -1214,13 +1233,13 @@ Estas exportaciones siguen la misma convención de agrupación por estrategia, t
 
 ## Postura de seguridad y no-objetivos
 
-XfinAudio es intencionalmente no destructivo:
+XfinAudio tiene estos límites de escritura:
 
-- No modifica archivos de audio fuera del ajuste explícito de escritura de tags del módulo de loudness.
+- No modifica archivos de audio fuera de la escritura de tags de loudness. El ajuste, activado por defecto, controla análisis y escritura con reemplazo de comentarios; no hay interruptor separado de escritura.
 - No renderiza, mezcla, time-stretchea, pitch-shiftea ni analiza waveforms.
 - No hace key detection, BPM detection, beat tracking ni cue/phrase detection.
 - No modifica live Serato database V2 files.
-- La app solo escribe en su base, settings y archivos de export propios.
+- Las demás escrituras se limitan a base, settings y archivos de export propios, además de exportaciones solicitadas explícitamente.
 - Los Serato crate writes pasan únicamente por el explicit safe export/backup/validation flow documentado.
 
 No-objetivos:

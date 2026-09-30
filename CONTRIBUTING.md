@@ -1,6 +1,6 @@
 # Contributing to XfinAudio
 
-Thanks for helping improve XfinAudio. Keep changes small, tested, and aligned with the app's non-destructive DJ playlist assistant scope.
+Thanks for helping improve XfinAudio. Keep changes small, tested, and aligned with the app's documented DJ playlist assistant scope.
 
 ## Development setup
 
@@ -45,7 +45,7 @@ For changes that touch product behavior, also create or update the required `ope
 
 Do not expand scope without explicit discussion. Required boundaries:
 
-- No audio mutation outside the loudness module's explicit tag-write setting. Scanning remains read-only. The loudness module is the single documented exception and may write loudness tags only through its explicit setting.
+- No audio mutation outside documented loudness tag writing. Metadata scanning remains read-only. The loudness setting is enabled by default and gates both analysis and automatic tag writing; it replaces existing comments. There is no separate tag-write switch.
 - No live Serato database V2 mutation.
 - No DSP, audio rendering, mixing, time-stretching, pitch-shifting, waveform analysis, key detection, BPM detection, beat tracking, or cue/phrase detection.
 - App writes must stay limited to app-owned database, settings, and export files.
