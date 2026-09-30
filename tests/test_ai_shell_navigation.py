@@ -228,3 +228,20 @@ def test_window_close_protects_unsaved_editor_draft(qapp, tmp_path, monkeypatch,
     finally:
         window._playlist_editor.discard_draft()
         window.close()
+
+
+def test_long_status_path_does_not_force_window_wider(qapp, tmp_path):
+    window = MainWindow(scan_service=EmptyScanner(), repository=TrackRepository(tmp_path / "tracks.db"))
+    try:
+        window.status_label.setText("Preview ready: /synthetic/" + "long-export-folder/" * 18 + "set.crate")
+        window.resize(1000, 700)
+        window.show()
+        qapp.processEvents()
+        assert window.width() == 1000
+        assert window.height() == 700
+        assert "set.crate" in window.status_label.text()
+        assert window.status_label.wordWrap()
+        assert window.status_label.toolTip() == window.status_label.text()
+        assert window.status_label.accessibleDescription() == window.status_label.text()
+    finally:
+        window.close()

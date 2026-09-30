@@ -47,3 +47,8 @@ Metadata/Live add optional evidence-only commentary. No provider is contacted by
 development tests. Interim full suite: 3,084 pass, 94.12% coverage, four failures
 limited to confirmed compact-layout and missing-button-tooltip regressions, being
 repaired before final acceptance.
+
+Responsive capture found long export destinations could force later screens
+wider through the shared status line. RED reproduces the oversized window;
+GREEN (12 shell checks) bounds and wraps plain status text while retaining the
+complete destination in the tooltip and accessibility description.

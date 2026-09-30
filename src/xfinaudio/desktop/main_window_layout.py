@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.responsive import ResponsiveLayout
 from xfinaudio.desktop.status_bar import StatusBar
+from xfinaudio.desktop.status_message import StatusMessage
 from xfinaudio.desktop.undo_toolbar import UndoToolbar
 from xfinaudio.desktop.visual_design import apply_compact_mac_layout
 from xfinaudio.desktop.workflow_stack import WorkflowStack
@@ -121,7 +122,7 @@ def build_main_widgets(self: Any) -> None:
     self.status_bar.hide()
     self.status_bar_toggle = QPushButton(self.tr("Status"))
     self.status_bar_toggle.setCheckable(True)
-    self.status_label = QLabel(self.tr("Ready"))
+    self.status_label = StatusMessage(self.tr("Ready"))
     self.library_decision_label = QLabel(self.tr("DJ Decision Point: choose source, filters, and the track anchor."))
     self.metadata_decision_label = QLabel(
         self.tr("DJ Decision Point: complete missing metadata, then refresh the library.")
