@@ -42,3 +42,10 @@ checks before confirmation and publication, and queued request-ID checks. Existi
 controller tests now explicitly confirm before expecting a plan; real QThread test
 still proves extraction is off UI thread. 23 controller/workflow tests pass.
 Candidate-route factory is an explicit coordinator integration hook.
+
+Slice 6 RED: 9 tests expose default title transmission, missing opt-in flag,
+untrusted path/metadata field acceptance, ambiguous title selection and raw error
+echo. GREEN: 43 adapter/Create tests pass. Default payload contains request plus
+genres; explicit title/genre opt-in never includes paths/audio/raw metadata. Strict
+field allowlist rejects path or metadata injection. Raw provider errors no longer
+echo model text. Ambiguous titles do not resolve arbitrarily.
