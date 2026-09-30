@@ -257,7 +257,7 @@ def test_energy_alert_falls_back_to_scalar_without_boundaries(qapp: QApplication
 def test_diagonal_key_does_not_trigger_key_clash_alert(qapp: QApplication, track_a: TrackRecord) -> None:
     screen = LiveAssistantScreen()
     current = track_a.model_copy(update={"camelot_key": "7A"})
-    candidate = track_a.model_copy(update={"path": "/diagonal.flac", "camelot_key": "8B"})
+    candidate = track_a.model_copy(update={"path": "/diagonal.flac", "camelot_key": "6B"})
     screen.set_current_track(current)
 
     alerts = screen._generate_alerts(candidate)

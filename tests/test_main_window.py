@@ -1237,7 +1237,9 @@ def test_main_window_recommend_action_populates_review_summary(tmp_path) -> None
     assert "Tracks: 2" in summary
     assert "Transitions: 1" in summary
     assert "Average transition score:" in summary
-    assert "Warnings: 1" in summary
+    assert "Warnings:" in summary
+    assert window.last_recommendation is not None
+    assert any("Duration is unknown" in warning for warning in window.last_recommendation.warnings)
 
 
 def test_main_window_recommend_action_populates_transition_review_table(tmp_path) -> None:
@@ -2256,7 +2258,9 @@ def test_main_window_shows_dj_readiness_after_recommendation(tmp_path) -> None:
     window.recommend_playlist()
     _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    assert "DJ Readiness: Ready" in window._review_screen.dj_readiness_label.text()
+    assert "DJ Readiness: Needs Review" in window._review_screen.dj_readiness_label.text()
+    assert window.last_recommendation is not None
+    assert any("Duration is unknown" in warning for warning in window.last_recommendation.warnings)
 
 
 def test_main_window_resets_dj_readiness_when_recommendation_is_cleared() -> None:
@@ -2523,8 +2527,12 @@ def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_pat
         "balanced",
         "adventurous",
     ]
-    assert {_table_item_text(window._build_screen.copilot_table, row, 3) for row in range(3)} == {"Ready"}
+    assert {_table_item_text(window._build_screen.copilot_table, row, 3) for row in range(3)} == {"Needs Review"}
     assert window.last_prep_copilot_plan is not None
+    assert all(
+        any(check.label == "Energy continuity" and check.status == "needs_review" for check in variant.readiness.checks)
+        for variant in window.last_prep_copilot_plan.variants
+    )
     assert all(
         variant.recommendation.ordered_tracks[0].path == str(tmp_path / "start.flac")
         for variant in window.last_prep_copilot_plan.variants
