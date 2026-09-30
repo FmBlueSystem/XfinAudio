@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: audit-serato-workflow-ux
+artifact_store: openspec
+status: apply
+created: 2026-09-30
+updated: 2026-09-30
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: in-progress
+  verify: pending
+next_recommended: apply
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Local slices A through E are the explicit chained-PR plan; no push or PR.
+  - Parent owns the full integrated release gate.

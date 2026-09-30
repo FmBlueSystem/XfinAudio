@@ -96,6 +96,8 @@ class BuildScreen(QWidget):
         # every state sync for the visible tab, and rebuilding the table would
         # wipe the DJ's selection even when the rows are identical.
         self._last_copilot_signature: tuple | None = None
+        self._variant_rows: list[CopilotVariantRow] = []
+        self._variant_target_count = 25
         self._genre_chosen_by_dj = False
         self._build_ui()
         self._connect_signals()
@@ -261,6 +263,13 @@ class BuildScreen(QWidget):
         self.copilot_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.copilot_table, 1)
 
+        self.variant_details_label = QLabel()
+        self.variant_details_label.setWordWrap(True)
+        self.variant_details_label.setAccessibleName(self.tr("Selected variant details"))
+        self.variant_details_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        self.variant_details_label.hide()
+        layout.addWidget(self.variant_details_label)
+
         # Applied variant badge (set imperatively by main_window)
         self.applied_copilot_variant_label = QLabel(self.tr("Applied Variant: none"))
         self.applied_copilot_variant_label.setToolTip(self.tr("No Prep Copilot variant is currently applied."))
@@ -349,6 +358,7 @@ class BuildScreen(QWidget):
         self.copilot_ask_button.clicked.connect(self._on_copilot_ask)
         self.copilot_ask_input.returnPressed.connect(self._on_copilot_ask)
         self.apply_variant_button.clicked.connect(self._on_apply_variant)
+        self.copilot_table.itemSelectionChanged.connect(self._refresh_variant_details)
         self.recommend_button.clicked.connect(self._on_recommend)
         self.exclude_button.clicked.connect(self.exclude_requested)
         self.lock_button.clicked.connect(self.lock_requested)
@@ -426,14 +436,17 @@ class BuildScreen(QWidget):
         self.variant_label.setText(vm.applied_variant_label(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
         rows = vm.copilot_variants_for_display(state)
-        if lightweight:
-            self.copilot_table.setHidden(len(rows) == 0)
-            self.apply_variant_button.setHidden(len(rows) == 0)
-        else:
+        self._variant_rows = rows
+        if state.last_prep_copilot_plan is not None:
+            self._variant_target_count = state.last_prep_copilot_plan.intent.target_track_count
+        self.copilot_table.setVisible(bool(rows))
+        self.apply_variant_button.setVisible(bool(rows))
+        if not lightweight:
             signature = _copilot_rows_signature(rows)
             if signature != self._last_copilot_signature:
                 self._populate_copilot_table(rows)
                 self._last_copilot_signature = signature
+        self._refresh_variant_details()
         self.applied_copilot_variant_label.setHidden(state.applied_variant_name is None)
 
         anchor = vm.anchor_summary(state)
@@ -536,6 +549,24 @@ class BuildScreen(QWidget):
                 self.copilot_table.setItem(row, col, item)
         if len(rows) == previous_count and 0 <= previous_row < len(rows):
             self.copilot_table.selectRow(previous_row)
+        elif rows:
+            self.copilot_table.selectRow(next((i for i, row in enumerate(rows) if row.name == "balanced"), 0))
+
+    def _refresh_variant_details(self) -> None:
+        index = self.copilot_table.currentRow()
+        selected = bool(self.copilot_table.selectedIndexes()) and 0 <= index < len(self._variant_rows)
+        self.variant_details_label.setVisible(selected)
+        self.apply_variant_button.setEnabled(selected)
+        if not selected:
+            self.variant_details_label.clear()
+            self.apply_variant_button.setText(self.tr("Apply Selected Variant"))
+            return
+        row = self._variant_rows[index]
+        self.apply_variant_button.setText(self.tr("Use {0} · {1} tracks").format(row.name, row.track_count))
+        summary = self.tr("{0} of {1} requested · {2}").format(
+            row.track_count, self._variant_target_count, row.readiness_summary
+        )
+        self.variant_details_label.setText("\n".join(part for part in (summary, row.pool_notes) if part))
 
     # ------------------------------------------------------------------
     # Internal slots

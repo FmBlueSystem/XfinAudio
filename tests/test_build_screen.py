@@ -563,3 +563,31 @@ def test_render_disables_the_ask_button_without_a_scanned_library(qapp: QApplica
     screen.render(BuildViewModel(), AppState())
 
     assert screen.copilot_ask_button.isEnabled() is False
+
+
+def test_fresh_visible_build_exposes_apply_and_inline_variant_details(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    vm = BuildViewModel()
+    screen.show()
+    screen.render(vm, AppState(), lightweight=True)
+    assert screen.apply_variant_button.isHidden()
+    notes = ("Genre focus 'House': 10 -> 2 track(s)",)
+    state = _plan_state([_track("/a.flac"), _track("/b.flac")], pool_notes=notes)
+
+    screen.render(vm, state)
+    qapp.processEvents()
+
+    assert screen.copilot_table.isVisible()
+    assert screen.apply_variant_button.isVisible()
+    assert screen.copilot_table.currentRow() == 1
+    assert screen.apply_variant_button.text() == "Use balanced · 2 tracks"
+    assert "2 of 25 requested" in screen.variant_details_label.text()
+    assert notes[0] in screen.variant_details_label.text()
+    screen.copilot_table.selectRow(0)
+    assert screen.apply_variant_button.text() == "Use safe · 2 tracks"
+    screen.render(vm, state, lightweight=True)
+    screen.render(vm, state)
+    assert screen.copilot_table.currentRow() == 0
+    screen.render(vm, AppState(), lightweight=True)
+    assert screen.apply_variant_button.isHidden()
+    assert screen.variant_details_label.isHidden()
