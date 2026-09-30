@@ -49,3 +49,8 @@ echo. GREEN: 43 adapter/Create tests pass. Default payload contains request plus
 genres; explicit title/genre opt-in never includes paths/audio/raw metadata. Strict
 field allowlist rejects path or metadata injection. Raw provider errors no longer
 echo model text. Ambiguous titles do not resolve arbitrarily.
+
+Slice 7a RED: original conversational opening example failed parsing. GREEN:
+14 Library tests pass, including actual widgets showing the documented gentle/
+opening energy 2–5 suggestion, editable override and missing-energy exclusion.
+The suggestion changes filters only; no track metadata is inferred or written.

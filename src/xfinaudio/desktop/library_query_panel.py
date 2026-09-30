@@ -96,7 +96,9 @@ class LibraryQueryPanel(QWidget):
 
     def _apply(self, query: LibraryQuery) -> None:
         self.query = query
-        self.status.setText(self.tr("Filters applied locally. Edit any field or clear them."))
+        self.status.setText(
+            query.interpretation_note or self.tr("Filters applied locally. Edit any field or clear them.")
+        )
         self.filters_changed.emit()
 
     def clear(self) -> None:

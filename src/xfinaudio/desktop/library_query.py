@@ -13,6 +13,7 @@ from xfinaudio.library.models import TrackRecord
 class LibraryQuery(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    interpretation_note: str = ""
     text: str = ""
     genre: str | None = None
     bpm_min: float | None = Field(default=None, gt=0, le=400)
@@ -55,8 +56,9 @@ def _plain(text: str) -> str:
 def parse_library_query(request: str, genres: list[str]) -> LibraryQuery:
     """Parse explicit English/Spanish constraints; unsupported words fail visibly.
 
-    No fuzzy mood-to-energy or key inference. Residual instructions are rejected
-    rather than silently discarded. Quoted title/artist text remains local.
+    Gentle/opening phrases suggest an explicitly labeled, editable 2-5 energy
+    range. Residual instructions are rejected rather than silently discarded.
+    Quoted title/artist text remains local; missing metadata is never filled.
     """
     remaining = _plain(request.strip())
     values: dict[str, object] = {}
@@ -85,6 +87,15 @@ def parse_library_query(request: str, genres: list[str]) -> LibraryQuery:
     if key:
         values["key"] = key[1].replace(" ", "").upper()
         remaining = remaining[: key.start()] + " " + remaining[key.end() :]
+    gentle = r"\b(?:suave|para abrir|de apertura|warm[ -]?up|gentle|opening)\b"
+    if re.search(gentle, remaining):
+        remaining = re.sub(gentle, " ", remaining)
+        if "energy_min" not in values:
+            values.update(
+                energy_min=2,
+                energy_max=5,
+                interpretation_note="Suggested gentle/opening filter: energy 2-5. Edit it to suit your set.",
+            )
     remaining = re.sub(
         r"\b(find|show|search|tracks|songs|with|and|between|busca|buscar|muestra|canciones|temas|con|y|entre|de|en|genre|genero)\b",
         " ",

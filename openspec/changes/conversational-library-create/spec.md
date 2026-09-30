@@ -17,3 +17,6 @@
   genre vocabulary leave the app; optional title/genre sharing requires a visible
   per-request opt-in, and never includes audio, paths or raw metadata
 - R8 GIVEN a configuration failure WHEN it is displayed THEN Configure AI is actionable
+- R9 GIVEN "house suave para abrir" WHEN interpreted locally THEN House and an
+  explicitly labeled energy 2–5 suggestion appear in editable fields; explicit
+  numeric energy overrides the suggestion, missing energy remains unknown/excluded

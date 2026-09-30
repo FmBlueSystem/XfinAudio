@@ -34,3 +34,13 @@ def test_matching_filters_do_not_mutate_records_or_accept_unknown_measurements()
     assert not LibraryQuery(energy_min=1).matches(track)
     assert not LibraryQuery(key="8A").matches(track)
     assert track.energy_level == 0
+
+
+def test_gentle_opening_is_a_visible_suggestion_and_never_fills_missing_energy():
+    query = parse_library_query("house suave para abrir", ["House"])
+    assert query.genre == "House"
+    assert (query.energy_min, query.energy_max) == (2, 5)
+    assert query.interpretation_note
+    assert not query.matches(TrackRecord(path="unknown", genre="House"))
+    explicit = parse_library_query("House suave para abrir energy 6-7", ["House"])
+    assert (explicit.energy_min, explicit.energy_max) == (6, 7)

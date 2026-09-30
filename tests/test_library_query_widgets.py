@@ -77,3 +77,19 @@ def test_main_window_filter_callback_preserves_described_filters(qapp, monkeypat
     window._apply_song_filter()
     assert visible_count(screen) == 1
     window.close()
+
+
+def test_conversational_opening_displays_an_editable_suggestion(qapp):
+    screen = screen_with_tracks(qapp)
+    panel = screen.query_panel
+    panel.request_input.setText("house suave para abrir")
+    panel.interpret_button.click()
+    assert panel.fields["genre"].text() == "House"
+    assert panel.fields["energy_min"].text() == "2"
+    assert panel.fields["energy_max"].text() == "5"
+    assert "Suggested" in panel.status.text()
+    assert visible_count(screen) == 0
+    panel.fields["energy_max"].setText("6")
+    panel.apply_button.click()
+    assert visible_count(screen) == 2
+    screen.close()
