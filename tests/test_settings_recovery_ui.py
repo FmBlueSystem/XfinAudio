@@ -16,6 +16,8 @@ def test_startup_recovers_invalid_settings_with_visible_diagnostic(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text("{broken")
     window = MainWindow.with_defaults(tmp_path / "library.db", path)
+    assert window.settings.loudness.enabled is False
+    assert "paused" in window.statusBar().currentMessage()
     assert "preserved" in window.statusBar().currentMessage()
     assert "recovery-" in window.statusBar().currentMessage()
     window.close()

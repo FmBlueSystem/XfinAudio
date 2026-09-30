@@ -4,3 +4,6 @@ Keep strict load() compatible. Add explicit load_with_recovery() for desktop sta
 SettingsController saves before publishing state; typed persistence failures produce a warning.
 Use an operation-local shared context-managed SQLite factory with row factory, FK enforcement, transaction commit/rollback and unconditional close. Convert both repositories; VACUUM remains outside a write transaction. Add idempotent named playlist integrity migration, scoped to orphan children.
 Use synthetic temp data and offscreen widgets. No real user data, audio or Serato mutations.
+
+## Independent-review safety refinement (before follow-up Apply)
+Recovery-only settings disable loudness, because corrupted bytes cannot prove the user's former write-back choice. Normal AppSettings defaults and explicit enabled policy are unchanged. The warning explains the paused write-back and Settings review. Cleanup uses best-effort unlink that never masks the primary typed error; an undeletable temporary file may remain for manual cleanup.

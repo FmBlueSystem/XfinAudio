@@ -127,7 +127,7 @@ def test_load_with_recovery_preserves_invalid_bytes_and_reports_path(tmp_path: P
     path = tmp_path / "settings.json"
     path.write_bytes(content)
     repository = SettingsRepository(path)
-    assert repository.load_with_recovery() == AppSettings()
+    assert repository.load_with_recovery() == AppSettings(loudness=LoudnessSettings(enabled=False))
     backups = list(tmp_path.glob("settings.json.recovery-*"))
     assert len(backups) == 1
     assert backups[0].read_bytes() == content
@@ -153,3 +153,25 @@ def test_load_recovery_preservation_failure_leaves_original(tmp_path: Path, monk
         repository.load_with_recovery()
     assert path.read_bytes() == b"{broken"
     assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("operation", ["save", "recovery"])
+def test_cleanup_failure_does_not_mask_typed_primary_error(tmp_path: Path, monkeypatch, operation: str) -> None:
+    import os
+
+    path = tmp_path / "settings.json"
+    path.write_bytes(b"{broken" if operation == "recovery" else b"{}")
+    original = path.read_bytes()
+    repository = SettingsRepository(path)
+
+    def fail(*args, **kwargs):
+        raise PermissionError("synthetic denial")
+
+    monkeypatch.setattr(os, "replace", fail)
+    monkeypatch.setattr(Path, "unlink", fail)
+    with pytest.raises(SettingsRepositoryError):
+        if operation == "recovery":
+            repository.load_with_recovery()
+        else:
+            repository.save(AppSettings())
+    assert path.read_bytes() == original

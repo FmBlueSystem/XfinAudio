@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -65,13 +66,15 @@ class SettingsRepository:
                 os.replace(self.settings_path, recovery_path)
             except OSError as exc:
                 if recovery_path is not None:
-                    recovery_path.unlink(missing_ok=True)
+                    with suppress(OSError):
+                        recovery_path.unlink(missing_ok=True)
                 raise SettingsRepositoryError(f"Unable to preserve invalid settings: {self.settings_path}") from exc
             self.recovery_warning = (
                 f"Settings could not be loaded; original preserved at {recovery_path}. "
-                "Defaults are active. Open Settings to review your preferences."
+                "Loudness write-back is paused. Open Settings to review your preferences."
             )
-            return AppSettings()
+            defaults = AppSettings()
+            return defaults.model_copy(update={"loudness": defaults.loudness.model_copy(update={"enabled": False})})
 
     def save(self, settings: AppSettings) -> None:
         """Save settings as deterministic, supportable JSON."""
@@ -97,7 +100,8 @@ class SettingsRepository:
             raise SettingsRepositoryError(f"Unable to write settings file: {self.settings_path}") from exc
         finally:
             if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
+                with suppress(OSError):
+                    temporary_path.unlink(missing_ok=True)
 
 
 __all__ = ["SettingsRepository", "SettingsRepositoryError"]

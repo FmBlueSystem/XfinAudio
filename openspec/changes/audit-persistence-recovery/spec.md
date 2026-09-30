@@ -5,3 +5,5 @@
 - R4 GIVEN an existing playlist WHEN it is deleted THEN its child references disappear and SQLite foreign_key_check is empty.
 - R5 GIVEN a legacy DB with orphan references WHEN opened THEN only orphans are removed; valid playlists, ordering and references remain.
 - R6 GIVEN repeated successful or failed repository operations WHEN each operation ends THEN its SQLite connection is closed and writes commit or roll back normally.
+- R7 GIVEN invalid-settings recovery WHEN persisted tracks restore THEN automatic loudness write-back stays disabled until the user reviews/re-enables it. Normal fresh settings defaults remain unchanged.
+- R8 GIVEN primary persistence and temporary cleanup both fail THEN callers receive the typed primary settings error; cleanup must never mask it.
