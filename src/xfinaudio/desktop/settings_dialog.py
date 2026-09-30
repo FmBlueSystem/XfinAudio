@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -17,11 +17,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from xfinaudio.ai.runtime_settings import effective_ai_settings
 from xfinaudio.config.settings import AppSettings, ExportSettings, UiSettings
+from xfinaudio.desktop.ai_settings_panel import AiSettingsPanel
 
 
 class SettingsDialog(QDialog):
@@ -36,13 +39,22 @@ class SettingsDialog(QDialog):
         self.setWindowTitle(self.tr("Settings"))
         self.setModal(True)
         self._build_ui()
+        self.finished.connect(lambda _: self._ai_panel.cancel_pending())
+        self.resize(720, 640)
 
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        self._scroll = QScrollArea(self)
+        self._scroll.setObjectName("settings_scroll_area")
+        self._scroll.setWidgetResizable(True)
+        content = QWidget()
+        self._scroll.setWidget(content)
+        root_layout.addWidget(self._scroll)
+        layout = QVBoxLayout(content)
         layout.setSpacing(12)
 
         # UI Language group
@@ -112,7 +124,10 @@ class SettingsDialog(QDialog):
         loudness_layout.addLayout(band_layout)
         layout.addWidget(loudness_group)
 
-        # Buttons
+        self._ai_panel = AiSettingsPanel(effective_ai_settings(self._settings.ai))
+        layout.addWidget(self._ai_panel)
+
+        # Buttons remain visible while the settings content scrolls.
         button_layout = QHBoxLayout()
         self._reset_button = QPushButton(self.tr("Reset to Defaults"))
         self._reset_button.setObjectName("reset_to_defaults_button")
@@ -123,7 +138,7 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         button_layout.addWidget(buttons)
-        layout.addLayout(button_layout)
+        root_layout.addLayout(button_layout)
 
     # ------------------------------------------------------------------
     # Slots
@@ -152,6 +167,14 @@ class SettingsDialog(QDialog):
         """Open the modal dialog."""
         self.exec()
 
+    def focus_ai(self) -> None:
+        """Focus the AI controls after modal layout has become available."""
+        QTimer.singleShot(0, self._focus_ai_controls)
+
+    def _focus_ai_controls(self) -> None:
+        self._ai_panel.enabled_checkbox.setFocus()
+        self._scroll.ensureWidgetVisible(self._ai_panel.enabled_checkbox)
+
     def apply(self) -> None:
         """Apply the current dialog values."""
         self.accept()
@@ -169,6 +192,7 @@ class SettingsDialog(QDialog):
         selected_lang = self._language_combo.currentData()
         new_settings = self._settings.model_copy(
             update={
+                "ai": self._ai_panel.settings(),
                 "export": ExportSettings(safe_export_folder=self._pending_safe_export_folder),
                 "ui": UiSettings(language=selected_lang),
                 "loudness": self._settings.loudness.model_copy(

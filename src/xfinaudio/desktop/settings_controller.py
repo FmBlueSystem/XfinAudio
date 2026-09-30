@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from xfinaudio.ai.runtime_settings import apply_ai_settings
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.config.settings_repository import SettingsRepositoryError
 from xfinaudio.desktop.app_state import SettingsPersistence
@@ -37,9 +38,18 @@ class SettingsController:
         self._settings_dialog: SettingsDialog | None = None
 
     def open_settings_dialog(self) -> None:
+        self._open_settings_dialog(focus_ai=False)
+
+    def open_ai_settings_dialog(self) -> None:
+        """Open the shared dialog at the AI disclosure and configuration controls."""
+        self._open_settings_dialog(focus_ai=True)
+
+    def _open_settings_dialog(self, *, focus_ai: bool) -> None:
         self._settings_dialog = SettingsDialog(self._settings_getter(), parent=self._message_parent)
         self._dialog_setter(self._settings_dialog)
         self._settings_dialog.settings_changed.connect(self.apply_settings)
+        if focus_ai:
+            self._settings_dialog.focus_ai()
         self._settings_dialog.open_dialog()
 
     def on_spectral_cohesion_changed(self, value: int) -> None:
@@ -57,6 +67,7 @@ class SettingsController:
         if not self._save_settings(new_settings):
             return
         self._settings_setter(new_settings)
+        apply_ai_settings(new_settings.ai)
         self._export_screen.safe_export_folder_label.setText(self.format_safe_export_folder_label())
         self._sync_state()
         if new_settings.ui.language != old_lang:
