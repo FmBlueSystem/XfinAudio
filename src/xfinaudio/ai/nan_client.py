@@ -140,11 +140,13 @@ def chat(
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, TimeoutError):
             raise NanRequestError(_timeout_message(timeout)) from None
-        raise NanRequestError(f"Nan Builders request failed: {exc.reason}.") from None
+        raise NanRequestError("Nan Builders request failed: Connection refused or network unavailable.") from None
     except TimeoutError:
         raise NanRequestError(_timeout_message(timeout)) from None
-    except OSError as exc:
-        raise NanRequestError(f"Nan Builders request failed: {exc}.") from None
+    except OSError:
+        raise NanRequestError("Nan Builders request failed: network unavailable.") from None
+    except ValueError:
+        raise NanConfigError("Invalid API credential or request configuration.") from None
 
     return _parse_content(raw_body)
 
