@@ -27,6 +27,7 @@ from xfinaudio.desktop.ai_narrator import AiNarratorController
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.menu import Menu
 from xfinaudio.desktop.prep_copilot import PrepCopilotController
+from xfinaudio.desktop.prep_generation_task import PrepGenerationTask
 from xfinaudio.desktop.recommendation_render import clear_recommendation_review as render_clear_recommendation_review
 from xfinaudio.desktop.recommendation_render import render_recommendation
 from xfinaudio.desktop.recommendation_render import show_transition_review as render_transition_review
@@ -102,7 +103,17 @@ class MainWindow(QMainWindow):
             on_status_message=self.status_label.setText,
             desktop_recommendation_records=self._desktop_recommendation_records,
             desktop_color_anchor_candidate_context=self._desktop_color_anchor_candidate_context,
+            candidate_routes_factory=self._prep_candidate_routes,
         )
+        self._prep_task = PrepGenerationTask(
+            self,
+            state_getter=lambda: self._state,
+            state_setter=self._replace_app_state,
+            on_state_changed=self._sync_state,
+            on_completed=self._prep_copilot.publish_plan,
+            on_status=self.status_label.setText,
+        )
+        self._prep_copilot.submit_plan = self._prep_task.start
         wire_services(self._wire_scan_service, self._wire_recommendation_service)
         self._ai_copilot = AiCopilotController(
             build_screen=self._build_screen,
@@ -138,6 +149,7 @@ class MainWindow(QMainWindow):
             self._library_watch_service.stop()
             self._scan_service.shutdown()
             self._recommendation_service.cancel()
+            self._prep_task.cancel()
             self._ai_copilot.cancel()
             self._ai_narrator.cancel()
             self._library_controller.shutdown()
@@ -527,6 +539,34 @@ class MainWindow(QMainWindow):
 
     def _selected_track_controls(self) -> DJControls | None:
         return _layout.selected_main_track_controls(self)
+
+    def _prep_candidate_routes(self):
+        """Capture the library before background planning; workers never read widgets."""
+        records = list(self.scanned_records)
+        limit = pool_size_for_slot(
+            slot_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
+            played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
+        )
+
+        def plain(controls, strategy_name, *, loudness_band=DEFAULT_LOUDNESS_BAND):
+            return plan_recommendation_candidates(
+                scanned_records=records,
+                controls=controls,
+                strategy_name=strategy_name,
+                limit=limit,
+                loudness_band=loudness_band,
+            )
+
+        def color(controls, strategy_name, *, loudness_band=DEFAULT_LOUDNESS_BAND):
+            return plan_recommendation_candidate_context(
+                scanned_records=records,
+                controls=controls,
+                strategy_name=strategy_name,
+                limit=limit,
+                loudness_band=loudness_band,
+            )
+
+        return plain, color
 
     def _desktop_recommendation_records(
         self,

@@ -39,6 +39,9 @@ class AppState:
     last_dj_readiness_report: DjReadinessReport | None = None
 
     # Prep Copilot
+    is_preparing_copilot: bool = False
+    prep_progress_count: int = 0
+    prep_progress_total: int = 0
     last_prep_copilot_plan: PrepCopilotPlan | None = None
     applied_variant_name: Literal["safe", "balanced", "adventurous"] | None = None
 

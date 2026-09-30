@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock
@@ -48,6 +49,20 @@ def ensure_app() -> QApplication:
     if isinstance(existing_app, QApplication):
         return existing_app
     return QApplication([])
+
+
+def _generate_prep_and_wait(window: MainWindow) -> None:
+    window.generate_prep_copilot()
+    deadline = time.monotonic() + 5
+    app = ensure_app()
+    while window._state.is_preparing_copilot and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
+    assert not window._state.is_preparing_copilot
+    # Drain thread-finished cleanup before test fixtures release the window.
+    while window._prep_task._thread is not None and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
 
 
 class FakeScanService:
@@ -2519,7 +2534,7 @@ def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_pat
     window._build_screen.target_count_input.setValue(3)
     window._build_screen.genre_focus_input.setText("House")
 
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
 
     assert window._build_screen.copilot_table.rowCount() == 3
     assert [_table_item_text(window._build_screen.copilot_table, row, 0) for row in range(3)] == [
@@ -2544,7 +2559,7 @@ def test_main_window_rejects_prep_copilot_without_complete_selection() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
 
     assert window._build_screen.copilot_table.rowCount() == 0
     assert window.status_label.text() == "Select at least one complete track before generating Prep Copilot"
@@ -2590,7 +2605,7 @@ def test_main_window_applies_selected_prep_copilot_variant_to_review_flow(tmp_pa
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(3)
     window._build_screen.genre_focus_input.setText("House")
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
 
     window.apply_selected_prep_copilot_variant()
@@ -2648,7 +2663,7 @@ def test_main_window_exports_applied_prep_copilot_variant_with_variant_crate_nam
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
     window._build_screen.genre_focus_input.setText("House")
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
@@ -2704,7 +2719,7 @@ def test_main_window_previews_applied_copilot_serato_export_without_writing(tmp_
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
     window._build_screen.genre_focus_input.setText("House")
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
@@ -2798,7 +2813,7 @@ def test_main_window_exports_dj_readiness_sidecar_reports_with_serato_crate(tmp_
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
     window._build_screen.genre_focus_input.setText("House")
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
@@ -2848,7 +2863,7 @@ def test_main_window_colors_prep_copilot_readiness_cells(tmp_path) -> None:
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
 
     readiness_item = _table_item(window._build_screen.copilot_table, 0, 3)
 
@@ -2886,7 +2901,7 @@ def test_main_window_double_click_applies_prep_copilot_variant(tmp_path) -> None
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
 
     item = _table_item(window._build_screen.copilot_table, 2, 0)
     window._build_screen.copilot_table.itemDoubleClicked.emit(item)
@@ -2932,7 +2947,7 @@ def test_main_window_updates_applied_copilot_variant_badge_after_apply(tmp_path)
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
 
     window.apply_selected_prep_copilot_variant()
@@ -2971,7 +2986,7 @@ def test_main_window_clears_applied_copilot_variant_badge_for_normal_recommendat
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
@@ -3013,7 +3028,7 @@ def test_main_window_serato_export_history_includes_readiness_sidecar_paths(tmp_
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
@@ -3522,7 +3537,7 @@ def test_compact_window_accepts_1000_by_700_with_loaded_build(tmp_path) -> None:
         )
         window._on_library_selection_changed(["/synthetic.flac"])
         window.workflow_tabs.setCurrentIndex(1)
-        window.generate_prep_copilot()
+        _generate_prep_and_wait(window)
         window._build_screen.apply_variant_button.click()
         window.resize(1000, 700)
         window.show()

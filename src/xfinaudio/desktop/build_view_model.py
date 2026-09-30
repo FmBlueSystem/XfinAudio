@@ -73,7 +73,7 @@ class BuildViewModel:
 
     @staticmethod
     def generation_idle(state: AppState) -> bool:
-        return not (state.is_scanning or state.is_recommending or state.is_asking_copilot)
+        return not (state.is_scanning or state.is_recommending or state.is_asking_copilot or state.is_preparing_copilot)
 
     def recommend_button_enabled(self, state: AppState) -> bool:
         """Anchor-dependent generation requires a complete selection and idle state."""

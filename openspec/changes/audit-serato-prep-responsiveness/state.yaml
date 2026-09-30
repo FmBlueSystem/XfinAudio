@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: audit-serato-prep-responsiveness
 artifact_store: openspec
-status: tasks
+status: apply
 created: 2026-09-30
 updated: 2026-09-30
 strict_tdd: true
@@ -10,11 +10,11 @@ phases:
   specs: complete
   design: complete
   tasks: complete
-  apply: pending
+  apply: in-progress
   verify: pending
 next_recommended: apply
 blocked_reasons:
-  - Await preceding integrated gate and parent confirmation before Apply.
+  - I1 destination-semantics decision pending; G1/G2/H1 independently authorized.
   - I1 needs destination-semantics decision before its specification is final.
 delivery:
   strategy: auto-chain

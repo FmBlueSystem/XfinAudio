@@ -510,7 +510,7 @@ def _prefiltered_generate_harness(
         return "updated-state"
 
     monkeypatch.setattr("xfinaudio.desktop.prep_copilot.apply_prep_copilot_plan_generated", fake_plan_generated)
-    builder_kwargs = {} if use_real_plan_chain else {"plan_generation_builder": generate_plan}
+    builder_kwargs: dict[str, Any] = {} if use_real_plan_chain else {"plan_generation_builder": generate_plan}
     controller = PrepCopilotController(
         build_screen=build_screen,
         build_vm=object(),

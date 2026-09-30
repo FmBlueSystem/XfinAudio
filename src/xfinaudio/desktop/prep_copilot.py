@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any, Protocol
 
 from PySide6.QtWidgets import QTableWidgetItem
@@ -81,6 +82,8 @@ class PrepCopilotController:
         desktop_color_anchor_candidate_context: ColorAnchorContextRoute,
         variant_application_builder: VariantApplicationBuilder = build_prep_copilot_variant_application,
         plan_generation_builder: PlanGenerationBuilder = generate_prep_copilot_plan,
+        candidate_routes_factory: Callable[[], tuple[RecommendationRecordsRoute, ColorAnchorContextRoute]]
+        | None = None,
     ) -> None:
         self._build_screen = build_screen
         self._build_vm = build_vm
@@ -95,6 +98,8 @@ class PrepCopilotController:
         self._desktop_color_anchor_candidate_context = desktop_color_anchor_candidate_context
         self._variant_application_builder = variant_application_builder
         self._plan_generation_builder = plan_generation_builder
+        self._candidate_routes_factory = candidate_routes_factory
+        self.submit_plan: Callable[[Callable[[], PrepCopilotPlan]], None] | None = None
 
     def _replace_state(self, updated_state: Any) -> None:
         if hasattr(self._state, "_replace_app_state"):
@@ -118,16 +123,16 @@ class PrepCopilotController:
         strategy_name = _internal_strategy_name(strategy_combo.currentData() or strategy_combo.currentText())
         loudness = getattr(self._state, "settings", AppSettings()).loudness
         loudness_band = LoudnessBand(loudness.target_lufs, loudness.tolerance_lu)
-        # A variant that filters the bound anchor away then fails closed instead of
-        # rebinding a different one -- see `resolve_candidate_route`.
-        records, color_anchor_path = resolve_candidate_route(
-            controls,
-            strategy_name,
-            records_route=self._desktop_recommendation_records,
-            color_anchor_context_route=self._desktop_color_anchor_candidate_context,
-            loudness_band=loudness_band,
+        routes = (
+            self._candidate_routes_factory()
+            if self._candidate_routes_factory is not None
+            else (self._desktop_recommendation_records, self._desktop_color_anchor_candidate_context)
         )
-        pool_note_preamble = self._genre_prefilter_pool_note(controls, records)
+        complete_count = sum(
+            record.metadata_status == "complete" for record in getattr(self._state, "scanned_records", [])
+        )
+        genre = getattr(controls, "genre", None)
+        pool_template = self._state.tr("Genre '{0}' prefilter: {1} of {2} complete library track(s)")
         genre_focus = self._build_screen.genre_focus_input.text().strip() or None
         self._persist_genre_focus(genre_focus)
         request = PrepCopilotGenerationRequest(
@@ -136,39 +141,43 @@ class PrepCopilotController:
             start_path=controls.start_path,
             required_paths=controls.manual_order_paths,
             genre_focus=genre_focus,
-            pool_note_preamble=pool_note_preamble,
+            pool_note_preamble=None,
         )
-        plan = self._plan_generation_builder(
-            records,
-            request,
-            color_anchor_path=color_anchor_path,
-            loudness_band=loudness_band,
-        )
+        builder = self._plan_generation_builder
+
+        def operation() -> PrepCopilotPlan:
+            records, color_anchor_path = resolve_candidate_route(
+                controls,
+                strategy_name,
+                records_route=routes[0],
+                color_anchor_context_route=routes[1],
+                loudness_band=loudness_band,
+            )
+            preamble = (
+                pool_template.format(genre, len(records), complete_count)
+                if genre and complete_count and len(records) < complete_count
+                else None
+            )
+            return builder(
+                records,
+                replace(request, pool_note_preamble=preamble),
+                color_anchor_path=color_anchor_path,
+                loudness_band=loudness_band,
+            )
+
+        if self.submit_plan is None:
+            self.publish_plan(operation())
+        else:
+            self.submit_plan(operation)
+
+    def publish_plan(self, plan: PrepCopilotPlan) -> None:
+        """Publish a completed plan on the GUI thread; failures keep prior results."""
         self._replace_state(apply_prep_copilot_plan_generated(self._state._state, plan))
         self._build_screen.apply_variant_button.setEnabled(True)
         self._on_status_message(self._state.tr("Generated {0} Prep Copilot variant(s)").format(len(plan.variants)))
         self._build_screen.copilot_table.setHidden(len(plan.variants) == 0)
         self._build_screen.render(self._build_vm, self._state._state)
         self._on_state_changed()
-
-    def _genre_prefilter_pool_note(self, controls: Any, records: list[Any]) -> str | None:
-        """Explain a genre prefilter that shrank the pool before the plan saw it.
-
-        The Build genre combo filters the library BEFORE
-        `build_prep_copilot_plan`, so the domain's pool notes start from an
-        already-narrowed pool and cannot see that shrink (E2E finding: pool
-        63 -> 4 with no explanation). Only this controller knows both sizes: the
-        complete-track count of the library and the post-prefilter record count.
-        """
-        genre = getattr(controls, "genre", None)
-        if not genre:
-            return None
-        complete_count = sum(1 for record in self._state.scanned_records if record.metadata_status == "complete")
-        if not complete_count or len(records) >= complete_count:
-            return None
-        return self._state.tr("Genre '{0}' prefilter: {1} of {2} complete library track(s)").format(
-            genre, len(records), complete_count
-        )
 
     def _persist_genre_focus(self, genre_focus: str | None) -> None:
         """Persist the genre focus so the next launch restores the same build intent."""
