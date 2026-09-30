@@ -7,3 +7,5 @@
 5. RED: Editor button and Live text-column geometry regressions.
 6. GREEN/REFACTOR: content-aware table sizing.
 7. VERIFY: focused regressions/types/lint and real screenshots at both sizes.
+
+All seven local tasks complete. Full integration gate remains parent-owned.

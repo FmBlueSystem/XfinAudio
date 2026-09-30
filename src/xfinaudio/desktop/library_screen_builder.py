@@ -43,7 +43,7 @@ def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int
     screen.controls_scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
     screen.controls_scroll.setMinimumHeight(120)
     screen.controls_scroll.setWidget(controls_widget)
-    outer.addWidget(screen.controls_scroll)
+    outer.addWidget(screen.controls_scroll, 1)
 
     # Top controls row
     controls = QHBoxLayout()

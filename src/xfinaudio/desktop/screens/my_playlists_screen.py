@@ -66,6 +66,8 @@ class MyPlaylistsScreen(QWidget):
         self.query_input.setPlaceholderText(self.tr("Offline: find house playlists / compare Sunset and Peak"))
         self.find_button = QPushButton(self.tr("Find / compare"))
         self.compare_button = QPushButton(self.tr("Compare selected"))
+        self.find_button.setToolTip(self.tr("Search saved playlists or compare named sets using local metadata"))
+        self.compare_button.setToolTip(self.tr("Compare the selected saved playlists using local track evidence"))
         query_row = QHBoxLayout()
         query_row.addWidget(self.query_input)
         query_row.addWidget(self.find_button)

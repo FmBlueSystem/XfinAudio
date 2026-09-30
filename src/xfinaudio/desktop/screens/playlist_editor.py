@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QStyle,
+    QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -111,6 +113,16 @@ class PlaylistEditor(QWidget):
         toolbar.addWidget(self.export_button)
         toolbar.addWidget(self.save_button)
         layout.addLayout(toolbar)
+        for button, tip in (
+            (self.back_button, "Return to My Playlists; review any unsaved draft before leaving"),
+            (self.preview_button, "Assess the requested edit locally without changing the saved playlist"),
+            (self.confirm_button, "Apply the assessed edit to the draft; Save persists it"),
+            (self.cancel_preview_button, "Dismiss the proposed edit without changing the draft"),
+            (self.move_up_button, "Move the selected draft track one position earlier"),
+            (self.move_down_button, "Move the selected draft track one position later"),
+            (self.cancel_button, "Discard all unsaved draft edits and restore the saved playlist"),
+        ):
+            button.setToolTip(self.tr(tip))
 
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested.emit)
@@ -157,7 +169,23 @@ class PlaylistEditor(QWidget):
             remove_btn = QPushButton(self.tr("Remove"))
             remove_btn.setEnabled(path not in self._locked_paths)
             remove_btn.clicked.connect(lambda checked=False, r=row: self._on_remove_clicked(r))
+            remove_btn.setToolTip(self.tr("Remove this track from the draft; Save persists the change"))
             self.tracks_table.setCellWidget(row, 4, remove_btn)
+            # Include both button padding and styled item insets. A bare
+            # minimum width lets the button overflow the padded cell instead.
+            remove_btn.ensurePolished()
+            size = remove_btn.sizeHint()
+            option = QStyleOptionViewItem()
+            option.initFrom(self.tracks_table)
+            option.rect = QRect(0, 0, size.width(), size.height())
+            content = self.tracks_table.style().subElementRect(
+                QStyle.SubElement.SE_ItemViewItemText, option, self.tracks_table
+            )
+            cell_size = size + (size - content.size())
+            action_item = QTableWidgetItem()
+            action_item.setSizeHint(cell_size)
+            self.tracks_table.setItem(row, 4, action_item)
+            self.tracks_table.setRowHeight(row, max(self.tracks_table.rowHeight(row), cell_size.height() + 1))
 
     def _on_remove_clicked(self, row: int) -> None:
         if 0 <= row < len(self._track_paths) and self._track_paths[row] not in self._locked_paths:

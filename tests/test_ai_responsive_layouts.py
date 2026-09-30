@@ -86,6 +86,9 @@ def test_library_expanded_filters_preserve_real_window_size(desktop: MainWindow,
     assert screen.loudness_detail_pane.isVisible()
     assert _inside(screen.proceed_button, desktop)
     assert screen.tracks_table.viewport().height() >= screen.tracks_table.verticalHeader().defaultSectionSize() * 3
+    if size[0] == 1440:
+        assert _inside(screen.folder_button, screen.controls_scroll.viewport())
+        assert _inside(screen.clear_filters_button, screen.controls_scroll.viewport())
     _reachable(screen.controls_scroll, screen.query_panel.apply_button, qapp)
     _reachable(screen.controls_scroll, screen.clear_filters_button, qapp)
 
@@ -171,3 +174,39 @@ def test_create_confirmation_is_revealed_without_forcing_window_size(
     desktop._sync_state()
     _settle(qapp)
     assert screen.controls_scroll.verticalScrollBar().value() == 0
+
+
+@pytest.mark.parametrize("size", [(1000, 700), (1440, 1000)])
+def test_editor_actions_fit_styled_button_labels(desktop: MainWindow, qapp: QApplication, size) -> None:
+    playlist = desktop._playlist_repository.create("Synthetic set", [r.path for r in desktop._state.scanned_records])
+    assert playlist.id is not None
+    desktop._playlist_coordinator.open_playlist(playlist.id)
+    desktop.resize(*size)
+    _settle(qapp)
+    table = desktop._playlist_editor.tracks_table
+    button = table.cellWidget(0, 4)
+    assert button is not None
+    assert button.width() >= button.sizeHint().width()
+    assert button.height() >= button.sizeHint().height()
+    assert button.toolTip()
+    assert _inside(button, table.viewport())
+    assert table.columnWidth(4) >= button.sizeHint().width()
+    assert (desktop.width(), desktop.height()) == size
+
+
+@pytest.mark.parametrize("size", [(1000, 700), (1440, 1000)])
+def test_live_history_shares_spare_width_between_track_names(desktop: MainWindow, qapp: QApplication, size) -> None:
+    screen = desktop._live_assistant_screen
+    track = desktop._state.scanned_records[0]
+    desktop.workflow_tabs.setTabEnabled(6, True)
+    desktop.workflow_tabs.setCurrentIndex(6)
+    screen.set_current_track(track)
+    screen.append_history(track)
+    desktop.resize(*size)
+    _settle(qapp)
+    table = screen._history_table
+    header = table.horizontalHeader()
+    assert table.columnWidth(1) > table.columnWidth(3) * 2
+    assert table.columnWidth(2) > table.columnWidth(3) * 2
+    assert abs(header.length() - table.viewport().width()) <= 2
+    assert (desktop.width(), desktop.height()) == size

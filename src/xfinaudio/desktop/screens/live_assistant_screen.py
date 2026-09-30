@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QPushButton,
     QTableWidget,
@@ -192,11 +193,13 @@ class LiveAssistantScreen(QWidget):
         now_playing_group.addWidget(QLabel("<h2>Current track (manual)</h2>"))
         np_row = QHBoxLayout()
         self._now_playing_title = QLabel("—")
+        self._now_playing_title.setWordWrap(True)
         self._now_playing_title.setStyleSheet("font-size: 18px; font-weight: bold;")
         np_row.addWidget(QLabel("Title:"))
         np_row.addWidget(self._now_playing_title)
 
         self._now_playing_artist = QLabel("—")
+        self._now_playing_artist.setWordWrap(True)
         np_row.addWidget(QLabel("Artist:"))
         np_row.addWidget(self._now_playing_artist)
 
@@ -242,6 +245,10 @@ class LiveAssistantScreen(QWidget):
         self._history_table.setColumnCount(6)
         self._history_table.setHorizontalHeaderLabels(["#", "Title", "Artist", "BPM", "Key", "Time"])
         self._history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        history_header = self._history_table.horizontalHeader()
+        history_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        for column in (0, 3, 4, 5):
+            history_header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         history_group.addWidget(self._history_table)
         content_layout.addLayout(history_group)
 
