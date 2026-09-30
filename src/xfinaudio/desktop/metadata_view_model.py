@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QCoreApplication
 
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.display_format import format_bpm
 from xfinaudio.metadata.metadata_gaps import MetadataGapReport, build_metadata_gap_report
 
 _MISSING_FIELD_MAP = {
@@ -125,10 +126,17 @@ class MetadataViewModel:
             if missing_field is not None and missing_field not in record.missing_required_fields:
                 continue
 
-            bpm = str(int(record.bpm)) if record.bpm is not None else "—"
+            bpm = format_bpm(record.bpm)
             key = record.camelot_key if record.camelot_key is not None else "—"
             energy = str(record.energy_level) if record.energy_level is not None else "—"
-            missing_str = ", ".join(record.missing_required_fields) if record.missing_required_fields else "—"
+            labels = {"bpm": "BPM", "camelot_key": "Key", "energy_level": "Energy"}
+            missing_str = (
+                ", ".join(
+                    QCoreApplication.translate("MetadataViewModel", labels.get(field, field))
+                    for field in record.missing_required_fields
+                )
+                or "—"
+            )
 
             rows.append(
                 WorklistRow(

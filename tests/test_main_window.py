@@ -733,12 +733,15 @@ def test_main_window_filters_library_by_metadata_status_and_shows_missing_fields
     window.show_tracks(window.scanned_records)
 
     missing_column = _track_table_headers(window).index("Missing")
-    window._metadata_screen.status_combo.setCurrentText("Incomplete")
+    window._library_screen.incomplete_filter_button.setChecked(True)
+    window._apply_song_filter()
 
     assert _visible_track_titles(window) == ["Needs Tags"]
     assert _table_item_text(_library_tracks_table(window), 1, missing_column) == "Camelot key, energy level"
 
-    window._metadata_screen.status_combo.setCurrentText("Complete")
+    window._library_screen.incomplete_filter_button.setChecked(False)
+    window._library_screen.complete_filter_button.setChecked(True)
+    window._apply_song_filter()
 
     assert _visible_track_titles(window) == ["Ready Track"]
 
@@ -770,7 +773,8 @@ def test_main_window_filters_library_by_specific_missing_metadata_field(tmp_path
     ]
     window.show_tracks(window.scanned_records)
 
-    window._metadata_screen.missing_combo.setCurrentText("Missing Key")
+    window._library_screen.missing_key_filter_button.setChecked(True)
+    window._apply_song_filter()
 
     assert _visible_track_titles(window) == ["Needs Key"]
 
@@ -801,9 +805,10 @@ def test_main_window_filter_uses_path_index_instead_of_rescanning_records(tmp_pa
             raise AssertionError("filter must use the path index, not iterate scanned_records")
 
     window.scanned_records = IterationFails(records)
-    monkeypatch.setattr(window, "_refresh_idle_action_state", lambda: None)
+    monkeypatch.setattr(window._library_controller, "refresh_idle_action_state", lambda: None)
 
-    window._metadata_screen.missing_combo.setCurrentText("Missing Key")
+    window._library_screen.missing_key_filter_button.setChecked(True)
+    window._apply_song_filter()
 
     assert _visible_track_titles(window) == ["Needs Key"]
 

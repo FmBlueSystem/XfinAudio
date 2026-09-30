@@ -117,8 +117,11 @@ def apply_main_song_filter(self: Any, query: str | None = None, *, clear_selecti
     if clear_selection and search_query != self._active_song_search_query:
         self._library_screen.tracks_table.clearSelection()
     self._active_song_search_query = search_query
-    status_filter = self._selected_metadata_status_filter()
-    missing_filter = self._selected_missing_metadata_filter()
+    # Metadata worklist filters are local to that screen. Library has its own
+    # quick filters; the repair default must never hide its complete anchors.
+    filters = self._library_screen._current_library_filters()
+    status_filter = filters.status_filter
+    missing_filter = filters.missing_field_filter
     for row_index in range(self._library_screen.tracks_table.rowCount()):
         title_item = self._library_screen.tracks_table.item(row_index, _TRACK_TITLE_COLUMN)
         title = "" if title_item is None else title_item.text().casefold()

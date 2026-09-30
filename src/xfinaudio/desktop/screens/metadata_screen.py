@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -86,13 +86,16 @@ class MetadataScreen(QWidget):
         filter_row = QHBoxLayout()
         self.status_combo = QComboBox()
         self.missing_combo = QComboBox()
-        self.export_button = QPushButton(self.tr("Export to Serato"))
-        self.export_button.setToolTip(self.tr("Export the current playlist; needs a completed recommendation"))
+        self.export_button = QPushButton(self.tr("Export worklist to Serato"))
+        self.export_button.setToolTip(
+            self.tr("Export tracks matching these metadata filters as a Serato worklist crate")
+        )
         self.export_button.setEnabled(False)
-        self.gap_export_button = QPushButton(self.tr("Export gap report"))
+        self.gap_export_button = QPushButton(self.tr("Export repair checklist"))
         self.gap_export_button.setToolTip(
             self.tr("Export the metadata gap report as JSON and CSV to the safe export folder")
         )
+        self.gap_export_button.setObjectName("primaryAction")
         self.gap_export_button.setEnabled(False)
         filter_row.addWidget(self.status_combo)
         filter_row.addWidget(self.missing_combo)
@@ -133,6 +136,10 @@ class MetadataScreen(QWidget):
         self.back_button.setToolTip(self.tr("Return to the Library screen"))
         nav.addWidget(self.back_button)
         nav.addStretch()
+        self.refresh_button = QPushButton(self.tr("Refresh library scan"))
+        self.refresh_button.setToolTip(self.tr("Rescan the selected library after correcting tags externally"))
+        self.refresh_button.setAccessibleName(self.tr("Refresh library scan"))
+        nav.addWidget(self.refresh_button)
         layout.addLayout(nav)
 
         self._setup_accessibility()
@@ -158,6 +165,7 @@ class MetadataScreen(QWidget):
         self.setTabOrder(self.export_button, self.gap_export_button)
         self.setTabOrder(self.gap_export_button, self.worklist_table)
         self.setTabOrder(self.worklist_table, self.back_button)
+        self.setTabOrder(self.back_button, self.refresh_button)
 
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
@@ -167,11 +175,9 @@ class MetadataScreen(QWidget):
         self.gap_export_button.clicked.connect(self.gap_report_export_requested)
 
     def connect_signals(self, window: Any) -> None:
-        self.status_combo.currentTextChanged.connect(lambda _text: window._apply_song_filter())
-        self.missing_combo.currentTextChanged.connect(lambda _text: window._apply_song_filter())
-        self.export_button.clicked.connect(lambda: window.export_metadata_status_to_serato())
         self.gap_report_export_requested.connect(lambda: window.export_metadata_gap_report())
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
+        self.refresh_button.clicked.connect(lambda: window.scan_selected_folder())
         self.filter_changed.connect(window._sync_state)
         self.export_requested.connect(window._library_controller.on_metadata_export_requested)
 
@@ -207,9 +213,12 @@ class MetadataScreen(QWidget):
 
         # Populate combos once (idempotent — skip if already populated)
         if self.status_combo.count() == 0:
-            self.status_combo.addItems(vm.status_filter_options())
+            with QSignalBlocker(self.status_combo):
+                self.status_combo.addItems(vm.status_filter_options())
+                self.status_combo.setCurrentIndex(2)  # Incomplete, including translated labels
         if self.missing_combo.count() == 0:
-            self.missing_combo.addItems(vm.missing_filter_options())
+            with QSignalBlocker(self.missing_combo):
+                self.missing_combo.addItems(vm.missing_filter_options())
 
         # Read current filter selections
         status_filter = self.status_combo.currentText() or None
@@ -225,6 +234,9 @@ class MetadataScreen(QWidget):
                 self._populate_table(rows)
                 self._last_worklist_signature = signature
 
+        self.refresh_button.setEnabled(
+            state.selected_folder is not None and not state.is_scanning and not state.is_recommending
+        )
         self.export_button.setEnabled(vm.export_enabled(state))
         self.gap_export_button.setEnabled(vm.gap_report_export_enabled(state))
 

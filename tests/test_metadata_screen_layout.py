@@ -53,6 +53,8 @@ def _render_worklist(screen: MetadataScreen, paths: list[str]) -> AppState:
     """Render the screen from a state whose scanned records are exactly *paths*."""
     state = AppState(scanned_records=[_record(path) for path in paths])
     screen.render(state)
+    screen.status_combo.setCurrentText("All")
+    screen.render(state)
     return state
 
 
