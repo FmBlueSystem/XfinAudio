@@ -72,3 +72,10 @@ isolated temporary fixture; current missing metadata still blocks. Transition
 recomputes scores, quality, readiness and explanation; clears only set-derived
 removals/narration/Prep plan/variant, preserving global Library controls. Unknown
 saved records are now explicitly incomplete rather than falsely marked complete.
+
+Publication was subsequently authorized as a branch and draft PR only. Remote
+main is still a812f26 at version 2.0.1. Candidate version is now 2.1.0 in both
+pyproject and uv.lock; no dependency version changed. Offline fresh resolution was
+unnecessary/unavailable in the cache, so the local-project lock version was
+aligned and then uv lock --check --offline plus uv sync --locked --offline both
+passed, building and installing the local 2.1.0 project without network access.
