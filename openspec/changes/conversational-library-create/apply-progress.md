@@ -22,3 +22,7 @@ GREEN keeps described filters and duplicate suppression through the callback;
 Correction: the first weakref text edit did not match formatted source. Applied
 and inspected the actual replacement, removed import-sort lint, reran all 12
 focused cases successfully. The screen no longer owns a callback closing over itself.
+
+Slice 4 RED: real BuildScreen lacked confirmation signals. GREEN: QTest confirms
+preview duration/style/constraints, edited duration, edit/cancel/configure signals
+and unchecked per-request inventory consent; 2 widget tests pass.

@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
+    QCheckBox,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.build_view_model import BuildViewModel, CopilotVariantRow
+from xfinaudio.desktop.create_intent_preview import CreateIntentPreview
 from xfinaudio.desktop.scan_service import progress_percent, progress_status_text
 
 _READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "blocked": "Blocked"}
@@ -79,6 +81,10 @@ class BuildScreen(QWidget):
     spectral_cohesion_changed = Signal(int)
     copilot_generate_requested = Signal()
     copilot_ask_requested = Signal(str)
+    copilot_confirm_requested = Signal(object)
+    copilot_cancel_requested = Signal()
+    copilot_edit_requested = Signal()
+    configure_ai_requested = Signal()
     copilot_variant_applied = Signal(int)
     apply_without_selection_requested = Signal()
     # Emitted when an anchor suggestion moves the genre combo off "Any genre":
@@ -265,6 +271,23 @@ class BuildScreen(QWidget):
         self.copilot_ask_status.setWordWrap(True)
         self.copilot_ask_status.setMaximumHeight(36)
         layout.addWidget(self.copilot_ask_status)
+        self.copilot_share_titles = QCheckBox(
+            self.tr("Include track titles and genres for this request (no audio or paths)")
+        )
+        layout.addWidget(self.copilot_share_titles)
+        layout.addWidget(
+            QLabel(self.tr("Default sharing: your request and library genres only. Selection and ordering stay local."))
+        )
+        ai_actions = QHBoxLayout()
+        self.copilot_cancel_button = QPushButton(self.tr("Cancel AI request"))
+        self.copilot_cancel_button.setEnabled(False)
+        self.copilot_configure_button = QPushButton(self.tr("Configure AI"))
+        ai_actions.addWidget(self.copilot_cancel_button)
+        ai_actions.addWidget(self.copilot_configure_button)
+        ai_actions.addStretch()
+        layout.addLayout(ai_actions)
+        self.intent_preview = CreateIntentPreview(self)
+        layout.addWidget(self.intent_preview)
 
         # Scroll only the controls on short displays; variants and Apply remain
         # outside the scroll area and reachable without hunting for the action.
@@ -397,6 +420,10 @@ class BuildScreen(QWidget):
         self.copilot_button.clicked.connect(self.copilot_generate_requested)
         self.copilot_ask_button.clicked.connect(self._on_copilot_ask)
         self.copilot_ask_input.returnPressed.connect(self._on_copilot_ask)
+        self.intent_preview.confirmed.connect(self.copilot_confirm_requested)
+        self.intent_preview.edit_requested.connect(self.copilot_edit_requested)
+        self.copilot_cancel_button.clicked.connect(self.copilot_cancel_requested)
+        self.copilot_configure_button.clicked.connect(self.configure_ai_requested)
         self.apply_variant_button.clicked.connect(self._on_apply_variant)
         self.copilot_table.itemSelectionChanged.connect(self._refresh_variant_details)
         self.recommend_button.clicked.connect(self._on_recommend)
