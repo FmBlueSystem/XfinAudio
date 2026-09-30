@@ -33,3 +33,9 @@ pass; local candidate-route snapshots are supplied before worker execution.
 Independent acceptance identified unsaved draft loss at app-close. RED reproduced
 both Close choices without a prompt; GREEN verifies default Cancel keeps the
 window alive, Discard closes, and neither implicitly saves the draft.
+
+Keyboard acceptance found Return was globally opening Library playback instead
+of saved sets once the window event loop settled. Stronger RED processes show
+ events before pressing Return. GREEN (11 shell checks) scopes Return to the
+Library table and Delete to the Review table, preserving text fields and native
+saved-list activation. Existing shortcut names/key sequences remain unchanged.

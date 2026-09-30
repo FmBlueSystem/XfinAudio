@@ -172,6 +172,7 @@ def test_saved_playlist_keyboard_open_preview_apply_and_save(qapp, tmp_path):
         window._playlist_coordinator.refresh_list()
         window._sync_state()
         window.show()
+        qapp.processEvents()
         window.workflow_sidebar.setCurrentRow(4)
         listing = window._playlists_screen.list_widget
         listing.setCurrentRow(0)
