@@ -16,3 +16,6 @@ I1 RED: four copy/disclosure and two preview tests failed on the old staged-expo
 
 
 Final focused delivery: G1/G2/H1/I1 are applied; Spanish/English source catalogs and compiled QMs are updated. Translation tests followed RED/GREEN (missing strings/widget English fallback first), then six combined runtime/catalog tests passed. The final exact-commit aggregate gate is owned by integration; a duplicate local launch was interrupted at its request and is not reported as verification. No push, real audio, live Serato write or native macOS validation occurred.
+
+## Integrated protocol verification
+Full-tree Pyright caught six test-double protocol errors after the optional cancellation checkpoint parameter was added. The integration slice updates the five builder fixtures to accept the same typed keyword. The runtime production contract is unchanged; application/controller/checkpoint tests and the full type checker are rerun before the aggregate gate.
