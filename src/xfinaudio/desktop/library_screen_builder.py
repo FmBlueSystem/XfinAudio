@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from xfinaudio.desktop.library_query_panel import LibraryQueryPanel
+
 _CHECKED_FILTER_BUTTON_STYLE = "QPushButton:checked { background: #2ce8f5; color: #04121a; border-color: #2ce8f5; }"
 
 
@@ -73,6 +75,15 @@ def build_library_screen_ui(screen: Any, columns: list[str], missing_column: int
     screen.search_input.setMinimumWidth(160)
     screen.search_input.setMaximumWidth(220)
     layout.addWidget(screen.search_input)
+
+    screen.query_panel = LibraryQueryPanel(
+        lambda: (
+            [r.genre for r in screen._last_state.scanned_records if r.genre] if screen._last_state is not None else []
+        ),
+        screen,
+    )
+    screen.query_panel.filters_changed.connect(screen._apply_search_and_duplicate_filters)
+    layout.addWidget(screen.query_panel)
 
     screen.quick_filter_layout = QHBoxLayout()
     (

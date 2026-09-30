@@ -212,3 +212,17 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
     # ------------------------------------------------------------------
     # Render
     # ------------------------------------------------------------------
+
+    def _apply_filter(self) -> None:
+        """Combine text/quick filters with explicit metadata constraints."""
+        super()._apply_filter()
+        if self._last_state is None:
+            return
+        records = {record.path: record for record in self._last_state.scanned_records}
+        for row in range(self.tracks_table.rowCount()):
+            if self.tracks_table.isRowHidden(row):
+                continue
+            item = self.tracks_table.item(row, column_index("Path"))
+            record = records.get(item.text()) if item is not None else None
+            if record is not None and not self.query_panel.query.matches(record):
+                self.tracks_table.setRowHidden(row, True)

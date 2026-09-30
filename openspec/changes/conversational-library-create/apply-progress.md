@@ -8,3 +8,7 @@ change and legacy lifecycle tests must explicitly confirm the new two-stage cont
 Slice 2 RED: test_library_query failed collection (new parser absent). GREEN:
 9 parser/predicate cases pass with exact English/Spanish ranges, unsupported and
 invalid constraints rejected, unknown metadata excluded, immutable records retained.
+
+Slice 3 RED: both real-widget scenarios failed (query panel absent). GREEN: 11
+parser/widget tests pass. QTest keyboard/clicks exercise local interpretation,
+visible fields, edited range apply, invalid preservation, retry and clear.
