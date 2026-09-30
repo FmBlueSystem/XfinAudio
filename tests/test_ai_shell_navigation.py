@@ -158,7 +158,8 @@ def test_configure_ai_opens_real_settings_without_enabling(qapp, tmp_path, monke
         window.close()
 
 
-def test_saved_playlist_keyboard_open_preview_apply_and_save(qapp, tmp_path):
+@pytest.mark.parametrize("activation_key", ["Key_Return", "Key_Enter"])
+def test_saved_playlist_keyboard_open_preview_apply_and_save(qapp, tmp_path, activation_key):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
@@ -177,7 +178,7 @@ def test_saved_playlist_keyboard_open_preview_apply_and_save(qapp, tmp_path):
         listing = window._playlists_screen.list_widget
         listing.setCurrentRow(0)
         listing.setFocus()
-        QTest.keyClick(listing, Qt.Key.Key_Return)
+        QTest.keyClick(listing, getattr(Qt.Key, activation_key))
         qapp.processEvents()
         assert window._state.current_screen == "editor"
         editor = window._playlist_editor

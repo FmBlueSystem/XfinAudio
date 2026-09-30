@@ -127,6 +127,13 @@ class _ReviewContent(QWidget):
         return layout.minimumHeightForWidth(width) if isinstance(layout, QVBoxLayout) else -1
 
 
+class _NarratorStatusLabel(QLabel):
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        # Empty QLabel still reserves a text row; return that space to tables.
+        self.setVisible(bool(text))
+
+
 class ReviewScreen(QWidget):
     """Displays readiness status, track list, and transition analysis."""
 
@@ -269,7 +276,8 @@ class ReviewScreen(QWidget):
 
         # Narrator status line: its own row, because the controls row above cannot
         # give a wrapping message the width it needs.
-        self.ai_narrate_status = QLabel("")
+        self.ai_narrate_status = _NarratorStatusLabel()
+        self.ai_narrate_status.setText("")
         self.ai_narrate_status.setObjectName("ai_narrate_status")
         self.ai_narrate_status.setWordWrap(True)
         self.ai_narrate_status.setTextFormat(Qt.TextFormat.PlainText)

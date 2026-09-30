@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
@@ -20,6 +21,22 @@ from PySide6.QtWidgets import (
 )
 
 from xfinaudio.library.playlist_models import Playlist, PlaylistSummary
+
+
+class _SavedPlaylistList(QListWidget):
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        # Qt treats Return/Enter as inline editing on macOS, not activation.
+        # Own these keys here without a window-wide shortcut or parent fallback.
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and event.modifiers() in (
+            Qt.KeyboardModifier.NoModifier,
+            Qt.KeyboardModifier.KeypadModifier,
+        ):
+            event.accept()
+            item = self.currentItem()
+            if not event.isAutoRepeat() and item is not None and item.flags() & Qt.ItemFlag.ItemIsEnabled:
+                self.itemActivated.emit(item)
+            return
+        super().keyPressEvent(event)
 
 
 class MyPlaylistsScreen(QWidget):
@@ -83,7 +100,7 @@ class MyPlaylistsScreen(QWidget):
         layout.addWidget(self.assistant_output)
 
         # List
-        self.list_widget = QListWidget()
+        self.list_widget = _SavedPlaylistList()
         self.list_widget.setSelectionMode(self.list_widget.SelectionMode.ExtendedSelection)
         layout.addWidget(self.list_widget)
 
@@ -105,7 +122,6 @@ class MyPlaylistsScreen(QWidget):
         self.duplicate_button.clicked.connect(self._on_duplicate_clicked)
         self.delete_button.clicked.connect(self._on_delete_clicked)
         self.list_widget.itemActivated.connect(self._on_item_activated)
-        self.list_widget.itemDoubleClicked.connect(self._on_item_activated)
 
     def connect_signals(self, window: Any) -> None:
         _ = window

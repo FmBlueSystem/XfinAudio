@@ -164,3 +164,67 @@ def test_delete_dialog_enter_activates_default_cancel(qapp, tmp_path, monkeypatc
     screen.delete_button.click()
     assert repository.get_by_id(selected.id) == selected
     assert repository.get_by_id(other.id) == other
+
+
+@pytest.mark.parametrize("key", [Qt.Key.Key_Return, Qt.Key.Key_Enter])
+def test_saved_list_consumes_activation_key_once(qapp, key):
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    screen = MyPlaylistsScreen()
+    screen.populate_list([PlaylistSummary(1, "Synthetic", 2, datetime(2026, 9, 30))])
+    opened = []
+    screen.open_requested.connect(opened.append)
+    screen.show()
+    screen.list_widget.setCurrentRow(0)
+    screen.list_widget.setFocus()
+    qapp.processEvents()
+    try:
+        event = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+        event.ignore()
+        qapp.sendEvent(screen.list_widget, event)
+        assert event.isAccepted(), "activation must not leak to a parent/default button"
+        assert opened == [1]
+        repeated = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier, "", True)
+        qapp.sendEvent(screen.list_widget, repeated)
+        assert opened == [1], "holding the activation key must not reopen the editor"
+    finally:
+        screen.close()
+
+
+def test_saved_list_double_click_opens_once_and_arrows_still_navigate(qapp):
+    screen = MyPlaylistsScreen()
+    screen.populate_list([PlaylistSummary(i, f"Set {i}", 2, datetime(2026, 9, 30)) for i in (1, 2)])
+    opened = []
+    screen.open_requested.connect(opened.append)
+    screen.show()
+    screen.list_widget.setCurrentRow(0)
+    screen.list_widget.setFocus()
+    qapp.processEvents()
+    try:
+        QTest.keyClick(screen.list_widget, Qt.Key.Key_Down)
+        assert screen.selected_playlist_id() == 2
+        assert opened == []
+        pos = screen.list_widget.visualItemRect(screen.list_widget.item(1)).center()
+        QTest.mouseClick(screen.list_widget.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        QTest.mouseDClick(screen.list_widget.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+        assert opened == [2]
+    finally:
+        screen.close()
+
+
+def test_saved_list_empty_and_search_return_do_not_open_a_playlist(qapp):
+    screen = MyPlaylistsScreen()
+    opened, searches = [], []
+    screen.open_requested.connect(opened.append)
+    screen.query_requested.connect(searches.append)
+    screen.show()
+    qapp.processEvents()
+    try:
+        QTest.keyClick(screen.list_widget, Qt.Key.Key_Return)
+        screen.query_input.setText("find house")
+        QTest.keyClick(screen.query_input, Qt.Key.Key_Return)
+        assert searches == ["find house"]
+        assert opened == []
+    finally:
+        screen.close()

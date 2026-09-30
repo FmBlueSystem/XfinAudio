@@ -657,3 +657,27 @@ def test_model_commentary_is_plain_text_even_for_html(qapp: QApplication) -> Non
     screen.render(ReviewViewModel(), _review_state(["/a", "/b"], ai_narrative_text=narrative))
     assert screen.ai_narrative_label.textFormat() == Qt.TextFormat.PlainText
     assert screen.ai_narrative_label.text() == narrative
+
+
+def test_empty_narrator_status_returns_its_height_to_tables(qapp: QApplication) -> None:
+    screen = ReviewScreen()
+    screen.resize(1200, 660)
+    screen.show()
+    qapp.processEvents()
+    tables = (screen.recommendation_table, screen.transition_table, screen.readiness_table)
+    try:
+        assert screen.ai_narrate_status.isHidden(), "empty status must not reserve a text row"
+        idle_height = sum(table.height() for table in tables)
+        for status in ("Narrating the set...", "Configure AI to retry.", "Set narrative ready."):
+            screen.ai_narrate_status.setText(status)
+            qapp.processEvents()
+            assert screen.ai_narrate_status.isVisible()
+            assert screen.ai_narrate_status.height() >= screen.ai_narrate_status.fontMetrics().height()
+            assert sum(table.height() for table in tables) < idle_height
+        screen.ai_narrate_status.setText("")
+        qapp.processEvents()
+        assert screen.ai_narrate_status.isHidden()
+        assert sum(table.height() for table in tables) == idle_height
+        assert idle_height > 0.65 * screen.height()
+    finally:
+        screen.close()
