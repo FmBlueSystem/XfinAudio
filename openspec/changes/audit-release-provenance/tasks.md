@@ -7,5 +7,5 @@
 6. [x] GREEN/REFACTOR: wire exact gate/provenance, preserve optional macOS steps.
 7. [x] RED: immutable action references and archive-only download regression.
 8. [x] GREEN/REFACTOR: pins and unused-signature cleanup; document integrity scope.
-9. [ ] VERIFY: focused synthetic suite, shell syntax, type/lint/format checks.
+9. [x] VERIFY: focused synthetic suite, shell syntax, type/lint/format checks.
 10. [ ] Parent VERIFY: full integrated release gate on committed exact HEAD.

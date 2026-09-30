@@ -30,3 +30,13 @@ unused signature download. GREEN: 40 action-pin, FFmpeg, and workflow tests pass
 with all eight workflow action references on the reviewed official SHAs and only
 the checksum-verified FFmpeg archive downloaded. The checksum mismatch rejection
 and safe extraction tests remain green; no compiler/network download ran.
+
+VERIFY: 154 focused tests passed across provenance/shell/packaging (69), action
+pins/FFmpeg/workflows (40), and release/publication/docs gates (45). Whole-tree
+Ruff lint/format passed (354 Python files); Pyright src/tests and both release
+helpers passed with zero errors/warnings; Bash syntax and Git whitespace checks
+passed. The shared virtualenv, offscreen Qt, and writable temporary caches were
+used; no dependencies or native release artifacts were installed/built.
+The isolated aggregate gate was stopped at the parent's request (exit 130),
+after it showed failures on the older base. It is NOT a successful gate. The
+parent owns the final aggregate gate on the integrated committed exact HEAD.
