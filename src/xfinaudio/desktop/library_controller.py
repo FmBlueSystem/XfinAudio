@@ -364,13 +364,24 @@ class LibraryController:
         recommendation = self._state.last_recommendation
         if recommendation is None or all(item.path != path for item in recommendation.ordered_tracks):
             return None
-        anchor_path = next((item.path for item in recommendation.ordered_tracks if item.path != path), None)
-        controls = DJControls(start_path=anchor_path) if anchor_path is not None else None
+        original = DJControls.model_validate(recommendation.applied_controls)
+        excluded = original.excluded_paths | self._state.excluded_paths
+        # Retain the original filtering anchor, even when explicitly removed:
+        # removal blocks reinsertion below without silently changing set policy.
+        controls = original.model_copy(
+            update={
+                "excluded_paths": excluded,
+                "locked_paths": (original.locked_paths | self._state.locked_paths) - excluded,
+                "manual_order_paths": [item for item in original.manual_order_paths if item not in excluded],
+                "start_path": original.start_path if original.start_path not in excluded else None,
+                "end_path": original.end_path if original.end_path not in excluded else None,
+            }
+        )
         settings = self._access.settings_getter()
         strategy = recommendation.strategy.name
         band = LoudnessBand(settings.loudness.target_lufs, settings.loudness.tolerance_lu)
         candidates = prefilter_strategy_candidates(self._state.scanned_records, strategy, controls, loudness_band=band)
-        blocked_paths = self._state.playlist_removed_paths | {path}
+        blocked_paths = self._state.playlist_removed_paths | excluded | {path}
         eligible = [candidate for candidate in candidates if candidate.path not in blocked_paths]
         cohesion = settings.scoring.spectral_cohesion
         return recommendation_with_replacement(recommendation, path, eligible, spectral_cohesion=cohesion)

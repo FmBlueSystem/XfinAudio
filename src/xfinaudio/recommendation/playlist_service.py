@@ -204,6 +204,7 @@ def recommendation_with_replacement(
         return recommendation
 
     playlist_paths = set(paths)
+    controls = DJControls.model_validate(recommendation.applied_controls)
     index = paths.index(removed_path)
     left_neighbor = recommendation.ordered_tracks[index - 1] if index > 0 else None
     right_neighbor = recommendation.ordered_tracks[index + 1] if index + 1 < len(paths) else None
@@ -226,7 +227,10 @@ def recommendation_with_replacement(
     eligible = [
         candidate
         for candidate in candidates
-        if candidate.path not in playlist_paths and candidate.metadata_status == "complete" and _is_mixable(candidate)
+        if candidate.path not in playlist_paths
+        and candidate.path not in controls.excluded_paths
+        and candidate.metadata_status == "complete"
+        and _is_mixable(candidate)
     ]
     if not eligible:
         return recommendation_without_paths(
@@ -397,6 +401,7 @@ def recommend_playlist(
             excluded_paths=applied.excluded_paths,
             start_path=applied.start_path,
             end_path=applied.end_path,
+            genre=applied.genre,
         )
 
     manual_prefix = _manual_prefix_without_terminal_end(applied.manual_prefix, applied.end_path)

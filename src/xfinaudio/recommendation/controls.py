@@ -50,6 +50,7 @@ class AppliedControls(BaseModel):
     excluded_paths: list[str]
     start_path: str | None
     end_path: str | None
+    genre: str | None = None
 
     def summary(self) -> dict[str, object]:
         """Return a stable dictionary summary suitable for UI and API results."""
@@ -59,6 +60,7 @@ class AppliedControls(BaseModel):
             "manual_order_paths": [track.path for track in self.manual_prefix],
             "start_path": self.start_path,
             "end_path": self.end_path,
+            "genre": self.genre,
         }
 
 
@@ -82,6 +84,7 @@ def apply_controls(tracks: list[TrackRecord], controls: DJControls | None = None
         excluded_paths=sorted(controls.excluded_paths),
         start_path=controls.start_path,
         end_path=controls.end_path,
+        genre=controls.genre,
     )
 
 
