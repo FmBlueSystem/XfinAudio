@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
+from xfinaudio.application.playlist_edit_intents import validate_edit
 from xfinaudio.application.saved_playlists import SavedPlaylistService
 from xfinaudio.desktop.app_state_transitions import apply_saved_playlist_export_recommendation
 from xfinaudio.desktop.undo_manager import Command, UndoManager
@@ -46,6 +47,7 @@ class PlaylistHost(Protocol):
     def tr(self, text: str) -> str: ...
     def _replace_app_state(self, state: Any) -> None: ...
     def _sync_state(self) -> None: ...
+    def _show_playlist_editor(self) -> None: ...
 
 
 class PlaylistCoordinator:
@@ -70,6 +72,9 @@ class PlaylistCoordinator:
         screen.delete_requested.connect(self.delete_playlist)
 
         editor = host._playlist_editor
+        editor.back_requested.connect(lambda: host.workflow_tabs.setCurrentIndex(4))
+        editor.preview_requested.connect(self.preview_edit)
+        editor.confirm_requested.connect(self.confirm_edit)
         editor.track_removed.connect(self.remove_track)
         editor.tracks_reordered.connect(self._on_tracks_reordered)
         editor.export_requested.connect(self.export_playlist)
@@ -83,6 +88,11 @@ class PlaylistCoordinator:
             LOGGER.warning("Playlist %s not found on open", playlist_id)
             return
         self._host._playlist_editor.set_playlist(playlist)
+        self._refresh_editor_context()
+        self._host._sync_state()
+        show_editor = getattr(self._host, "_show_playlist_editor", None)
+        if show_editor is not None:
+            show_editor()
 
     def create_playlist(self) -> None:
         """Create a new empty playlist and refresh the list."""
@@ -111,13 +121,37 @@ class PlaylistCoordinator:
         """Delete a playlist and refresh the list."""
         host = self._host
         self._service.delete_playlist(playlist_id)
+        if host._playlist_editor._playlist_id == playlist_id:
+            host._playlist_editor.clear_playlist()
+            host.workflow_tabs.setCurrentIndex(4)
         self.refresh_list()
         host._sync_state()
 
     def save_playlist(self, playlist_id: int, track_paths: list[str]) -> None:
         """Persist the editor's current track order and refresh the list."""
         host = self._host
+        editor = host._playlist_editor
+        current = host._playlist_repository.get_by_id(playlist_id)
+        if editor._playlist_id != playlist_id or track_paths != editor._track_paths:
+            return
+        if current is None or tuple(current.track_paths) != editor._saved_paths:
+            editor.status_label.setText(host.tr("Saved playlist changed or was deleted. Reopen it before saving."))
+            return
+        self._refresh_editor_context()
+        try:
+            validate_edit(
+                editor._saved_paths,
+                track_paths,
+                locked_paths=editor._locked_paths,
+                excluded_paths=editor._excluded_paths,
+            )
+        except ValueError as error:
+            editor.status_label.setText(str(error))
+            return
         self._service.save_track_order(playlist_id, track_paths)
+        saved = host._playlist_repository.get_by_id(playlist_id)
+        if saved is not None:
+            editor.set_playlist(saved)
         self.refresh_list()
         host._sync_state()
 
@@ -135,6 +169,9 @@ class PlaylistCoordinator:
     def export_playlist(self, playlist_id: int) -> None:
         """Load the requested playlist and run the normal Serato export flow."""
         host = self._host
+        if host._playlist_editor._playlist_id == playlist_id and host._playlist_editor.is_dirty is True:
+            host._playlist_editor.status_label.setText(host.tr("Save or discard this draft before exporting."))
+            return
         export = self._service.build_export_recommendation(playlist_id, host.scanned_records)
         if export is None:
             LOGGER.warning("Playlist %s not found on export", playlist_id)
@@ -146,14 +183,25 @@ class PlaylistCoordinator:
             host.last_recommendation = export.recommendation
         host._export_coordinator.export_recommendation_to_serato(crate_name=export.playlist.name)
 
+    def _refresh_editor_context(self) -> None:
+        host = self._host
+        state = getattr(host, "_state", None)
+        host._playlist_editor.set_context(
+            host.scanned_records,
+            locked_paths=getattr(state, "locked_paths", frozenset()),
+            excluded_paths=getattr(state, "excluded_paths", frozenset()),
+        )
+
+    def preview_edit(self, request: str) -> None:
+        self._refresh_editor_context()
+        self._host._playlist_editor.preview_edit(request)
+
+    def confirm_edit(self) -> None:
+        self._refresh_editor_context()
+        self._host._playlist_editor.confirm_preview()
+
     def remove_track(self, path: str) -> None:
-        """Persist a track removal performed in the editor."""
-        editor = self._host._playlist_editor
-        playlist_id = editor._playlist_id
-        if playlist_id is None:
-            return
-        self._service.save_track_order(playlist_id, list(editor._track_paths))
-        self.refresh_list()
+        """Removal is draft-only; Save is the sole persistence boundary."""
         self._host._sync_state()
 
     def refresh_list(self) -> None:
@@ -162,28 +210,32 @@ class PlaylistCoordinator:
         self._host._playlists_screen.populate_list(summaries)
 
     def _on_tracks_reordered(self, track_paths: list[str]) -> None:
-        """Persist a reorder performed in the editor."""
+        """Record a reversible draft reorder, never a hidden repository write."""
         editor = self._host._playlist_editor
         playlist_id = editor._playlist_id
         if playlist_id is None:
             return
         previous_paths = list(editor._track_paths)
         new_paths = list(track_paths)
-        self._apply_track_order(playlist_id, new_paths)
+        revision = editor.session_revision
+        if not self._apply_track_order(playlist_id, new_paths, revision):
+            return
         self._host._undo_manager.push(
             Command(
                 label=self._host.tr("Reorder playlist"),
-                execute=lambda: self._apply_track_order(playlist_id, new_paths),
-                undo=lambda: self._apply_track_order(playlist_id, previous_paths),
+                execute=lambda: self._apply_track_order(playlist_id, new_paths, revision),
+                undo=lambda: self._apply_track_order(playlist_id, previous_paths, revision),
             )
         )
         self._host._undo_toolbar.refresh()
 
-    def _apply_track_order(self, playlist_id: int, track_paths: list[str]) -> None:
-        """Persist and render an editor track order without recording a new command."""
+    def _apply_track_order(self, playlist_id: int, track_paths: list[str], revision: int) -> bool:
+        """Session-bound undo cannot edit another playlist or cross a save/cancel."""
         editor = self._host._playlist_editor
-        editor._track_paths = list(track_paths)
-        editor._populate_table()
-        self._service.save_track_order(playlist_id, track_paths)
-        self.refresh_list()
+        if editor._playlist_id != playlist_id or editor.session_revision != revision:
+            return False
+        self._refresh_editor_context()
+        if not editor.apply_order(track_paths):
+            return False
         self._host._sync_state()
+        return True

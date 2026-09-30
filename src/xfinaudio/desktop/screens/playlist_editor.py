@@ -266,3 +266,10 @@ class PlaylistEditor(QWidget):
             paths[row], paths[target] = paths[target], paths[row]
             self.tracks_reordered.emit(paths)
             self.tracks_table.selectRow(target)
+
+    def clear_playlist(self) -> None:
+        self._playlist_id = None
+        self._saved_paths = ()
+        self.name_label.clear()
+        self.discard_draft()
+        self.status_label.setText(self.tr("Open a saved playlist to edit it."))
