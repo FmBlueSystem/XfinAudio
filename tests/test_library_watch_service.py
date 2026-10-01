@@ -284,10 +284,10 @@ def _pump_events_until(predicate: Callable[[], bool], timeout_seconds: float = 5
 
 
 def test_cross_thread_raw_event_marshals_to_main_thread_and_starts_timer() -> None:
-    service, _event_source, timer = _make_service()
+    service, event_source, timer = _make_service()
     service.start(Path("/tmp/library"))
 
-    thread = threading.Thread(target=lambda: service._on_raw_event_background_thread("/tmp/library/track.mp3"))
+    thread = threading.Thread(target=event_source.fire, args=("/tmp/library/track.mp3",))
     thread.start()
     thread.join()
 

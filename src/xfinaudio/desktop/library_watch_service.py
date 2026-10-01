@@ -54,7 +54,7 @@ class LibraryWatchService(QObject):
     """Qt-thread-safe lifecycle owner for filesystem-change detection."""
 
     changes_detected = Signal()
-    _raw_event_received = Signal(str)  # internal cross-thread marshal
+    _raw_event_received = Signal(str, int)  # path and watch generation
 
     def __init__(
         self,
@@ -74,6 +74,8 @@ class LibraryWatchService(QObject):
         self._suppressed_paths: dict[Path, float] = {}
         self._suppression_lock = Lock()
         self._watched_folder: Path | None = None
+        self._watch_generation = 0
+        self._pending_generation: int | None = None
         self.last_error: OSError | None = None
         self._paused_folder: Path | None = None
         self._state: Any = None
@@ -112,12 +114,12 @@ class LibraryWatchService(QObject):
 
     def start(self, folder: Path) -> None:
         """Arm the watch on *folder*, stopping any previous watch."""
-        self._debounce_timer.stop()
-        self._watched_folder = None
+        self._invalidate_watch()
         self._paused_folder = None
         self.last_error = None
+        generation = self._watch_generation
         try:
-            self._folder_watcher.start(folder, self._on_raw_event_background_thread)
+            self._folder_watcher.start(folder, lambda path: self._on_raw_event_background_thread(path, generation))
         except OSError as error:
             self.last_error = error
             logging.getLogger(__name__).warning("Folder watch unavailable: %s", error)
@@ -127,9 +129,8 @@ class LibraryWatchService(QObject):
 
     def stop(self) -> None:
         """Stop the watch entirely (app shutdown, explicit teardown)."""
-        self._debounce_timer.stop()
+        self._invalidate_watch()
         self._folder_watcher.stop()
-        self._watched_folder = None
         self._paused_folder = None
 
     def pause(self) -> None:
@@ -137,10 +138,9 @@ class LibraryWatchService(QObject):
         remember the folder so resume() can re-arm it."""
         if self._watched_folder is None:
             return
-        self._debounce_timer.stop()
         self._paused_folder = self._watched_folder
+        self._invalidate_watch()
         self._folder_watcher.stop()
-        self._watched_folder = None
 
     def resume(self) -> None:
         """Re-arm the watch on the folder that was active before pause()."""
@@ -154,21 +154,35 @@ class LibraryWatchService(QObject):
     def is_watching(self) -> bool:
         return self._watched_folder is not None
 
+    def _invalidate_watch(self) -> None:
+        # Retire callbacks before stopping/joining the source: signals emitted
+        # during teardown must not belong to a resumed or replacement watch.
+        self._watch_generation += 1
+        self._watched_folder = None
+        self._pending_generation = None
+        self._debounce_timer.stop()
+
     # -- event handling -----------------------------------------------------
 
-    def _on_raw_event_background_thread(self, path: str) -> None:
+    def _on_raw_event_background_thread(self, path: str, generation: int) -> None:
         # Called on watchdog's own thread. Never touch Qt objects here beyond
         # emitting a Signal, which Qt marshals safely across threads.
-        self._raw_event_received.emit(path)
+        self._raw_event_received.emit(path, generation)
 
-    @Slot(str)
-    def _on_raw_event_main_thread(self, path: str) -> None:
+    @Slot(str, int)
+    def _on_raw_event_main_thread(self, path: str, generation: int) -> None:
         # Now safely on the Qt main thread: (re)start the debounce timer.
+        if not self.is_watching or generation != self._watch_generation:
+            return
         if self._is_suppressed(path):
             return
+        self._pending_generation = generation
         self._debounce_timer.start(self._settle_window_ms)
 
     def _on_settle_timeout(self) -> None:
+        if not self.is_watching or self._pending_generation != self._watch_generation:
+            return
+        self._pending_generation = None
         if self._state is not None:
             self._state = self._state.model_copy(update={"changes_detected_since_scan": True})
             if self._state_setter is not None:

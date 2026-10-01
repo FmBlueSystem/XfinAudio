@@ -24,7 +24,7 @@ Fix stale watcher event acceptance and investigate the native Qt/Cocoa crash whe
 - Remote verification: the existing `Non-audio release gates` workflow dispatched against the isolated branch on macOS. No changes to workflow permissions or secrets. First push contains regressions only; capture exact commit/run RED, then implement and capture GREEN/full gates on the fix commit.
 - Native verification must use Cocoa, not offscreen Qt, with a fixture library and no external AI requests unless separately authorized/configured.
 - RDD mode: unavailable; `gentle-ai review mode status --cwd <checkout>` is blocked by executable permissions. Do not infer disabled or low risk. Any future commit requires the native assessment/preflight under the existing user-owned switch.
-- Delivery: ask-on-risk; forecast 150 authored changed lines for W1, W2 size unknown until reproduction. No commits or PR slices yet.
+- Delivery: ask-on-risk; W1 regression snapshot has 128 authored additions (tests + recovery document). Forecast W1 fix ~50 and W2 native diagnostic ~160 additional lines, excluding future causal fixes until evidence exists. No PR slices, PR creation, or merge authorized.
 
 ## Tasks
 
@@ -33,13 +33,17 @@ Fix stale watcher event acceptance and investigate the native Qt/Cocoa crash whe
 
 ## Evidence and current status
 
-- PR baseline fetched and isolated feature branch created; source unchanged.
-- W1 preparation identified the queued-event lifecycle defect and proposed session-aware rejection. Eight regression cases were added for queued events/retained callbacks and stale timeout delivery after stop, pause, resume, and replacement. Production code is unchanged pending remote RED.
+- PR baseline fetched and isolated feature branch created; original checkout and PR #360 unchanged.
+- W1 preparation identified the queued-event lifecycle defect and proposed session-aware rejection. Eight regression cases cover queued events/retained callbacks and stale timeout delivery after stop, pause, resume, and replacement.
 - Baseline functional attempt: targeted runner above exited **2**, before test collection. uv attempted Python 3.12.11 preparation but failed extracting `pip/_vendor/certifi/cacert.pem` with `Operation not permitted`. The managed permission profile restricts `.pem` paths. Do not work around it.
 - Earlier direct Python execution and CodeGraph initialization were also blocked by host permissions. Native reproduction has not run.
-- W1 regression preparation delegated to watcher_writer; W2 read-only causal mapping delegated to balanced_diagnosis. Static diff check passed. Native assessment command is also blocked with exit 127; review remains unavailable, not approved or downgraded. No observed RED, GREEN, full gate, native reproduction, receipt, or completed task exists yet.
+- W1 regression/production delegated to watcher_writer; W2 causal mapping/diagnostic harness delegated to balanced_diagnosis. Static diff check passed. Native assessment command is blocked with exit 127; review remains unavailable, not approved or downgraded. RED is observed below; GREEN, full gates, native reproduction, and receipt remain pending.
+- Regression commit: `b69be791beb24a7778a696fae9b72f9d12de38f1`; new remote branch verified. Observed RED: https://github.com/FmBlueSystem/XfinAudio/actions/runs/36858699561 — all eight added lifecycle cases failed for the intended behavior (obsolete events restarted debounce; invalidated timeout copied state). 3293 existing tests passed, 21 skipped, coverage 94.38%; pyright passed. Full wrapper stopped at its test failure, so later gates were not run. Git's default credential lookup was unavailable; push succeeded using the explicitly authorized gh credential helper for that command only, without modifying credential configuration or reading credential files.
+- W2 native diagnostic baseline delegated to the same mapping worker: synthetic BuildScreen interaction under Cocoa in a separately gated workflow step. This is a compatibility diagnostic, not an external AX reproduction or proof of fixing the original macOS 26.6.2 crash.
+- W1 production edit made only after observed RED: capture source generation in each callback, retire it before source stop/join, reject inactive/obsolete event delivery, and guard pending debounce. Existing cross-thread test now uses the real source callback. Standalone Ruff check/format and diff checks passed. No observer/backend or suppression behavior changes. This does not promise protection from arbitrary fake timeout replay after a fresh event; the real adapter uses same-thread single-shot QTimer stop/restart semantics.
+- W2 harness prepared in tests/test_balanced_native.py and the existing registered workflow, not yet executed. It asserts visible controls and records exact runner/runtime/revision, and explicitly reports no external AX or own-process AX attribute coverage.
 - Engram mirror: **pending**. The runtime hook reports no authoritative registered session identity and forbids agent-attributed memory writes. Preserve this local recovery document and mirror its full content under `odd/watcher-and-balanced-crash/tasks` only after the host restores session registration.
 
 ## Next step
 
-Use the user-authorized remote branch and macOS workflow to obtain observed W1 RED before production edits. Investigate W2 independently with a synthetic library and native Cocoa evidence where feasible; do not claim W1 fixes the Cocoa crash or that offscreen tests prove accessibility behavior.
+Commit/push the bounded W1 fix and W2 diagnostic as separate work units, dispatch the registered workflow, inspect GREEN/full gates and native baseline independently, and record exact commit/run evidence. Investigate W2 independently; do not claim W1 fixes the Cocoa crash or that native pointer testing proves external accessibility behavior.
