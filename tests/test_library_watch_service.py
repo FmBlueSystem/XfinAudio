@@ -9,6 +9,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -291,6 +293,87 @@ def test_cross_thread_raw_event_marshals_to_main_thread_and_starts_timer() -> No
 
     assert _pump_events_until(lambda: timer.is_active())
     assert timer.start_calls == [2000]
+
+
+def _transition_watch(service: LibraryWatchService, transition: str) -> None:
+    if transition == "stop":
+        service.stop()
+    elif transition == "pause":
+        service.pause()
+    elif transition == "resume":
+        service.pause()
+        service.resume()
+    else:
+        service.start(Path("/tmp/library-b"))
+
+
+@pytest.mark.parametrize("transition", ["stop", "pause", "resume", "replace"])
+def test_queued_event_from_invalidated_watch_is_ignored(transition: str) -> None:
+    service, source, timer = _make_service()
+    state = FakeState()
+    emissions: list[None] = []
+    syncs: list[None] = []
+    service.set_state_accessors(state=state, sync_state=lambda: syncs.append(None))
+    service.changes_detected.connect(lambda: emissions.append(None))
+    service.start(Path("/tmp/library"))
+    callback = source._on_raw_event
+    assert callback is not None
+
+    # Queue a real cross-thread Qt signal; do not deliver it before teardown.
+    thread = threading.Thread(target=callback, args=("/tmp/library/old.mp3",))
+    thread.start()
+    thread.join()
+    assert timer.start_calls == []
+
+    _transition_watch(service, transition)
+    QApplication.processEvents()
+
+    assert timer.start_calls == []
+    assert not timer.is_active()
+    assert state.model_copy_calls == []
+    assert syncs == []
+    assert emissions == []
+
+    # A callback already retained by watchdog must also remain obsolete after
+    # teardown, including when the same folder has been resumed.
+    thread = threading.Thread(target=callback, args=("/tmp/library/late.mp3",))
+    thread.start()
+    thread.join()
+    QApplication.processEvents()
+    assert timer.start_calls == []
+    assert state.model_copy_calls == []
+    assert emissions == []
+
+    if service.is_watching:
+        source.fire("/tmp/library-b/current.mp3" if transition == "replace" else "/tmp/library/current.mp3")
+        assert timer.start_calls == [2000]
+        timer.fire()
+        assert state.model_copy_calls == [{"changes_detected_since_scan": True}]
+        assert syncs == [None]
+        assert emissions == [None]
+    service.stop()
+
+
+@pytest.mark.parametrize("transition", ["stop", "pause", "resume", "replace"])
+def test_pending_timeout_after_watch_invalidation_is_ignored(transition: str) -> None:
+    service, source, timer = _make_service()
+    state = FakeState()
+    emissions: list[None] = []
+    syncs: list[None] = []
+    service.set_state_accessors(state=state, sync_state=lambda: syncs.append(None))
+    service.changes_detected.connect(lambda: emissions.append(None))
+    service.start(Path("/tmp/library"))
+    source.fire("/tmp/library/old.mp3")
+    assert timer.is_active()
+
+    _transition_watch(service, transition)
+    # A stopped timer can have a timeout callback already pending delivery.
+    timer.fire()
+
+    assert state.model_copy_calls == []
+    assert syncs == []
+    assert emissions == []
+    service.stop()
 
 
 class _FakeClock:
