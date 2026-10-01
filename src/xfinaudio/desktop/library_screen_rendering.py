@@ -535,24 +535,15 @@ class LibraryScreenRenderingMixin:
         """Highlight *path* as the currently playing track, or None to clear.
 
         WHY in-place: a play/pause toggle only changes the Preview cell text of
-        the previous and new playing rows plus their background colors. When
-        the table already shows the last-populated rows unchanged, a full
-        render() would rebuild the table — resetting selection, currentRow, and
-        scroll — for zero content change, so the two affected rows are updated
-        in place instead, mirroring render()'s paint order (base colors,
-        constraint colors, then the playing highlight). The full rebuild is
-        still required when the records actually changed.
+        the previous and new playing rows plus their background colors. Direct
+        controller population can leave the content cache invalid even though
+        those rows are current. Never rebuild from a playback callback: restoring
+        selection during that rebuild can stop the player. Paint existing rows
+        by path and leave content-cache reconciliation to a normal full render.
         """
         previous = self._playing_path
         self._playing_path = path
         if previous == path:
-            return
-        rows_current = (
-            self._last_rows_signature is not None and len(self._last_rows_signature) == self.tracks_table.rowCount()
-        )
-        if not rows_current:
-            if self._last_vm is not None and self._last_state is not None:
-                self.render(self._last_vm, self._last_state)
             return
         for affected_path in (previous, path):
             if affected_path is None:
