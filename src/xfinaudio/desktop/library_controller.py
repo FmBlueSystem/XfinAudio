@@ -219,6 +219,7 @@ class LibraryController:
         # rows signature must be dropped or the next render of identical rows
         # would skip rebuilding (mirrors BuildScreen.invalidate_copilot_cache).
         self._widgets.library_screen.invalidate_library_render_cache()
+        self._widgets.library_screen.set_playing_row(self._widgets.library_screen._playing_path)
         self._state = apply_library_records_loaded(self._state, records)
         self._access.state_setter(self._state)
         # Offer the genres the library actually holds. The Build screen keeps
@@ -227,6 +228,7 @@ class LibraryController:
         if build_screen is not None and hasattr(build_screen, "set_available_genres"):
             build_screen.set_available_genres([record.genre or "" for record in records])
         self._access.apply_song_filter(clear_selection=False)
+        self._widgets.library_screen._on_selection_changed()
 
     def apply_song_filter(self, query: str | None = None, *, clear_selection: bool = False) -> None:
         _layout.apply_main_song_filter(self, query, clear_selection=clear_selection)

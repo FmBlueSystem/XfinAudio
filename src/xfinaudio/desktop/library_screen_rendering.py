@@ -546,7 +546,7 @@ class LibraryScreenRenderingMixin:
         """
         previous = self._playing_path
         self._playing_path = path
-        if previous == path:
+        if previous == path and self._last_rows_signature is not None:
             return
         for affected_path in (previous, path):
             if affected_path is None:
