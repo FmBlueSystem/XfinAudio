@@ -22,7 +22,10 @@ def test_completed_scan_publishes_clean_state_even_if_watch_unavailable(qapp, tm
     window = MainWindow(scan_service=_Scan(), repository=_Repository())
     monkeypatch.setattr(window._library_controller, "start_spectral_completion_worker", lambda records: None)
     window.set_selected_folder(tmp_path)
-    window._library_watch_service._on_settle_timeout()
+    # This exercises scan cleanup, not watcher delivery: establish the dirty
+    # precondition without invoking a timeout from an unarmed watch.
+    window._replace_app_state(window._state.model_copy(update={"changes_detected_since_scan": True}))
+    window._sync_state()
     assert window._state.changes_detected_since_scan
     if watch_fails:
 
