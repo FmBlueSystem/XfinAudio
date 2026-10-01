@@ -17,8 +17,8 @@ import pytest
 from PySide6.QtCore import Qt, QThread, qVersion
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from test_build_screen import _plan_state, _track
 
+from tests.test_build_screen import _plan_state, _track
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.build_view_model import BuildViewModel
 from xfinaudio.desktop.screens.build_screen import BuildScreen
