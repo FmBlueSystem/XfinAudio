@@ -107,7 +107,7 @@ class LibraryScreenRenderingMixin:
         ):
             self._populate_table(rows)
         self._last_rows_signature = rows_signature
-        self._last_render_extras = extras
+        self._last_render_extras = (*extras[:2], self._playing_path)
         self._apply_search_and_duplicate_filters()
         self._apply_constraint_colors(state.excluded_paths, state.locked_paths)
         self._apply_playing_highlight()
@@ -255,7 +255,7 @@ class LibraryScreenRenderingMixin:
         v_scroll = self.tracks_table.verticalScrollBar().value()
         h_scroll = self.tracks_table.horizontalScrollBar().value()
 
-        self.tracks_table.blockSignals(True)
+        signals_were_blocked = self.tracks_table.blockSignals(True)
         try:
             self.tracks_table.setRowCount(0)
             for row_data in rows:
@@ -284,11 +284,14 @@ class LibraryScreenRenderingMixin:
                     item = QTableWidgetItem(value)
                     item.setToolTip(value)
                     self.tracks_table.setItem(row, col, item)
+            self._restore_selection_and_scroll(selected_paths, current_path, v_scroll, h_scroll, path_col)
+            self._last_rows_signature = _library_rows_signature(rows)
         finally:
-            self.tracks_table.blockSignals(False)
-
-        self._restore_selection_and_scroll(selected_paths, current_path, v_scroll, h_scroll, path_col)
-        self._last_rows_signature = _library_rows_signature(rows)
+            self.tracks_table.blockSignals(signals_were_blocked)
+        if not signals_were_blocked:
+            # Only publish the final restored selection. An intermediate empty
+            # selection would stop playback of a path that still survives.
+            self._on_selection_changed()
 
     def _restore_selection_and_scroll(
         self,

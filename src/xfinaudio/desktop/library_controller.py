@@ -388,6 +388,11 @@ class LibraryController:
             self._widgets.status_label.setText(self._tr("Could not open: {0}").format(Path(path).name))
 
     def on_preview_play_requested(self, path: str) -> None:
+        from xfinaudio.desktop.audio_player_state import PlayerState
+
+        if self._audio_player.state is PlayerState.PAUSED and self._audio_player._source_path == path:
+            self._audio_player.play()
+            return
         self._audio_player.stop()
         self._audio_player.load(path)
 
@@ -399,7 +404,7 @@ class LibraryController:
 
         if state == PlayerState.PLAYING:
             self._widgets.library_screen.set_playing_row(self._audio_player._source_path)
-        elif state in (PlayerState.IDLE, PlayerState.ERROR):
+        elif state in (PlayerState.IDLE, PlayerState.PAUSED, PlayerState.ERROR):
             self._widgets.library_screen.set_playing_row(None)
 
     def on_player_error(self, message: str) -> None:

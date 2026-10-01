@@ -1,16 +1,19 @@
 """Real shell preview interactions with a non-playing synthetic player."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
 
 import pytest
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtMultimedia import QMediaPlayer
 from shiboken6 import isValid
 
 from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop import window_factory
-from xfinaudio.desktop.audio_player_state import PlayerState
+from xfinaudio.desktop.audio_player import AudioPlayer
+from xfinaudio.desktop.audio_player_state import PlayerState, PlayerStateMachine
 from xfinaudio.desktop.library_columns import column_index
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.library.models import TrackRecord
@@ -98,3 +101,54 @@ def test_first_play_after_show_tracks_keeps_items_selection_and_playback(preview
     assert all(isValid(item) and item is table.item(0, column) for column, item in enumerate(items))
     assert preview_window._library_selected_paths == selected
     assert table.item(0, column_index("Preview")).text() == "⏸"
+
+
+def test_three_preview_clicks_resume_without_reload(preview_window: MainWindow) -> None:
+    table = preview_window._library_screen.tracks_table
+    player = preview_window._audio_player
+    table.cellClicked.emit(0, column_index("Preview"))
+    player.position = 12345
+    table.cellClicked.emit(0, column_index("Preview"))
+    assert player.state is PlayerState.PAUSED
+    assert table.item(0, column_index("Preview")).text() == "▶"
+    table.cellClicked.emit(0, column_index("Preview"))
+    assert player.state is PlayerState.PLAYING
+    assert player.calls == ["stop", "load", "pause", "resume"]
+    assert player.position == 12345
+    assert table.item(0, column_index("Preview")).text() == "⏸"
+
+
+def test_player_accepts_qt_playing_callback_after_pause() -> None:
+    machine = PlayerStateMachine()
+    for event in ("load", "play", "pause"):
+        machine.transition(event)
+    owner: Any = SimpleNamespace(_state_machine=machine)
+    AudioPlayer._on_playback_state_changed(owner, QMediaPlayer.PlaybackState.PlayingState)
+    assert machine.state is PlayerState.PLAYING
+
+
+def test_sort_restores_only_final_selection_without_stopping_preview(preview_window: MainWindow) -> None:
+    screen = preview_window._library_screen
+    table = screen.tracks_table
+    player = preview_window._audio_player
+    table.cellClicked.emit(0, column_index("Preview"))
+    selected = list(preview_window._library_selected_paths)
+    changes: list[list[str]] = []
+    screen.selection_changed.connect(changes.append)
+    table.horizontalHeader().sectionDoubleClicked.emit(column_index("Title"))
+
+    assert player.state is PlayerState.PLAYING
+    assert player.calls == ["stop", "load"]
+    assert preview_window._library_selected_paths == selected
+    assert [] not in changes
+
+
+def test_filter_removing_playing_row_publishes_empty_selection_and_stops(preview_window: MainWindow) -> None:
+    screen = preview_window._library_screen
+    screen.tracks_table.cellClicked.emit(0, column_index("Preview"))
+    screen.incomplete_filter_button.click()
+
+    assert screen.tracks_table.rowCount() == 0
+    assert preview_window._library_selected_paths == []
+    assert preview_window._audio_player.state is PlayerState.IDLE
+    assert screen._playing_path is None

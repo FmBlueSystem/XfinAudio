@@ -136,7 +136,10 @@ class AudioPlayer(QObject):
 
     def _on_playback_state_changed(self, playback_state: QMediaPlayer.PlaybackState) -> None:
         current = self._state_machine.state
-        if playback_state == QMediaPlayer.PlaybackState.PlayingState and current == PlayerState.LOADING:
+        if playback_state == QMediaPlayer.PlaybackState.PlayingState and current in (
+            PlayerState.LOADING,
+            PlayerState.PAUSED,
+        ):
             self._state_machine.transition("play")
         elif playback_state == QMediaPlayer.PlaybackState.PausedState and current == PlayerState.PLAYING:
             self._state_machine.transition("pause")
