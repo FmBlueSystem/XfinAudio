@@ -170,3 +170,62 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 #editor-switch h3 { margin: 0; }#page-editor > .section-heading { align-items: flex-start; }
 
 .review-engine-facts { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.library-grid { min-width: 1100px; }
+.library-grid .track-name { width: auto; min-width: 160px; max-width: 320px; }
+.column-sort { color: inherit; background: transparent; border: 0; padding: 6px 0; font: inherit; text-align: inherit; white-space: nowrap; cursor: pointer; }
+.column-sort:focus-visible { outline: 2px solid var(--accent, #72c2ff); outline-offset: 4px; }
+.column-sort:disabled { cursor: default; }
+
+/* Task hierarchy: persistent context stays compact; task details remain mounted. */
+.secondary-label { margin-top: 34px; }
+.context-actions, .library-overview { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; }
+.library-overview { color: #aab5c1; font-size: 12px; margin: 0 0 14px; }
+.library-overview strong { color: #e2e9ed; font-weight: 600; }
+.context-status { display: flex; justify-content: space-between; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); color: #aab9bf; font-size: 11px; line-height: 1.6; }
+.context-status .text-button { flex-shrink: 0; }
+.task-disclosure { margin: 14px 0; border-block: 1px solid var(--border); padding: 14px 0; }
+.task-disclosure summary, .prep-advanced summary { cursor: pointer; color: #c4ded7; font-size: 12px; line-height: 1.7; }
+.disclosure-summary { display: block; margin-left: 14px; color: #98a9b3; font-size: 11px; font-weight: 400; overflow-wrap: anywhere; }
+.prep-layout { display: block; max-width: 850px; }
+.prep-basics { margin-top: 0; }
+.prep-basics .count-input input { width: 105px; }
+#prep-duration > label { display: block; margin: 14px 0 8px; font-size: 12px; }
+#prep-duration > input { max-width: 180px; }
+#library-tools .surface { padding: 16px; margin-top: 12px; }
+#library-tools h3 { margin-top: 0; }
+#page-review > .section-heading { margin-bottom: 20px; }
+#export-review { margin: 0 0 16px 10px; }
+#review-table { max-height: min(52vh, 620px); }
+#review-save .save-bar { margin-top: 14px; }
+.operation-status { margin-top: 12px; padding: 10px 14px; }
+.status-copy span { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+#ai-panel { margin-top: 20px; padding: 18px; }
+#ai-panel > summary { color: #c4ded7; cursor: pointer; }
+:focus-visible { scroll-margin-block: 24px 120px; }
+@media (max-width: 700px) {
+  .context-status { flex-direction: column; }
+  .context-actions { gap: 8px; justify-content: flex-end; }
+  .context-actions .version-pill { display: none; }
+  .prep-fields { grid-template-columns: 1fr; }
+  .save-bar { flex-wrap: wrap; }
+}
+#page-preferences { max-width: 950px; }
+#page-preferences .task-disclosure > div { margin-top: 14px; }
+.settings-link-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 0; }
+#optional-ai-settings-link { margin: 12px 0; }
+#optional-ai-config { margin: 14px 0; }
+#optional-ai-container textarea { width: 100%; background: #14161a; color: #e7e9ec; border: 1px solid #373b42; border-radius: 5px; padding: 12px; font: inherit; }
+
+.session-resume { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin: 24px 12px 0; }
+
+/* The native 1000×800 window has768px content height above an88px player. */
+@media (max-height: 850px) and (min-width: 701px) {
+  .topbar { min-height: 84px; }
+  #page-prep { padding-top: 20px; }
+  #page-prep > .section-heading { margin-bottom: 18px; }
+  #page-prep .prep-form { padding: 20px; }
+  #page-prep .prep-fields { gap: 14px; }
+  #page-prep #prep-duration { margin: 10px 0; padding: 10px 0; }
+  #page-prep .prep-form .full-width { margin-top: 12px; }
+}

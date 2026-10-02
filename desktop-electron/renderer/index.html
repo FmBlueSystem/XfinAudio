@@ -13,34 +13,37 @@
   <div class="app-shell">
     <aside class="sidebar" aria-label="Navegación principal">
       <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>Xfin<span class="brand-light">Audio</span><small>YOUR LIBRARY. YOUR FLOW.</small></span></div>
-      <p class="nav-label">ESPACIO DE TRABAJO</p>
-      <nav>
-        <button class="nav-item active" data-route="library" aria-current="page"><span aria-hidden="true">▤</span> Biblioteca <span id="nav-library-count" class="nav-count">0</span></button>
-        <button class="nav-item" data-route="metadata"><span aria-hidden="true">✓</span> Metadatos</button>
-        <button class="nav-item" data-route="prep"><span aria-hidden="true">◈</span> Preparar sesión</button>
-        <button class="nav-item" data-route="review"><span aria-hidden="true">☷</span> Revisar selección</button>
-        <button class="nav-item" data-route="live"><span class="nav-symbol" aria-hidden="true">◎</span>Live</button>
-        <button class="nav-item" data-route="serato"><span class="nav-symbol" aria-hidden="true">↗</span>Serato</button>
-      <button class="nav-item" data-route="playlists"><span aria-hidden="true">♫</span> Playlists guardadas</button>
-        <button class="nav-item" data-route="editor"><span aria-hidden="true">≡</span> Editor de playlist</button>
-        <button class="nav-item" data-route="loudness"><span aria-hidden="true">◒</span> Sonoridad</button>
-        <button class="nav-item" data-route="ai"><span aria-hidden="true">✦</span> IA opcional</button>
-        <button class="nav-item" data-route="preferences"><span aria-hidden="true">⚙</span> Preferencias</button>
+      <p class="nav-label">TU SESIÓN</p>
+      <nav id="workflow-nav" aria-label="Pasos de la sesión">
+        <button class="nav-item active" data-route="library" aria-current="page"><span aria-hidden="true">1</span> Biblioteca <span id="nav-library-count" class="nav-count">0</span></button>
+        <button class="nav-item" data-route="prep"><span aria-hidden="true">2</span> Crear lista</button>
+        <button class="nav-item" data-route="review"><span aria-hidden="true">3</span> Revisar y exportar</button>
       </nav>
+      <p class="nav-label secondary-label">TUS HERRAMIENTAS</p>
+      <nav aria-label="Herramientas secundarias">
+        <button class="nav-item" data-route="playlists"><span aria-hidden="true">♫</span> Listas guardadas</button>
+        <button class="nav-item" data-route="live"><span aria-hidden="true">◎</span> Live</button>
+        <button class="nav-item" data-route="preferences"><span aria-hidden="true">⚙</span> Ajustes</button>
+      </nav>
+      <div id="session-resume" class="session-resume" aria-label="Trabajo en esta sesión" hidden><button id="resume-editor" type="button" class="text-button" hidden>Continuar edición</button><button id="resume-last-export" type="button" class="text-button" hidden>Última exportación</button></div>
       <div class="sidebar-bottom"><span class="local-dot" aria-hidden="true"></span> Tu música, en local<small>Escaneo de solo lectura<br>Sonoridad local con confirmación<br>IA solo con consentimiento</small></div>
     </aside>
     <main id="main-content" tabindex="-1">
-      <header class="topbar"><div><span class="eyebrow">XFINAUDIO / WORKSPACE</span><h1 id="page-title">Biblioteca</h1></div><span class="version-pill">DESKTOP · LOCAL</span></header>
+      <header class="topbar"><div><span class="eyebrow">XFINAUDIO / WORKSPACE</span><h1 id="page-title">Biblioteca</h1></div><div class="context-actions"><button id="tool-back" type="button" class="button subtle" hidden>Volver</button><button id="context-ai" type="button" class="text-button" hidden>Ayuda IA</button><span class="version-pill">LOCAL</span></div></header>
       <section id="operation-status" class="operation-status" aria-live="polite" aria-atomic="true" hidden>
         <div class="status-copy"><strong id="operation-label"></strong><span id="operation-detail"></span></div>
         <progress id="operation-progress" aria-label="Progreso de la operación" hidden></progress>
         <button id="cancel-operation" class="button subtle" hidden>Cancelar</button>
       </section>
-      <div id="library-status-container"></div>
-      <div id="profiles-container"></div>
+      <div id="context-status" class="context-status" aria-live="polite" hidden><span id="context-status-copy"></span><button id="context-status-open" type="button" class="text-button">Revisar biblioteca</button></div>
       <section id="page-library" class="page-panel" aria-labelledby="library-heading">
-        <div class="section-heading"><div><span class="eyebrow">EL PUNTO DE PARTIDA</span><h2 id="library-heading">Conoce tu colección</h2><p>Explora tus pistas y encuentra el siguiente punto de conexión</p></div><button id="choose-library" class="button primary" data-mutation>＋ Elegir carpeta</button></div>
-        <div class="stats-grid"><div class="stat-card"><span>Pistas en biblioteca</span><strong id="library-total">0</strong><small>Tu colección local</small></div><div class="stat-card"><span>Metadatos completos</span><strong id="library-ready">0</strong><small>BPM, tonalidad y energía</small></div><div class="stat-card"><span>Por revisar</span><strong id="library-incomplete">0</strong><small>Metadatos pendientes</small></div><div class="stat-card next-step"><span>Tu próxima sesión</span><strong>Encuentra el equilibrio</strong><button class="text-button" data-route="prep">Preparar selección <span aria-hidden="true">↗</span></button></div></div>
+        <div class="section-heading"><div><span class="eyebrow">EL PUNTO DE PARTIDA</span><h2 id="library-heading">Conoce tu colección</h2><p>Explora tus pistas y encuentra el siguiente punto de conexión</p></div><button id="library-create" class="button primary" data-route="prep" hidden>Crear lista →</button></div>
+        <div class="library-overview"><span><strong id="library-total">0</strong> pistas</span><span><strong id="library-ready">0</strong> con metadatos completos</span><span><strong id="library-incomplete">0</strong> por revisar</span></div>
+        <details id="library-tools" class="task-disclosure">
+          <summary>Carpetas y herramientas de biblioteca</summary>
+          <div class="editor-actions"><button id="choose-library" type="button" class="button subtle" data-mutation>＋ Elegir carpeta</button><button class="button subtle" data-route="metadata">Revisar metadatos</button><button class="button subtle" data-route="loudness">Sonoridad</button></div>
+          <div id="library-status-container"></div><div id="profiles-container"></div>
+        </details>
         <div id="offline-library-container"></div><div class="table-card"><div class="table-toolbar"><label class="search-box"><span aria-hidden="true">⌕</span><input id="library-search" type="search" placeholder="Buscar título, artista o tonalidad…" aria-label="Buscar en la biblioteca"></label><label class="filter-label"><span class="sr-only">Filtrar metadatos</span><select id="metadata-filter"><option value="all">Todos los metadatos</option><option value="ready">Completos</option><option value="incomplete">Por revisar</option></select></label><button id="export-library-worklist" type="button" class="button subtle" aria-describedby="library-export-hint" disabled>Exportar lista de metadatos a Serato</button><span id="library-visible-count" class="table-count">0 pistas</span></div><p id="library-export-hint" class="field-hint">Elige Completos o Por revisar para exportar exactamente la lista filtrada, entre 1 y 500 pistas. Los metadatos completos no certifican una selección DJ.</p><div id="ai-library-filter" class="review-notice" hidden><p id="ai-library-filter-notice"></p><button id="clear-ai-library-filter" class="button subtle">Quitar filtro de IA</button></div><div id="library-table" class="table-scroll"></div><div id="library-empty" class="empty-state"><div class="empty-icon" aria-hidden="true">♫</div><h3>Todo empieza con tu música</h3><p>Elige una carpeta para leer sus pistas y metadatos.<br>El escaneo mantiene tus archivos de audio intactos.</p><button id="choose-library-empty" class="button primary" data-mutation>Elegir carpeta de música</button></div><p id="library-no-results" class="inline-empty" hidden>No hay pistas que coincidan con esta búsqueda</p></div>
       </section>
       <section id="page-metadata" class="page-panel" aria-labelledby="metadata-heading" hidden>
@@ -48,56 +51,54 @@
         <div id="metadata-report-container"><p class="surface">Abre esta sección para consultar el informe de metadatos</p></div>
       </section>
       <section id="page-prep" class="page-panel" aria-labelledby="prep-heading" hidden>
-        <div class="section-heading"><div><span class="eyebrow">01 / PREPARACIÓN</span><h2 id="prep-heading">Dale forma a tu sesión</h2><p>Tres alternativas reales a partir de los metadatos de tu biblioteca</p></div></div>
+        <div class="section-heading"><div><span class="eyebrow">01 / PREPARACIÓN</span><h2 id="prep-heading">Crea tu próxima lista</h2><p>Elige el tamaño y un punto de partida. Puedes afinar después.</p></div></div>
         <div class="prep-layout">
           <form id="prep-form" class="surface prep-form">
-            <div class="card-heading"><span class="step-number">01</span><div><h3>Configura la selección</h3><p>Después podrás comparar y revisar cada alternativa antes de guardar</p></div></div>
-            <label for="prep-name">Nombre de la sesión <span class="muted">(opcional)</span></label>
-            <input id="prep-name" maxlength="200" placeholder="Ej. Viernes · apertura" autocomplete="off" data-prep-control>
-            <label for="prep-count">Número de pistas</label>
-            <div class="count-input"><input id="prep-count" type="number" min="2" max="100" step="1" value="20" required aria-describedby="count-hint" data-prep-control><span>pistas</span></div>
-            <p id="count-hint" class="field-hint">Entre 2 y 100 pistas. La disponibilidad depende de tus metadatos.</p>
-            <label for="prep-strategy">Estrategia</label>
-            <select id="prep-strategy" aria-describedby="strategy-hint" disabled data-prep-control><option value="">Predeterminada del motor</option></select>
-            <p id="strategy-hint" class="field-hint" aria-live="polite">Cargando estrategias del motor local…</p>
-            <button id="catalog-retry" type="button" class="text-button" hidden>Volver a cargar estrategias</button>
+            <div class="prep-fields prep-basics">
+              <div><label for="prep-count">¿Cuántas pistas?</label><div class="count-input"><input id="prep-count" type="number" min="2" max="100" step="1" value="20" required aria-describedby="count-hint prep-sizing-summary" data-prep-control><span id="prep-count-unit">pistas solicitadas</span></div><p id="count-hint" class="field-hint">Entre 2 y 100, según las pistas disponibles.</p></div>
+              <div><label for="prep-role">Intención <span class="muted">(opcional)</span></label><select id="prep-role" data-prep-control><option value="">Sin preferencia</option><option value="warmup">Apertura / calentamiento</option><option value="peak_time">Máxima energía</option><option value="chill">Relajación / cierre suave</option></select></div>
+              <div class="full-row"><label for="prep-start">Pista de apertura <span class="muted">(opcional)</span></label><select id="prep-start" data-prep-control><option value="">Sin preferencia</option></select></div>
+            </div>
+            <details id="prep-duration" class="task-disclosure"><summary>Duración objetivo <span id="prep-sizing-summary" class="disclosure-summary"></span></summary><label for="prep-minutes">Minutos (opcional)</label><input id="prep-minutes" type="number" min="0.01" max="600" step="any" aria-describedby="minutes-hint" data-prep-control><p id="minutes-hint" class="field-hint">Hasta 600 minutos y el máximo de pistas indicado arriba. El motor planifica segmentos de 120 segundos; no suma la duración íntegra de los archivos. En blanco solo se usa la cantidad.</p></details>
+            <p id="prep-availability" class="field-hint"></p>
+            <button id="generate-prep" type="submit" class="button primary full-width" data-mutation>Generar lista <span aria-hidden="true">→</span></button>
+            <p id="prep-validation" class="review-notice blocker" role="alert" hidden></p>
             <details id="prep-advanced" class="prep-advanced">
-              <summary>Ajustes de la sesión y selección de pistas</summary>
+              <summary>Afinar selección <span id="prep-options-summary" class="disclosure-summary"></span></summary>
               <div class="prep-fields">
-                <div><label for="prep-minutes">Duración objetivo en minutos (opcional)</label><input id="prep-minutes" type="number" min="0.01" max="600" step="any" aria-describedby="minutes-hint" data-prep-control><p id="minutes-hint" class="field-hint">Mayor que 0 y hasta 600. En blanco no limita la duración.</p></div>
-                <div><label for="prep-role">Momento de la sesión</label><select id="prep-role" data-prep-control><option value="">Sin preferencia</option><option value="warmup">Apertura / calentamiento</option><option value="peak_time">Momento de máxima energía</option><option value="chill">Relajación / cierre suave</option></select></div>
-                <div class="full-row"><label for="prep-genre">Género preferido (opcional)</label><input id="prep-genre" maxlength="100" placeholder="Ej. House" autocomplete="off" data-prep-control></div>
-                <div><label for="prep-start">Pista de apertura</label><select id="prep-start" data-prep-control><option value="">Sin preferencia</option></select></div>
+                <div class="full-row"><label for="prep-strategy">Estrategia</label><select id="prep-strategy" aria-describedby="strategy-hint" disabled data-prep-control><option value="">Predeterminada del motor</option></select><p id="strategy-hint" class="field-hint" aria-live="polite">Cargando estrategias del motor local…</p><button id="catalog-retry" type="button" class="text-button" hidden>Volver a cargar estrategias</button></div>
+                <div><label for="prep-genre">Género preferido (opcional)</label><input id="prep-genre" maxlength="100" placeholder="Ej. House" autocomplete="off" data-prep-control></div>
                 <div><label for="prep-end">Pista de cierre</label><select id="prep-end" data-prep-control><option value="">Sin preferencia</option></select></div>
-                <p id="track-choice-hint" class="field-hint full-row">Solo pistas de la biblioteca actual. Apertura y cierre deben ser distintos. Las pistas obligatorias o de apertura/cierre no se pueden excluir.</p>
-                <div><label for="prep-required">Pistas obligatorias</label><select id="prep-required" multiple size="5" aria-describedby="multi-choice-hint track-choice-hint" data-prep-control></select></div>
-                <div><label for="prep-excluded">Pistas excluidas</label><select id="prep-excluded" multiple size="5" aria-describedby="multi-choice-hint track-choice-hint" data-prep-control></select></div>
-                <p id="multi-choice-hint" class="field-hint full-row">Selección múltiple: usa ⌘ en macOS o Ctrl en otros equipos para añadir o quitar pistas. Con teclado, usa Mayús + flechas para seleccionar un intervalo.</p>
+                <div class="full-row"><label for="prep-name">Nombre (opcional; también puedes ponerlo al guardar)</label><input id="prep-name" maxlength="200" placeholder="Ej. Viernes · apertura" autocomplete="off" data-prep-control></div>
               </div>
             </details>
-            <p class="field-hint">El motor compara alternativas segura, equilibrada y aventurera con tus metadatos existentes. No se inventan BPM, tonalidad, energía ni datos vibe ausentes.</p>
-            <div id="prep-settings-container"></div>
-            <p id="prep-availability" class="field-hint"></p>
-            <button id="generate-prep" type="submit" class="button primary full-width" data-mutation>Generar alternativas <span aria-hidden="true">→</span></button>
+            <details id="prep-track-options" class="prep-advanced"><summary>Incluir y excluir pistas <span id="prep-tracks-summary" class="disclosure-summary"></span></summary>
+              <div class="prep-fields">
+                <div><label for="prep-required">Pistas obligatorias</label><select id="prep-required" multiple size="5" aria-describedby="multi-choice-hint track-choice-hint" data-prep-control></select></div>
+                <div><label for="prep-excluded">Pistas excluidas</label><select id="prep-excluded" multiple size="5" aria-describedby="multi-choice-hint track-choice-hint" data-prep-control></select></div>
+                <p id="track-choice-hint" class="field-hint full-row">Apertura y cierre deben ser distintos. Las pistas obligatorias o de apertura/cierre no se pueden excluir.</p>
+                <p id="multi-choice-hint" class="field-hint full-row">Selección múltiple: usa ⌘ en macOS o Ctrl en otros equipos. Con teclado, Mayús + flechas selecciona un intervalo.</p>
+              </div>
+            </details>
+            <details id="prep-saved-controls" class="prep-advanced"><summary>Controles para próximas sesiones <span id="prep-saved-summary" class="disclosure-summary"></span></summary><div id="prep-settings-container"></div></details>
+            <details class="prep-advanced"><summary>Cómo se crea la lista</summary><p class="field-hint">El motor compara alternativas segura, equilibrada y aventurera con tus metadatos existentes. Después podrás compararlas, escuchar y ajustar. No se inventan BPM, tonalidad, energía ni datos vibe ausentes. Generar no guarda ni exporta.</p></details>
           </form>
-          <aside class="surface workflow-note"><span class="eyebrow">DE LA COLECCIÓN A LA SESIÓN</span><h3>Prepara con intención.<br>Decide con tus oídos.</h3><ol class="workflow-steps"><li><strong>Parte de tus metadatos</strong><p>Usamos la información existente en tus archivos</p></li><li><strong>Compara, escucha y revisa</strong><p>Elige una alternativa y comprueba sus pistas, avisos y bloqueos</p></li><li><strong>Guarda cuando esté lista</strong><p>La decisión final siempre es tuya</p></li></ol><p class="privacy-note">La preescucha reproduce el archivo original. No modifica, mezcla ni analiza el audio.</p></aside>
         </div>
       </section>
       <section id="page-review" class="page-panel" aria-labelledby="review-heading" hidden>
         <div class="section-heading"><div><span class="eyebrow">02 / REVISIÓN</span><h2 id="review-heading">Escucha. Revisa. Decide.</h2><p id="review-description">Comprueba tu selección antes de guardarla</p></div><button class="button subtle" data-route="prep">Volver a preparar</button></div>
-        <section id="variant-comparison" aria-labelledby="variants-heading" hidden><h3 id="variants-heading">Compara las alternativas</h3><p class="field-hint">Seleccionar una alternativa abre una revisión nueva. Guardar requiere tu confirmación con el botón Guardar playlist.</p><div id="prep-variants" class="prep-variants"></div></section>
         <div id="review-empty" class="surface empty-state"><div class="empty-icon" aria-hidden="true">☷</div><h3>Todavía no hay una selección</h3><p>Prepara una sesión o abre una playlist guardada</p><button class="button primary" data-route="prep">Preparar sesión</button></div>
-        <div id="review-content" hidden><div class="review-summary surface"><div><span id="review-variant" class="eyebrow">SELECCIÓN EQUILIBRADA</span><h3 id="review-name"></h3><p id="review-track-count"></p></div><span id="review-readiness" class="readiness-pill"></span></div><button id="start-live" class="button subtle" data-mutation>Abrir guía Live</button><button id="export-review" class="button subtle" data-mutation>Exportar a Serato</button><div id="review-alerts"></div><div class="table-card"><div id="review-table" class="table-scroll"></div></div><div id="generated-review-container"></div><form id="save-form" class="save-bar surface"><div><label for="save-name">Guardar como</label><input id="save-name" maxlength="200" required placeholder="Nombre de la playlist"></div><p id="save-hint">Guardar conserva esta selección en tus playlists locales</p><button id="save-playlist" class="button primary" type="submit" data-mutation>Guardar playlist</button></form></div>
+        <div id="review-content" hidden><div class="review-summary surface"><div><span id="review-variant" class="eyebrow">SELECCIÓN EQUILIBRADA</span><h3 id="review-name"></h3><p id="review-track-count"></p></div><span id="review-readiness" class="readiness-pill"></span></div><button id="start-live" class="button subtle" data-mutation>Abrir guía Live</button><button id="export-review" class="button primary" data-mutation>Preparar exportación →</button><div id="review-alerts"></div><div class="table-card"><div id="review-table" class="table-scroll"></div></div><div id="generated-review-container"></div><details id="review-save" class="task-disclosure"><summary>Guardar esta lista en el equipo</summary><form id="save-form" class="save-bar surface"><div><label for="save-name">Guardar como</label><input id="save-name" maxlength="200" required placeholder="Nombre de la playlist"></div><p id="save-hint">Guardar conserva esta selección en tus playlists locales</p><button id="save-playlist" class="button subtle" type="submit" data-mutation>Guardar playlist</button></form></details><details id="variant-comparison" class="task-disclosure" hidden><summary id="variants-heading">Comparar alternativas</summary><p class="field-hint">Elegir una alternativa abre una revisión nueva. No guarda ni exporta.</p><div id="prep-variants" class="prep-variants"></div></details></div>
       </section>
       <section id="page-playlists" class="page-panel" aria-labelledby="playlists-heading" hidden>
         <div class="section-heading"><div><span class="eyebrow">03 / TU ARCHIVO</span><h2 id="playlists-heading">Sesiones que quieres conservar</h2><p>Escucha, renombra, duplica o edita tus selecciones guardadas</p></div><button id="refresh-playlists" class="button subtle" data-mutation>Actualizar</button></div><section id="saved-ai-selection" class="review-notice" aria-live="polite" hidden></section><div id="offline-saved-container"></div><div id="playlists-list" class="playlists-grid"></div><div id="playlists-empty" class="surface empty-state"><div class="empty-icon" aria-hidden="true">♫</div><h3>Un lugar para tus próximas sesiones</h3><p>Las selecciones que guardes aparecerán aquí</p><button class="button primary" data-route="prep">Preparar la primera sesión</button></div>
       </section>
       <section id="page-editor" class="page-panel" aria-labelledby="editor-heading" hidden>
-        <div class="section-heading"><div><span class="eyebrow">04 / EDICIÓN LOCAL</span><h2 id="editor-heading">Da forma a tu sesión</h2><p>Reordena, quita pistas o evalúa una propuesta. Tú decides cuándo guardar.</p></div><button class="button subtle" data-route="playlists">Volver a playlists</button></div>
+        <div class="section-heading"><div><span class="eyebrow">04 / EDICIÓN LOCAL</span><h2 id="editor-heading">Da forma a tu sesión</h2><p>Reordena, quita pistas o evalúa una propuesta. Tú decides cuándo guardar.</p></div></div>
         <div id="editor-container"></div>
       </section>
       <section id="page-serato" class="page-panel" aria-labelledby="serato-heading" hidden>
-        <div class="section-heading"><div><span class="eyebrow">05 / SERATO</span><h2 id="serato-heading">Lleva tu selección a Serato</h2><p>Revisa el crate y confirma su destino antes de exportar.</p></div><button class="button subtle" data-route="playlists">Volver a playlists</button></div>
+        <div class="section-heading"><div><span class="eyebrow">05 / SERATO</span><h2 id="serato-heading">Lleva tu selección a Serato</h2><p>Revisa el crate y confirma su destino antes de exportar.</p></div></div>
         <div id="serato-container"></div>
       </section>
       <section id="page-live" class="page-panel" aria-labelledby="live-heading" hidden>
@@ -105,9 +106,15 @@
         <div id="live-container"></div>
       </section>
       <section id="page-loudness" class="page-panel" aria-labelledby="loudness-heading" hidden><div class="section-heading"><div><span class="eyebrow">ANÁLISIS LOCAL</span><h2>Sonoridad</h2><p>Revisa el objetivo, las pistas y las copias antes de analizar y reemplazar comentarios.</p></div></div><div id="loudness-container"></div></section>
-      <section id="page-preferences" class="page-panel" aria-labelledby="preferences-heading" hidden><div class="section-heading"><div><span class="eyebrow">AJUSTES LOCALES</span><h2>Preferencias</h2><p>Guarda los ajustes implementados para los próximos inicios</p></div></div><div id="preferences-container"></div><div id="profile-settings-container"></div><div id="legacy-import-container"></div></section>
+      <section id="page-preferences" class="page-panel" aria-labelledby="settings-heading" hidden>
+        <div class="section-heading"><div><h2 id="settings-heading">Ajustes</h2><p>Abre el grupo que necesitas. Guarda o descarta sus cambios de forma explícita.</p></div></div>
+        <details id="settings-playback" class="task-disclosure" open><summary>Reproducción y vigilancia <span id="settings-playback-summary" class="disclosure-summary"></span></summary><div id="preferences-container"></div></details>
+        <details id="settings-cohesion" class="task-disclosure"><summary>Perfiles y cohesión <span id="settings-cohesion-summary" class="disclosure-summary"></span></summary><div id="profile-settings-container"></div></details>
+        <div class="settings-link-row"><button id="settings-ai-link" class="button subtle" data-route="ai">IA opcional: configuración y prueba</button><span id="settings-ai-summary" class="field-hint"></span></div>
+        <details id="settings-import" class="task-disclosure"><summary>Importar datos anteriores</summary><div id="legacy-import-container"></div></details>
+      </section>
       <section id="page-ai" class="page-panel" hidden><div class="section-heading"><div><h2>IA opcional</h2><p>Configura una fuente local y revisa la prueba sintética antes de autorizar cada envío.</p></div></div></section>
-      <details id="ai-panel" class="surface" hidden><summary>Asistencia IA opcional para esta pantalla</summary><div id="optional-ai-container"></div></details>
+      <details id="ai-panel" class="surface" hidden><summary id="ai-panel-summary">Asistencia IA opcional para esta pantalla</summary><div id="optional-ai-container"></div></details>
     </main>
   </div>
   <footer class="player" aria-label="Preescucha"><audio id="audio-player" preload="metadata"></audio><div class="player-track"><div class="record-icon" aria-hidden="true">♫</div><div><strong id="player-title">Tu próxima conexión</strong><span id="player-artist">Selecciona una pista para escuchar</span></div></div><div class="player-controls"><button id="player-toggle" class="play-button" aria-label="Reproducir" disabled>▶</button><span id="player-current" class="time-label">0:00</span><input id="player-seek" type="range" min="0" max="100" step="0.1" value="0" disabled aria-label="Posición de reproducción"><span id="player-duration" class="time-label">—</span></div><label class="volume-control"><span aria-hidden="true">◖</span><span class="sr-only">Volumen</span><input id="player-volume" type="range" min="0" max="1" step="0.05" value="0.7" aria-label="Volumen"></label><span id="player-status" class="sr-only" aria-live="polite"></span></footer>

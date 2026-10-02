@@ -1,0 +1,25 @@
+schema: gentle-ai.sdd-state.v1
+change: electron-minimal-workflow
+artifact_store: openspec
+status: apply
+created: 2026-10-02
+updated: 2026-10-02
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: in-progress
+  verify: pending
+next_recommended: verify
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+blocked_reasons: []
+notes:
+  - Reconstructing retained edits after filesystem reset; historical gates are not current evidence.
+  - Split renderer review pieces at400 lines; no publication or seal before parent review.
+  - Parent owns combined Python and exact-source native verification.
