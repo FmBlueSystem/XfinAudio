@@ -9,3 +9,10 @@ test('local saved search/compare, native deletion, and persistent recovery remai
 test('cancelled deletion does not remove a card or fabricate recovery',async()=>{const f=fixture({deletePlaylist:async()=>({cancelled:true})});try{f.view.addPlaylistActions(f.cards,{id:'1',name:'Set',trackCount:2});f.click('offline-saved-delete-1');await tick();assert.equal(f.calls.some(([kind])=>kind==='deleted'),false);}finally{f.restore();}});
 test('saved selection/deletion controls honor busy and dirty-draft protection after rerender',async()=>{const f=fixture();try{f.view.beginPlaylistRender([{id:'1',name:'Set',trackCount:1}]);f.view.addPlaylistActions(f.cards,{id:'1',name:'Set',trackCount:1});f.block();assert.equal(f.get('offline-saved-delete-1').disabled,true);assert.equal(f.get('offline-saved-select-1').disabled,true);f.click('offline-saved-delete-1');await tick();assert.equal(f.calls.some(([kind])=>kind==='delete'),false);}finally{f.restore();}});
 test('dirty saved draft veto prevents deletion even with a direct click event',async()=>{const f=fixture();try{f.view.host.canDelete=()=>false;f.view.addPlaylistActions(f.cards,{id:'1',name:'Set',trackCount:1});f.view.sync();assert.equal(f.get('offline-saved-delete-1').disabled,true);f.click('offline-saved-delete-1');await tick();assert.equal(f.calls.some(([kind])=>kind==='delete'),false);}finally{f.restore();}});
+test('only an accepted current sort restores keyboard focus; stale navigation never steals it',async()=>{
+ const f=fixture();let focused=0;document.getElementById=()=>({focus:()=>focused++});try{
+  f.view.host.perform=async(_label,task,apply)=>apply(await task(),false);await f.view.sortLibrary('bpm');assert.equal(focused,0);assert.equal(f.view.librarySort.field,null);
+  f.view.host.perform=async(_label,task,apply)=>apply(await task(),true);await f.view.sortLibrary('bpm');assert.equal(focused,1);assert.equal(f.view.librarySort.field,'bpm');
+  f.view.host.perform=async(_label,task,apply)=>{const result=await task();f.view.invalidateLibrary();apply(result,true);};await f.view.sortLibrary('bitrate');assert.equal(focused,1);assert.equal(f.view.librarySort.field,null);
+ }finally{f.restore();}
+});

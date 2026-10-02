@@ -16,6 +16,7 @@ from xfinaudio.library.playlist_repository import PlaylistRepository
 from xfinaudio.library.track_repository import SCHEMA_VERSION, TrackRepository
 
 MAX_TRACKS, MAX_PLAYLISTS, MAX_REFERENCES = 100000, 5000, 250000
+AUDIO_COLUMNS = {"audio_format", "audio_codec", "bitrate_kbps", "bitrate_mode"}
 PROFILE_FIELDS = (
     "spectral_profile",
     "danceability_profile",
@@ -42,8 +43,11 @@ def memory_database(content: bytes):
         connection.close()
 
 
-def validate_schema(source: sqlite3.Connection, target: sqlite3.Connection, tables: set[str], version: int) -> None:
-    if source.execute("PRAGMA user_version").fetchone()[0] != version:
+def validate_schema(
+    source: sqlite3.Connection, target: sqlite3.Connection, tables: set[str], version: int | tuple[int, ...]
+) -> None:
+    source_version = source.execute("PRAGMA user_version").fetchone()[0]
+    if source_version not in ((version,) if isinstance(version, int) else version):
         raise invalid()
     objects = source.execute("SELECT type,name,tbl_name,sql FROM sqlite_master").fetchall()
     if {row["name"] for row in objects if row["type"] == "table"} != tables:
@@ -54,7 +58,15 @@ def validate_schema(source: sqlite3.Connection, target: sqlite3.Connection, tabl
     for table in tables:
         # Table names come solely from constant sets, never SQL or user data.
         columns = [tuple(row) for row in source.execute(f"PRAGMA table_info({table})")]
-        if columns != [tuple(row) for row in target.execute(f"PRAGMA table_info({table})")]:
+        expected = [tuple(row) for row in target.execute(f"PRAGMA table_info({table})")]
+        if table == "tracks":
+            absent = (AUDIO_COLUMNS if source_version < 7 else set()) | (
+                {"tonal_profile_json"} if source_version < 6 else set()
+            )
+            # Additive migrations append columns. Verify definitions by name, not physical order.
+            if {row[1]: row[2:] for row in columns} != {row[1]: row[2:] for row in expected if row[1] not in absent}:
+                raise invalid()
+        elif columns != expected:
             raise invalid()
 
 
@@ -87,20 +99,26 @@ def rebuild_tracks(content: bytes | None) -> tuple[bytes, int, int]:
         rows, cached = [], 0
         if content is not None:
             with memory_database(content) as source:
-                validate_schema(source, target, {"tracks"}, SCHEMA_VERSION)
+                validate_schema(source, target, {"tracks"}, (5, 6, 7))
                 rows = bounded_rows(source, "tracks", MAX_TRACKS)
                 for row in rows:
                     valid_path(row["path"])
-                    record = TrackRepository._row_to_record(row)
+                    values = {**dict.fromkeys(AUDIO_COLUMNS | {"tonal_profile_json"}), **dict(row)}
+                    record = TrackRepository._row_to_record(values)
                     if any(
-                        row[field + "_json"] is not None and getattr(record, field) is None for field in PROFILE_FIELDS
+                        values.get(field + "_json") is not None and getattr(record, field) is None
+                        for field in PROFILE_FIELDS
                     ):
                         raise invalid()
                     for field in ("file_mtime_ns", "file_size_bytes"):
                         if row[field] is not None and (type(row[field]) is not int or row[field] < 0):
                             raise invalid()
                     cached += any(getattr(record, field) is not None for field in PROFILE_FIELDS)
-                    target.execute("INSERT INTO tracks VALUES (" + ",".join("?" for _ in row) + ")", tuple(row))
+                    # Column identifiers have already passed the exact schema allowlist.
+                    target.execute(
+                        "INSERT INTO tracks (" + ",".join(row.keys()) + ") VALUES (" + ",".join("?" for _ in row) + ")",
+                        tuple(row),
+                    )
         target.commit()
         return target.serialize(), len(rows), cached
 

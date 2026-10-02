@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import TYPE_CHECKING, Any
 
 from xfinaudio.application.library_query import LibraryQuery, parse_library_query
@@ -23,7 +24,25 @@ SORT_FIELDS = {
     "key": "camelot_key",
     "energy": "energy_level",
     "duration": "duration",
+    "format": "audio_format",
+    "bitrate": "bitrate_kbps",
 }
+
+
+def _sort_value(record: TrackRecord, field: str) -> Any:
+    value = getattr(record, field)
+    if isinstance(value, str):
+        value = value.strip().casefold()
+        if not value:
+            return None
+        if field == "camelot_key":
+            match = re.fullmatch(r"(1[0-2]|[1-9])([ab])", value)
+            return (0, int(match[1]), match[2]) if match else (1, 0, value)
+        if field == "audio_format":
+            return (value, (record.audio_codec or "").casefold())
+    if isinstance(value, (int, float)) and not math.isfinite(value):
+        return None
+    return value
 
 
 def _suppress(records: list[TrackRecord]) -> list[TrackRecord]:
@@ -94,17 +113,10 @@ class LibraryBrowser:
         suppressed = len(matches) - len(visible)
         field = SORT_FIELDS[sort_by]
         known, unknown = [], []
-        for record in visible:
-            value = getattr(record, field)
-            (
-                unknown
-                if value is None or value == "" or isinstance(value, (int, float)) and not math.isfinite(value)
-                else known
-            ).append(record)
-        known.sort(
-            key=lambda r: getattr(r, field).casefold() if isinstance(getattr(r, field), str) else getattr(r, field),
-            reverse=descending,
-        )
+        # Tie order is deterministic and direction independent; no source list is mutated.
+        for record in sorted(visible, key=lambda r: r.path):
+            (unknown if _sort_value(record, field) is None else known).append(record)
+        known.sort(key=lambda r: _sort_value(r, field), reverse=descending)
         return {
             "tracks": [_public_track(r) for r in known + unknown],
             "query": query.model_dump(),

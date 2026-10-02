@@ -11,6 +11,10 @@ export interface Track {
   energy: number | null;
   duration: number | null;
   genre?: string;
+  audioFormat?: string | null;
+  audioCodec?: string | null;
+  bitrateKbps?: number | null;
+  bitrateMode?: 'CBR' | 'VBR' | 'ABR' | null;
   status?: string;
   missingFields?: string[];
 }
@@ -164,4 +168,14 @@ export class OperationGate {
     this.active = null;
     return true;
   }
+}
+
+/** Values are parser-declared rates, never estimates from whole-file size. */
+export function formatAudioFormat(track:Track):string {
+  return track.audioFormat?.trim() ? [track.audioFormat,track.audioCodec].filter(Boolean).join(' · ') : 'No disponible';
+}
+export function formatBitrate(track:Track):string {
+  const rate=track.bitrateKbps;
+  return typeof rate==='number'&&Number.isFinite(rate)&&rate>0
+    ? `${rate.toLocaleString('es-ES',{maximumFractionDigits:3})} kbps${track.bitrateMode?' · '+track.bitrateMode:''}` : 'No disponible';
 }

@@ -381,3 +381,31 @@ def test_import_never_opens_audio_and_preserves_all_source_hashes(tmp_path, monk
         preview = service.execute("legacy.preview", {"source": str(source)})
         service.execute("legacy.apply", {"previewId": preview["previewId"], "confirmed": True})
     assert hashes(source) == before and hashlib.sha256(audio.read_bytes()).hexdigest() == digest
+
+
+@pytest.mark.parametrize("version", [5, 6, 7])
+def test_legacy_schema_versions_and_additive_column_order_import_without_source_changes(tmp_path, version):
+    source, backend, service = fixture(tmp_path)
+    with sqlite3.connect(source / "xfinaudio.sqlite3") as db:
+        for column in ("audio_format", "audio_codec", "bitrate_kbps", "bitrate_mode"):
+            db.execute(f"ALTER TABLE tracks DROP COLUMN {column}")
+        if version == 5:
+            db.execute("ALTER TABLE tracks DROP COLUMN tonal_profile_json")
+        db.execute(f"PRAGMA user_version={min(version, 6)}")
+    if version == 7:
+        # Real additive migration appends columns; fresh schemas may place them earlier.
+        TrackRepository(source / "xfinaudio.sqlite3")
+    before = hashes(source)
+    preview = service.execute("legacy.preview", {"source": str(source)})
+    service.execute("legacy.apply", {"previewId": preview["previewId"], "confirmed": True})
+    restored = backend.repository.list_tracks()[0]
+    assert restored.title == "Title" and restored.audio_format is None
+    assert backend.playlists.list_summaries()[0].name == "My Set"
+    assert hashes(source) == before
+
+
+def test_legacy_compatibility_does_not_accept_unrecognized_extra_columns(tmp_path):
+    source, _, service = fixture(tmp_path)
+    with sqlite3.connect(source / "xfinaudio.sqlite3") as db:
+        db.execute("ALTER TABLE tracks ADD COLUMN unexpected_data TEXT")
+    error("legacy_invalid", lambda: service.execute("legacy.preview", {"source": str(source)}))

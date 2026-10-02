@@ -19,7 +19,7 @@ export function validateOfflineRequest(method:string,params:Record<string,unknow
   if('query'in params&&'request'in params)invalid();
   if('request'in params&&!text(params.request,2000))invalid();
   if('status'in params&&!['all','complete','incomplete'].includes(String(params.status)))invalid();
-  if('sortBy'in params&&!['title','artist','genre','bpm','key','energy','duration'].includes(String(params.sortBy)))invalid();
+  if('sortBy'in params&&!['title','artist','genre','bpm','key','energy','duration','format','bitrate'].includes(String(params.sortBy)))invalid();
   for(const key of ['descending','hideDuplicates'])if(key in params&&typeof params[key]!=='boolean')invalid();
   if(!('query'in params))return;
   const query=params.query;if(!query||typeof query!=='object'||Array.isArray(query))invalid();

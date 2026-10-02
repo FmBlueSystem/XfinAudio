@@ -34,6 +34,10 @@ def _public_track(track: TrackRecord) -> dict[str, Any]:
         "energy": track.energy_level,
         "duration": track.duration,
         "genre": track.genre or "",
+        "audioFormat": track.audio_format,
+        "audioCodec": track.audio_codec,
+        "bitrateKbps": track.bitrate_kbps,
+        "bitrateMode": track.bitrate_mode,
         "status": track.metadata_status,
         "missingFields": list(track.missing_required_fields),
     }
