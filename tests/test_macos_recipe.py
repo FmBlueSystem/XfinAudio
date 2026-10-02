@@ -21,8 +21,11 @@ def module():
     return loaded
 
 
-def test_mac_freeze_has_own_entry_locator_native_architecture_and_no_qt(tmp_path):
+def test_mac_freeze_has_own_entry_locator_native_architecture_and_no_qt(tmp_path, monkeypatch):
     m = module()
+    tools = m.shared_tools(ROOT)
+    monkeypatch.setattr(tools, "python_notices", lambda: [])
+    monkeypatch.setattr(m, "shared_tools", lambda root: tools)
     command = m.freeze_command(ROOT, tmp_path, tmp_path / "ffmpeg")
     assert str(ROOT / "packaging/macos/core_entry.py") in command
     assert str(ROOT / "packaging/linux/core_entry.py") not in command
@@ -54,8 +57,7 @@ def test_cross_host_gate_keeps_origin_and_requires_exact_source(tmp_path):
     assert report["project_root"] == "/cloud/owner/source"
 
 
-def test_assembly_uses_electron_resources_and_never_overwrites(tmp_path):
-    m = module()
+def assembly_inputs(tmp_path):
     root, electron, core = [tmp_path / name for name in ["source", "electron", "core"]]
     for folder in [
         root / "desktop-electron/.out/main",
@@ -71,12 +73,21 @@ def test_assembly_uses_electron_resources_and_never_overwrites(tmp_path):
         json.dumps({"version": "0.1.0", "devDependencies": {"electron": "44.5.1"}})
     )
     (root / "LICENSE").write_text("GPL3")
+    (root / "NOTICE.md").write_bytes(b"Project notices\r\n")
+    (electron / "LICENSE").write_bytes(b"Electron license\r\n")
+    (electron / "LICENSES.chromium.html").write_bytes(b"Chromium notices\r\n")
     (electron / "version").write_text("44.5.1")
     (electron / "Electron.app/Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "Electron"}))
     (electron / "Electron.app/Contents/MacOS/Electron").write_bytes(b"fixture")
     (electron / "Electron.app/Contents/Resources/default_app.asar").write_bytes(b"default")
     (core / "xfinaudio-core").write_bytes(b"core")
     (core / "_internal/ffmpeg").write_bytes(b"decoder")
+    return root, electron, core
+
+
+def test_assembly_uses_electron_resources_and_never_overwrites(tmp_path):
+    m = module()
+    root, electron, core = assembly_inputs(tmp_path)
     app = tmp_path / "XfinAudio Next.app"
     m.assemble(root, electron, core, app)
     resources = app / "Contents/Resources"
@@ -88,12 +99,32 @@ def test_assembly_uses_electron_resources_and_never_overwrites(tmp_path):
     assert (resources / "app/.out/main/main.js").is_file()
     assert (resources / "core/xfinaudio-core").is_file()
     assert not (resources / "default_app.asar").exists()
+    assert (resources / "LICENSES/XfinAudio-NOTICE.md").read_bytes() == (root / "NOTICE.md").read_bytes()
+    for name in ("LICENSE", "LICENSES.chromium.html"):
+        assert (resources / "LICENSES" / name).read_bytes() == (electron / name).read_bytes()
     assert (
         plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
         == "io.bluesystem.xfinaudio.next"
     )
     with pytest.raises(ValueError):
         m.assemble(root, electron, core, app)
+
+
+@pytest.mark.parametrize(
+    "owner,name",
+    [("electron", "LICENSE"), ("electron", "LICENSES.chromium.html"), ("source", "LICENSE"), ("source", "NOTICE.md")],
+)
+@pytest.mark.parametrize("empty", [False, True])
+def test_required_notices_refuse_assembly_before_output(tmp_path, owner, name, empty):
+    root, electron, core = assembly_inputs(tmp_path)
+    path = tmp_path / owner / name
+    if empty:
+        path.write_bytes(b"")
+    else:
+        path.unlink()
+    with pytest.raises(ValueError, match="notice"):
+        module().assemble(root, electron, core, tmp_path / "output")
+    assert not (tmp_path / "output").exists()
 
 
 def test_final_manifest_hashes_signed_bytes_outside_app(tmp_path, monkeypatch):

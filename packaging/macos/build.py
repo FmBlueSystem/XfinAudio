@@ -78,6 +78,8 @@ def freeze_command(root: Path, output: Path, ffmpeg: Path) -> list[str]:
 def assemble(root: Path, electron: Path, core: Path, destination: Path) -> None:
     if destination.exists() or destination.resolve().is_relative_to(root.resolve()):
         raise ValueError("App destination must be new and outside source")
+    tools = shared_tools(Path(__file__).resolve().parents[2])
+    required_notices = tools.platform_notices(root, electron, mac=True)
     package = json.loads((root / "desktop-electron/package.json").read_text())
     if (electron / "version").read_text().strip() != package["devDependencies"]["electron"]:
         raise ValueError("Electron version must match the source lock")
@@ -105,10 +107,9 @@ def assemble(root: Path, electron: Path, core: Path, destination: Path) -> None:
     )
     licenses = resources / "LICENSES"
     licenses.mkdir()
-    shutil.copy2(root / "LICENSE", licenses / "XfinAudio-GPL-3.0.txt")
-    for name in ["LICENSE", "LICENSES.chromium.html"]:
-        if (electron / name).is_file():
-            shutil.copy2(electron / name, licenses / name)
+    for source, target, _ in required_notices:
+        shutil.copy2(source, resources / target)
+    tools.verify_notices(required_notices, resources)
     plist = destination / "Contents/Info.plist"
     info = plistlib.loads(plist.read_bytes())
     info.update(
@@ -168,9 +169,11 @@ def main() -> None:
         raise ValueError("Native Electron arm64 required")
     manifest = json.loads(args.ffmpeg_manifest.read_text())
     validate_ffmpeg_manifest(binary, manifest)
+    tools = shared_tools(root)
+    required_notices = tools.python_notices()
+    platform_required_notices = tools.platform_notices(root, electron, mac=True)
     output.mkdir(parents=True)
     decoder = stage_closure(binary, output / "decoder")
-    tools = shared_tools(root)
     subprocess.run(
         freeze_command(root, output, decoder),
         cwd=root,
@@ -184,8 +187,10 @@ def main() -> None:
     subprocess.run(["npm", "run", "build"], cwd=root / "desktop-electron", check=True)
     validate_gate(report, root)
     destination = output / "XfinAudio Next.app"
+    tools.verify_notices(required_notices, core / "_internal")
     assemble(root, electron, core, destination)
     resources = destination / "Contents/Resources"
+    tools.verify_notices(required_notices, resources / "core/_internal")
     shutil.copytree(args.dependency_licenses, resources / "LICENSES/FFmpeg-dependencies")
     shutil.copy2(args.ffmpeg_manifest, resources / "LICENSES/ffmpeg-input-provenance.json")
     shutil.copy2(args.gate_report, resources / "release-gate.json")
@@ -208,6 +213,8 @@ def main() -> None:
     provenance["electron_native_inventory"] = electron_inventory
     (resources / "build-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     sign_and_record_final_manifest(destination, provenance["source_sha256"])
+    tools.verify_notices(platform_required_notices, resources)
+    tools.verify_notices(required_notices, resources / "core/_internal")
     validate_gate(report, root)
     validate_ffmpeg_manifest(binary, manifest)
     print(destination)

@@ -97,6 +97,7 @@ def inputs(tmp_path):
     write(electron, "electron").chmod(0o755)
     write(electron, "version", "44.5.1")
     write(electron, "LICENSE")
+    write(electron, "LICENSES.chromium.html", "Chromium notices\r\n")
     write(electron, "resources/default_app.asar")
     write(core, "xfinaudio-core").chmod(0o755)
     write(core, "_internal/ffmpeg").chmod(0o755)
@@ -117,8 +118,26 @@ def test_assembly_uses_existing_runtime_contract_without_python_launcher(tmp_pat
     assert not (destination / "resources/default_app.asar").exists()
     assert (destination / "LICENSES/XfinAudio-LICENSE").exists()
     assert (destination / "LICENSE").exists()
+    assert (destination / "LICENSES.chromium.html").read_bytes() == (electron / "LICENSES.chromium.html").read_bytes()
     with pytest.raises(ValueError):
         module().assemble(root, electron, core, destination)
+
+
+@pytest.mark.parametrize(
+    "owner,name",
+    [("electron", "LICENSE"), ("electron", "LICENSES.chromium.html"), ("source", "LICENSE"), ("source", "NOTICE.md")],
+)
+@pytest.mark.parametrize("empty", [False, True])
+def test_required_notices_refuse_assembly_before_output(tmp_path, owner, name, empty):
+    root, electron, core = inputs(tmp_path)
+    path = tmp_path / owner / name
+    if empty:
+        path.write_bytes(b"")
+    else:
+        path.unlink()
+    with pytest.raises(ValueError, match="notice"):
+        module().assemble(root, electron, core, tmp_path / "output")
+    assert not (tmp_path / "output").exists()
 
 
 @pytest.mark.parametrize("missing", ["_internal/ffmpeg", "_internal/libpython3.12.so.1.0", "xfinaudio-core"])
@@ -139,13 +158,15 @@ def test_output_inside_source_refused_and_electron_version_must_match(tmp_path):
         module().assemble(root, electron, core, tmp_path / "output")
 
 
-def test_frozen_command_excludes_qt_and_bundles_python_and_ffmpeg(tmp_path):
+def test_frozen_command_excludes_qt_and_bundles_python_and_ffmpeg(tmp_path, monkeypatch):
     write(
         tmp_path,
         "desktop-electron/requirements-headless.txt",
         "mutagen==1.48.1\npydantic==2.13.5\npydantic-core==2.46.5\nnumpy==2.5.3\nannotated-types==0.8.0\ntyping-extensions==4.16.0\ntyping-inspection==0.4.4\n",
     )
-    command = module().freeze_command(tmp_path, tmp_path / "output", tmp_path / "ffmpeg")
+    pack = module()
+    monkeypatch.setattr(pack, "python_notices", lambda: [])
+    command = pack.freeze_command(tmp_path, tmp_path / "output", tmp_path / "ffmpeg")
     assert "--onedir" in command
     assert "--add-binary" in command
     assert str(tmp_path / "ffmpeg") + ":." in command
@@ -170,13 +191,15 @@ def test_ffmpeg_source_lock_is_pinned_to_official_audio_only_build():
     assert not any("--enable-lib" in flag for flag in flags)
 
 
-def test_frozen_command_retains_python_and_dependency_licenses(tmp_path):
+def test_frozen_command_retains_python_and_dependency_licenses(tmp_path, monkeypatch):
     write(
         tmp_path,
         "desktop-electron/requirements-headless.txt",
         "mutagen==1.48.1\npydantic==2.13.5\npydantic-core==2.46.5\nnumpy==2.5.3\nannotated-types==0.8.0\ntyping-extensions==4.16.0\ntyping-inspection==0.4.4\n",
     )
-    command = module().freeze_command(tmp_path, tmp_path / "output", tmp_path / "ffmpeg")
+    pack = module()
+    monkeypatch.setattr(pack, "python_notices", lambda: [])
+    command = pack.freeze_command(tmp_path, tmp_path / "output", tmp_path / "ffmpeg")
     for name in (
         "mutagen",
         "pydantic",
@@ -236,11 +259,13 @@ def test_ffmpeg_dependencies_allow_only_baseline_linux_libraries():
             pack.validate_ffmpeg_dependencies(dependency)
 
 
-def test_freeze_collects_profile_lazy_assets_and_all_locked_runtime_metadata(tmp_path):
+def test_freeze_collects_profile_lazy_assets_and_all_locked_runtime_metadata(tmp_path, monkeypatch):
     write(
         tmp_path, "desktop-electron/requirements-headless.txt", "librosa==0.11.0\nsoundfile==0.14.0\nllvmlite==0.45.0\n"
     )
-    command = module().freeze_command(tmp_path, tmp_path / "output", tmp_path / "ffmpeg")
+    pack = module()
+    monkeypatch.setattr(pack, "python_notices", lambda: [])
+    command = pack.freeze_command(tmp_path, tmp_path / "output", tmp_path / "ffmpeg")
     index = command.index("librosa")
     assert command[index - 1] == "--collect-all"
     assert any(command[i : i + 2] == ["--copy-metadata", "soundfile"] for i in range(len(command) - 1))
@@ -290,9 +315,11 @@ def test_freezer_environment_must_match_complete_hash_locked_dependency_set(tmp_
             pack.validate_build_environment(lock, bad)
 
 
-def test_freeze_collects_current_scipy_vendored_dynamic_numpy_modules(tmp_path):
+def test_freeze_collects_current_scipy_vendored_dynamic_numpy_modules(tmp_path, monkeypatch):
     write(tmp_path, "desktop-electron/requirements-headless.txt", "scipy==1.18.1\n")
-    command = module().freeze_command(tmp_path, tmp_path / "output", tmp_path / "ffmpeg")
+    pack = module()
+    monkeypatch.setattr(pack, "python_notices", lambda: [])
+    command = pack.freeze_command(tmp_path, tmp_path / "output", tmp_path / "ffmpeg")
     for name in ("scipy._external.array_api_compat.numpy.fft", "scipy._external.array_api_compat.numpy.linalg"):
         assert any(command[i : i + 2] == ["--hidden-import", name] for i in range(len(command) - 1))
 
@@ -379,8 +406,8 @@ def test_jit_bootstrap_rejects_invalid_arguments_before_any_directory_creation(a
     assert created == []
 
 
-def test_smoke_uses_tagged_fixture_without_changing_original_scanner(tmp_path):
-    """The integration smoke must obey the existing metadata-first scan contract."""
+def test_smoke_uses_tagged_fixture_and_readonly_stream_properties(tmp_path):
+    """The tagged smoke also preserves parser facts and bytes of untagged audio."""
     import wave
 
     from mutagen.id3 import TIT2
@@ -395,7 +422,10 @@ def test_smoke_uses_tagged_fixture_without_changing_original_scanner(tmp_path):
         output.setframerate(44100)
         output.writeframes(b"\0\0" * 44100)
     untagged = audio.read_bytes()
-    assert read_mutagen_tags(audio) is None
+    properties = read_mutagen_tags(audio)
+    assert properties is not None and properties["__duration__"] == 1.0
+    assert properties["__audio_properties__"] == {"audio_format": "WAV", "bitrate_kbps": 705.6}
+    assert "TIT2" not in properties
     assert audio.read_bytes() == untagged
     tagged_audio = WAVE(audio)
     tagged_audio.add_tags()
