@@ -36,3 +36,8 @@ test('pending and offline controls disable every action, showing cancellation li
 test('a completed connection test is described separately from mere credential-source configuration', async () => {
   const f = await fixture('connection'); try { await f.controller.prepare(); f.controller.setConsent(true); await f.controller.ask(); assert.doesNotMatch(f.get('status').textContent, /No se ha comprobado la conexión/); assert.match(f.get('status').textContent, /resultado de la prueba/); } finally { f.restore(); }
 });
+test('all eight contexts share one draft while only global connection shows credential settings',async()=>{
+ for(const surface of ['library','prep','review','saved','editor','metadata','live','connection']){
+  const f=await fixture(surface);try{assert.equal(f.get('config').hidden,surface!=='connection');assert.equal(f.get('settings-link').hidden,surface==='connection');assert.equal(f.calls.length,0);const enabled=f.get('enabled');f.controller.setEnabled(false);f.render();assert.equal(f.get('enabled'),enabled);assert.equal(f.controller.dirty,true);assert.match(f.get('config-summary').textContent,/sin guardar/);assert.equal(f.get('consent').checked,false);}finally{f.restore();}
+ }
+});

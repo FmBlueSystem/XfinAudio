@@ -37,3 +37,18 @@ test('blocked preview warnings and receipt remain visible; reveal is receipt-onl
     f.controller.source = null; f.controller.receipt = { receiptId: 'r', filename: 'Confirmado.crate', destinationLabel: 'Subcrates', trackCount: 2, validated: true, backupCreated: true }; f.render(); assert.equal(f.get('receipt').hidden, false); assert.match(text(f.get('receipt')), /Confirmado.crate/); assert.match(text(f.get('receipt')), /validado|validación/i); f.get('reveal').dispatchEvent(new Event('click')); assert.deepEqual(f.calls, [['reveal']]); f.block(); assert.equal(f.get('reveal').disabled, true);
   } finally { f.restore(); }
 });
+test('only the next available export step is primary and rendering never starts an operation', () => {
+  const f = fixture(); const primary = () => all(f.root).filter(node => node.tagName === 'button' && /\bprimary\b/.test(node.className) && !node.hidden).map(node => node.id);
+  try {
+    const name = f.get('name'); f.controller.destination = null; f.controller.canPreview = false; f.render();
+    assert.deepEqual(primary(), ['serato-export-choose']); assert.match(f.get('next-step').textContent, /1.*destino/i);
+    f.controller.destination = { destinationId: 'chosen', label: '_Serato_' }; f.controller.canPreview = true; f.render();
+    assert.deepEqual(primary(), ['serato-export-preview']); assert.match(f.get('next-step').textContent, /2.*previa/i); assert.match(f.get('choose').textContent, /Cambiar/);
+    f.controller.preview = { filename: 'Set.crate', destinationLabel: '_Serato_', trackCount: 1, readiness: 'ready', warnings: [], blockers: [], backup: { required: false }, tracks: [{ title: 'One', artist: 'DJ' }] }; f.controller.canCommit = true; f.render();
+    assert.deepEqual(primary(), ['serato-export-commit']); assert.match(f.get('next-step').textContent, /3.*confirm/i);
+    f.controller.canCommit = false; f.controller.preview = { ...f.controller.preview, readiness: 'blocked', blockers: ['Archivo ausente'] }; f.render();
+    assert.deepEqual(primary(), []); assert.match(f.get('next-step').textContent, /bloqueos/i); assert.match(text(f.get('proposal')), /Archivo ausente/);
+    f.controller.preview = null; f.render(); assert.deepEqual(primary(), ['serato-export-preview']);
+    f.controller.pending = 'preview'; f.render(); assert.deepEqual(primary(), []); assert.equal(f.get('name'), name); assert.deepEqual(f.calls, []);
+  } finally { f.restore(); }
+});

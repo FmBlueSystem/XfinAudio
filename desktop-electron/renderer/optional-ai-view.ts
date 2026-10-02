@@ -14,7 +14,7 @@ const surfaceDisclosure: Record<AiSurface, string> = {
   live: 'La explicación usa opciones y puntuaciones ya calculadas localmente. No cambia el orden, las marcas ni la reproducción.',
   connection: 'Prueba sintética sin datos de la biblioteca. Es una consulta explícita al proveedor y puede consumir cuota.',
 };
-export function createOptionalAiView(root: HTMLElement, controller: OptionalAiController, host: { canAct(): boolean; idPrefix?: string }): () => void {
+export function createOptionalAiView(root: HTMLElement, controller: OptionalAiController, host: { canAct(): boolean; idPrefix?: string; openSettings?(): void }): () => void {
   const prefix = host.idPrefix ?? 'optional-ai';
   const identify = <T extends HTMLElement>(node: T, suffix: string): T => { node.id = `${prefix}-${suffix}`; return node; };
   const canAct = (): boolean => host.canAct() && !controller.pending;
@@ -23,7 +23,8 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const error = identify(make('p', '', 'review-notice blocker'), 'error'); error.setAttribute('role', 'alert');
   const notice = identify(make('p', '', 'review-notice'), 'notice'); notice.setAttribute('role', 'status');
   const status = identify(make('p', '', 'field-hint'), 'status');
-  const config = make('details'); config.append(make('summary', 'Ajustes de asistencia IA opcional'));
+  const config = identify(make('details'), 'config');
+  const configSummary = identify(make('summary'), 'config-summary'); config.append(configSummary);
   const enabled = identify(make('input'), 'enabled'); enabled.type = 'checkbox';
   const enabledLabel = make('label', 'Permitir solicitudes explícitas de asistencia IA'); enabledLabel.setAttribute('for', enabled.id);
   const dirty = identify(make('p', '', 'field-hint'), 'dirty'); dirty.setAttribute('aria-live', 'polite');
@@ -31,6 +32,7 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
     const button = identify(make('button', caption, `button ${primary ? 'primary' : 'subtle'}`), id); button.type = 'button';
     button.addEventListener('click', () => { if (canAct() && !button.disabled) callback(); }); return button;
   };
+  const settingsLink = action('settings-link', 'Abrir ajustes de IA', () => host.openSettings?.());
   const save = action('save', 'Guardar ajustes de IA', () => { void controller.save(); }, true);
   const discard = action('discard', 'Descartar cambios', () => controller.discard());
   const refresh = action('refresh', 'Actualizar ajustes', () => { void controller.load(); });
@@ -63,9 +65,11 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const proposal = make('details'); proposal.append(make('summary', 'Revisar datos de la propuesta')); const proposalText = make('pre'); proposal.append(proposalText);
   const apply = action('apply', 'Aplicar propuesta al trabajo local', () => { void controller.applySuggestion(); });
   result.append(resultHeading, resultTitle, resultCaution, resultText, proposal, apply, make('p', 'Aplicar no guarda, exporta ni reproduce audio. Esas acciones siguen siendo explícitas.', 'field-hint'));
-  section.append(heading, error, notice, status, config, recipient, disclosure, requestField, fixedRequest, prepare, preview, pending, result); root.replaceChildren(section);
+  section.append(heading, error, notice, status, settingsLink, config, recipient, disclosure, requestField, fixedRequest, prepare, preview, pending, result); root.replaceChildren(section);
   return () => {
     const snapshot = controller.snapshot; const blocked = !canAct();
+    config.hidden = controller.surface !== 'connection'; settingsLink.hidden = !config.hidden; settingsLink.disabled = blocked;
+    configSummary.textContent = `Ajustes de asistencia IA${controller.dirty ? ' · cambios sin guardar' : ''}`;
     heading.textContent = `Asistencia IA opcional · ${surfaceNames[controller.surface]}`;
     error.hidden = !controller.error; error.textContent = controller.error; notice.hidden = !controller.notice; notice.textContent = controller.notice;
     status.textContent = !snapshot ? 'Carga los ajustes para conocer el estado de la asistencia.'
