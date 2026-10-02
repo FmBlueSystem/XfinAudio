@@ -161,6 +161,19 @@ def test_electron_job_installs_public_locked_dependencies_and_runs_real_gate():
     assert "continue-on-error" not in workflow
 
 
+def test_electron_interpreter_uses_runner_context_only_at_the_suite_step():
+    workflow = (ROOT / ".github/workflows/non-audio-release-gates.yml").read_text()
+    electron_job = workflow.split("\n  electron-migration-tests:\n", 1)[1]
+    job_configuration, steps = electron_job.split("\n    steps:\n", 1)
+    # runner is unavailable in job-level env but allowed in steps.env:
+    # https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability
+    assert "${{ runner." not in job_configuration
+    suite_step = steps.split("      - name: Run Electron suite with zero-skip evidence\n", 1)[1]
+    suite_step = suite_step.split("\n      - name:", 1)[0]
+    assert "\n        env:\n          XFIN_PYTHON: ${{ runner.temp }}/electron-python/bin/python\n" in suite_step
+    assert "run: '\"$XFIN_PYTHON\" scripts/electron_ci_check.py'" in suite_step
+
+
 @pytest.mark.parametrize("artifact", ["non-audio-release-gate-evidence", "electron-test-evidence"])
 def test_each_evidence_upload_includes_its_explicit_hidden_paths(artifact):
     workflow = (ROOT / ".github/workflows/non-audio-release-gates.yml").read_text()
