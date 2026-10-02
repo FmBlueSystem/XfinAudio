@@ -1,0 +1,6 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { REVIEW_CONTROL_FIELDS, validateReviewControlRequest } from '../.out/main/review-security.js';
+const id='a'.repeat(64),reviewId='11111111-1111-4111-8111-111111111111';
+test('review and Prep actions accept only bounded opaque inputs',()=>{assert.ok(REVIEW_CONTROL_FIELDS.reviewRemove);for(const method of ['reviewCompare','reviewRemove'])validateReviewControlRequest(method,{reviewId,trackId:id});validateReviewControlRequest('reviewReorder',{reviewId,trackIds:[id]});validateReviewControlRequest('prepSettings',{});validateReviewControlRequest('savePrepSettings',{revision:id,requiredTrackIds:[id],excludedTrackIds:[],genreFocus:'House',clearUnavailable:false});});
+test('paths, extras, missing revisions, duplicate IDs and conflicting controls fail closed',()=>{for(const [method,input] of [['reviewDetails',{}],['reviewRemove',{reviewId,trackId:'/Users/private/file'}],['reviewDetails',{reviewId,path:'/x'}],['reviewReorder',{reviewId,trackIds:[id,id]}],['savePrepSettings',{revision:id,requiredTrackIds:[id],excludedTrackIds:[id],genreFocus:'House',clearUnavailable:false}],['savePrepSettings',{revision:id,requiredTrackIds:[],excludedTrackIds:[],genreFocus:'x',clearUnavailable:'yes'}]])assert.throws(()=>validateReviewControlRequest(method,input));});

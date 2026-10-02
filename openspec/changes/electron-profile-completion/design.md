@@ -1,0 +1,9 @@
+# Design
+
+Add a Qt-neutral headless ProfileCompletion adapter owning profiles.status, profiles.complete, profiles.settings.get/update. DTOs contain aggregate counts only; existing Track DTO remains unchanged. The server's single active worker owns the full job. Original LibrosaSpectralAnalyzer, LibrosaDanceabilityAnalyzer and LibrosaEdgeSpectralAnalyzer execute in sequential stages in a pool capped at two active futures; only worker results whose current source identity matches their bound input are committed through TrackRepository. Cached profile version and mtime/size identity must match current authorized regular files. Aggregate status is rebuilt from current repository/cache state, not optimistic counters.
+
+Profiles.status: state idle|complete|partial|cancelled|unavailable; totalTracks, readyCount, spectralReadyCount, danceabilityReadyCount, edgeReadyCount, pendingCount (tracks missing any profile), failedCount (unique tracks failed in last pass). Complete: {cancelled,status,tracks,completeCount,incompleteCount}. Progress: {phase:'profiles',stage:'spectral'|'danceability'|'edge',processedCount,totalCount,readyCount,failedCount}; stage counts refer only to that stage's work. Cached hits do not generate synthetic successful analysis events. No paths or raw exceptions.
+
+Preference methods return {revision,spectralCohesion}. Revision save uses the original bounded settings lock/recovery path. Thread cohesion through original Prep builder and Live scoring, preserving existing default API behavior for unrelated callers. A successful preference update invalidates plan/review, Live and optional AI contexts. Completion likewise invalidates derived contexts before work.
+
+Headless requirements add the original bounded librosa dependency and hash-lock transitive wheels; no root dependency sync and no Qt import. Integration fixtures are locally generated disposable audible samples; installed settings and real user audio are untouched.

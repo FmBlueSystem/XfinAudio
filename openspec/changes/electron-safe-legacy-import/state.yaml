@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: electron-safe-legacy-import
+artifact_store: openspec
+status: verify
+created: 2026-10-01
+updated: 2026-10-01
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in-progress
+next_recommended: aggregate-verification
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Owned source and tests frozen after focused GREEN; full aggregate verification remains separate.
+  - No original data or installed application replacement was performed.

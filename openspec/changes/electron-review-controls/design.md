@@ -1,0 +1,6 @@
+# Design
+Qt-free GeneratedReview reuses recommendation_reordered, recommendation_with_replacement, scoring/readiness/quality and explanation helpers. Its binding captures review source identities and local policy; command callers use UUID review revisions. It emits only opaque IDs, measured components and safe descriptive strings. Replacement pool remains original domain policy with generation genre context retained. Mutation resets Live/AI/export validity through a new review UUID.
+PrepSettings uses PreferencesService bounded lock/load/save with original immutable BuildSessionSettings. Paths never cross renderer boundary. Missing or unauthorized saved paths remain retained unless the user explicitly clears unavailable selections. Renderer modules use global operation host, gate stale completion by review identity, and render textContent only.
+Backend and main/preload/app shared-file composition is coordinated with their owners.
+
+Generation-time plan identity is captured before the engine, verified before publication and cached variant selection, and never refreshed by review selection. Candidate/source changes during assessment or variant application reject without publishing a partial review. Source-bound export retains blocked-preview semantics rather than bypassing readiness.
