@@ -24,8 +24,8 @@ jobs:
     # a single line of output.
     env:
       QT_QPA_PLATFORM: offscreen
-    # Successful runs take 2-3 minutes. Without a limit a hung job runs to the
-    # 6-hour default, and macOS runner minutes bill at 10x the Linux rate.
+    # Bound the complete fresh-process manifest instead of allowing a hung
+    # coverage batch to consume the 6-hour default on a macOS runner.
     timeout-minutes: 20
 
     steps:
@@ -81,12 +81,16 @@ jobs:
         run: >-
           uv run python scripts/release_gate_check.py
           --include-packaging-build
+          --coverage-batch-size 120
+          --coverage-evidence-dir "${{ runner.temp }}/coverage-evidence"
           --report-json .release-evidence/release-gate-report.json
 
       - name: Run default non-audio release gates
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.include_packaging_build }}
         run: >-
           uv run python scripts/release_gate_check.py --run
+          --coverage-batch-size 120
+          --coverage-evidence-dir "${{ runner.temp }}/coverage-evidence"
           --report-json .release-evidence/release-gate-report.json
 
       - name: Render non-audio release gate Markdown evidence
@@ -105,7 +109,66 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: non-audio-release-gate-evidence
+          include-hidden-files: true
           path: |
             .release-evidence/release-gate-report.json
             .release-evidence/release-gate-evidence.md
+            ${{ runner.temp }}/coverage-evidence/
+          if-no-files-found: error
+
+  electron-migration-tests:
+    name: Electron migration tests
+    runs-on: macos-latest
+    # Independent of legacy gate success; the suite itself is bounded at 10m.
+    timeout-minutes: 15
+    env:
+      XFIN_PYTHON: ${{ runner.temp }}/electron-python/bin/python
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: "24.19.0"
+          package-manager-cache: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+
+      - name: Install separate locked Qt-free Python dependencies
+        run: |
+          uv venv "${{ runner.temp }}/electron-python" --python 3.12
+          uv pip sync --python "${{ runner.temp }}/electron-python/bin/python" \
+            --require-hashes --index-url https://pypi.org/simple desktop-electron/requirements-headless.txt
+
+      - name: Install locked Electron dependencies
+        working-directory: desktop-electron
+        run: npm ci --registry=https://registry.npmjs.org
+
+      - name: Ensure FFmpeg integration prerequisite
+        run: |
+          if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
+          ffmpeg -version
+
+      - name: Run Electron suite with zero-skip evidence
+        id: electron-tests
+        run: '"$XFIN_PYTHON" scripts/electron_ci_check.py'
+
+      - name: Record Electron stage outcome
+        if: always()
+        run: |
+          mkdir -p .release-evidence
+          echo "Electron test stage: ${{ steps.electron-tests.outcome }}" | tee .release-evidence/electron-stage.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Electron test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: electron-test-evidence
+          include-hidden-files: true
+          path: |
+            .release-evidence/electron-test-report.json
+            .release-evidence/electron-test.log
+            .release-evidence/electron-stage.txt
           if-no-files-found: error
