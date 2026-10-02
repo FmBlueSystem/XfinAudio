@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any
@@ -27,7 +27,7 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.sqlite_connection import database_connection
 from xfinaudio.metadata.mixedinkey_contract import PARSED_TAG_KEYS
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Schema version that introduced the PARSED_TAG_KEYS allowlist for raw metadata
 # (see library/scan_service.py). Databases older than this still hold blobs the
@@ -82,9 +82,13 @@ class TrackRepository:
                     metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                     audio_md5, spectral_profile_json, danceability_profile_json,
                     edge_spectral_profile_json, tonal_profile_json, loudness_profile_json,
-                    file_mtime_ns, file_size_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    file_mtime_ns, file_size_bytes, audio_format, audio_codec, bitrate_kbps, bitrate_mode
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
+                    audio_format = excluded.audio_format,
+                    audio_codec = excluded.audio_codec,
+                    bitrate_kbps = excluded.bitrate_kbps,
+                    bitrate_mode = excluded.bitrate_mode,
                     title = excluded.title,
                     artist = excluded.artist,
                     bpm = excluded.bpm,
@@ -175,6 +179,7 @@ class TrackRepository:
             rows = connection.execute(
                 """
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
+                       audio_format, audio_codec, bitrate_kbps, bitrate_mode,
                        energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
                        metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                        audio_md5, spectral_profile_json, danceability_profile_json,
@@ -191,6 +196,7 @@ class TrackRepository:
             rows = connection.execute(
                 """
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
+                       audio_format, audio_codec, bitrate_kbps, bitrate_mode,
                        energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
                        metadata_status, missing_required_fields_json, spectral_profile_json,
                        danceability_profile_json, edge_spectral_profile_json, tonal_profile_json,
@@ -672,6 +678,8 @@ class TrackRepository:
     def _initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
+            # SQLite DDL needs an explicit transaction for an all-or-nothing migration.
+            connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
             if schema_version > SCHEMA_VERSION:
                 raise UnsupportedDatabaseVersionError(
@@ -743,6 +751,10 @@ class TrackRepository:
                 energy_out INTEGER,
                 energy_peak INTEGER,
                 duration REAL,
+                audio_format TEXT,
+                audio_codec TEXT,
+                bitrate_kbps REAL,
+                bitrate_mode TEXT,
                 genre TEXT,
                 release_year INTEGER,
                 tags_json TEXT NOT NULL DEFAULT '[]',
@@ -761,6 +773,16 @@ class TrackRepository:
             )
             """
         )
+        # Additive migration keeps legacy track identities, metadata and ordering.
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
+        for column, kind in (
+            ("audio_format", "TEXT"),
+            ("audio_codec", "TEXT"),
+            ("bitrate_kbps", "REAL"),
+            ("bitrate_mode", "TEXT"),
+        ):
+            if column not in columns:
+                connection.execute(f"ALTER TABLE tracks ADD COLUMN {column} {kind}")
         # Gracefully add columns introduced after the initial schema
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN duration REAL")
@@ -829,12 +851,20 @@ class TrackRepository:
             _serialize_loudness_profile(record.loudness_profile),
             mtime_ns,
             size_bytes,
+            record.audio_format,
+            record.audio_codec,
+            record.bitrate_kbps,
+            record.bitrate_mode,
         )
 
     @staticmethod
-    def _row_to_record(row: sqlite3.Row) -> TrackRecord:
+    def _row_to_record(row: sqlite3.Row | Mapping[str, Any]) -> TrackRecord:
         return TrackRecord(
             path=row["path"],
+            audio_format=row["audio_format"],
+            audio_codec=row["audio_codec"],
+            bitrate_kbps=row["bitrate_kbps"],
+            bitrate_mode=row["bitrate_mode"],
             title=row["title"],
             artist=row["artist"],
             bpm=row["bpm"],
@@ -863,6 +893,10 @@ class TrackRepository:
     def _display_row_to_record(row: sqlite3.Row) -> TrackRecord:
         return TrackRecord(
             path=row["path"],
+            audio_format=row["audio_format"],
+            audio_codec=row["audio_codec"],
+            bitrate_kbps=row["bitrate_kbps"],
+            bitrate_mode=row["bitrate_mode"],
             title=row["title"],
             artist=row["artist"],
             bpm=row["bpm"],

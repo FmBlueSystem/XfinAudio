@@ -1786,7 +1786,7 @@ def test_track_repository_adds_tonal_profile_column_to_v5_without_data_loss(tmp_
         version = connection.execute("PRAGMA user_version").fetchone()[0]
 
     assert "tonal_profile_json" in columns
-    assert version == SCHEMA_VERSION == 6
+    assert version == SCHEMA_VERSION == 7
     assert row["title"] == "Legacy"
     assert row["metadata_status"] == "complete"
     assert row["tonal_profile_json"] is None

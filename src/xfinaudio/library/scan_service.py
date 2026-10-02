@@ -14,6 +14,7 @@ from xfinaudio.audio.analyzer import LibrosaSpectralAnalyzer, SpectralAnalyzer
 from xfinaudio.audio.batch_analyzer import analyze_paths
 from xfinaudio.audio.loudness_tags import MP4_LOUDNESS_TAG, recover_loudness_profile
 from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
+from xfinaudio.library.audio_properties import stream_properties
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_planning import (
     SUPPORTED_AUDIO_EXTENSIONS as SUPPORTED_AUDIO_EXTENSIONS,
@@ -281,6 +282,7 @@ def _build_record(
     """Build one track record from already-read metadata."""
     return TrackRecord(
         path=str(path),
+        **raw_metadata.get("__audio_properties__", {}),
         title=metadata.title,
         artist=metadata.artist,
         bpm=metadata.bpm,
@@ -400,11 +402,12 @@ def _emit_progress(
 
 
 def read_mutagen_tags(path: Path) -> dict[str, Any] | None:
-    """Read tags and duration from an audio file with mutagen without saving or modifying it."""
+    """Read tags and stream facts with mutagen without saving or modifying audio."""
     audio = MutagenFile(path, easy=False)
-    if audio is None or audio.tags is None:
+    if audio is None:
         return None
-    tags = {str(key): _coerce_tag_value(value, key=str(key)) for key, value in audio.tags.items()}
+    tags = {str(key): _coerce_tag_value(value, key=str(key)) for key, value in (audio.tags or {}).items()}
+    tags["__audio_properties__"] = stream_properties(audio)
     if audio.info is not None and hasattr(audio.info, "length"):
         tags["__duration__"] = audio.info.length
     try:

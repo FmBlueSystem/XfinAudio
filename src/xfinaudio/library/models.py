@@ -30,6 +30,10 @@ class TrackRecord(BaseModel):
     energy_peak: int | None = None
     duration: float | None = None
     genre: str | None = None
+    audio_format: str | None = None
+    audio_codec: str | None = None
+    bitrate_kbps: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    bitrate_mode: Literal["CBR", "VBR", "ABR"] | None = None
     # Optional and informational: excluded from metadata_status and
     # missing_required_fields so no completeness gate changes behavior.
     release_year: int | None = None
