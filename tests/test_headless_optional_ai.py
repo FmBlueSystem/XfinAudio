@@ -1,0 +1,351 @@
+"""Consent, freshness and local Apply use only dummy credentials and fake responses."""
+
+from __future__ import annotations
+
+import io
+import json
+from dataclasses import fields, is_dataclass
+from uuid import uuid4
+
+import pytest
+
+from tests.test_headless_ai_context import setup as setup
+from xfinaudio.ai import nan_client
+from xfinaudio.headless.common import BackendError
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.scan_service import ScanCancellationToken
+
+
+class FakeTransport:
+    def __init__(self):
+        self.content = '{"genre":"House","bpm_min":120}'
+        self.requests = []
+        self.on_send = lambda: None
+
+    def __call__(self, request, *, timeout):
+        self.requests.append(request)
+        self.on_send()
+        return io.BytesIO(json.dumps({"choices": [{"message": {"content": self.content}}]}).encode())
+
+
+@pytest.fixture
+def fixture(setup, tmp_path, monkeypatch):
+    from xfinaudio.headless.optional_ai import OptionalAI
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Real provider requests are forbidden")
+
+    monkeypatch.setattr(nan_client, "_urlopen", forbidden)
+    backend, selectors, root = setup
+    transport = FakeTransport()
+    return OptionalAI(backend, transport=transport), transport, backend, selectors, root
+
+
+def call(facade, method, params=None, *, token=None, emit=None):
+    return facade.execute(method, params or {}, token or ScanCancellationToken(), emit or (lambda _: None))
+
+
+def configure(facade, root):
+    path = root.resolve().parent / "dummy-selected.env"
+    path.write_bytes(b"NAN_API_KEY=synthetic-test-only\n")
+    status = call(facade, "ai.status")
+    selected = call(facade, "ai.credential.set", {"revision": status["revision"], "path": str(path)})
+    return call(facade, "ai.settings.update", {"revision": selected["revision"], "enabled": True}), path
+
+
+def prepare(facade, surface="library", request="House", context=None):
+    return call(facade, "ai.prepare", {"surface": surface, "request": request, "context": context or {}})
+
+
+def run(facade, preview, **kwargs):
+    return call(facade, "ai.run", {"previewId": preview["previewId"], "confirmed": True}, **kwargs)
+
+
+def test_status_and_prepare_are_default_off_metadata_only(fixture, monkeypatch):
+    facade, transport, backend, _, root = fixture
+    status = call(facade, "ai.status")
+    assert not status["enabled"] and not status["configured"]
+    assert status["recipient"] == nan_client.DEFAULT_ENDPOINT and status["credentialLabel"] is None
+    preview = prepare(facade, request=f"House {root}/private.flac")
+    assert preview["disclosure"] and str(root) not in json.dumps(preview)
+    assert preview["requestPreview"] != f"House {root}/private.flac"
+    assert call(facade, "ai.confirmation", {"previewId": preview["previewId"]}) == preview
+    with pytest.raises(BackendError) as failure:
+        run(facade, preview)
+    assert failure.value.code == "ai_disabled" and not transport.requests
+    assert not (backend.data_dir / "settings.json").exists()
+
+
+def test_credential_selection_does_not_read_contents_or_enable_ai(fixture, monkeypatch):
+    import os
+
+    facade, transport, _, _, root = fixture
+    path = root.resolve().parent / "dummy-selected.env"
+    path.write_bytes(b"not read during selection")
+    revision = call(facade, "ai.status")["revision"]
+    with monkeypatch.context() as guard:
+        guard.setattr(os, "read", lambda *args: pytest.fail("Credential read without request confirmation"))
+        selected = call(facade, "ai.credential.set", {"revision": revision, "path": str(path)})
+        assert not selected["enabled"] and selected["configured"]
+        preview = prepare(facade)
+        assert any(path.name in item for item in preview["disclosure"])
+        call(facade, "ai.confirmation", {"previewId": preview["previewId"]})
+    assert str(path.parent) not in json.dumps(selected)
+    enabled = call(facade, "ai.settings.update", {"revision": selected["revision"], "enabled": True})
+    cleared = call(facade, "ai.credential.set", {"revision": enabled["revision"], "path": None})
+    assert cleared["enabled"] and not cleared["configured"] and not transport.requests
+
+
+@pytest.mark.parametrize("confirmed", [False, 1, "true", None])
+def test_run_requires_exact_confirmation(fixture, confirmed):
+    facade, transport, _, _, root = fixture
+    configure(facade, root)
+    preview = prepare(facade)
+    with pytest.raises(BackendError):
+        call(facade, "ai.run", {"previewId": preview["previewId"], "confirmed": confirmed})
+    assert not transport.requests
+
+
+def test_one_pending_preview_and_single_use_confirmed_run(fixture):
+    facade, transport, _, _, root = fixture
+    configure(facade, root)
+    first, second = prepare(facade), prepare(facade)
+    with pytest.raises(BackendError) as failure:
+        run(facade, first)
+    assert failure.value.code == "stale_ai"
+    result = run(facade, second)
+    assert result["cancelled"] is False and result["result"]["kind"] == "filters"
+    with pytest.raises(BackendError) as replay:
+        run(facade, second)
+    assert replay.value.code == "stale_ai" and len(transport.requests) == 1
+
+
+def test_apply_is_local_does_not_save_or_change_audio_and_does_not_trust_returned_mutations(fixture):
+    facade, transport, backend, _, root = fixture
+    configure(facade, root)
+    before = {path: path.read_bytes() for path in root.iterdir()}
+    playlists = backend.execute("playlist.list", {})
+    records = backend.repository.list_tracks()
+    settings = (backend.data_dir / "settings.json").read_bytes()
+    progress = []
+    result = run(facade, prepare(facade), emit=progress.append)["result"]
+    result["proposal"]["genre"] = "caller-forged"
+    applied = call(facade, "ai.apply", {"resultId": result["resultId"]})
+    assert applied["surface"] == "library" and applied["data"]["filters"]["genre"] == "House"
+    assert applied["data"]["trackIds"] and len(transport.requests) == 1
+    assert all(item["phase"] == "ai" and set(item) <= {"phase", "processedCount", "totalCount"} for item in progress)
+    assert backend.execute("playlist.list", {}) == playlists
+    assert backend.repository.list_tracks() == records
+    assert (backend.data_dir / "settings.json").read_bytes() == settings
+    assert all(path.read_bytes() == content for path, content in before.items())
+
+
+@pytest.mark.parametrize("stage", ["before", "progress", "during"])
+def test_cancel_prevents_late_result_publication(fixture, stage):
+    facade, transport, _, _, root = fixture
+    configure(facade, root)
+    preview = prepare(facade)
+    token = ScanCancellationToken()
+    if stage == "before":
+        token.cancel()
+    elif stage == "during":
+        transport.on_send = token.cancel
+    result = run(facade, preview, token=token, emit=lambda _: token.cancel() if stage == "progress" else None)
+    assert result == {"cancelled": True, "result": None}
+    assert len(transport.requests) == (1 if stage == "during" else 0)
+    assert not facade.results
+
+
+@pytest.mark.parametrize("stage", ["before_run", "during_run", "before_apply"])
+@pytest.mark.parametrize("change", ["source", "settings", "credential"])
+def test_stale_sources_settings_and_credentials_never_publish_or_apply(fixture, stage, change):
+    facade, transport, backend, _, root = fixture
+    _, credential_path = configure(facade, root)
+    preview = prepare(facade)
+
+    def mutate():
+        if change == "source":
+            (root / "track-1.flac").unlink()
+        elif change == "settings":
+            status = backend.preferences.get_loudness()
+            backend.preferences.update_loudness({**status, "targetLufs": -18})
+        else:
+            credential_path.write_bytes(b"synthetic-replaced")
+
+    if stage == "before_run":
+        mutate()
+    elif stage == "during_run":
+        transport.on_send = mutate
+    if stage == "before_apply":
+        answer = run(facade, preview)["result"]
+        mutate()
+    with pytest.raises(BackendError) as failure:
+        if stage == "before_apply":
+            call(facade, "ai.apply", {"resultId": answer["resultId"]})
+        else:
+            run(facade, preview)
+    assert failure.value.code == "stale_ai"
+    if stage == "before_run":
+        assert not transport.requests
+
+
+def test_config_mutations_invalidate_pending_and_cached_answers(fixture):
+    facade, _, _, _, root = fixture
+    configure(facade, root)
+    answer = run(facade, prepare(facade))["result"]
+    preview = prepare(facade)
+    status = call(facade, "ai.status")
+    call(facade, "ai.settings.update", {"revision": status["revision"], "enabled": False})
+    assert not facade.results
+    for method, params in [
+        ("ai.run", {"previewId": preview["previewId"], "confirmed": True}),
+        ("ai.apply", {"resultId": answer["resultId"]}),
+    ]:
+        with pytest.raises(BackendError) as failure:
+            call(facade, method, params)
+        assert failure.value.code == "stale_ai"
+
+
+@pytest.mark.parametrize("content", ["{}", '{"genre":"unknown"}', '{"energy_min":true}', "not JSON"])
+def test_invalid_model_results_have_safe_code_and_no_cached_answer(fixture, content):
+    facade, transport, _, _, root = fixture
+    configure(facade, root)
+    transport.content = content
+    with pytest.raises(BackendError) as failure:
+        run(facade, prepare(facade))
+    assert failure.value.code == "invalid_ai_response" and not facade.results
+    assert content not in str(failure.value)
+
+
+def test_transport_exception_does_not_expose_raw_secret_or_path(fixture):
+    facade, transport, _, _, root = fixture
+    _, path = configure(facade, root)
+
+    def fail():
+        raise RuntimeError(f"synthetic-test-only {path} RAW_PROVIDER_RESPONSE")
+
+    transport.on_send = fail
+    with pytest.raises(BackendError) as failure:
+        run(facade, prepare(facade))
+    assert not any(item in str(failure.value) for item in (str(path), "synthetic-test-only", "RAW_PROVIDER_RESPONSE"))
+    assert not facade.results
+
+
+def test_result_cache_is_bounded_lightweight_and_keeps_current_older_answers(fixture):
+    facade, transport, _, _, root = fixture
+    configure(facade, root)
+    results = [run(facade, prepare(facade))["result"] for _ in range(17)]
+    assert len(facade.results) == 16
+    with pytest.raises(BackendError):
+        call(facade, "ai.apply", {"resultId": results[0]["resultId"]})
+    assert call(facade, "ai.apply", {"resultId": results[1]["resultId"]})["surface"] == "library"
+
+    def assert_light(value):
+        assert not isinstance(value, TrackRecord)
+        if is_dataclass(value):
+            for field in fields(value):
+                assert_light(getattr(value, field.name))
+        elif isinstance(value, dict):
+            assert "records" not in value
+            for item in value.values():
+                assert_light(item)
+        elif isinstance(value, (tuple, list)):
+            for item in value:
+                assert_light(item)
+
+    assert_light(facade.results)
+    assert len(transport.requests) == 17
+
+
+@pytest.mark.parametrize("change", ["request", "surface", "scope", "invalid_request"])
+def test_new_request_reference_revokes_completed_results_without_transmission(fixture, change):
+    facade, transport, _, selectors, root = fixture
+    configure(facade, root)
+    if change == "scope":
+        transport.content = '{"action":"find","selected_ids":["s0"]}'
+        first = prepare(facade, "saved", "Find a set", selectors["saved"])
+    else:
+        first = prepare(facade, request="House above 120 BPM")
+    answer = run(facade, first)["result"]
+    if change == "request":
+        prepare(facade, request="Only tracks below 100 BPM")
+    elif change == "surface":
+        prepare(facade, "prep", "Prepare four House tracks")
+    elif change == "scope":
+        prepare(facade, "saved", "Find a set", {"playlistIds": selectors["saved"]["playlistIds"][:1]})
+    else:
+        with pytest.raises(BackendError):
+            prepare(facade, request="x" * 2001)
+    with pytest.raises(BackendError) as stale:
+        call(facade, "ai.apply", {"resultId": answer["resultId"]})
+    assert stale.value.code == "stale_ai"
+    assert not facade.results and len(transport.requests) == 1
+
+
+def test_switching_back_to_an_old_request_does_not_revive_its_completed_result(fixture):
+    facade, transport, _, _, root = fixture
+    configure(facade, root)
+    old = run(facade, prepare(facade, request="House above 120 BPM"))["result"]
+    prepare(facade, request="Only tracks below 100 BPM")
+    prepare(facade, request="House above 120 BPM")
+    with pytest.raises(BackendError) as stale:
+        call(facade, "ai.apply", {"resultId": old["resultId"]})
+    assert stale.value.code == "stale_ai" and len(transport.requests) == 1
+
+
+def test_prepare_during_inflight_request_rejects_old_completion(fixture):
+    facade, transport, _, _, root = fixture
+    configure(facade, root)
+    first = prepare(facade, request="House above 120 BPM")
+    transport.on_send = lambda: prepare(facade, request="Only tracks below 100 BPM")
+    with pytest.raises(BackendError) as stale:
+        run(facade, first)
+    assert stale.value.code == "stale_ai"
+    assert not facade.results and len(transport.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "surface,prompt,content",
+    [
+        ("prep", "Warmup", '{"name":"Warmup","strategy":"warmup","target_track_count":4}'),
+        ("editor", "Shorten to 2", '{"operation":"shorten_tracks","target":2}'),
+        ("saved", "Compare sets", '{"action":"compare","selected_ids":["s0","s1"]}'),
+        ("review", "", "Synthetic commentary about the local set."),
+        ("metadata", "", '{"commentary":"Missing fields need review.","fact_ids":["m0"]}'),
+        ("live", "", '{"commentary":"Candidate c0 is locally ranked.","fact_ids":["c0"]}'),
+        ("connection", "Reply with OK. XfinAudio connection test.", "OK"),
+    ],
+)
+def test_all_remaining_original_surfaces_and_local_apply(fixture, surface, prompt, content):
+    facade, transport, _, selectors, root = fixture
+    configure(facade, root)
+    transport.content = content
+    answer = run(facade, prepare(facade, surface, prompt, selectors.get(surface)))["result"]
+    assert answer["surface"] == surface and len(transport.requests) == 1
+    if answer["canApply"]:
+        assert call(facade, "ai.apply", {"resultId": answer["resultId"]})["surface"] == surface
+    else:
+        with pytest.raises(BackendError):
+            call(facade, "ai.apply", {"resultId": answer["resultId"]})
+
+
+@pytest.mark.parametrize(
+    "method,params",
+    [
+        ("ai.status", {"path": "/private"}),
+        ("ai.prepare", {"surface": [], "request": "x", "context": {}}),
+        ("ai.prepare", {"surface": "library", "request": "x", "context": {}, "transport": "bad"}),
+        ("ai.prepare", {"surface": "library", "request": "x", "context": {}, "timeout": 120}),
+        ("ai.run", {"previewId": str(uuid4()), "confirmed": True, "timeout": 120}),
+        ("ai.confirmation", {"previewId": "bad"}),
+        ("ai.run", {"previewId": str(uuid4()), "confirmed": True}),
+        ("ai.apply", {"resultId": "bad"}),
+        ("ai.credential.set", {"revision": "0" * 64, "path": "relative.env"}),
+        ("unknown", {}),
+    ],
+)
+def test_untrusted_fields_fail_without_network(fixture, method, params):
+    facade, transport, _, _, _ = fixture
+    with pytest.raises(BackendError):
+        call(facade, method, params)
+    assert not transport.requests

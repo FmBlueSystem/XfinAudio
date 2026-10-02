@@ -97,3 +97,25 @@ def test_live_energy_gap_cannot_be_negative_directional_evidence():
     with pytest.raises(ValueError):
         explain_grounded_evidence("live", [live()[0] | {"energy_delta": -2}], transport=transport)
     assert not transport.requests
+
+
+@pytest.mark.parametrize("locked", [None, 0, 1])
+def test_metadata_lock_context_distinguishes_unavailable_from_known_zero(locked):
+    facts = metadata()
+    if locked is None:
+        del facts[0]["locked_with_gaps"]
+    else:
+        facts[0]["locked_with_gaps"] = locked
+    transport = FakeTransport('{"commentary":"Review the supplied gaps.","fact_ids":["m0"]}')
+    explain_grounded_evidence("metadata", facts, transport=transport)
+    data = transport.requests[0].data
+    assert isinstance(data, bytes)
+    body = json.loads(data)
+    sent = json.loads(body["messages"][-1]["content"])["context"]["facts"][0]
+    system = body["messages"][0]["content"]
+    if locked is None:
+        assert "locked_with_gaps" not in sent
+        assert "No locked-track selection is supplied" in system
+    else:
+        assert sent["locked_with_gaps"] == locked
+        assert "Actual repair priority is locked tracks first" in system

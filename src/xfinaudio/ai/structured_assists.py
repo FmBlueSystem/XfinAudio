@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from xfinaudio.ai.nan_client import Transport
 from xfinaudio.ai.privacy import redact_paths
 from xfinaudio.ai.structured_common import _ERROR, ask_object
-from xfinaudio.desktop.library_query import LibraryQuery
+from xfinaudio.application.library_query import LibraryQuery
 
 
 class _StrictLibraryQuery(LibraryQuery):
