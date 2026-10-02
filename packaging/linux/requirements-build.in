@@ -1,0 +1,7 @@
+# Dedicated Linux freezer environment. Never resolve legacy pyproject Qt dependencies.
+-r ../../desktop-electron/requirements-headless.txt
+pyinstaller==6.20.0
+pyinstaller-hooks-contrib==2026.5
+altgraph==0.17.5
+packaging==26.3
+setuptools==82.0.1

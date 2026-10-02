@@ -1,0 +1,4 @@
+# Restore generated review and saved Prep controls
+Restore executable Qt parity using only existing deterministic engines. Scope: transition/readiness evidence, offline comparison, revision-bound removal with backfill and reorder, and explicit app-owned persistence of locks/exclusions/genre. No audio, provider, Serato database or credential writes. Rollback: omit the new command/UI composition. Success: exact engine outputs, protected controls and stale identities rejected, honest missing selections, visible explicit save/restore.
+
+Review budget: explicit feature-branch chain, each reviewed separately: (1) review adapter and tests, (2) bounded Prep settings and tests, (3) review renderer/controller and tests, (4) Prep settings renderer and composition tests. Keep production modules small; final integration requires the full aggregate gate.

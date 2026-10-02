@@ -150,3 +150,13 @@ The automated smoke script does not create, read, render, mix, mutate, or analyz
 - [ ] Manual scan/recommend/export QA is completed safely.
 
 Current metadata-only evidence is recorded in `docs/release-candidate-evidence.md`.
+
+### Explicit fresh-process coverage mode
+
+For resource-constrained machines, keep the complete aggregate gate and opt into isolated coverage batches:
+
+```sh
+uv run python scripts/release_gate_check.py --run --coverage-batch-size 180 --coverage-evidence-dir /tmp/xfinaudio-coverage-new --report-json /tmp/xfinaudio-release-gate-report.json
+```
+
+The evidence directory must not exist and must be outside the checkout. Batch size is a target: files remain whole to preserve module fixtures. The runner collects all configured tests, checks each batch's exact collection/execution identities, validates new coverage data, rejects source/configuration changes during the run, then combines isolated data and applies the existing pyproject.toml floor. It introduces no deselection, skip, coverage-floor override or retry. Nonempty PYTEST_ADDOPTS is rejected to prevent an inherited subset selection. Default execution stays unchanged when the option is absent; all other aggregate gates and manual QA status remain in force.

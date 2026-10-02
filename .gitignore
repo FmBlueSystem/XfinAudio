@@ -40,3 +40,6 @@ playlists.db
 # Local AI credentials (never commit)
 *.env
 apiIA.env
+
+# Isolated Qt-free development environment
+.venv-headless/

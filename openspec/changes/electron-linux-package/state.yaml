@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: electron-linux-package
+artifact_store: openspec
+status: apply
+created: 2026-10-01
+updated: 2026-10-01
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: in-progress
+  verify: pending
+next_recommended: apply
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Packaging implementation remains separate until the V8 checkpoint is saved.
+  - No package build until exact-tree full aggregate verification and authorized build scope.

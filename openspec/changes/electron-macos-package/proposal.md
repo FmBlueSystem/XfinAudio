@@ -1,0 +1,3 @@
+# Native Mac packaging adaptation
+
+Build a separate arm64 Qt-free recipe without changing Python engines, shared Linux bootstrap or Electron. First deliver cache and dependency probes/patch to source owner; final app waits for coordinated V11 gates. Preserve source/copies/user state. Chained review slices: (1) app-data cache locator and tests, (2) Mach-O dependency relocation/audit and tests, (3) recipe/entry/assembly and documentation. Each slice has a 400-line review budget. No Developer ID, notarization, DMG/install replacement or source downloads. Rollback: discard newly created probe/build directories.

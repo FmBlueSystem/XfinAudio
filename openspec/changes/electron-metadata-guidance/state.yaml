@@ -1,0 +1,25 @@
+schema: gentle-ai.sdd-state.v1
+change: electron-metadata-guidance
+artifact_store: openspec
+status: verify
+created: 2026-10-01
+updated: 2026-10-01
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: pending
+next_recommended: integrated-release-gate
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Two review slices are declared in proposal.md if aggregate changes exceed the budget.
+  - No push, release, audio writes, provider calls or live Serato writes.
+  - Final combined verification remains required.

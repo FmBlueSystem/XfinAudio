@@ -205,6 +205,8 @@ class TrackRepository:
         self,
         path: str,
         profile: SpectralProfile,
+        *,
+        expected_file_identity: tuple[int, int] | None = None,
     ) -> bool:
         """Persist a spectral profile for a single track, updating file identity fields.
 
@@ -218,6 +220,8 @@ class TrackRepository:
             size_bytes = stat.st_size
         except OSError:
             pass
+        if expected_file_identity is not None and (mtime_ns, size_bytes) != expected_file_identity:
+            return False
         with self._connect() as connection:
             cursor = connection.execute(
                 """
@@ -307,6 +311,8 @@ class TrackRepository:
         self,
         path: str,
         profile: DanceabilityProfile,
+        *,
+        expected_file_identity: tuple[int, int] | None = None,
     ) -> bool:
         """Persist a danceability profile for a track and refresh its file identity."""
         mtime_ns: int | None = None
@@ -317,6 +323,8 @@ class TrackRepository:
             size_bytes = stat.st_size
         except OSError:
             pass
+        if expected_file_identity is not None and (mtime_ns, size_bytes) != expected_file_identity:
+            return False
         with self._connect() as connection:
             cursor = connection.execute(
                 """
@@ -402,6 +410,8 @@ class TrackRepository:
         self,
         path: str,
         profile: EdgeSpectralProfile,
+        *,
+        expected_file_identity: tuple[int, int] | None = None,
     ) -> bool:
         """Persist an edge spectral profile and refresh its file identity."""
         mtime_ns: int | None = None
@@ -412,6 +422,8 @@ class TrackRepository:
             size_bytes = stat.st_size
         except OSError:
             pass
+        if expected_file_identity is not None and (mtime_ns, size_bytes) != expected_file_identity:
+            return False
         with self._connect() as connection:
             cursor = connection.execute(
                 """
@@ -583,6 +595,19 @@ class TrackRepository:
                     if profile is not None and profile.analysis_version == CURRENT_TONAL_VERSION:
                         cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
+
+    def load_scan_file_identities(self, paths: Iterable[str]) -> dict[str, tuple[int | None, int | None]]:
+        """Return the last scanned/post-metadata identity for bounded freshness checks."""
+        path_list = list(paths)
+        result: dict[str, tuple[int | None, int | None]] = {}
+        with self._connect() as connection:
+            for start in range(0, len(path_list), _MAX_QUERY_VARIABLES):
+                chunk = path_list[start : start + _MAX_QUERY_VARIABLES]
+                placeholders = ",".join("?" * len(chunk))
+                query = f"SELECT path, file_mtime_ns, file_size_bytes FROM tracks WHERE path IN ({placeholders})"
+                for row in connection.execute(query, chunk):
+                    result[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"])
+        return result
 
     def refresh_post_metadata_identity(self, path: str) -> bool:
         """Refresh shared identity after a supported-format metadata write without touching profiles.

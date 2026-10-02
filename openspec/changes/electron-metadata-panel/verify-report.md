@@ -1,0 +1,3 @@
+# Verification checkpoint
+
+Confirmed RED before rendering implementation. Eight focused metadata module tests passed: exact domain counts and priorities; safe text; native accessible controls; filtering/search; preview ID; bounded 100-row pages; selection reset; honest empty states. Added integrated route/controller tests prove deferred metadata navigation after pending library load, exactly-once refresh and suppression of disconnected late responses. IPC only exposes parameter-free metadata.report. Real-core integration verifies counts, readOnly and absence of raw paths. Combined Node suite: 60 passed without skips. Native visual/interaction validation remains pending.

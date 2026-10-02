@@ -1,0 +1,8 @@
+{
+  "version": "7.1.1",
+  "url": "https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz",
+  "sha256": "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1",
+  "license": "LGPL-2.1-or-later",
+  "origin": "FFmpeg official source release, downloaded by HTTPS; checksum pinned after retrieval",
+  "support": "Linux x86_64 only; glibc/desktop baseline determined by the actual build host"
+}

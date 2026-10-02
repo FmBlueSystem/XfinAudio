@@ -106,6 +106,7 @@ def build_prep_copilot_plan(
     *,
     color_anchor_path: str | None = None,
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    spectral_cohesion: float = 0.0,
     familiarity: Mapping[str, FamiliaritySignal] | None = None,
     familiarity_weight: float = 0.0,
     checkpoint: Callable[[str], None] | None = None,
@@ -139,6 +140,7 @@ def build_prep_copilot_plan(
                 intent,
                 color_anchor_path=color_anchor_path,
                 loudness_band=loudness_band,
+                spectral_cohesion=spectral_cohesion,
                 familiarity=familiarity,
                 familiarity_weight=familiarity_weight,
             )
@@ -155,6 +157,7 @@ def _build_variant(
     *,
     color_anchor_path: str | None = None,
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    spectral_cohesion: float = 0.0,
     familiarity: Mapping[str, FamiliaritySignal] | None = None,
     familiarity_weight: float = 0.0,
 ) -> PrepCopilotVariant:
@@ -197,6 +200,7 @@ def _build_variant(
         controls=controls,
         color_anchor_path=color_anchor_path,
         loudness_band=loudness_band,
+        spectral_cohesion=spectral_cohesion,
         target_count=intent.target_track_count,
         target_duration_minutes=intent.target_minutes,
         played_seconds_per_track=(PREP_PLAYED_SECONDS_PER_TRACK if intent.target_minutes is not None else None),

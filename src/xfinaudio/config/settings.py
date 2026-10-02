@@ -45,6 +45,7 @@ class LibrarySettings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     last_scan_folder: Path | None = None
+    watch_for_changes: bool = True
 
 
 class ExportSettings(BaseModel):

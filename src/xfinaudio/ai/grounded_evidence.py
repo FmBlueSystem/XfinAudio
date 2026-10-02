@@ -23,11 +23,11 @@ class _MetadataFact(_Fact):
     missing_bpm: int = Field(ge=0)
     missing_key: int = Field(ge=0)
     missing_energy: int = Field(ge=0)
-    locked_with_gaps: int = Field(ge=0)
+    locked_with_gaps: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def coverage_bounds(self) -> _MetadataFact:
-        if max(self.missing_bpm, self.missing_key, self.missing_energy, self.locked_with_gaps) > self.track_count:
+        if max(self.missing_bpm, self.missing_key, self.missing_energy, self.locked_with_gaps or 0) > self.track_count:
             raise ValueError("Gap counts exceed the supplied track count")
         return self
 
@@ -74,7 +74,10 @@ def explain_grounded_evidence(
         raise ValueError("Evidence references must be unique.")
     if kind == "live" and [fact["rank"] for fact in facts] != list(range(1, len(facts) + 1)):
         raise ValueError("Candidate facts must preserve the local ranking.")
-    context: dict[str, object] = {"kind": kind, "facts": [fact.model_dump(mode="json") for fact in models]}
+    context: dict[str, object] = {
+        "kind": kind,
+        "facts": [fact.model_dump(mode="json", exclude_none=kind == "metadata") for fact in models],
+    }
     if kind == "live":
         context["metric_definitions"] = {
             "score": "Unitless local compatibility score from 0 to 1; not a probability.",
@@ -83,10 +86,16 @@ def explain_grounded_evidence(
             "otherwise whole-track energy.",
             "direction": "No increase or decrease direction is supplied for either gap; do not infer one.",
         }
+    lock_policy = (
+        "Actual repair priority is locked tracks first, then fewer missing fields. "
+        if kind == "metadata" and isinstance(models[0], _MetadataFact) and models[0].locked_with_gaps is not None
+        else "No locked-track selection is supplied. Do not claim a locked-track count or an evaluated lock priority. "
+    )
     detail = (
         "Explain why absent BPM prevents tempo checking, absent key prevents harmonic checking, "
-        "and absent energy prevents progression checking. Actual repair priority is locked tracks first, "
-        "then fewer missing fields. No per-track data is supplied; do not name tracks or invent tag values."
+        "and absent energy prevents progression checking. "
+        + lock_policy
+        + "No per-track data is supplied; do not name tracks or invent tag values."
         if kind == "metadata"
         else "Explain the existing candidate ranking from supplied scores and explicitly defined absolute gaps only. "
         "Candidate IDs map to the displayed ranks; readiness belongs to the local validator. "
