@@ -16,6 +16,7 @@ class Element extends EventTarget {
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
   closest() { return null; }
+  focus() { document.activeElement=this; }
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 let sequence = 0;
@@ -27,7 +28,7 @@ async function fixture(overrides = {}) {
   const mutations = ['choose-library', 'choose-library-empty', 'generate-prep', 'save-playlist', 'refresh-playlists', 'refresh-metadata'];
   get('prep-count').value = '2';
   get('metadata-filter').value = 'all';
-  const routes = ['library', 'metadata'].map((name) => { const button = new Element(); button.dataset.route = name; return button; });
+  const routes = ['library', 'metadata', 'prep', 'review', 'serato', 'preferences', 'ai'].map((name) => { const button = new Element(); button.dataset.route = name; return button; });
   let progress;
   let generated;
   const tracks = [{ id: 'a', title: 'A', artist: 'Artist', bpm: 120, key: '8A', energy: 5, duration: 60 }, { id: 'b', title: 'B', artist: 'Artist', bpm: 122, key: '8A', energy: 6, duration: 60 }];
@@ -113,4 +114,64 @@ test('late metadata response cannot navigate back or replace a disconnected view
     assert.equal(f.get('metadata-report-container').children.length, 0);
     assert.equal(f.get('operation-detail').textContent, 'El servicio local dejó de responder. Reinicia XfinAudio para volver a conectar.'); assert.equal(f.get('refresh-metadata').disabled, true);
   } finally { f.restore(); }
+});
+
+
+test('Create reveals invalid hidden duration and keeps its cap/value through navigation and retry',async()=>{
+ const f=await fixture();try{
+  const group=f.get('prep-duration');group.tagName='DETAILS';group.open=false;f.get('prep-minutes').parentElement=group;
+  f.get('prep-count').value='7';f.get('prep-minutes').value='601';f.get('prep-minutes').dispatchEvent(new Event('input'));
+  f.get('prep-form').dispatchEvent(new Event('submit',{cancelable:true}));await tick();
+  assert.equal(f.generated(),undefined);assert.equal(group.open,true);assert.equal(document.activeElement,f.get('prep-minutes'));assert.match(f.get('prep-validation').textContent,/600/);
+  f.get('prep-minutes').value='30';f.get('prep-minutes').dispatchEvent(new Event('input'));f.navigate('library');f.navigate('prep');
+  assert.equal(f.get('prep-count').value,'7');assert.equal(f.get('prep-minutes').value,'30');assert.match(f.get('prep-sizing-summary').textContent,/30 minutos.*7 pistas/);
+  f.get('prep-form').dispatchEvent(new Event('submit',{cancelable:true}));await tick();assert.equal(f.generated().targetTrackCount,7);assert.equal(f.generated().targetMinutes,30);
+ }finally{f.restore();}
+});
+test('browser invalid event opens hidden ancestors before submit and does not generate',async()=>{
+ const f=await fixture();try{
+  const outer={tagName:'DETAILS',open:false,parentElement:null};const inner={tagName:'DETAILS',open:false,parentElement:outer};const field=f.get('prep-minutes');field.parentElement=inner;field.validationMessage='Hasta 600 minutos';
+  field.dispatchEvent(new Event('invalid',{cancelable:true}));assert.equal(inner.open,true);assert.equal(outer.open,true);assert.equal(document.activeElement,field);assert.equal(f.generated(),undefined);
+ }finally{f.restore();}
+});
+test('tool back restores metadata origin without replacing its loaded report and preserves Create draft',async()=>{
+ let requests=0;const f=await fixture({getMetadataReport:async()=>{requests++;return {totalTracks:0,completeCount:0,incompleteCount:0,gaps:{bpm:0,camelot_key:0,energy_level:0},yearCoverage:{withReleaseYear:0,withoutReleaseYear:0},tracks:[],repairPlan:'Ready',readOnly:true};}});try{
+  f.get('prep-name').value='Borrador';f.navigate('metadata');await tick();const children=f.get('metadata-report-container').children;
+  f.navigate('serato');f.get('tool-back').dispatchEvent(new Event('click'));await tick();assert.equal(document.title,'XfinAudio · Metadatos');assert.equal(f.get('metadata-report-container').children,children);assert.equal(requests,1);assert.equal(f.get('prep-name').value,'Borrador');
+  f.get('tool-back').dispatchEvent(new Event('click'));assert.equal(document.title,'XfinAudio · Biblioteca');
+ }finally{f.restore();}
+});
+test('compact context reports changed library and profile failures with a direct details action',async()=>{
+ let onStatus;const f=await fixture({getLibraryStatus:async()=>({revision:1,changeState:'clean',watchState:'active',rootCount:1,watchedCount:1}),onLibraryStatus:callback=>{onStatus=callback;return()=>{};}});try{
+  await tick();onStatus({revision:2,changeState:'changed',watchState:'unavailable',rootCount:1,watchedCount:0});
+  assert.equal(f.get('context-status').hidden,false);assert.match(f.get('context-status-copy').textContent,/cambios.*escanear/i);assert.match(f.get('context-status-copy').textContent,/vigilancia.*disponible/i);
+  f.get('context-status-open').dispatchEvent(new Event('click'));assert.equal(document.title,'XfinAudio · Biblioteca');assert.equal(f.get('library-tools').open,true);
+ }finally{f.restore();}
+});
+test('Back restores the mounted entry control and fallback focus without changing preserved fields',async()=>{
+ const f=await fixture();try{
+  f.get('prep-form').dispatchEvent(new Event('submit',{cancelable:true}));await tick();f.navigate('review');const trigger=f.get('export-review');trigger.focus();f.navigate('serato');f.get('tool-back').focus();f.get('tool-back').dispatchEvent(new Event('click'));
+  assert.equal(document.title,'XfinAudio · Revisar y exportar');assert.equal(document.activeElement,trigger);
+  trigger.focus();f.navigate('serato');trigger.isConnected=false;f.get('tool-back').focus();f.get('tool-back').dispatchEvent(new Event('click'));assert.equal(document.activeElement,f.get('main-content'));
+ }finally{f.restore();}
+});
+test('persistent Settings navigation from its AI child returns to the original Library entry',async()=>{
+ const f=await fixture();try{f.navigate('preferences');f.navigate('ai');f.navigate('preferences');f.get('tool-back').dispatchEvent(new Event('click'));assert.equal(document.title,'XfinAudio · Biblioteca');}finally{f.restore();}
+});
+test('cancelled destination after Back preserves cached metadata DOM; explicit refresh and library invalidation still reload',async()=>{
+ let requests=0;let finish;let onStatus;const report={totalTracks:0,completeCount:0,incompleteCount:0,gaps:{bpm:0,camelot_key:0,energy_level:0},yearCoverage:{withReleaseYear:0,withoutReleaseYear:0},tracks:[],repairPlan:'Ready',readOnly:true};
+ const f=await fixture({getMetadataReport:async()=>{requests++;return report;},chooseSeratoDestination:()=>new Promise(resolve=>{finish=resolve;}),onLibraryStatus:callback=>{onStatus=callback;return()=>{};}});try{
+  f.navigate('metadata');await tick();const initial=f.get('metadata-report-container').children;const retained={query:'House',page:2,explanation:'track'};initial[0].retained=retained;
+  f.navigate('serato');const nodes=node=>[node,...node.children.flatMap(nodes)];nodes(f.get('serato-container')).find(node=>node.id==='serato-export-choose').dispatchEvent(new Event('click'));f.get('tool-back').dispatchEvent(new Event('click'));finish(null);await tick();await tick();
+  assert.equal(document.title,'XfinAudio · Metadatos');assert.equal(requests,1);assert.equal(f.get('metadata-report-container').children,initial);assert.equal(initial[0].retained,retained);
+  f.get('refresh-metadata').dispatchEvent(new Event('click'));await tick();assert.equal(requests,2);assert.notEqual(f.get('metadata-report-container').children,initial);
+  onStatus({revision:7,changeState:'changed',watchState:'active',rootCount:1,watchedCount:1});f.navigate('library');f.navigate('metadata');await tick();assert.equal(requests,3);
+ }finally{f.restore();}
+});
+test('explicit routes reveal the task start; background updates and Tool Back keep their focus policy',async()=>{
+ const f=await fixture();try{
+  const main=f.get('main-content');let scrolls=0;main.scrollIntoView=options=>{assert.equal(options.block,'start');scrolls++;};f.get('prep-name').value='Preservar';f.navigate('prep');assert.equal(scrolls,1);assert.equal(document.activeElement,main);assert.equal(f.get('prep-name').value,'Preservar');
+  f.get('library-search').dispatchEvent(new Event('input'));assert.equal(scrolls,1);f.navigate('metadata');await tick();assert.equal(scrolls,2);
+  const trigger=f.get('refresh-metadata');trigger.focus();f.navigate('serato');assert.equal(scrolls,3);f.get('tool-back').dispatchEvent(new Event('click'));assert.equal(document.activeElement,trigger);assert.equal(scrolls,3);
+ }finally{f.restore();}
 });

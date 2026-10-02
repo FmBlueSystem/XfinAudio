@@ -102,3 +102,18 @@ test('dirty editor prevents exporting the old saved version until explicitly sav
   await f.navigate('playlists'); click(f.action('Exportar a Serato')); await tick(); assert.equal(document.title, 'XfinAudio · Editar playlist'); assert.match(f.get('operation-detail').textContent, /[Gg]uarda o descarta/); assert.equal(f.calls.some(([kind]) => kind === 'destination'), false);
  } finally { f.restore(); }
 });
+test('conditional last-export access reopens the retained receipt offline without host calls or source changes',async()=>{
+ const f=await fixture();try{
+  assert.equal(f.get('resume-last-export').hidden,true);
+  await f.navigate('playlists');click(f.action('Exportar a Serato'));await tick();click(f.get('serato-export-choose'));await tick();click(f.get('serato-export-preview'));await tick();click(f.get('serato-export-commit'));await tick();
+  assert.equal(f.get('resume-last-export').hidden,false);const receipt=f.get('serato-export-receipt');const source=f.get('serato-export-source').textContent;const name=f.get('serato-export-name').value;
+  await f.navigate('library');f.progress({operation:'core',phase:'error',message:'offline'});const before=JSON.stringify(f.calls);
+  click(f.get('resume-last-export'));await tick();assert.equal(document.title,'XfinAudio · Exportar a Serato');assert.equal(f.get('serato-export-receipt'),receipt);assert.equal(receipt.hidden,false);assert.equal(f.get('serato-export-source').textContent,source);assert.equal(f.get('serato-export-name').value,name);assert.equal(JSON.stringify(f.calls),before);assert.equal(f.get('serato-export-commit').disabled,true);assert.equal(f.get('serato-export-reveal').disabled,true);
+ }finally{f.restore();}
+});
+test('conditional resume editor opens the same offline draft without reopening or enabling mutation',async()=>{
+ const f=await fixture();try{
+  assert.equal(f.get('resume-editor').hidden,true);await f.navigate('playlists');click(f.action('Editar'));await tick();const name=f.get('editor-name');name.value='Borrador conservado';name.dispatchEvent(new Event('input'));assert.equal(f.get('resume-editor').hidden,false);
+  await f.navigate('library');f.progress({operation:'core',phase:'error',message:'offline'});const before=JSON.stringify(f.calls);click(f.get('resume-editor'));await tick();assert.equal(document.title,'XfinAudio · Editar playlist');assert.equal(f.get('editor-name'),name);assert.equal(name.value,'Borrador conservado');assert.equal(f.get('editor-dirty').textContent,'Cambios sin guardar');assert.equal(name.disabled,true);assert.equal(f.get('editor-save').disabled,true);assert.equal(JSON.stringify(f.calls),before);
+ }finally{f.restore();}
+});

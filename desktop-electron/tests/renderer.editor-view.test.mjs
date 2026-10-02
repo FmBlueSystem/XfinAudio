@@ -56,9 +56,9 @@ test('discard-or-cancel prompt is explicit, keyboard reachable, and conflict doe
   } finally { f.restore(); }
 });
 
-test('editor has a permanent accessible return route and a bounded standalone page', async () => {
+test('editor keeps its contextual return route and bounded standalone page', async () => {
   const { readFile } = await import('node:fs/promises'); const html = await readFile(new URL('../renderer/index.html', import.meta.url), 'utf8');
-  assert.match(html, /class="nav-item" data-route="editor"/); assert.match(html, /id="page-editor"[^>]+aria-labelledby="editor-heading"/); assert.match(html, /id="editor-container"/);
+  assert.match(html, /id="tool-back"[^>]+type="button"/); assert.match(html, /data-route="playlists"/); assert.match(html, /id="page-editor"[^>]+aria-labelledby="editor-heading"/); assert.match(html, /id="editor-container"/);
 });
 
 test('moving a row restores a keyboard action on that row after the table is rebuilt', () => {

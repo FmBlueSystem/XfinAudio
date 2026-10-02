@@ -1,3 +1,4 @@
+import {prepSummaries,localizeReviewNotice,prepErrorField,revealControl,workflowStep,ToolOrigins} from './workflow.js';
 import {LegacyImportController} from './legacy-import.js';
 import type {LegacyImportApi} from './legacy-import.js';
 import {createLegacyImportView} from './legacy-import-view.js';
@@ -7,11 +8,13 @@ import {createGeneratedReviewView} from './generated-review-view.js';
 import {PrepSettingsController} from './prep-settings.js';
 import type {PrepSettingsApi} from './prep-settings.js';
 import {createPrepSettingsView} from './prep-settings-view.js';
-import {OfflineBrowseView} from './offline-browse.js';
+import {OfflineBrowseView,LIBRARY_COLUMNS} from './offline-browse.js';
 import type {OfflineBrowseApi} from './offline-browse.js';
 import {createProfilesView,profileStatus,profileStageNames} from './profiles.js';
 import type {ProfilesApi,ProfileStatus} from './profiles.js';
 import {ProfileSettingsController,createProfileSettingsView} from './profile-settings.js';
+import { draftMessage } from './draft-notice.js';
+import type { DraftBlocker } from './draft-notice.js';
 import type {ProfileSettingsApi} from './profile-settings.js';
 import { OptionalAiController } from './optional-ai.js';
 import type { OptionalAiApi, AiSurface, AiContext } from './optional-ai.js';
@@ -32,7 +35,7 @@ import { createSeratoExportView } from './serato-export-view.js';
 import { errorCode,userErrorMessage } from './errors.js';
 import { SavedPlaylistEditor } from './editor.js';
 import { createEditorView } from './editor-view.js';
-import { buildPrepInput, canSaveReview, filterTracks, formatDuration, hasPrepMetadata, isCoreFailure, normalizePrepName, OperationGate } from './model.js';
+import { buildPrepInput, canSaveReview, filterTracks, formatDuration, formatAudioFormat, formatBitrate, hasPrepMetadata, isCoreFailure, normalizePrepName, OperationGate } from './model.js';
 import type { LibraryResult, MetadataFilter, PlaylistSummary, PrepFields, PrepStrategy, PrepVariant, PrepVariantSummary, Readiness, ReviewResult, Route as ExistingRoute, Track, XfinApi } from './model.js';
 import { renderMetadataPanel } from './metadata.js';
 import type { MetadataReport } from './metadata.js';
@@ -55,6 +58,8 @@ const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
 };
 const gate = new OperationGate();
 let route: Route = 'library';
+const toolOrigins = new ToolOrigins();
+const toolTriggers = new Map<Route, HTMLElement>();
 let routeRevision = 0;
 let library: Track[] = [];
 let offlineLibrary:Track[]|null=null;
@@ -84,6 +89,7 @@ let preferencesBootstrapPending = typeof api?.getPreferences === 'function' && t
 let statusBootstrapPending = Boolean(api?.getLibraryStatus);
 let editorDirty = false;
 let preferencesDirty = false;
+let preferenceLabelsPending = false;
 let loudnessDirty = false;
 let aiDirty = false;
 let ai: OptionalAiController | undefined;
@@ -106,7 +112,7 @@ let playlistsLoaded = false;
 let activeKind = '';
 let activeJobId = '';
 let cancellable = false;
-const titles: Record<Route, string> = { library: 'Biblioteca', metadata: 'Metadatos', prep: 'Preparar sesión', review: 'Revisar selección', playlists: 'Playlists guardadas', editor: 'Editar playlist', serato: 'Exportar a Serato', live: 'Asistente Live', preferences: 'Preferencias', loudness: 'Sonoridad', ai: 'IA opcional' };
+const titles: Record<Route, string> = { library: 'Biblioteca', metadata: 'Metadatos', prep: 'Crear lista', review: 'Revisar y exportar', playlists: 'Playlists guardadas', editor: 'Editar playlist', serato: 'Exportar a Serato', live: 'Asistente Live', preferences: 'Ajustes', loudness: 'Sonoridad', ai: 'IA opcional' };
 const player = createPlayer(() => {
   document.querySelectorAll<HTMLButtonElement>('[data-track-id]').forEach((button) => {
     const playing = player.isPlaying(button.dataset.trackId ?? '');
@@ -168,8 +174,8 @@ const preferences = new PreferencesController(api, {
   changed: () => renderPreferences(),
   dirtyChanged: (dirty) => { preferencesDirty = dirty; syncDraftDirty(); },
   applied: (snapshot, reason) => player.applyPreferencesVolume(snapshot.previewVolume, reason),
-  perform: (label, task, apply, failure) => perform('preferences', label, task, (result, current) => {
-    apply(result, current); showStatus(label.startsWith('Guardando') ? 'Preferencias guardadas' : 'Preferencias actualizadas');
+  perform: (label, task, apply, failure) => perform(label.startsWith('Actualizando bibliotecas') ? 'preferences-labels' : 'preferences', label, task, (result, current) => {
+    apply(result, current); showStatus(label.startsWith('Guardando') ? 'Preferencias guardadas' : label.startsWith('Actualizando bibliotecas') ? 'Bibliotecas registradas actualizadas' : 'Preferencias actualizadas');
   }, false, failure),
 });
 renderPreferences = createPreferencesView(element('preferences-container'), preferences, { canAct: () => coreAvailable && !gate.busy && preferencesAvailable() });
@@ -195,8 +201,11 @@ const loudness = new LoudnessController(api, {
   },
   perform: async (label, task, apply, failure) => {
     const isRun = loudness.pending === 'run';
-    if ((isRun || loudness.pending === 'preview') && (editorDirty || preferencesDirty)) {
-      const error = { code: 'dirty_draft' }; failure(error); showStatus('Hay cambios sin guardar', userErrorMessage(error), true); return;
+    const drafts = draftBlockers();
+    if ((isRun || loudness.pending === 'preview') && drafts.length) {
+      const error = { code: 'dirty_draft' }; failure(error);
+      loudness.error = draftMessage(drafts, 'analizar sonoridad'); renderLoudness();
+      showStatus('Hay cambios sin guardar', loudness.error, true); return;
     }
     if (isRun) player.stopIfMissing(new Set());
     await perform(isRun ? 'loudness' : 'loudness-settings', label, task, (result, current) => {
@@ -208,7 +217,7 @@ const loudness = new LoudnessController(api, {
     }, isRun, failure);
   },
 });
-renderLoudness = createLoudnessView(element('loudness-container'), loudness, { canAct: () => coreAvailable && !gate.busy && loudnessAvailable() });
+renderLoudness = createLoudnessView(element('loudness-container'), loudness, { canAct: () => coreAvailable && !gate.busy && loudnessAvailable(), draftBlockers });
 const aiAvailable = (): boolean => ['getAiStatus', 'saveAiSettings', 'chooseAiCredential', 'clearAiCredential', 'prepareAiRequest', 'runAiRequest', 'applyAiSuggestion'].every((key) => typeof api?.[key as keyof AppApi] === 'function');
 ai = new OptionalAiController(api, {
   canAct: () => coreAvailable && !gate.busy && aiAvailable(),
@@ -222,13 +231,31 @@ ai = new OptionalAiController(api, {
     apply(value, current); showStatus('Asistencia IA', ai?.notice || 'Operación local completada; cada consulta requiere consentimiento');
   }, ai?.pending === 'ask', failure),
 });
-renderAi = createOptionalAiView(element('optional-ai-container'), ai, { canAct: () => coreAvailable && !gate.busy && aiAvailable() });
+renderAi = createOptionalAiView(element('optional-ai-container'), ai, { canAct: () => coreAvailable && !gate.busy && aiAvailable(), openSettings: () => {navigate('ai');revealControl(element('optional-ai-enabled'));} });
 renderAi();
 function invalidateAiSource(): void { aiContextKey = ''; deferredAiApply = null; ai?.invalidate(); }
 function prepFields(): PrepFields {
   const value = (id: string): string => element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value;
   const selected = (id: string): string[] => Array.from(element<HTMLSelectElement>(`prep-${id}`).selectedOptions ?? [], (option) => option.value);
   return { name: value('name'), count: value('count'), strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selected('required'), excluded: selected('excluded') };
+}
+function renderPrepSummaries(): void {
+  const fields=prepFields();const summaries=prepSummaries(fields, prepSettingsDirty);
+  element('prep-count-unit').textContent=fields.minutes.trim()?'pistas como máximo':'pistas solicitadas';
+  element('prep-sizing-summary').textContent=summaries.size;
+  element('prep-options-summary').textContent=summaries.music;
+  element('prep-tracks-summary').textContent=summaries.tracks;
+  element('prep-saved-summary').textContent=summaries.saved;
+}
+function renderSettingsSummaries(): void {
+  const settings=preferences.snapshot;
+  element('settings-playback-summary').textContent=settings ? `${Math.round(settings.previewVolume*100)} % · vigilancia ${settings.watchLibrary?'activada':'desactivada'}${preferencesDirty?' · cambios sin guardar':''}` : 'Volumen inicial y cambios de biblioteca';
+  element('settings-cohesion-summary').textContent=profileSettings.snapshot ? `${Math.round(profileSettings.snapshot.spectralCohesion*100)} %${profileSettingsDirty?' · cambios sin guardar':''}` : 'Peso de la cohesión al seleccionar pistas';
+  element('settings-ai-summary').textContent=aiDirty ? 'Cambios de IA sin guardar' : 'Proveedor, credenciales y prueba sintética';
+}
+function showPrepValidation(input: HTMLElement, message: string): void {
+  const notice=element('prep-validation'); notice.textContent=message; notice.hidden=false;
+  revealControl(input); showStatus('Revisa la configuración de la sesión', message, true);
 }
 function syncAiContext(): void {
   if (!ai) return;
@@ -245,6 +272,8 @@ function syncAiContext(): void {
     revision = [libraryGeneration, playlists.map((item) => [item.id, item.name, item.trackCount, item.createdAt]), [...aiSavedScope]];
   } else if (route === 'ai') { surface = 'connection'; revision = 'synthetic'; }
   panel.hidden = !aiAvailable() || !surface;
+  element('context-ai').hidden = panel.hidden || route === 'ai';
+  element('ai-panel-summary').textContent = route === 'ai' ? 'Configuración y prueba de IA' : `Ayuda IA · ${titles[route]}${aiDirty ? ' · ajustes sin guardar' : ''}`;
   if (!coreAvailable) return;
   if (!surface) { if (aiContextKey) invalidateAiSource(); return; }
   const identity = JSON.stringify([surface, context, revision]);
@@ -323,28 +352,58 @@ if(['previewLegacyImport','applyLegacyImport','discardLegacyImport'].every(key=>
   const legacyImport=new LegacyImportController(api,{canAct:legacyCanAct,changed:()=>renderLegacyImport(),applied:()=>freezeAfterLegacy(),
     perform:async(label,task,apply,failure)=>{const committing=label.startsWith('Importando');if(committing)player.stopIfMissing(new Set());await perform(committing?'legacy-import':'legacy-preview',label,task,value=>{apply(value);if(!restartRequired)showStatus(value.cancelled?'Importación cancelada':'Vista previa de datos actualizada','No se importa nada hasta la confirmación del sistema');},false,failure);},
   });
-  renderLegacyImport=createLegacyImportView(element('legacy-import-container'),legacyImport,{canAct:legacyCanAct});renderLegacyImport();
+  renderLegacyImport=createLegacyImportView(element('legacy-import-container'),legacyImport,{canAct:legacyCanAct,draftBlockers,canResolveDrafts:()=>coreAvailable&&!gate.busy});renderLegacyImport();
 }
 if(typeof api?.queryLibrary==='function'&&typeof api?.searchPlaylists==='function')offline=new OfflineBrowseView(element('offline-library-container'),element('offline-saved-container'),api,{
-  canAct:()=>coreAvailable&&!gate.busy,canDelete:()=>!editorDirty&&!preferencesDirty&&!profileSettingsDirty&&!prepSettingsDirty&&!loudnessDirty&&!aiDirty,
+  canAct:()=>coreAvailable&&!gate.busy,canDelete:()=>draftBlockers().length===0,draftBlockers,
   perform:(label,task,apply)=>perform('offline',label,task,apply),
   libraryChanged:tracks=>{offlineLibrary=tracks;renderLibrary();},savedChanged:()=>renderPlaylists(),
   deleted:id=>{playlists=playlists.filter(item=>item.id!==id);if(editor.draft?.id===id)editor.resetAfterScan();if(review?.savedPlaylistId===id){review=null;renderReview();}serato.invalidatePreview();invalidateAiSource();aiSavedSelection=null;renderPlaylists();},
   restored:playlist=>{playlists=[playlist,...playlists.filter(item=>item.id!==playlist.id)];invalidateAiSource();aiSavedSelection=null;renderPlaylists();},
 });
 const drawProfiles=createProfilesView(element('profiles-container'),{canAct:()=>coreAvailable&&!gate.busy&&profilesAvailable(),retry:()=>{void completeProfiles();}});
-renderProfiles=()=>drawProfiles(profilesSnapshot,profilesStale,activeKind==='profiles',profilesError);
+renderProfiles=()=>{drawProfiles(profilesSnapshot,profilesStale,activeKind==='profiles',profilesError);renderContextStatus();};
 renderPreferences(); renderProfileSettings(); renderLoudness(); renderProfiles(); renderLibraryStatus(libraryStatus);
 function freezeAfterLegacy(reason='legacy_restart_required'):void{
   if(!restartRequired||reason==='legacy_recovery_required')coreFailure=reason==='legacy_recovery_required'?'Cierra XfinAudio y revisa el estado del perfil y sus copias antes de continuar. No se realizarán otras operaciones.':'Cierra y vuelve a abrir XfinAudio. Después, selecciona explícitamente tus carpetas musicales y vuelve a escanearlas.';
   restartRequired=true;coreAvailable=false;profileAutoPending=null;player.stopIfMissing(new Set());invalidateAiSource();editor.invalidatePreview();serato.invalidatePreview();loudness.invalidateContext();invalidatePrep();showStatus('Reinicio necesario',coreFailure,true);syncControls();
 }
+function draftBlockers(): DraftBlocker[] {
+  const scopes: [boolean, string, string, Route, string][] = [
+    [editorDirty, 'editor', 'Editor de playlist', 'editor', 'editor-name'],
+    [preferencesDirty, 'preferences', 'Preferencias', 'preferences', 'preferences-volume'],
+    [profileSettingsDirty, 'profile', 'Cohesión espectral', 'preferences', 'profile-settings-cohesion'],
+    [prepSettingsDirty, 'prep', 'Controles de preparación', 'prep', 'prep-genre'],
+    [loudnessDirty, 'loudness', 'Ajustes de sonoridad', 'loudness', 'loudness-target'],
+    [aiDirty, 'ai', 'Ajustes de IA', 'ai', 'optional-ai-enabled'],
+  ];
+  return scopes.filter(([dirty]) => dirty).map(([, id, label, target, field]) => ({ id, label, resolve: () => {
+    navigate(target, false);
+    if (id === 'prep') element<HTMLDetailsElement>('prep-saved-controls').open = true;
+    revealControl(element(field));
+  } }));
+}
 function syncDraftDirty(): void {
+  renderPrepSummaries(); renderSettingsSummaries();
   renderLegacyImport();
+  renderLoudness(); offline?.sync();
   if (api?.setDraftDirty) void api.setDraftDirty(editorDirty || preferencesDirty || profileSettingsDirty || prepSettingsDirty || loudnessDirty || aiDirty).catch(() => showStatus('No se pudo proteger el cierre del borrador', 'Guarda tus cambios antes de cerrar XfinAudio', true));
+}
+function renderContextStatus(): void {
+  const parts = [`${library.length} pistas`, `${library.filter(hasPrepMetadata).length} con metadatos completos`];
+  if (libraryStatus?.changeState === 'changed') parts.push('Cambios detectados: vuelve a escanear');
+  else if (libraryStatus?.changeState === 'restored') parts.push('Biblioteca restaurada: pendiente de verificar');
+  if (libraryStatus?.watchState === 'unavailable') parts.push('Vigilancia no disponible: comprueba manualmente');
+  else if (libraryStatus && libraryStatus.watchState !== 'active') parts.push(({starting:'Vigilancia iniciándose',disabled:'Vigilancia desactivada',paused:'Vigilancia en pausa'} as Record<string,string>)[libraryStatus.watchState]);
+  if (activeKind === 'profiles') parts.push('Completando perfiles…');
+  else if (profilesSnapshot?.pendingCount) parts.push(`Perfiles: ${profilesSnapshot.pendingCount} pendientes · ${profilesSnapshot.failedCount} fallidos`);
+  if (profilesError) parts.push(profilesError);
+  element('context-status-copy').textContent=parts.filter(Boolean).join(' · ');
+  element('context-status').hidden=!library.length&&!profilesError&&libraryStatus?.changeState!=='changed';
 }
 function acceptLibraryStatus(status: LibraryStatus): void {
   if (!Number.isSafeInteger(status.revision) || status.revision < 0 || (libraryStatus && status.revision <= libraryStatus.revision)) return;
+  if(libraryStatus && libraryStatus.rootCount!==status.rootCount)preferenceLabelsPending=true;
   libraryStatus = status;
   if (status.changeState === 'changed' && coreAvailable) {
     profilesStale=true;profileAutoPending=null;offline?.invalidateLibrary();offline?.invalidateSaved();
@@ -362,12 +421,21 @@ function acceptLibraryStatus(status: LibraryStatus): void {
   }
   renderProfiles();
   renderLibraryStatus(libraryStatus);
+  renderContextStatus(); refreshPreferenceLabelsIfNeeded();
 }
 function loadLibraryStatus(): Promise<void> {
   return perform('library-status', 'Consultando estado de la biblioteca…', () => api.getLibraryStatus(), acceptLibraryStatus);
 }
+function refreshPreferenceLabelsIfNeeded(): boolean {
+  if(!preferenceLabelsPending||!coreAvailable||gate.busy||!preferencesAvailable()||!preferences.snapshot||preferences.pending)return false;
+  preferenceLabelsPending=false;
+  // The controller clears pending after perform has already attempted its idle drain.
+  void preferences.refreshLibraryLabels().then(() => { refreshPreferenceLabelsIfNeeded(); });
+  return true;
+}
 function continueIdleWork(kind: string): void {
   if (!coreAvailable || gate.busy) return;
+  if (refreshPreferenceLabelsIfNeeded()) return;
   if(profileAutoPending!==null){const generation=profileAutoPending;profileAutoPending=null;if(generation===libraryGeneration&&!profilesStale){void completeProfiles();return;}}
   if (libraryBootstrapped && preferencesBootstrapPending) { preferencesBootstrapPending = false; void preferences.load(); return; }
   if (libraryBootstrapped && statusBootstrapPending) { statusBootstrapPending = false; void loadLibraryStatus(); return; }
@@ -380,7 +448,6 @@ function continueIdleWork(kind: string): void {
   if (route === 'loudness' && kind !== 'loudness-settings' && kind !== 'loudness' && !loudness.statusFresh && !loudness.dirty && !loudness.pending && loudnessAvailable()) { void loudness.load(); return; }
   if (kind !== 'ai-settings' && kind !== 'ai' && kind !== 'ai-apply' && loadAiIfOpen()) return;
   if (kind.startsWith('ai')||kind==='offline') return;
-  if (route === 'metadata' && kind !== 'metadata') void loadMetadata();
   if (route === 'playlists' && kind !== 'playlists') void loadPlaylists();
 }
 function canStartLive(): boolean { return Boolean(review?.reviewId && review.variant !== 'saved' && review.readiness === 'ready' && !review.blockers.length); }
@@ -409,6 +476,7 @@ function canSave(): boolean {
   return canSaveReview(review);
 }
 function syncControls(): void {
+  document.querySelectorAll<HTMLButtonElement>('[data-library-sort]').forEach(button=>{button.disabled=!offline||gate.busy||!coreAvailable;});
   document.querySelectorAll<HTMLButtonElement>('[data-track-id]').forEach((button) => { button.disabled = !coreAvailable || (activeKind === 'loudness'||activeKind.startsWith('legacy')); });
   document.querySelectorAll<HTMLButtonElement>('[data-mutation]').forEach((button) => { button.disabled = gate.busy || !coreAvailable; });
   document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-prep-control]').forEach((control) => { control.disabled = gate.busy || !coreAvailable; });
@@ -429,38 +497,59 @@ function syncControls(): void {
   renderLoudness();
   syncAiContext(); renderAi();
   renderLibraryStatus(libraryStatus);
+  renderPrepSummaries(); renderContextStatus(); renderSettingsSummaries();
+  element('library-create').hidden = library.length === 0;
+  element('resume-last-export').hidden = !serato.receipt;
+  element('resume-editor').hidden = !editor.draft;
+  element('resume-editor').textContent = coreAvailable ? 'Continuar edición' : 'Ver borrador';
+  element('session-resume').hidden = !serato.receipt && !editor.draft;
   element('prep-availability').textContent = library.length ? `${library.length} pistas en la biblioteca · ${library.filter(hasPrepMetadata).length} con metadatos completos` : 'Añade una carpeta de música para empezar';
 }
-function navigate(next: Route, load = true): void {
+function navigate(next: Route, load = true, rememberOrigin = true, preservePreviews = false): void {
+  if (rememberOrigin && toolOrigins.enter(route, next)) {
+    const trigger = document.activeElement as HTMLElement | null;
+    if (trigger && typeof trigger.focus === 'function') toolTriggers.set(next, trigger);
+  }
   route = next;
   routeRevision += 1;
   document.querySelectorAll<HTMLElement>('.page-panel').forEach((panel) => { panel.hidden = panel.id !== `page-${next}`; });
   document.querySelectorAll<HTMLButtonElement>('.nav-item').forEach((button) => {
-    const selected = button.dataset.route === next;
+    const selected = button.dataset.route === workflowStep(next);
     button.classList.toggle('active', selected);
     if (selected) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
   });
+  const back = element<HTMLButtonElement>('tool-back');
+  back.hidden = !['metadata','loudness','serato','editor','ai','preferences','live'].includes(next);
+  back.textContent = `← Volver a ${titles[toolOrigins.back(next) as Route]}`;
   element('page-title').textContent = titles[next];
   document.title = `XfinAudio · ${titles[next]}`;
-  editor.invalidatePreview();
+  if (!preservePreviews) editor.invalidatePreview();
   if(next==='prep'&&load&&!gate.busy&&prepSettings&&!prepSettings.snapshot&&!prepSettings.pending&&!prepSettings.dirty){prepSettingsBootstrapPending=false;void prepSettings.load();}
   if (next === 'ai') element<HTMLDetailsElement>('ai-panel').open = true;
   syncAiContext();
   if (next === 'preferences' && load && !gate.busy && !preferences.snapshot && preferencesAvailable()) void preferences.load();
   if(next==='preferences'&&load&&!gate.busy&&!profileSettings.snapshot&&profileSettingsAvailable()){profileSettingsAttempted=true;void profileSettings.load();}
   if (next === 'loudness' && load && !gate.busy && !loudness.statusFresh && !loudness.dirty && loudnessAvailable()) void loudness.load();
-  if (next === 'metadata' && load && !gate.busy) void loadMetadata();
+  if (next === 'metadata' && load && !gate.busy && !metadataReport) void loadMetadata();
   if (next === 'playlists' && load && !gate.busy) void loadPlaylists();
   if (load) loadAiIfOpen();
 }
 function renderTable(target: string, tracks: Track[]): void {
-  const table = make('table');
+  const isLibrary=target==='library-table';
+  const table = make('table','',isLibrary?'library-grid':'');
   table.setAttribute('aria-label', target === 'library-table' ? 'Pistas de la biblioteca' : 'Pistas de la selección');
   const head = make('thead');
   const headers = make('tr');
-  for (const title of ['#', 'PISTA / ARTISTA', 'BPM', 'TONALIDAD', 'ENERGÍA', 'DURACIÓN', 'ESCUCHAR']) {
-    const th = make('th', title);
-    th.scope = 'col';
+  const columns:readonly (readonly string[])[]=isLibrary?[['','#'],...LIBRARY_COLUMNS,['','ESCUCHAR']]:['#','PISTA / ARTISTA','BPM','TONALIDAD','ENERGÍA','DURACIÓN','ESCUCHAR'].map(title=>['',title]);
+  for(const [field,title] of columns){
+    const th=make('th');th.scope='col';
+    if(field){
+      const state=offline?.librarySort;const active=state?.field===field;const descending=active&&state?.descending;
+      th.setAttribute('aria-sort',active?(descending?'descending':'ascending'):'none');
+      const button=make('button',title.toLocaleUpperCase('es')+(active?(descending?' ↓':' ↑'):''),'column-sort');button.type='button';button.id='library-sort-'+field;button.dataset.librarySort=field;
+      button.disabled=!offline||!coreAvailable||gate.busy;button.setAttribute('aria-label',`Ordenar por ${title}, ${active&&!descending?'descendente':'ascendente'}`);
+      button.addEventListener('click',()=>{if(coreAvailable&&!gate.busy)void offline?.sortLibrary(field);});th.append(button);
+    }else th.textContent=title;
     headers.append(th);
   }
   head.append(headers);
@@ -469,14 +558,17 @@ function renderTable(target: string, tracks: Track[]): void {
     const row = make('tr');
     row.append(make('td', String(index + 1).padStart(2, '0'), 'track-index'));
     const name = make('td', '', 'track-name');
-    name.append(make('strong', track.title || 'Sin título'), make('span', track.artist || 'Artista desconocido'));
-    row.append(name, make('td', track.bpm === null ? '—' : String(track.bpm), 'numeric'));
+    name.append(make('strong', track.title || 'Sin título'));
+    if(isLibrary)row.append(name,make('td',track.artist||'No disponible'),make('td',track.genre||'No disponible'));
+    else {name.append(make('span',track.artist||'Artista desconocido'));row.append(name);}
+    row.append(make('td', track.bpm === null ? '—' : String(track.bpm), 'numeric'));
     const key = make('td');
     key.append(make('span', track.key || '—', track.key ? 'key-pill' : 'muted'));
     row.append(key);
     const energy = make('td');
     energy.append(make('span', track.energy === null ? '—' : String(track.energy), 'energy-value'));
     row.append(energy, make('td', formatDuration(track.duration), 'numeric muted'));
+    if(isLibrary)row.append(make('td',formatAudioFormat(track)),make('td',formatBitrate(track),'numeric'));
     const action = make('td');
     const button = make('button', player.isPlaying(track.id) ? 'Ⅱ' : '▶', 'track-play');
     button.type = 'button';
@@ -574,7 +666,9 @@ function renderVariants(): void {
   for (const variant of plan.variants) {
     const card = make('article', '', 'surface prep-variant');
     const readiness = make('span', readinessNames[variant.readiness], `readiness-pill ${variant.readiness}`);
-    card.append(make('h3', variantNames[variant.name]), make('p', variant.description), readiness);
+    const descriptions:Record<PrepVariant,string>={safe:'Prioriza la cercanía al género solicitado y los límites de preparación.',balanced:'Equilibra la intención de la sesión con conexiones entre géneros etiquetados.',adventurous:'Explora conexiones más amplias conservando las comprobaciones de preparación.'};
+    card.append(make('h3', variantNames[variant.name]), make('p', descriptions[variant.name]), readiness);
+    const original=make('details');original.append(make('summary','Descripción original del motor'),make('p',variant.description));card.append(original);
     card.append(make('p', `${variant.trackCount} pistas · ${variant.warnings.length} avisos · ${variant.blockers.length} bloqueos`));
     card.append(make('p', `Puntuación del motor: ${Number.isFinite(variant.qualityScore) ? variant.qualityScore.toLocaleString('es', { maximumFractionDigits: 2 }) : '—'}`, 'field-hint'));
     const button = make('button', review?.variant === variant.name ? 'Volver a revisar' : 'Revisar alternativa', 'button subtle full-width');
@@ -618,7 +712,7 @@ function renderReview(): void {
     const notice = make('section', '', `review-notice ${category}`);
     notice.append(make('strong', category === 'blocker' ? 'Antes de guardar' : 'Ten en cuenta'));
     const list = make('ul');
-    for (const message of messages) list.append(make('li', message));
+    for (const message of messages) list.append(make('li', localizeReviewNotice(message)));
     notice.append(list);
     notices.append(notice);
   }
@@ -797,19 +891,41 @@ function scan(registered = false): void {
   invalidatePrep();
   void perform('scan', registered ? 'Volviendo a escanear bibliotecas…' : 'Elige tu carpeta de música', () => registered ? api.rescanLibrary() : api.chooseLibrary(), (result) => {
     if (!result) { showStatus('Selección de carpeta cancelada'); return; }
+    preferenceLabelsPending=true;
     applyLibrary(result);
     if(!result.cancelled&&profilesAvailable()){profilesStale=libraryStatus?.changeState==='changed';profileAutoPending=libraryGeneration;}
     showStatus(result.cancelled?'Escaneo cancelado':'Biblioteca actualizada', `${library.length} pistas disponibles`);
   }, true);
 }
-for (const button of document.querySelectorAll<HTMLButtonElement>('[data-route]')) button.addEventListener('click', () => navigate(button.dataset.route as Route));
+element('resume-last-export').addEventListener('click', () => {
+  if(!serato.receipt)return;
+  navigate('serato',false,true,true);const receipt=element('serato-export-receipt');receipt.tabIndex=-1;revealControl(receipt);receipt.scrollIntoView?.({block:'start'});
+});
+element('resume-editor').addEventListener('click', () => {
+  if(!editor.draft)return;
+  navigate('editor',false,true,true);const draft=element('editor-container');draft.tabIndex=-1;revealControl(draft);draft.scrollIntoView?.({block:'start'});
+});
+element('context-ai').addEventListener('click', () => { const panel=element<HTMLDetailsElement>('ai-panel'); if(panel.hidden)return;panel.open=true;loadAiIfOpen();const content=element('optional-ai-container');content.tabIndex=-1;revealControl(content);content.scrollIntoView?.({block:'start',behavior:'auto'}); });
+element('context-status-open').addEventListener('click', () => {navigate('library',false);element<HTMLDetailsElement>('library-tools').open=true;revealControl(element('choose-library'));});
+element('tool-back').addEventListener('click', () => {
+  const trigger=toolTriggers.get(route); navigate(toolOrigins.back(route) as Route, false, false);
+  if(trigger&&trigger.isConnected!==false&&!trigger.hidden&&!(trigger as HTMLButtonElement).disabled)revealControl(trigger);
+  else element('main-content').focus?.();
+});
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-route]')) button.addEventListener('click', () => {
+  navigate(button.dataset.route as Route);const main=element('main-content');main.focus?.({preventScroll:true});main.scrollIntoView?.({block:'start',behavior:'auto'});
+});
 element('export-library-worklist').addEventListener('click',()=>{if(libraryWorklist&&libraryStatus?.changeState!=='changed')openSerato(libraryWorklist,libraryWorklist.kind==='metadata'&&libraryWorklist.status==='complete'?'Metadatos completos':'Metadatos pendientes');});
 element('choose-library').addEventListener('click', () => scan());
 element('choose-library-empty').addEventListener('click', () => scan());
 element('library-search').addEventListener('input', renderLibrary);
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
 element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
-for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'start', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{if(['required','excluded','genre'].includes(id))prepSettings?.edited();syncAiContext();});
+for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'start', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
+for (const id of ['name','count','strategy','minutes','role','genre','start','end','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
+  event.preventDefault(); const input=element<HTMLInputElement>(`prep-${id}`);
+  showPrepValidation(input, input.validationMessage || 'Revisa este valor antes de generar.');
+});
 element('metadata-filter').addEventListener('change', renderLibrary);
 element('prep-strategy').addEventListener('change', renderStrategyHint);
 element('catalog-retry').addEventListener('click', () => { void loadCatalog(); });
@@ -824,7 +940,13 @@ element('prep-form').addEventListener('submit', (event) => {
   let input;
   try {
     input = buildPrepInput({ count: value('count'), name, strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selected('required'), excluded: selected('excluded') }, library, strategies);
-  } catch (error) { showStatus('Revisa la configuración de la sesión', error instanceof Error ? error.message : String(error), true); return; }
+  } catch (error) {
+    const message=error instanceof Error ? error.message : String(error);
+    let field=prepErrorField(message,prepFields());
+    if(message.includes('biblioteca actual')) {const ids=new Set(library.map(track=>track.id));field=['start','end','required','excluded'].map(key=>[`prep-${key}`,['required','excluded'].includes(key)?selected(key):[value(key)]] as const).find(([,values])=>values.some(id=>id&&!ids.has(id)))?.[0]??field;}
+    showPrepValidation(element(field), message); return;
+  }
+  element('prep-validation').hidden=true;
   invalidatePrep();
   void perform('prep', 'Preparando alternativas para tu sesión…', () => api.generatePrep(input), (result, currentRoute) => {
     review = result;

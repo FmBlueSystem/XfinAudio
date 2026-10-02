@@ -41,6 +41,7 @@ class Element extends EventTarget {
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
   closest() { return null; }
+  focus() { document.activeElement=this; }
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const descendants = (element) => [element, ...element.children.flatMap(descendants)];
@@ -153,5 +154,17 @@ test('current review enters Serato with its exact review identity and new genera
   f.variant('safe').dispatchEvent(new Event('click'));await tick();assert.equal(dynamic('serato-export-proposal').hidden,true);assert.equal(dynamic('serato-export-preview').disabled,true);
   f.get('export-review').dispatchEvent(new Event('click'));dynamic('serato-export-preview').dispatchEvent(new Event('click'));await tick();assert.equal(previews.at(-1).source.reviewId,'selected-review');
   await f.submit();assert.equal(dynamic('serato-export-proposal').hidden,true);assert.equal(dynamic('serato-export-preview').disabled,true);
+ }finally{f.restore();}
+});
+for(const scope of ['required','excluded','both'])test(`101 distinct ${scope} controls reveal the offending list before any generate call`,async()=>{
+ const many=Array.from({length:101},(_,index)=>({...tracks[0],id:index.toString(16).padStart(64,'0')}));const f=await fixture({listLibrary:async()=>({tracks:many,count:many.length})});try{
+  f.get('prep-count').value='100';const group=f.get('prep-track-options');group.tagName='DETAILS';group.open=false;
+  for(const field of ['required','excluded']){const input=f.get('prep-'+field);input.parentElement=group;input.selectedOptions=scope===field||scope==='both'?many.map(track=>({value:track.id})):[];}
+  await f.submit();assert.equal(f.generated.length,0);assert.equal(document.activeElement,f.get(scope==='excluded'?'prep-excluded':'prep-required'));assert.equal(group.open,true);assert.match(f.get('prep-validation').textContent,/100 pistas distintas/);
+ }finally{f.restore();}
+});
+test('the known count-shortfall warning is Spanish with exact counts and unknown warnings remain intact',async()=>{
+ const f=await fixture({generatePrep:async()=>({...review(),warnings:['Track count shortfall: selected 8 of 20 requested tracks','Unknown actionable warning: check this source']})});try{
+  await f.submit();const warnings=descendants(f.get('review-alerts')).map(node=>node.textContent).join(' ');assert.match(warnings,/Se seleccionaron 8 de las 20 pistas solicitadas/);assert.match(warnings,/Unknown actionable warning: check this source/);assert.doesNotMatch(warnings,/Track count shortfall/);
  }finally{f.restore();}
 });
