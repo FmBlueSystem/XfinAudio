@@ -109,6 +109,32 @@ def test_real_tiny_suite_runs_every_batch_combines_isolated_data_and_keeps_full_
     assert (root / ".coverage").read_bytes() == b"stale unrelated coverage"
     assert "100%" in (evidence / "coverage-report.log").read_text()
     assert all("--cov-fail-under" not in " ".join(command) for command in manifest["commands"])
+    for index in (1, 2):
+        expected = json.loads((evidence / f"batch-{index:03}-expected.json").read_text())
+        execution = json.loads((evidence / f"batch-{index:03}-collected.json.run.json").read_text())
+        assert execution == {"exitStatus": 0, "executed": [item["nodeid"] for item in expected]}
+
+
+@pytest.mark.parametrize("phase", ["setup", "call"])
+def test_skipped_tests_cannot_satisfy_complete_execution_manifest(tmp_path, phase):
+    root = project(tmp_path)
+    source = "import pytest\nfrom sample import add\n"
+    if phase == "setup":
+        source += "@pytest.fixture\ndef prerequisite():\n    pytest.skip('missing prerequisite')\n"
+        source += "def test_a(prerequisite):\n    assert add(1, 2) == 3\n"
+    else:
+        source += "def test_a():\n    assert add(1, 2) == 3\n    pytest.skip('incomplete call')\n"
+    (root / "tests" / "test_a.py").write_text(source)
+    evidence = tmp_path / "evidence"
+    result = run_project(root, evidence)
+    assert result.returncode != 0, result.stdout + result.stderr
+    manifest = json.loads((evidence / "manifest.json").read_text())
+    assert manifest["status"] == "failed" and manifest["collectedCount"] == 2
+    assert len(manifest["batches"]) == 1
+    execution = json.loads((evidence / "batch-001-collected.json.run.json").read_text())
+    assert execution == {"exitStatus": 1, "executed": []}
+    assert "1 skipped" in (evidence / "batch-001.log").read_text()
+    assert not (evidence / "coverage-report.log").exists()
 
 
 @pytest.mark.parametrize("reason", ["test_failure", "low_coverage", "source_drift"])
@@ -123,6 +149,8 @@ def test_failure_coverage_floor_and_changed_source_never_report_success(tmp_path
     assert manifest["status"] == "failed"
     if reason == "test_failure":
         assert len(manifest["batches"]) == 1
+        execution = json.loads((evidence / "batch-001-collected.json.run.json").read_text())
+        assert execution == {"exitStatus": 1, "executed": ["tests/test_a.py::test_a"]}
     if reason == "low_coverage":
         assert "fail-under" in (evidence / "coverage-report.log").read_text()
     if reason == "source_drift":

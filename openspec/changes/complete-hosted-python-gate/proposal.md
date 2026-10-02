@@ -1,0 +1,3 @@
+# Complete hosted Python execution
+
+Artifact inspection of hosted run 36949151681 found 4,035 passed and 21 skipped Python tests despite 4,056 collected and a green workflow. The numerical FFmpeg tests lacked their prerequisite in the legacy job; the Electron job installed it independently and passed all 360 tests. Provision the same official FFmpeg prerequisite in the legacy job and make the sharded execution guard distinguish actual test calls from setup/skipped reports. This closes an observed incomplete-run acceptance, without changing application code, coverage floor or selecting fewer tests.

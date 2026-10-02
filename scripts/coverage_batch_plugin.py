@@ -32,7 +32,7 @@ def pytest_collection_finish(session):
 
 
 def pytest_runtest_logreport(report):
-    if report.when == "setup":
+    if report.when == "call" and not report.skipped:
         _executed.add(report.nodeid)
 
 

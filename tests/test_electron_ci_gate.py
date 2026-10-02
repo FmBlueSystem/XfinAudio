@@ -161,6 +161,23 @@ def test_electron_job_installs_public_locked_dependencies_and_runs_real_gate():
     assert "continue-on-error" not in workflow
 
 
+@pytest.mark.parametrize("job_name", ["non-audio-release-gates", "electron-migration-tests"])
+def test_each_hosted_job_provisions_and_probes_ffmpeg_before_test_execution(job_name):
+    workflow = (ROOT / ".github/workflows/non-audio-release-gates.yml").read_text()
+    job = workflow.split(f"\n  {job_name}:\n", 1)[1].split("\n  electron-migration-tests:\n", 1)[0]
+    prerequisite = (
+        "      - name: Ensure FFmpeg integration prerequisite\n"
+        "        run: |\n"
+        "          if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi\n"
+        "          ffmpeg -version\n"
+    )
+    assert job.count(prerequisite) == 1
+    test_gate = (
+        "scripts/release_gate_check.py" if job_name == "non-audio-release-gates" else "scripts/electron_ci_check.py"
+    )
+    assert job.index(prerequisite) < job.index(test_gate)
+
+
 def test_electron_interpreter_uses_runner_context_only_at_the_suite_step():
     workflow = (ROOT / ".github/workflows/non-audio-release-gates.yml").read_text()
     electron_job = workflow.split("\n  electron-migration-tests:\n", 1)[1]
