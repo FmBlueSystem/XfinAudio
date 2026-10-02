@@ -1,10 +1,12 @@
-# XfinAudio 2.1.0 — Metadata-Driven DJ Playlist Intelligence
+# XfinAudio 2.2.0 — Metadata-Driven DJ Playlist Intelligence
 
 XfinAudio is a GPL-3.0-only desktop DJ playlist assistant for DJs who already organize tracks in tools like Mixed In Key and Serato DJ Pro, but need a faster, safer, explainable way to turn a large metadata-rich library into playable playlist candidates.
 
 It does not mix audio or detect BPM/key, and it does not replace DJ judgment. It is a local desktop decision-support tool: it reads metadata, persists a searchable library, recommends musically coherent track sequences, explains every transition, and exports safe Serato crate worklists that help the DJ prepare, validate, and improve the library.
 
-**2.1.0:** local playlist planning and direct Serato export, with optional NaN AI for request interpretation and commentary. AI is off by default. [English overview](#optional-ai-and-local-control) · [Resumen en español](#ia-opcional-y-control-local) · [2.1.0 changes / Cambios](docs/release-notes-v2.1.0.md)
+**2.2.0 is an unreleased beta/source candidate.** The Qt-free Electron application reuses the original Python engines. Start with the [new desktop source guide](desktop-electron/README.md), [exact migration scope](desktop-electron/MIGRATION_SCOPE.md), and [2.2.0 changes / Cambios](docs/release-notes-v2.2.0.md). The retained Qt application and its detailed historical workflows below remain available for comparison and rollback. New-app loudness writes require a scope preview and native confirmation; they are not the legacy automatic-write policy described below. AI remains off by default.
+
+**2.2.0 es un candidato beta de código fuente, sin release.** La interfaz Electron conserva los motores Python. Consulta la [guía nueva](desktop-electron/README.md) y el [alcance exacto](desktop-electron/MIGRATION_SCOPE.md). No reemplaza automáticamente la app instalada ni importa datos reales. Los binarios V12 previos conservan su versión original.
 
 Developed by **Freddy Molina** at **[BlueSystem.io](https://bluesystem.io)** — Audio Division.
 
@@ -618,7 +620,7 @@ These exports follow the same strategy-grouped, timestamped, non-overwriting con
 - **macOS .app bundle**: A PyInstaller spec is included under `packaging/pyinstaller/` for building a local `.app` bundle. The bundle includes Qt Multimedia plugins and FFmpeg libraries for audio preview. Unsigned bundles work for personal use; signed/notarized distribution requires Apple Developer ID and separate legal review.
 - **Test suite**: run `uv run pytest -q` for current status. Strict TDD is enforced for behavior-changing changes.
 - Target platform: macOS, Python 3.12 or newer. Current AI workflow evidence includes Linux/offscreen tests; it does not certify native macOS interaction, installation or real Serato import.
-- Historical manual QA does not certify this 2.1.0 candidate. Real NaN credentials/provider behavior and musical listening quality still require separate validation; check CI for the exact commit under review.
+- Historical manual QA does not certify this 2.2.0 candidate. Real NaN credentials/provider behavior and musical listening quality still require separate validation; check CI for the exact commit under review.
 - Publication checklist: follow `docs/repository-publication-checklist.md` before turning a local tree into a public source repository.
 
 ## Safety posture and non-goals
@@ -1319,7 +1321,7 @@ Estas exportaciones siguen la misma convención de agrupación por estrategia, t
 - **Bundle .app para macOS**: Se incluye un spec de PyInstaller bajo `packaging/pyinstaller/` para construir un bundle `.app` local. El bundle incluye plugins de Qt Multimedia y librerías FFmpeg para audio preview. Los bundles no firmados sirven para uso personal; la distribución firmada/notarizada requiere Apple Developer ID y revisión legal separada.
 - **Suite de tests**: ejecutar `uv run pytest -q` para ver el estado actual. Se aplica TDD estricto para cambios que modifican comportamiento.
 - Plataforma objetivo: macOS, Python 3.12 o posterior. Las pruebas actuales de los flujos IA incluyen Linux/offscreen; no certifican interacción nativa macOS, instalación ni importación real en Serato.
-- El QA manual histórico no certifica este candidato 2.1.0. Faltan pruebas separadas con credenciales/proveedor NaN reales y escucha musical; consulta CI para el commit exacto en revisión.
+- El QA manual histórico no certifica este candidato 2.2.0. Faltan pruebas separadas con credenciales/proveedor NaN reales y escucha musical; consulta CI para el commit exacto en revisión.
 - Checklist de publicación: seguir `docs/repository-publication-checklist.md` antes de convertir un árbol local en repo público.
 
 ## Postura de seguridad y no-objetivos

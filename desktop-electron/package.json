@@ -1,6 +1,6 @@
 {
   "name": "xfinaudio-desktop-next",
-  "version": "0.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "Qt-free XfinAudio desktop migration preview",
   "license": "GPL-3.0-only",
