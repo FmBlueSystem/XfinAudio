@@ -297,6 +297,7 @@ def test_worker_shutdown_releases_runner_and_thread() -> None:
     worker.start(records, _FakeRepository(), max_workers=1)
 
     worker.shutdown()
+    _wait_for_worker(worker)
 
     assert worker._runner is None
     assert not worker.is_running()
@@ -310,6 +311,7 @@ def test_worker_shutdown_is_safe_before_start_and_twice() -> None:
     worker.start([TrackRecord(path="/music/a.flac", metadata_status="complete")], _FakeRepository(), max_workers=1)
     worker.shutdown()
     worker.shutdown()
+    _wait_for_worker(worker)
 
     assert not worker.is_running()
 

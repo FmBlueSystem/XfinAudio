@@ -7,8 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QCoreApplication, Qt
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtCore import QCoreApplication, Qt, QThread, QTimer
+from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from xfinaudio.application.playlist_workflow import ScanService
 from xfinaudio.application.recommendation_candidates import (
@@ -18,6 +18,7 @@ from xfinaudio.application.recommendation_candidates import (
     pool_size_for_slot,
 )
 from xfinaudio.config.settings import AppSettings, WindowSettings
+from xfinaudio.config.settings_repository import SettingsRepositoryError
 from xfinaudio.desktop import layout as _layout
 from xfinaudio.desktop import rendering as _rendering
 from xfinaudio.desktop import shell_state_compat as _shell_state_compat
@@ -26,6 +27,7 @@ from xfinaudio.desktop.ai_narrator import AiNarratorController
 from xfinaudio.desktop.app_state import AppState, SettingsPersistence
 from xfinaudio.desktop.menu import Menu
 from xfinaudio.desktop.prep_copilot import PrepCopilotController
+from xfinaudio.desktop.prep_generation_task import PrepGenerationTask
 from xfinaudio.desktop.recommendation_render import clear_recommendation_review as render_clear_recommendation_review
 from xfinaudio.desktop.recommendation_render import render_recommendation
 from xfinaudio.desktop.recommendation_render import show_transition_review as render_transition_review
@@ -62,7 +64,7 @@ _RECOMMENDATION_READY_GUIDANCE = QCoreApplication.translate(
     "Selected row starts the playlist; multiple selected rows set the opening order. "
     "Choose a strategy, then click Recommend Playlist.",
 )
-_SCREEN_NAMES = ["library", "build", "review", "export", "playlists", "metadata", "live"]
+_SCREEN_NAMES = ["library", "build", "review", "export", "playlists", "metadata", "live", "editor"]
 
 _APP_STATE_ATTRIBUTES = _shell_state_compat.LEGACY_APP_STATE_WRITE_ATTRIBUTES
 
@@ -101,7 +103,17 @@ class MainWindow(QMainWindow):
             on_status_message=self.status_label.setText,
             desktop_recommendation_records=self._desktop_recommendation_records,
             desktop_color_anchor_candidate_context=self._desktop_color_anchor_candidate_context,
+            candidate_routes_factory=self._prep_candidate_routes,
         )
+        self._prep_task = PrepGenerationTask(
+            self,
+            state_getter=lambda: self._state,
+            state_setter=self._replace_app_state,
+            on_state_changed=self._sync_state,
+            on_completed=self._prep_copilot.publish_plan,
+            on_status=self.status_label.setText,
+        )
+        self._prep_copilot.submit_plan = self._prep_task.start
         wire_services(self._wire_scan_service, self._wire_recommendation_service)
         self._ai_copilot = AiCopilotController(
             build_screen=self._build_screen,
@@ -110,6 +122,7 @@ class MainWindow(QMainWindow):
             on_state_changed=self._sync_state,
             desktop_recommendation_records=self._desktop_recommendation_records,
             desktop_color_anchor_candidate_context=self._desktop_color_anchor_candidate_context,
+            candidate_routes_factory=self._prep_candidate_routes,
             parent=self,
         )
         self._ai_narrator = AiNarratorController(
@@ -121,6 +134,9 @@ class MainWindow(QMainWindow):
         )
 
         self._connect_screens()
+        from xfinaudio.desktop.optional_ai_integration import install_optional_assist_controls
+
+        self._optional_ai_assists = install_optional_assist_controls(self)
         apply_visual_design(self)
         self._build_layout()
         self._initialize_app_controller()
@@ -130,19 +146,60 @@ class MainWindow(QMainWindow):
         self._sync_state()
 
     def closeEvent(self, event: object) -> None:
-        self._audio_player.shutdown()
-        self._library_watch_service.stop()
-        self._scan_service.cancel()
-        if hasattr(self, "_library_controller"):
+        if not getattr(self, "_closing", False):
+            if self._playlist_editor.is_dirty:
+                decision = QMessageBox.question(
+                    self,
+                    self.tr("Unsaved playlist draft"),
+                    self.tr("This playlist has unsaved changes. Discard the draft and close XfinAudio?"),
+                    QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                if decision != QMessageBox.StandardButton.Discard:
+                    event.ignore()  # type: ignore[attr-defined]
+                    return
+                self._playlist_editor.discard_draft()
+            self._closing = True
+            self.setEnabled(False)
+            self._audio_player.shutdown()
+            self._library_watch_service.stop()
+            self._scan_service.shutdown()
+            self._recommendation_service.cancel()
+            self._prep_task.cancel()
+            self._ai_copilot.cancel()
+            self._ai_narrator.cancel()
+            for controller in self._optional_ai_assists.values():
+                controller.cancel()
             self._library_controller.shutdown()
-        self._recommendation_service.cancel()
-        self._ai_copilot.cancel()
-        self._ai_narrator.cancel()
-        self._persist_window_geometry()
+            # Include superseded requests still finishing in their original owners.
+            for thread in self.findChildren(QThread):
+                if thread.isRunning():
+                    thread.requestInterruption()
+            self._close_timer = QTimer(self)
+            self._close_timer.setInterval(50)
+            self._close_timer.timeout.connect(self.close)
+        if any(thread.isRunning() for thread in self.findChildren(QThread)):
+            self.status_label.setText(self.tr("Closing safely; waiting for background work to finish"))
+            self._close_timer.start()
+            event.ignore()  # type: ignore[attr-defined]
+            return
+        self._close_timer.stop()
+        try:
+            self._persist_window_geometry()
+        except SettingsRepositoryError:
+            LOGGER.exception("Could not save window settings; previous settings were preserved")
         super().closeEvent(event)  # type: ignore[arg-type]
 
     def _build_layout(self) -> None:
         _layout.build_main_window_layout(self)
+
+    def _show_playlist_editor(self) -> None:
+        self._replace_app_state(
+            self._state.model_copy(update={"editor_playlist_id": self._playlist_editor._playlist_id})
+        )
+        self._sync_state()
+        if self._nav.can_go_to("editor", self._state):
+            self.workflow_tabs.setCurrentIndex(7)
 
     def _on_sidebar_row_changed(self, index: int) -> None:
         previous_index = self.workflow_tabs.currentIndex()
@@ -231,6 +288,20 @@ class MainWindow(QMainWindow):
         self._app_controller.request_sync()
 
     def _render_screens(self) -> None:
+        self._ai_narrator.invalidate_if_context_changed()
+        state = self._state
+        if getattr(self, "_closing", False) or state.is_scanning or state.is_recommending:
+            self._live_assistant_screen.clear_session()
+        else:
+            self._live_assistant_screen.set_session(
+                state.last_recommendation,
+                state.last_dj_readiness_report,
+                locked_paths=state.locked_paths,
+                excluded_paths=state.excluded_paths,
+                spectral_cohesion=state.settings.scoring.spectral_cohesion,
+            )
+        for controller in getattr(self, "_optional_ai_assists", {}).values():
+            controller.invalidate_if_context_changed()
         self._app_controller.render_screens()
 
     def _on_tab_changed(self, index: int) -> None:
@@ -468,6 +539,9 @@ class MainWindow(QMainWindow):
             self._live_assistant_screen,
         ):
             screen.connect_signals(self)
+        self._review_screen.ai_narrate_cancel_requested.connect(self._ai_narrator.cancel)
+        self._review_screen.configure_ai_requested.connect(self._settings_controller.open_ai_settings_dialog)
+        self._build_screen.configure_ai_requested.connect(self._settings_controller.open_ai_settings_dialog)
         self._playlist_coordinator.connect_signals()
         self._playlist_coordinator.refresh_list()
         for table in (
@@ -508,6 +582,34 @@ class MainWindow(QMainWindow):
 
     def _selected_track_controls(self) -> DJControls | None:
         return _layout.selected_main_track_controls(self)
+
+    def _prep_candidate_routes(self):
+        """Capture the library before background planning; workers never read widgets."""
+        records = list(self.scanned_records)
+        limit = pool_size_for_slot(
+            slot_minutes=DESKTOP_RECOMMENDATION_SET_MINUTES,
+            played_seconds_per_track=DESKTOP_PLAYED_SECONDS_PER_TRACK,
+        )
+
+        def plain(controls, strategy_name, *, loudness_band=DEFAULT_LOUDNESS_BAND):
+            return plan_recommendation_candidates(
+                scanned_records=records,
+                controls=controls,
+                strategy_name=strategy_name,
+                limit=limit,
+                loudness_band=loudness_band,
+            )
+
+        def color(controls, strategy_name, *, loudness_band=DEFAULT_LOUDNESS_BAND):
+            return plan_recommendation_candidate_context(
+                scanned_records=records,
+                controls=controls,
+                strategy_name=strategy_name,
+                limit=limit,
+                loudness_band=loudness_band,
+            )
+
+        return plain, color
 
     def _desktop_recommendation_records(
         self,

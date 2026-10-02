@@ -10,12 +10,13 @@ the busy/result rendering stays render-driven.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from xfinaudio.ai import NanConfigError, narrate_set
-from xfinaudio.desktop._workers import BackgroundWorker
+from xfinaudio.desktop._workers import BackgroundWorker, WorkerRegistry
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.app_state_transitions import (
     apply_ai_narrative_finished,
@@ -33,6 +34,12 @@ AI_NARRATOR_TIMEOUT_SECONDS = 120.0
 #: Shown while a request is in flight. Long, because a whole-set narration is a
 #: heavier call than the copilot's intent extraction.
 NARRATING_STATUS = "Narrating the set... this can take up to two minutes"
+
+
+@dataclass(frozen=True)
+class _NarrativeDelivery:
+    request_id: int
+    value: object
 
 
 class SetNarrator(Protocol):
@@ -65,6 +72,7 @@ class AiNarratorController(QObject):
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
+        self._worker_registry = WorkerRegistry(self)
         self._review_screen = review_screen
         self._review_vm = review_vm
         # ``state`` is the window, like AiCopilotController: the AppState lives on
@@ -76,6 +84,7 @@ class AiNarratorController(QObject):
         self._narrate_thread: QThread | None = None
         self._narrate_worker: BackgroundWorker | None = None
         self._current_request_id: int = 0
+        self._context: tuple[PlaylistRecommendation, DjReadinessReport] | None = None
         # Re-emitted onto the controller's own thread: the worker's signals reach a
         # plain lambda, so the state and widget work must be marshalled here.
         self.narrative_completed.connect(self.on_completed)
@@ -103,6 +112,7 @@ class AiNarratorController(QObject):
 
     def narrate(self) -> None:
         """Narrate the current recommendation without blocking the UI thread."""
+        self.invalidate_if_context_changed()
         if self._app_state().is_narrating:
             # One request at a time: a second one would race the first for the panel.
             return
@@ -119,6 +129,7 @@ class AiNarratorController(QObject):
             return
         self._current_request_id += 1
         request_id = self._current_request_id
+        self._context = (recommendation, readiness)
         self._begin_narrating_state()
         self._start_worker(lambda: self._narrate(recommendation, readiness), request_id)
 
@@ -137,14 +148,45 @@ class AiNarratorController(QObject):
     # ------------------------------------------------------------------
 
     def cancel(self) -> None:
-        """Request interruption of an in-flight narration (window close path)."""
+        """Release the UI immediately; a blocking transport may finish later."""
+        self._current_request_id += 1
         if self._narrate_thread is not None and self._narrate_thread.isRunning():
             self._narrate_thread.requestInterruption()
-            self._narrate_thread.wait(500)
+        self._context = None
+        if self._app_state().is_narrating:
+            self._replace_state(apply_ai_narrative_finished(self._app_state(), None))
+            self._review_screen.render(self._review_vm, self._app_state())
+            self._on_state_changed()
+            self._set_status(self.tr("Narration cancelled. You can retry."))
+
+    def invalidate_if_context_changed(self) -> None:
+        """Invalidate results even when a replacement set retained the busy flag."""
+        if self._context is None:
+            return
+        state = self._app_state()
+        recommendation, readiness = self._context
+        if state.last_recommendation is recommendation and state.last_dj_readiness_report is readiness:
+            return
+        self.cancel()
+        if self._app_state().ai_narrative_text is not None:
+            self._replace_state(apply_ai_narrative_finished(self._app_state(), None))
+            self._review_screen.render(self._review_vm, self._app_state())
+            self._on_state_changed()
+        self._set_status(self.tr("Set changed. Request a new narrative for this set."))
+
+    def _accept_delivery(self, delivery: object) -> bool:
+        self.invalidate_if_context_changed()
+        return (
+            isinstance(delivery, _NarrativeDelivery)
+            and delivery.request_id == self._current_request_id
+            and self._context is not None
+            and self._app_state().is_narrating
+        )
 
     def _start_worker(self, operation: Callable[[], str], request_id: int) -> None:
         thread = QThread(self)
         worker = BackgroundWorker(operation, request_id=request_id)
+        self._worker_registry.retain(thread, worker)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(lambda result, rid=request_id: self._on_worker_finished(result, rid))
@@ -159,14 +201,14 @@ class AiNarratorController(QObject):
         thread.start()
 
     def _on_worker_finished(self, result: object, request_id: int | None = None) -> None:
-        if request_id is not None and request_id != self._current_request_id:
-            return
-        self.narrative_completed.emit(result)
+        self.narrative_completed.emit(
+            _NarrativeDelivery(self._current_request_id if request_id is None else request_id, result)
+        )
 
     def _on_worker_failed(self, error: object, request_id: int | None = None) -> None:
-        if request_id is not None and request_id != self._current_request_id:
-            return
-        self.narrative_failed.emit(error)
+        self.narrative_failed.emit(
+            _NarrativeDelivery(self._current_request_id if request_id is None else request_id, error)
+        )
 
     def _on_worker_cleared(self) -> None:
         sender_thread = self.sender()
@@ -182,16 +224,21 @@ class AiNarratorController(QObject):
     @Slot(object)
     def on_completed(self, result: object) -> None:
         """Store the narration and render it on the Review screen."""
-        narrative = cast(str, result)
+        if not self._accept_delivery(result):
+            return
+        narrative = cast(str, cast(_NarrativeDelivery, result).value)
         updated_state = apply_ai_narrative_finished(self._app_state(), narrative)
         self._replace_state(updated_state)
         self._review_screen.render(self._review_vm, updated_state)
         self._on_state_changed()
-        self._set_status(self.tr("Set narrative ready"))
+        self._set_status(self.tr("Set narrative ready. AI-generated commentary; verify against local engine facts."))
 
     @Slot(object)
     def on_failed(self, error: object) -> None:
         """Report a failed narration on the status line -- never a modal."""
+        if not self._accept_delivery(error):
+            return
+        error = cast(_NarrativeDelivery, error).value
         updated_state = apply_ai_narrative_finished(self._app_state(), None)
         self._replace_state(updated_state)
         self._review_screen.render(self._review_vm, updated_state)
@@ -200,12 +247,9 @@ class AiNarratorController(QObject):
 
     def _failure_message(self, error: object) -> str:
         if isinstance(error, NanConfigError):
-            # The adapter reads its switches from the environment at process start, so
-            # a setting toggled on mid-session only applies after a restart: say so
-            # instead of sending the DJ back to the same dead end.
             return self.tr(
-                "AI set narrative is not configured: {0} Enable AI in Settings and restart XfinAudio, "
-                "then check that the API key file exists."
+                "AI set narrative is not configured: {0} Use Configure AI to open Settings, "
+                "enable AI and check the API key file, then retry."
             ).format(error)
         if isinstance(error, ValueError):
             return self.tr("AI set narrative could not explain the set: {0}").format(error)

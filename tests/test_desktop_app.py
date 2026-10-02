@@ -1,4 +1,4 @@
-def test_desktop_main_activates_window(monkeypatch, tmp_path) -> None:
+def test_desktop_main_activates_window(monkeypatch, tmp_path, qapp) -> None:
     from xfinaudio.desktop import app as desktop_app
 
     class FakeQApplication:
@@ -10,6 +10,9 @@ def test_desktop_main_activates_window(monkeypatch, tmp_path) -> None:
 
         def setApplicationDisplayName(self, name):
             pass
+
+        def setWindowIcon(self, icon):
+            assert not icon.isNull()
 
         def exec(self):
             return 0
@@ -50,7 +53,7 @@ def test_desktop_main_activates_window(monkeypatch, tmp_path) -> None:
     assert macos_calls[0][0] == "XfinAudio"
 
 
-def test_package_smoke_exits_without_creating_main_window(monkeypatch, tmp_path) -> None:
+def test_package_smoke_exits_without_creating_main_window(monkeypatch, tmp_path, qapp) -> None:
     from xfinaudio.desktop import app as desktop_app
 
     class FakeQApplication:
@@ -62,6 +65,9 @@ def test_package_smoke_exits_without_creating_main_window(monkeypatch, tmp_path)
 
         def setApplicationDisplayName(self, name):
             pass
+
+        def setWindowIcon(self, icon):
+            assert not icon.isNull()
 
     def fail_if_window_is_created(*_args):
         raise AssertionError("package smoke must not create MainWindow")
@@ -78,7 +84,7 @@ def test_package_smoke_exits_without_creating_main_window(monkeypatch, tmp_path)
     assert macos_calls == []
 
 
-def test_main_resolves_default_macos_configurator_at_call_time(monkeypatch, tmp_path) -> None:
+def test_main_resolves_default_macos_configurator_at_call_time(monkeypatch, tmp_path, qapp) -> None:
     from xfinaudio.desktop import app as desktop_app
 
     calls = []
@@ -92,6 +98,9 @@ def test_main_resolves_default_macos_configurator_at_call_time(monkeypatch, tmp_
 
         def setApplicationDisplayName(self, _name):
             pass
+
+        def setWindowIcon(self, icon):
+            assert not icon.isNull()
 
         def exec(self):
             return 0
@@ -155,7 +164,7 @@ def test_default_log_path_sits_next_to_the_application_database() -> None:
     assert desktop_app.default_log_path().parent == desktop_app.default_database_path().parent
 
 
-def test_main_never_writes_the_log_into_the_real_home(monkeypatch, tmp_path) -> None:
+def test_main_never_writes_the_log_into_the_real_home(monkeypatch, tmp_path, qapp) -> None:
     """Running main() under test must not touch the user's own ~/.xfinaudio log."""
     import logging
 
@@ -170,6 +179,9 @@ def test_main_never_writes_the_log_into_the_real_home(monkeypatch, tmp_path) -> 
 
         def setApplicationDisplayName(self, name):
             pass
+
+        def setWindowIcon(self, icon):
+            assert not icon.isNull()
 
         def exec(self):
             return 0

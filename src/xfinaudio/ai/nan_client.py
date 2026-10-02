@@ -1,14 +1,14 @@
 """Nan Builders (OpenAI-compatible) chat client for XfinAudio.
 
-Fase 0 spike: function-level, stdlib-only, and offline by default. Nothing here
+Function-level, stdlib-only, and offline by default. Nothing here
 opens a socket unless ``XFINAUDIO_AI_ENABLED`` opts in *and* an API key is
 available. The key value only ever reaches the ``Authorization`` header: it is
 not logged, echoed in errors, or stored anywhere else.
 
 Keys resolve environment first (``NAN_API_KEY``), then an operator-owned env
 file whose path comes from an explicit argument, ``XFINAUDIO_AI_ENV_FILE``, or
-``~/.xfinaudio/apiIA.env``. Live calls are intentionally out of scope for this
-spike; ``transport`` exists so tests can pin the request without the network.
+``~/.xfinaudio/apiIA.env``. Configured user-requested actions may call the provider; ``transport`` exists
+so automated tests can verify the request without using the network.
 """
 
 from __future__ import annotations
@@ -16,8 +16,12 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +44,47 @@ ENV_FILE_ENV = "XFINAUDIO_AI_ENV_FILE"
 #: so a caller can supply a fake and keep the adapter fully offline.
 Transport = Callable[..., Any]
 
-_urlopen: Transport = urllib.request.urlopen
+
+@dataclass(frozen=True)
+class _RequestContext:
+    enabled: bool
+    key_provider: Callable[[], str] = field(repr=False)
+    endpoint: str
+    model: str
+
+
+_REQUEST_CONTEXT: ContextVar[_RequestContext | None] = ContextVar("xfinaudio_ai_request", default=None)
+
+
+@contextmanager
+def request_context(
+    *, enabled: bool, key_provider: Callable[[], str], endpoint: str = DEFAULT_ENDPOINT, model: str = DEFAULT_MODEL
+) -> Iterator[None]:
+    """Bind one explicit request without inspecting or mutating process configuration."""
+    if type(enabled) is not bool or not callable(key_provider):
+        raise NanConfigError("Invalid explicit AI request configuration")
+    token = _REQUEST_CONTEXT.set(_RequestContext(enabled, key_provider, endpoint, model))
+    try:
+        yield
+    finally:
+        _REQUEST_CONTEXT.reset(token)
+
+
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    """Credential-bearing API calls must target their final HTTPS endpoint."""
+
+    def redirect_request(
+        self, req: urllib.request.Request, fp: Any, code: int, msg: str, headers: Any, newurl: str
+    ) -> None:
+        return None
+
+
+def _urlopen(request: urllib.request.Request, *, timeout: float) -> Any:
+    if _REQUEST_CONTEXT.get() is not None:
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}), _RejectRedirects()).open(
+            request, timeout=timeout
+        )
+    return urllib.request.build_opener(_RejectRedirects()).open(request, timeout=timeout)
 
 
 class NanConfigError(Exception):
@@ -53,6 +97,8 @@ class NanRequestError(Exception):
 
 def is_ai_enabled() -> bool:
     """Return True only when ``XFINAUDIO_AI_ENABLED`` explicitly opts in (default off)."""
+    if context := _REQUEST_CONTEXT.get():
+        return context.enabled
     return os.environ.get(ENABLED_ENV, "").strip().lower() in TRUTHY_FLAG_VALUES
 
 
@@ -101,15 +147,17 @@ def chat(
     timeout: float = 30.0,
     transport: Transport | None = None,
     env_file: Path | None = None,
+    enabled: bool | None = None,
 ) -> str:
     """Send one chat completion request and return the assistant's text.
 
     AI must be enabled and keyed before this is reached, so failure is always an
     exception (``NanConfigError`` for configuration, ``NanRequestError`` for the
     request itself) rather than a silent empty answer. The API key value is
-    never included in the raised errors.
+    never included in the raised errors. ``enabled`` is an explicit per-call
+    opt-in for a user-triggered connection probe; it never changes runtime state.
     """
-    if not is_ai_enabled():
+    if not (is_ai_enabled() if enabled is None or _REQUEST_CONTEXT.get() is not None else enabled):
         raise NanConfigError(
             f"AI is disabled: set {ENABLED_ENV}=1 in the environment before starting XfinAudio "
             "to allow Nan Builders requests."
@@ -126,17 +174,21 @@ def chat(
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, TimeoutError):
             raise NanRequestError(_timeout_message(timeout)) from None
-        raise NanRequestError(f"Nan Builders request failed: {exc.reason}.") from None
+        raise NanRequestError("Nan Builders request failed: Connection refused or network unavailable.") from None
     except TimeoutError:
         raise NanRequestError(_timeout_message(timeout)) from None
-    except OSError as exc:
-        raise NanRequestError(f"Nan Builders request failed: {exc}.") from None
+    except OSError:
+        raise NanRequestError("Nan Builders request failed: network unavailable.") from None
+    except ValueError:
+        raise NanConfigError("Invalid API credential or request configuration.") from None
 
     return _parse_content(raw_body)
 
 
 def _resolve_api_key(env_file: Path | None = None) -> str:
     """Return the API key: environment variable first, then the operator env file."""
+    if context := _REQUEST_CONTEXT.get():
+        return context.key_provider()
     env_key = os.environ.get(API_KEY_ENV)
     if env_key and env_key.strip():
         return env_key.strip()
@@ -163,15 +215,34 @@ def _build_request(message: str, *, system: str | None, model: str | None, api_k
     request = urllib.request.Request(_resolve_endpoint(), data=body, method="POST")
     request.add_header("Content-Type", "application/json")
     request.add_header("User-Agent", USER_AGENT)
-    request.add_header("Authorization", f"Bearer {api_key}")
+    request.add_unredirected_header("Authorization", f"Bearer {api_key}")
     return request
 
 
 def _resolve_endpoint() -> str:
-    return os.environ.get(ENDPOINT_ENV) or DEFAULT_ENDPOINT
+    context = _REQUEST_CONTEXT.get()
+    endpoint = context.endpoint if context is not None else os.environ.get(ENDPOINT_ENV) or DEFAULT_ENDPOINT
+    try:
+        parsed = urllib.parse.urlsplit(endpoint)
+        valid = (
+            parsed.scheme == "https"
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.fragment
+            and (parsed.port is None or 0 < parsed.port <= 65535)
+            and not any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in endpoint)
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise NanConfigError(f"{ENDPOINT_ENV} must be an absolute HTTPS URL without credentials or fragments.")
+    return endpoint
 
 
 def _resolve_model(model: str | None) -> str:
+    if context := _REQUEST_CONTEXT.get():
+        return context.model
     return model or os.environ.get(MODEL_ENV) or DEFAULT_MODEL
 
 

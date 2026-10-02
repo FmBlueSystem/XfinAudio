@@ -121,6 +121,7 @@ def test_app_path_helpers_use_environment_overrides(tmp_path: Path, monkeypatch:
     assert desktop_app.settings_path_from_environment() == settings_path
 
 
+@pytest.mark.usefixtures("qapp")
 def test_desktop_main_exits_before_event_loop_in_package_smoke_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -137,6 +138,9 @@ def test_desktop_main_exits_before_event_loop_in_package_smoke_mode(
 
         def setApplicationDisplayName(self, name: str) -> None:
             pass
+
+        def setWindowIcon(self, icon: object) -> None:
+            events.append("icon")
 
         def exec(self) -> int:
             events.append("exec")
@@ -156,7 +160,7 @@ def test_desktop_main_exits_before_event_loop_in_package_smoke_mode(
     monkeypatch.setattr(desktop_app, "install_translator", lambda lang: events.append(f"translator:{lang}"))
 
     assert desktop_app.main(macos_configurator=fail_if_native_activation_runs) == 0
-    assert events == ["app", "translator:None"]
+    assert events == ["app", "icon", "translator:None"]
 
 
 def test_validate_launch_requires_temp_build() -> None:

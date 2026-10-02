@@ -13,6 +13,7 @@ from PySide6.QtCore import QCoreApplication
 
 from xfinaudio.application.spectral_profile_display import format_application_spectral_color
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.display_format import format_bpm
 
 
 class ReadinessStatus(StrEnum):
@@ -155,7 +156,7 @@ class ReviewViewModel:
         for track in state.last_recommendation.ordered_tracks:
             if track.path in state.playlist_removed_paths:
                 continue
-            bpm_str = str(int(track.bpm)) if track.bpm is not None else "—"
+            bpm_str = format_bpm(track.bpm)
             key_str = track.camelot_key if track.camelot_key is not None else "—"
             energy_str = str(track.energy_level) if track.energy_level is not None else "—"
             rows.append(

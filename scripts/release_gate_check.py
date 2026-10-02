@@ -101,6 +101,23 @@ LIMITATIONS = [
 ]
 
 
+def selected_command_gates(
+    coverage_batch_size: int | None = None, coverage_evidence_dir: Path | None = None
+) -> list[CommandGate]:
+    """Opt in to fresh-process coverage without changing other release gates."""
+    if coverage_batch_size is None:
+        return list(NON_AUDIO_COMMAND_GATES)
+    if type(coverage_batch_size) is not int or not 1 <= coverage_batch_size <= 1000:
+        raise ValueError("Coverage batch size must be from 1 to 1000")
+    command = ["uv", "run", "python", "scripts/sharded_coverage_check.py", "--batch-size", str(coverage_batch_size)]
+    if coverage_evidence_dir is not None:
+        command.extend(["--evidence-dir", str(coverage_evidence_dir)])
+    return [
+        CommandGate(item.name, command) if item.name == "tests and coverage" else item
+        for item in NON_AUDIO_COMMAND_GATES
+    ]
+
+
 def command_text(command: Sequence[str]) -> str:
     """Return a readable command string for output."""
     return " ".join(command)
@@ -168,19 +185,26 @@ def write_report_json(report_path: Path, report: dict[str, Any]) -> None:
     report_path.write_text(json.dumps(report, indent=2, sort_keys=False) + "\n", encoding="utf-8")
 
 
-def build_listed_gates(include_packaging_build: bool) -> list[dict[str, Any]]:
+def build_listed_gates(
+    include_packaging_build: bool, coverage_batch_size: int | None = None, coverage_evidence_dir: Path | None = None
+) -> list[dict[str, Any]]:
     """Build listed gate evidence without running subprocesses."""
-    gates = [gate_evidence(gate.name, gate.command, "listed", None) for gate in NON_AUDIO_COMMAND_GATES]
+    gates = [
+        gate_evidence(gate.name, gate.command, "listed", None)
+        for gate in selected_command_gates(coverage_batch_size, coverage_evidence_dir)
+    ]
     gates.append(gate_evidence("root artifact hygiene", None, "listed", None))
     if include_packaging_build:
         gates.append(gate_evidence(PACKAGING_BUILD_GATE.name, PACKAGING_BUILD_GATE.command, "listed", None))
     return gates
 
 
-def print_checklist(include_packaging_build: bool) -> None:
+def print_checklist(
+    include_packaging_build: bool, coverage_batch_size: int | None = None, coverage_evidence_dir: Path | None = None
+) -> None:
     """Print the release gates without executing subprocess commands."""
     print("CHECK-ONLY automated non-audio release gates")
-    for gate in NON_AUDIO_COMMAND_GATES:
+    for gate in selected_command_gates(coverage_batch_size, coverage_evidence_dir):
         print(f"- {gate.name}: {command_text(gate.command)}")
     print("- root artifact hygiene: project-root build/ and dist/ must be absent")
     if include_packaging_build:
@@ -203,12 +227,17 @@ def run_command_gate(gate: CommandGate) -> int:
     return 0
 
 
-def run_gates(include_packaging_build: bool, report_path: Path | None = None) -> int:
+def run_gates(
+    include_packaging_build: bool,
+    report_path: Path | None = None,
+    coverage_batch_size: int | None = None,
+    coverage_evidence_dir: Path | None = None,
+) -> int:
     """Run automated non-audio release gates and propagate the first failure."""
     mode = "include-packaging-build" if include_packaging_build else "run"
     report_gates: list[dict[str, Any]] = []
 
-    for gate in NON_AUDIO_COMMAND_GATES:
+    for gate in selected_command_gates(coverage_batch_size, coverage_evidence_dir):
         result = run_command_gate(gate)
         status = "passed" if result == 0 else "failed"
         report_gates.append(gate_evidence(gate.name, gate.command, status, result))
@@ -268,21 +297,45 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         help="Write structured JSON evidence for listed or executed non-audio release gates.",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--coverage-batch-size",
+        type=int,
+        help="Opt in to fresh whole-file coverage batches (target 1–1000 tests per process).",
+    )
+    parser.add_argument(
+        "--coverage-evidence-dir", type=Path, help="New directory outside the checkout for isolated batch evidence."
+    )
+    args = parser.parse_args(argv)
+    if args.coverage_batch_size is not None and not 1 <= args.coverage_batch_size <= 1000:
+        parser.error("--coverage-batch-size must be from 1 to 1000")
+    if args.coverage_evidence_dir is not None and args.coverage_batch_size is None:
+        parser.error("--coverage-evidence-dir requires --coverage-batch-size")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
     """Run or list release readiness gates."""
     args = parse_args(sys.argv[1:] if argv is None else argv)
     if args.check_only or not (args.run or args.include_packaging_build):
-        print_checklist(include_packaging_build=args.include_packaging_build)
+        print_checklist(args.include_packaging_build, args.coverage_batch_size, args.coverage_evidence_dir)
         if args.report_json is not None:
             write_report_json(
                 args.report_json,
-                build_report("check-only", build_listed_gates(args.include_packaging_build), "listed"),
+                build_report(
+                    "check-only",
+                    build_listed_gates(
+                        args.include_packaging_build, args.coverage_batch_size, args.coverage_evidence_dir
+                    ),
+                    "listed",
+                ),
             )
         return 0
-    return run_gates(include_packaging_build=args.include_packaging_build, report_path=args.report_json)
+    return run_gates(
+        include_packaging_build=args.include_packaging_build,
+        report_path=args.report_json,
+        coverage_batch_size=args.coverage_batch_size,
+        coverage_evidence_dir=args.coverage_evidence_dir,
+    )
 
 
 if __name__ == "__main__":

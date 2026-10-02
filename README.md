@@ -1,8 +1,12 @@
-# XfinAudio — Metadata-Driven DJ Playlist Intelligence
+# XfinAudio 2.2.0 — Metadata-Driven DJ Playlist Intelligence
 
 XfinAudio is a GPL-3.0-only desktop DJ playlist assistant for DJs who already organize tracks in tools like Mixed In Key and Serato DJ Pro, but need a faster, safer, explainable way to turn a large metadata-rich library into playable playlist candidates.
 
-It is not a mixer, not an audio analyzer, and not a replacement for DJ judgment. It is a local desktop decision-support tool: it reads metadata, persists a searchable library, recommends musically coherent track sequences, explains every transition, and exports safe Serato crate worklists that help the DJ prepare, validate, and improve the library.
+It does not mix audio or detect BPM/key, and it does not replace DJ judgment. It is a local desktop decision-support tool: it reads metadata, persists a searchable library, recommends musically coherent track sequences, explains every transition, and exports safe Serato crate worklists that help the DJ prepare, validate, and improve the library.
+
+**2.2.0 is an unreleased beta/source candidate.** The Qt-free Electron application reuses the original Python engines. Start with the [new desktop source guide](desktop-electron/README.md), [exact migration scope](desktop-electron/MIGRATION_SCOPE.md), and [2.2.0 changes / Cambios](docs/release-notes-v2.2.0.md). The retained Qt application and its detailed historical workflows below remain available for comparison and rollback. New-app loudness writes require a scope preview and native confirmation; they are not the legacy automatic-write policy described below. AI remains off by default.
+
+**2.2.0 es un candidato beta de código fuente, sin release.** La interfaz Electron conserva los motores Python. Consulta la [guía nueva](desktop-electron/README.md) y el [alcance exacto](desktop-electron/MIGRATION_SCOPE.md). No reemplaza automáticamente la app instalada ni importa datos reales. Los binarios V12 previos conservan su versión original.
 
 Developed by **Freddy Molina** at **[BlueSystem.io](https://bluesystem.io)** — Audio Division.
 
@@ -13,6 +17,7 @@ Developed by **Freddy Molina** at **[BlueSystem.io](https://bluesystem.io)** —
 - [English](#english)
   - [The pain XfinAudio solves](#the-pain-xfinaudio-solves)
   - [What XfinAudio does](#what-xfinaudio-does)
+  - [Optional AI and local control](#optional-ai-and-local-control)
   - [Core DJ workflow](#core-dj-workflow)
   - [Technical techniques used](#technical-techniques-used)
   - [Application features](#application-features)
@@ -26,6 +31,7 @@ Developed by **Freddy Molina** at **[BlueSystem.io](https://bluesystem.io)** —
 - [Español](#español)
   - [El dolor que XfinAudio viene a resolver](#el-dolor-que-xfinaudio-viene-a-resolver)
   - [Qué hace XfinAudio](#qué-hace-xfinaudio)
+  - [IA opcional y control local](#ia-opcional-y-control-local)
   - [Flujo DJ principal](#flujo-dj-principal)
   - [Técnicas usadas](#técnicas-usadas)
   - [Características de la app](#características-de-la-app)
@@ -65,12 +71,12 @@ XfinAudio scans existing audio metadata, stores normalized track records, builds
 
 It is designed around this principle:
 
-> Metadata first, DJ control always, no destructive audio mutation.
+> Metadata first, DJ control always. Review the loudness write-back warning before scanning.
 
 Current scope:
 
 - Local desktop app built with PySide6/Qt.
-- Python 3.11 package distributed from source/wheel.
+- Python 3.12 package distributed from source/wheel.
 - Read-only metadata scanning through mutagen.
 - Mixed In Key-oriented metadata parsing.
 - SQLite persistence for scanned library records.
@@ -78,7 +84,7 @@ Current scope:
 - DJ Prep Copilot planning with Safe, Balanced, and Adventurous variants from one set intent.
 - Explainable transition scoring.
 - Serato crate export and metadata-cleanup worklists.
-- **Full internationalization (i18n) in English and Spanish** with runtime language switching.
+- **English/Spanish localization** with language selection and restart; some surrounding controls remain in English.
 - **Duration column** read from audio file metadata.
 - **Spectral color badges** (RED/GREEN/BLUE/MIXED) computed from audio frequency bands and shown in the library table.
 - **Lazy spectral completion** — metadata scan returns tracks immediately; colors are filled in the background.
@@ -88,10 +94,44 @@ Current scope:
 - **Integrated audio preview** — listen to tracks directly from the library table without leaving the app.
 - **Playlist persistence** — save, edit, rename, and re-export playlists via the "My Playlists" screen.
 - **Multi-software export** — export playlists to Rekordbox XML, Traktor NML, and VirtualDJ list XML in addition to Serato crates.
-- **Live Assistant mode** — performance view with real-time suggestions, risk alerts, and set history.
+- **Live Assistant mode** — manual session guidance with locally scored candidates, readiness and set history.
 - Manual desktop QA required before any release claim.
 
 For harmonic scoring concepts, Camelot movement, strategy intent, and current non-goals, see [docs/harmonic-mixing.md](docs/harmonic-mixing.md).
+
+## Optional AI and local control
+
+The NaN (Nan Builders) integration makes real provider requests when configured,
+enabled and explicitly requested. Automated tests inject synthetic replies;
+they do not prove real-provider availability or response quality. The local
+engine owns track selection/order, scoring, readiness and export in both cases.
+
+| Workflow | Optional AI | Local authority and review step |
+|---|---|---|
+| Library | Interpret a request as genre/BPM/key/energy filters | Edit visible fields, then apply; missing metadata stays unknown |
+| Create | Interpret duration, style and constraints | Confirm the editable intent, generate local variants, then choose one |
+| Review | Narrate already computed transitions and risks | Inspect engine facts and replacement previews; commentary cannot edit the set |
+| My Playlists | Find/compare candidates using anonymous IDs and aggregates | Search, descriptions and comparisons stay local; deletion asks for confirmation |
+| Editor | Interpret shortening or energy requests | Preview, apply to draft and save are separate; locks, exclusions and dirty drafts are protected |
+| Metadata | Explain missing-field counts and priorities | Priorities come from actual gaps; AI never fills or writes tags |
+| Live | Explain locally ranked candidates | Current track is manual; AI cannot rerank, control playback or detect what is playing |
+| Settings | Explicit configuration and connection test | No key field; opening Settings sends nothing |
+
+AI is **off by default**. Follow [secure AI setup](docs/ai-settings.md), review the
+recipient and data disclosure, then opt in to the specific action. No audio is
+uploaded. Library/Editor requests, anonymous playlist aggregates and computed
+Metadata/Live facts have different scopes; Create and Review disclose their own
+metadata context. Never put private information or credentials in free text.
+
+Offline Library filters, local planning/review, playlist editing, metadata help,
+manual Live guidance and **direct deterministic Serato export** remain available
+without an AI subscription, key or network. Provider errors expose Configure AI,
+Cancel and explicit retry; cancellation cannot recall a request already sent.
+Export still requires preview and explicit confirmation, with backups/validation;
+AI never writes crates or the live Serato database V2.
+
+See [workflow boundaries and examples](docs/ai-workflows.md) for the data scopes,
+confirmation steps and limits of generated commentary.
 
 ## Core DJ workflow
 
@@ -123,7 +163,30 @@ The desktop app scans supported audio files recursively:
 - `.mp3`
 - `.wav`
 
-The scan is read-only. It does not mutate audio files. The loudness module is the single documented exception and may write loudness tags only through its explicit setting.
+Metadata scanning itself is read-only. The automatic loudness stage is the exception:
+The loudness setting is enabled by default and gates both analysis and automatic tag writing; it replaces existing comments. There is no separate tag-write switch.
+
+Before processing your library, back up comments you want to keep or disable **Enable
+loudness analysis** in Settings. Loudness write-back removes all ID3 COMM frames
+(including custom comment frames), replaces FLAC COMMENT and MP4 ©cmt, and writes
+structured loudness tags. Unrelated FLAC DESCRIPTION text is preserved when the
+loudness line is added/refreshed. Disabling this setting later does not restore replaced comments.
+Audio samples are not rewritten by this tag writer.
+
+**Loudness completeness:** for otherwise measurable inputs shorter than 60 seconds,
+the `too_short` partial status retains valid integrated LUFS and true peak but
+omits LRA. Such results cannot write the complete three-metric automatic loudness
+comment/tags. Inputs of at least 60 seconds remain eligible when all other validity
+checks pass. Below-gate input without measurable integrated loudness is rejected;
+a reported floor value is not accepted as a real LUFS measurement. Results stored with older analysis
+cache/tag schemas are no longer trusted as complete; re-analysis is needed.
+
+This is XfinAudio's conservative **LRA completeness policy**. [EBU Tech 3341,
+§2.4, p.6](https://tech.ebu.ch/docs/tech/tech3341.pdf#page=6) requires an indication
+that LRA is not yet stable during the first 60 seconds; XfinAudio chooses to omit
+that LRA from a complete profile. It does not mean LUFS requires 60 seconds or
+that all short clips are unmeasurable. Synthetic checks exercise the production
+FFmpeg path; they are not official meter certification or native macOS/audio-listening QA.
 
 During scan, the app:
 
@@ -354,9 +417,9 @@ Persisting the last scan folder turns a later scan into a real refresh workflow.
 
 ### Internationalization (i18n)
 
-XfinAudio uses Qt's `QTranslator` system for full runtime translation:
+XfinAudio uses Qt's `QTranslator` system for English/Spanish localization:
 
-- All UI strings are marked with `self.tr()` / `QCoreApplication.translate()`.
+- Translatable UI strings use `self.tr()` / `QCoreApplication.translate()`; coverage is still being completed.
 - Source language is English; Spanish translations ship as compiled `.qm` files.
 - Language can be changed in **Settings → Language** (requires app restart).
 - Translation workflow: mark strings → run `scripts/update_translations.py` → edit `.ts` source or run `scripts/fill_spanish_translations.py` → `.qm` files compiled automatically.
@@ -479,7 +542,7 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 ### Live Assistant mode
 
 - Performance view for booth use: **Now Playing**, **Next Suggestions**, **Set History**.
-- Real-time risk alerts for BPM jumps, key clashes, and energy drops.
+- Candidate risks are computed from the current local session and known metadata. No playback detection or automatic beat/cue tracking.
 - One-click loading of next track into the suggestion pipeline.
 - Keyboard shortcuts: `Esc` to clear, `Space` to load next, `1`/`2`/`3` to accept suggestions.
 
@@ -492,8 +555,8 @@ The JSON recommendation includes the explanation model so reviewers can inspect 
 
 ### Safety and release workflow
 
-- Read-only audio scanning, except for loudness tags written only through the loudness module's explicit setting.
-- App-owned database/settings/export writes only.
+- Read-only metadata scanning; default-enabled loudness automatically writes tags and replaces comments (see scan warning above).
+- Other writes are limited to app-owned database/settings/exports and explicit user-requested exports.
 - Serato crate write planning before write.
 - Confirmed crate writes only.
 - Backup when replacing an existing crate.
@@ -556,18 +619,19 @@ These exports follow the same strategy-grouped, timestamped, non-overwriting con
 - Distribution model: XfinAudio ships as an installable Python package (source/wheel). Users install it with `pip`, `pipx`, or `uv tool` and the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses.
 - **macOS .app bundle**: A PyInstaller spec is included under `packaging/pyinstaller/` for building a local `.app` bundle. The bundle includes Qt Multimedia plugins and FFmpeg libraries for audio preview. Unsigned bundles work for personal use; signed/notarized distribution requires Apple Developer ID and separate legal review.
 - **Test suite**: run `uv run pytest -q` for current status. Strict TDD is enforced for behavior-changing changes.
-- Platform posture: validated on macOS with Python 3.11. The dependencies are cross-platform, but Linux and Windows are not yet validated.
+- Target platform: macOS, Python 3.12 or newer. Current AI workflow evidence includes Linux/offscreen tests; it does not certify native macOS interaction, installation or real Serato import.
+- Historical manual QA does not certify this 2.2.0 candidate. Real NaN credentials/provider behavior and musical listening quality still require separate validation; check CI for the exact commit under review.
 - Publication checklist: follow `docs/repository-publication-checklist.md` before turning a local tree into a public source repository.
 
 ## Safety posture and non-goals
 
-XfinAudio is intentionally non-destructive:
+XfinAudio has these write boundaries:
 
-- It does not mutate audio files outside the loudness module's explicit tag-write setting.
+- It does not mutate audio files outside loudness tag writing. Default-enabled loudness analysis also writes tags and replaces existing comments; there is no separate write switch.
 - It does not render, mix, time-stretch, pitch-shift, or analyze waveforms.
 - It does not perform key detection, BPM detection, beat tracking, or cue/phrase detection.
 - It does not mutate live Serato database V2 files.
-- The app writes only its app-owned database, settings, and export files.
+- Other writes are limited to app-owned database, settings, and export files, plus explicit user-requested exports.
 - Serato crate writes are only through the explicit safe export/backup/validation flow documented in the project.
 
 Non-goals:
@@ -597,7 +661,7 @@ xfinaudio
 
 ### Building a macOS .app bundle (optional)
 
-For personal use or testing, you can build a local `.app` bundle with PyInstaller:
+For personal use or testing on macOS, first pass the release gate on the exact commit you will package. Then build a local `.app` bundle with PyInstaller:
 
 ```bash
 uv run python -m PyInstaller packaging/pyinstaller/xfinaudio.spec \
@@ -612,34 +676,20 @@ The resulting `packaging/pyinstaller/dist/XfinAudio.app` can be launched with:
 open packaging/pyinstaller/dist/XfinAudio.app
 ```
 
-> **Note:** Unsigned `.app` bundles may show a security warning on first launch. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
+#### Downloaded apps and release status
 
-#### Opening a downloaded DMG (unsigned build)
+The current source/AI verification is not a new signed or notarized `.app`/DMG.
+For an existing binary, check its source, version and release notes before
+opening it. An unsigned build can trigger Gatekeeper; bypassing a warning does
+not establish safety or compatibility. See [packaging strategy](docs/packaging-strategy.md)
+for the signing/notarization and manual QA requirements.
 
-XfinAudio ships as an unsigned, ad-hoc-signed `.app`/`.dmg` — there is no paid
-Apple Developer ID behind it, so macOS Gatekeeper doesn't recognize the
-publisher. This does not affect functionality; it only means the first launch
-needs one extra confirmation from you:
-
-1. Download and open the `.dmg`, drag `XfinAudio.app` into `Applications`.
-2. Double-clicking it the first time may show *"XfinAudio.app cannot be
-   opened because Apple cannot check it for malicious software"* (or similar,
-   wording varies by macOS version).
-3. Right-click (or Control-click) `XfinAudio.app` in `Applications` → **Open**
-   → confirm **Open** in the dialog. This only needs to be done once — after
-   that, the app launches normally by double-clicking.
-   - Alternative: **System Settings → Privacy & Security**, scroll down to
-     the blocked-app notice, and click **Open Anyway**.
-
-This is standard for small/hobby open-source macOS apps distributed without
-a paid Developer ID (US$99/year) — see `docs/packaging-strategy.md` for the
-full signing/notarization tradeoff.
-
-Publishing the package to PyPI (so users can run `pipx install xfinaudio`) is an optional later step that requires a PyPI account and API token; it does not require code changes.
+PyPI is not the current release channel. Install from the repository or a
+verified release artifact, and consult the exact revision's release evidence.
 
 ## Quick start for development
 
-Requirements: Python 3.11 and `uv`.
+Requirements: Python 3.12 and `uv`.
 
 ```bash
 uv sync --locked
@@ -719,19 +769,19 @@ XfinAudio escanea metadata existente, guarda records normalizados, genera recome
 
 Principio central:
 
-> Metadata primero, control DJ siempre, cero mutación destructiva de audio.
+> Metadata primero, control DJ siempre. Revisa la advertencia de escritura de loudness antes de escanear.
 
 Alcance actual:
 
 - App desktop local construida con PySide6/Qt.
-- Paquete Python 3.11 distribuido desde source/wheel.
+- Paquete Python 3.12 distribuido desde source/wheel.
 - Escaneo read-only con mutagen.
 - Parser orientado a metadata de Mixed In Key.
 - Persistencia SQLite para la biblioteca escaneada.
 - Recomendación por estrategias.
 - Scoring explicable por transición.
 - Exportación a Serato crate y worklists para completar metadata.
-- **Internacionalización completa (i18n) en inglés y español** con cambio de idioma en tiempo de ejecución.
+- **Localización en inglés y español** con selección de idioma y reinicio; algunos controles todavía aparecen en inglés.
 - **Columna de duración** leída desde los headers de los archivos de audio.
 - **Badges de color espectral** (RED/GREEN/BLUE/MIXED) computados desde bandas de frecuencia de audio y mostrados en la tabla de librería.
 - **Completado lazy de color espectral** — el scan de metadata devuelve tracks inmediatamente; los colores se completan en segundo plano.
@@ -741,10 +791,44 @@ Alcance actual:
 - **Audio preview integrado** — reproducir tracks directamente desde la tabla de librería sin salir de la app.
 - **Persistencia de playlists** — guardar, editar, renombrar y re-exportar playlists desde la pantalla "My Playlists".
 - **Exportación multi-software** — exportar playlists a Rekordbox XML, Traktor NML y VirtualDJ list XML además de Serato crates.
-- **Modo Live Assistant** — vista de performance con sugerencias en tiempo real, alertas de riesgo e historial de set.
+- **Modo Live Assistant** — guía manual de sesión con candidatos puntuados localmente, validación e historial de set.
 - Manual desktop QA obligatorio antes de cualquier claim de release.
 
 Para conceptos de harmonic scoring, movimientos Camelot, intención de estrategias y no-objetivos actuales, ver [docs/harmonic-mixing.md](docs/harmonic-mixing.md).
+
+## IA opcional y control local
+
+La integración NaN (Nan Builders) hace peticiones reales al proveedor cuando la
+configuras, la activas y solicitas una acción. Los tests usan respuestas sintéticas;
+no demuestran disponibilidad ni calidad del proveedor real. El motor local
+conserva la selección y el orden de pistas, las puntuaciones, la validación y la
+exportación. Los comentarios generados deben contrastarse con los hechos visibles.
+
+| Flujo | IA opcional | Control local y revisión |
+|---|---|---|
+| Biblioteca | Interpreta género, BPM, tonalidad y energía | Revisa los filtros editables antes de aplicar; los datos ausentes siguen ausentes |
+| Crear | Interpreta duración, estilo y restricciones | Confirma lo entendido, genera variantes locales y elige una por separado |
+| Revisar | Explica transiciones y riesgos calculados | Los hechos y las propuestas de reemplazo son locales; el comentario no cambia el set |
+| Mis playlists | Busca/compara candidatos con IDs anónimos y agregados | Búsqueda, descripciones y comparación locales; borrar exige confirmación |
+| Editor | Interpreta peticiones de duración o energía | Vista previa → aplicar al borrador → guardar; respeta bloqueos y exclusiones |
+| Metadatos | Explica campos ausentes y prioridades | No inventa valores ni escribe etiquetas |
+| Live | Comenta candidatos puntuados localmente | La pista actual se indica manualmente; no reordena ni detecta reproducción |
+| Ajustes | Configuración y prueba de conexión explícitas | No hay campo para pegar claves; abrir Ajustes no envía nada |
+
+La IA está **desactivada por defecto**. Sigue la [configuración segura de IA](docs/ai-settings.md#configuración-segura-en-español),
+revisa el destinatario y los datos compartidos y autoriza la acción concreta.
+Nunca se envía audio. Biblioteca y Editor comparten peticiones; Mis playlists,
+agregados anónimos; Metadatos y Live, hechos calculados. Crear y Revisar muestran
+su contexto específico. No escribas datos privados ni credenciales en las consultas.
+
+Sin conexión puedes usar filtros, planificación y revisión locales, editar
+playlists, consultar faltantes, guiar una sesión Live manual y **exportar
+directamente a Serato de forma determinística**. Un error de IA permite configurar,
+cancelar o reintentar explícitamente; cancelar no retira lo ya enviado al proveedor.
+Serato conserva vista previa, confirmación, copias y validación. La IA no escribe
+crates ni modifica la base Serato V2 activa.
+
+Consulta [flujos, privacidad y ejemplos](docs/ai-workflows.md#ejemplos-para-revisar).
 
 ## Flujo DJ principal
 
@@ -776,7 +860,34 @@ La app escanea recursivamente archivos soportados:
 - `.mp3`
 - `.wav`
 
-El escaneo es de solo lectura. No modifica archivos de audio. El módulo de loudness es la única excepción documentada y puede escribir tags de loudness solo mediante su ajuste explícito.
+La lectura inicial de metadata es de solo lectura. La etapa automática de loudness
+es la excepción: su ajuste está activado por defecto, controla conjuntamente el
+análisis y la escritura automática de tags, y reemplaza los comentarios existentes.
+No existe un interruptor separado para la escritura de tags.
+
+Antes de procesar tu biblioteca, respalda los comentarios que quieras conservar o
+desactiva **Activar análisis de sonoridad** (Enable loudness analysis) en Ajustes.
+La escritura elimina todos los frames ID3 COMM, incluidos comentarios personalizados,
+reemplaza FLAC COMMENT y MP4 ©cmt, y escribe tags estructurados de loudness. El texto
+ajeno de FLAC DESCRIPTION se conserva al añadir/actualizar la línea de loudness.
+Desactivar el ajuste después no restaura los comentarios reemplazados. Esta escritura
+de tags no modifica las muestras de audio.
+
+**Validez del resultado de loudness:** si una entrada medible dura menos de 60
+segundos, el estado parcial `too_short` conserva LUFS integrado y true peak válidos,
+pero omite LRA. No permite escribir el comentario/tags automáticos completos de
+tres métricas. Las entradas de al menos 60 segundos siguen siendo elegibles si
+superan las demás validaciones. Una entrada bajo el umbral sin sonoridad integrada
+medible se rechaza; no se acepta un valor de piso como medición LUFS real. Los
+resultados guardados con esquemas antiguos de caché/tags requieren nuevo análisis
+antes de considerarse completos y confiables.
+
+Es una **política conservadora de completitud de LRA** de XfinAudio. [EBU Tech 3341,
+§2.4, p.6](https://tech.ebu.ch/docs/tech/tech3341.pdf#page=6) pide indicar que LRA aún
+no es estable durante los primeros 60 segundos; XfinAudio decide omitir ese LRA
+del perfil completo. No significa que LUFS necesite 60 segundos ni que todos los
+clips cortos sean imposibles de medir. Las pruebas sintéticas recorren el código
+real con FFmpeg; no constituyen certificación oficial, QA nativa macOS ni escucha musical.
 
 Durante el scan, la app:
 
@@ -1007,9 +1118,9 @@ Guardar la última carpeta escaneada convierte el siguiente scan en un refresh r
 
 ### Internacionalización (i18n)
 
-XfinAudio usa el sistema `QTranslator` de Qt para traducción completa en tiempo de ejecución:
+XfinAudio usa el sistema `QTranslator` de Qt para localización en inglés y español:
 
-- Todas las cadenas de UI están marcadas con `self.tr()` / `QCoreApplication.translate()`.
+- Las cadenas traducibles usan `self.tr()` / `QCoreApplication.translate()`; la cobertura todavía no es completa.
 - El idioma fuente es inglés; las traducciones al español se distribuyen como archivos `.qm` compilados.
 - El idioma se puede cambiar en **Ajustes → Idioma** (requiere reiniciar la app).
 - Flujo de traducción: marcar cadenas → ejecutar `scripts/update_translations.py` → editar fuente `.ts` o ejecutar `scripts/fill_spanish_translations.py` → archivos `.qm` compilados automáticamente.
@@ -1132,7 +1243,7 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 ### Modo Live Assistant
 
 - Vista de performance para uso en cabina: **Now Playing**, **Next Suggestions**, **Set History**.
-- Alertas de riesgo en tiempo real por saltos de BPM, choques de key y caídas de energía.
+- Riesgos calculados con la sesión local y la metadata conocida. No detecta la reproducción ni sigue beats o cues automáticamente.
 - Carga con un click del siguiente track al pipeline de sugerencias.
 - Atajos de teclado: `Esc` para limpiar, `Space` para cargar siguiente, `1`/`2`/`3` para aceptar sugerencias.
 
@@ -1145,8 +1256,8 @@ El JSON incluye el modelo de explicación para revisar no solo la playlist, sino
 
 ### Seguridad y release
 
-- Scan de audio read-only, excepto los tags de loudness escritos solo mediante el ajuste explícito del módulo de loudness.
-- Escrituras solo en base/settings/export propios de la app.
+- Lectura de metadata de solo lectura; loudness, activado por defecto, escribe tags y reemplaza comentarios automáticamente (ver advertencia anterior).
+- Las demás escrituras se limitan a base/settings/export propios y exportaciones solicitadas explícitamente.
 - Plan de Serato crate antes de escribir.
 - Escritura confirmada únicamente.
 - Backup si reemplaza un crate existente.
@@ -1209,18 +1320,19 @@ Estas exportaciones siguen la misma convención de agrupación por estrategia, t
 - Modelo de distribución: XfinAudio se distribuye como paquete Python instalable (source/wheel). El usuario instala con `pip`, `pipx` o `uv tool`; el resolver descarga PySide6 y mutagen desde PyPI bajo sus propias licencias.
 - **Bundle .app para macOS**: Se incluye un spec de PyInstaller bajo `packaging/pyinstaller/` para construir un bundle `.app` local. El bundle incluye plugins de Qt Multimedia y librerías FFmpeg para audio preview. Los bundles no firmados sirven para uso personal; la distribución firmada/notarizada requiere Apple Developer ID y revisión legal separada.
 - **Suite de tests**: ejecutar `uv run pytest -q` para ver el estado actual. Se aplica TDD estricto para cambios que modifican comportamiento.
-- Plataforma: validado en macOS con Python 3.11. Las dependencias son cross-platform, pero Linux y Windows todavía no están validados.
+- Plataforma objetivo: macOS, Python 3.12 o posterior. Las pruebas actuales de los flujos IA incluyen Linux/offscreen; no certifican interacción nativa macOS, instalación ni importación real en Serato.
+- El QA manual histórico no certifica este candidato 2.2.0. Faltan pruebas separadas con credenciales/proveedor NaN reales y escucha musical; consulta CI para el commit exacto en revisión.
 - Checklist de publicación: seguir `docs/repository-publication-checklist.md` antes de convertir un árbol local en repo público.
 
 ## Postura de seguridad y no-objetivos
 
-XfinAudio es intencionalmente no destructivo:
+XfinAudio tiene estos límites de escritura:
 
-- No modifica archivos de audio fuera del ajuste explícito de escritura de tags del módulo de loudness.
+- No modifica archivos de audio fuera de la escritura de tags de loudness. El ajuste, activado por defecto, controla análisis y escritura con reemplazo de comentarios; no hay interruptor separado de escritura.
 - No renderiza, mezcla, time-stretchea, pitch-shiftea ni analiza waveforms.
 - No hace key detection, BPM detection, beat tracking ni cue/phrase detection.
 - No modifica live Serato database V2 files.
-- La app solo escribe en su base, settings y archivos de export propios.
+- Las demás escrituras se limitan a base, settings y archivos de export propios, además de exportaciones solicitadas explícitamente.
 - Los Serato crate writes pasan únicamente por el explicit safe export/backup/validation flow documentado.
 
 No-objetivos:
@@ -1250,7 +1362,7 @@ xfinaudio
 
 ### Construir un bundle .app para macOS (opcional)
 
-Para uso personal o pruebas, puedes construir un bundle `.app` local con PyInstaller:
+Para uso personal o pruebas en macOS, primero aprueba el gate de release sobre el commit exacto que vas a empaquetar. Después puedes construir un bundle `.app` local con PyInstaller:
 
 ```bash
 uv run python -m PyInstaller packaging/pyinstaller/xfinaudio.spec \
@@ -1265,35 +1377,21 @@ El resultado en `packaging/pyinstaller/dist/XfinAudio.app` se puede lanzar con:
 open packaging/pyinstaller/dist/XfinAudio.app
 ```
 
-> **Nota:** Los bundles `.app` no firmados pueden mostrar una advertencia de seguridad al primer lanzamiento. Ve a **Ajustes del Sistema → Privacidad y Seguridad** y haz click en **Abrir de todas formas**.
+#### Aplicaciones descargadas y estado de release
 
-#### Abrir un DMG descargado (build sin firmar)
+La verificación actual del código y los flujos IA no equivale a una nueva
+`.app`/DMG firmada o notarizada. Si usas un binario existente, comprueba su origen,
+versión y notas de release antes de abrirlo. Gatekeeper puede bloquear una app
+sin firma; omitir ese aviso no demuestra seguridad ni compatibilidad. Consulta
+la [estrategia de empaquetado](docs/packaging-strategy.md) y sus requisitos de
+firma, notarización y QA manual.
 
-XfinAudio se distribuye como `.app`/`.dmg` sin firmar (firma ad-hoc) — no hay
-una cuenta de Apple Developer ID pagada detrás, así que Gatekeeper no
-reconoce al publicador. Esto no afecta el funcionamiento; solo implica una
-confirmación extra en el primer lanzamiento:
-
-1. Descargá y abrí el `.dmg`, arrastrá `XfinAudio.app` a `Applications`.
-2. Al hacer doble click la primera vez puede aparecer *"XfinAudio.app no se
-   puede abrir porque Apple no puede verificar que no contiene malware"* (el
-   texto varía según la versión de macOS).
-3. Click derecho (o Control+click) en `XfinAudio.app` dentro de
-   `Applications` → **Abrir** → confirmá **Abrir** en el diálogo. Esto solo
-   hace falta una vez — después abre normalmente con doble click.
-   - Alternativa: **Ajustes del Sistema → Privacidad y Seguridad**, bajá
-     hasta el aviso de app bloqueada y hacé click en **Abrir de todas
-     formas**.
-
-Esto es lo habitual para apps de macOS chicas/hobby open source distribuidas
-sin una cuenta de Developer ID paga (US$99/año) — ver
-`docs/packaging-strategy.md` para el trade-off completo de firma/notarización.
-
-Publicar el paquete en PyPI para permitir `pipx install xfinaudio` es un paso posterior opcional que requiere cuenta y API token de PyPI; no requiere cambios de código.
+PyPI no es el canal actual de distribución. Instala desde el repositorio o un
+artefacto de release verificado y revisa las evidencias de esa revisión exacta.
 
 ## Inicio rápido para desarrollo
 
-Requisitos: Python 3.11 y `uv`.
+Requisitos: Python 3.12 y `uv`.
 
 ```bash
 uv sync --locked

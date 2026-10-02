@@ -65,23 +65,33 @@ Current strategy names are metadata policy choices, not audio processing modes.
 
 | Strategy | Goal |
 |----------|------|
-| `harmonic` | Prefer smooth harmonic movement |
-| `energy-build` | Increase energy progressively |
+| `harmonic_journey` | Prefer smooth harmonic movement |
+| `build` | Increase energy progressively |
 | `warmup` | Favor lower/mid energy paths |
-| `peak-time` | Favor high-energy compatible paths |
-| `same-energy` | Maintain a stable energy band |
-| `same-vibe` | Use tags/genre when reliable |
+| `peak_time` | Favor high-energy compatible paths |
+| `same_energy` | Maintain a stable energy band |
+| `same_vibe` | Use tags/genre when reliable |
 
 ## Sequence optimization
 
 Pairwise transition scores are not enough; the system must order tracks.
 
 ```text
-<=20 tracks: exact Held-Karp path search
->20 tracks: greedy plus local improvement
+Legacy full-order sequencing: exact Held-Karp through 15 tracks; greedy + local improvement above 15.
+Bounded energy arcs: exact target-length subset search on small domains; deterministic beam search otherwise.
 ```
 
-This keeps small playlists exact while avoiding impractical exhaustive search for larger libraries.
+Small-domain exactness concerns the configured numerical objective, not perceptual musical quality.
+Large-domain beam/greedy search is approximate; no global musical optimum is guaranteed.
+
+Safe, Balanced, and Adventurous Prep variants differ in genre eligibility: Safe uses the requested primary genre,
+Balanced additionally admits matching tags, and Adventurous permits broader bridges. With no genre focus, or
+when those candidate sets coincide, variants can be identical. Their names do not certify listening safety.
+
+Scores are heuristic rankings, not probabilities. Color thresholds and energy arcs need listening calibration;
+metadata-only validation does not establish vocal, phrasing, arrangement, or real blend compatibility.
+Cross-ring Camelot diagonals follow the documented direction (B→A +1; A→B −1); explicit creative boosts
+remain available. See [Mixed In Key's advanced guide](https://mixedinkey.com/book/use-advanced-harmonic-mixing-techniques/).
 
 ## Desktop usage
 

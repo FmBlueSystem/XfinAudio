@@ -272,7 +272,7 @@ def test_extract_intent_passes_model_and_timeout_through_the_transport(ai_env: N
     assert data["model"] == "glm5.3-flash"
 
 
-def test_extract_intent_prompt_lists_the_tracks_and_the_strategy_names(ai_env: None) -> None:
+def test_extract_intent_prompt_lists_only_genres_and_strategy_names_by_default(ai_env: None) -> None:
     transport = FakeTransport(
         fenced({"name": "set", "strategy": "build", "target_track_count": 8, "genre_focus": None})
     )
@@ -283,7 +283,7 @@ def test_extract_intent_prompt_lists_the_tracks_and_the_strategy_names(ai_env: N
     for library_track in make_tracks():
         assert library_track.title is not None
         assert library_track.genre is not None
-        assert library_track.title in prompt
+        assert library_track.title not in prompt
         assert library_track.genre in prompt
     for strategy_name in available_strategies():
         assert strategy_name in prompt
@@ -461,3 +461,32 @@ def test_extract_intent_keeps_the_v2_fields_null_by_default(ai_env: None) -> Non
 
     assert intent.target_minutes is None
     assert intent.slot_role is None
+
+
+def test_title_inventory_requires_explicit_opt_in_and_never_includes_paths(ai_env: None) -> None:
+    transport = FakeTransport(fenced({"name": "set"}))
+    extract_intent("House", make_tracks(), transport=transport, include_track_titles=True)
+    prompt = message_text(transport)
+    assert "Amanecer En Tokyo" in prompt
+    assert "/Music/" not in prompt
+    assert "raw_metadata" not in prompt
+
+
+@pytest.mark.parametrize("field", ["required_paths", "excluded_paths", "start_path", "bpm", "energy_level"])
+def test_untrusted_json_cannot_inject_paths_or_track_metadata(ai_env: None, field: str) -> None:
+    transport = FakeTransport(fenced({"name": "set", field: "/Music/a.wav"}))
+    with pytest.raises(ValueError, match="unsupported"):
+        extract_intent("House", make_tracks(), transport=transport)
+
+
+def test_duplicate_title_does_not_choose_a_file_arbitrarily(ai_env: None) -> None:
+    transport = FakeTransport(fenced({"name": "set", "start_title": "Same"}))
+    tracks = [track("a", "Same", "House"), track("b", "Same", "House")]
+    assert extract_intent("start with Same", tracks, transport=transport).start_path is None
+
+
+def test_untrusted_error_never_echoes_raw_model_content(ai_env: None) -> None:
+    transport = FakeTransport("unexpected secret sk-do-not-display")
+    with pytest.raises(ValueError) as error:
+        extract_intent("House", make_tracks(), transport=transport)
+    assert "sk-do-not-display" not in str(error.value)

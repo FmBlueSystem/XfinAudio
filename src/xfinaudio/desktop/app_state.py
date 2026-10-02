@@ -1,9 +1,8 @@
-"""Central mutable state container for the XfinAudio desktop application."""
+"""Central field-immutable state snapshot for the XfinAudio desktop application."""
 
 from __future__ import annotations
 
-import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, get_args
 
@@ -18,14 +17,14 @@ from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
 
-ScreenName = Literal["library", "build", "review", "export", "metadata"]
+ScreenName = Literal["library", "build", "review", "export", "playlists", "metadata", "live", "editor"]
 
 VALID_SCREENS: frozenset[str] = frozenset(get_args(ScreenName))
 
 __all__ = ["AppState", "ScreenName", "SettingsPersistence", "VALID_SCREENS"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class AppState:
     # Library / Scan
     selected_folder: Path | None = None
@@ -40,6 +39,10 @@ class AppState:
     last_dj_readiness_report: DjReadinessReport | None = None
 
     # Prep Copilot
+    is_preparing_copilot: bool = False
+    prep_progress: str | None = None
+    prep_progress_count: int = 0
+    prep_progress_total: int = 0
     last_prep_copilot_plan: PrepCopilotPlan | None = None
     applied_variant_name: Literal["safe", "balanced", "adventurous"] | None = None
 
@@ -74,6 +77,7 @@ class AppState:
 
     # Navigation
     current_screen: ScreenName = "library"
+    editor_playlist_id: int | None = None
 
     # Transient scan state (not persisted)
     is_scanning: bool = False
@@ -97,23 +101,17 @@ class AppState:
 
     def model_copy(self, *, update: dict[str, object] | None = None) -> AppState:
         """Return a shallow copy with selected fields replaced."""
-        state = copy.copy(self)
-        if update is not None:
-            for key, value in update.items():
-                setattr(state, key, value)
-        return state
+        return replace(self, **(update or {}))
 
     def with_screen(self, screen: ScreenName) -> AppState:
-        s = copy.copy(self)
-        s.serato_export_history = list(self.serato_export_history)
-        s.current_screen = screen
-        return s
+        return self.model_copy(
+            update={"serato_export_history": list(self.serato_export_history), "current_screen": screen}
+        )
 
     def with_scanned_records(self, records: list[TrackRecord]) -> AppState:
-        s = copy.copy(self)
-        s.scanned_records = list(records)
-        s.records_by_path = {r.path: r for r in records}
-        return s
+        return self.model_copy(
+            update={"scanned_records": list(records), "records_by_path": {r.path: r for r in records}}
+        )
 
     def debug_summary(self) -> dict[str, object]:
         return {

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
 
 from xfinaudio.library.playlist_models import Playlist, PlaylistSummary
+from xfinaudio.library.sqlite_connection import database_connection
 
 
 class PlaylistRepository:
@@ -102,6 +104,41 @@ class PlaylistRepository:
                 (now, playlist_id),
             )
 
+    def compare_and_update(self, original: Playlist, *, name: str, track_paths: list[str]) -> Playlist | None:
+        """Commit name and order together only while the original snapshot still matches.
+
+        The reserved write lock covers both the comparison and replacement. Existing
+        callers may continue using update_name/update_tracks; either invalidates a draft.
+        """
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT name, created_at, updated_at FROM playlists WHERE id = ?", (original.id,)
+            ).fetchone()
+            if row is None:
+                return None
+            paths = [
+                row["track_path"]
+                for row in connection.execute(
+                    "SELECT track_path FROM playlist_tracks WHERE playlist_id = ? ORDER BY position", (original.id,)
+                ).fetchall()
+            ]
+            if (
+                row["name"] != original.name
+                or datetime.fromisoformat(row["created_at"]) != original.created_at
+                or datetime.fromisoformat(row["updated_at"]) != original.updated_at
+                or paths != original.track_paths
+            ):
+                return None
+            now = datetime.now()
+            connection.execute(
+                "UPDATE playlists SET name = ?, updated_at = ? WHERE id = ?", (name, now.isoformat(), original.id)
+            )
+            connection.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", (original.id,))
+            assert original.id is not None
+            self._insert_tracks(connection, original.id, track_paths)
+        return Playlist(original.id, name, original.created_at, now, list(track_paths))
+
     def duplicate(self, playlist_id: int) -> Playlist:
         """Duplicate a playlist with '(copy)' suffix."""
         original = self.get_by_id(playlist_id)
@@ -122,6 +159,7 @@ class PlaylistRepository:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             self._ensure_schema(connection)
+            self._migrate_orphan_references(connection)
 
     @staticmethod
     def _ensure_schema(connection: sqlite3.Connection) -> None:
@@ -149,6 +187,14 @@ class PlaylistRepository:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id)")
 
     @staticmethod
+    def _migrate_orphan_references(connection: sqlite3.Connection) -> None:
+        """Idempotently repair legacy rows created while foreign keys were off."""
+        connection.execute(
+            "DELETE FROM playlist_tracks WHERE NOT EXISTS "
+            "(SELECT 1 FROM playlists WHERE playlists.id = playlist_tracks.playlist_id)"
+        )
+
+    @staticmethod
     def _insert_tracks(
         connection: sqlite3.Connection,
         playlist_id: int,
@@ -162,7 +208,5 @@ class PlaylistRepository:
             [(playlist_id, path, idx) for idx, path in enumerate(track_paths)],
         )
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        return database_connection(self.db_path)

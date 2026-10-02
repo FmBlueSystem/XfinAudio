@@ -1,4 +1,4 @@
-"""Tests for AppState — central mutable state container for XfinAudio."""
+"""Tests for AppState — field-immutable state snapshot for XfinAudio."""
 
 from __future__ import annotations
 

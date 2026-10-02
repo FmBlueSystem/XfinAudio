@@ -5,10 +5,11 @@ from __future__ import annotations
 import contextlib
 import math
 from dataclasses import dataclass
+from functools import cache
 
 from pydantic import BaseModel, ConfigDict
 
-from xfinaudio.audio.loudness import LoudnessStatus
+from xfinaudio.audio.loudness import is_complete_measurement
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls, preserved_control_paths
@@ -103,6 +104,19 @@ _COLOR_GATES: dict[str, _ColorGate] = {
 COLOR_FILTER_STRATEGIES: frozenset[str] = frozenset(_COLOR_GATES)
 
 
+class ReplacementPolicy(BaseModel):
+    """Bounded generation-time eligibility snapshot; never rebound during edits."""
+
+    model_config = ConfigDict(frozen=True)
+
+    energy_anchor: int | None = None
+    genre: str | None = None  # None retains the original no-filter/fallback decision.
+    color_anchor_path: str | None = None
+    color_anchor_energy: int | None = None
+    color_anchor_profile: SpectralProfile | None = None
+    loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND
+
+
 class PlaylistRecommendation(BaseModel):
     """Product-level playlist recommendation returned to desktop callers."""
 
@@ -115,6 +129,7 @@ class PlaylistRecommendation(BaseModel):
     applied_controls: dict[str, object]
     optimizer: str
     total_score: float
+    replacement_policy: ReplacementPolicy | None = None
 
 
 def recommendation_without_paths(
@@ -191,18 +206,80 @@ def recommendation_with_replacement(
     candidates: list[TrackRecord],
     *,
     spectral_cohesion: float = 0.0,
+    locked_paths: frozenset[str] = frozenset(),
+    excluded_paths: frozenset[str] = frozenset(),
+    loudness_band: LoudnessBand | None = None,
 ) -> PlaylistRecommendation:
     """Replace a removed track with the best-fitting candidate at the same slot.
 
     The candidate maximizing the summed transition score against the slot's
     neighbors wins; adjacency scores are recomputed for the whole order. Falls
-    back to plain removal when no candidate is eligible.
+    back to plain removal when no candidate is eligible. Eligibility retains the
+    generation-time policy even after anchors disappear. Current locks/exclusions
+    are additive; exclusions always win and never rebind the original anchors.
+    An explicit loudness band overrides only that setting for this edit.
     """
     paths = [item.path for item in recommendation.ordered_tracks]
     if removed_path not in paths:
         return recommendation
 
     playlist_paths = set(paths)
+    controls = DJControls.model_validate(recommendation.applied_controls)
+    excluded = controls.excluded_paths | excluded_paths
+    preserved = (preserved_control_paths(controls) | locked_paths) - excluded
+    policy = recommendation.replacement_policy
+    if policy is not None and loudness_band is not None:
+        policy = policy.model_copy(update={"loudness_band": loudness_band})
+        recommendation = recommendation.model_copy(update={"replacement_policy": policy})
+    strategy = recommendation.strategy
+    if policy is None and (
+        strategy.energy_tolerance is not None
+        or strategy.name in COLOR_FILTER_STRATEGIES
+        or strategy.name == "same_genre"
+        or (strategy.loudness_band and loudness_band is None)
+        or controls.genre
+    ):
+        candidates = [candidate for candidate in candidates if candidate.path in preserved]
+        warning = "Replacement policy context unavailable; only control exceptions may backfill"
+        if warning not in recommendation.warnings:
+            recommendation = recommendation.model_copy(update={"warnings": [*recommendation.warnings, warning]})
+    effective_band = loudness_band
+    if effective_band is None:
+        effective_band = policy.loudness_band if policy is not None else DEFAULT_LOUDNESS_BAND
+    candidates, _ = _apply_strategy_filters(
+        candidates,
+        strategy,
+        preserved,
+        effective_band,
+        sort_candidates=False,
+    )
+    if policy is not None:
+        if policy.genre is not None:
+            candidates = [
+                candidate
+                for candidate in candidates
+                if candidate.path in preserved or matches_requested_genre(candidate, policy.genre)
+            ]
+        if strategy.name in COLOR_FILTER_STRATEGIES:
+            anchor = (
+                TrackRecord(
+                    path=policy.color_anchor_path,
+                    energy_level=policy.color_anchor_energy,
+                    spectral_profile=policy.color_anchor_profile,
+                )
+                if policy.color_anchor_path is not None
+                else None
+            )
+            candidates, _ = _apply_color_filter(
+                candidates,
+                controls,
+                preserved,
+                gate=_COLOR_GATES[strategy.name],
+                anchor=anchor,
+                resolve_when_unbound=False,
+            )
+        if strategy.energy_tolerance is not None and policy.energy_anchor is not None:
+            candidates, _ = _apply_energy_tolerance(candidates, strategy, policy.energy_anchor, preserved)
     index = paths.index(removed_path)
     left_neighbor = recommendation.ordered_tracks[index - 1] if index > 0 else None
     right_neighbor = recommendation.ordered_tracks[index + 1] if index + 1 < len(paths) else None
@@ -225,7 +302,10 @@ def recommendation_with_replacement(
     eligible = [
         candidate
         for candidate in candidates
-        if candidate.path not in playlist_paths and candidate.metadata_status == "complete" and _is_mixable(candidate)
+        if candidate.path not in playlist_paths
+        and candidate.path not in excluded
+        and candidate.metadata_status == "complete"
+        and _is_mixable(candidate)
     ]
     if not eligible:
         return recommendation_without_paths(
@@ -327,8 +407,10 @@ def recommend_playlist(
         weights=weights_override or strategy.weights,
         spectral_cohesion=spectral_cohesion,
     )
-    complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
-    incomplete_count = len(tracks) - len(complete_tracks)
+    complete_tracks = [
+        track for track in tracks if track.metadata_status == "complete" and track.path not in controls.excluded_paths
+    ]
+    incomplete_count = sum(track.metadata_status != "complete" for track in tracks)
     if incomplete_count:
         warnings.append(f"Excluded {incomplete_count} incomplete track(s)")
 
@@ -338,15 +420,27 @@ def recommend_playlist(
     warnings.extend(filter_warnings)
     # The DJ's explicit choice comes first; `same_genre` still infers one from
     # the anchor when nothing was asked for.
+    active_genre = (
+        normalize_requested_genre(controls.genre)
+        if any(matches_requested_genre(track, controls.genre) for track in filtered_tracks)
+        else None
+    )
     filtered_tracks, requested_genre_warnings = _apply_requested_genre(
         filtered_tracks, controls.genre if controls is not None else None, preserved_control_paths(controls)
     )
     warnings.extend(requested_genre_warnings)
     if strategy.name == "same_genre" and not (controls is not None and controls.genre):
+        anchor_genre = _resolve_anchor_genre(filtered_tracks, controls)
         filtered_tracks, genre_warnings = _apply_genre_filter(
             filtered_tracks, controls, preserve_paths=preserved_control_paths(controls)
         )
         warnings.extend(genre_warnings)
+        if any(
+            track.path not in preserved_control_paths(controls) and _normalized_genre(track) == anchor_genre
+            for track in filtered_tracks
+        ):
+            active_genre = anchor_genre
+    bound_anchor = None
     if strategy.name in COLOR_FILTER_STRATEGIES:
         gate = _COLOR_GATES[strategy.name]
         preserve_paths = preserved_control_paths(controls)
@@ -381,6 +475,14 @@ def recommend_playlist(
     applied = apply_controls(filtered_tracks, controls)
 
     anchor_energy = _resolve_anchor_energy(applied)
+    replacement_policy = ReplacementPolicy(
+        energy_anchor=anchor_energy,
+        genre=active_genre,
+        color_anchor_path=bound_anchor.path if bound_anchor is not None else None,
+        color_anchor_energy=bound_anchor.energy_level if bound_anchor is not None else None,
+        color_anchor_profile=bound_anchor.spectral_profile if bound_anchor is not None else None,
+        loudness_band=loudness_band,
+    )
     if strategy.energy_tolerance is not None and anchor_energy is not None:
         preserve_paths = preserved_control_paths(controls)
         tolerance_filtered, tolerance_warnings = _apply_energy_tolerance(
@@ -394,9 +496,26 @@ def recommend_playlist(
             excluded_paths=applied.excluded_paths,
             start_path=applied.start_path,
             end_path=applied.end_path,
+            genre=applied.genre,
         )
 
     manual_prefix = _manual_prefix_without_terminal_end(applied.manual_prefix, applied.end_path)
+    if arc_shape is not None and any(
+        left.bpm is not None
+        and right.bpm is not None
+        and bpm_difference_percent(left.bpm, right.bpm) > MAX_ADJACENT_BPM_DIFFERENCE_PERCENT
+        for left, right in zip(manual_prefix, manual_prefix[1:], strict=False)
+    ):
+        return PlaylistRecommendation(
+            ordered_tracks=[],
+            transition_scores=[],
+            strategy=strategy,
+            warnings=[*warnings, "Mandatory manual prefix exceeds the BPM ceiling; revise the manual order"],
+            applied_controls=applied.summary(),
+            optimizer="constraint-validation",
+            total_score=0.0,
+            replacement_policy=replacement_policy,
+        )
     manual_paths = {track.path for track in manual_prefix}
     remaining_tracks = [track for track in applied.candidate_tracks if track.path not in manual_paths]
     start_path = applied.start_path if not manual_prefix else None
@@ -466,27 +585,43 @@ def recommend_playlist(
                 f"{len(manual_prefix)} manually ordered track(s); no generated tracks were added"
             )
         generated_mandatory_paths = preserved_control_paths(controls) - manual_paths
-        sequenced = recommend_sequence(
-            remaining_tracks,
-            start_path=start_path,
-            end_path=applied.end_path,
-            weights=scoring_config.weights,
-            cache=_score_cache,
-            config=scoring_config,
-            arc_strategy=arc_shape,
-            # A tempo jump the DJ cannot beatmatch is not a bad option, it is not
-            # an option -- the sequencer routes around it instead of pricing it.
-            max_bpm_difference_percent=MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
-            # The shape must span the set the DJ plays, not the pool it is drawn
-            # from. Sizing it by the pool showed only the opening fraction of the
-            # curve, so a warm-up never climbed and a journey's peak sat past the
-            # end of the set.
-            arc_length=arc_subset_set_length,
-            target_length=generated_target_length,
-            mandatory_paths=generated_mandatory_paths,
-            external_start=manual_prefix[-1] if manual_prefix else None,
-            arc_slot_offset=len(manual_prefix),
-        )
+        while True:
+            sequenced = recommend_sequence(
+                remaining_tracks,
+                start_path=start_path,
+                end_path=applied.end_path,
+                weights=scoring_config.weights,
+                cache=_score_cache,
+                config=scoring_config,
+                arc_strategy=arc_shape,
+                # A tempo jump the DJ cannot beatmatch is not a bad option, it is not
+                # an option -- the sequencer routes around it instead of pricing it.
+                max_bpm_difference_percent=MAX_ADJACENT_BPM_DIFFERENCE_PERCENT,
+                # The shape must span the set the DJ plays, not the pool it is drawn
+                # from. Sizing it by the pool showed only the opening fraction of the
+                # curve, so a warm-up never climbed and a journey's peak sat past the
+                # end of the set.
+                arc_length=(
+                    generated_target_length + len(manual_prefix)
+                    if generated_target_length is not None
+                    else arc_subset_set_length
+                ),
+                target_length=generated_target_length,
+                mandatory_paths=generated_mandatory_paths,
+                external_start=manual_prefix[-1] if manual_prefix else None,
+                arc_slot_offset=len(manual_prefix),
+            )
+            selected = [*manual_prefix, *sequenced.ordered_tracks]
+            if (
+                target_duration_minutes is None
+                or generated_target_length is None
+                or not sequenced.ordered_tracks
+                or any(track.duration is None for track in selected)
+                or generated_target_length >= len(remaining_tracks)
+                or _played_duration(selected, played_seconds_per_track) >= target_duration_minutes * 60
+            ):
+                break
+            generated_target_length += 1
         sequenced_tracks = sequenced.ordered_tracks
         optimizer = sequenced.optimizer
         warnings.extend(sequenced.warnings)
@@ -520,14 +655,34 @@ def recommend_playlist(
                 )
 
     ordered_tracks = [*manual_prefix, *sequenced_tracks]
-    # Trim after sequencing, not before: the optimizer needs the whole pool to
-    # choose good adjacencies, and the DJ only plays the front of the result.
+    preserve_paths = preserved_control_paths(controls)
     if target_duration_minutes is not None:
-        ordered_tracks = _trim_to_duration(
-            ordered_tracks, target_duration_minutes, played_seconds_per_track=played_seconds_per_track
+        desired = len(
+            _trim_to_duration(
+                ordered_tracks, target_duration_minutes, played_seconds_per_track=played_seconds_per_track
+            )
         )
-    elif target_count is not None and len(ordered_tracks) > target_count:
-        ordered_tracks = ordered_tracks[:target_count]
+        desired = max(desired, len(preserve_paths))
+        full_order = ordered_tracks
+        while True:
+            ordered_tracks, trim_warnings = _trim_preserving_controls(full_order, desired, preserve_paths)
+            if (
+                not ordered_tracks
+                or desired >= len(full_order)
+                or _played_duration(ordered_tracks, played_seconds_per_track) >= target_duration_minutes * 60
+            ):
+                warnings.extend(trim_warnings)
+                break
+            desired += 1
+        if any(track.duration is None for track in ordered_tracks):
+            warnings.append("Duration is unknown for one or more tracks; slot coverage cannot be verified")
+        elif _played_duration(ordered_tracks, played_seconds_per_track) < target_duration_minutes * 60:
+            warnings.append("Duration shortfall: the selected playable tracks do not cover the requested slot")
+    elif target_count is not None:
+        ordered_tracks, trim_warnings = _trim_preserving_controls(ordered_tracks, target_count, preserve_paths)
+        warnings.extend(trim_warnings)
+        if len(ordered_tracks) < target_count:
+            warnings.append(f"Track count shortfall: selected {len(ordered_tracks)} of {target_count} requested tracks")
 
     # "Genre locked to 'Classical'" is true and useless on its own when the DJ
     # asked for thirty minutes and got four. Some genres are simply too small a
@@ -550,6 +705,73 @@ def recommend_playlist(
         applied_controls=applied.summary(),
         optimizer=optimizer,
         total_score=sum(score.total_score for score in transition_scores),
+        replacement_policy=replacement_policy,
+    )
+
+
+def _played_duration(tracks: list[TrackRecord], segment: float | None) -> float:
+    return sum(min(track.duration or 0.0, segment) if segment else (track.duration or 0.0) for track in tracks)
+
+
+def _trim_preserving_controls(
+    tracks: list[TrackRecord], count: int, mandatory: set[str]
+) -> tuple[list[TrackRecord], list[str]]:
+    """Choose an ordered, BPM-valid subsequence without discarding DJ controls."""
+    paths = {track.path for track in tracks}
+    if mandatory - paths:
+        return [], ["Mandatory control tracks are missing after playlist gates; no complete controlled set returned"]
+    if len(mandatory) > count:
+        return [], ["Mandatory controls exceed the requested track count; no tracks were silently discarded"]
+    if len(tracks) <= count or mandatory <= {track.path for track in tracks[:count]}:
+        return tracks[:count], []
+    required = {index for index, track in enumerate(tracks) if track.path in mandatory}
+
+    @cache
+    def choose(previous: int, slots: int) -> tuple[int, ...] | None:
+        pending = [index for index in required if index > previous]
+        if slots == 0:
+            return () if not pending else None
+        if len(pending) > slots or len(tracks) - previous - 1 < slots:
+            return None
+        stop = min(pending) + 1 if pending else len(tracks)
+        for index in range(previous + 1, stop):
+            if previous >= 0:
+                left, right = tracks[previous], tracks[index]
+                if (
+                    left.bpm is not None
+                    and right.bpm is not None
+                    and bpm_difference_percent(left.bpm, right.bpm) > MAX_ADJACENT_BPM_DIFFERENCE_PERCENT
+                ):
+                    continue
+            tail = choose(index, slots - 1)
+            if tail is not None:
+                return (index, *tail)
+        return None
+
+    selected = choose(-1, count)
+    if selected is None:
+        return [], [
+            "No BPM-valid ordered selection fits the requested count and mandatory controls; "
+            "revise the count or controls"
+        ]
+    return [tracks[index] for index in selected], []
+
+
+def recommendation_limited(recommendation: PlaylistRecommendation, count: int) -> PlaylistRecommendation:
+    """Cap a prepared set while preserving its recorded mandatory controls."""
+    controls = DJControls.model_validate(recommendation.applied_controls)
+    ordered, warnings = _trim_preserving_controls(
+        recommendation.ordered_tracks, count, preserved_control_paths(controls)
+    )
+    config = TransitionScoringConfig(weights=recommendation.strategy.weights)
+    scores = _score_ordered_tracks(ordered, config)
+    return recommendation.model_copy(
+        update={
+            "ordered_tracks": ordered,
+            "transition_scores": scores,
+            "total_score": sum(score.total_score for score in scores),
+            "warnings": [*recommendation.warnings, *warnings],
+        }
     )
 
 
@@ -648,7 +870,7 @@ def _expected_set_length(
         seconds = sum(durations) / len(durations) if durations else None
     if not seconds:
         return target_count
-    return max(1, round(target_duration_minutes * 60 / seconds))
+    return max(1, math.ceil(target_duration_minutes * 60 / seconds))
 
 
 def _expected_arc_subset_length(
@@ -669,7 +891,7 @@ def _expected_arc_subset_length(
     effective = [min(track.duration, played_seconds_per_track) for track in candidates if track.duration]
     if not effective:
         return expected
-    return max(1, round(target_duration_minutes * 60 / (sum(effective) / len(effective))))
+    return max(1, math.ceil(target_duration_minutes * 60 / (sum(effective) / len(effective))))
 
 
 def _uses_strategy_order(strategy: PlaylistStrategy) -> bool:
@@ -752,7 +974,12 @@ def _apply_requested_genre(
 
 
 def _apply_strategy_filters(
-    tracks: list[TrackRecord], strategy: PlaylistStrategy, preserve_paths: set[str], loudness_band: LoudnessBand
+    tracks: list[TrackRecord],
+    strategy: PlaylistStrategy,
+    preserve_paths: set[str],
+    loudness_band: LoudnessBand,
+    *,
+    sort_candidates: bool = True,
 ) -> tuple[list[TrackRecord], list[str]]:
     filtered = tracks
     warnings: list[str] = []
@@ -793,12 +1020,12 @@ def _apply_strategy_filters(
         left_in = before - len(measured)
         if left_in:
             warnings.append(f"Loudness coverage {len(measured)} of {before} applied; {left_in} left in")
-    return _sort_by_hint(filtered, strategy), warnings
+    return (_sort_by_hint(filtered, strategy) if sort_candidates else filtered), warnings
 
 
 def _measured_lufs(track: TrackRecord) -> float | None:
     profile = track.loudness_profile
-    if profile is None or profile.status is not LoudnessStatus.MEASURED:
+    if profile is None or not is_complete_measurement(profile):
         return None
     return profile.lufs_integrated
 
@@ -871,7 +1098,9 @@ def prefilter_strategy_candidates(
     strategy = (strategy_registry or default_strategy_registry()).get(str(strategy_name))
     controls = controls or DJControls()
     preserve_paths = preserved_control_paths(controls)
-    complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
+    complete_tracks = [
+        track for track in tracks if track.metadata_status == "complete" and track.path not in controls.excluded_paths
+    ]
 
     filtered, _ = _apply_strategy_filters(
         complete_tracks, strategy, preserve_paths=preserve_paths, loudness_band=loudness_band
@@ -919,7 +1148,9 @@ def resolve_color_anchor_path(
     strategy = default_strategy_registry().get(str(strategy_name))
     controls = controls or DJControls()
     preserve_paths = preserved_control_paths(controls)
-    complete_tracks = [track for track in tracks if track.metadata_status == "complete"]
+    complete_tracks = [
+        track for track in tracks if track.metadata_status == "complete" and track.path not in controls.excluded_paths
+    ]
     filtered, _ = _apply_strategy_filters(
         complete_tracks, strategy, preserve_paths=preserve_paths, loudness_band=loudness_band
     )
@@ -968,7 +1199,7 @@ def _spectral_profile_close(anchor: SpectralProfile, candidate: SpectralProfile)
     if sum(anchor_rgb) <= 0.0 or sum(candidate_rgb) <= 0.0:
         return False
     l1 = sum(abs(a - b) for a, b in zip(anchor_rgb, candidate_rgb, strict=True))
-    if l1 > COLOR_RGB_L1_MAX:
+    if l1 > COLOR_RGB_L1_MAX and not math.isclose(l1, COLOR_RGB_L1_MAX, rel_tol=0.0, abs_tol=1e-12):
         return False
 
     centroid_delta = _relative_delta(candidate.centroid_hz, anchor.centroid_hz)
@@ -1267,17 +1498,68 @@ def _bpm_reachable_from(
         [*measurable, anchor] if anchored and anchor is not None else measurable,
         key=lambda item: (item.bpm or 0.0, item.path),
     )
-    runs: list[list[TrackRecord]] = [[line[0]]]
-    for previous, current in zip(line, line[1:], strict=False):
-        if bpm_difference_percent(previous.bpm or 0.0, current.bpm or 0.0) > max_bpm_difference_percent:
-            runs.append([current])
-        else:
-            runs[-1].append(current)
+    # Folded edges can jump over unrelated sorted tempos (60 -> 120 over 90).
+    # Discover real components lazily, skipping positions already visited rather
+    # than constructing a quadratic adjacency graph for dense BPM libraries.
+    from bisect import bisect_left, bisect_right
+
+    from xfinaudio.recommendation.scoring import HALF_TIME_RATIO_TOLERANCE
+
+    bpms = [item.bpm or 0.0 for item in line]
+    successor = list(range(len(line) + 1))
+
+    def unseen(index: int) -> int:
+        while successor[index] != index:
+            successor[index] = successor[successor[index]]
+            index = successor[index]
+        return index
+
+    factor = 1.0 + max(0.0, max_bpm_difference_percent) / 100.0
+    fold_low = max(2.0 - 2.0 * HALF_TIME_RATIO_TOLERANCE, 2.0 / factor)
+    fold_high = min(2.0 + 2.0 * HALF_TIME_RATIO_TOLERANCE, 2.0 * factor)
+    components: list[list[TrackRecord]] = []
+    for root in range(len(line)):
+        if unseen(root) != root:
+            continue
+        successor[root] = unseen(root + 1)
+        component = [line[root]]
+        frontier = [root]
+        expanded_bpms: set[float] = set()
+        while frontier:
+            bpm = bpms[frontier.pop()]
+            if bpm in expanded_bpms or max_bpm_difference_percent < 0:
+                continue
+            expanded_bpms.add(bpm)
+            windows: list[tuple[float, float]] = []
+            if bpm > 0:
+                windows = [(bpm / factor, bpm * factor)]
+                if fold_low <= fold_high:
+                    windows.extend([(bpm / fold_high, bpm / fold_low), (bpm * fold_low, bpm * fold_high)])
+            if max_bpm_difference_percent >= 100:
+                windows.append((-math.inf, math.inf if bpm <= 0 else 0.0))
+            for low, high in windows:
+                # A conservative rounding margin cannot invent an edge: the
+                # shared comparator is authoritative, including at boundaries.
+                low -= abs(low) * 1e-12 if math.isfinite(low) else 0.0
+                high += abs(high) * 1e-12 if math.isfinite(high) else 0.0
+                stop = bisect_right(bpms, high)
+                index = unseen(bisect_left(bpms, low))
+                while index < stop:
+                    if bpm_difference_percent(bpm, bpms[index]) <= max_bpm_difference_percent:
+                        component.append(line[index])
+                        frontier.append(index)
+                        successor[index] = unseen(index + 1)
+                        index = unseen(index)
+                    else:
+                        # Duplicate BPMs have the same rejected edge. Leave them
+                        # unvisited for another component, but inspect it once.
+                        index = unseen(bisect_right(bpms, bpms[index]))
+        components.append(component)
     chosen: list[TrackRecord] | None = None
     if anchored:
-        chosen = next((run for run in runs if any(item.path == anchor_path for item in run)), None)
+        chosen = next((part for part in components if any(item.path == anchor_path for item in part)), None)
     if chosen is None:
-        chosen = max(runs, key=len)
+        chosen = max(components, key=len)
     reachable = {item.path for item in chosen}
     kept = [item for item in tracks if item.path in reachable or item in passthrough]
     return kept, len(tracks) - len(kept)

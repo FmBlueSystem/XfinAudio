@@ -436,7 +436,8 @@ def test_apply_prep_copilot_plan_cleared_returns_new_state_without_mutating_orig
 
 def test_apply_saved_playlist_export_recommendation_returns_new_state_without_mutating_original() -> None:
     previous_recommendation = object()
-    replacement = object()
+    replacement = _export_state(["/new-a.flac", "/new-b.flac"]).last_recommendation
+    assert replacement is not None
     state = AppState(last_recommendation=previous_recommendation)  # type: ignore[arg-type]
 
     transition = getattr(app_state_transitions, "apply_saved_playlist_export_recommendation", None)
@@ -444,7 +445,8 @@ def test_apply_saved_playlist_export_recommendation_returns_new_state_without_mu
     updated = transition(state, replacement)  # type: ignore[arg-type]
 
     assert updated is not state
-    assert updated.last_recommendation is replacement
+    assert updated.last_recommendation.ordered_tracks == replacement.ordered_tracks
+    assert updated.last_quality_report.track_count == 2
     assert state.last_recommendation is previous_recommendation
 
 

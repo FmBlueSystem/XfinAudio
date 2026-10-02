@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QAbstractScrollArea,
+    QCheckBox,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -16,6 +18,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QSpinBox,
@@ -27,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.build_view_model import BuildViewModel, CopilotVariantRow
+from xfinaudio.desktop.create_intent_preview import CreateIntentPreview
 from xfinaudio.desktop.scan_service import progress_percent, progress_status_text
 
 _READINESS_STATUS_LABELS = {"ready": "Ready", "needs_review": "Needs Review", "blocked": "Blocked"}
@@ -77,6 +81,10 @@ class BuildScreen(QWidget):
     spectral_cohesion_changed = Signal(int)
     copilot_generate_requested = Signal()
     copilot_ask_requested = Signal(str)
+    copilot_confirm_requested = Signal(object)
+    copilot_cancel_requested = Signal()
+    copilot_edit_requested = Signal()
+    configure_ai_requested = Signal()
     copilot_variant_applied = Signal(int)
     apply_without_selection_requested = Signal()
     # Emitted when an anchor suggestion moves the genre combo off "Any genre":
@@ -92,22 +100,39 @@ class BuildScreen(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._last_vm: BuildViewModel | None = None
+        self.copilot_is_planning = False
         # Signature of the copilot rows currently in the table. render() runs on
         # every state sync for the visible tab, and rebuilding the table would
         # wipe the DJ's selection even when the rows are identical.
         self._last_copilot_signature: tuple | None = None
+        self._variant_rows: list[CopilotVariantRow] = []
+        self._variant_target_count = 25
+        self._needs_metadata_repair = False
         self._genre_chosen_by_dj = False
+        self._last_ai_presentation: tuple[str, bool] = ("", False)
         self._build_ui()
         self._connect_signals()
+        self.controls_scroll.widget().installEventFilter(self)
 
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 12, 12, 12)
+        outer.setSpacing(8)
+        controls = QWidget()
+        layout = QVBoxLayout(controls)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        self.controls_scroll = QScrollArea()
+        self.controls_scroll.setWidgetResizable(True)
+        self.controls_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.controls_scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        self.controls_scroll.setMinimumHeight(120)
+        self.controls_scroll.setWidget(controls)
+        outer.addWidget(self.controls_scroll, 1)
 
         # Strategy row
         strategy_row = QHBoxLayout()
@@ -139,7 +164,14 @@ class BuildScreen(QWidget):
         self.anchor_label = QLabel()
         self.anchor_label.setWordWrap(True)
         self.anchor_label.setMaximumHeight(40)
-        layout.addWidget(self.anchor_label)
+        anchor_row = QHBoxLayout()
+        anchor_row.addWidget(self.anchor_label, 1)
+        self.anchor_action_button = QPushButton(self.tr("Choose a starting track"))
+        self.anchor_action_button.setToolTip(self.tr("Select a complete track in Library, or repair missing metadata"))
+        self.anchor_action_button.setAccessibleName(self.tr("Choose starting track or repair metadata"))
+        self.anchor_action_button.hide()
+        anchor_row.addWidget(self.anchor_action_button)
+        layout.addLayout(anchor_row)
 
         self.strategy_explanation_label = QLabel()
         self.strategy_explanation_label.setWordWrap(True)
@@ -200,9 +232,8 @@ class BuildScreen(QWidget):
         self.genre_focus_input = QLineEdit()
         self.genre_focus_input.setPlaceholderText(self.tr("Genre focus"))
         self.copilot_button = QPushButton(self.tr("Generate Prep Copilot"))
-        # The natural-language request sits with the other copilot controls rather
-        # than on a row of its own: an extra row here is taken straight out of the
-        # variants table, which owns the free vertical space.
+        # Give the natural-language prompt its own row so compact windows keep
+        # enough typing space instead of collapsing it between action buttons.
         self.copilot_ask_input = QLineEdit()
         self.copilot_ask_input.setObjectName("copilot_ask_input")
         self.copilot_ask_input.setPlaceholderText(
@@ -216,11 +247,25 @@ class BuildScreen(QWidget):
         copilot_row.addWidget(self.target_count_input)
         copilot_row.addWidget(self.genre_focus_input)
         copilot_row.addWidget(self.copilot_button)
-        copilot_row.addWidget(self.copilot_ask_input, 1)
-        copilot_row.addWidget(self.copilot_ask_button)
         copilot_row.addWidget(self.variant_label)
         copilot_row.addStretch()
         layout.addLayout(copilot_row)
+        prep_row = QHBoxLayout()
+        self.prep_progress_label = QLabel()
+        self.prep_progress_label.setAccessibleName(self.tr("Prep generation progress"))
+        self.prep_cancel_button = QPushButton(self.tr("Cancel Prep"))
+        self.prep_cancel_button.setAccessibleName(self.tr("Cancel Prep generation"))
+        self.prep_cancel_button.setEnabled(False)
+        self.prep_cancel_button.setToolTip(self.tr("Stop after the current stage; keep previous Prep results"))
+        self.prep_progress_label.hide()
+        self.prep_cancel_button.hide()
+        prep_row.addWidget(self.prep_progress_label, 1)
+        prep_row.addWidget(self.prep_cancel_button)
+        layout.addLayout(prep_row)
+        ask_row = QHBoxLayout()
+        ask_row.addWidget(self.copilot_ask_input, 1)
+        ask_row.addWidget(self.copilot_ask_button)
+        layout.addLayout(ask_row)
 
         # AI copilot status line: its own row, because the controls row above cannot
         # give a wrapping message the width it needs without squeezing the input.
@@ -229,7 +274,27 @@ class BuildScreen(QWidget):
         self.copilot_ask_status.setWordWrap(True)
         self.copilot_ask_status.setMaximumHeight(36)
         layout.addWidget(self.copilot_ask_status)
+        self.copilot_share_titles = QCheckBox(
+            self.tr("Include track titles and genres for this request (no audio or paths)")
+        )
+        layout.addWidget(self.copilot_share_titles)
+        layout.addWidget(
+            QLabel(self.tr("Default sharing: your request and library genres only. Selection and ordering stay local."))
+        )
+        ai_actions = QHBoxLayout()
+        self.copilot_cancel_button = QPushButton(self.tr("Cancel AI request"))
+        self.copilot_cancel_button.setEnabled(False)
+        self.copilot_configure_button = QPushButton(self.tr("Configure AI"))
+        ai_actions.addWidget(self.copilot_cancel_button)
+        ai_actions.addWidget(self.copilot_configure_button)
+        ai_actions.addStretch()
+        layout.addLayout(ai_actions)
+        self.intent_preview = CreateIntentPreview(self)
+        layout.addWidget(self.intent_preview)
 
+        # Scroll only the controls on short displays; variants and Apply remain
+        # outside the scroll area and reachable without hunting for the action.
+        layout = outer
         # Section divider between controls and copilot table
         self.section_divider = QFrame()
         self.section_divider.setObjectName("sectionDivider")
@@ -258,8 +323,16 @@ class BuildScreen(QWidget):
         self.copilot_table.setAlternatingRowColors(True)
         self.copilot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.copilot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.copilot_table.setMinimumHeight(130)
         self.copilot_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.copilot_table, 1)
+
+        self.variant_details_label = QLabel()
+        self.variant_details_label.setWordWrap(True)
+        self.variant_details_label.setAccessibleName(self.tr("Selected variant details"))
+        self.variant_details_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        self.variant_details_label.hide()
+        layout.addWidget(self.variant_details_label)
 
         # Applied variant badge (set imperatively by main_window)
         self.applied_copilot_variant_label = QLabel(self.tr("Applied Variant: none"))
@@ -289,6 +362,49 @@ class BuildScreen(QWidget):
         self._setup_accessibility()
         self._setup_tab_order()
 
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        # Qt can deliver layout/destruction events before construction finishes
+        # or after a child C++ object has been deleted.
+        scroll = getattr(self, "controls_scroll", None)
+        if scroll is None:
+            return False
+        try:
+            if event.type() == QEvent.Type.LayoutRequest and watched is scroll.widget():
+                # Bind the callback to this QObject's lifetime as well as
+                # guarding the child widgets used by the deferred callback.
+                QTimer.singleShot(0, self, self._reveal_ai_response)
+            return super().eventFilter(watched, event)
+        except RuntimeError:
+            return False
+
+    def _reveal_ai_response(self) -> None:
+        scroll = getattr(self, "controls_scroll", None)
+        status = getattr(self, "copilot_ask_status", None)
+        preview = getattr(self, "intent_preview", None)
+        configure = getattr(self, "copilot_configure_button", None)
+        if any(widget is None for widget in (scroll, status, preview, configure)):
+            return
+        try:
+            if not scroll.isVisible():
+                return
+            presentation = (status.text(), not preview.isHidden())
+            if presentation == getattr(self, "_last_ai_presentation", None):
+                return
+            # An earlier status callback can beat the scroll area's resize
+            # after showing the preview. Do not remember stale geometry.
+            content = scroll.widget()
+            if content.height() < content.minimumSizeHint().height():
+                QTimer.singleShot(0, self, self._reveal_ai_response)
+                return
+            if presentation[1]:
+                scroll.ensureWidgetVisible(preview.confirm_button)
+            elif presentation[0]:
+                scroll.ensureWidgetVisible(configure)
+            self._last_ai_presentation = presentation
+        except RuntimeError:
+            # A queued reveal may outlive any of the child C++ widgets.
+            return
+
     def _setup_button_tooltips(self) -> None:
         """Explain every button so users understand each control (R1)."""
         tips = {
@@ -297,7 +413,9 @@ class BuildScreen(QWidget):
             self.lock_button: "Lock the selected tracks so they always appear",
             self.clear_constraints_button: "Remove all exclude and lock constraints",
             self.copilot_button: "Generate several Prep Copilot playlist variants",
-            self.copilot_ask_button: "Ask the AI copilot to turn your request into Prep Copilot variants",
+            self.copilot_ask_button: "Interpret your request for review before local generation",
+            self.copilot_cancel_button: "Cancel this interpretation or generation; retain previous results",
+            self.copilot_configure_button: "Open AI settings to configure or test the provider",
             self.apply_variant_button: "Apply the selected Prep Copilot variant",
             self.back_button: "Return to the Library screen",
             self.proceed_button: "Move on to review the recommended playlist",
@@ -329,14 +447,16 @@ class BuildScreen(QWidget):
         """Define a logical keyboard tab order across primary controls."""
         self.setTabOrder(self.strategy_combo, self.genre_combo)
         self.setTabOrder(self.genre_combo, self.recommend_button)
-        self.setTabOrder(self.recommend_button, self.spectral_cohesion_slider)
+        self.setTabOrder(self.recommend_button, self.anchor_action_button)
+        self.setTabOrder(self.anchor_action_button, self.spectral_cohesion_slider)
         self.setTabOrder(self.spectral_cohesion_slider, self.exclude_button)
         self.setTabOrder(self.exclude_button, self.lock_button)
         self.setTabOrder(self.lock_button, self.clear_constraints_button)
         self.setTabOrder(self.clear_constraints_button, self.target_count_input)
         self.setTabOrder(self.target_count_input, self.genre_focus_input)
         self.setTabOrder(self.genre_focus_input, self.copilot_button)
-        self.setTabOrder(self.copilot_button, self.copilot_ask_input)
+        self.setTabOrder(self.copilot_button, self.prep_cancel_button)
+        self.setTabOrder(self.prep_cancel_button, self.copilot_ask_input)
         self.setTabOrder(self.copilot_ask_input, self.copilot_ask_button)
         self.setTabOrder(self.copilot_ask_button, self.copilot_table)
         self.setTabOrder(self.copilot_table, self.apply_variant_button)
@@ -348,7 +468,12 @@ class BuildScreen(QWidget):
         self.copilot_button.clicked.connect(self.copilot_generate_requested)
         self.copilot_ask_button.clicked.connect(self._on_copilot_ask)
         self.copilot_ask_input.returnPressed.connect(self._on_copilot_ask)
+        self.intent_preview.confirmed.connect(self.copilot_confirm_requested)
+        self.intent_preview.edit_requested.connect(self.copilot_edit_requested)
+        self.copilot_cancel_button.clicked.connect(self.copilot_cancel_requested)
+        self.copilot_configure_button.clicked.connect(self.configure_ai_requested)
         self.apply_variant_button.clicked.connect(self._on_apply_variant)
+        self.copilot_table.itemSelectionChanged.connect(self._refresh_variant_details)
         self.recommend_button.clicked.connect(self._on_recommend)
         self.exclude_button.clicked.connect(self.exclude_requested)
         self.lock_button.clicked.connect(self.lock_requested)
@@ -362,6 +487,7 @@ class BuildScreen(QWidget):
         self.recommend_requested.connect(window._on_recommend_requested)
         self.spectral_cohesion_changed.connect(window._settings_controller.on_spectral_cohesion_changed)
         self.copilot_generate_requested.connect(window.generate_prep_copilot)
+        self.prep_cancel_button.clicked.connect(window._prep_task.cancel)
         self.copilot_ask_requested.connect(window.ask_ai_copilot)
         self.copilot_variant_applied.connect(window._on_copilot_variant_applied)
         self.apply_without_selection_requested.connect(
@@ -375,6 +501,7 @@ class BuildScreen(QWidget):
             )
         )
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
+        self.anchor_action_button.clicked.connect(lambda: self._choose_anchor(window))
         self.proceed_button.clicked.connect(lambda: window.workflow_tabs.setCurrentIndex(2))
         self.exclude_requested.connect(window._library_controller.on_exclude_requested)
         self.lock_requested.connect(window._library_controller.on_lock_requested)
@@ -406,15 +533,30 @@ class BuildScreen(QWidget):
             for option in vm.available_strategies():
                 self.strategy_combo.addItem(option.display_name, option.name)
 
-        # recommend_button enabled state is managed by MainWindow._refresh_idle_action_state
+        self.recommend_button.setEnabled(vm.recommend_button_enabled(state))
         self.copilot_button.setEnabled(vm.copilot_button_enabled(state))
+        self.prep_cancel_button.setEnabled(state.is_preparing_copilot)
+        self.prep_cancel_button.setVisible(state.is_preparing_copilot)
+        self.prep_progress_label.setVisible(state.is_preparing_copilot)
+        progress_labels = {
+            "candidates": self.tr("Preparing candidate tracks..."),
+            "safe": self.tr("Generating safe variant (1/3)..."),
+            "balanced": self.tr("Generating balanced variant (2/3)..."),
+            "adventurous": self.tr("Generating adventurous variant (3/3)..."),
+            "complete": self.tr("Finishing Prep variants..."),
+        }
+        self.prep_progress_label.setText(progress_labels.get(state.prep_progress or "", ""))
         # Render-driven on purpose: the coalesced 200ms render walks every screen, so
         # an enabled state set imperatively here would come back on the next sync.
         self.copilot_ask_button.setEnabled(vm.copilot_ask_button_enabled(state))
         if vm.is_asking_copilot(state):
             # Only the busy text is render-owned. The success/failure message is
             # written by the controller and must survive the next idle render.
-            self.copilot_ask_status.setText(self.tr("Asking the AI copilot... this can take up to a minute"))
+            self.copilot_ask_status.setText(
+                self.tr("Generating confirmed variants locally...")
+                if self.copilot_is_planning
+                else self.tr("Asking the AI copilot... this can take up to a minute")
+            )
         self._render_recommend_progress(state)
         no_recommendation = state.last_recommendation is None
         self.empty_state_label.setText(
@@ -426,14 +568,19 @@ class BuildScreen(QWidget):
         self.variant_label.setText(vm.applied_variant_label(state))
         self.proceed_button.setEnabled(vm.can_proceed(state))
         rows = vm.copilot_variants_for_display(state)
-        if lightweight:
-            self.copilot_table.setHidden(len(rows) == 0)
-            self.apply_variant_button.setHidden(len(rows) == 0)
-        else:
+        if rows and no_recommendation:
+            self.empty_state_label.setText(self.tr("Select a variant, then click Use to review this set."))
+        self._variant_rows = rows
+        if state.last_prep_copilot_plan is not None:
+            self._variant_target_count = state.last_prep_copilot_plan.intent.target_track_count
+        self.copilot_table.setVisible(bool(rows))
+        self.apply_variant_button.setVisible(bool(rows))
+        if not lightweight:
             signature = _copilot_rows_signature(rows)
             if signature != self._last_copilot_signature:
                 self._populate_copilot_table(rows)
                 self._last_copilot_signature = signature
+        self._refresh_variant_details()
         self.applied_copilot_variant_label.setHidden(state.applied_variant_name is None)
 
         anchor = vm.anchor_summary(state)
@@ -444,6 +591,16 @@ class BuildScreen(QWidget):
         )
         self.anchor_label.setText(text)
         self.anchor_label.setVisible(bool(state.scanned_records))
+        self._needs_metadata_repair = not any(r.metadata_status == "complete" for r in state.scanned_records)
+        self.anchor_action_button.setText(
+            self.tr("Fix missing metadata") if self._needs_metadata_repair else self.tr("Choose a starting track")
+        )
+        self.anchor_action_button.setVisible(bool(state.scanned_records) and not vm.has_complete_anchor(state))
+        self.anchor_action_button.setEnabled(vm.generation_idle(state))
+        if self._needs_metadata_repair and state.scanned_records:
+            self.anchor_label.setText(
+                self.tr("No complete tracks. Fix missing metadata, then refresh the library scan.")
+            )
 
         self._refresh_strategy_explanation(vm)
 
@@ -536,10 +693,38 @@ class BuildScreen(QWidget):
                 self.copilot_table.setItem(row, col, item)
         if len(rows) == previous_count and 0 <= previous_row < len(rows):
             self.copilot_table.selectRow(previous_row)
+        elif rows:
+            self.copilot_table.selectRow(next((i for i, row in enumerate(rows) if row.name == "balanced"), 0))
+
+    def _refresh_variant_details(self) -> None:
+        index = self.copilot_table.currentRow()
+        selected = bool(self.copilot_table.selectedIndexes()) and 0 <= index < len(self._variant_rows)
+        self.variant_details_label.setVisible(selected)
+        self.apply_variant_button.setEnabled(selected)
+        if not selected:
+            self.variant_details_label.clear()
+            self.apply_variant_button.setText(self.tr("Apply Selected Variant"))
+            return
+        row = self._variant_rows[index]
+        self.apply_variant_button.setText(self.tr("Use {0} · {1} tracks").format(row.name, row.track_count))
+        summary = self.tr("{0} of {1} requested · {2}").format(
+            row.track_count, self._variant_target_count, row.readiness_summary
+        )
+        self.variant_details_label.setText("\n".join(part for part in (summary, row.pool_notes) if part))
 
     # ------------------------------------------------------------------
     # Internal slots
     # ------------------------------------------------------------------
+
+    def _choose_anchor(self, window: Any) -> None:
+        if self._needs_metadata_repair:
+            window.workflow_tabs.setCurrentIndex(5)
+            return
+        library = window._library_screen
+        library.clear_quick_filters(emit_signal=False)
+        library.search_input.clear()
+        library.complete_filter_button.click()
+        window.workflow_tabs.setCurrentIndex(0)
 
     def _on_recommend(self) -> None:
         strategy = self.strategy_combo.currentData()
@@ -547,7 +732,8 @@ class BuildScreen(QWidget):
 
     def _on_copilot_ask(self) -> None:
         """Emit the typed request from both entry points (button and Return)."""
-        self.copilot_ask_requested.emit(self.copilot_ask_input.text())
+        if self.copilot_ask_button.isEnabled():
+            self.copilot_ask_requested.emit(self.copilot_ask_input.text())
 
     def _on_strategy_changed(self, _index: int) -> None:
         if self._last_vm is not None:

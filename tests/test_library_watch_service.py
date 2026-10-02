@@ -383,3 +383,18 @@ def test_loudness_tag_write_events_are_suppressed_but_external_changes_and_expir
         {"changes_detected_since_scan": True},
         {"changes_detected_since_scan": True},
     ]
+
+
+def test_resume_recovers_when_folder_disappears(monkeypatch):
+    service, source, _timer = _make_service()
+    service.start(Path("/tmp/library"))
+    service.pause()
+
+    def fail(*args):
+        raise FileNotFoundError("folder disappeared")
+
+    monkeypatch.setattr(source, "start", fail)
+    service.resume()
+    assert not service.is_watching
+    assert not service._folder_watcher.is_watching
+    assert service.last_error is not None

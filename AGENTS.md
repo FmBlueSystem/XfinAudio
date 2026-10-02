@@ -25,7 +25,7 @@ When working on behavior changes, features, refactors, or bug fixes, use the pro
 | Rule | Why |
 |------|-----|
 | Strict TDD | Write or update the failing test before production code. |
-| No audio mutation | Scanning remains read-only. The loudness module is the single documented exception and may write loudness tags only through its explicit setting. |
+| No audio mutation | Metadata scanning remains read-only. Loudness is the only audio-write exception. The loudness setting is enabled by default and gates both analysis and automatic tag writing; it replaces existing comments. There is no separate tag-write switch. |
 | No DSP scope | No BPM/key detection, waveform analysis, beat tracking, cue/phrase detection, rendering, mixing, time-stretching, pitch-shifting. |
 | No live Serato DB V2 writes | Crate exports stay behind the safe export/backup/validation flow. |
 | 400-line review budget | Exceeding it requires an explicit chained-PR plan. |
@@ -89,7 +89,7 @@ exact commit being tagged:
 - [ ] I created or updated the required `openspec/` artifacts.
 - [ ] I wrote or updated a failing test before production code (strict TDD).
 - [ ] I kept the change within the 400-line review budget or planned chained PRs.
-- [ ] I did not mutate audio files outside the loudness module's explicit tag-write setting or expand into DSP scope.
+- [ ] I did not mutate audio files outside documented loudness tag writing or expand into DSP scope.
 - [ ] I did not write to live Serato database V2 files.
 - [ ] I ran the verification commands and they pass.
 - [ ] I did not create project-root `build/` or `dist/` artifacts.

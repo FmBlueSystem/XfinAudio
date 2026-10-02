@@ -50,6 +50,7 @@ class AppliedControls(BaseModel):
     excluded_paths: list[str]
     start_path: str | None
     end_path: str | None
+    genre: str | None = None
 
     def summary(self) -> dict[str, object]:
         """Return a stable dictionary summary suitable for UI and API results."""
@@ -59,6 +60,7 @@ class AppliedControls(BaseModel):
             "manual_order_paths": [track.path for track in self.manual_prefix],
             "start_path": self.start_path,
             "end_path": self.end_path,
+            "genre": self.genre,
         }
 
 
@@ -82,6 +84,7 @@ def apply_controls(tracks: list[TrackRecord], controls: DJControls | None = None
         excluded_paths=sorted(controls.excluded_paths),
         start_path=controls.start_path,
         end_path=controls.end_path,
+        genre=controls.genre,
     )
 
 
@@ -106,7 +109,7 @@ def _validate_known_paths(by_path: dict[str, TrackRecord], controls: DJControls)
         if path is not None and path not in by_path:
             raise ValueError(f"Unknown {label}: {path}")
     for path in sorted(controls.manual_order_paths):
-        if path not in by_path:
+        if path not in controls.excluded_paths and path not in by_path:
             raise ValueError(f"Unknown manual_order_path: {path}")
     for path in sorted(controls.locked_paths):
         if path not in by_path:

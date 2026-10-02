@@ -817,22 +817,12 @@ def test_full_render_after_controller_populate_restores_playing_preview(qapp: QA
 
 
 # ---------------------------------------------------------------------------
-# Analysis callbacks update state and paint the affected cell immediately.
+# Analysis callbacks publish state and paint affected cells on the next tick.
 # ---------------------------------------------------------------------------
 
 
-def test_spectral_profile_ready_paints_color_cell_immediately(qapp: QApplication) -> None:
-    """on_spectral_profile_ready must paint the Color cell in place, synchronously.
-
-    Library sync renders are lightweight by design (app_controller hardcodes
-    lightweight=True for the library tab), and ``render(lightweight=True)``
-    returns before painting rows. The in-place cell write is therefore the
-    production painter for the spectral pass's only visible output; deferring
-    it to "the coalesced sync render" (the T3 premise) leaves the cell empty
-    forever. The state update still runs first, so the row signature (which
-    includes spectral_color) diverges and the next full render rebuilds the
-    row from state — no drift is possible.
-    """
+def test_spectral_profile_ready_paints_color_cell_on_next_tick(qapp: QApplication) -> None:
+    """The batch tick paints directly; lightweight render does not paint cells."""
     screen = LibraryScreen()
     vm = LibraryViewModel()
     state = AppState(selected_folder=Path("/music")).with_scanned_records(
@@ -855,9 +845,9 @@ def test_spectral_profile_ready_paints_color_cell_immediately(qapp: QApplication
     )
     controller.on_spectral_profile_ready("/music/red.flac", profile)
 
-    # Immediate in-place paint: the cell shows the color synchronously,
-    # without any render call (library sync renders are lightweight and
-    # never paint rows).
+    assert screen.tracks_table.item(0, color_col).text() == ""
+    qapp.processEvents()
+    # The tick paints directly without a full library render.
     assert screen.tracks_table.item(0, color_col).text() == format_spectral_color(profile)
     assert sync_requests == [True]
 

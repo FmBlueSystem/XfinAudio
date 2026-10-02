@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -226,6 +227,7 @@ def test_controller_delegates_plan_generation_to_injected_boundary(monkeypatch) 
         *,
         color_anchor_path: str | None = None,
         loudness_band: LoudnessBand | None = None,
+        checkpoint: Callable[[str], None] | None = None,
     ) -> Any:
         generation_calls.append((records, request, loudness_band))
         assert color_anchor_path is None
@@ -305,7 +307,12 @@ def test_controller_routes_colour_strategies_through_the_bound_anchor_context(mo
     )
 
     def generate_plan(
-        records: Any, request: Any, *, color_anchor_path: str | None = None, loudness_band: Any = None
+        records: Any,
+        request: Any,
+        *,
+        color_anchor_path: str | None = None,
+        loudness_band: Any = None,
+        checkpoint: Callable[[str], None] | None = None,
     ) -> Any:
         generation_calls.append((records, request, color_anchor_path))
         return generated_plan
@@ -374,7 +381,12 @@ def test_controller_routes_colour_display_labels_through_the_bound_anchor_contex
     )
 
     def generate_plan(
-        records: Any, request: Any, *, color_anchor_path: str | None = None, loudness_band: Any = None
+        records: Any,
+        request: Any,
+        *,
+        color_anchor_path: str | None = None,
+        loudness_band: Any = None,
+        checkpoint: Callable[[str], None] | None = None,
     ) -> Any:
         generation_calls.append((records, request, color_anchor_path))
         return generated_plan
@@ -510,7 +522,7 @@ def _prefiltered_generate_harness(
         return "updated-state"
 
     monkeypatch.setattr("xfinaudio.desktop.prep_copilot.apply_prep_copilot_plan_generated", fake_plan_generated)
-    builder_kwargs = {} if use_real_plan_chain else {"plan_generation_builder": generate_plan}
+    builder_kwargs: dict[str, Any] = {} if use_real_plan_chain else {"plan_generation_builder": generate_plan}
     controller = PrepCopilotController(
         build_screen=build_screen,
         build_vm=object(),

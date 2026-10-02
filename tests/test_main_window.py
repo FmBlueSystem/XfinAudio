@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock
@@ -48,6 +49,20 @@ def ensure_app() -> QApplication:
     if isinstance(existing_app, QApplication):
         return existing_app
     return QApplication([])
+
+
+def _generate_prep_and_wait(window: MainWindow) -> None:
+    window.generate_prep_copilot()
+    deadline = time.monotonic() + 5
+    app = ensure_app()
+    while window._state.is_preparing_copilot and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
+    assert not window._state.is_preparing_copilot
+    # Drain thread-finished cleanup before test fixtures release the window.
+    while window._prep_task._thread is not None and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
 
 
 class FakeScanService:
@@ -193,12 +208,11 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
     assert window.library_guidance_label.text() == "Choose a folder to scan metadata."
     assert window.recommendation_guidance_label.text() == "Scan metadata before recommending a playlist."
     assert window._export_screen.export_guidance_label.text() == (
-        "Review recommendations before exporting. "
-        "Live Serato writes are not part of the verified release candidate; "
-        "back up your library and verify any manual copy."
+        "Preview the destination, then export directly to Serato. "
+        "Existing crates are backed up before replacement; audio files are not copied."
     )
     assert window.status_label.text() == "Ready"
-    assert window._export_screen.safe_export_folder_label.text() == "No safe export folder selected"
+    assert window._export_screen.safe_export_folder_label.text() == "Report folder: optional for Serato crates"
     assert window._build_screen.applied_copilot_variant_label.text() == "Applied Variant: none"
     assert window._library_screen.search_input.placeholderText() == "Search songs"
     assert window._build_screen.genre_focus_input.placeholderText() == "Genre focus"
@@ -255,7 +269,7 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
 
     assert isinstance(window.workflow_sidebar, QListWidget)
     assert isinstance(window.workflow_tabs, QStackedWidget)
-    assert window.workflow_tabs.count() == 7
+    assert window.workflow_tabs.count() == 8
     assert sidebar_labels == [
         "Library",
         "Build Playlist",
@@ -264,6 +278,7 @@ def test_main_window_constructor_exposes_initial_panel_contract() -> None:
         "My Playlists",
         "Metadata Worklist",
         "Live Assistant",
+        "Playlist Editor",
     ]
     assert [
         window.workflow_sidebar.item(index).data(main_window.Qt.ItemDataRole.AccessibleTextRole)
@@ -406,10 +421,12 @@ def test_main_window_displays_initial_empty_state_guidance() -> None:
 
     assert window.library_guidance_label.text() == "Choose a folder to scan metadata."
     assert "Scan metadata before recommending" in window.recommendation_guidance_label.text()
-    assert "Review recommendations before exporting" in window._export_screen.export_guidance_label.text()
+    assert (
+        "Preview the destination, then export directly to Serato" in window._export_screen.export_guidance_label.text()
+    )
     assert window._review_screen.review_summary_label.text() == "No recommendation is ready for review."
     assert window._review_screen.transition_table.rowCount() == 0
-    assert window._export_screen.safe_export_folder_label.text() == "No safe export folder selected"
+    assert window._export_screen.safe_export_folder_label.text() == "Report folder: optional for Serato crates"
 
 
 def test_main_window_initial_flow_disables_invalid_next_actions() -> None:
@@ -436,6 +453,8 @@ def test_main_window_changing_folder_clears_stale_scan_and_recommendation_state(
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
     first_folder = tmp_path / "first"
     second_folder = tmp_path / "second"
+    first_folder.mkdir()
+    second_folder.mkdir()
 
     window.set_selected_folder(first_folder)
     window.scan_selected_folder()
@@ -494,7 +513,10 @@ def test_main_window_displays_existing_safe_export_folder(tmp_path) -> None:
         settings_repository=FakeSettingsRepository(),
     )
 
-    assert window._export_screen.safe_export_folder_label.text() == f"Safe export folder: {export_folder}"
+    assert (
+        window._export_screen.safe_export_folder_label.text()
+        == f"Report folder: {export_folder} (Serato crates go directly to Serato)"
+    )
 
 
 def test_main_window_restores_last_scan_folder_without_clearing_saved_library(tmp_path) -> None:
@@ -533,7 +555,10 @@ def test_main_window_setting_safe_export_folder_persists_and_updates_label(tmp_p
 
     window.set_safe_export_folder(export_folder)
 
-    assert window._export_screen.safe_export_folder_label.text() == f"Safe export folder: {export_folder}"
+    assert (
+        window._export_screen.safe_export_folder_label.text()
+        == f"Report folder: {export_folder} (Serato crates go directly to Serato)"
+    )
     assert settings_repository.saved_settings is not None
     assert settings_repository.saved_settings.export.safe_export_folder == export_folder
 
@@ -569,7 +594,7 @@ def test_main_window_rejects_safe_export_folder_equal_to_audio_scan_folder(tmp_p
     assert settings_repository.saved_settings == saved_after_folder
     assert settings_repository.saved_settings is not None
     assert settings_repository.saved_settings.export.safe_export_folder is None
-    assert window._export_screen.safe_export_folder_label.text() == "No safe export folder selected"
+    assert window._export_screen.safe_export_folder_label.text() == "Report folder: optional for Serato crates"
     assert "must be outside the selected audio folder" in window.status_label.text()
 
 
@@ -731,12 +756,15 @@ def test_main_window_filters_library_by_metadata_status_and_shows_missing_fields
     window.show_tracks(window.scanned_records)
 
     missing_column = _track_table_headers(window).index("Missing")
-    window._metadata_screen.status_combo.setCurrentText("Incomplete")
+    window._library_screen.incomplete_filter_button.setChecked(True)
+    window._apply_song_filter()
 
     assert _visible_track_titles(window) == ["Needs Tags"]
     assert _table_item_text(_library_tracks_table(window), 1, missing_column) == "Camelot key, energy level"
 
-    window._metadata_screen.status_combo.setCurrentText("Complete")
+    window._library_screen.incomplete_filter_button.setChecked(False)
+    window._library_screen.complete_filter_button.setChecked(True)
+    window._apply_song_filter()
 
     assert _visible_track_titles(window) == ["Ready Track"]
 
@@ -768,7 +796,8 @@ def test_main_window_filters_library_by_specific_missing_metadata_field(tmp_path
     ]
     window.show_tracks(window.scanned_records)
 
-    window._metadata_screen.missing_combo.setCurrentText("Missing Key")
+    window._library_screen.missing_key_filter_button.setChecked(True)
+    window._apply_song_filter()
 
     assert _visible_track_titles(window) == ["Needs Key"]
 
@@ -799,9 +828,10 @@ def test_main_window_filter_uses_path_index_instead_of_rescanning_records(tmp_pa
             raise AssertionError("filter must use the path index, not iterate scanned_records")
 
     window.scanned_records = IterationFails(records)
-    monkeypatch.setattr(window, "_refresh_idle_action_state", lambda: None)
+    monkeypatch.setattr(window._library_controller, "refresh_idle_action_state", lambda: None)
 
-    window._metadata_screen.missing_combo.setCurrentText("Missing Key")
+    window._library_screen.missing_key_filter_button.setChecked(True)
+    window._apply_song_filter()
 
     assert _visible_track_titles(window) == ["Needs Key"]
 
@@ -873,7 +903,9 @@ def test_main_window_spectral_progress_update_replaces_app_state_immutably() -> 
 
     window._on_spectral_progress_updated(2, 5)
 
-    # State changes immediately; the render is coalesced behind the sync timer.
+    assert window._state is previous_state
+    ensure_app().processEvents()
+    # Snapshot publication occurs on a tick; rendering remains coalesced.
     assert window._state is not previous_state
     assert window._state.is_completing_spectral is True
     assert window._state.spectral_progress_count == 2
@@ -1230,7 +1262,9 @@ def test_main_window_recommend_action_populates_review_summary(tmp_path) -> None
     assert "Tracks: 2" in summary
     assert "Transitions: 1" in summary
     assert "Average transition score:" in summary
-    assert "Warnings: 1" in summary
+    assert "Warnings:" in summary
+    assert window.last_recommendation is not None
+    assert any("Duration is unknown" in warning for warning in window.last_recommendation.warnings)
 
 
 def test_main_window_recommend_action_populates_transition_review_table(tmp_path) -> None:
@@ -2126,7 +2160,7 @@ def test_main_window_uses_compact_macbook_layout_for_library_section() -> None:
     layout = window.centralWidget().layout()
     assert layout is not None
     assert layout.spacing() <= 6
-    assert _library_tracks_table(window).minimumHeight() >= 400
+    assert 0 < _library_tracks_table(window).minimumHeight() <= 180
     assert _library_tracks_table(window).verticalHeader().defaultSectionSize() <= 24
     headers = _track_table_headers(window)
     assert _library_tracks_table(window).columnWidth(headers.index("Genre")) >= 140
@@ -2181,8 +2215,9 @@ def test_main_window_exposes_dj_workflow_modules_with_decision_points() -> None:
         "My Playlists",
         "Metadata Worklist",
         "Live Assistant",
+        "Playlist Editor",
     ]
-    assert window.workflow_tabs.count() == 7
+    assert window.workflow_tabs.count() == 8
     assert window.library_decision_label.text() == "DJ Decision Point: choose source, filters, and the track anchor."
     assert (
         window.metadata_decision_label.text()
@@ -2249,7 +2284,9 @@ def test_main_window_shows_dj_readiness_after_recommendation(tmp_path) -> None:
     window.recommend_playlist()
     _process_events_until(lambda: window._build_screen.recommend_button.isEnabled())
 
-    assert "DJ Readiness: Ready" in window._review_screen.dj_readiness_label.text()
+    assert "DJ Readiness: Needs Review" in window._review_screen.dj_readiness_label.text()
+    assert window.last_recommendation is not None
+    assert any("Duration is unknown" in warning for warning in window.last_recommendation.warnings)
 
 
 def test_main_window_resets_dj_readiness_when_recommendation_is_cleared() -> None:
@@ -2508,7 +2545,7 @@ def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_pat
     window._build_screen.target_count_input.setValue(3)
     window._build_screen.genre_focus_input.setText("House")
 
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
 
     assert window._build_screen.copilot_table.rowCount() == 3
     assert [_table_item_text(window._build_screen.copilot_table, row, 0) for row in range(3)] == [
@@ -2516,8 +2553,12 @@ def test_main_window_generates_prep_copilot_variants_from_selected_start(tmp_pat
         "balanced",
         "adventurous",
     ]
-    assert {_table_item_text(window._build_screen.copilot_table, row, 3) for row in range(3)} == {"Ready"}
+    assert {_table_item_text(window._build_screen.copilot_table, row, 3) for row in range(3)} == {"Needs Review"}
     assert window.last_prep_copilot_plan is not None
+    assert all(
+        any(check.label == "Energy continuity" and check.status == "needs_review" for check in variant.readiness.checks)
+        for variant in window.last_prep_copilot_plan.variants
+    )
     assert all(
         variant.recommendation.ordered_tracks[0].path == str(tmp_path / "start.flac")
         for variant in window.last_prep_copilot_plan.variants
@@ -2529,7 +2570,7 @@ def test_main_window_rejects_prep_copilot_without_complete_selection() -> None:
     ensure_app()
     window = MainWindow(scan_service=FakeScanService(), repository=FakeRepository())
 
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
 
     assert window._build_screen.copilot_table.rowCount() == 0
     assert window.status_label.text() == "Select at least one complete track before generating Prep Copilot"
@@ -2575,7 +2616,7 @@ def test_main_window_applies_selected_prep_copilot_variant_to_review_flow(tmp_pa
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(3)
     window._build_screen.genre_focus_input.setText("House")
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
 
     window.apply_selected_prep_copilot_variant()
@@ -2633,7 +2674,7 @@ def test_main_window_exports_applied_prep_copilot_variant_with_variant_crate_nam
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
     window._build_screen.genre_focus_input.setText("House")
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
@@ -2689,7 +2730,7 @@ def test_main_window_previews_applied_copilot_serato_export_without_writing(tmp_
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
     window._build_screen.genre_focus_input.setText("House")
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
@@ -2783,7 +2824,7 @@ def test_main_window_exports_dj_readiness_sidecar_reports_with_serato_crate(tmp_
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
     window._build_screen.genre_focus_input.setText("House")
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
@@ -2833,7 +2874,7 @@ def test_main_window_colors_prep_copilot_readiness_cells(tmp_path) -> None:
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
 
     readiness_item = _table_item(window._build_screen.copilot_table, 0, 3)
 
@@ -2871,7 +2912,7 @@ def test_main_window_double_click_applies_prep_copilot_variant(tmp_path) -> None
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
 
     item = _table_item(window._build_screen.copilot_table, 2, 0)
     window._build_screen.copilot_table.itemDoubleClicked.emit(item)
@@ -2917,7 +2958,7 @@ def test_main_window_updates_applied_copilot_variant_badge_after_apply(tmp_path)
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
 
     window.apply_selected_prep_copilot_variant()
@@ -2956,7 +2997,7 @@ def test_main_window_clears_applied_copilot_variant_badge_for_normal_recommendat
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
@@ -2998,7 +3039,7 @@ def test_main_window_serato_export_history_includes_readiness_sidecar_paths(tmp_
     window.show_tracks(records)
     _library_tracks_table(window).selectRow(0)
     window._build_screen.target_count_input.setValue(2)
-    window.generate_prep_copilot()
+    _generate_prep_and_wait(window)
     window._build_screen.copilot_table.selectRow(1)
     window.apply_selected_prep_copilot_variant()
 
@@ -3103,6 +3144,7 @@ def test_main_window_wide_resize_restores_sidebar_labels() -> None:
         "My Playlists",
         "Metadata Worklist",
         "Live Assistant",
+        "Playlist Editor",
     ]
 
 
@@ -3487,3 +3529,35 @@ def test_close_event_cancels_an_in_flight_ai_narrator_request(monkeypatch) -> No
     window.closeEvent(QCloseEvent())
 
     assert cancelled == [True]
+
+
+def test_compact_window_accepts_1000_by_700_with_loaded_build(tmp_path) -> None:
+    app = ensure_app()
+    window = MainWindow.with_defaults(tmp_path / "db.sqlite3", tmp_path / "settings.json")
+    try:
+        window.show_tracks(
+            [
+                TrackRecord(
+                    path="/synthetic.flac",
+                    title="Synthetic",
+                    bpm=120.5,
+                    camelot_key="8A",
+                    energy_level=5,
+                    metadata_status="complete",
+                )
+            ]
+        )
+        window._on_library_selection_changed(["/synthetic.flac"])
+        window.workflow_tabs.setCurrentIndex(1)
+        _generate_prep_and_wait(window)
+        window._build_screen.apply_variant_button.click()
+        window.resize(1000, 700)
+        window.show()
+        app.processEvents()
+        window.resize(1000, 700)
+        app.processEvents()
+        assert window.width() <= 1000
+        assert window.height() <= 700
+        assert window._build_screen.copilot_ask_input.width() >= 360
+    finally:
+        window.close()

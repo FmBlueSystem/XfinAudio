@@ -118,9 +118,9 @@ class TestGapReportExportEnabled:
     def test_disabled_while_scanning_or_recommending(self) -> None:
         vm = MetadataViewModel()
         state = _mixed_state()
-        state.is_scanning = True
+        state = state.model_copy(update={"is_scanning": True})
         assert vm.gap_report_export_enabled(state) is False
 
         state = _mixed_state()
-        state.is_recommending = True
+        state = state.model_copy(update={"is_recommending": True})
         assert vm.gap_report_export_enabled(state) is False

@@ -592,3 +592,92 @@ def test_a_new_recommendation_clears_the_narrative_on_the_screen(qapp: QApplicat
 
     assert screen.ai_narrative_label.text() == ""
     assert not screen.ai_narrative_label.isVisibleTo(screen)
+
+
+def test_review_configure_and_cancel_are_real_clickable_actions(qapp: QApplication) -> None:
+    from PySide6.QtTest import QTest
+
+    screen = ReviewScreen()
+    screen.show()
+    configured: list[bool] = []
+    cancelled: list[bool] = []
+    screen.configure_ai_requested.connect(lambda: configured.append(True))
+    screen.ai_narrate_cancel_requested.connect(lambda: cancelled.append(True))
+    screen.render(ReviewViewModel(), _review_state(["/a", "/b"], is_narrating=True))
+    QTest.mouseClick(screen.configure_ai_button, Qt.MouseButton.LeftButton)
+    QTest.mouseClick(screen.ai_narrate_cancel_button, Qt.MouseButton.LeftButton)
+    assert configured == [True]
+    assert cancelled == [True]
+    screen.render(ReviewViewModel(), _review_state(["/a", "/b"]))
+    assert not screen.ai_narrate_cancel_button.isVisibleTo(screen)
+
+
+def test_review_local_facts_toggle_works_with_ai_disabled(qapp: QApplication, monkeypatch) -> None:
+    from PySide6.QtTest import QTest
+
+    monkeypatch.setenv("XFINAUDIO_AI_ENABLED", "0")
+    screen = ReviewScreen()
+    screen.show()
+    screen.render(ReviewViewModel(), _review_state(["/a", "/b"]))
+    QTest.mouseClick(screen.engine_facts_button, Qt.MouseButton.LeftButton)
+    assert screen.engine_facts_details.isVisibleTo(screen)
+    assert "Local engine" in screen.engine_facts_details.toPlainText()
+    assert "average transition score" in screen.engine_facts_details.toPlainText()
+    screen.render(ReviewViewModel(), AppState())
+    assert not screen.engine_facts_button.isEnabled()
+    assert not screen.engine_facts_details.toPlainText()
+
+
+def test_review_selected_replacement_is_preview_only_and_clears_on_change(qapp: QApplication) -> None:
+    from PySide6.QtTest import QTest
+
+    screen = ReviewScreen()
+    screen.show()
+    state = _review_state(["/a", "/b"], scanned_records=[_track("/alternative")])
+    screen.render(ReviewViewModel(), state)
+    item = screen.recommendation_table.item(1, 0)
+    assert item is not None
+    QTest.mouseClick(
+        screen.recommendation_table.viewport(),
+        Qt.MouseButton.LeftButton,
+        pos=screen.recommendation_table.visualItemRect(item).center(),
+    )
+    QTest.mouseClick(screen.compare_replacement_button, Qt.MouseButton.LeftButton)
+    assert "Original:" in screen.replacement_details.toPlainText()
+    assert "Proposed:" in screen.replacement_details.toPlainText()
+    assert "Preview only" in screen.replacement_details.toPlainText()
+    assert [track.path for track in state.last_recommendation.ordered_tracks] == ["/a", "/b"]
+    screen.render(ReviewViewModel(), _review_state(["/new-a", "/new-b"]))
+    assert not screen.replacement_details.toPlainText()
+
+
+def test_model_commentary_is_plain_text_even_for_html(qapp: QApplication) -> None:
+    screen = ReviewScreen()
+    narrative = '<img src="https://invalid.example/private">'
+    screen.render(ReviewViewModel(), _review_state(["/a", "/b"], ai_narrative_text=narrative))
+    assert screen.ai_narrative_label.textFormat() == Qt.TextFormat.PlainText
+    assert screen.ai_narrative_label.text() == narrative
+
+
+def test_empty_narrator_status_returns_its_height_to_tables(qapp: QApplication) -> None:
+    screen = ReviewScreen()
+    screen.resize(1200, 660)
+    screen.show()
+    qapp.processEvents()
+    tables = (screen.recommendation_table, screen.transition_table, screen.readiness_table)
+    try:
+        assert screen.ai_narrate_status.isHidden(), "empty status must not reserve a text row"
+        idle_height = sum(table.height() for table in tables)
+        for status in ("Narrating the set...", "Configure AI to retry.", "Set narrative ready."):
+            screen.ai_narrate_status.setText(status)
+            qapp.processEvents()
+            assert screen.ai_narrate_status.isVisible()
+            assert screen.ai_narrate_status.height() >= screen.ai_narrate_status.fontMetrics().height()
+            assert sum(table.height() for table in tables) < idle_height
+        screen.ai_narrate_status.setText("")
+        qapp.processEvents()
+        assert screen.ai_narrate_status.isHidden()
+        assert sum(table.height() for table in tables) == idle_height
+        assert idle_height > 0.65 * screen.height()
+    finally:
+        screen.close()

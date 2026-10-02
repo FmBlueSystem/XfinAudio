@@ -5,7 +5,8 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any
 
@@ -23,9 +24,10 @@ from xfinaudio.audio.spectral_profile import (
 )
 from xfinaudio.audio.tonal_profile import CURRENT_TONAL_VERSION, TonalProfile
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.sqlite_connection import database_connection
 from xfinaudio.metadata.mixedinkey_contract import PARSED_TAG_KEYS
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Schema version that introduced the PARSED_TAG_KEYS allowlist for raw metadata
 # (see library/scan_service.py). Databases older than this still hold blobs the
@@ -80,9 +82,13 @@ class TrackRepository:
                     metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                     audio_md5, spectral_profile_json, danceability_profile_json,
                     edge_spectral_profile_json, tonal_profile_json, loudness_profile_json,
-                    file_mtime_ns, file_size_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    file_mtime_ns, file_size_bytes, audio_format, audio_codec, bitrate_kbps, bitrate_mode
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
+                    audio_format = excluded.audio_format,
+                    audio_codec = excluded.audio_codec,
+                    bitrate_kbps = excluded.bitrate_kbps,
+                    bitrate_mode = excluded.bitrate_mode,
                     title = excluded.title,
                     artist = excluded.artist,
                     bpm = excluded.bpm,
@@ -173,6 +179,7 @@ class TrackRepository:
             rows = connection.execute(
                 """
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
+                       audio_format, audio_codec, bitrate_kbps, bitrate_mode,
                        energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
                        metadata_status, missing_required_fields_json, source_fields_json, raw_metadata_json,
                        audio_md5, spectral_profile_json, danceability_profile_json,
@@ -189,6 +196,7 @@ class TrackRepository:
             rows = connection.execute(
                 """
                 SELECT path, title, artist, bpm, camelot_key, energy_level,
+                       audio_format, audio_codec, bitrate_kbps, bitrate_mode,
                        energy_in, energy_out, energy_peak, duration, genre, release_year, tags_json,
                        metadata_status, missing_required_fields_json, spectral_profile_json,
                        danceability_profile_json, edge_spectral_profile_json, tonal_profile_json,
@@ -203,6 +211,8 @@ class TrackRepository:
         self,
         path: str,
         profile: SpectralProfile,
+        *,
+        expected_file_identity: tuple[int, int] | None = None,
     ) -> bool:
         """Persist a spectral profile for a single track, updating file identity fields.
 
@@ -216,6 +226,8 @@ class TrackRepository:
             size_bytes = stat.st_size
         except OSError:
             pass
+        if expected_file_identity is not None and (mtime_ns, size_bytes) != expected_file_identity:
+            return False
         with self._connect() as connection:
             cursor = connection.execute(
                 """
@@ -305,6 +317,8 @@ class TrackRepository:
         self,
         path: str,
         profile: DanceabilityProfile,
+        *,
+        expected_file_identity: tuple[int, int] | None = None,
     ) -> bool:
         """Persist a danceability profile for a track and refresh its file identity."""
         mtime_ns: int | None = None
@@ -315,6 +329,8 @@ class TrackRepository:
             size_bytes = stat.st_size
         except OSError:
             pass
+        if expected_file_identity is not None and (mtime_ns, size_bytes) != expected_file_identity:
+            return False
         with self._connect() as connection:
             cursor = connection.execute(
                 """
@@ -400,6 +416,8 @@ class TrackRepository:
         self,
         path: str,
         profile: EdgeSpectralProfile,
+        *,
+        expected_file_identity: tuple[int, int] | None = None,
     ) -> bool:
         """Persist an edge spectral profile and refresh its file identity."""
         mtime_ns: int | None = None
@@ -410,6 +428,8 @@ class TrackRepository:
             size_bytes = stat.st_size
         except OSError:
             pass
+        if expected_file_identity is not None and (mtime_ns, size_bytes) != expected_file_identity:
+            return False
         with self._connect() as connection:
             cursor = connection.execute(
                 """
@@ -582,6 +602,19 @@ class TrackRepository:
                         cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
 
+    def load_scan_file_identities(self, paths: Iterable[str]) -> dict[str, tuple[int | None, int | None]]:
+        """Return the last scanned/post-metadata identity for bounded freshness checks."""
+        path_list = list(paths)
+        result: dict[str, tuple[int | None, int | None]] = {}
+        with self._connect() as connection:
+            for start in range(0, len(path_list), _MAX_QUERY_VARIABLES):
+                chunk = path_list[start : start + _MAX_QUERY_VARIABLES]
+                placeholders = ",".join("?" * len(chunk))
+                query = f"SELECT path, file_mtime_ns, file_size_bytes FROM tracks WHERE path IN ({placeholders})"
+                for row in connection.execute(query, chunk):
+                    result[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"])
+        return result
+
     def refresh_post_metadata_identity(self, path: str) -> bool:
         """Refresh shared identity after a supported-format metadata write without touching profiles.
 
@@ -645,6 +678,8 @@ class TrackRepository:
     def _initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
+            # SQLite DDL needs an explicit transaction for an all-or-nothing migration.
+            connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
             if schema_version > SCHEMA_VERSION:
                 raise UnsupportedDatabaseVersionError(
@@ -693,11 +728,8 @@ class TrackRepository:
         Must run outside the migration transaction; without it SQLite keeps the
         freed pages and the file never shrinks.
         """
-        connection = self._connect()
-        try:
+        with self._connect() as connection:
             connection.execute("VACUUM")
-        finally:
-            connection.close()
 
     @staticmethod
     def _tracks_table_exists(connection: sqlite3.Connection) -> bool:
@@ -719,6 +751,10 @@ class TrackRepository:
                 energy_out INTEGER,
                 energy_peak INTEGER,
                 duration REAL,
+                audio_format TEXT,
+                audio_codec TEXT,
+                bitrate_kbps REAL,
+                bitrate_mode TEXT,
                 genre TEXT,
                 release_year INTEGER,
                 tags_json TEXT NOT NULL DEFAULT '[]',
@@ -737,6 +773,16 @@ class TrackRepository:
             )
             """
         )
+        # Additive migration keeps legacy track identities, metadata and ordering.
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)")}
+        for column, kind in (
+            ("audio_format", "TEXT"),
+            ("audio_codec", "TEXT"),
+            ("bitrate_kbps", "REAL"),
+            ("bitrate_mode", "TEXT"),
+        ):
+            if column not in columns:
+                connection.execute(f"ALTER TABLE tracks ADD COLUMN {column} {kind}")
         # Gracefully add columns introduced after the initial schema
         with contextlib.suppress(sqlite3.OperationalError):
             connection.execute("ALTER TABLE tracks ADD COLUMN duration REAL")
@@ -766,10 +812,8 @@ class TrackRepository:
             connection.execute("ALTER TABLE tracks ADD COLUMN release_year INTEGER")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_tracks_metadata_status ON tracks (metadata_status)")
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        return database_connection(self.db_path)
 
     @staticmethod
     def _record_to_row(record: TrackRecord) -> tuple[Any, ...]:
@@ -807,12 +851,20 @@ class TrackRepository:
             _serialize_loudness_profile(record.loudness_profile),
             mtime_ns,
             size_bytes,
+            record.audio_format,
+            record.audio_codec,
+            record.bitrate_kbps,
+            record.bitrate_mode,
         )
 
     @staticmethod
-    def _row_to_record(row: sqlite3.Row) -> TrackRecord:
+    def _row_to_record(row: sqlite3.Row | Mapping[str, Any]) -> TrackRecord:
         return TrackRecord(
             path=row["path"],
+            audio_format=row["audio_format"],
+            audio_codec=row["audio_codec"],
+            bitrate_kbps=row["bitrate_kbps"],
+            bitrate_mode=row["bitrate_mode"],
             title=row["title"],
             artist=row["artist"],
             bpm=row["bpm"],
@@ -841,6 +893,10 @@ class TrackRepository:
     def _display_row_to_record(row: sqlite3.Row) -> TrackRecord:
         return TrackRecord(
             path=row["path"],
+            audio_format=row["audio_format"],
+            audio_codec=row["audio_codec"],
+            bitrate_kbps=row["bitrate_kbps"],
+            bitrate_mode=row["bitrate_mode"],
             title=row["title"],
             artist=row["artist"],
             bpm=row["bpm"],

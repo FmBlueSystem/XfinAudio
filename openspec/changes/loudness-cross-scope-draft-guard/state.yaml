@@ -1,0 +1,26 @@
+schema: gentle-ai.sdd-state.v1
+change: loudness-cross-scope-draft-guard
+artifact_store: openspec
+status: verification
+created: 2026-10-02
+updated: 2026-10-02
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in-progress
+next_recommended: native-and-combined-release-verification
+blocked_reasons:
+  - Legacy Python gate requires PySide6 test environment; Qt-free Node wrapper is green
+  - Native viewport and keyboard verification pending
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Apply primary renderer patch before companion import guidance patch
+  - Main and Serato guards unchanged; no user audio or provider operations

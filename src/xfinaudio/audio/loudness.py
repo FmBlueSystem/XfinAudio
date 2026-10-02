@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import signal
@@ -16,8 +17,9 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CURRENT_LOUDNESS_VERSION = 1
-MINIMUM_LOUDNESS_DURATION_SECONDS = 3.0
+CURRENT_LOUDNESS_VERSION = 2
+# EBU Tech 3341 §2.4: LRA must be qualified as not stable in the first 60 s.
+MINIMUM_LOUDNESS_DURATION_SECONDS = 60.0
 
 
 class LoudnessStatus(StrEnum):
@@ -33,10 +35,10 @@ class LoudnessStatus(StrEnum):
 class LoudnessProfile(BaseModel):
     """Versioned EBU R128 measurement and its post-write source identity."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, allow_inf_nan=False)
 
     lufs_integrated: float | None
-    loudness_range_lra: float | None
+    loudness_range_lra: float | None = Field(ge=0)
     true_peak_dbtp: float | None
     status: LoudnessStatus
     analysis_version: int = Field(default=CURRENT_LOUDNESS_VERSION, ge=1)
@@ -52,8 +54,15 @@ def is_complete_measurement(profile: LoudnessProfile) -> bool:
     Tag write-back, the detail pane and the library column all gate on this, so a
     profile can never read as measured in one surface and absent in another.
     """
-    return profile.status is LoudnessStatus.MEASURED and all(
-        value is not None for value in (profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp)
+    values = (profile.lufs_integrated, profile.loudness_range_lra, profile.true_peak_dbtp)
+    return (
+        profile.analysis_version == CURRENT_LOUDNESS_VERSION
+        and profile.status is LoudnessStatus.MEASURED
+        and all(value is not None and math.isfinite(value) for value in values)
+        and profile.lufs_integrated is not None
+        and profile.lufs_integrated > -70.0
+        and profile.loudness_range_lra is not None
+        and profile.loudness_range_lra >= 0
     )
 
 
@@ -184,6 +193,8 @@ class FfmpegLoudnessAdapter:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 shell=False,
                 start_new_session=True,
             )
@@ -247,18 +258,27 @@ class FfmpegLoudnessAdapter:
         )
 
     def parse_stderr(self, stderr: str, *, duration_seconds: float) -> LoudnessProfile:
-        """Parse all three required summary values, rejecting incomplete output."""
+        """Keep valid partial metrics; accept stable-duration complete summaries only."""
         integrated_lufs = _required_summary_value(stderr, "I", "LUFS")
+        if not math.isfinite(duration_seconds) or duration_seconds < 0 or integrated_lufs <= -70.0:
+            return self._failure(LoudnessStatus.UNMEASURABLE)
+        try:
+            true_peak_dbtp = _required_summary_value(stderr, "Peak", "dBFS")
+        except LoudnessParseError:
+            if duration_seconds >= MINIMUM_LOUDNESS_DURATION_SECONDS:
+                raise
+            true_peak_dbtp = None
         if duration_seconds < MINIMUM_LOUDNESS_DURATION_SECONDS:
             return LoudnessProfile(
                 lufs_integrated=integrated_lufs,
                 loudness_range_lra=None,
-                true_peak_dbtp=None,
+                true_peak_dbtp=true_peak_dbtp,
                 status=LoudnessStatus.TOO_SHORT,
                 engine_fingerprint=self._engine_fingerprint,
             )
         loudness_range_lra = _required_summary_value(stderr, "LRA", "LU")
-        true_peak_dbtp = _required_summary_value(stderr, "Peak", "dBFS")
+        if loudness_range_lra < 0:
+            raise LoudnessParseError("LRA cannot be negative")
         return LoudnessProfile(
             lufs_integrated=integrated_lufs,
             loudness_range_lra=loudness_range_lra,
@@ -321,7 +341,10 @@ def _required_summary_value(stderr: str, label: str, unit: str) -> float:
     matches = pattern.findall(stderr)
     if len(matches) != 1:
         raise LoudnessParseError(f"Expected one {label} summary value, found {len(matches)}")
-    return float(matches[0])
+    value = float(matches[0])
+    if not math.isfinite(value):
+        raise LoudnessParseError(f"Nonfinite {label} summary value")
+    return value
 
 
 __all__ = [

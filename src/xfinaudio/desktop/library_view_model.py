@@ -10,6 +10,7 @@ from PySide6.QtCore import QCoreApplication
 from xfinaudio.application.spectral_profile_display import format_application_spectral_color
 from xfinaudio.audio.loudness import LoudnessProfile, is_complete_measurement
 from xfinaudio.desktop.app_state import AppState
+from xfinaudio.desktop.display_format import format_bpm
 from xfinaudio.library.models import TrackRecord
 
 
@@ -45,9 +46,7 @@ _DASH = "—"
 
 
 def _fmt_bpm(bpm: float | None) -> str:
-    if bpm is None or bpm == 0:
-        return _DASH
-    return str(int(bpm))
+    return format_bpm(bpm)
 
 
 def _fmt_key(key: str | None) -> str:

@@ -117,7 +117,7 @@ def score_camelot_transition(
     """Score harmonic compatibility between two Camelot keys.
 
     Scores are deterministic: exact key ``1.0``, adjacent same-letter ``0.9``, relative A/B ``0.85``,
-    diagonal (adjacent number, different letter) ``0.9``, configured boost ``0.8``, and incompatible ``0.0``.
+    directional diagonal (B→A +1 or A→B −1) ``0.9``, configured boost ``0.8``, and incompatible ``0.0``.
     """
     left = parse_camelot_key(from_key)
     right = parse_camelot_key(to_key)
@@ -130,7 +130,11 @@ def score_camelot_transition(
         return 0.9
     if move.number_delta == 0 and not move.same_letter:
         return 0.85
-    if move.number_delta == 1 and not move.same_letter:
+    # Mixed In Key's advanced guide permits only B→A +1 and A→B -1.
+    # The opposite diagonals contain dissonant intervals (e.g. 8B→7A).
+    # https://mixedinkey.com/book/use-advanced-harmonic-mixing-techniques/
+    diagonal_steps = 1 if left.letter == "B" else 11
+    if not move.same_letter and _forward_steps(left, right) == diagonal_steps:
         return 0.9
 
     # An explicitly configured rule wins over the built-in boost: the caller

@@ -107,21 +107,19 @@ def tracks() -> list[TrackRecord]:
 
 @pytest.fixture()
 def state_with_tracks(tracks: list[TrackRecord]) -> AppState:
-    return AppState(scanned_records=tracks)
+    return AppState(
+        scanned_records=tracks, records_by_path={r.path: r for r in tracks}, selected_library_paths=[tracks[0].path]
+    )
 
 
 @pytest.fixture()
 def state_is_recommending(tracks: list[TrackRecord]) -> AppState:
-    s = AppState(scanned_records=tracks)
-    s.is_recommending = True
-    return s
+    return AppState(scanned_records=tracks, is_recommending=True)
 
 
 @pytest.fixture()
 def state_is_scanning(tracks: list[TrackRecord]) -> AppState:
-    s = AppState(scanned_records=tracks)
-    s.is_scanning = True
-    return s
+    return AppState(scanned_records=tracks, is_scanning=True)
 
 
 @pytest.fixture()
@@ -353,3 +351,26 @@ def test_recommendation_summary_includes_track_count_and_cta(
     assert result is not None
     assert "2 tracks" in result
     assert "Review" in result
+
+
+@pytest.mark.parametrize("selection", [[], ["/missing.flac"], ["/stale.flac"]])
+def test_anchor_dependent_actions_require_complete_selected_record(vm: BuildViewModel, tracks, selection) -> None:
+    records = [*tracks, TrackRecord(path="/missing.flac")]
+    state = AppState(
+        scanned_records=records, records_by_path={r.path: r for r in records}, selected_library_paths=selection
+    )
+    assert not vm.recommend_button_enabled(state)
+    assert not vm.copilot_button_enabled(state)
+    assert vm.copilot_ask_button_enabled(state)  # The AI route can choose its own anchor.
+
+
+def test_generation_routes_disable_during_ai_request_and_with_all_incomplete(vm: BuildViewModel, tracks) -> None:
+    state = AppState(
+        scanned_records=tracks,
+        records_by_path={r.path: r for r in tracks},
+        selected_library_paths=[tracks[0].path],
+        is_asking_copilot=True,
+    )
+    assert not vm.recommend_button_enabled(state)
+    assert not vm.copilot_button_enabled(state)
+    assert not vm.copilot_ask_button_enabled(AppState(scanned_records=[TrackRecord(path="/missing.flac")]))

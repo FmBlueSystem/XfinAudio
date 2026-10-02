@@ -7,7 +7,7 @@ algorithm only proposes auditable options.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,6 +22,7 @@ from xfinaudio.recommendation.playlist_service import (
     matches_requested_genre,
     matches_requested_genre_tag,
     recommend_playlist,
+    recommendation_limited,
 )
 from xfinaudio.recommendation.strategies import StrategyName
 
@@ -105,8 +106,10 @@ def build_prep_copilot_plan(
     *,
     color_anchor_path: str | None = None,
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    spectral_cohesion: float = 0.0,
     familiarity: Mapping[str, FamiliaritySignal] | None = None,
     familiarity_weight: float = 0.0,
+    checkpoint: Callable[[str], None] | None = None,
 ) -> PrepCopilotPlan:
     """Build safe, balanced, and adventurous playlist variants for one DJ set intent.
 
@@ -125,35 +128,25 @@ def build_prep_copilot_plan(
     from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
 
     PrepCopilotVariant.model_rebuild()
-    variants = [
-        _build_variant(
-            "safe",
-            tracks,
-            intent,
-            color_anchor_path=color_anchor_path,
-            loudness_band=loudness_band,
-            familiarity=familiarity,
-            familiarity_weight=familiarity_weight,
-        ),
-        _build_variant(
-            "balanced",
-            tracks,
-            intent,
-            color_anchor_path=color_anchor_path,
-            loudness_band=loudness_band,
-            familiarity=familiarity,
-            familiarity_weight=familiarity_weight,
-        ),
-        _build_variant(
-            "adventurous",
-            tracks,
-            intent,
-            color_anchor_path=color_anchor_path,
-            loudness_band=loudness_band,
-            familiarity=familiarity,
-            familiarity_weight=familiarity_weight,
-        ),
-    ]
+    variants = []
+    names: tuple[PrepVariantName, ...] = ("safe", "balanced", "adventurous")
+    for name in names:
+        if checkpoint is not None:
+            checkpoint(name)
+        variants.append(
+            _build_variant(
+                name,
+                tracks,
+                intent,
+                color_anchor_path=color_anchor_path,
+                loudness_band=loudness_band,
+                spectral_cohesion=spectral_cohesion,
+                familiarity=familiarity,
+                familiarity_weight=familiarity_weight,
+            )
+        )
+    if checkpoint is not None:
+        checkpoint("complete")
     return PrepCopilotPlan(intent=intent, variants=variants)
 
 
@@ -164,6 +157,7 @@ def _build_variant(
     *,
     color_anchor_path: str | None = None,
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    spectral_cohesion: float = 0.0,
     familiarity: Mapping[str, FamiliaritySignal] | None = None,
     familiarity_weight: float = 0.0,
 ) -> PrepCopilotVariant:
@@ -193,8 +187,9 @@ def _build_variant(
     # Without an anchor-narrowed pool, the optimizer receives a scattered BPM
     # sample and the 3% adjacency gate can leave only the anchor behind.
     recommendation_pool = candidate_pool.build_recommendation_pool(
-        variant_tracks,
+        [track for track in variant_tracks if track.path not in intent.excluded_paths],
         controls,
+        limit=max(25, intent.target_track_count),
         protected_path=color_anchor_path,
         familiarity=familiarity,
         familiarity_weight=familiarity_weight,
@@ -205,11 +200,28 @@ def _build_variant(
         controls=controls,
         color_anchor_path=color_anchor_path,
         loudness_band=loudness_band,
+        spectral_cohesion=spectral_cohesion,
+        target_count=intent.target_track_count,
         target_duration_minutes=intent.target_minutes,
         played_seconds_per_track=(PREP_PLAYED_SECONDS_PER_TRACK if intent.target_minutes is not None else None),
         arc_strategy=intent.slot_role,
     )
+    before_cap_count = len(recommendation.ordered_tracks)
     recommendation = _limit_recommendation(recommendation, intent.target_track_count)
+    if intent.target_minutes is not None and len(recommendation.ordered_tracks) < before_cap_count:
+        played_seconds = sum(
+            min(track.duration or 0.0, PREP_PLAYED_SECONDS_PER_TRACK) for track in recommendation.ordered_tracks
+        )
+        if played_seconds < intent.target_minutes * 60:
+            recommendation = recommendation.model_copy(
+                update={
+                    "warnings": [
+                        *recommendation.warnings,
+                        "Duration shortfall: the hard track count cap prevents this variant "
+                        "from covering the booked slot",
+                    ],
+                }
+            )
     readiness = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
     readiness = _add_required_track_gate(readiness, recommendation, intent)
     blockers = [check.label for check in readiness.checks if check.status == "blocked"]
@@ -220,7 +232,11 @@ def _build_variant(
     pool_notes = [
         *([intent.pool_note_preamble] if intent.pool_note_preamble else []),
         f"Incoming pool: {incoming_count} track(s)",
-        _genre_filter_pool_note(name, intent, incoming_count, len(variant_tracks)),
+        (
+            f"Genre focus '{intent.genre_focus}': no match; full candidate pool retained"
+            if any(warning.startswith("No tracks match genre focus") for warning in variant_warnings)
+            else _genre_filter_pool_note(name, intent, incoming_count, len(variant_tracks))
+        ),
         *(warning for warning in recommendation.warnings if "Dropped" in warning and "BPM jump" in warning),
     ]
     warnings = [*variant_warnings, *recommendation.warnings]
@@ -330,17 +346,7 @@ def _protected_paths(intent: DJSetIntent) -> set[str]:
 
 
 def _limit_recommendation(recommendation: PlaylistRecommendation, target_track_count: int) -> PlaylistRecommendation:
-    if len(recommendation.ordered_tracks) <= target_track_count:
-        return recommendation
-    ordered_tracks = recommendation.ordered_tracks[:target_track_count]
-    transition_scores = recommendation.transition_scores[: max(target_track_count - 1, 0)]
-    return recommendation.model_copy(
-        update={
-            "ordered_tracks": ordered_tracks,
-            "transition_scores": transition_scores,
-            "total_score": sum(score.total_score for score in transition_scores),
-        }
-    )
+    return recommendation_limited(recommendation, target_track_count)
 
 
 def _add_required_track_gate(
@@ -368,11 +374,11 @@ def _add_required_track_gate(
             status="blocked",
             detail=f"{missing_required_count} required track(s) could not pass playlist gates",
         )
-        if any("BPM jump" in warning for warning in recommendation.warnings):
+        if any("BPM jump" in warning or "BPM ceiling" in warning for warning in recommendation.warnings):
             bpm_check = DjReadinessCheck(
                 label="BPM continuity",
                 status="blocked",
-                detail="A required track was dropped because it would exceed the adjacent BPM gate",
+                detail="A required transition cannot satisfy the adjacent BPM gate",
             )
             checks = [*readiness.checks, bpm_check, missing_check]
         else:

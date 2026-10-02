@@ -1,6 +1,6 @@
 [project]
 name = "xfinaudio"
-version = "2.0.1"
+version = "2.2.0"
 description = "Metadata-driven DJ playlist assistant discovery prototype."
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -112,6 +112,10 @@ indent-style = "space"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/xfinaudio"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"assets/icons" = "xfinaudio/assets/icons"
+"assets/translations" = "xfinaudio/assets/translations"
 
 # Planning and review scratch stays in git but out of the distribution. Without
 # this the published sdist shipped PLAN.md, the PLAN-REVIEW-LOG files and every

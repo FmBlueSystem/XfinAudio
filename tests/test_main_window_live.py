@@ -29,16 +29,14 @@ def test_live_assistant_tab_exists(qapp: QApplication) -> None:
     assert "Live Assistant" in tab_names
 
 
-def test_live_assistant_is_last_tab(qapp: QApplication) -> None:
+def test_live_assistant_keeps_stable_tab_index(qapp: QApplication) -> None:
     window = make_window()
-    last_index = window.workflow_tabs.count() - 1
-    assert window.workflow_tabs.tabText(last_index) == "Live Assistant"
+    assert window.workflow_tabs.tabText(6) == "Live Assistant"
 
 
 def test_exit_live_assistant_navigates_to_library(qapp: QApplication) -> None:
     window = make_window()
-    last_index = window.workflow_tabs.count() - 1
-    window.workflow_tabs.setCurrentIndex(last_index)
+    window.workflow_tabs.setCurrentIndex(6)
     window._live_assistant_screen.exit_requested.emit()
     assert window.workflow_tabs.currentIndex() == 0
 

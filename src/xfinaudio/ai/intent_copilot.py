@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from xfinaudio.ai.nan_client import ENABLED_ENV, NanConfigError, chat, is_ai_enabled
+from xfinaudio.ai.privacy import redact_paths
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.prep_copilot import DJSetIntent
 from xfinaudio.recommendation.strategies import available_strategies
@@ -31,10 +32,6 @@ _STRATEGY_FALLBACK = "harmonic_journey"
 #: The slot-role arcs the engine can render, decoupled from the ordering strategy.
 _SLOT_ROLES = ("warmup", "peak_time", "chill")
 
-#: Upper bound on how much of the raw LLM response an error may echo. Keeps the
-#: message bounded and keeps a stray key out of any user-visible error.
-_MAX_RAW_ECHO = 200
-
 _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 _SEPARATOR = re.compile(r"[\s_-]+")
 
@@ -47,6 +44,7 @@ def extract_intent(
     timeout: float = 60.0,
     transport: Transport | None = None,
     genre_vocabulary: list[str] | None = None,
+    include_track_titles: bool = False,
 ) -> DJSetIntent:
     """Translate a natural-language DJ request into a validated ``DJSetIntent``.
 
@@ -76,7 +74,15 @@ def extract_intent(
     strategy_names = [str(name) for name in available_strategies()]
     genres = _genre_vocabulary(tracks, genre_vocabulary)
     raw = chat(
-        _build_user_message(user_request, tracks, genres),
+        redact_paths(
+            _build_user_message(
+                user_request,
+                tracks if include_track_titles else [],
+                genres,
+                known_paths=[track.path for track in tracks],
+            ),
+            (track.path for track in tracks),
+        ),
         system=_build_system_prompt(strategy_names),
         model=model,
         timeout=timeout,
@@ -84,13 +90,27 @@ def extract_intent(
     )
 
     data = _extract_json_object(raw)
+    allowed = {
+        "name",
+        "strategy",
+        "target_track_count",
+        "target_minutes",
+        "slot_role",
+        "genre_focus",
+        "start_title",
+        "end_title",
+    }
+    if set(data) - allowed:
+        raise ValueError("AI interpretation contains unsupported fields. Edit the request and retry.")
     raw_start = data.pop("start_title", None)
     raw_end = data.pop("end_title", None)
     raw_slot_role = data.pop("slot_role", None)
     try:
         intent = DJSetIntent.model_validate(data)
     except ValidationError:
-        raise ValueError(f"LLM JSON did not match the DJSetIntent schema: {_snippet(raw)!r}.") from None
+        raise ValueError(
+            "LLM JSON did not match the DJSetIntent schema. Edit the duration or track count and retry."
+        ) from None
 
     title_lookup = _title_lookup(tracks)
     return intent.model_copy(
@@ -130,12 +150,19 @@ def _build_system_prompt(strategy_names: list[str]) -> str:
     )
 
 
-def _build_user_message(user_request: str, tracks: list[TrackRecord], genres: list[str]) -> str:
+def _build_user_message(
+    user_request: str, tracks: list[TrackRecord], genres: list[str], *, known_paths: list[str]
+) -> str:
+    user_request = redact_paths(user_request, known_paths)
+    genres = [redact_paths(genre, known_paths) for genre in genres]
     return (
         f"DJ request:\n{user_request}\n\n"
         f"Library genre vocabulary (use this exact casing): {json.dumps(genres)}\n\n"
-        "Available tracks (title | genre):\n"
-        f"{_compact_track_list(tracks)}"
+        + (
+            "Available tracks (title | genre):\n" + _compact_track_list(tracks)
+            if tracks
+            else "Track titles were not shared. Only use boundary titles explicitly supplied in the DJ request."
+        )
     )
 
 
@@ -196,11 +223,14 @@ def _normalize_slot_role(value: object) -> str | None:
 
 def _title_lookup(tracks: list[TrackRecord]) -> dict[str, str]:
     lookup: dict[str, str] = {}
+    ambiguous: set[str] = set()
     for track in tracks:
-        title = (track.title or "").strip()
-        if title:
-            lookup.setdefault(title.casefold(), track.path)
-    return lookup
+        title = (track.title or "").strip().casefold()
+        if title in lookup:
+            ambiguous.add(title)
+        elif title:
+            lookup[title] = track.path
+    return {title: path for title, path in lookup.items() if title not in ambiguous}
 
 
 def _match_title(value: object, lookup: dict[str, str]) -> str | None:
@@ -213,17 +243,11 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
     """Return the first ``{...}`` block decoded as an object, else raise ValueError."""
     match = _JSON_BLOCK.search(raw)
     if match is None:
-        raise ValueError(f"LLM did not return a JSON object: {_snippet(raw)!r}.")
+        raise ValueError("LLM did not return a JSON object. Edit the request and retry.")
     try:
         data = json.loads(match.group(0))
     except json.JSONDecodeError:
-        raise ValueError(f"LLM did not return a JSON object: {_snippet(raw)!r}.") from None
+        raise ValueError("LLM did not return a JSON object. Edit the request and retry.") from None
     if not isinstance(data, dict):
-        raise ValueError(f"LLM did not return a JSON object: {_snippet(raw)!r}.")
+        raise ValueError("LLM did not return a JSON object. Edit the request and retry.")
     return data
-
-
-def _snippet(raw: str, limit: int = _MAX_RAW_ECHO) -> str:
-    """Bound how much raw model output is echoed in an error message."""
-    text = raw.strip()
-    return text[:limit] + "..." if len(text) > limit else text

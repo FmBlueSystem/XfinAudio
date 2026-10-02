@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QEvent, QObject, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QMessageBox,
@@ -60,7 +60,27 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
         self._last_rows_signature: tuple | None = None
         self._last_render_extras: tuple | None = None
         self._build_ui()
+        self._table_viewport = self.tracks_table.viewport()
+        self._table_viewport.installEventFilter(self)
         self._connect_signals()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Resize and watched is self._table_viewport:
+            self._fit_primary_columns()
+        return super().eventFilter(watched, event)
+
+    def _fit_primary_columns(self) -> None:
+        """Keep the first metadata columns through Color in a compact viewport."""
+        table = self.tracks_table
+        header = table.horizontalHeader()
+        columns = [i for i in range(column_index("Color") + 1) if not table.isColumnHidden(i)]
+        total = sum(header.sectionSize(i) for i in columns)
+        available = table.viewport().width()
+        if total <= available or available <= 0:
+            return
+        sizes = [int(header.sectionSize(i) * available / total) for i in columns]
+        for column, width in zip(columns, sizes, strict=True):
+            table.setColumnWidth(column, width)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -192,3 +212,17 @@ class LibraryScreen(LibraryScreenRenderingMixin, QWidget):
     # ------------------------------------------------------------------
     # Render
     # ------------------------------------------------------------------
+
+    def _apply_filter(self) -> None:
+        """Combine text/quick filters with explicit metadata constraints."""
+        super()._apply_filter()
+        if self._last_state is None:
+            return
+        records = {record.path: record for record in self._last_state.scanned_records}
+        for row in range(self.tracks_table.rowCount()):
+            if self.tracks_table.isRowHidden(row):
+                continue
+            item = self.tracks_table.item(row, column_index("Path"))
+            record = records.get(item.text()) if item is not None else None
+            if record is not None and not self.query_panel.query.matches(record):
+                self.tracks_table.setRowHidden(row, True)

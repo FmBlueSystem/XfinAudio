@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -14,6 +15,14 @@ from xfinaudio.desktop import library_controller, window_factory
 from xfinaudio.desktop.background_completion_stage import BackgroundCompletionStage
 from xfinaudio.desktop.main_window import MainWindow
 from xfinaudio.library.models import TrackRecord
+
+
+def _wait_until_stopped(stage):
+    deadline = time.monotonic() + 2
+    while stage.is_running() and time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.001)
+    assert not stage.is_running()
 
 
 def _profile() -> LoudnessProfile:
@@ -31,7 +40,7 @@ def _edge_profile() -> EdgeSpectralProfile:
     return EdgeSpectralProfile(intro=spectral, outro=spectral, analysis_version=CURRENT_EDGE_ANALYSIS_VERSION)
 
 
-def test_background_stage_emits_result_and_invokes_cancel_at_shutdown() -> None:
+def test_background_stage_emits_result_and_releases_completed_cancel_callback() -> None:
     app = QApplication.instance() or QApplication([])
     stage = BackgroundCompletionStage()
     results: list[tuple[str, object]] = []
@@ -45,11 +54,11 @@ def test_background_stage_emits_result_and_invokes_cancel_at_shutdown() -> None:
     stage.shutdown()
 
     assert results == [("/track.flac", _profile())]
-    assert cancelled == [True]
+    assert cancelled == []
     assert app is QApplication.instance()
 
 
-def test_background_stage_terminal_shutdown_waits_without_a_timeout() -> None:
+def test_background_stage_shutdown_does_not_block_the_event_loop() -> None:
     stage = BackgroundCompletionStage()
     thread = Mock()
     thread.isRunning.return_value = True
@@ -57,10 +66,11 @@ def test_background_stage_terminal_shutdown_waits_without_a_timeout() -> None:
 
     stage.shutdown()
 
-    thread.wait.assert_called_once_with()
+    thread.wait.assert_not_called()
+    thread.terminate.assert_not_called()
 
 
-def test_window_close_terminates_its_loudness_stage_thread(monkeypatch) -> None:
+def test_window_close_drains_its_loudness_stage_thread(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
 
     class Repository:
@@ -96,7 +106,7 @@ def test_window_close_terminates_its_loudness_stage_thread(monkeypatch) -> None:
     try:
         window.close()
         assert controller._loudness_completion_stage is None
-        assert not stage.is_running()
+        _wait_until_stopped(stage)
     finally:
         controller.shutdown()
         stage.shutdown()
@@ -143,7 +153,7 @@ def test_window_close_reaps_a_loudness_stage_cancelled_before_shutdown(monkeypat
     assert stage in controller._loudness_completion_stages
     service.release.set()
     window.close()
-    assert not stage.is_running()
+    _wait_until_stopped(stage)
     assert app is QApplication.instance()
 
 
@@ -202,6 +212,9 @@ def test_controller_starts_after_edge_without_missing_work_uses_priority_and_upd
         def deleteLater(self) -> None:
             pass
 
+        def dispose_when_idle(self) -> None:
+            pass
+
     monkeypatch.setattr(library_controller, "BackgroundCompletionStage", Stage)
 
     class ScanService:
@@ -244,6 +257,8 @@ def test_controller_starts_after_edge_without_missing_work_uses_priority_and_upd
         "force_reanalyze": False,
         "on_result": stage.result.emit,
     }
+    assert window._state.records_by_path[records[0].path].loudness_profile is None
+    app.processEvents()
     assert window._state is not previous
     assert window._state.records_by_path[records[0].path].loudness_profile == _profile()
     assert window._state.is_completing_loudness is True

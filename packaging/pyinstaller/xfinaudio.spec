@@ -6,6 +6,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from PyInstaller.utils.hooks import copy_metadata
+
 project_root = Path(SPECPATH).parents[1]
 ffmpeg_binary = project_root / "packaging" / "ffmpeg" / "ffmpeg"
 
@@ -88,7 +90,7 @@ analysis = Analysis(
     [str(project_root / "src/xfinaudio/desktop/app.py")],
     pathex=[str(project_root / "src")],
     binaries=[(str(bundled_ffmpeg), ".")],
-    datas=assets,
+    datas=assets + copy_metadata("xfinaudio"),
     hiddenimports=[
         "pydantic",
         "pydantic.v1",

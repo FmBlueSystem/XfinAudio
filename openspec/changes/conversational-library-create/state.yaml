@@ -1,0 +1,26 @@
+schema: gentle-ai.sdd-state.v1
+change: conversational-library-create
+artifact_store: openspec
+status: complete
+created: 2026-09-30
+updated: 2026-09-30
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: native-validation-before-release
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Each review commit is capped at 400 changed lines.
+  - RED then GREEN then REFACTOR for every behavior slice.
+  - Focused 361 tests and full-tree lint/format/type checks passed at 3da90ca.
+  - Coordinator runs aggregate gate on exact integrated HEAD.

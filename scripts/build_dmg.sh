@@ -7,7 +7,7 @@
 # Usage:
 #   scripts/build_dmg.sh                  # build app + dmg into ./out (gitignored)
 #   scripts/build_dmg.sh /path/to/output  # build into a specific directory
-#   SKIP_APP_BUILD=1 scripts/build_dmg.sh # reuse an existing .app, only repackage
+#   SKIP_APP_BUILD=1 scripts/build_dmg.sh # reuse only a verified same-commit .app
 #
 # Signing and notarization are optional and credential-gated. Every build
 # reports one of three outcomes at the end:
@@ -25,14 +25,19 @@ set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_dir="${1:-${project_root}/out}"
+# Resolve from the caller's directory before any project-root chdir.
+[[ "${output_dir}" = /* ]] || output_dir="${PWD}/${output_dir}"
+provenance() (
+  cd "${project_root}"
+  uv run --locked python scripts/release_provenance.py "$@"
+)
+output_dir="$(provenance output --output "${output_dir}")"
 app_name="XfinAudio"
 app_bundle="${output_dir}/dist/${app_name}.app"
 volume_name="${app_name}"
+evidence="${app_bundle}.provenance.json"
 
-version="$(
-  sed -n 's/^version = "\(.*\)"/\1/p' "${project_root}/pyproject.toml" | head -1
-)"
-version="${version:-0.0.0}"
+version="$(provenance version)"
 dmg_path="${output_dir}/${app_name}-${version}.dmg"
 
 mkdir -p "${output_dir}"
@@ -64,13 +69,24 @@ if [[ -n "${XFINAUDIO_NOTARY_PROFILE:-}" && -z "${sign_identity}" ]]; then
   exit 1
 fi
 
+# A cached report never bypasses this gate, including on SKIP_APP_BUILD.
+source_commit="$(provenance source)"
+cd "${project_root}"
+echo "==> Running release gates for ${source_commit}"
+uv run python scripts/release_gate_check.py --run
+provenance source --commit "${source_commit}" >/dev/null
+
 if [[ "${SKIP_APP_BUILD:-0}" != "1" ]]; then
+  rm -f "${evidence}"
   echo "==> Building ${app_name}.app (this takes a few minutes)"
   cd "${project_root}"
-  uv run pyinstaller packaging/pyinstaller/xfinaudio.spec \
+  uv run --locked pyinstaller packaging/pyinstaller/xfinaudio.spec \
     --distpath "${output_dir}/dist" \
     --workpath "${output_dir}/build" \
     --noconfirm
+  provenance source --commit "${source_commit}" >/dev/null
+else
+  provenance verify --commit "${source_commit}" --bundle "${app_bundle}" --evidence "${evidence}"
 fi
 
 if [[ ! -d "${app_bundle}" ]]; then
@@ -101,10 +117,14 @@ if ! XFINAUDIO_PACKAGE_SMOKE=1 "${app_bundle}/Contents/MacOS/${app_name}" >/dev/
   exit 1
 fi
 
+# Record only after gate/build/signing/smoke succeeds at the same clean SHA.
+provenance record --commit "${source_commit}" --bundle "${app_bundle}" --evidence "${evidence}"
+
 echo "==> Staging DMG contents"
 staging="$(mktemp -d)"
 trap 'rm -rf "${staging}"' EXIT
-cp -R "${app_bundle}" "${staging}/"
+cp -pR "${app_bundle}" "${staging}/"
+provenance verify --commit "${source_commit}" --bundle "${staging}/${app_name}.app" --evidence "${evidence}"
 # Drag-to-install target.
 ln -s /Applications "${staging}/Applications"
 
@@ -119,6 +139,7 @@ hdiutil create \
 
 echo "==> Verifying the image"
 hdiutil verify "${dmg_path}" >/dev/null
+provenance source --commit "${source_commit}" >/dev/null
 
 # ---------------------------------------------------------------------------
 # Optional notarization. Requires a signed build (fail-closed check above, at

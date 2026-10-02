@@ -70,7 +70,7 @@ def test_mp3_overwrites_comment_and_writes_exact_structured_tag() -> None:
     assert comments[0].text == ["-9.8 LUFS · 4.2 LRA · -0.7 dBTP"]
     structured = [frame for frame in tags.getall("TXXX") if frame.desc == "XFINAUDIO_LOUDNESS"]
     assert len(structured) == 1
-    assert structured[0].text == ["lufs=-9.8;lra=4.2;dbtp=-0.7;v=1;engine=ffmpeg-test"]
+    assert structured[0].text == ["lufs=-9.8;lra=4.2;dbtp=-0.7;v=2;engine=ffmpeg-test"]
 
 
 def test_id3_write_is_idempotent_and_does_not_save_again() -> None:
@@ -100,7 +100,7 @@ def test_flac_uses_vorbis_comment_and_custom_value() -> None:
     )
     assert tags == {
         "COMMENT": ["-9.8 LUFS · 4.2 LRA · -0.7 dBTP"],
-        "XFINAUDIO_LOUDNESS": ["lufs=-9.8;lra=4.2;dbtp=-0.7;v=1;engine=ffmpeg-test"],
+        "XFINAUDIO_LOUDNESS": ["lufs=-9.8;lra=4.2;dbtp=-0.7;v=2;engine=ffmpeg-test"],
         "DESCRIPTION": ["-9.8 LUFS · 4.2 LRA · -0.7 dBTP"],
     }
     assert (
@@ -163,7 +163,7 @@ def test_m4a_write_round_trips_exact_app_atoms_preserves_unrelated_and_is_idempo
     assert reloaded.tags["©cmt"] == ["-9.8 LUFS · 4.2 LRA · -0.7 dBTP"]
     freeform = reloaded.tags[_M4A_LOUDNESS_KEY]
     assert len(freeform) == 1
-    assert bytes(freeform[0]) == b"lufs=-9.8;lra=4.2;dbtp=-0.7;v=1;engine=ffmpeg-test"
+    assert bytes(freeform[0]) == b"lufs=-9.8;lra=4.2;dbtp=-0.7;v=2;engine=ffmpeg-test"
     assert freeform[0].dataformat == AtomDataType.UTF8
     assert reloaded.tags["©nam"] == ["Keep this title"]
     assert bytes(reloaded.tags["----:com.example:UNRELATED"][0]) == b"keep"

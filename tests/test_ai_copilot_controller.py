@@ -27,6 +27,7 @@ from xfinaudio.desktop.app_state_transitions import (
     apply_ai_copilot_request_started,
 )
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, build_prep_copilot_plan
 
@@ -189,6 +190,9 @@ def test_ask_marks_the_request_busy_then_stores_the_generated_plan(monkeypatch: 
     assert harness.extractor_calls == []
 
     harness.run()
+    assert harness.host._state.last_prep_copilot_plan is None
+    harness.controller.confirm()
+    harness.run(1)
 
     assert harness.extractor_calls == [("Deep house opener", library, AI_COPILOT_TIMEOUT_SECONDS)]
     assert harness.host._state.is_asking_copilot is False
@@ -203,15 +207,19 @@ def test_ask_plans_with_the_ai_intent_and_the_candidate_route_never_the_ui_combo
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The LLM fills the intent; the pool and the plan come from the injected seams."""
-    controls = SimpleNamespace(start_path="/music/a.flac")
+    controls = DJControls(start_path="/music/a.flac")
     harness = _Harness(monkeypatch, controls=controls)
 
     harness.controller.ask("deep house")
     harness.run()
+    harness.controller.confirm()
+    harness.run(1)
 
     band = LoudnessBand(-14.0, 0.5)
-    assert harness.route_calls == [(controls, "harmonic_journey", band)]
-    assert harness.builder_calls == [(harness.pool, _INTENT, None, band)]
+    assert harness.route_calls == [(controls.model_copy(update={"genre": "House"}), "harmonic_journey", band)]
+    assert harness.builder_calls == [
+        (harness.pool, _INTENT.model_copy(update={"start_path": controls.start_path}), None, band)
+    ]
 
 
 def test_ask_plans_from_the_library_when_the_dj_selected_no_track(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -219,8 +227,10 @@ def test_ask_plans_from_the_library_when_the_dj_selected_no_track(monkeypatch: p
 
     harness.controller.ask("deep house")
     harness.run()
+    harness.controller.confirm()
+    harness.run(1)
 
-    assert harness.route_calls == [(None, "harmonic_journey", LoudnessBand(-14.0, 0.5))]
+    assert harness.route_calls == [(DJControls(genre="House"), "harmonic_journey", LoudnessBand(-14.0, 0.5))]
     assert harness.host._state.last_prep_copilot_plan is harness.plan
 
 
@@ -295,6 +305,8 @@ def test_late_worker_results_do_not_override_a_newer_request(monkeypatch: pytest
 
     harness.controller.ask("first")
     harness.run()
+    harness.controller.confirm()
+    harness.run(1)
     assert harness.host._state.last_prep_copilot_plan is harness.plan
 
     stale_plan = SimpleNamespace(variants=[object()])
@@ -307,14 +319,14 @@ def test_late_worker_results_do_not_override_a_newer_request(monkeypatch: pytest
     assert harness.host._state.is_asking_copilot is True
     assert harness.host._state.last_prep_copilot_plan is harness.plan
 
-    harness.run(1)
+    harness.run(2)
     assert harness.host._state.is_asking_copilot is False
 
 
 def test_nan_config_failure_points_at_the_settings_toggle_and_the_key_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Guidance, not just diagnosis: where to enable AI, that it applies on restart, and the key file."""
+    """Guidance, not just diagnosis: where to enable AI, that it applies without restart, and the key file."""
 
     def failing(*_args: Any, **_kwargs: Any) -> Any:
         raise NanConfigError("API key file not found: /keys/apiIA.env")
@@ -326,7 +338,8 @@ def test_nan_config_failure_points_at_the_settings_toggle_and_the_key_file(
 
     text = harness.screen.copilot_ask_status.text
     assert "Settings" in text
-    assert "restart" in text
+    assert "Configure AI" in text
+    assert "restart" not in text
     assert "API key file" in text
 
 
@@ -359,6 +372,11 @@ def test_ask_runs_the_blocking_extractor_off_the_ui_thread(monkeypatch: pytest.M
         assert worker_threads[0] is not harness.main_thread
 
         release.set()
+        while harness.controller._pending_intent is None and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.01)
+        assert harness.host._state.last_prep_copilot_plan is None
+        harness.controller.confirm()
         while harness.host._state.last_prep_copilot_plan is None and time.monotonic() < deadline:
             qapp.processEvents()
             time.sleep(0.01)
@@ -370,6 +388,10 @@ def test_ask_runs_the_blocking_extractor_off_the_ui_thread(monkeypatch: pytest.M
     finally:
         release.set()
         harness.controller.cancel()
+        deadline = time.monotonic() + 5
+        while harness.controller._copilot_thread is not None and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.01)
 
 
 def test_controller_defaults_bind_the_real_extractor_and_plan_builder() -> None:
@@ -427,7 +449,7 @@ def test_cancel_interrupts_a_running_worker_and_is_safe_without_one(monkeypatch:
     harness.controller.cancel()
 
     assert interrupted == [True]
-    assert waits == [500]
+    assert waits == []
 
 
 def test_a_superseded_thread_does_not_clear_the_current_worker_reference(

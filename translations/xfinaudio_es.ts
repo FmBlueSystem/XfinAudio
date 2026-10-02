@@ -403,6 +403,50 @@
         <source>AI copilot status</source>
         <translation>Estado del copiloto de IA</translation>
     </message>
+    <message>
+        <source>Prep generation progress</source>
+        <translation>Progreso de generación de Prep</translation>
+    </message>
+    <message>
+        <source>Cancel Prep</source>
+        <translation>Cancelar Prep</translation>
+    </message>
+    <message>
+        <source>Cancel Prep generation</source>
+        <translation>Cancelar generación de Prep</translation>
+    </message>
+    <message>
+        <source>Stop after the current stage; keep previous Prep results</source>
+        <translation>Detener después de la etapa actual; conservar los resultados anteriores de Prep</translation>
+    </message>
+    <message>
+        <source>Preparing candidate tracks...</source>
+        <translation>Preparando pistas candidatas...</translation>
+    </message>
+    <message>
+        <source>Generating safe variant (1/3)...</source>
+        <translation>Generando variante segura (1/3)...</translation>
+    </message>
+    <message>
+        <source>Generating balanced variant (2/3)...</source>
+        <translation>Generando variante equilibrada (2/3)...</translation>
+    </message>
+    <message>
+        <source>Generating adventurous variant (3/3)...</source>
+        <translation>Generando variante aventurera (3/3)...</translation>
+    </message>
+    <message>
+        <source>Finishing Prep variants...</source>
+        <translation>Finalizando variantes de Prep...</translation>
+    </message>
+    <message>
+        <source>Configure AI</source>
+        <translation>Configurar IA</translation>
+    </message>
+    <message>
+        <source>Cancel AI request</source>
+        <translation>Cancelar solicitud de IA</translation>
+    </message>
 </context>
 <context>
     <name>BuildViewModel</name>
@@ -608,6 +652,30 @@
         <source>Export to {name}</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Report Folder</source>
+        <translation>Carpeta de informes</translation>
+    </message>
+    <message>
+        <source>Preview the destination, then export directly to Serato. Existing crates are backed up before replacement; audio files are not copied.</source>
+        <translation>Revise el destino y exporte directamente a Serato. Se crea una copia de seguridad de los crates existentes antes de reemplazarlos; los archivos de audio no se copian.</translation>
+    </message>
+    <message>
+        <source>Report folder: optional for Serato crates</source>
+        <translation>Carpeta de informes: opcional para los crates de Serato</translation>
+    </message>
+    <message>
+        <source>Choose the report folder; Serato crates still go directly to Serato</source>
+        <translation>Elija la carpeta de informes; los crates de Serato siguen exportándose directamente a Serato</translation>
+    </message>
+    <message>
+        <source>Report folder</source>
+        <translation>Carpeta de informes</translation>
+    </message>
+    <message>
+        <source>Choose report folder</source>
+        <translation>Elegir carpeta de informes</translation>
+    </message>
 </context>
 <context>
     <name>ExportViewModel</name>
@@ -673,9 +741,29 @@
         <source>Preview shows the planned crate contents without writing any files.</source>
         <translation>El preview muestra el contenido planeado del crate sin escribir archivos.</translation>
     </message>
+    <message>
+        <source>Report folder: optional</source>
+        <translation>Carpeta de informes: opcional</translation>
+    </message>
+    <message>
+        <source>Report folder: {0}</source>
+        <translation>Carpeta de informes: {0}</translation>
+    </message>
+    <message>
+        <source>Build a playlist first. Preview shows the full destination without writing files. Crates export directly to _Serato_/Subcrates with backup before replacement. The optional report folder only changes report destinations for Serato.</source>
+        <translation>Primero cree una lista. La vista previa muestra el destino completo sin escribir archivos. Los crates se exportan directamente a _Serato_/Subcrates con una copia de seguridad antes de reemplazarlos. La carpeta opcional solo cambia el destino de los informes de Serato.</translation>
+    </message>
+    <message>
+        <source>Crates export directly to _Serato_/Subcrates with backup before replacement. The optional report folder only changes report destinations for Serato.</source>
+        <translation>Los crates se exportan directamente a _Serato_/Subcrates con una copia de seguridad antes de reemplazarlos. La carpeta opcional solo cambia el destino de los informes de Serato.</translation>
+    </message>
 </context>
 <context>
     <name>LibraryScreen</name>
+    <message>
+        <source>LUFS: {0:.1f} · LRA: not stable (under 60 s) · True peak: {1:.1f} dBTP</source>
+        <translation>LUFS: {0:.1f} · LRA: aún no estable (menos de 60 s) · Pico verdadero: {1:.1f} dBTP</translation>
+    </message>
         <message>
             <source>LUFS</source>
             <translation>LUFS</translation>
@@ -954,6 +1042,15 @@
 <context>
     <name>MainWindow</name>
     <message>
+        <location filename="../src/xfinaudio/desktop/menu.py" line="67"/>
+        <source>Version {version}</source>
+        <translation>Versión {version}</translation>
+    </message>
+    <message>
+        <source>Unknown</source>
+        <translation>Desconocida</translation>
+    </message>
+    <message>
         <location filename="../src/xfinaudio/desktop/main_window.py" line="59"/>
         <source>No recommendation is ready for review.</source>
         <translation>No hay recomendación lista para revisar.</translation>
@@ -979,6 +1076,22 @@
         <location filename="../src/xfinaudio/desktop/main_window.py" line="357"/>
         <source>Safe export folder: {0}</source>
         <translation>Carpeta de exportación segura: {0}</translation>
+    </message>
+    <message>
+        <source>Report folder: optional for Serato crates</source>
+        <translation>Carpeta de informes: opcional para los crates de Serato</translation>
+    </message>
+    <message>
+        <source>Report folder: {0} (Serato crates go directly to Serato)</source>
+        <translation>Carpeta de informes: {0} (los crates se exportan directamente a Serato)</translation>
+    </message>
+    <message>
+        <source>Readiness report folder: {0}</source>
+        <translation>Carpeta de informes de preparación: {0}</translation>
+    </message>
+    <message>
+        <source>Backup beside crate: {0}</source>
+        <translation>Copia de seguridad junto al crate: {0}</translation>
     </message>
 </context>
 <context>
@@ -1156,7 +1269,7 @@
     <message>
         <location filename="../src/xfinaudio/desktop/screens/my_playlists_screen.py" line="47"/>
         <source>Delete</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar</translation>
     </message>
     <message>
         <location filename="../src/xfinaudio/desktop/screens/my_playlists_screen.py" line="67"/>
@@ -1172,6 +1285,18 @@
         <location filename="../src/xfinaudio/desktop/screens/my_playlists_screen.py" line="116"/>
         <source>Playlist name:</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancelar</translation>
+    </message>
+    <message>
+        <source>Delete Playlist</source>
+        <translation>Eliminar playlist</translation>
+    </message>
+    <message>
+        <source>Delete "{0}" permanently? This cannot be undone. Audio files will not be deleted.</source>
+        <translation>¿Eliminar "{0}" permanentemente? Esta acción no se puede deshacer. No se eliminarán archivos de audio.</translation>
     </message>
 </context>
 <context>
@@ -1225,6 +1350,22 @@
         <location filename="../src/xfinaudio/desktop/screens/playlist_editor.py" line="94"/>
         <source>Remove</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Preview edit</source>
+        <translation>Previsualizar edición</translation>
+    </message>
+    <message>
+        <source>Apply preview to draft</source>
+        <translation>Aplicar vista previa al borrador</translation>
+    </message>
+    <message>
+        <source>Dismiss preview</source>
+        <translation>Descartar vista previa</translation>
+    </message>
+    <message>
+        <source>Discard draft</source>
+        <translation>Descartar borrador</translation>
     </message>
 </context>
 <context>
@@ -1479,6 +1620,34 @@
         <source>AI set narrator status</source>
         <translation>Estado del narrador de IA</translation>
     </message>
+    <message>
+        <source>Select a score with the arrow keys or mouse for details below. Tab moves to the details.</source>
+        <translation>Seleccione una puntuación con las flechas o el ratón para ver los detalles abajo. Tab pasa a los detalles.</translation>
+    </message>
+    <message>
+        <source>Selected transition details</source>
+        <translation>Detalles de la transición seleccionada</translation>
+    </message>
+    <message>
+        <source>No warnings for this transition</source>
+        <translation>Sin advertencias para esta transición</translation>
+    </message>
+    <message>
+        <source>No score explanation available</source>
+        <translation>No hay explicación disponible para esta puntuación</translation>
+    </message>
+    <message>
+        <source>Transition #{0}: {1} → {2}</source>
+        <translation>Transición #{0}: {1} → {2}</translation>
+    </message>
+    <message>
+        <source>Warnings: {0}</source>
+        <translation>Advertencias: {0}</translation>
+    </message>
+    <message>
+        <source>Configure AI</source>
+        <translation>Configurar IA</translation>
+    </message>
 </context>
 <context>
     <name>ReviewViewModel</name>
@@ -1599,6 +1768,18 @@
         <location filename="../src/xfinaudio/desktop/settings_dialog.py" line="137"/>
         <source>Restore all settings to their default values?</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Report folder (Serato crates go directly to Serato):</source>
+        <translation>Carpeta de informes (los crates se exportan directamente a Serato):</translation>
+    </message>
+    <message>
+        <source>Choose report folder</source>
+        <translation>Elegir carpeta de informes</translation>
+    </message>
+    <message>
+        <source>When enabled, analysis automatically writes loudness tags and replaces existing comments.</source>
+        <translation>Al activarse, el análisis escribe automáticamente etiquetas de sonoridad y reemplaza los comentarios existentes.</translation>
     </message>
 </context>
 <context>
@@ -1811,11 +1992,6 @@
         <location filename="../src/xfinaudio/desktop/menu.py" line="54"/>
         <source>Help</source>
         <translation type="unfinished">Ayuda</translation>
-    </message>
-    <message>
-        <location filename="../src/xfinaudio/desktop/menu.py" line="67"/>
-        <source>Version 1.0</source>
-        <translation type="unfinished">Versión 1.0</translation>
     </message>
     <message>
         <location filename="../src/xfinaudio/desktop/menu.py" line="70"/>
@@ -2158,6 +2334,165 @@
         <location filename="../src/xfinaudio/desktop/prep_copilot.py" line="247"/>
         <source>This variant will be used for Serato preview/export.</source>
         <translation type="unfinished">Esta variante se usará para preview/export de Serato.</translation>
+    </message>
+</context>
+<context>
+    <name>PrepGenerationTask</name>
+    <message>
+        <source>Generating Prep Copilot variants...</source>
+        <translation>Generando variantes de Prep Copilot...</translation>
+    </message>
+    <message>
+        <source>Prep generation cancelled; previous results kept</source>
+        <translation>Generación de Prep cancelada; se conservaron los resultados anteriores</translation>
+    </message>
+    <message>
+        <source>Prep generation failed; previous results kept: {0}</source>
+        <translation>Falló la generación de Prep; se conservaron los resultados anteriores: {0}</translation>
+    </message>
+</context>
+<context>
+    <name>OptionalAssistPanel</name>
+    <message>
+        <source>Allow this AI request</source>
+        <translation>Permitir esta solicitud de IA</translation>
+    </message>
+    <message>
+        <source>Ask AI</source>
+        <translation>Consultar IA</translation>
+    </message>
+    <message>
+        <source>Cancel AI</source>
+        <translation>Cancelar IA</translation>
+    </message>
+    <message>
+        <source>Configure AI</source>
+        <translation>Configurar IA</translation>
+    </message>
+</context>
+<context>
+    <name>AiSettingsPanel</name>
+    <message>
+        <source>AI Settings</source>
+        <translation>Configuración de IA</translation>
+    </message>
+    <message>
+        <source>Enable AI for actions I request</source>
+        <translation>Activar IA para las acciones que solicite</translation>
+    </message>
+    <message>
+        <source>Test connection</source>
+        <translation>Probar conexión</translation>
+    </message>
+    <message>
+        <source>Cancel test</source>
+        <translation>Cancelar prueba</translation>
+    </message>
+    <message>
+        <source>Provider:</source>
+        <translation>Proveedor:</translation>
+    </message>
+    <message>
+        <source>Choose existing env file…</source>
+        <translation>Elegir archivo env existente…</translation>
+    </message>
+    <message>
+        <source>Use default file</source>
+        <translation>Usar archivo predeterminado</translation>
+    </message>
+    <message>
+        <source>Choose existing AI env file</source>
+        <translation>Elegir archivo env de IA existente</translation>
+    </message>
+    <message>
+        <source>Credential file: {0}</source>
+        <translation>Archivo de credenciales: {0}</translation>
+    </message>
+    <message>
+        <source>Testing connection…</source>
+        <translation>Probando conexión…</translation>
+    </message>
+    <message>
+        <source>AI disabled. Offline tools remain available.</source>
+        <translation>IA desactivada. Las herramientas locales siguen disponibles.</translation>
+    </message>
+    <message>
+        <source>Configuration found, not tested. No data has been sent by this dialog.</source>
+        <translation>Configuración encontrada, sin probar. Este diálogo no ha enviado datos.</translation>
+    </message>
+    <message>
+        <source>Credential not found. Configure NAN_API_KEY outside the app or choose an existing env file.</source>
+        <translation>Credencial no encontrada. Configure NAN_API_KEY fuera de la app o elija un archivo env existente.</translation>
+    </message>
+    <message>
+        <source>Authentication rejected. Check your provider credential outside the app, then retry.</source>
+        <translation>Autenticación rechazada. Revise la credencial del proveedor fuera de la app e inténtelo de nuevo.</translation>
+    </message>
+    <message>
+        <source>Connection unavailable. Check network or provider, then retry. Offline tools still work.</source>
+        <translation>Conexión no disponible. Revise la red o el proveedor e inténtelo de nuevo. Las herramientas locales funcionan.</translation>
+    </message>
+    <message>
+        <source>Connection successful. No library content was sent.</source>
+        <translation>Conexión correcta. No se envió contenido de la biblioteca.</translation>
+    </message>
+    <message>
+        <source>Invalid configuration. Check the HTTPS endpoint and NAN_API_KEY outside the app, then retry.</source>
+        <translation>Configuración no válida. Revise el destino HTTPS y NAN_API_KEY fuera de la app e inténtelo de nuevo.</translation>
+    </message>
+    <message>
+        <source>The provider returned an invalid response. Check the endpoint, then retry.</source>
+        <translation>El proveedor devolvió una respuesta no válida. Revise el destino e inténtelo de nuevo.</translation>
+    </message>
+    <message>
+        <source>Test cancelled. An already sent request may finish; retry when it stops. No settings were saved.</source>
+        <translation>Prueba cancelada. Una solicitud ya enviada puede terminar; reintente cuando se detenga. No se guardó la configuración.</translation>
+    </message>
+    <message>
+        <source>AI actions send your request text and track/set metadata (titles, artists, genres, BPM, key, energy and transition/readiness summaries) to {0}; never audio. Known and recognizable file paths are removed. Avoid private information in free text. Opening Settings sends nothing. Offline tools remain available.</source>
+        <translation>Las acciones de IA envían su solicitud y metadatos de pistas/sets (títulos, artistas, géneros, BPM, tonalidad, energía y resúmenes de transiciones/preparación) a {0}; nunca audio. Se eliminan las rutas de archivo conocidas y reconocibles. Evite información privada en el texto libre. Abrir Configuración no envía nada. Las herramientas locales siguen disponibles.</translation>
+    </message>
+    <message>
+        <source>Configure NAN_API_KEY outside this app, in your launch environment or an operator-owned env file. Keep that file private (owner-only access). The environment key takes precedence. Never paste keys here; XfinAudio stores only the file path.</source>
+        <translation>Configure NAN_API_KEY fuera de esta app, en el entorno de inicio o en un archivo env de su propiedad. Mantenga ese archivo privado (acceso solo para el propietario). La clave del entorno tiene prioridad. Nunca pegue claves aquí; XfinAudio solo guarda la ruta del archivo.</translation>
+    </message>
+    <message>
+        <source>Test connection sends only "{0}" plus the model name and app identifier to {1}, authenticated with your key. No library content is sent. It may use provider quota. Testing does not save or enable AI for other actions.</source>
+        <translation>Probar conexión envía solo "{0}", el nombre del modelo y el identificador de la app a {1}, usando su clave para autenticarse. No se envía contenido de la biblioteca. Puede consumir cuota del proveedor. La prueba no guarda la configuración ni activa la IA para otras acciones.</translation>
+    </message>
+</context>
+<context>
+    <name>LibraryQueryPanel</name>
+    <message>
+        <source>Interpret locally</source>
+        <translation>Interpretar localmente</translation>
+    </message>
+    <message>
+        <source>Edit filters</source>
+        <translation>Editar filtros</translation>
+    </message>
+    <message>
+        <source>Apply edited filters</source>
+        <translation>Aplicar filtros editados</translation>
+    </message>
+    <message>
+        <source>Clear described filters</source>
+        <translation>Borrar filtros descritos</translation>
+    </message>
+</context>
+<context>
+    <name>CreateIntentPreview</name>
+    <message>
+        <source>Confirm and generate locally</source>
+        <translation>Confirmar y generar localmente</translation>
+    </message>
+    <message>
+        <source>Edit request</source>
+        <translation>Editar solicitud</translation>
+    </message>
+    <message>
+        <source>Review the interpreted request before generating local variants</source>
+        <translation>Revise la solicitud interpretada antes de generar variantes locales</translation>
     </message>
 </context>
 </TS>

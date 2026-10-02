@@ -9,6 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from xfinaudio.metadata.tempo import is_valid_bpm
+
 CAMELot_RE = re.compile(r"^(?:1[0-2]|[1-9])[AB]$")
 ENERGY_TEXT_RE = re.compile(r"Energy\s+([1-9]|10)\b", re.IGNORECASE)
 # Release years outside this window are tag corruption (e.g. a stray "0000"),
@@ -235,8 +237,10 @@ def _parse_bpm(tags: dict[str, tuple[str, Any]]) -> tuple[float | None, str | No
     encoded = _decode_json_tag(_first_text(tags, "beatgrid"))
     if encoded is not None and str(encoded.get("source", "")).casefold() == "mixedinkey":
         try:
-            return round(float(encoded["tempo"]), 2), "beatgrid"
-        except (KeyError, TypeError, ValueError):
+            bpm = round(float(encoded["tempo"]), 2)
+            if is_valid_bpm(bpm):
+                return bpm, "beatgrid"
+        except (KeyError, TypeError, ValueError, OverflowError):
             pass
 
     for field_name in ("bpm", "tbpm", "ibpm"):
@@ -244,7 +248,9 @@ def _parse_bpm(tags: dict[str, tuple[str, Any]]) -> tuple[float | None, str | No
         if value is None:
             continue
         try:
-            return round(float(value), 2), _source_key(tags, field_name)
+            bpm = round(float(value), 2)
+            if is_valid_bpm(bpm):
+                return bpm, _source_key(tags, field_name)
         except ValueError:
             continue
     return None, None

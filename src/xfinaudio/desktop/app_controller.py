@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QListWidget
 
+from xfinaudio.config.settings import AppSettings
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.build_view_model import BuildViewModel
 from xfinaudio.desktop.export_view_model import ExportViewModel
@@ -23,6 +24,7 @@ from xfinaudio.desktop.screens import (
     MetadataScreen,
     ReviewScreen,
 )
+from xfinaudio.desktop.state_access import AppStateAccess
 from xfinaudio.desktop.workflow_stack import WorkflowStack
 from xfinaudio.library.models import TrackRecord
 
@@ -53,13 +55,15 @@ class AppControllerViewModels:
 
 @dataclass(frozen=True)
 class AppControllerStateAccess:
-    settings: Callable[[], object]
+    settings: Callable[[], AppSettings]
     is_scanning: Callable[[], bool]
     is_recommending: Callable[[], bool]
     selected_library_paths: Callable[[], list[str]]
     records_by_path: Callable[[], dict[str, TrackRecord]]
     scanned_records: Callable[[], list[TrackRecord]]
     render_screens: Callable[[], None]
+    state: AppStateAccess | None = None
+    editor_playlist_id: Callable[[], int | None] | None = None
 
 
 class AppController:
@@ -129,13 +133,23 @@ class AppController:
 
     def refresh_state_fields(self) -> None:
         tab_index = self._workflow_tabs.currentIndex()
-        self._state.settings = self._access.settings()
-        self._state.is_scanning = self._access.is_scanning()
-        self._state.is_recommending = self._access.is_recommending()
-        self._state.current_screen = (
-            self._screen_names[tab_index] if 0 <= tab_index < len(self._screen_names) else "library"
+        current = self._access.state.current() if self._access.state is not None else self._state
+        self._state = current.model_copy(
+            update={
+                "settings": self._access.settings(),
+                "is_scanning": self._access.is_scanning(),
+                "is_recommending": self._access.is_recommending(),
+                "current_screen": self._screen_names[tab_index]
+                if 0 <= tab_index < len(self._screen_names)
+                else "library",
+                "selected_library_paths": list(self._access.selected_library_paths()),
+                "editor_playlist_id": self._access.editor_playlist_id()
+                if self._access.editor_playlist_id is not None
+                else current.editor_playlist_id,
+            }
         )
-        self._state.selected_library_paths = list(self._access.selected_library_paths())
+        if self._access.state is not None:
+            self._access.state.replace(self._state)
 
     def on_tab_changed(self, index: int) -> None:
         self._current_tab_index = index

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 
 
@@ -23,7 +24,14 @@ def bind_main_window_shortcuts(window: Any) -> dict[str, QShortcut]:
     ]
     keyboard_shortcuts: dict[str, QShortcut] = {}
     for name, sequence, slot in shortcuts:
-        shortcut = QShortcut(sequence, window)
+        scoped_widgets = {
+            "open_selected_track": window._library_screen.tracks_table,
+            "remove_selected_track": window._review_screen.recommendation_table,
+        }
+        parent = scoped_widgets.get(name, window)
+        shortcut = QShortcut(sequence, parent)
+        if name in scoped_widgets:
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         shortcut.activated.connect(slot)
         keyboard_shortcuts[name] = shortcut
     return keyboard_shortcuts

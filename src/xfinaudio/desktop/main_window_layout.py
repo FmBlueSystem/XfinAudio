@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.responsive import ResponsiveLayout
 from xfinaudio.desktop.status_bar import StatusBar
+from xfinaudio.desktop.status_message import StatusMessage
 from xfinaudio.desktop.undo_toolbar import UndoToolbar
 from xfinaudio.desktop.visual_design import apply_compact_mac_layout
 from xfinaudio.desktop.workflow_stack import WorkflowStack
@@ -40,6 +41,7 @@ def build_main_window_layout(self: Any) -> None:
         self.tr("My Playlists"),
         self.tr("Metadata Worklist"),
         self.tr("Live Assistant"),
+        self.tr("Playlist Editor"),
     ]
     self._workflow_labels = workflow_labels
     self.workflow_sidebar = QListWidget()
@@ -53,6 +55,11 @@ def build_main_window_layout(self: Any) -> None:
         item.setToolTip(label)
         self.workflow_sidebar.addItem(item)
 
+    self.workflow_sidebar.item(6).setToolTip(
+        self.tr("Apply an engine-ready set with at least two complete tracks to use local Live guidance.")
+    )
+    self.workflow_sidebar.item(7).setToolTip(self.tr("Open a saved playlist from My Playlists to edit it."))
+
     self.workflow_tabs = WorkflowStack(workflow_labels)
     self.workflow_tabs.addWidget(self._library_screen)
     self.workflow_tabs.addWidget(self._build_screen)
@@ -61,6 +68,7 @@ def build_main_window_layout(self: Any) -> None:
     self.workflow_tabs.addWidget(self._playlists_screen)
     self.workflow_tabs.addWidget(self._metadata_screen)
     self.workflow_tabs.addWidget(self._live_assistant_screen)
+    self.workflow_tabs.addWidget(self._playlist_editor)
     self._current_tab_index = self.workflow_tabs.currentIndex()
     self.workflow_tabs.currentChanged.connect(self._on_tab_changed)
     self.workflow_tabs.currentChanged.connect(self.workflow_sidebar.setCurrentRow)
@@ -114,7 +122,7 @@ def build_main_widgets(self: Any) -> None:
     self.status_bar.hide()
     self.status_bar_toggle = QPushButton(self.tr("Status"))
     self.status_bar_toggle.setCheckable(True)
-    self.status_label = QLabel(self.tr("Ready"))
+    self.status_label = StatusMessage(self.tr("Ready"))
     self.library_decision_label = QLabel(self.tr("DJ Decision Point: choose source, filters, and the track anchor."))
     self.metadata_decision_label = QLabel(
         self.tr("DJ Decision Point: complete missing metadata, then refresh the library.")

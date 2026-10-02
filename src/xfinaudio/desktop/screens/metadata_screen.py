@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QTableWidget,
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.metadata_view_model import MetadataViewModel, WorklistRow
+from xfinaudio.metadata.repair_guidance import explain_track_gaps, repair_plan_text
 
 _WORKLIST_COLUMNS = ["Title", "Artist", "BPM", "Key", "Energy", "Missing", "Status"]
 
@@ -53,6 +55,7 @@ class MetadataScreen(QWidget):
         # on every state sync for the visible tab, and rebuilding the table
         # would wipe the DJ's selection even when the rows are identical.
         self._last_worklist_signature: tuple | None = None
+        self._repair_state = AppState()
         self._build_ui()
         self._connect_signals()
 
@@ -86,13 +89,16 @@ class MetadataScreen(QWidget):
         filter_row = QHBoxLayout()
         self.status_combo = QComboBox()
         self.missing_combo = QComboBox()
-        self.export_button = QPushButton(self.tr("Export to Serato"))
-        self.export_button.setToolTip(self.tr("Export the current playlist; needs a completed recommendation"))
+        self.export_button = QPushButton(self.tr("Export worklist to Serato"))
+        self.export_button.setToolTip(
+            self.tr("Export tracks matching these metadata filters as a Serato worklist crate")
+        )
         self.export_button.setEnabled(False)
-        self.gap_export_button = QPushButton(self.tr("Export gap report"))
+        self.gap_export_button = QPushButton(self.tr("Export repair checklist"))
         self.gap_export_button.setToolTip(
             self.tr("Export the metadata gap report as JSON and CSV to the safe export folder")
         )
+        self.gap_export_button.setObjectName("primaryAction")
         self.gap_export_button.setEnabled(False)
         filter_row.addWidget(self.status_combo)
         filter_row.addWidget(self.missing_combo)
@@ -100,6 +106,18 @@ class MetadataScreen(QWidget):
         filter_row.addWidget(self.gap_export_button)
         filter_row.addStretch()
         layout.addLayout(filter_row)
+
+        self.repair_help_button = QPushButton(self.tr("Explain & prioritize repairs"))
+        self.repair_help_button.setCheckable(True)
+        self.repair_help_button.setToolTip(self.tr("Show read-only local guidance based on missing metadata"))
+        self.repair_help_button.setAccessibleName(self.tr("Explain and prioritize metadata repairs"))
+        layout.addWidget(self.repair_help_button)
+        self.repair_help = QPlainTextEdit()
+        self.repair_help.setReadOnly(True)
+        self.repair_help.setMaximumHeight(150)
+        self.repair_help.setAccessibleName(self.tr("Local metadata repair explanation"))
+        self.repair_help.hide()
+        layout.addWidget(self.repair_help)
 
         # Worklist table — expanding so it absorbs spare vertical space.
         self.worklist_table = QTableWidget(0, len(_WORKLIST_COLUMNS))
@@ -133,6 +151,10 @@ class MetadataScreen(QWidget):
         self.back_button.setToolTip(self.tr("Return to the Library screen"))
         nav.addWidget(self.back_button)
         nav.addStretch()
+        self.refresh_button = QPushButton(self.tr("Refresh library scan"))
+        self.refresh_button.setToolTip(self.tr("Rescan the selected library after correcting tags externally"))
+        self.refresh_button.setAccessibleName(self.tr("Refresh library scan"))
+        nav.addWidget(self.refresh_button)
         layout.addLayout(nav)
 
         self._setup_accessibility()
@@ -158,8 +180,12 @@ class MetadataScreen(QWidget):
         self.setTabOrder(self.export_button, self.gap_export_button)
         self.setTabOrder(self.gap_export_button, self.worklist_table)
         self.setTabOrder(self.worklist_table, self.back_button)
+        self.setTabOrder(self.back_button, self.refresh_button)
 
     def _connect_signals(self) -> None:
+        self.repair_help_button.toggled.connect(self.repair_help.setVisible)
+        self.repair_help_button.toggled.connect(lambda _: self._render_repair_help())
+        self.worklist_table.itemSelectionChanged.connect(self._render_repair_help)
         self.back_button.clicked.connect(self.back_requested)
         self.status_combo.currentTextChanged.connect(lambda _: self.filter_changed.emit())
         self.missing_combo.currentTextChanged.connect(lambda _: self.filter_changed.emit())
@@ -167,11 +193,9 @@ class MetadataScreen(QWidget):
         self.gap_export_button.clicked.connect(self.gap_report_export_requested)
 
     def connect_signals(self, window: Any) -> None:
-        self.status_combo.currentTextChanged.connect(lambda _text: window._apply_song_filter())
-        self.missing_combo.currentTextChanged.connect(lambda _text: window._apply_song_filter())
-        self.export_button.clicked.connect(lambda: window.export_metadata_status_to_serato())
         self.gap_report_export_requested.connect(lambda: window.export_metadata_gap_report())
         self.back_requested.connect(lambda: window.workflow_tabs.setCurrentIndex(0))
+        self.refresh_button.clicked.connect(lambda: window.scan_selected_folder())
         self.filter_changed.connect(window._sync_state)
         self.export_requested.connect(window._library_controller.on_metadata_export_requested)
 
@@ -189,6 +213,10 @@ class MetadataScreen(QWidget):
         if vm is None:
             vm = MetadataViewModel()
 
+        self._repair_state = state
+        self.repair_help_button.setEnabled(bool(state.scanned_records))
+        self.repair_help.setVisible(bool(state.scanned_records) and self.repair_help_button.isChecked())
+        self._render_repair_help()
         self.status_label.setText(vm.status_text(state))
         self.gap_summary_label.setText(vm.gap_summary_text(state))
         self.gap_summary_label.setVisible(bool(state.scanned_records))
@@ -207,9 +235,12 @@ class MetadataScreen(QWidget):
 
         # Populate combos once (idempotent — skip if already populated)
         if self.status_combo.count() == 0:
-            self.status_combo.addItems(vm.status_filter_options())
+            with QSignalBlocker(self.status_combo):
+                self.status_combo.addItems(vm.status_filter_options())
+                self.status_combo.setCurrentIndex(2)  # Incomplete, including translated labels
         if self.missing_combo.count() == 0:
-            self.missing_combo.addItems(vm.missing_filter_options())
+            with QSignalBlocker(self.missing_combo):
+                self.missing_combo.addItems(vm.missing_filter_options())
 
         # Read current filter selections
         status_filter = self.status_combo.currentText() or None
@@ -224,9 +255,27 @@ class MetadataScreen(QWidget):
             if signature != self._last_worklist_signature or self.worklist_table.rowCount() != len(rows):
                 self._populate_table(rows)
                 self._last_worklist_signature = signature
+                self._render_repair_help()
 
+        self.refresh_button.setEnabled(
+            state.selected_folder is not None and not state.is_scanning and not state.is_recommending
+        )
         self.export_button.setEnabled(vm.export_enabled(state))
         self.gap_export_button.setEnabled(vm.gap_report_export_enabled(state))
+
+    def _render_repair_help(self) -> None:
+        state = self._repair_state
+        if not state.scanned_records:
+            self.repair_help.clear()
+            return
+        selected = self.worklist_table.item(self.worklist_table.currentRow(), 0)
+        path = selected.data(Qt.ItemDataRole.UserRole) if selected is not None else None
+        record = next((record for record in state.scanned_records if record.path == path), None)
+        if record is not None:
+            text = f"{record.title or self.tr('Untitled')}\n{explain_track_gaps(record)}"
+        else:
+            text = repair_plan_text(state.scanned_records, locked_paths=state.locked_paths)
+        self.repair_help.setPlainText(text)
 
     def _populate_table(self, rows: list[WorklistRow]) -> None:
         """Rebuild the worklist table, restoring same-path selection when possible.

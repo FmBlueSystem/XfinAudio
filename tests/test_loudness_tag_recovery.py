@@ -15,7 +15,7 @@ from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import scan_folder
 from xfinaudio.library.track_repository import TrackRepository
 
-_PAYLOAD = "lufs=-9.8;lra=4.2;dbtp=-0.7;v=1;engine=ffmpeg-test"
+_PAYLOAD = "lufs=-9.8;lra=4.2;dbtp=-0.7;v=2;engine=ffmpeg-test"
 _M4A_LOUDNESS_KEY = "----:com.bluesystemio.xfinaudio:XFINAUDIO_LOUDNESS"
 _LOUDNESS_COMMENT = "-9.8 LUFS · 4.2 LRA · -0.7 dBTP"
 
@@ -87,8 +87,8 @@ def test_recovery_capability_map_stamps_current_identity(
 @pytest.mark.parametrize(
     "tags",
     [
-        {"XFINAUDIO_LOUDNESS": ["lufs=-9.8;lra=4.2;dbtp=-0.7;v=2;engine=ffmpeg-test"]},
-        {"XFINAUDIO_LOUDNESS": ["lufs=bad;lra=4.2;dbtp=-0.7;v=1;engine=ffmpeg-test"]},
+        {"XFINAUDIO_LOUDNESS": ["lufs=-9.8;lra=4.2;dbtp=-0.7;v=999;engine=ffmpeg-test"]},
+        {"XFINAUDIO_LOUDNESS": ["lufs=bad;lra=4.2;dbtp=-0.7;v=2;engine=ffmpeg-test"]},
         {"COMMENT": [_PAYLOAD]},
         {"REPLAYGAIN_TRACK_GAIN": ["-8.0 LUFS"]},
     ],

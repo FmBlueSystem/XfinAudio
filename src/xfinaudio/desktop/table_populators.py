@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
 from xfinaudio.audio.loudness import is_complete_measurement
+from xfinaudio.desktop.display_format import format_bpm
 from xfinaudio.desktop.library_columns import ordered_cells
 from xfinaudio.desktop.library_view_model import _fmt_lufs
 from xfinaudio.exporting.explainability import PlaylistExplanation
@@ -44,7 +45,7 @@ def populate_library_table(
         cells = {
             "Title": record.title or "",
             "Artist": record.artist or "",
-            "BPM": "" if record.bpm is None else f"{record.bpm:g}",
+            "BPM": format_bpm(record.bpm, missing=""),
             "Key": record.camelot_key or "",
             "Energy": "" if record.energy_level is None else str(record.energy_level),
             "LUFS": _fmt_lufs(record.loudness_profile),
@@ -105,7 +106,7 @@ def populate_recommendation_table(
         values = [
             record.title or "",
             record.artist or "",
-            "" if record.bpm is None else f"{record.bpm:g}",
+            format_bpm(record.bpm, missing=""),
             record.camelot_key or "",
             "" if record.energy_level is None else str(record.energy_level),
             record.genre or "",

@@ -60,3 +60,19 @@ def test_settings_dialog_emits_immutable_loudness_controls(qapp: QApplication) -
     assert captured == [AppSettings(loudness=LoudnessSettings(enabled=False, target_lufs=-14.0, tolerance_lu=1.5))]
     assert captured[0] is not original
     assert original.loudness == LoudnessSettings()
+
+
+def test_loudness_setting_visibly_discloses_automatic_comment_replacement(qapp):
+    from PySide6.QtWidgets import QLabel
+
+    dialog = SettingsDialog(AppSettings())
+    disclosure = dialog.findChild(QLabel, "loudness_write_disclosure")
+    assert disclosure is not None
+    dialog.show()
+    qapp.processEvents()
+    assert disclosure.isVisible()
+    text = disclosure.text().lower()
+    assert "automatically" in text and "tags" in text
+    assert "replaces existing comments" in text
+    assert dialog._loudness_enabled_checkbox.isChecked()
+    dialog.close()

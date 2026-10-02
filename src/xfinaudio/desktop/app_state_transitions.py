@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -21,6 +21,7 @@ from xfinaudio.recommendation.playlist_service import (
     recommendation_without_paths,
 )
 from xfinaudio.recommendation.prep_copilot import PrepCopilotPlan
+from xfinaudio.recommendation.scoring import TransitionScoringConfig, score_transition
 
 
 class CompletedRecommendationResult(Protocol):
@@ -40,6 +41,39 @@ class PrepCopilotVariantApplication:
     quality_report: RecommendationQualityReport
     readiness_report: DjReadinessReport
     variant_name: str
+
+
+def apply_profile_batch(
+    state: AppState,
+    profiles: Mapping[str, dict[str, object]],
+    *,
+    state_updates: dict[str, object] | None = None,
+) -> AppState:
+    """Publish one immutable snapshot in O(library size + batch size).
+
+    The keyed view owns updated records; the list retains its existing order.
+    Both views share a single replacement for each canonical record. Progress
+    without profile results leaves the library collections untouched.
+    """
+    updates = dict(state_updates or {})
+    if profiles:
+        by_path = dict(state.records_by_path)
+        for path, fields in profiles.items():
+            if path in by_path:
+                by_path[path] = by_path[path].model_copy(update=fields)
+        records = []
+        for record in state.scanned_records:
+            fields = profiles.get(record.path)
+            if fields is None:
+                records.append(record)
+            elif state.records_by_path.get(record.path) is record:
+                records.append(by_path[record.path])
+            else:
+                # Preserve compatibility with a list-only/independently loaded
+                # view without overwriting its unrelated metadata.
+                records.append(record.model_copy(update=fields))
+        updates.update(scanned_records=records, records_by_path=by_path)
+    return state.model_copy(update=updates)
 
 
 def apply_spectral_profile(state: AppState, *, path: str, profile: SpectralProfile) -> AppState:
@@ -394,8 +428,30 @@ def apply_export_track_removal(state: AppState, path: str, *, spectral_cohesion:
 
 
 def apply_saved_playlist_export_recommendation(state: AppState, recommendation: PlaylistRecommendation) -> AppState:
-    """Return a new state with a saved-playlist export recommendation applied."""
-    return state.model_copy(update={"last_recommendation": recommendation, "ai_narrative_text": None})
+    """Bind exact saved contents to fresh facts, independent of the previous set."""
+    config = TransitionScoringConfig(
+        weights=recommendation.strategy.weights,
+        spectral_cohesion=state.settings.scoring.spectral_cohesion,
+    )
+    tracks = recommendation.ordered_tracks
+    scores = [score_transition(left, right, config=config) for left, right in zip(tracks, tracks[1:], strict=False)]
+    current = recommendation.model_copy(
+        update={"transition_scores": scores, "total_score": sum(score.total_score for score in scores)}
+    )
+    quality = build_quality_report(current)
+    return state.model_copy(
+        update={
+            "last_recommendation": current,
+            "last_playlist_explanation": build_playlist_explanation(current),
+            "last_quality_report": quality,
+            "last_dj_readiness_report": build_dj_readiness_report(current, quality),
+            "playlist_removed_paths": frozenset(),
+            "last_prep_copilot_plan": None,
+            "applied_variant_name": None,
+            "ai_narrative_text": None,
+            "is_narrating": False,
+        }
+    )
 
 
 __all__ = [

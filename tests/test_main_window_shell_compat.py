@@ -166,6 +166,12 @@ def test_shell_compat_exposes_legacy_state_write_boundary() -> None:
 
 def test_shell_compat_handles_legacy_state_write_and_service_mirrors() -> None:
     class State:
+        def model_copy(self, *, update):
+            copied = State()
+            copied.__dict__.update(self.__dict__)
+            copied.__dict__.update(update)
+            return copied
+
         workflow_service: object | None = None
         current_scan_cancellation_token: object | None = None
         records_by_path: object | None = None
@@ -234,7 +240,7 @@ def test_shell_compat_handles_legacy_state_read_aliases_and_scan_token_sync() ->
     assert shell_compat.try_get_legacy_app_state_attribute(target, "_records_by_path") is records_by_path
     assert shell_compat.try_get_legacy_app_state_attribute(target, "applied_prep_copilot_variant_name") == variant_name
     assert shell_compat.try_get_legacy_app_state_attribute(target, "current_scan_cancellation_token") is token
-    assert target._state.current_scan_cancellation_token is token
+    assert target._state.current_scan_cancellation_token is None
 
 
 def test_shell_compat_handles_delegated_reads_and_missing_private_attributes() -> None:

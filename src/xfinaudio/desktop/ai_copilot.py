@@ -1,12 +1,7 @@
-"""AI copilot controller: a natural-language set request -> Prep Copilot variants.
+"""Interpret, visibly confirm, then generate Create variants with the local engine.
 
-The LLM only fills the intent: ``extract_intent`` normalizes the request into a
-validated :class:`DJSetIntent`, and the deterministic engine
-(``build_prep_copilot_plan``) still owns track selection and ordering. The request
-never reads the DJ's strategy/target-count combos -- the intent carries what the DJ
-asked for, and the resulting plan is stored through the same
-``apply_prep_copilot_plan_generated`` transition the Prep Copilot button uses, so
-the existing variants table displays it.
+Provider suggestions never select/order tracks or mutate current recommendations.
+The controller snapshots inputs on the UI thread and invalidates stale completions.
 """
 
 from __future__ import annotations
@@ -18,7 +13,8 @@ from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from xfinaudio.ai import NanConfigError, extract_intent
 from xfinaudio.config.settings import AppSettings
-from xfinaudio.desktop._workers import BackgroundWorker
+from xfinaudio.desktop._workers import BackgroundWorker, WorkerRegistry
+from xfinaudio.desktop.ai_create_constraints import confirmed_intent
 from xfinaudio.desktop.app_state import AppState
 from xfinaudio.desktop.app_state_transitions import (
     apply_ai_copilot_request_finished,
@@ -31,6 +27,7 @@ from xfinaudio.desktop.candidate_routes import (
     resolve_candidate_route,
 )
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.loudness_policy import LoudnessBand
 from xfinaudio.recommendation.prep_copilot import DJSetIntent, PrepCopilotPlan, build_prep_copilot_plan
 
@@ -43,7 +40,14 @@ AI_COPILOT_TIMEOUT_SECONDS = 60.0
 class IntentExtractor(Protocol):
     """Seam that turns a DJ request plus the library into a validated intent."""
 
-    def __call__(self, user_request: str, tracks: list[TrackRecord], *, timeout: float) -> DJSetIntent: ...
+    def __call__(
+        self,
+        user_request: str,
+        tracks: list[TrackRecord],
+        *,
+        timeout: float,
+        include_track_titles: bool = False,
+    ) -> DJSetIntent: ...
 
 
 class PlanGenerationBuilder(Protocol):
@@ -81,9 +85,12 @@ class AiCopilotController(QObject):
         desktop_color_anchor_candidate_context: ColorAnchorContextRoute,
         intent_extractor: IntentExtractor = extract_intent,
         plan_generation_builder: PlanGenerationBuilder = build_prep_copilot_plan,
+        candidate_routes_factory: Callable[[], tuple[RecommendationRecordsRoute, ColorAnchorContextRoute]]
+        | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
+        self._worker_registry = WorkerRegistry(self)
         self._build_screen = build_screen
         self._build_vm = build_vm
         # ``state`` is the window, like PrepCopilotController: the AppState lives on
@@ -98,6 +105,15 @@ class AiCopilotController(QObject):
         self._desktop_color_anchor_candidate_context = desktop_color_anchor_candidate_context
         self._intent_extractor = intent_extractor
         self._plan_generation_builder = plan_generation_builder
+        self._candidate_routes_factory = candidate_routes_factory
+        self._pending_intent: DJSetIntent | None = None
+        self._request_context: tuple[Any, ...] | None = None
+        self._stage = "interpret"
+        if hasattr(build_screen, "copilot_confirm_requested"):
+            build_screen.copilot_confirm_requested.connect(self.confirm)
+            build_screen.copilot_cancel_requested.connect(self.cancel)
+            build_screen.copilot_edit_requested.connect(self.edit)
+            build_screen.copilot_ask_input.textEdited.connect(self.edit)
         self._copilot_thread: QThread | None = None
         self._copilot_worker: BackgroundWorker | None = None
         self._current_request_id: int = 0
@@ -142,52 +158,121 @@ class AiCopilotController(QObject):
         if not library:
             self._set_status(self._tr("Scan your library before asking the AI copilot."))
             return
-        controls = self._state._selected_track_controls()
-        loudness = getattr(self._state, "settings", AppSettings()).loudness
-        loudness_band = LoudnessBand(loudness.target_lufs, loudness.tolerance_lu)
+        self._clear_preview()
+        self._request_context = self._context()
+        self._stage = "interpret"
         self._current_request_id += 1
         request_id = self._current_request_id
+        share = getattr(self._build_screen, "copilot_share_titles", None)
+        include_titles = share is not None and share.isChecked()
+        if share is not None:
+            share.setChecked(False)
         self._begin_asking_state(text)
-        self._start_worker(lambda: self._generate_plan(text, library, controls, loudness_band), request_id)
+        extractor = self._intent_extractor
+
+        def operation() -> DJSetIntent:
+            if include_titles:
+                return extractor(text, library, timeout=AI_COPILOT_TIMEOUT_SECONDS, include_track_titles=True)
+            return extractor(text, library, timeout=AI_COPILOT_TIMEOUT_SECONDS)
+
+        self._start_worker(operation, request_id)
+
+    def _context(self) -> tuple[Any, ...]:
+        loudness = getattr(self._state, "settings", AppSettings()).loudness
+        return (
+            list(self._app_state().scanned_records),
+            self._state._selected_track_controls(),
+            LoudnessBand(loudness.target_lufs, loudness.tolerance_lu),
+            self._build_screen.copilot_ask_input.text() if hasattr(self._build_screen, "copilot_ask_input") else None,
+        )
+
+    def _clear_preview(self) -> None:
+        self._pending_intent = None
+        if hasattr(self._build_screen, "intent_preview"):
+            self._build_screen.intent_preview.clear()
+
+    def _set_cancel_enabled(self, enabled: bool) -> None:
+        if hasattr(self._build_screen, "copilot_cancel_button"):
+            self._build_screen.copilot_cancel_button.setEnabled(enabled)
+
+    def edit(self, *_args: object) -> None:
+        self.cancel()
+        if hasattr(self._build_screen, "copilot_ask_input"):
+            self._build_screen.copilot_ask_input.setFocus()
+        self._set_status(self._tr("Edit the request, then ask again to review its interpretation."))
+
+    @Slot(object)
+    def confirm(self, intent: object = None) -> None:
+        if self._pending_intent is None or self._app_state().is_asking_copilot:
+            return
+        if self._request_context != self._context():
+            self.cancel()
+            self._set_status(self._tr("Library or constraints changed. Ask again before generating."))
+            return
+        if self._app_state().is_preparing_copilot or self._app_state().is_recommending or self._app_state().is_scanning:
+            self._set_status(self._tr("Wait for the current scan or generation to finish, then confirm."))
+            return
+        assert self._request_context is not None
+        library, controls, band = self._request_context[:3]
+        try:
+            chosen = confirmed_intent(
+                intent if isinstance(intent, DJSetIntent) else self._pending_intent, controls, library
+            )
+        except ValueError as error:
+            self._set_status(self._failure_message(error))
+            return
+        routes = (
+            self._candidate_routes_factory()
+            if self._candidate_routes_factory is not None
+            else (self._desktop_recommendation_records, self._desktop_color_anchor_candidate_context)
+        )
+        controls = DJControls(
+            start_path=chosen.start_path,
+            end_path=chosen.end_path,
+            locked_paths=frozenset(chosen.required_paths),
+            excluded_paths=frozenset(chosen.excluded_paths),
+            manual_order_paths=list(controls.manual_order_paths) if controls else [],
+            genre=chosen.genre_focus,
+        )
+        self._clear_preview()
+        self._stage = "plan"
+        self._current_request_id += 1
+        self._begin_asking_state(self._app_state().ai_copilot_request or "")
+        self._set_status(self._tr("Generating confirmed variants locally..."))
+        self._start_worker(lambda: self._generate_plan(chosen, controls, band, routes), self._current_request_id)
 
     def _begin_asking_state(self, request: str) -> None:
         """Mark the request in flight so render() disables the ask controls."""
+        self._set_cancel_enabled(True)
+        self._build_screen.copilot_is_planning = self._stage == "plan"
         self._replace_state(apply_ai_copilot_request_started(self._app_state(), request))
         self._build_screen.render(self._build_vm, self._app_state())
         self._on_state_changed()
 
     def _end_asking_state(self) -> None:
         """Clear the in-flight flag so render() re-enables the ask controls."""
+        self._set_cancel_enabled(False)
         self._replace_state(apply_ai_copilot_request_finished(self._app_state()))
         self._build_screen.render(self._build_vm, self._app_state())
         self._on_state_changed()
 
     def _generate_plan(
         self,
-        request: str,
-        library: list[TrackRecord],
+        intent: DJSetIntent,
         controls: Any,
         loudness_band: LoudnessBand,
+        routes: tuple[RecommendationRecordsRoute, ColorAnchorContextRoute],
     ) -> PrepCopilotPlan:
-        """Worker-thread body: extract the intent, then plan the variants.
-
-        Everything that blocks or burns CPU happens here, off the UI thread: the
-        request itself is a network call, and the candidate pool is planned from the
-        scanned library before the engine places a single track.
-        """
-        intent = self._intent_extractor(request, library, timeout=AI_COPILOT_TIMEOUT_SECONDS)
+        """Plan only after explicit confirmation, using UI-thread snapshots."""
         records, color_anchor_path = resolve_candidate_route(
             controls,
             intent.strategy,
-            records_route=self._desktop_recommendation_records,
-            color_anchor_context_route=self._desktop_color_anchor_candidate_context,
+            records_route=routes[0],
+            color_anchor_context_route=routes[1],
             loudness_band=loudness_band,
         )
         return self._plan_generation_builder(
-            records,
-            intent,
-            color_anchor_path=color_anchor_path,
-            loudness_band=loudness_band,
+            records, intent, color_anchor_path=color_anchor_path, loudness_band=loudness_band
         )
 
     # ------------------------------------------------------------------
@@ -196,13 +281,19 @@ class AiCopilotController(QObject):
 
     def cancel(self) -> None:
         """Request interruption of an in-flight request (window close path)."""
+        self._current_request_id += 1
+        self._clear_preview()
+        self._set_cancel_enabled(False)
+        if self._app_state().is_asking_copilot:
+            self._end_asking_state()
+        self._set_status(self._tr("AI request canceled. Previous results are unchanged."))
         if self._copilot_thread is not None and self._copilot_thread.isRunning():
             self._copilot_thread.requestInterruption()
-            self._copilot_thread.wait(500)
 
-    def _start_worker(self, operation: Callable[[], PrepCopilotPlan], request_id: int) -> None:
+    def _start_worker(self, operation: Callable[[], object], request_id: int) -> None:
         thread = QThread(self)
         worker = BackgroundWorker(operation, request_id=request_id)
+        self._worker_registry.retain(thread, worker)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(lambda result, rid=request_id: self._on_worker_finished(result, rid))
@@ -219,12 +310,12 @@ class AiCopilotController(QObject):
     def _on_worker_finished(self, result: object, request_id: int | None = None) -> None:
         if request_id is not None and request_id != self._current_request_id:
             return
-        self.copilot_completed.emit(result)
+        self.copilot_completed.emit((self._current_request_id if request_id is None else request_id, result))
 
     def _on_worker_failed(self, error: object, request_id: int | None = None) -> None:
         if request_id is not None and request_id != self._current_request_id:
             return
-        self.copilot_failed.emit(error)
+        self.copilot_failed.emit((self._current_request_id if request_id is None else request_id, error))
 
     def _on_worker_cleared(self) -> None:
         sender_thread = self.sender()
@@ -240,7 +331,38 @@ class AiCopilotController(QObject):
     @Slot(object)
     def on_completed(self, result: object) -> None:
         """Store the generated plan and render the variants table."""
-        plan = cast(PrepCopilotPlan, result)
+        request_id, payload = cast(tuple[int, object], result)
+        if request_id != self._current_request_id:
+            return
+        if self._request_context != self._context():
+            self.cancel()
+            self._set_status(self._tr("Library or constraints changed. Ask again before generating."))
+            return
+        if self._stage == "interpret":
+            assert self._request_context is not None
+            library, controls, band = self._request_context[:3]
+            try:
+                self._pending_intent = confirmed_intent(cast(DJSetIntent, payload), controls, library)
+            except ValueError as error:
+                self.on_failed((request_id, error))
+                return
+            self._end_asking_state()
+            self._set_cancel_enabled(True)
+            if hasattr(self._build_screen, "intent_preview"):
+                labels = {track.path: track.title or "Untitled track" for track in library}
+                chosen = self._pending_intent
+                summary = self._tr("{0} locked · {1} excluded · loudness {2:g} ± {3:g} LU").format(
+                    len(chosen.required_paths), len(chosen.excluded_paths), band.target_lufs, band.tolerance_lu
+                )
+                for label, path in (("Start", chosen.start_path), ("End", chosen.end_path)):
+                    if path:
+                        summary += f" · {label}: {labels.get(path, 'Unknown track')}"
+                self._build_screen.intent_preview.show_intent(chosen, summary)
+                self._build_screen.controls_scroll.ensureWidgetVisible(self._build_screen.intent_preview)
+            self._set_status(self._tr("Review the interpretation, then confirm to generate locally."))
+            return
+        plan = cast(PrepCopilotPlan, payload)
+        self._set_cancel_enabled(False)
         updated_state = apply_prep_copilot_plan_generated(self._app_state(), plan)
         updated_state = apply_ai_copilot_request_finished(updated_state)
         self._replace_state(updated_state)
@@ -254,18 +376,18 @@ class AiCopilotController(QObject):
     @Slot(object)
     def on_failed(self, error: object) -> None:
         """Report a failed request on the panel's status line -- never a modal."""
+        request_id, payload = cast(tuple[int, object], error)
+        if request_id != self._current_request_id:
+            return
         self._end_asking_state()
-        self._set_status(self._failure_message(error))
+        self._set_status(self._failure_message(payload))
 
     def _failure_message(self, error: object) -> str:
         if isinstance(error, NanConfigError):
-            # The adapter reads its switches from the environment at process start, so
-            # a setting toggled on mid-session only applies after a restart: say so
-            # instead of sending the DJ back to the same dead end.
             return self._tr(
-                "AI copilot is not configured: {0} Enable AI in Settings and restart XfinAudio, "
-                "then check that the API key file exists."
-            ).format(error)
+                "AI copilot is not configured. Choose Configure AI to enable it in Settings "
+                "and check the API key file, then retry."
+            )
         if isinstance(error, ValueError):
             return self._tr("AI copilot could not understand the request: {0}").format(error)
         return self._tr("AI copilot failed: {0}").format(error)

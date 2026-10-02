@@ -28,12 +28,12 @@ def _source_archive(path: Path) -> None:
         archive.add(source_root, arcname="ffmpeg-7.1.1")
 
 
-def test_source_manifest_pins_the_official_archive_checksum_and_signature() -> None:
+def test_source_manifest_pins_the_official_archive_checksum() -> None:
     manifest = ffmpeg_build.FFMPEG_SOURCE
 
     assert manifest.archive_url == "https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz"
     assert manifest.archive_sha256 == "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1"
-    assert manifest.signature_url == "https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz.asc"
+    assert not hasattr(manifest, "signature_url")
 
 
 def test_safe_extract_rejects_linked_archive_members(tmp_path: Path) -> None:
@@ -81,16 +81,14 @@ def test_builds_universal_binary_and_validates_ebur128_capability(tmp_path: Path
     manifest = ffmpeg_build.FfmpegSourceManifest(
         archive_url="https://fixture.invalid/ffmpeg.tar.xz",
         archive_sha256=checksum,
-        signature_url="https://fixture.invalid/ffmpeg.tar.xz.asc",
         source_directory="ffmpeg-7.1.1",
     )
     commands: list[tuple[str, ...]] = []
+    downloads: list[str] = []
 
     def download(url: str, destination: Path) -> None:
-        if url.endswith(".asc"):
-            destination.write_text("signature", encoding="utf-8")
-        else:
-            destination.write_bytes(archive_path.read_bytes())
+        downloads.append(url)
+        destination.write_bytes(archive_path.read_bytes())
 
     def run(command: tuple[str, ...], cwd: Path) -> subprocess.CompletedProcess[str]:
         commands.append(command)
@@ -113,6 +111,7 @@ def test_builds_universal_binary_and_validates_ebur128_capability(tmp_path: Path
 
     output = ffmpeg_build.build_universal_ffmpeg(tmp_path / "work", tmp_path / "ffmpeg", manifest, download, run)
 
+    assert downloads == [manifest.archive_url], "Only the hash-verified source archive should be fetched"
     assert output.is_file()
     assert output.stat().st_mode & 0o111
     assert {command[0] for command in commands} >= {"./configure", "make", "lipo"}
@@ -134,7 +133,6 @@ def test_failed_staging_validation_preserves_existing_output(tmp_path: Path) -> 
     manifest = ffmpeg_build.FfmpegSourceManifest(
         "https://fixture.invalid/ffmpeg.tar.xz",
         hashlib.sha256(archive_path.read_bytes()).hexdigest(),
-        "https://fixture.invalid/ffmpeg.tar.xz.asc",
         "ffmpeg-7.1.1",
     )
     output = tmp_path / "ffmpeg"

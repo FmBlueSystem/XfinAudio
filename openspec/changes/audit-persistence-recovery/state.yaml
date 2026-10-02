@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: audit-persistence-recovery
+artifact_store: openspec
+status: complete
+created: 2026-09-30
+updated: 2026-09-30
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: native-validation-before-release
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Local commits only; publication requires further authorization.
+  - Latest user scope is Serato and shared core only.

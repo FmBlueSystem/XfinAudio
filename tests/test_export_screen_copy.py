@@ -7,11 +7,12 @@ from PySide6.QtWidgets import QApplication
 from xfinaudio.desktop.screens.export_screen import ExportScreen
 
 
-def test_export_screen_guidance_label_warns_about_live_serato_writes(qapp: QApplication) -> None:
-    """The default export guidance label warns that live Serato writes are not part of the RC."""
+def test_export_screen_guidance_label_explains_direct_serato_safety(qapp: QApplication) -> None:
+    """Direct crate export identifies its destination and backup/audio-copy boundaries."""
     screen = ExportScreen()
     text = screen.export_guidance_label.text()
 
-    assert "live serato" in text.lower()
-    assert "not part of the verified release candidate" in text
-    assert "back up" in text.lower()
+    assert "preview the destination" in text.lower()
+    assert "export directly to Serato" in text
+    assert "Existing crates are backed up before replacement" in text
+    assert "audio files are not copied" in text

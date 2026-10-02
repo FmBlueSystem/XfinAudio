@@ -47,3 +47,6 @@
 - The change must not break existing recommendation/scoring/playlist_service tests.
 - Each requirement above ships with a RED-first regression test (strict TDD).
 - The change must stay within the 400-line review budget.
+
+### Directional diagonal correction (2026-09-30)
+The generic cross-ring diagonal follows Mixed In Key's advanced harmonic guide: B→A adds one wheel number, A→B subtracts one (with wraparound). The opposite diagonal has no generic compatibility bonus; an explicit custom boost still applies. Source: https://mixedinkey.com/book/use-advanced-harmonic-mixing-techniques/ . Numeric weights remain heuristic, not measured probabilities. Semitone lifts and whole-step lifts are described distinctly.

@@ -969,12 +969,13 @@ def _two_opt(
     improved = True
     while improved:
         improved = False
+        incumbent_score = _path_score(best, score_matrix, arc)
         start = 1 if start_fixed else 0
         stop = len(best) - 1 if end_fixed else len(best)
         for left in range(start, stop - 1):
             for right in range(left + 1, stop):
                 candidate = (*best[:left], *reversed(best[left : right + 1]), *best[right + 1 :])
-                if _path_is_better(candidate, best, score_matrix, tracks, arc):
+                if _path_is_better(candidate, best, score_matrix, tracks, arc, incumbent_score=incumbent_score):
                     best = candidate
                     improved = True
                     break
@@ -996,9 +997,11 @@ def _path_is_better(
     score_matrix: list[list[float]],
     tracks: list[TrackRecord],
     arc: list[list[float]] | None = None,
+    *,
+    incumbent_score: float | None = None,
 ) -> bool:
     candidate_score = _path_score(candidate, score_matrix, arc)
-    current_score = _path_score(current, score_matrix, arc)
+    current_score = _path_score(current, score_matrix, arc) if incumbent_score is None else incumbent_score
     if candidate_score > current_score:
         return True
     return candidate_score == current_score and _path_key(candidate, tracks) < _path_key(current, tracks)

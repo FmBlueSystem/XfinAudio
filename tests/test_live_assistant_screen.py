@@ -67,8 +67,10 @@ def test_set_current_track_updates_now_playing(qapp: QApplication, track_a: Trac
 
 def test_set_candidates_populates_suggestions(qapp: QApplication, track_a: TrackRecord, track_b: TrackRecord) -> None:
     screen = LiveAssistantScreen()
-    screen.set_current_track(track_a)
-    screen.set_candidates([track_b])
+    from tests.test_ai_narrator_controller import _readiness, _recommendation
+
+    tracks = [track.model_copy(update={"genre": "House"}) for track in (track_a, track_b)]
+    assert screen.set_session(_recommendation(tracks), _readiness())
 
     assert screen._suggestion_rows[0]._title_label.text() == "Track B"
 
@@ -88,8 +90,10 @@ def test_load_next_emits_signal(qapp: QApplication, track_a: TrackRecord, track_
     received: list[str] = []
     screen.load_next_requested.connect(lambda path: received.append(path))
 
-    screen.set_current_track(track_a)
-    screen.set_candidates([track_b])
+    from tests.test_ai_narrator_controller import _readiness, _recommendation
+
+    tracks = [track.model_copy(update={"genre": "House"}) for track in (track_a, track_b)]
+    assert screen.set_session(_recommendation(tracks), _readiness())
     screen._suggestion_rows[0]._load_button.click()
 
     assert received == [track_b.path]
@@ -100,8 +104,10 @@ def test_preview_requested_emits_signal(qapp: QApplication, track_a: TrackRecord
     received: list[str] = []
     screen.preview_requested.connect(lambda path: received.append(path))
 
-    screen.set_current_track(track_a)
-    screen.set_candidates([track_b])
+    from tests.test_ai_narrator_controller import _readiness, _recommendation
+
+    tracks = [track.model_copy(update={"genre": "House"}) for track in (track_a, track_b)]
+    assert screen.set_session(_recommendation(tracks), _readiness())
     screen._suggestion_rows[0]._preview_button.click()
 
     assert received == [track_b.path]
@@ -119,8 +125,10 @@ def test_exit_requested_emits_signal(qapp: QApplication) -> None:
 
 def test_history_appends_on_load_next(qapp: QApplication, track_a: TrackRecord, track_b: TrackRecord) -> None:
     screen = LiveAssistantScreen()
-    screen.set_current_track(track_a)
-    screen.set_candidates([track_b])
+    from tests.test_ai_narrator_controller import _readiness, _recommendation
+
+    tracks = [track.model_copy(update={"genre": "House"}) for track in (track_a, track_b)]
+    assert screen.set_session(_recommendation(tracks), _readiness())
     screen._suggestion_rows[0]._load_button.click()
 
     assert screen._history_table.rowCount() == 1
@@ -257,7 +265,7 @@ def test_energy_alert_falls_back_to_scalar_without_boundaries(qapp: QApplication
 def test_diagonal_key_does_not_trigger_key_clash_alert(qapp: QApplication, track_a: TrackRecord) -> None:
     screen = LiveAssistantScreen()
     current = track_a.model_copy(update={"camelot_key": "7A"})
-    candidate = track_a.model_copy(update={"path": "/diagonal.flac", "camelot_key": "8B"})
+    candidate = track_a.model_copy(update={"path": "/diagonal.flac", "camelot_key": "6B"})
     screen.set_current_track(current)
 
     alerts = screen._generate_alerts(candidate)
@@ -274,3 +282,55 @@ def test_incompatible_key_still_triggers_key_clash_alert(qapp: QApplication, tra
     alerts = screen._generate_alerts(candidate)
 
     assert "Key clash" in alerts
+
+
+def test_live_session_click_uses_real_rank_and_cannot_repeat(qapp: QApplication) -> None:
+    from PySide6.QtTest import QTest
+
+    from tests.test_ai_narrator_controller import _readiness
+    from tests.test_live_assistance import _set
+
+    screen = LiveAssistantScreen()
+    screen.show()
+    recommendation = _set()
+    assert screen.set_session(recommendation, _readiness())
+    expected = screen._ranked_candidates[0]
+    row = screen._suggestion_rows[0]
+    assert row._track_path == expected.track.path == "/c"
+    assert row._score_label.text() == f"{expected.score.total_score:.2f}"
+    QTest.mouseClick(row._load_button, Qt.MouseButton.LeftButton)
+    assert screen._current_track.path == "/c"
+    assert screen._history_table.rowCount() == 1
+    screen.load_next("/c")
+    screen.load_next("/outside")
+    assert screen._history_table.rowCount() == 1
+    assert screen._current_track.path == "/c"
+
+
+def test_live_session_sync_preserves_history_but_new_context_clears(qapp: QApplication) -> None:
+    from tests.test_ai_narrator_controller import _readiness
+    from tests.test_live_assistance import _set
+
+    screen = LiveAssistantScreen()
+    recommendation, readiness = _set(), _readiness()
+    screen.set_session(recommendation, readiness)
+    screen.load_next("/c")
+    screen.set_session(recommendation, readiness)
+    assert screen._current_track.path == "/c"
+    assert screen._history_table.rowCount() == 1
+    assert not screen.set_session(recommendation, readiness, excluded_paths=frozenset({"/c"}))
+    assert screen._current_track is None
+    assert screen._history_table.rowCount() == 0
+    assert not screen._elapsed_timer.isActive()
+    assert all(row._track_path == "" for row in screen._suggestion_rows)
+    screen.load_next("/b")
+    assert screen._current_track is None
+
+
+def test_raw_library_candidates_do_not_open_an_unvalidated_session(qapp: QApplication, track_a, track_b) -> None:
+    screen = LiveAssistantScreen()
+    screen.set_library_state({track_a.path: track_a, track_b.path: track_b}, [track_a, track_b])
+    screen.set_candidates([track_b])
+    screen.load_next(track_b.path)
+    assert screen._current_track is None
+    assert all(not row._load_button.isEnabled() for row in screen._suggestion_rows)

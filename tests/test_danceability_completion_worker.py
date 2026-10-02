@@ -149,6 +149,7 @@ def test_worker_shutdown_releases_runner_and_is_idempotent(tmp_path: Path) -> No
 
     worker.shutdown()
     worker.shutdown()
+    _wait_for_worker(worker)
 
     assert worker._runner is None
     assert not worker.is_running()

@@ -100,8 +100,8 @@ class ExportViewModel:
         """Display label for the configured safe export folder."""
         folder = state.settings.export.safe_export_folder
         if folder is None:
-            return QCoreApplication.translate("ExportViewModel", "No safe folder set")
-        return folder.name
+            return QCoreApplication.translate("ExportViewModel", "Report folder: optional")
+        return QCoreApplication.translate("ExportViewModel", "Report folder: {0}").format(folder)
 
     def track_count_text(self, state: AppState) -> str:
         """Track count display text. Returns '—' when no recommendation exists."""
@@ -116,11 +116,9 @@ class ExportViewModel:
             return ""
         return QCoreApplication.translate(
             "ExportViewModel",
-            "Build a playlist first to see export options. "
-            "Live Serato writes are not part of the verified release candidate; "
-            "back up your library before copying any crate to a live _Serato_ folder. "
-            "Preview shows crate contents without writing files. "
-            "Exports are written to the configured safe export folder, not directly to a live Serato library.",
+            "Build a playlist first. Preview shows the full destination without writing files. "
+            "Crates export directly to _Serato_/Subcrates with backup before replacement. "
+            "The optional report folder only changes report destinations for Serato.",
         )
 
     def preview_explanation_text(self) -> str:
@@ -134,6 +132,6 @@ class ExportViewModel:
         """Explain the destination format."""
         return QCoreApplication.translate(
             "ExportViewModel",
-            "Exports are written to the configured safe export folder; "
-            "copy files to a live _Serato_/Subcrates folder only after backup and manual verification.",
+            "Crates export directly to _Serato_/Subcrates with backup before replacement. "
+            "The optional report folder only changes report destinations for Serato.",
         )

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 from xfinaudio.application.prep_copilot import build_prep_copilot_variant_application
@@ -50,6 +51,7 @@ def test_application_prep_copilot_generation_builds_intent_and_delegates() -> No
         *,
         color_anchor_path: str | None = None,
         loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+        checkpoint: Callable[[str], None] | None = None,
     ) -> Any:
         assert color_anchor_path is None
         calls.append((tracks, intent, loudness_band))
@@ -85,7 +87,14 @@ def test_application_generation_forwards_the_pool_note_preamble_to_the_intent() 
 
     captured_intents: list[Any] = []
 
-    def fake_plan_builder(tracks: Any, intent: Any, *, color_anchor_path: Any = None, loudness_band: Any = None) -> Any:
+    def fake_plan_builder(
+        tracks: Any,
+        intent: Any,
+        *,
+        color_anchor_path: Any = None,
+        loudness_band: Any = None,
+        checkpoint: Callable[[str], None] | None = None,
+    ) -> Any:
         captured_intents.append(intent)
         return object()
 

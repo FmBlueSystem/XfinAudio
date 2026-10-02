@@ -1,0 +1,2 @@
+# Reject invalid tempo metadata
+Prevent NaN, infinities, zero and negative tempos from becoming complete metadata or trusted transitions. Scope: tag parsing, defensive scoring and readiness of previously persisted malformed rows. No data migration, DSP, audio writes or Serato writes. Risk: formerly accepted corrupt tags now require repair; retain candidate fallback and valid finite-positive tempos without a maximum. Rollback: revert this isolated commit. Success: synthetic regressions pass and integrated release gate passes. One slice below 400 changed lines.

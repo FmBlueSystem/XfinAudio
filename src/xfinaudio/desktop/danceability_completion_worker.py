@@ -15,10 +15,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 
 from xfinaudio.audio.analyzer import DanceabilityAnalyzer, LibrosaDanceabilityAnalyzer
 from xfinaudio.audio.danceability import CURRENT_DANCEABILITY_VERSION, DanceabilityProfile
+from xfinaudio.desktop._workers import WorkerRegistry
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.scan_service import ScanCancellationToken
 
@@ -150,6 +151,7 @@ class DanceabilityCompletionWorker(QObject):
         danceability_analyzer: DanceabilityAnalyzer | None = None,
     ) -> None:
         super().__init__(parent)
+        self._worker_registry = WorkerRegistry(self)
         self._thread: QThread | None = None
         self._runner: _DanceabilityCompletionRunner | None = None
         self._cancellation_token: ScanCancellationToken | None = None
@@ -164,13 +166,12 @@ class DanceabilityCompletionWorker(QObject):
     ) -> None:
         """Start completing missing danceability profiles in a background thread."""
         self.cancel()
+        if self.is_running():
+            return
         self._cancellation_token = cancellation_token
-        # Unparented on purpose. A QThread child is destroyed by
-        # QObject::deleteChildren() when the worker is deleted, and ~QThread
-        # calls qFatal -- which aborts the process -- if the thread is still
-        # running. `_IN_FLIGHT_WORKERS` and `self._thread` hold the reference,
-        # and `thread.finished -> thread.deleteLater` below still reaps it.
-        thread = QThread()
+        # A sibling of this controller: closing the window can see/drain it,
+        # while disposing a canceled controller never destroys a live thread.
+        thread = QThread(self.parent())
         runner = _DanceabilityCompletionRunner(
             records,
             repository,
@@ -178,13 +179,15 @@ class DanceabilityCompletionWorker(QObject):
             max_workers,
             self._danceability_analyzer,
         )
+        self._worker_registry.retain(thread, runner)
         runner.moveToThread(thread)
         thread.started.connect(runner.run)
         runner.progress.connect(self.progress)
         runner.progress_updated.connect(self._on_progress_updated)
-        runner.finished.connect(self._on_finished)
         runner.failed.connect(self.failed)
-        runner.finished.connect(thread.quit)
+        runner.finished.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+        thread.finished.connect(runner.deleteLater)
+        thread.finished.connect(self._on_finished)
         thread.finished.connect(self._on_thread_finished)
         thread.finished.connect(thread.deleteLater)
         self._thread = thread
@@ -192,13 +195,14 @@ class DanceabilityCompletionWorker(QObject):
         _IN_FLIGHT_WORKERS.add(self)
         thread.start()
 
-    def cancel(self, timeout_ms: int = 500) -> None:
-        """Request cancellation and wait for the background thread to finish."""
+    def cancel(self, timeout_ms: int = 0) -> None:
+        """Request cancellation; wait only when an explicit timeout is supplied."""
         if self._cancellation_token is not None:
             self._cancellation_token.cancel()
         if self._thread is not None and self._thread.isRunning():
             self._thread.requestInterruption()
-            self._thread.wait(timeout_ms)
+            if timeout_ms:
+                self._thread.wait(timeout_ms)
 
     def wait(self, timeout_ms: int = 5000) -> bool:
         """Wait for the background thread to finish.
@@ -230,22 +234,10 @@ class DanceabilityCompletionWorker(QObject):
             return
         thread.finished.connect(self.deleteLater)
 
-    def shutdown(self, timeout_ms: int = 200) -> None:
-        """Force the thread to stop and release the runner.
-
-        Only for application teardown, where the process is going away anyway:
-        ``terminate()`` kills the thread at an arbitrary point, which is unsafe
-        while it is inside librosa or numpy. For ordinary cancellation use
-        ``cancel()`` followed by ``dispose_when_idle()``.
-
-        Safe to call before ``start()`` and more than once.
-        """
+    def shutdown(self, timeout_ms: int = 0) -> None:
+        """Cancel cooperatively, retaining ownership until the thread settles."""
         self.cancel(timeout_ms)
-        thread = self._thread
-        if thread is not None and thread.isRunning():
-            thread.terminate()
-            thread.wait(timeout_ms)
-        if thread is None or not thread.isRunning():
+        if not self.is_running():
             self._on_thread_finished()
 
     def _release_runner(self) -> None:

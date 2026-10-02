@@ -140,14 +140,14 @@ def _make_playlist_explanation(transitions: list[TransitionExplanation] | None =
 
 def _state_with_recommendation_no_readiness() -> AppState:
     state = AppState()
-    state.last_recommendation = _make_recommendation()
+    state = state.model_copy(update={"last_recommendation": _make_recommendation()})
     return state
 
 
 def _state_with_readiness(status: str) -> AppState:
     state = AppState()
-    state.last_recommendation = _make_recommendation()
-    state.last_dj_readiness_report = _make_readiness(status)
+    state = state.model_copy(update={"last_recommendation": _make_recommendation()})
+    state = state.model_copy(update={"last_dj_readiness_report": _make_readiness(status)})
     return state
 
 
@@ -239,8 +239,8 @@ class TestReadinessChecks:
     def test_check_row_fields_map_correctly(self, vm: ReviewViewModel) -> None:
         check = DjReadinessCheck(label="Playlist size", status="ready", detail="2 tracks available")
         state = AppState()
-        state.last_recommendation = _make_recommendation()
-        state.last_dj_readiness_report = _make_readiness("ready", [check])
+        state = state.model_copy(update={"last_recommendation": _make_recommendation()})
+        state = state.model_copy(update={"last_dj_readiness_report": _make_readiness("ready", [check])})
 
         rows = vm.readiness_checks(state)
         assert len(rows) == 1
@@ -261,7 +261,7 @@ class TestTransitionRows:
 
     def test_returns_transition_rows_when_explanation_present(self, vm: ReviewViewModel) -> None:
         state = AppState()
-        state.last_playlist_explanation = _make_playlist_explanation()
+        state = state.model_copy(update={"last_playlist_explanation": _make_playlist_explanation()})
         rows = vm.transition_rows(state)
         assert len(rows) == 1
         assert isinstance(rows[0], TransitionRow)
@@ -269,7 +269,7 @@ class TestTransitionRows:
     def test_transition_row_fields_map_correctly(self, vm: ReviewViewModel) -> None:
         transition = _make_transition_explanation("Track A", "Track B", final_score=0.85)
         state = AppState()
-        state.last_playlist_explanation = _make_playlist_explanation([transition])
+        state = state.model_copy(update={"last_playlist_explanation": _make_playlist_explanation([transition])})
 
         rows = vm.transition_rows(state)
         row = rows[0]
@@ -280,7 +280,7 @@ class TestTransitionRows:
     def test_transition_row_has_warning_when_warnings_present(self, vm: ReviewViewModel) -> None:
         transition = _make_transition_explanation(warnings=["BPM jump too large"])
         state = AppState()
-        state.last_playlist_explanation = _make_playlist_explanation([transition])
+        state = state.model_copy(update={"last_playlist_explanation": _make_playlist_explanation([transition])})
 
         rows = vm.transition_rows(state)
         assert rows[0].has_warning is True
@@ -289,7 +289,7 @@ class TestTransitionRows:
     def test_transition_row_no_warning_when_no_warnings(self, vm: ReviewViewModel) -> None:
         transition = _make_transition_explanation(warnings=[])
         state = AppState()
-        state.last_playlist_explanation = _make_playlist_explanation([transition])
+        state = state.model_copy(update={"last_playlist_explanation": _make_playlist_explanation([transition])})
 
         rows = vm.transition_rows(state)
         assert rows[0].has_warning is False
@@ -307,7 +307,7 @@ class TestQualitySummary:
 
     def test_returns_string_when_quality_report_present(self, vm: ReviewViewModel) -> None:
         state = AppState()
-        state.last_quality_report = _make_quality_report()
+        state = state.model_copy(update={"last_quality_report": _make_quality_report()})
         result = vm.quality_summary(state)
         assert result != "—"
         assert isinstance(result, str)
@@ -347,7 +347,7 @@ class TestRecommendationRows:
 
     def test_returns_rows_when_recommendation_present(self, vm: ReviewViewModel) -> None:
         state = AppState()
-        state.last_recommendation = _make_recommendation()
+        state = state.model_copy(update={"last_recommendation": _make_recommendation()})
         rows = vm.recommendation_rows(state)
         assert len(rows) == 1
         assert isinstance(rows[0], RecommendationRow)
@@ -355,7 +355,7 @@ class TestRecommendationRows:
     def test_recommendation_row_fields_map_correctly(self, vm: ReviewViewModel) -> None:
         track = _make_track("a.mp3", "My Track", "My Artist")
         state = AppState()
-        state.last_recommendation = _make_recommendation([track])
+        state = state.model_copy(update={"last_recommendation": _make_recommendation([track])})
 
         rows = vm.recommendation_rows(state)
         row = rows[0]
@@ -372,7 +372,7 @@ class TestRecommendationRows:
             _make_track("b.mp3", "Track B", "Artist B"),
         ]
         state = AppState()
-        state.last_recommendation = _make_recommendation(tracks)
+        state = state.model_copy(update={"last_recommendation": _make_recommendation(tracks)})
 
         rows = vm.recommendation_rows(state)
         assert rows[0].position == 1
@@ -381,7 +381,7 @@ class TestRecommendationRows:
     def test_dash_for_missing_bpm(self, vm: ReviewViewModel) -> None:
         track = TrackRecord(path="x.mp3", title="No BPM", metadata_status="incomplete")
         state = AppState()
-        state.last_recommendation = _make_recommendation([track])
+        state = state.model_copy(update={"last_recommendation": _make_recommendation([track])})
 
         rows = vm.recommendation_rows(state)
         assert rows[0].bpm == "—"
@@ -389,7 +389,7 @@ class TestRecommendationRows:
     def test_dash_for_missing_key(self, vm: ReviewViewModel) -> None:
         track = TrackRecord(path="x.mp3", title="No Key", metadata_status="incomplete")
         state = AppState()
-        state.last_recommendation = _make_recommendation([track])
+        state = state.model_copy(update={"last_recommendation": _make_recommendation([track])})
 
         rows = vm.recommendation_rows(state)
         assert rows[0].camelot_key == "—"
@@ -397,7 +397,7 @@ class TestRecommendationRows:
     def test_dash_for_missing_energy(self, vm: ReviewViewModel) -> None:
         track = TrackRecord(path="x.mp3", title="No Energy", metadata_status="incomplete")
         state = AppState()
-        state.last_recommendation = _make_recommendation([track])
+        state = state.model_copy(update={"last_recommendation": _make_recommendation([track])})
 
         rows = vm.recommendation_rows(state)
         assert rows[0].energy == "—"

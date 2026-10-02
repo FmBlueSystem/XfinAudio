@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from html import escape
+from importlib import metadata
 from typing import TYPE_CHECKING, Protocol, cast
 
 from PySide6.QtCore import QObject
@@ -60,11 +62,16 @@ class Menu:
         """Show the About dialog with application metadata and trademark notices."""
         host = self._host
         parent: QWidget = host  # type: ignore[assignment]  # host is a QWidget at runtime
+        try:
+            app_version = metadata.version("xfinaudio")
+        except metadata.PackageNotFoundError:
+            app_version = host.tr("Unknown")
+        version_text = host.tr("Version {version}").format(version=escape(app_version))
         QMessageBox.about(
             parent,
             host.tr("About XfinAudio"),
             "<h2 style='margin-bottom:2px;'>XfinAudio</h2>"
-            "<p style='margin-top:0px; color:#93aac4; font-size:12px;'>" + host.tr("Version 1.0") + "</p>"
+            "<p style='margin-top:0px; color:#93aac4; font-size:12px;'>" + version_text + "</p>"
             "<p style='margin-top:12px;'>"
             + host.tr(
                 "XfinAudio is a metadata-driven DJ playlist assistant that helps DJs "

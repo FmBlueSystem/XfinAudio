@@ -563,3 +563,78 @@ def test_render_disables_the_ask_button_without_a_scanned_library(qapp: QApplica
     screen.render(BuildViewModel(), AppState())
 
     assert screen.copilot_ask_button.isEnabled() is False
+
+
+def test_fresh_visible_build_exposes_apply_and_inline_variant_details(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    vm = BuildViewModel()
+    screen.show()
+    screen.render(vm, AppState(), lightweight=True)
+    assert screen.apply_variant_button.isHidden()
+    notes = ("Genre focus 'House': 10 -> 2 track(s)",)
+    state = _plan_state([_track("/a.flac"), _track("/b.flac")], pool_notes=notes)
+
+    screen.render(vm, state)
+    qapp.processEvents()
+
+    assert screen.copilot_table.isVisible()
+    assert screen.apply_variant_button.isVisible()
+    assert screen.copilot_table.currentRow() == 1
+    assert screen.apply_variant_button.text() == "Use balanced · 2 tracks"
+    assert "Use" in screen.empty_state_label.text()
+    assert "2 of 25 requested" in screen.variant_details_label.text()
+    assert notes[0] in screen.variant_details_label.text()
+    screen.copilot_table.selectRow(0)
+    assert screen.apply_variant_button.text() == "Use safe · 2 tracks"
+    screen.render(vm, state, lightweight=True)
+    screen.render(vm, state)
+    assert screen.copilot_table.currentRow() == 0
+    screen.render(vm, AppState(), lightweight=True)
+    assert screen.apply_variant_button.isHidden()
+    assert screen.variant_details_label.isHidden()
+
+
+def test_missing_anchor_has_visible_direct_next_step(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    window = Mock()
+    screen.connect_signals(window)
+    vm = BuildViewModel()
+    screen.render(vm, AppState(scanned_records=[_track("/complete.flac")]))
+    assert not screen.copilot_button.isEnabled()
+    assert screen.anchor_action_button.isVisibleTo(screen)
+    assert screen.anchor_action_button.text() == "Choose a starting track"
+    screen.anchor_action_button.click()
+    window.workflow_tabs.setCurrentIndex.assert_called_with(0)
+    screen.render(vm, AppState(scanned_records=[TrackRecord(path="/incomplete.flac")]))
+    assert screen.anchor_action_button.text() == "Fix missing metadata"
+    screen.anchor_action_button.click()
+    window.workflow_tabs.setCurrentIndex.assert_called_with(5)
+    tracks = [_track("/complete.flac")]
+    screen.render(
+        vm,
+        AppState(
+            scanned_records=tracks, records_by_path={tracks[0].path: tracks[0]}, selected_library_paths=[tracks[0].path]
+        ),
+    )
+    assert screen.copilot_button.isEnabled()
+    assert screen.anchor_action_button.isHidden()
+
+
+def test_return_cannot_bypass_disabled_copilot_prerequisites(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    screen.render(BuildViewModel(), AppState(scanned_records=[TrackRecord(path="/missing.flac")]))
+    emitted: list[str] = []
+    screen.copilot_ask_requested.connect(emitted.append)
+    screen.copilot_ask_input.setText("A house set")
+    screen.copilot_ask_input.returnPressed.emit()
+    assert emitted == []
+
+
+def test_compact_build_keeps_natural_language_request_readable(qapp: QApplication) -> None:
+    screen = BuildScreen()
+    screen.resize(760, 560)
+    screen.show()
+    qapp.processEvents()
+    assert screen.copilot_ask_input.width() >= 360
+    assert screen.copilot_ask_input.y() > screen.copilot_button.y()
+    assert screen.proceed_button.geometry().bottom() <= screen.height()

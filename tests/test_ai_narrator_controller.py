@@ -313,7 +313,7 @@ def test_narrator_failures_clear_the_busy_flag_and_report_on_the_status_line(
     assert harness.screen.renders[-1].is_narrating is False
 
 
-def test_nan_config_failure_points_at_ai_settings_and_the_restart(
+def test_nan_config_failure_points_at_ai_settings_and_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Guidance, not just diagnosis: where to enable AI, that it applies on restart, and the key file."""
@@ -328,7 +328,8 @@ def test_nan_config_failure_points_at_ai_settings_and_the_restart(
 
     text = harness.screen.ai_narrate_status.text
     assert "Settings" in text
-    assert "restart" in text
+    assert "Configure AI" in text
+    assert "retry" in text
     assert "API key file" in text
 
 
@@ -441,7 +442,7 @@ def test_cancel_interrupts_a_running_worker_and_is_safe_without_one(monkeypatch:
     harness.controller.cancel()
 
     assert interrupted == [True]
-    assert waits == [500]
+    assert waits == []
 
 
 def test_a_superseded_thread_does_not_clear_the_current_worker_reference(
@@ -524,3 +525,55 @@ def test_storing_a_new_recommendation_clears_the_previous_narrative() -> None:
     )
 
     assert completed.ai_narrative_text is None
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_set_switch_rejects_old_terminal_delivery(monkeypatch: pytest.MonkeyPatch, failed: bool) -> None:
+    harness = _Harness(monkeypatch)
+    harness.controller.narrate()
+    replacement = _ready_state([_track("/new-a"), _track("/new-b")])
+    harness.host._state = replacement
+    if failed:
+        harness.controller._on_worker_failed(RuntimeError("old error"), 1)
+    else:
+        harness.controller._on_worker_finished("old set narrative", 1)
+    assert harness.host._state.ai_narrative_text is None
+    assert "old" not in harness.screen.ai_narrate_status.text
+
+
+def test_already_queued_result_is_rechecked_on_ui_thread(monkeypatch: pytest.MonkeyPatch, qapp: Any) -> None:
+    harness = _Harness(monkeypatch)
+    harness.controller.narrate()
+    worker = threading.Thread(target=lambda: harness.controller._on_worker_finished("old queued", 1))
+    worker.start()
+    worker.join()
+    harness.host._state = _ready_state([_track("/new-a"), _track("/new-b")])
+    qapp.processEvents()
+    assert harness.host._state.ai_narrative_text is None
+
+
+def test_cancel_clears_busy_allows_retry_and_rejects_old_queue(monkeypatch: pytest.MonkeyPatch, qapp: Any) -> None:
+    harness = _Harness(monkeypatch)
+    harness.controller.narrate()
+    worker = threading.Thread(target=lambda: harness.controller._on_worker_finished("old queued", 1))
+    worker.start()
+    worker.join()
+    harness.controller.cancel()
+    assert not harness.host._state.is_narrating
+    assert "cancel" in harness.screen.ai_narrate_status.text.lower()
+    harness.controller.narrate()
+    qapp.processEvents()
+    assert harness.host._state.is_narrating
+    assert harness.host._state.ai_narrative_text is None
+    harness.run(1)
+    assert harness.host._state.ai_narrative_text == NARRATIVE
+
+
+def test_invalidation_clears_retained_busy_state_on_context_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    harness = _Harness(monkeypatch)
+    harness.controller.narrate()
+    harness.host._state = harness.host._state.model_copy(update={"last_dj_readiness_report": _readiness()})
+    harness.controller.invalidate_if_context_changed()
+    assert not harness.host._state.is_narrating
+    harness.run()
+    assert harness.host._state.ai_narrative_text is None

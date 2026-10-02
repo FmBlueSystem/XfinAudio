@@ -1370,7 +1370,7 @@ def _loudness_profile(
     path: Path,
     *,
     status: LoudnessStatus = LoudnessStatus.MEASURED,
-    version: int = 1,
+    version: int = CURRENT_LOUDNESS_VERSION,
     fingerprint: str = "ffmpeg-8",
 ) -> LoudnessProfile:
     stat = path.stat()
@@ -1786,7 +1786,7 @@ def test_track_repository_adds_tonal_profile_column_to_v5_without_data_loss(tmp_
         version = connection.execute("PRAGMA user_version").fetchone()[0]
 
     assert "tonal_profile_json" in columns
-    assert version == SCHEMA_VERSION == 6
+    assert version == SCHEMA_VERSION == 7
     assert row["title"] == "Legacy"
     assert row["metadata_status"] == "complete"
     assert row["tonal_profile_json"] is None

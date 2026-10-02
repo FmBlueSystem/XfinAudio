@@ -107,7 +107,7 @@ class LibraryScreenRenderingMixin:
         ):
             self._populate_table(rows)
         self._last_rows_signature = rows_signature
-        self._last_render_extras = extras
+        self._last_render_extras = (*extras[:2], self._playing_path)
         self._apply_search_and_duplicate_filters()
         self._apply_constraint_colors(state.excluded_paths, state.locked_paths)
         self._apply_playing_highlight()
@@ -189,6 +189,12 @@ class LibraryScreenRenderingMixin:
                 self.loudness_detail_label.setText(
                     QCoreApplication.translate("LibraryScreen", "Loudness: unavailable (too short)")
                 )
+            elif profile.true_peak_dbtp is not None:
+                self.loudness_detail_label.setText(
+                    QCoreApplication.translate(
+                        "LibraryScreen", "LUFS: {0:.1f} · LRA: not stable (under 60 s) · True peak: {1:.1f} dBTP"
+                    ).format(profile.lufs_integrated, profile.true_peak_dbtp)
+                )
             else:
                 self.loudness_detail_label.setText(
                     QCoreApplication.translate(
@@ -249,7 +255,7 @@ class LibraryScreenRenderingMixin:
         v_scroll = self.tracks_table.verticalScrollBar().value()
         h_scroll = self.tracks_table.horizontalScrollBar().value()
 
-        self.tracks_table.blockSignals(True)
+        signals_were_blocked = self.tracks_table.blockSignals(True)
         try:
             self.tracks_table.setRowCount(0)
             for row_data in rows:
@@ -278,11 +284,14 @@ class LibraryScreenRenderingMixin:
                     item = QTableWidgetItem(value)
                     item.setToolTip(value)
                     self.tracks_table.setItem(row, col, item)
+            self._restore_selection_and_scroll(selected_paths, current_path, v_scroll, h_scroll, path_col)
+            self._last_rows_signature = _library_rows_signature(rows)
         finally:
-            self.tracks_table.blockSignals(False)
-
-        self._restore_selection_and_scroll(selected_paths, current_path, v_scroll, h_scroll, path_col)
-        self._last_rows_signature = _library_rows_signature(rows)
+            self.tracks_table.blockSignals(signals_were_blocked)
+        if not signals_were_blocked:
+            # Only publish the final restored selection. An intermediate empty
+            # selection would stop playback of a path that still survives.
+            self._on_selection_changed()
 
     def _restore_selection_and_scroll(
         self,
@@ -529,24 +538,15 @@ class LibraryScreenRenderingMixin:
         """Highlight *path* as the currently playing track, or None to clear.
 
         WHY in-place: a play/pause toggle only changes the Preview cell text of
-        the previous and new playing rows plus their background colors. When
-        the table already shows the last-populated rows unchanged, a full
-        render() would rebuild the table — resetting selection, currentRow, and
-        scroll — for zero content change, so the two affected rows are updated
-        in place instead, mirroring render()'s paint order (base colors,
-        constraint colors, then the playing highlight). The full rebuild is
-        still required when the records actually changed.
+        the previous and new playing rows plus their background colors. Direct
+        controller population can leave the content cache invalid even though
+        those rows are current. Never rebuild from a playback callback: restoring
+        selection during that rebuild can stop the player. Paint existing rows
+        by path and leave content-cache reconciliation to a normal full render.
         """
         previous = self._playing_path
         self._playing_path = path
-        if previous == path:
-            return
-        rows_current = (
-            self._last_rows_signature is not None and len(self._last_rows_signature) == self.tracks_table.rowCount()
-        )
-        if not rows_current:
-            if self._last_vm is not None and self._last_state is not None:
-                self.render(self._last_vm, self._last_state)
+        if previous == path and self._last_rows_signature is not None:
             return
         for affected_path in (previous, path):
             if affected_path is None:

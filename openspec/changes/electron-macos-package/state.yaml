@@ -1,0 +1,24 @@
+schema: gentle-ai.sdd-state.v1
+change: electron-macos-package
+artifact_store: openspec
+status: verify
+created: 2026-10-01
+updated: 2026-10-01
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: in-progress
+next_recommended: verify
+blocked_reasons:
+  - Owner-coordinated V11 full gates and final application validation remain pending.
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Mac-only adaptation; final app awaits V11 owner gates.
