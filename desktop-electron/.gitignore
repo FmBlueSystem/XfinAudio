@@ -1,0 +1,8 @@
+node_modules/
+.out/
+artifacts/
+
+!package.json
+
+# Also exclude dependency symlinks from source handoffs
+node_modules
