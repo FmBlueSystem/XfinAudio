@@ -8,6 +8,7 @@ class Element extends EventTarget {
   setAttribute(key, value) { this.attrs[key] = String(value); }
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
+  focus() { globalThis.document.activeElement = this; }
   set innerHTML(_) { throw new Error('Unsafe HTML'); }
 }
 const all = (node) => [node, ...node.children.flatMap(all)];

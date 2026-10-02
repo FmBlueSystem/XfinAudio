@@ -10,7 +10,7 @@ const messages:Record<string,string>={
   ai_unconfigured:'Selecciona una fuente de credenciales desde IA opcional.',
   ai_credentials_unavailable:'La fuente de credenciales no está disponible. Revisa su selección.',
   stale_credential:'La fuente de credenciales cambió. Actualiza los ajustes antes de continuar.',
-  dirty_draft:'Guarda o descarta los cambios del editor y las preferencias antes de analizar sonoridad. Tus borradores se conservan.',
+  dirty_draft:'Hay borradores sin guardar. Revisa el editor, las preferencias, la cohesión espectral, los controles de preparación y los ajustes de sonoridad e IA. Guarda o descarta los cambios pendientes antes de analizar sonoridad. Tus borradores se conservan.',
   stale_loudness:'Las pistas o los ajustes cambiaron. Actualiza el estado de sonoridad y prepara otra vista previa.',
   loudness_unavailable:'El motor de sonoridad no está disponible. Revisa su estado antes de continuar.',
   loudness_disabled:'La sonoridad está desactivada. Revisa y guarda los ajustes antes de analizar.',
