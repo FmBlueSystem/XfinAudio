@@ -43,6 +43,82 @@ GENERATED = {
     "dist",
     "htmlcov",
 }
+# Notice-only superset for the pinned wheels, including all Setuptools vendors
+# (some are not frozen). Original RECORD paths preserve component provenance.
+NOTICE_INPUTS = {
+    "soundfile": (
+        "0.14.0",
+        ("licensing/license_notes.md", "_soundfile_data/COPYING", "soundfile-0.14.0.dist-info/LICENSE"),
+    ),
+    "setuptools": (
+        "82.0.1",
+        (
+            "setuptools-82.0.1.dist-info/licenses/LICENSE",
+            "setuptools/config/NOTICE",
+            "setuptools/config/_validate_pyproject/NOTICE",
+            *(
+                "setuptools/_vendor/" + name
+                for name in (
+                    "autocommand-2.2.2.dist-info/LICENSE",
+                    "backports.tarfile-1.2.0.dist-info/LICENSE",
+                    "importlib_metadata-8.7.1.dist-info/licenses/LICENSE",
+                    "jaraco.text-4.0.0.dist-info/LICENSE",
+                    "jaraco_context-6.1.0.dist-info/licenses/LICENSE",
+                    "jaraco_functools-4.4.0.dist-info/licenses/LICENSE",
+                    "more_itertools-10.8.0.dist-info/licenses/LICENSE",
+                    "packaging-26.0.dist-info/licenses/LICENSE",
+                    "packaging-26.0.dist-info/licenses/LICENSE.APACHE",
+                    "packaging-26.0.dist-info/licenses/LICENSE.BSD",
+                    "platformdirs-4.4.0.dist-info/licenses/LICENSE",
+                    "tomli-2.4.0.dist-info/licenses/LICENSE",
+                    "wheel-0.46.3.dist-info/licenses/LICENSE.txt",
+                    "zipp-3.23.0.dist-info/licenses/LICENSE",
+                )
+            ),
+        ),
+    ),
+}
+
+
+def notice_hash(path: Path, base: Path) -> str:
+    if not path.is_file() or not path.resolve().is_relative_to(base.resolve()):
+        raise ValueError(f"Required notice missing or outside selected input: {path}")
+    data = path.read_bytes()
+    if not data.strip():
+        raise ValueError(f"Required notice empty: {path}")
+    return hashlib.sha256(data).hexdigest()
+
+
+def python_notices() -> list[tuple[Path, Path, str]]:
+    records = []
+    for name, (version, paths) in NOTICE_INPUTS.items():
+        try:
+            distribution = importlib.metadata.distribution(name)
+        except importlib.metadata.PackageNotFoundError as error:
+            raise ValueError(f"Required notice distribution unavailable: {name}") from error
+        recorded = {str(p) for p in distribution.files or []}
+        if distribution.version != version or not set(paths) <= recorded:
+            raise ValueError(f"Required notice metadata differs from pinned {name} {version}")
+        base = Path(str(distribution.locate_file("")))
+        for relative in paths:
+            source = Path(str(distribution.locate_file(relative)))
+            records.append((source, Path(f"licenses/bundled/{name}-{version}/{relative}"), notice_hash(source, base)))
+    return records
+
+
+def platform_notices(root: Path, electron: Path, *, mac: bool = False) -> list[tuple[Path, Path, str]]:
+    project_license = "XfinAudio-GPL-3.0.txt" if mac else "XfinAudio-LICENSE"
+    inputs = [(root, "LICENSE", f"LICENSES/{project_license}"), (root, "NOTICE.md", "LICENSES/XfinAudio-NOTICE.md")]
+    inputs.extend(
+        (electron, name, ("LICENSES/" if mac else "") + name) for name in ("LICENSE", "LICENSES.chromium.html")
+    )
+    return [(base / name, Path(target), notice_hash(base / name, base)) for base, name, target in inputs]
+
+
+def verify_notices(records: list[tuple[Path, Path, str]], destination: Path) -> None:
+    for _, target, expected in records:
+        if notice_hash(destination / target, destination) != expected:
+            raise ValueError(f"Bundled notice bytes differ from selected input: {target}")
 
 
 def source_digest(root: Path) -> str:
@@ -155,6 +231,8 @@ def freeze_command(root: Path, output: Path, ffmpeg: Path) -> list[str]:
         command.extend(["--collect-all", "librosa"])
     for package in sorted(packages | {"pyinstaller"}):
         command.extend(["--copy-metadata", package])
+    for source, target, _ in python_notices():
+        command.extend(["--add-data", f"{source}:{target.parent.as_posix()}"])
     license_path = (
         Path(sys.base_prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "LICENSE.txt"
     )
@@ -172,6 +250,7 @@ def assemble(root: Path, electron: Path, core: Path, destination: Path) -> None:
     """Only consume explicit runtime inputs; refuse missing dependencies and overwrites."""
     if destination.exists() or destination.resolve().is_relative_to(root.resolve()):
         raise ValueError("Output must be a new directory outside the source tree")
+    required_notices = platform_notices(root, electron)
     package = json.loads((root / "desktop-electron/package.json").read_text())
     if (electron / "version").read_text().strip() != package["devDependencies"]["electron"]:
         raise ValueError("Electron distribution does not match package lock version")
@@ -199,8 +278,9 @@ def assemble(root: Path, electron: Path, core: Path, destination: Path) -> None:
     shutil.copytree(core, destination / "resources/core", symlinks=True)
     notices = destination / "LICENSES"
     notices.mkdir()
-    shutil.copy2(root / "LICENSE", notices / "XfinAudio-LICENSE")
-    shutil.copy2(root / "NOTICE.md", notices / "XfinAudio-NOTICE.md")
+    for source, target, _ in required_notices:
+        shutil.copy2(source, destination / target)
+    verify_notices(required_notices, destination)
     audit_tree(destination)
 
 
@@ -274,16 +354,20 @@ def main() -> None:
         raise ValueError("FFmpeg source archive checksum mismatch")
     validate_ffmpeg(ffmpeg)
     validate_ffmpeg_dependencies(_probe(["ldd", str(ffmpeg)]))
+    electron = root / "desktop-electron/node_modules/electron/dist"
+    platform_required_notices = platform_notices(root, electron)
+    required_notices = python_notices()
+    command = freeze_command(root, output, ffmpeg)
     output.mkdir(parents=True)
-    subprocess.run(
-        freeze_command(root, output, ffmpeg), check=True, cwd=root, env=freeze_environment(dict(os.environ), output)
-    )
+    subprocess.run(command, check=True, cwd=root, env=freeze_environment(dict(os.environ), output))
     core = output / "core-dist/xfinaudio-core"
     modules = audit_frozen_core(core / "xfinaudio-core")
     subprocess.run(["npm", "run", "build"], check=True, cwd=root / "desktop-electron")
     validate_gate(report, root)
     destination = output / "XfinAudio-linux-x86_64"
-    assemble(root, root / "desktop-electron/node_modules/electron/dist", core, destination)
+    verify_notices(required_notices, core / "_internal")
+    assemble(root, electron, core, destination)
+    verify_notices(required_notices, destination / "resources/core/_internal")
     shutil.copy2(args.ffmpeg_source, destination / "LICENSES" / args.ffmpeg_source.name)
     with tarfile.open(args.ffmpeg_source) as archive:
         license_file = archive.extractfile("ffmpeg-7.1.1/COPYING.LGPLv2.1")
@@ -309,6 +393,8 @@ def main() -> None:
     (destination / "build-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     shutil.copy2(args.gate_report, destination / "release-gate.json")
     validate_gate(report, root)
+    verify_notices(platform_required_notices, destination)
+    verify_notices(required_notices, destination / "resources/core/_internal")
     archive = output / "XfinAudio-linux-x86_64.tar.gz"
     with tarfile.open(archive, "w:gz") as bundle:
         bundle.add(destination, arcname=destination.name)
