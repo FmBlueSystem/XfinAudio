@@ -42,3 +42,14 @@ test('implemented loudness capability is reported without activating provider ca
   const f = fixture({ getPreferences: async () => snapshot({ capabilities: { loudnessWriteback: true, providers: false, language: 'es' } }) }); await f.controller.load(); assert.equal(f.controller.snapshot?.capabilities.loudnessWriteback, true); assert.equal(f.controller.snapshot.capabilities.providers, false); assert.equal(f.controller.error, '');
 });
 test('optional provider capability is truthful without automatically enabling or contacting it', async () => { const f=fixture({getPreferences:async()=>snapshot({capabilities:{loudnessWriteback:true,providers:true,language:'es'}})});await f.controller.load();assert.equal(f.controller.snapshot?.capabilities.providers,true);assert.deepEqual(f.calls,[]);});
+test('library-label refresh updates only metadata, preserving dirty settings, original revision and playback application',async()=>{
+ let current=snapshot({libraryLabels:[]});const f=fixture({getPreferences:async()=>current});await f.controller.load();f.controller.setVolume(.4);f.controller.setWatchLibrary(false);
+ current=snapshot({revision:'c'.repeat(64),previewVolume:.1,libraryLabels:['music']});await f.controller.refreshLibraryLabels();
+ assert.deepEqual(f.controller.snapshot.libraryLabels,['music']);assert.equal(f.controller.snapshot.previewVolume,.4);assert.equal(f.controller.snapshot.watchLibrary,false);assert.equal(f.controller.snapshot.revision,'a'.repeat(64));assert.equal(f.controller.dirty,true);assert.equal(f.applied.length,1);
+ f.controller.discard();assert.deepEqual(f.controller.snapshot.libraryLabels,['music']);assert.equal(f.controller.snapshot.previewVolume,.8);assert.equal(f.controller.snapshot.revision,'a'.repeat(64));assert.equal(f.applied.length,1);
+});
+test('metadata-only preference refresh preserves conflict and rejects malformed results without mutating labels',async()=>{
+ let current=snapshot();const f=fixture({getPreferences:async()=>current,savePreferences:async()=>{throw Error('[stale_settings]');}});await f.controller.load();f.controller.setVolume(.4);await f.controller.save();const error=f.controller.error;
+ current=snapshot({libraryLabels:['new']});await f.controller.refreshLibraryLabels();assert.equal(f.controller.canSave,false);assert.equal(f.controller.error,error);assert.equal(f.applied.length,1);
+ current={...current,revision:'invalid'};await f.controller.refreshLibraryLabels();assert.deepEqual(f.controller.snapshot.libraryLabels,['new']);assert.equal(f.controller.snapshot.previewVolume,.4);assert.equal(f.controller.canSave,false);
+});

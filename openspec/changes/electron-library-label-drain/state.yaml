@@ -1,0 +1,25 @@
+schema: gentle-ai.sdd-state.v1
+change: electron-library-label-drain
+artifact_store: openspec
+status: verify
+created: 2026-10-02
+updated: 2026-10-02
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - One bounded correction; split before exceeding 400 changed lines.
+  - Parent owns full gates after focused GREEN and frozen checkpoint.
+  - Fresh focused build and 48 tests pass with zero skips; full authoritative reports remain external.

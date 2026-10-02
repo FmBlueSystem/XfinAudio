@@ -40,7 +40,7 @@ test('bootstrap serializes preferences/status after library and late persisted v
   } finally { f.restore(); }
 });
 test('preferences edits are local, preserve navigation draft, and explicit save applies volume without autoplay', async () => {
-  const f = await fixture(); try { assert.equal(f.get('audio-player').volume, .25); await f.navigate('preferences'); assert.equal(document.title, 'XfinAudio · Preferencias'); f.get('preferences-volume').value = '.4'; f.get('preferences-volume').dispatchEvent(new Event('input')); assert.equal(f.get('audio-player').volume, .25); await f.navigate('library'); await f.navigate('preferences'); assert.equal(f.get('preferences-volume').value, '0.4'); f.click('preferences-save'); await settle(); assert.equal(f.get('audio-player').volume, .4); assert.equal(f.get('audio-player').paused, true); f.get('player-volume').value = '.8'; f.get('player-volume').dispatchEvent(new Event('input')); f.click('preferences-refresh'); await settle(); assert.equal(f.get('audio-player').volume, .8); } finally { f.restore(); }
+  const f = await fixture(); try { assert.equal(f.get('audio-player').volume, .25); await f.navigate('preferences'); assert.equal(document.title, 'XfinAudio · Ajustes'); f.get('preferences-volume').value = '.4'; f.get('preferences-volume').dispatchEvent(new Event('input')); assert.equal(f.get('audio-player').volume, .25); await f.navigate('library'); await f.navigate('preferences'); assert.equal(f.get('preferences-volume').value, '0.4'); f.click('preferences-save'); await settle(); assert.equal(f.get('audio-player').volume, .4); assert.equal(f.get('audio-player').paused, true); f.get('player-volume').value = '.8'; f.get('player-volume').dispatchEvent(new Event('input')); f.click('preferences-refresh'); await settle(); assert.equal(f.get('audio-player').volume, .8); } finally { f.restore(); }
 });
 test('editor and preference dirtiness aggregate so discarding one does not permit dirty close', async () => {
   const f = await fixture(); try { await f.navigate('preferences'); f.get('preferences-volume').value = '.3'; f.get('preferences-volume').dispatchEvent(new Event('input')); await f.navigate('playlists'); f.nodes().find((node) => node.tagName === 'button' && node.textContent === 'Editar').dispatchEvent(new Event('click')); await settle(); f.get('editor-name').value = 'Borrador'; f.get('editor-name').dispatchEvent(new Event('input')); f.click('preferences-discard'); assert.equal(f.calls.filter(([kind]) => kind === 'dirty').at(-1)[1], true); f.click('editor-discard'); await settle(); assert.equal(f.calls.filter(([kind]) => kind === 'dirty').at(-1)[1], false); } finally { f.restore(); }
@@ -69,5 +69,54 @@ test('cancelled rescan retains partial library and does not manufacture a clean 
 test('actual stale preference save keeps draft and footer session volume until explicit recovery', async () => {
   const f = await fixture({ savePreferences: async () => { throw new Error('Error invoking remote method: [stale_settings] /Users/private/settings'); } }); try {
     await f.navigate('preferences'); f.get('preferences-volume').value = '.5'; f.get('preferences-volume').dispatchEvent(new Event('input')); f.click('preferences-save'); await settle(); assert.equal(f.get('preferences-volume').value, '0.5'); assert.equal(f.get('audio-player').volume, .25); assert.equal(f.get('preferences-save').disabled, true); assert.match(f.get('preferences-error').textContent, /descarta.*actualiza/i); assert.doesNotMatch(f.get('operation-detail').textContent, /remote method|Users|stale_settings/);
+  } finally { f.restore(); }
+});
+for(const dirty of [false,true])test(`post-scan Settings folder labels refresh with ${dirty?'dirty':'clean'} preferences and no playback change`,async()=>{
+ let labels=[];let reads=0;const f=await fixture({getPreferences:async()=>{reads++;return prefs({libraryLabels:labels,revision:labels.length?'b'.repeat(64):'a'.repeat(64),previewVolume:labels.length?.9:.25});},chooseLibrary:async()=>{labels=['music'];return {tracks,count:2};}});try{
+  await f.navigate('preferences');assert.match(text(f.get('preferences-libraries')),/Todavía no/);if(dirty){f.get('preferences-volume').value='.4';f.get('preferences-volume').dispatchEvent(new Event('input'));f.get('preferences-watch').checked=false;f.get('preferences-watch').dispatchEvent(new Event('change'));}
+  await f.navigate('library');f.click('choose-library');await settle();await f.navigate('preferences');assert.match(text(f.get('preferences-libraries')),/music/);assert.equal(reads,2);assert.equal(f.get('preferences-volume').value,dirty?'0.4':'0.25');assert.equal(f.get('preferences-watch').checked,!dirty);assert.equal(f.get('audio-player').volume,.25);assert.equal(f.get('audio-player').paused,true);assert.equal(f.calls.some(([kind])=>kind==='savePreferences'),false);
+ }finally{f.restore();}
+});
+test('actual root-count change refreshes cached folder labels while watcher-only changes do not',async()=>{
+ let labels=['DJ'];let reads=0;const f=await fixture({getPreferences:async()=>{reads++;return prefs({libraryLabels:labels});}});try{
+  labels=['DJ','music'];f.event(status({revision:2,changeState:'clean',rootCount:2,watchedCount:2}));await settle();assert.match(text(f.get('preferences-libraries')),/music/);assert.equal(reads,2);f.event(status({revision:3,changeState:'clean',watchState:'paused',rootCount:2,watchedCount:2}));await settle();assert.equal(reads,2);
+ }finally{f.restore();}
+});
+for (const fails of [false, true]) test(`new root events coalesce after a pending label read ${fails ? 'fails' : 'succeeds'}`, async () => {
+  let reads = 0; let finish; let reject; const f = await fixture({ getPreferences: () => {
+    reads++;
+    if (reads === 1) return Promise.resolve(prefs());
+    if (reads === 2) return new Promise((resolve, fail) => { finish = resolve; reject = fail; });
+    return Promise.resolve(prefs({ libraryLabels: ['DJ', 'second', 'third', 'fourth'], revision: 'b'.repeat(64), previewVolume: .9, watchLibrary: true }));
+  } });
+  try {
+    await f.navigate('preferences');
+    f.get('preferences-volume').value = '.4'; f.get('preferences-volume').dispatchEvent(new Event('input'));
+    f.get('preferences-watch').checked = false; f.get('preferences-watch').dispatchEvent(new Event('change'));
+    f.get('player-volume').value = '.6'; f.get('player-volume').dispatchEvent(new Event('input'));
+    const heading = document.title; let focusCalls = 0; f.get('main-content').focus = () => { focusCalls++; };
+    f.event(status({ revision: 2, changeState: 'clean', rootCount: 2, watchedCount: 2 })); assert.equal(reads, 2);
+    f.event(status({ revision: 3, changeState: 'clean', rootCount: 3, watchedCount: 3 }));
+    f.event(status({ revision: 4, changeState: 'clean', rootCount: 4, watchedCount: 4 })); assert.equal(reads, 2);
+    if (fails) reject(new Error('read failed')); else finish(prefs({ libraryLabels: ['DJ', 'second'] }));
+    await settle(); assert.equal(reads, 3, 'the queued newer root notification must drain after controller pending clears');
+    assert.match(text(f.get('preferences-libraries')), /fourth/);
+    await settle(); assert.equal(reads, 3, 'coalesced notifications must not create repeated reads');
+    assert.equal(f.get('preferences-volume').value, '0.4'); assert.equal(f.get('preferences-watch').checked, false);
+    assert.equal(f.get('audio-player').volume, .6); assert.equal(f.get('audio-player').paused, true);
+    assert.equal(document.title, heading); assert.equal(focusCalls, 0); assert.equal(f.calls.some(([kind]) => kind === 'savePreferences'), false);
+    f.click('preferences-save'); await settle();
+    assert.deepEqual(f.calls.find(([kind]) => kind === 'savePreferences')[1], { revision: 'a'.repeat(64), previewVolume: .4, watchLibrary: false });
+  } finally { f.restore(); }
+});
+test('a failed folder-label read without a newer root event stops until explicit refresh', async () => {
+  let reads = 0; const f = await fixture({ getPreferences: async () => {
+    reads++; if (reads === 2) throw new Error('read failed'); return prefs({ libraryLabels: reads === 1 ? ['DJ'] : ['DJ', 'second'] });
+  } });
+  try {
+    await f.navigate('preferences'); f.event(status({ revision: 2, changeState: 'clean', rootCount: 2, watchedCount: 2 }));
+    await settle(); await settle(); assert.equal(reads, 2); assert.match(text(f.get('preferences-libraries')), /DJ/); assert.doesNotMatch(text(f.get('preferences-libraries')), /second/);
+    assert.equal(f.get('preferences-error').hidden, false); assert.equal(f.get('preferences-refresh').disabled, false);
+    f.click('preferences-refresh'); await settle(); assert.equal(reads, 3); assert.match(text(f.get('preferences-libraries')), /second/);
   } finally { f.restore(); }
 });

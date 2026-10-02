@@ -61,6 +61,19 @@ export class PreferencesController {
     if (this.dirty) { this.error = 'Tienes cambios sin guardar. Guarda el borrador o descarta los cambios antes de actualizar.'; this.notify(); return; }
     await this.run('Cargando preferencias…', () => this.api.getPreferences(), 'load');
   }
+  /** Refresh folder metadata only; never accept settings revisions or apply playback. */
+  async refreshLibraryLabels(): Promise<void> {
+    if(this.pending||!this.host.canAct()||!this.draft||!this.base)return;
+    this.pending=true;this.host.changed();
+    try { await this.host.perform('Actualizando bibliotecas registradas…',()=>this.api.getPreferences(),value=>{
+      const snapshot=copy(value);
+      this.base={...this.base!,libraryLabels:[...snapshot.libraryLabels]};
+      this.draft={...this.draft!,libraryLabels:[...snapshot.libraryLabels]};
+      this.host.changed();
+    },this.fail); }
+    catch(error){this.fail(error);}
+    finally{this.pending=false;this.host.changed();}
+  }
   setVolume(value: number): void {
     if (!this.draft || this.pending || !this.host.canAct()) return;
     if (!validVolume(value)) { this.error = 'El volumen inicial debe estar entre 0 y 100 %.'; this.notify(); return; }

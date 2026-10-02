@@ -1,0 +1,3 @@
+# Design
+
+Renderer-only warning formatter recognizes the exact engine string. Prep summary updates visible count wording from existing fields. A Preferences metadata-only refresh validates returned snapshot then copies only libraryLabels into base/draft; revision, editable settings, errors/conflict and playback callback are untouched. App queues one refresh after actual scan/root changes through the existing operation gate. Explicit data-route handlers navigate then focus/scroll main start; Tool Back and background navigation preserve their own behavior. Short-height CSS reduces existing vertical margins/padding/header space, without assuming field stacking or hiding required content.
