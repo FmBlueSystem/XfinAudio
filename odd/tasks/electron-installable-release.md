@@ -37,7 +37,8 @@ tag, draft release, or ad-hoc-signed app does not satisfy this goal.
    with bundled core, notices, provenance, checksum, and no project-root build
    artifacts. Acceptance: one documented invocation yields a DMG that opens on
    a clean macOS account; commit and tests stay within a reviewable slice.
-   Status: in progress (slice 1/2) via `openspec/changes/electron-dmg-local-validation`.
+   Status: QA-only prototype slices complete; final build and clean-account QA blocked.
+   Scoped change: `openspec/changes/electron-dmg-local-validation`.
    Slice 1 (docs only): specifies a separate credential-free `packaging/macos/dmg.py`
    that consumes an already-built `XfinAudio Next.app` and its sibling
    `.native-manifest.json`, validates source digest/manifest/provenance and a QA-only
@@ -57,9 +58,13 @@ tag, draft release, or ad-hoc-signed app does not satisfy this goal.
    DMG build until the owner supplies the exact V11 seal and authorization per
    `packaging/macos/README.md`; Developer ID is unavailable; no electron-builder, no
    legacy Qt DMG script, and `build.py` stays untouched.
-   Evidence status: QA-only implementation verified; no real artifact, full delivery,
-   clean-account open or clean-account QA result yet, so this work unit stays `[ ]`.
-   Native RDD inspect/assess is pending until the docs evidence commit.
+   Evidence commit: `50c7271a096e87a78d008c83493ad15e22b6599f`
+   (97 documentation diff lines). Native INSPECT on the clean committed tree
+   returned `empty_candidate_base_ref_required`; no START route was offered, no
+   lineage or review receipt exists. The exact code commit has not been separately
+   ASSESSed; do not infer review approval from the branch state.
+   No real artifact, full delivery, clean-account open or clean-account QA result
+   yet, so this work unit stays `[ ]` pending owner V11 seal/build authorization.
 3. [ ] Add Developer ID signing and notarization for that exact Electron build.
    Acceptance: `codesign`, `spctl`, stapling and clean-account Gatekeeper checks
    pass on the final DMG. Blocked until the owner supplies a valid identity and
@@ -77,20 +82,11 @@ tag, draft release, or ad-hoc-signed app does not satisfy this goal.
 
 ## Current task
 
-Work unit 1 proceeds as two local commits on `feat/electron-ipc-contract`; no
-push, PR, merge or publish is authorized. The earlier pause held because 473 SDD
-artifact lines plus this plan exceed the 400-line budget as one commit.
-
-- Slice A (documentation planning only): committed as
-  `2422ffc7fa9cd02fcd2b0f7e138b1df092674723` (393 added lines). It contains
-  this plan, `proposal/spec/design/tasks/state`, and minimal `apply-progress`/
-  `verify-report` placeholders. Rollback: revert that docs-only commit. The
-  staged index check confirmed only these paths and no whitespace errors.
-- Slice B (behavior, strict TDD): committed as
-  `9bdb05c8280c97a26e29adf821a173d3de46c357` (328 diff lines). It includes
-  the one-line fail-closed `default` arm, the 63-line guard test, and observed
-  RED/GREEN, zero-skip Electron and canonical Python gate evidence. Rollback:
-  revert this behavior commit. Native review was not due for this exact slice;
-  no provider approval or delivery permission is implied.
-
-Both slices stay under 400 added lines; unit 3 keeps its external credential blocker.
+Work unit 2 has a verified synthetic QA-image builder in three local commits:
+`ed855c9` (planning), `3fabf88` (code, tests and README), `50c7271`
+(verification evidence). Each slice stays under 400 changed lines. Next, the owner
+must integrate and authorize the exact V11 source seal and its gate report, plus
+trusted FFmpeg closure and dependency-license inputs, before any real `.app`/DMG
+build. A real image then needs mounted-image integrity checks and clean-account
+startup QA; work unit 2 remains open. No push, PR, merge or publication is
+authorized. Unit 3 separately awaits Developer ID and notary credentials.
