@@ -21,21 +21,18 @@ tag, draft release, or ad-hoc-signed app does not satisfy this goal.
 
 ## Work units
 
-1. [ ] Lock the Electron IPC method contract across validation, dispatch, and
-   preload. First prove a meaningful RED for fail-closed dispatch/exhaustiveness,
-   then implement the smallest GREEN, run focused and applicable gates, and
-   record a Conventional Commit on `feat/electron-ipc-contract`. Use a scoped
-   OpenSpec change; avoid changing Python routes unless the invariant requires it.
-   Acceptance: every allowed UI method reaches exactly one handler; unknown or
-   unhandled methods fail explicitly, and a regression test catches drift.
-   Evidence: verification complete — RED observed (`AssertionError: R1: action()
-   must end in a throwing default arm`, exit 1), GREEN observed (focused guard
-   exit 0), full Electron suite exit 0 (429 tests, 418 pass, 11 pre-existing
-   skips, 0 fail), Qt-free wrapper exit 0 (429/429, 0 skipped), repo gate exit 0
-   (4189 pytest passed, 94.45% coverage, pyright 0, ruff pass), drift
-   triangulation passes; independent verifier corroborated. Still pending: the
-   conventional commit on `feat/electron-ipc-contract` and the RDD/native review
-   result.
+1. [x] Lock the Electron IPC method contract across validation, dispatch, and
+   preload. Test-first RED proved the missing fail-closed arm; GREEN added the
+   smallest fix and a parity guard. No Python route changed.
+   Evidence: `2422ffc7fa9cd02fcd2b0f7e138b1df092674723` (planning, 393 lines)
+   and `9bdb05c8280c97a26e29adf821a173d3de46c357` (behavior, 328 diff lines).
+   RED failed R1, GREEN passed; full Electron suite exited 0 with 11 environment
+   skips, Qt-free wrapper passed 429/429 with zero skips, canonical Python gate
+   passed 4189 tests at 94.45% coverage (floor 89), pyright/ruff/smoke passed;
+   independent verification corroborated. Native ASSESS for the exact committed
+   slice: medium risk, `reviewDue: false` (`under_budget`), `consumed: false`.
+   INSPECT found no pending workspace diff, so no START was offered; no review
+   receipt, approval, or delivery authority is claimed.
 2. [ ] Build a reproducible Electron macOS installer from an exact source commit,
    with bundled core, notices, provenance, checksum, and no project-root build
    artifacts. Acceptance: one documented invocation yields a DMG that opens on
@@ -67,14 +64,11 @@ artifact lines plus this plan exceed the 400-line budget as one commit.
   this plan, `proposal/spec/design/tasks/state`, and minimal `apply-progress`/
   `verify-report` placeholders. Rollback: revert that docs-only commit. The
   staged index check confirmed only these paths and no whitespace errors.
-- Slice B (behavior, strict TDD): the one-line fail-closed `default` arm in
-  `main.ts`, the guard test (`desktop-electron/tests/ipc-contract.test.mjs`, now 63 readable lines
-  with the R1 assertion at line 42; at the observed RED it was a 22-line file with R1 at line 14),
-  and the expanded progress/report. Rollback: revert
-  that single commit. Checks: the verify commands in `tasks.md`, in order. Status:
-  RED/GREEN/triangulation and all four contract commands are observed green (Qt-free
-  wrapper 429/429 with 0 skips; repo gate exit 0), independently corroborated. The
-  Slice B commit and the RDD/native review remain pending; no commit has been made in
-  this session.
+- Slice B (behavior, strict TDD): committed as
+  `9bdb05c8280c97a26e29adf821a173d3de46c357` (328 diff lines). It includes
+  the one-line fail-closed `default` arm, the 63-line guard test, and observed
+  RED/GREEN, zero-skip Electron and canonical Python gate evidence. Rollback:
+  revert this behavior commit. Native review was not due for this exact slice;
+  no provider approval or delivery permission is implied.
 
 Both slices stay under 400 added lines; unit 3 keeps its external credential blocker.
