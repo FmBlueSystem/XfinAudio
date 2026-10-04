@@ -19,6 +19,8 @@ from xfinaudio.application.playlist_improvement import (
     ImprovementProposal,
     build_candidate_set,
     build_improvement_proposal,
+    draft_fingerprint,
+    validate_improvement_proposal,
 )
 from xfinaudio.headless.common import BackendError, _inside, _public_track, _text
 from xfinaudio.library.models import TrackRecord
@@ -33,6 +35,8 @@ EDIT_FIELDS = {
     "playlist.edit.open": {"playlistId"},
     "playlist.edit.preview": {"editId", "trackIds", "request"},
     "playlist.edit.save": {"editId", "name", "trackIds"},
+    # No raw path list: the ordered paths come only from the locally bound proposal.
+    "playlist.edit.save_improvement": {"editId", "name", "proposalId", "digest", "draftIds"},
     "playlist.edit.discard": {"editId"},
 }
 
@@ -222,6 +226,39 @@ class PlaylistEditor:
         self.session = replace(session, proposal=proposal)
         return proposal
 
+    def _save_improvement(self, session: EditSession, params: dict[str, Any]) -> dict[str, Any]:
+        """Persist exactly the locally validated order behind its proposal binding.
+
+        The renderer sends no paths here. The applied draft order must still fingerprint
+        to the authorized order, and the stored order is re-validated from the bound
+        tokens before the atomic compare-and-update runs.
+        """
+        proposal = session.proposal
+        if proposal is None:
+            raise BackendError("invalid_edit", "No validated improvement proposal is bound to this draft")
+        if params.get("proposalId") != proposal.proposal_id or params.get("digest") != proposal.digest:
+            raise BackendError("invalid_edit", "This draft is not bound to the validated proposal")
+        draft_ids = self._draft_id_list(params.get("draftIds"))
+        if draft_fingerprint(proposal.edit_id, proposal.source_revision, draft_ids) != proposal.draft_fingerprint:
+            raise BackendError("stale_edit", "The draft changed; re-apply the validated improvement before saving")
+        try:
+            resolved = validate_improvement_proposal(
+                proposal.source_tokens, proposal.candidates_by_token, proposal.order_tokens
+            )
+        except ImprovementError as exc:
+            raise BackendError(exc.code, str(exc)) from exc
+        if tuple(resolved) != proposal.after_paths:
+            raise BackendError("invalid_edit", "The stored improvement proposal is inconsistent")
+        name = _text(params.get("name"), "playlist name")
+        saved = self.backend.playlists.compare_and_update(
+            session.original, name=name, track_paths=list(proposal.after_paths)
+        )
+        if saved is None:
+            raise BackendError(
+                "stale_edit", "The saved playlist changed; discard this draft and reopen the current version"
+            )
+        return self._open(saved)
+
     @staticmethod
     def _summary(playlist: Playlist) -> dict[str, Any]:
         return {
@@ -247,6 +284,8 @@ class PlaylistEditor:
         session = self._current(params.get("editId"), require_revision=method != "playlist.edit.discard")
         if method == "playlist.edit.discard":
             return self._open(self._get(_playlist_id(session.original.id)))
+        if method == "playlist.edit.save_improvement":
+            return self._save_improvement(session, params)
         paths = self._paths(session, params.get("trackIds"))
         if method == "playlist.edit.save":
             name = _text(params.get("name"), "playlist name")
