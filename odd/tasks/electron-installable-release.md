@@ -126,9 +126,14 @@ rather than silently assuming it.
    touching existing userData or the live library. Acceptance: a clean
    `userData`/session/log/crash profile launches the installed app; the existing
    owner profile and real music library are provably untouched; the packaged app
-   is not inferred safe from development `XFIN_DATA_DIR` alone. Ask the owner for
-   approval before creating an OS account or making any destructive change.
-   Evidence: pending.
+   is not inferred safe from development `XFIN_DATA_DIR` alone. Owner approval
+   to create a separate standard account was received, but none was created:
+   the selected computer-use CLI `orca` failed with exit 127 (not installed).
+   The only local human account is `freddymolina` (UID 501), whose XfinAudio
+   userData already exists. No app launch or live-profile write occurred.
+   - [ ] Create a standard macOS test account through local System Settings;
+     never transmit the admin password in chat. Verify it is clean before launch.
+   Evidence: blocked on that account; install, launch and profile paths pending.
 5. [ ] Run functional personal acceptance on the final artifact bytes: listening
    playback (preview, pause, seek/resume, switch), library/metadata scanning on
    fixtures, and a safe Serato crate export; optionally repeat on the owner's real
@@ -144,7 +149,8 @@ rather than silently assuming it.
 Work units 1–3 have verified outcomes. The real app and QA DMG are tied to
 source commit `6c045f3`, not later documentation commits. Work unit 4 must map
 an isolated first-launch profile before copying or opening the app, and may not
-touch existing userData or the live music library. Creating an OS account or
-performing destructive changes needs separate approval. Work unit 5 remains
+touch existing userData or the live music library. The user approved a standard
+test account, but local UI automation is unavailable; account creation is a
+manual prerequisite, not evidence of a completed installation. Work unit 5 remains
 functional personal listening, library and Serato-export acceptance. No push,
 PR, merge, publication or distribution legal clearance is claimed.
