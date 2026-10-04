@@ -85,6 +85,7 @@ let renderProfileSettings=():void=>{};
 const profilesAvailable=():boolean=>typeof api?.getProfileStatus==='function'&&typeof api?.completeProfiles==='function';
 const profileSettingsAvailable=():boolean=>typeof api?.getProfileSettings==='function'&&typeof api?.saveProfileSettings==='function';
 let libraryBootstrapped = false;
+let libraryBootError: string | null = null;
 let preferencesBootstrapPending = typeof api?.getPreferences === 'function' && typeof api?.savePreferences === 'function';
 let statusBootstrapPending = Boolean(api?.getLibraryStatus);
 let editorDirty = false;
@@ -426,6 +427,21 @@ function acceptLibraryStatus(status: LibraryStatus): void {
 function loadLibraryStatus(): Promise<void> {
   return perform('library-status', 'Consultando estado de la biblioteca…', () => api.getLibraryStatus(), acceptLibraryStatus);
 }
+function bootstrapLibrary(): Promise<void> {
+  return perform('library', 'Cargando biblioteca…', () => api.listLibrary(), (result) => {
+    libraryBootError = null;
+    applyLibrary(result);
+    element('operation-status').hidden = true;
+    renderLibraryRecovery();
+  }, false, (error) => {
+    libraryBootError = userErrorMessage(error);
+    renderLibraryRecovery();
+  });
+}
+function retryLibraryBootstrap(): void {
+  if (!coreAvailable || gate.busy) return;
+  void bootstrapLibrary();
+}
 function refreshPreferenceLabelsIfNeeded(): boolean {
   if(!preferenceLabelsPending||!coreAvailable||gate.busy||!preferencesAvailable()||!preferences.snapshot||preferences.pending)return false;
   preferenceLabelsPending=false;
@@ -583,7 +599,12 @@ function renderTable(target: string, tracks: Track[]): void {
   table.append(head, body);
   element(target).replaceChildren(table);
 }
+function renderLibraryRecovery(): void {
+  element('library-recovery').hidden = libraryBootError === null;
+  element('library-recovery-message').textContent = libraryBootError ?? '';
+}
 function renderLibrary(): void {
+  renderLibraryRecovery();
   const complete = library.filter(hasPrepMetadata).length;
   for (const id of ['library-total', 'nav-library-count']) element(id).textContent = String(library.length);
   element('library-ready').textContent = String(complete);
@@ -918,6 +939,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-route]'
 element('export-library-worklist').addEventListener('click',()=>{if(libraryWorklist&&libraryStatus?.changeState!=='changed')openSerato(libraryWorklist,libraryWorklist.kind==='metadata'&&libraryWorklist.status==='complete'?'Metadatos completos':'Metadatos pendientes');});
 element('choose-library').addEventListener('click', () => scan());
 element('choose-library-empty').addEventListener('click', () => scan());
+element('library-retry').addEventListener('click', retryLibraryBootstrap);
 element('library-search').addEventListener('input', renderLibrary);
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
 element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
@@ -1028,10 +1050,7 @@ if (api) {
   });
   window.addEventListener('beforeunload', unsubscribe, { once: true });
   void loadCatalog();
-  void perform('library', 'Cargando biblioteca…', () => api.listLibrary(), (result) => {
-    applyLibrary(result);
-    element('operation-status').hidden = true;
-  });
+  void bootstrapLibrary();
 } else {
   showStatus('El servicio local no está disponible', 'Abre XfinAudio desde su aplicación de escritorio', true);
   syncControls();

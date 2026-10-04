@@ -1,0 +1,25 @@
+schema: gentle-ai.sdd-state.v1
+change: library-boot-recovery
+artifact_store: openspec
+status: verify
+created: 2026-10-03
+updated: 2026-10-03
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - ODD work unit 1 only; bounded first paint and the sealed QA artifact stay in their own work units.
+  - Focused RED/GREEN plus 205 focused renderer tests passed; the parent owns the full repository gate.
+  - A source fake-DOM test never proves the real Electron launch or the owner's empty-GUI cause.
