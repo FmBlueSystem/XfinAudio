@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
+from uuid import UUID
 
 import pytest
 
+from xfinaudio.application.playlist_edit_intents import validate_edit
 from xfinaudio.application.playlist_improvement import (
     MAX_CANDIDATES,
     MAX_DRAFT_TRACKS,
     MAX_REPLACEMENT_CANDIDATES,
     MAX_TOKEN_LENGTH,
+    MIN_IMPROVEMENT_TRACKS,
     ImprovementError,
     build_candidate_set,
+    build_improvement_proposal,
+    draft_fingerprint,
     generate_tokens,
+    proposal_digest,
+    track_id,
+    validate_improvement_proposal,
 )
 from xfinaudio.library.models import MetadataStatus, TrackRecord
 
@@ -320,3 +329,242 @@ def test_payload_discloses_only_bounded_fields_and_no_stable_identity() -> None:
     serialized = repr(payload)
     assert "/" not in serialized
     assert not re.search(r"[0-9a-f]{64}", serialized)
+
+
+# --- I1.5 / I1.6 token-only validator ------------------------------------------
+
+
+def authorized(count: int, *, factory_start: int = 0) -> tuple[dict[str, str], list[str]]:
+    tokens = generate_tokens(count, token_source=token_factory(factory_start))
+    return {token: f"path-{index}" for index, token in enumerate(tokens)}, list(tokens)
+
+
+def test_validator_resolves_authorized_tokens_to_paths() -> None:
+    mapping, tokens = authorized(4)
+    source = tokens[:2]
+    ordered = [tokens[1], tokens[3]]
+    assert validate_improvement_proposal(source, mapping, ordered) == ("path-1", "path-3")
+
+
+def test_validator_allows_reorder_removal_and_bounded_addition() -> None:
+    mapping, tokens = authorized(4)
+    source = tokens[:3]
+    assert validate_improvement_proposal(source, mapping, [tokens[1], tokens[0]]) == ("path-1", "path-0")
+    assert validate_improvement_proposal(source, mapping, [tokens[1], tokens[2], tokens[3]]) == (
+        "path-1",
+        "path-2",
+        "path-3",
+    )
+
+
+@pytest.mark.parametrize("ordered", [[], ["unknown-token-value"]])
+def test_validator_rejects_empty_and_unknown_orders(ordered: list[str]) -> None:
+    mapping, tokens = authorized(3)
+    with pytest.raises(ImprovementError) as error:
+        validate_improvement_proposal(tokens[:2], mapping, ordered)
+    assert error.value.code == "invalid_improvement"
+
+
+def test_validator_rejects_out_of_scope_token() -> None:
+    mapping, tokens = authorized(3)
+    outside = generate_tokens(1, token_source=token_factory(500))[0]
+    with pytest.raises(ImprovementError):
+        validate_improvement_proposal(tokens[:2], mapping, [tokens[0], outside])
+
+
+def test_validator_rejects_duplicate_tokens() -> None:
+    mapping, tokens = authorized(3)
+    with pytest.raises(ImprovementError) as error:
+        validate_improvement_proposal(tokens[:2], mapping, [tokens[0], tokens[0]])
+    assert error.value.code == "invalid_improvement"
+
+
+def test_validator_rejects_source_token_outside_the_request() -> None:
+    mapping, tokens = authorized(3)
+    outside = generate_tokens(1, token_source=token_factory(500))[0]
+    with pytest.raises(ImprovementError):
+        validate_improvement_proposal([tokens[0], outside], mapping, tokens[:2])
+
+
+@pytest.mark.parametrize("bad", ["a" * 64, "A" * 16, "", "token", 12, None])
+def test_validator_rejects_non_token_members(bad: object) -> None:
+    mapping, tokens = authorized(3)
+    with pytest.raises(ImprovementError):
+        validate_improvement_proposal(tokens[:2], mapping, [tokens[0], bad])  # type: ignore[list-item]
+
+
+def test_validator_rejects_additions_beyond_pool_cap() -> None:
+    mapping, tokens = authorized(MIN_IMPROVEMENT_TRACKS + MAX_REPLACEMENT_CANDIDATES + 1)
+    source = tokens[:MIN_IMPROVEMENT_TRACKS]
+    additions = tokens[MIN_IMPROVEMENT_TRACKS:]
+    assert len(additions) == MAX_REPLACEMENT_CANDIDATES + 1
+    with pytest.raises(ImprovementError) as error:
+        validate_improvement_proposal(source, mapping, [*source, *additions])
+    assert "20" in str(error.value)
+
+
+def test_validator_honors_explicit_addition_cap() -> None:
+    mapping, tokens = authorized(4)
+    source = tokens[:2]
+    with pytest.raises(ImprovementError):
+        validate_improvement_proposal(source, mapping, [tokens[0], tokens[2]], max_additions=0)
+    assert validate_improvement_proposal(source, mapping, [tokens[0], tokens[2]], max_additions=1) == (
+        "path-0",
+        "path-2",
+    )
+
+
+def test_validator_rejects_result_below_minimum() -> None:
+    mapping, tokens = authorized(3)
+    with pytest.raises(ImprovementError) as error:
+        validate_improvement_proposal(tokens[:2], mapping, [tokens[0]])
+    assert error.value.code == "invalid_improvement"
+
+
+def test_validator_rejects_oversized_result_and_source() -> None:
+    mapping, tokens = authorized(MAX_DRAFT_TRACKS + 1)
+    with pytest.raises(ImprovementError) as result_error:
+        validate_improvement_proposal(tokens[:2], mapping, tokens)
+    assert result_error.value.code == "ai_context_too_large"
+    with pytest.raises(ImprovementError) as source_error:
+        validate_improvement_proposal(tokens, mapping, tokens[:2])
+    assert source_error.value.code == "ai_context_too_large"
+
+
+def test_validator_honors_explicit_total_cap() -> None:
+    mapping, tokens = authorized(6)
+    with pytest.raises(ImprovementError):
+        validate_improvement_proposal(tokens[:2], mapping, tokens[2:], max_total=3)
+    assert validate_improvement_proposal(tokens[:2], mapping, tokens[2:], max_total=4) == (
+        "path-2",
+        "path-3",
+        "path-4",
+        "path-5",
+    )
+
+
+def test_validator_returns_resolved_paths_and_never_tokens() -> None:
+    mapping, tokens = authorized(3)
+    resolved = validate_improvement_proposal(tokens[:2], mapping, [tokens[1], tokens[2]])
+    assert resolved == (mapping[tokens[1]], mapping[tokens[2]])
+    assert all(not TOKEN_PATTERN.fullmatch(path) for path in resolved)
+
+
+def test_manual_save_path_still_rejects_additions() -> None:
+    with pytest.raises(ValueError):
+        validate_edit(["a", "b"], ["a", "b", "c"])
+    with pytest.raises(ValueError):
+        validate_edit(["a", "b"], ["a", "a"])
+    validate_edit(["a", "b"], ["b", "a"])
+
+
+# --- I1.7 / I1.8 proposal binding, digest, and exact-order resolution ----------
+
+
+def test_track_id_matches_the_renderer_public_identity() -> None:
+    path = "/music/song.flac"
+    assert track_id(path) == hashlib.sha256(path.encode("utf-8")).hexdigest()
+
+
+def test_proposal_binds_session_revision_draft_order_and_resolved_order() -> None:
+    paths = ["a", "b", "c"]
+    candidate_set = build_candidate_set(paths, records_for(paths), token_source=token_factory())
+    tokens = list(candidate_set.draft_tokens)
+    proposal = build_improvement_proposal(
+        edit_id="edit-id",
+        source_revision="revision",
+        before_paths=paths,
+        candidate_set=candidate_set,
+        ordered_tokens=[tokens[1], tokens[2]],
+    )
+    assert str(UUID(proposal.proposal_id)) == proposal.proposal_id
+    assert proposal.edit_id == "edit-id"
+    assert proposal.source_revision == "revision"
+    assert proposal.before_paths == ("a", "b", "c")
+    assert proposal.after_paths == ("b", "c")
+    assert proposal.source_tokens == tuple(tokens)
+    assert proposal.order_tokens == (tokens[1], tokens[2])
+    assert dict(proposal.candidates_by_token) == dict(candidate_set.paths_by_token)
+    applied_ids = [track_id(path) for path in proposal.after_paths]
+    assert proposal.draft_fingerprint == draft_fingerprint("edit-id", "revision", applied_ids)
+    assert proposal.digest == proposal_digest(
+        "edit-id",
+        "revision",
+        proposal.draft_fingerprint,
+        proposal.before_paths,
+        proposal.after_paths,
+        proposal.candidates_by_token,
+    )
+
+
+def test_proposal_digest_is_deterministic_and_covers_every_binding() -> None:
+    paths = ["a", "b", "c"]
+    candidate_set = build_candidate_set(paths, records_for(paths), token_source=token_factory())
+    tokens = list(candidate_set.draft_tokens)
+
+    def make(*, revision: str, order: list[str], before: list[str] = paths):
+        return build_improvement_proposal(
+            edit_id="edit-id",
+            source_revision=revision,
+            before_paths=before,
+            candidate_set=candidate_set,
+            ordered_tokens=order,
+        )
+
+    first = make(revision="r1", order=[tokens[0], tokens[1]])
+    repeat = make(revision="r1", order=[tokens[0], tokens[1]])
+    other_revision = make(revision="r2", order=[tokens[0], tokens[1]])
+    other_order = make(revision="r1", order=[tokens[1], tokens[0]])
+    other_before = make(revision="r1", order=[tokens[0], tokens[1]], before=["a", "b", "c", "d"])
+    assert repeat.digest == first.digest
+    assert repeat.proposal_id != first.proposal_id
+    assert len({first.digest, other_revision.digest, other_order.digest, other_before.digest}) == 4
+    assert first.draft_fingerprint != other_order.draft_fingerprint
+
+
+def test_build_proposal_rejects_an_order_outside_the_authorized_set() -> None:
+    paths = ["a", "b"]
+    candidate_set = build_candidate_set(paths, records_for(paths), token_source=token_factory())
+    outside = generate_tokens(1, token_source=token_factory(500))[0]
+    with pytest.raises(ImprovementError):
+        build_improvement_proposal(
+            edit_id="edit-id",
+            source_revision="revision",
+            before_paths=paths,
+            candidate_set=candidate_set,
+            ordered_tokens=[candidate_set.draft_tokens[0], outside],
+        )
+
+
+def test_proposal_digest_covers_the_authorized_token_map() -> None:
+    paths = ["a", "b"]
+    first_set = build_candidate_set(paths, records_for(paths), token_source=token_factory())
+    second_set = build_candidate_set(paths, records_for(paths), token_source=token_factory(100))
+
+    def make(candidate_set):
+        return build_improvement_proposal(
+            edit_id="edit-id",
+            source_revision="revision",
+            before_paths=paths,
+            candidate_set=candidate_set,
+            ordered_tokens=list(candidate_set.draft_tokens),
+        )
+
+    first, second = make(first_set), make(second_set)
+    assert first.after_paths == second.after_paths == ("a", "b")
+    assert first.source_tokens != second.source_tokens
+    assert first.digest != second.digest
+
+
+def test_build_proposal_honors_an_explicit_identity() -> None:
+    paths = ["a", "b"]
+    candidate_set = build_candidate_set(paths, records_for(paths), token_source=token_factory())
+    proposal = build_improvement_proposal(
+        edit_id="edit-id",
+        source_revision="revision",
+        before_paths=paths,
+        candidate_set=candidate_set,
+        ordered_tokens=list(candidate_set.draft_tokens),
+        proposal_id="chosen-identity",
+    )
+    assert proposal.proposal_id == "chosen-identity"
