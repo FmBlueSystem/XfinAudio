@@ -1,7 +1,7 @@
 schema: gentle-ai.sdd-state.v1
 change: electron-dmg-local-validation
 artifact_store: openspec
-status: apply
+status: verify
 created: 2026-10-03
 updated: 2026-10-03
 strict_tdd: true
@@ -10,9 +10,9 @@ phases:
   specs: complete
   design: complete
   tasks: complete
-  apply: in-progress
-  verify: pending
-next_recommended: apply
+  apply: complete
+  verify: complete
+next_recommended: owner_authorized_real_v11_build
 blocked_reasons:
   - Real .app/DMG build waits for the owner's exact V11 seal and authorization.
   - Developer ID identity is absent; signing/notarization stay unit 3.
@@ -22,5 +22,12 @@ delivery:
   chain_strategy: feature-branch-chain
   review_budget_changed_lines: 400
 notes:
-  - Documentation-only slice; future behavior slice is strict TDD and under 400 lines.
+  - Behavior slice committed as 3fabf88 (392 added lines, <400) under strict TDD;
+    synthetic fake hdiutil runner only, no real app/DMG/codesign call.
+  - Canonical release_gate_check.py --run exited 0 (4205 pytest passed, 94.45%
+    coverage vs 89 floor, pyright 0, ruff/smoke/source hygiene green).
+  - QA-only implementation verified; the broader work unit 2 stays open until a real
+    artifact exists. Real .app/DMG QA still needs the owner's exact V11 seal and
+    authorization; Developer ID is unavailable.
+  - Native RDD inspect/assess is pending until the docs evidence commit.
   - No electron-builder, no legacy Qt DMG script, build.py untouched.

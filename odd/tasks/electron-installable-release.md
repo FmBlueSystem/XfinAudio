@@ -44,11 +44,22 @@ tag, draft release, or ad-hoc-signed app does not satisfy this goal.
    name, stages the app with an `/Applications` symlink, runs `hdiutil create`/`verify`,
    writes a sibling SHA-256 and QA provenance, rejects existing output, source-tree
    output and symlink escapes, and never modifies the sealed app.
-   Slice 2 (behavior, strict TDD, <400 lines): synthetic-hdiutil tests then the module.
-   No real `.app` or DMG build until the owner supplies the exact V11 seal and
-   authorization per `packaging/macos/README.md`; Developer ID is absent; no
-   electron-builder, no legacy Qt DMG script, and `build.py` stays untouched.
-   Evidence: pending.
+   Slice 2 (behavior, strict TDD, <400 lines): planning commit `ed855c9`
+   (209 lines), then behavior commit `3fabf88` (392 added lines:
+   `packaging/macos/dmg.py` 152, `tests/test_macos_dmg.py` 224, README 16). RED failed
+   15 tests on the missing module; a second RED covered two safety defects (streaming
+   digest and partial-evidence cleanup), then GREEN. Final focused
+   `uv run pytest tests/test_macos_dmg.py tests/test_macos_recipe.py -q`: 28 passed;
+   ruff/format/pyright clean on the changed files; canonical
+   `uv run python scripts/release_gate_check.py --run` exit 0 (4205 pytest passed,
+   94.45% coverage vs 89 floor, pyright 0, ruff/smoke/source hygiene green).
+   Synthetic fake runner only: no real app, DMG or `hdiutil` call. No real `.app` or
+   DMG build until the owner supplies the exact V11 seal and authorization per
+   `packaging/macos/README.md`; Developer ID is unavailable; no electron-builder, no
+   legacy Qt DMG script, and `build.py` stays untouched.
+   Evidence status: QA-only implementation verified; no real artifact, full delivery,
+   clean-account open or clean-account QA result yet, so this work unit stays `[ ]`.
+   Native RDD inspect/assess is pending until the docs evidence commit.
 3. [ ] Add Developer ID signing and notarization for that exact Electron build.
    Acceptance: `codesign`, `spctl`, stapling and clean-account Gatekeeper checks
    pass on the final DMG. Blocked until the owner supplies a valid identity and
