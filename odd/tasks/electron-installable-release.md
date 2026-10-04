@@ -58,7 +58,7 @@ rather than silently assuming it.
    slice: medium risk, `reviewDue: false` (`under_budget`), `consumed: false`.
    INSPECT found no pending workspace diff, so no START was offered; no review
    receipt, approval, or delivery authority is claimed.
-2. [ ] Assemble and verify the exact, frozen inputs for a real local build.
+2. [x] Assemble and verify the exact, frozen inputs for a real local build.
    Required inputs: the owner's exact-source gate report plus a zero-skip
    Electron suite result for the same source seal, a native pinned environment
    (`uv pip sync --require-hashes` against the packaging lock), and the trusted
@@ -66,8 +66,14 @@ rather than silently assuming it.
    Acceptance: every input is hash-recorded, tied to the recorded source commit,
    and re-checked against that seal; nothing is resolved from unknown downloads;
    generated reports stay outside the source tree.
-   Status: in progress. QA-only prototype slices complete; the real-artifact
-   build is not (see work unit 3).
+   Status: verified for source commit `6c045f333baa76afcfe599ce900b1414a90c1ade`
+   and source digest `a38ff0fbfc260eb3f69c8dab91d6559c7e42005c75ade26deebb984d5e1e8f68`.
+   Raw gates passed 10/10; the separately preserved sealed report includes the
+   observed Qt-free Electron result (429 passed, zero skipped). Node 24.4.1,
+   Electron 44.5.1 arm64 and the 37-package hash-locked native Python environment
+   were checked; the 92-member Homebrew FFmpeg arm64 closure and every binary hash
+   matched its external manifest. The external license directory holds 95 copied
+   texts and discloses one missing leptonica text; personal use only, not clearance.
    Scoped change: `openspec/changes/electron-dmg-local-validation`.
    Slice 1 (docs only): specifies a separate credential-free `packaging/macos/dmg.py`
    that consumes an already-built `XfinAudio Next.app` and its sibling
@@ -95,8 +101,12 @@ rather than silently assuming it.
    returned `empty_candidate_base_ref_required`; no START route was offered, no
    lineage or review receipt exists. The exact code commit has not been separately
    ASSESSed; do not infer review approval from the branch state.
-   No real artifact, clean-profile install or functional QA result yet, so this
-   work unit stays `[ ]` pending the frozen inputs above.
+   Build inputs and raw/sealed reports are preserved under
+   `/Users/freddymolina/Desktop/XfinAudio-personal-qa-6c045f3/`; source stayed
+   clean and unchanged throughout the gate and build. A real app and QA image
+   were subsequently generated from this frozen source; see work unit 3 for
+   their independent integrity evidence. Clean-profile launch and audio QA
+   remain separate work units.
 3. [ ] Build the real `.app` and the QA-only DMG, both external to the source
    tree, from the frozen seal of work unit 2. Acceptance: one documented
    invocation of `packaging/macos/build.py` yields `XfinAudio Next.app` outside
