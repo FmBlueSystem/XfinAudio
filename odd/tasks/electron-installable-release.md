@@ -107,17 +107,21 @@ rather than silently assuming it.
    were subsequently generated from this frozen source; see work unit 3 for
    their independent integrity evidence. Clean-profile launch and audio QA
    remain separate work units.
-3. [ ] Build the real `.app` and the QA-only DMG, both external to the source
-   tree, from the frozen seal of work unit 2. Acceptance: one documented
-   invocation of `packaging/macos/build.py` yields `XfinAudio Next.app` outside
-   source, then `packaging/macos/dmg.py` yields `XfinAudio Next QA.dmg`; the
-   ad-hoc `codesign` signature verifies, `hdiutil verify` passes, the sibling
-   `.sha256` matches the produced bytes, and no project-root `build/` or `dist/`
-   artifact appears. The Gatekeeper manual-open caveat (an unsigned/ad-hoc app is
-   refused on first launch until the owner opens it explicitly) is documented
-   with the artifact. Developer ID signing and notarization remain out of scope
-   for this personal target.
-   Evidence: pending.
+3. [x] Build the real `.app` and the QA-only DMG outside the source tree from
+   frozen source commit `6c045f333baa76afcfe599ce900b1414a90c1ade`.
+   Evidence: one `packaging/macos/build.py` run created the 684 MB arm64
+   `XfinAudio Next.app` with a post-signing native manifest and valid ad-hoc
+   `codesign --verify --deep --strict`; one `packaging/macos/dmg.py` run created
+   `/Users/freddymolina/Desktop/XfinAudio-personal-qa-6c045f3/app-build/XfinAudio Next QA.dmg`
+   (315853849 bytes). Its SHA-256 is
+   `5f973b9cb507f77827ba5d908e9fbcec6c1f773655303ef1045406b157586ae8`;
+   the sibling checksum and provenance agree. Independent read-only mounting
+   confirmed only the app and `/Applications` shortcut, arm64 2.2.0 identity,
+   signatures and embedded source seal; `hdiutil verify` passed and the image
+   detached cleanly. No project-root `build/` or `dist/`; worktree was clean
+   during build. `PERSONAL-QA-README.md` beside the image records per-app
+   Gatekeeper manual-open guidance; Developer ID/notarization are unnecessary
+   for this personal target. No installation or launch is claimed here.
 4. [ ] Install and launch the real artifact in an isolated clean profile without
    touching existing userData or the live library. Acceptance: a clean
    `userData`/session/log/crash profile launches the installed app; the existing
@@ -137,16 +141,10 @@ rather than silently assuming it.
 
 ## Current task
 
-Work unit 1 is closed. Work unit 2 is in progress: the QA-image builder is
-verified as three local commits — `ed855c9` (planning), `3fabf88` (code, tests and
-README), `50c7271` (verification evidence) — and each slice stays under 400
-changed lines. Next, record the exact source commit and freeze it, then integrate
-the exact-source gate report with the zero-skip Electron result, the native pinned
-environment, and the trusted local arm64 FFmpeg closure hash manifest plus its
-license inputs. Only after that does work unit 3 build the real `.app` and QA DMG
-outside the source tree for `codesign`/`hdiutil`/hash verification, followed by
-work unit 4's isolated clean-profile install/launch and work unit 5's functional
-personal acceptance. Generated reports and artifacts stay outside `source_digest`
-scope throughout; no false completion is claimed while any unit is pending. No
-push, PR, merge or publication is authorized, and no distribution legal clearance
-is claimed.
+Work units 1–3 have verified outcomes. The real app and QA DMG are tied to
+source commit `6c045f3`, not later documentation commits. Work unit 4 must map
+an isolated first-launch profile before copying or opening the app, and may not
+touch existing userData or the live music library. Creating an OS account or
+performing destructive changes needs separate approval. Work unit 5 remains
+functional personal listening, library and Serato-export acceptance. No push,
+PR, merge, publication or distribution legal clearance is claimed.
