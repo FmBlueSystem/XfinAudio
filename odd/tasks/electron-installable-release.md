@@ -28,7 +28,14 @@ tag, draft release, or ad-hoc-signed app does not satisfy this goal.
    OpenSpec change; avoid changing Python routes unless the invariant requires it.
    Acceptance: every allowed UI method reaches exactly one handler; unknown or
    unhandled methods fail explicitly, and a regression test catches drift.
-   Evidence: pending (commit, tests, runtime check, RDD result).
+   Evidence: verification complete — RED observed (`AssertionError: R1: action()
+   must end in a throwing default arm`, exit 1), GREEN observed (focused guard
+   exit 0), full Electron suite exit 0 (429 tests, 418 pass, 11 pre-existing
+   skips, 0 fail), Qt-free wrapper exit 0 (429/429, 0 skipped), repo gate exit 0
+   (4189 pytest passed, 94.45% coverage, pyright 0, ruff pass), drift
+   triangulation passes; independent verifier corroborated. Still pending: the
+   conventional commit on `feat/electron-ipc-contract` and the RDD/native review
+   result.
 2. [ ] Build a reproducible Electron macOS installer from an exact source commit,
    with bundled core, notices, provenance, checksum, and no project-root build
    artifacts. Acceptance: one documented invocation yields a DMG that opens on
@@ -55,12 +62,19 @@ Work unit 1 proceeds as two local commits on `feat/electron-ipc-contract`; no
 push, PR, merge or publish is authorized. The earlier pause held because 473 SDD
 artifact lines plus this plan exceed the 400-line budget as one commit.
 
-- Slice A (documentation planning only): this plan, the change's
-  `proposal/spec/design/tasks/state`, and minimal `apply-progress`/`verify-report`
-  placeholders. Rollback: revert the docs-only commit. Checks: `git show --stat`
-  lists only `odd/tasks/` and the change directory.
+- Slice A (documentation planning only): committed as
+  `2422ffc7fa9cd02fcd2b0f7e138b1df092674723` (393 added lines). It contains
+  this plan, `proposal/spec/design/tasks/state`, and minimal `apply-progress`/
+  `verify-report` placeholders. Rollback: revert that docs-only commit. The
+  staged index check confirmed only these paths and no whitespace errors.
 - Slice B (behavior, strict TDD): the one-line fail-closed `default` arm in
-  `main.ts`, the guard test, and the expanded progress/report. Rollback: revert
-  that single commit. Checks: the verify commands in `tasks.md`, in order.
+  `main.ts`, the guard test (`desktop-electron/tests/ipc-contract.test.mjs`, now 63 readable lines
+  with the R1 assertion at line 42; at the observed RED it was a 22-line file with R1 at line 14),
+  and the expanded progress/report. Rollback: revert
+  that single commit. Checks: the verify commands in `tasks.md`, in order. Status:
+  RED/GREEN/triangulation and all four contract commands are observed green (Qt-free
+  wrapper 429/429 with 0 skips; repo gate exit 0), independently corroborated. The
+  Slice B commit and the RDD/native review remain pending; no commit has been made in
+  this session.
 
 Both slices stay under 400 added lines; unit 3 keeps its external credential blocker.

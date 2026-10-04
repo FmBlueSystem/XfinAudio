@@ -178,6 +178,7 @@ async function action(method:string,raw:unknown) {
       return {...result,savedPlaylistId:String(result.id),reviewId:'',variant:'saved',canSave:false,warnings:result.missingTrackCount?[`${result.missingTrackCount} pistas no disponibles`]:[],blockers:[],readiness:'needs_review'};
     }
     case 'cancelCurrent':if(profiles.busy)return profiles.cancel();if(optionalAi.asking)return optionalAi.cancel();if(loudness.busy)return loudness.cancel();return current&&['library.scan','library.rescan','prep.generate','prep.select'].includes(current.method)?core.request('cancel',{jobId:current.id}):{cancelled:false};
+    default:throw new Error('Unsupported action');
   }
 }
 async function start() {

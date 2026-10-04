@@ -5,19 +5,24 @@ commits on `feat/electron-ipc-contract`; no push, PR or merge.
 
 - [x] Slice A (documentation planning only): author proposal, spec, design and tasks with minimal
       `apply-progress.md` / `verify-report.md` placeholders; no source or test file
-- [ ] Slice A commit checks: `git show --stat HEAD` lists only `odd/tasks/` and the change
+- [x] Slice A commit checks: `git show --stat HEAD` lists only `odd/tasks/` and the change
       directory; `git diff --name-only HEAD~1 HEAD` matches no `src/` or `tests/` path
-- [ ] Slice A rollback: revert the docs-only commit; no runtime, schema or dependency effect
-- [ ] RED: add `desktop-electron/tests/ipc-contract.test.mjs`; capture the failure of the R1
+      (observed on `2422ffc`)
+- [ ] Slice A rollback: not executed — no revert was needed; the commit touches only
+      `odd/tasks/` and the change directory, so no runtime, schema or dependency effect exists
+- [x] RED: added `desktop-electron/tests/ipc-contract.test.mjs`; observed failure of the R1
       fail-closed assertion (no `default` arm in the `action()` switch, `main.ts:109-181`)
-- [ ] GREEN: add `default:throw new Error('Unsupported action');` as the final arm of `action()`
-      (`main.ts`, after the `cancelCurrent` case at `main.ts:180`); capture the focused test passing
-- [ ] TRIANGULATE: confirm the guard fails for a removed switch case, a removed allowlist key and a
-      preload key/method mismatch (temporary local mutation of the test inputs only; no committed
-      source change beyond the `default` arm)
-- [ ] REFACTOR: keep the extraction helpers readable; focused test stays green
-- [ ] VERIFY: run the exact commands below and record observed output in `verify-report.md`
-- [ ] Update `state.yaml` to the verify phase
+- [x] GREEN: added `default:throw new Error('Unsupported action');` as the final arm of `action()`
+      (`main.ts`, after the `cancelCurrent` case); observed the focused test passing
+- [x] TRIANGULATE: confirmed the guard fails for a removed switch case (real, temporary
+      `main.ts` mutation, reverted), a removed allowlist key and a preload key/method mismatch
+      (in-memory simulation through the exact guard regexes; the disallowed files were not written)
+- [x] REFACTOR: extraction kept readable — a single `keysBetween` helper plus inline
+      slice/`matchAll` sets; focused test stays green (63 lines, R1 assertion at line 42)
+- [x] VERIFY: all four contract commands were executed and are green, recorded in
+      `verify-report.md` — focused guard (RED then GREEN), full local Electron suite, Qt-free
+      `scripts/electron_ci_check.py` (429/429, 0 skipped) and `release_gate_check.py --run` (exit 0)
+- [x] Updated `state.yaml` to `verify: complete` (all four scoped commands observed)
 
 ## Exact commands (verify)
 
@@ -59,6 +64,7 @@ cancellation or TODO.
 
 ## Budget
 
-Slice A: documentation only, under 400 added lines. Slice B: +1 production line, ~45 test lines,
-expanded progress/report, under 400 added lines. Slice B rollback: revert the single commit
+Slice A: documentation only, under 400 added lines. Slice B: +1 production line, plus a guard test
+that applied at 63 readable lines (design forecast ~45), expanded progress/report, under 400 added
+lines. Slice B rollback: revert the single commit
 (one-line `main.ts` removal plus the test file); no migration. Checks: the exact commands above.

@@ -14,9 +14,10 @@ dependency changes.
 | File | Change | Lines |
 |---|---|---|
 | `desktop-electron/src/main.ts` | Add `default:throw new Error('Unsupported action');` as the final arm of the `action()` switch (after `main.ts:180`, before the switch close at `main.ts:181`) | +1 |
-| `desktop-electron/tests/ipc-contract.test.mjs` | New focused guard test | ~45 |
+| `desktop-electron/tests/ipc-contract.test.mjs` | New focused guard test (design forecast ~45 lines; applied as 63 readable lines) | ~45 → 63 |
 
-Total ~46 changed lines, within the 400-line review budget.
+Planned total ~46 changed lines. As applied, the slice is +1 production line plus the 63-line guard
+test (~64 changed lines), still within the 400-line review budget.
 
 ## Guard test design
 
