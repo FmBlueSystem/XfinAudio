@@ -122,18 +122,17 @@ rather than silently assuming it.
    during build. `PERSONAL-QA-README.md` beside the image records per-app
    Gatekeeper manual-open guidance; Developer ID/notarization are unnecessary
    for this personal target. No installation or launch is claimed here.
-4. [ ] Install and launch the real artifact in an isolated clean profile without
-   touching existing userData or the live library. Acceptance: a clean
-   `userData`/session/log/crash profile launches the installed app; the existing
-   owner profile and real music library are provably untouched; the packaged app
-   is not inferred safe from development `XFIN_DATA_DIR` alone. Owner approval
-   to create a separate standard account was received, but none was created:
-   the selected computer-use CLI `orca` failed with exit 127 (not installed).
-   The only local human account is `freddymolina` (UID 501), whose XfinAudio
-   userData already exists. No app launch or live-profile write occurred.
-   - [ ] Create a standard macOS test account through local System Settings;
-     never transmit the admin password in chat. Verify it is clean before launch.
-   Evidence: blocked on that account; install, launch and profile paths pending.
+4. [ ] Open the real app for the owner's personal use in the existing macOS
+   account, then verify its first-launch behavior and actual
+   `userData`/session/log/crash paths. The owner explicitly declined the extra
+   test-account requirement; no separate account is needed for personal use.
+   Existing `~/Library/Application Support/XfinAudio Next` has live data, so a
+   launch may change it. Recommend a backup before opening; never claim that
+   live data remained untouched or that clean-account QA passed. Packaged mode
+   ignores development `XFIN_DATA_DIR`. The selected UI CLI `orca` is unavailable
+   (exit 127), so the agent cannot drive Finder or inspect the app window here.
+   Evidence: DMG mounted read-only; app not launched or installed, profile effects
+   unknown. The owner can open it locally after considering the data risk.
 5. [ ] Run functional personal acceptance on the final artifact bytes: listening
    playback (preview, pause, seek/resume, switch), library/metadata scanning on
    fixtures, and a safe Serato crate export; optionally repeat on the owner's real
@@ -147,10 +146,10 @@ rather than silently assuming it.
 ## Current task
 
 Work units 1–3 have verified outcomes. The real app and QA DMG are tied to
-source commit `6c045f3`, not later documentation commits. Work unit 4 must map
-an isolated first-launch profile before copying or opening the app, and may not
-touch existing userData or the live music library. The user approved a standard
-test account, but local UI automation is unavailable; account creation is a
-manual prerequisite, not evidence of a completed installation. Work unit 5 remains
-functional personal listening, library and Serato-export acceptance. No push,
+source commit `6c045f3`, not later documentation commits. The owner now wants
+first launch in their existing macOS account; a separate test account is not a
+prerequisite. Warn that existing XfinAudio userData can change and offer a backup
+before opening. UI automation is unavailable, so no app launch or installation
+has been observed. Work unit 5 remains functional personal listening, library
+and Serato-export acceptance. No push,
 PR, merge, publication or distribution legal clearance is claimed.
