@@ -69,3 +69,19 @@ pause/seek/resume/switch. Packaged Electron intentionally ignores development
 XFIN_DATA_DIR: QA must first verify its actual userData/session/log/crash paths
 under a new canonical profile using the approved native launch flow. Never infer
 isolation from that development variable alone or select real legacy data.
+
+## QA-only local DMG
+
+```
+MAC_FREEZER_PYTHON packaging/macos/dmg.py --app NEW_EXTERNAL_BUILD/"XfinAudio Next.app" \
+  --expected-source-sha256 EXACT_V11_SEAL --output NEW_EXTERNAL_BUILD/"XfinAudio Next QA.dmg"
+```
+
+The basename is fixed to `XfinAudio Next QA.dmg`. From a self-derived source root, the
+module rejects an existing output/evidence, an output inside that root, a manifest
+that is not the exact `post-final-signing` seal, a missing declared notice or
+executable, and any staging symlink escaping the staged app except root
+`/Applications -> /Applications`; it then runs `hdiutil create`/`verify` and writes
+the sibling `.sha256`/`.provenance.json` for the exact bytes. This ad-hoc local QA
+image is not Developer ID-signed, notarized or Gatekeeper-approved, claims no UDZO
+byte-determinism, and still requires the owner's V11 seal.
