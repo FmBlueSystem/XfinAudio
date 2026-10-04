@@ -12,8 +12,15 @@ mapping a caller passes to :func:`validate_improvement_proposal`.
 
 from __future__ import annotations
 
+import math
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass
+from types import MappingProxyType
+
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.metadata.tempo import is_valid_bpm
+from xfinaudio.recommendation.camelot import CamelotKey, parse_camelot_key
 
 __all__ = [
     "MAX_CANDIDATES",
@@ -21,7 +28,10 @@ __all__ = [
     "MAX_REPLACEMENT_CANDIDATES",
     "MAX_TOKEN_LENGTH",
     "MIN_IMPROVEMENT_TRACKS",
+    "ImprovementCandidate",
+    "ImprovementCandidateSet",
     "ImprovementError",
+    "build_candidate_set",
     "generate_tokens",
 ]
 
@@ -53,6 +63,60 @@ class ImprovementError(ValueError):
         self.code = code
 
 
+@dataclass(frozen=True)
+class ImprovementCandidate:
+    """One authorized candidate: an ephemeral token plus locally disclosed metadata."""
+
+    token: str
+    path: str
+    title: str
+    artist: str
+    genre: str
+    bpm: float | None
+    camelot_key: str | None
+    energy_level: int | None
+    duration: float | None
+    metadata_status: str
+    missing_fields: tuple[str, ...]
+
+    def as_payload(self) -> dict[str, object]:
+        """Return the bounded field set the provider may receive. Never includes the path."""
+        return {
+            "token": self.token,
+            "title": self.title,
+            "artist": self.artist,
+            "genre": self.genre,
+            "bpm": self.bpm,
+            "key": self.camelot_key,
+            "energy": self.energy_level,
+            "duration": self.duration,
+            "status": self.metadata_status,
+            "missingFields": list(self.missing_fields),
+        }
+
+
+@dataclass(frozen=True)
+class ImprovementCandidateSet:
+    """Immutable request-scoped candidate set: draft tokens first, then pool tokens."""
+
+    draft_tokens: tuple[str, ...]
+    replacement_tokens: tuple[str, ...]
+    candidates: tuple[ImprovementCandidate, ...]
+
+    @property
+    def tokens(self) -> tuple[str, ...]:
+        return tuple(candidate.token for candidate in self.candidates)
+
+    @property
+    def candidates_by_token(self) -> Mapping[str, ImprovementCandidate]:
+        return MappingProxyType({candidate.token: candidate for candidate in self.candidates})
+
+    @property
+    def paths_by_token(self) -> Mapping[str, str]:
+        """The only local token-to-path resolution surface. Never disclosed."""
+        return MappingProxyType({candidate.token: candidate.path for candidate in self.candidates})
+
+
 def generate_tokens(count: int, *, token_source: TokenSource | None = None) -> tuple[str, ...]:
     """Return ``count`` unique 16-hex tokens for one request only."""
     if type(count) is not int or count < 0 or count > MAX_CANDIDATES:
@@ -65,6 +129,43 @@ def generate_tokens(count: int, *, token_source: TokenSource | None = None) -> t
         seen.add(token)
         tokens.append(token)
     return tuple(tokens)
+
+
+def build_candidate_set(
+    draft_paths: Sequence[str],
+    records: Sequence[TrackRecord],
+    *,
+    include_replacements: bool = False,
+    excluded_paths: Collection[str] = (),
+    token_source: TokenSource | None = None,
+) -> ImprovementCandidateSet:
+    """Build the bounded authorized candidate set for one request from local state only.
+
+    The draft is always authorized and is never truncated: a draft above
+    ``MAX_DRAFT_TRACKS`` fails closed. Replacement candidates are opt-in, capped at
+    ``MAX_REPLACEMENT_CANDIDATES``, exclude draft/excluded paths, exclude records whose
+    disclosure-critical metadata is incomplete, and are ordered deterministically.
+
+    A draft path with no local record fails closed: deriving a title from the path would
+    leak path-derived text to the provider.
+    """
+    draft = _validated_draft(draft_paths)
+    by_path = {record.path: record for record in records}
+    draft_records = [_draft_record(path, by_path) for path in draft]
+    replacements = (
+        _select_replacements(records, draft_records, excluded=set(excluded_paths) | set(draft))
+        if include_replacements
+        else []
+    )
+    records_in_order = [*draft_records, *replacements]
+    tokens = generate_tokens(len(records_in_order), token_source=token_source)
+    candidates = tuple(_candidate(token, item) for token, item in zip(tokens, records_in_order, strict=True))
+    split = len(draft_records)
+    return ImprovementCandidateSet(
+        draft_tokens=tokens[:split],
+        replacement_tokens=tokens[split:],
+        candidates=candidates,
+    )
 
 
 def _random_token() -> str:
@@ -83,3 +184,109 @@ def _unique_token(source: TokenSource, seen: set[str]) -> str:
         if token not in seen:
             return token
     raise ImprovementError("invalid_improvement", "Could not generate a unique request token.")
+
+
+def _validated_draft(draft_paths: Sequence[str]) -> list[str]:
+    if isinstance(draft_paths, (str, bytes)) or not isinstance(draft_paths, Sequence):
+        raise ImprovementError("invalid_improvement", "Invalid draft track identities.")
+    draft = list(draft_paths)
+    if not draft:
+        raise ImprovementError("invalid_improvement", "Open a saved playlist before requesting an improvement.")
+    if len(draft) > MAX_DRAFT_TRACKS:
+        raise ImprovementError(
+            "ai_context_too_large",
+            f"This draft has more than {MAX_DRAFT_TRACKS} tracks; no request was prepared.",
+        )
+    if any(not isinstance(path, str) or not path for path in draft):
+        raise ImprovementError("invalid_improvement", "Invalid draft track identities.")
+    if len(set(draft)) != len(draft):
+        raise ImprovementError("invalid_improvement", "The draft contains duplicate tracks.")
+    return draft
+
+
+def _draft_record(path: str, by_path: Mapping[str, TrackRecord]) -> TrackRecord:
+    record = by_path.get(path)
+    if record is None:
+        raise ImprovementError(
+            "invalid_improvement", "Every draft track needs local metadata before requesting an improvement."
+        )
+    return record
+
+
+def is_eligible_replacement(record: TrackRecord) -> bool:
+    """A pool candidate must have complete, assessment-safe metadata. Incomplete ones are excluded."""
+    if not isinstance(record.path, str) or not record.path:
+        return False
+    if not is_valid_bpm(record.bpm):
+        return False
+    if not isinstance(record.energy_level, int) or isinstance(record.energy_level, bool):
+        return False
+    if not 1 <= record.energy_level <= 10:
+        return False
+    if record.duration is None or not math.isfinite(record.duration) or record.duration <= 0:
+        return False
+    if not _key(record.camelot_key):
+        return False
+    return bool(record.title and record.title.strip()) and bool(record.artist and record.artist.strip())
+
+
+def _key(value: str | None) -> CamelotKey | None:
+    try:
+        return parse_camelot_key(value or "")
+    except (ValueError, AttributeError):
+        return None
+
+
+def _select_replacements(
+    records: Sequence[TrackRecord],
+    draft_records: Sequence[TrackRecord],
+    *,
+    excluded: Collection[str],
+) -> list[TrackRecord]:
+    eligible = [record for record in records if record.path not in excluded and is_eligible_replacement(record)]
+    eligible.sort(key=lambda record: _replacement_key(record, draft_records))
+    unique: dict[str, TrackRecord] = {}
+    for record in eligible:
+        unique.setdefault(record.path, record)
+    return list(unique.values())[:MAX_REPLACEMENT_CANDIDATES]
+
+
+def _replacement_key(record: TrackRecord, draft_records: Sequence[TrackRecord]) -> tuple[float, tuple[int, int], str]:
+    """Deterministic proximity to the draft: tempo first, then harmonic distance, then path."""
+    bpm_gap = _bpm_gap(record, draft_records)
+    record_key = _key(record.camelot_key)
+    gaps = [
+        _harmonic_gap(record_key, draft_key)
+        for draft in draft_records
+        if (draft_key := _key(draft.camelot_key)) is not None and record_key is not None
+    ]
+    return (bpm_gap, min(gaps, default=(2, 0)), record.path)
+
+
+def _bpm_gap(record: TrackRecord, draft_records: Sequence[TrackRecord]) -> float:
+    """Smallest tempo distance to a draft with valid BPM; ``inf`` when none is usable."""
+    if record.bpm is None or not is_valid_bpm(record.bpm):
+        return math.inf
+    gaps = [abs(record.bpm - draft.bpm) for draft in draft_records if draft.bpm is not None and is_valid_bpm(draft.bpm)]
+    return min(gaps, default=math.inf)
+
+
+def _harmonic_gap(left: CamelotKey, right: CamelotKey) -> tuple[int, int]:
+    distance = min((left.number - right.number) % 12, (right.number - left.number) % 12)
+    return (0 if left.letter == right.letter else 1, distance)
+
+
+def _candidate(token: str, record: TrackRecord) -> ImprovementCandidate:
+    return ImprovementCandidate(
+        token=token,
+        path=record.path,
+        title=record.title or "",
+        artist=record.artist or "",
+        genre=record.genre or "",
+        bpm=record.bpm,
+        camelot_key=record.camelot_key,
+        energy_level=record.energy_level,
+        duration=record.duration,
+        metadata_status=record.metadata_status,
+        missing_fields=tuple(record.missing_required_fields),
+    )
