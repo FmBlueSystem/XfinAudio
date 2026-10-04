@@ -308,3 +308,81 @@ def test_save_racing_external_writer_rejects_without_partial_rename(saved_set, m
     saved = backend.playlists.get_by_id(original.id)
     assert saved.name == original.name
     assert saved.track_paths == original.track_paths[:2]
+
+
+# --- I1.7 / I1.8 proposal-bound exact-order save ------------------------------
+
+
+def improvement_setup(tmp_path: Path):
+    """A scanned playlist whose replacement pool is local to the same backend."""
+    root = tmp_path / "music"
+    for index in range(5):
+        tagged_flac(root / f"{index}.flac", index)
+    backend = HeadlessBackend(tmp_path / "data")
+    backend.execute("library.scan", {"root": str(root)})
+    paths = [str(root / f"{index}.flac") for index in range(5)]
+    playlist = backend.playlists.create("Improvement set", paths[:3])
+    opened = backend.execute("playlist.edit.open", {"playlistId": playlist.id})
+    return backend, playlist, opened, paths
+
+
+def public_ids(paths) -> list[str]:
+    return [hashlib.sha256(str(path).encode("utf-8")).hexdigest() for path in paths]
+
+
+def test_improvement_candidates_only_authorize_replacements_after_opt_in(tmp_path: Path) -> None:
+    backend, _, opened, paths = improvement_setup(tmp_path)
+    draft_ids = ids(opened)
+    without_pool = backend.editor.improvement_candidates(opened["editId"], draft_ids)
+    with_pool = backend.editor.improvement_candidates(opened["editId"], draft_ids, include_replacements=True)
+    assert without_pool.replacement_tokens == ()
+    assert [without_pool.paths_by_token[token] for token in without_pool.draft_tokens] == paths[:3]
+    assert with_pool.replacement_tokens
+    assert {with_pool.paths_by_token[token] for token in with_pool.replacement_tokens} == set(paths[3:])
+
+
+def test_bind_rejects_a_candidate_set_from_a_different_draft(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    draft_ids = ids(opened)
+    candidate_set = backend.editor.improvement_candidates(opened["editId"], draft_ids, include_replacements=True)
+    with pytest.raises(BackendError) as error:
+        backend.editor.bind_improvement_proposal(
+            opened["editId"],
+            candidate_set,
+            list(candidate_set.draft_tokens),
+            draft_ids=list(reversed(draft_ids)),
+        )
+    assert error.value.code == "stale_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+@pytest.mark.parametrize("method", ["playlist.edit.propose_improvement", "playlist.edit.improvement"])
+def test_no_ipc_command_creates_an_arbitrary_authority_proposal(tmp_path: Path, method: str) -> None:
+    backend, _, _, _ = improvement_setup(tmp_path)
+    with pytest.raises(BackendError) as error:
+        backend.execute(method, {})
+    assert error.value.code == "unknown_method"
+
+
+def test_improvement_candidates_reject_an_unknown_renderer_track(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    forged = [*ids(opened), *public_ids(["/music/not-scanned.flac"])]
+    with pytest.raises(BackendError) as error:
+        backend.editor.improvement_candidates(opened["editId"], forged, include_replacements=True)
+    assert error.value.code == "invalid_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_bind_rejects_an_order_below_the_minimum(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    draft_ids = ids(opened)
+    candidate_set = backend.editor.improvement_candidates(opened["editId"], draft_ids)
+    with pytest.raises(BackendError) as error:
+        backend.editor.bind_improvement_proposal(
+            opened["editId"], candidate_set, [candidate_set.draft_tokens[0]], draft_ids=draft_ids
+        )
+    assert error.value.code == "invalid_improvement"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
