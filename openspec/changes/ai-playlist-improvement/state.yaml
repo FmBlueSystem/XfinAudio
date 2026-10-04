@@ -1,0 +1,40 @@
+schema: gentle-ai.sdd-state.v1
+change: ai-playlist-improvement
+artifact_store: openspec
+status: apply
+created: 2026-10-04
+updated: 2026-10-04
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: in-progress
+  verify: pending
+next_recommended: apply
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: true
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Direct ODD change, not an auto-selected SDD phase; OpenSpec artifacts are repository-required.
+  - I1 backend-only source and tests are now in five local work-unit commits 56c491c, 75a11a2, 7dadafb, 1297e12, 4707dbd; final tree identical to backup 97370f5. Original-byte gate 4293 Python passed, 94.45% coverage after type/format corrections.
+  - I1 observed strict RED (missing module/method) before GREEN; I2/I3 are not implemented or verified.
+  - Native assessment was unassessable with untracked OpenSpec/ODD files; INSPECT excluding them offered no START for the empty workspace projection. No review approval is claimed.
+  - Repartitioned units were independently focused-tested; candidate-set unit 75a11a2 has 461 authored diff lines, an explicit advisory overage kept coherent with its tests. No push or PR.
+  - Review chain I1 (tokens/candidate/validator/proposal binding) -> I2 (AI schema/disclosure/freshness) -> I3 (Electron review and save routing) -> I4 (verify).
+  - Branch feat/ai-playlist-improvement rooted at ba58326; no push, PR, merge, release, provider, credential, network, or real-library access.
+  - Correction after read-only challenge: widening paths_by_id cannot save replacements because validate_edit rejects additions; updateTracks cannot authorize adds; sha256(path) ids are deterministic and offline-verifiable, not anonymous; the shared 4096-response bound fails 64-hex full orders above about 55 tracks; the saved editor has no locked/excluded constraints; editor AI context omitted the unsaved draft.
+  - Replacement support is preserved through ephemeral 16-hex per-request provider tokens mapped only in local memory, a pre-proposal binding with a digest, and a dedicated proposal-bound exact-order save command; the manual save path is unchanged.
+  - 'Conservative explicit caps: MAX_DRAFT_TRACKS=80, MAX_REPLACEMENT_CANDIDATES=20, MAX_CANDIDATES=100, MIN_IMPROVEMENT_TRACKS=2; fail closed above 80 draft tracks with no silent truncation.'
+  - 'Budgets: MAX_IMPROVEMENT_PAYLOAD_BYTES=32*1024; shared strict_object 4096-character response bound unchanged; worst-case order near 2340 characters.'
+  - Current renderer draft order enters the editor context and the context revision; the renderer invalidates its own pending preview on a local draft mutation, and _fresh() compares only the submitted draft snapshot, not unreported client-only edits.
+  - Editor-specific improvement schema; shared _POLICY, shared response bound, MAX_REQUEST_BYTES, and the global default model are not widened.
+  - Canonical improvement instruction bound is 2000 characters; I3 aligns the renderer input and view.
+  - 'Consent: one-shot per request, ai.run requires confirmed=True plus the native OptionalAiHost confirmation; no auto-send.'
+  - Tokenization is disclosed as pseudonymization, not anonymity; titles and artists are transmitted after consent.
+  - Manual no-new-path invariant and atomic compare_and_update save are preserved; saved-editor locks/excludes are not asserted because that surface has none.
+  - 'Artifacts reconciled before Git add: verify-report is explicitly partial (I1 independently verified, I2-I4 pending); tasks.md records the five landed I1 commits and scopes draft freshness to the submitted snapshot; design.md splits landed-I1 from planned-I2/I3 files. No source/test change, no stage, no commit.'
