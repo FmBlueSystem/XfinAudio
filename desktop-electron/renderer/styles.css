@@ -119,6 +119,8 @@ h3 { font-weight: 550; font-size: 18px; letter-spacing: -.35px; }
 .review-notice { border: 1px solid #594b31; background: #29251e; border-radius: 6px; padding: 14px 18px; margin-bottom: 16px; color: #cbbc9f; font-size: 11px; line-height: 1.7; }
 .review-notice ul { margin: 8px 0 0; padding-left: 19px; }.review-notice.blocker { border-color: #633b42; background: #2c1f24; color: #d4a0a8; }
 .library-recovery { display: flex; align-items: center; gap: 18px; margin-top: 16px; }
+.library-window { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 0 16px 16px; }
+.library-window .field-hint { margin: 0; }
 .library-recovery .status-copy { flex: 1; }.library-recovery .status-copy strong { color: #e9bac3; }.library-recovery .status-copy span { color: #d0a3ad; white-space: normal; }
 #review-table { max-height: calc(100vh - 445px); }
 .save-bar { display: flex; align-items: center; gap: 18px; padding: 19px; margin-top: 19px; }

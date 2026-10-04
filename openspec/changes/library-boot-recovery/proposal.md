@@ -14,10 +14,11 @@ observability, **not** proof that the installed artifact is fixed and not a clai
 ## Scope
 
 In scope: `desktop-electron/renderer/app.ts`, `index.html`, `styles.css`, synthetic renderer tests, and the SDD
-artifacts for this change.
+artifacts for this change. This now covers ODD work unit 2: bounded first paint for a large library, with the full
+match set still searchable/sortable and all rows reachable through an explicit load-more affordance.
 
-Out of scope: the core/engine, the scanner, audio or profile data, bounded first paint for large libraries
-(ODD work unit 2), any packaged artifact (ODD work unit 3), dependencies, and visual redesign.
+Out of scope: the core/engine, the scanner, audio or profile data, the sealed packaged artifact (ODD work unit 3),
+dependencies, and visual redesign. No track may be silently truncated from the Library or from the Prep selects.
 
 ## Risks and rollback
 
@@ -33,7 +34,13 @@ Out of scope: the core/engine, the scanner, audio or profile data, bounded first
 - A failed bootstrap leaves a visible, actionable message after idle work settles.
 - The retry control reloads the library through `listLibrary()` only and is a no-op while the gate is busy.
 - A successful (re)load still hides the operation status and clears the recovery panel.
+- A large library paints a bounded first window (at most 200 rows) while `library-visible-count` reports the full
+  match count, a distinct note says how many are shown, and a visible load-more control reveals the rest.
+- Search, metadata filter and sort still operate on the whole library, and the window resets when that visible
+  identity changes.
+- Prep selects are populated lazily, offer every track, and keep existing selections.
 
 ## Budget
 
-One reviewable unit. Expected well under the 400-line review budget including these seven artifacts.
+Two reviewable units: unit 1 (recovery) shipped in `b3b683a`; unit 2 (bounded first paint) is this commit. Keep unit 2
+under the 400-line review budget.

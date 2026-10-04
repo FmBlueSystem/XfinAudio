@@ -62,6 +62,12 @@ const toolOrigins = new ToolOrigins();
 const toolTriggers = new Map<Route, HTMLElement>();
 let routeRevision = 0;
 let library: Track[] = [];
+const LIBRARY_WINDOW = 200;
+let libraryVisibleLimit = LIBRARY_WINDOW;
+let libraryWindowKey = '';
+let libraryRevision = 0;
+let visibleRevision = 0;
+let renderedTrackChoicesRevision = -1;
 let offlineLibrary:Track[]|null=null;
 let libraryWorklist:SeratoExportSource|null=null;
 let offline:OfflineBrowseView|undefined;
@@ -342,7 +348,7 @@ if(prepSettingsAvailable()){
   prepSettings=new PrepSettingsController(api,{
     canAct:()=>coreAvailable&&!gate.busy,
     read:()=>{const fields=prepFields();return {requiredTrackIds:fields.required,excludedTrackIds:fields.excluded,genreFocus:fields.genre};},
-    restore:value=>{for(const [key,ids] of [['required',value.requiredTrackIds],['excluded',value.excludedTrackIds]] as const)for(const option of element<HTMLSelectElement>(`prep-${key}`).options??[])option.selected=ids.includes(option.value);element<HTMLInputElement>('prep-genre').value=value.genreFocus;invalidatePrep();},
+    restore:value=>{ensureTrackChoices();for(const [key,ids] of [['required',value.requiredTrackIds],['excluded',value.excludedTrackIds]] as const)for(const option of element<HTMLSelectElement>(`prep-${key}`).options??[])option.selected=ids.includes(option.value);element<HTMLInputElement>('prep-genre').value=value.genreFocus;invalidatePrep();},
     changed:()=>{prepSettingsDirty=prepSettings?.dirty??false;renderPrepSettings();syncDraftDirty();},saved:()=>{invalidateAiSource();invalidatePrep();},
     perform:(label,task,apply,failure)=>perform('prep-settings',label,task,value=>{apply(value);showStatus('Controles de preparación actualizados');},false,failure),
   });
@@ -358,7 +364,7 @@ if(['previewLegacyImport','applyLegacyImport','discardLegacyImport'].every(key=>
 if(typeof api?.queryLibrary==='function'&&typeof api?.searchPlaylists==='function')offline=new OfflineBrowseView(element('offline-library-container'),element('offline-saved-container'),api,{
   canAct:()=>coreAvailable&&!gate.busy,canDelete:()=>draftBlockers().length===0,draftBlockers,
   perform:(label,task,apply)=>perform('offline',label,task,apply),
-  libraryChanged:tracks=>{offlineLibrary=tracks;renderLibrary();},savedChanged:()=>renderPlaylists(),
+  libraryChanged:tracks=>{offlineLibrary=tracks;visibleRevision++;renderLibrary();},savedChanged:()=>renderPlaylists(),
   deleted:id=>{playlists=playlists.filter(item=>item.id!==id);if(editor.draft?.id===id)editor.resetAfterScan();if(review?.savedPlaylistId===id){review=null;renderReview();}serato.invalidatePreview();invalidateAiSource();aiSavedSelection=null;renderPlaylists();},
   restored:playlist=>{playlists=[playlist,...playlists.filter(item=>item.id!==playlist.id)];invalidateAiSource();aiSavedSelection=null;renderPlaylists();},
 });
@@ -540,6 +546,7 @@ function navigate(next: Route, load = true, rememberOrigin = true, preservePrevi
   element('page-title').textContent = titles[next];
   document.title = `XfinAudio · ${titles[next]}`;
   if (!preservePreviews) editor.invalidatePreview();
+  if(next==='prep')ensureTrackChoices();
   if(next==='prep'&&load&&!gate.busy&&prepSettings&&!prepSettings.snapshot&&!prepSettings.pending&&!prepSettings.dirty){prepSettingsBootstrapPending=false;void prepSettings.load();}
   if (next === 'ai') element<HTMLDetailsElement>('ai-panel').open = true;
   syncAiContext();
@@ -611,25 +618,35 @@ function renderLibrary(): void {
   element('library-incomplete').textContent = String(library.length - complete);
   const browsed=offlineLibrary??library;
   const visible = filterTracks(aiLibraryFilter ? browsed.filter((track) => aiLibraryFilter!.has(track.id)) : browsed, element<HTMLInputElement>('library-search').value, element<HTMLSelectElement>('metadata-filter').value as MetadataFilter);
+  const windowKey = JSON.stringify([element<HTMLInputElement>('library-search').value, element<HTMLSelectElement>('metadata-filter').value, aiFilterRevision, libraryRevision, visibleRevision, offline?.librarySort.field ?? '', offline?.librarySort.descending ?? false]);
+  if (windowKey !== libraryWindowKey) { libraryWindowKey = windowKey; libraryVisibleLimit = LIBRARY_WINDOW; }
+  const displayed = visible.slice(0, libraryVisibleLimit);
+  const windowed = visible.length > displayed.length;
   const metadataFilter=element<HTMLSelectElement>('metadata-filter').value;
   libraryWorklist=['ready','incomplete'].includes(metadataFilter)&&visible.length>0&&visible.length<=500?{kind:'metadata',status:metadataFilter==='ready'?'complete':'incomplete',missingField:null,trackIds:visible.map(track=>track.id)}:null;
-  renderTable('library-table', visible);
+  renderTable('library-table', displayed);
   element('library-table').hidden = library.length === 0;
   element('library-empty').hidden = library.length > 0;
   element('library-no-results').hidden = library.length === 0 || visible.length > 0;
   element('ai-library-filter').hidden = aiLibraryFilter === null;
   element('ai-library-filter-notice').textContent = aiLibraryFilter ? `Filtro local de IA: ${aiLibraryFilter.size} coincidencias. La biblioteca completa sigue disponible para preparar sesiones.` : '';
   element('library-visible-count').textContent = `${visible.length} ${visible.length === 1 ? 'pista' : 'pistas'}`;
+  element('library-window').hidden = !windowed;
+  element('library-show-more').hidden = !windowed;
+  element<HTMLButtonElement>('library-show-more').disabled = false;
+  element('library-window-note').hidden = !windowed;
+  element('library-window-note').textContent = windowed ? `Mostrando ${displayed.length} de ${visible.length} pistas. La búsqueda y el orden siguen aplicando a toda la biblioteca.` : '';
   syncControls();
 }
 function applyLibrary(result: LibraryResult): void {
   const controlsDirty=prepSettings?.dirty??false;prepSettings?.libraryChanged();if(prepSettings&&!controlsDirty)prepSettingsBootstrapPending=true;
   library = result.tracks;
+  libraryRevision++; visibleRevision++;
   offline?.invalidateLibrary();offline?.invalidateSaved();
   aiLibraryFilter = null; aiFilterRevision++;
   metadataReport = null;
   player.stopIfMissing(new Set(library.map((track) => track.id)));
-  renderTrackChoices();
+  if (route === 'prep') ensureTrackChoices();
   renderLibrary();
 }
 function option(value: string, label: string): HTMLOptionElement {
@@ -645,6 +662,12 @@ function renderTrackChoices(): void {
     if(!scalar&&prepSettingsDirty)for(const value of selected)if(!library.some(track=>track.id===value)){const missing=option(value,`No disponible: ${value.slice(0,8)}`);missing.disabled=true;missing.selected=true;select.append(missing);}
     if(scalar)select.value=library.some(track=>selected.has(track.id))?[...selected][0]:'';
   }
+}
+/** Full Prep option lists are built lazily; a large library must not pay for them at boot. */
+function ensureTrackChoices(): void {
+  if (renderedTrackChoicesRevision === libraryRevision) return;
+  renderTrackChoices();
+  renderedTrackChoicesRevision = libraryRevision;
 }
 function renderStrategyHint(): void {
   const strategy = strategies.find((item) => item.name === element<HTMLSelectElement>('prep-strategy').value);
@@ -941,6 +964,7 @@ element('choose-library').addEventListener('click', () => scan());
 element('choose-library-empty').addEventListener('click', () => scan());
 element('library-retry').addEventListener('click', retryLibraryBootstrap);
 element('library-search').addEventListener('input', renderLibrary);
+element('library-show-more').addEventListener('click', () => { libraryVisibleLimit += LIBRARY_WINDOW; renderLibrary(); });
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
 element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
 for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'start', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
@@ -956,6 +980,7 @@ element('refresh-playlists').addEventListener('click', () => { void loadPlaylist
 element('prep-form').addEventListener('submit', (event) => {
   event.preventDefault();
   if (gate.busy) return;
+  ensureTrackChoices();
   const name = normalizePrepName(element<HTMLInputElement>('prep-name').value);
   const value = (id: string) => element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value;
   const selected = (id: string) => Array.from(element<HTMLSelectElement>(`prep-${id}`).selectedOptions ?? [], (option) => option.value);

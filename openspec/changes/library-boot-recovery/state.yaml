@@ -20,6 +20,7 @@ delivery:
   chain_strategy: feature-branch-chain
   review_budget_changed_lines: 400
 notes:
-  - ODD work unit 1 only; bounded first paint and the sealed QA artifact stay in their own work units.
-  - Focused RED/GREEN plus 205 focused renderer tests passed; the parent owns the full repository gate.
+  - ODD work unit 1 (recovery) and work unit 2 (bounded first paint) are implemented; the sealed QA artifact stays in work unit 3.
+  - Unit 2 RED: 25/27 focused renderer tests passed with 2 expected failures; GREEN: 27/27 passed, 0 failed.
+  - Focused regression: 434 Electron tests, 423 passed, 0 failed, 11 pre-existing skips; the parent owns the full repository gate.
   - A source fake-DOM test never proves the real Electron launch or the owner's empty-GUI cause.

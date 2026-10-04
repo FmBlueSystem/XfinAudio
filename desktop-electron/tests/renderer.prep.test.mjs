@@ -163,6 +163,15 @@ for(const scope of ['required','excluded','both'])test(`101 distinct ${scope} co
   await f.submit();assert.equal(f.generated.length,0);assert.equal(document.activeElement,f.get(scope==='excluded'?'prep-excluded':'prep-required'));assert.equal(group.open,true);assert.match(f.get('prep-validation').textContent,/100 pistas distintas/);
  }finally{f.restore();}
 });
+test('a large library defers Prep option population until the form is used, then keeps every track and the selection',async()=>{
+ const many=Array.from({length:650},(_,i)=>({...tracks[0],id:i.toString(16).padStart(64,'0'),title:'Track '+i}));const f=await fixture({listLibrary:async()=>({tracks:many,count:many.length})});try{
+  assert.equal(f.get('library-total').textContent,'650');assert.equal(f.get('prep-start').children.length,0,'options must not be built before Prep is used');
+  f.get('prep-required').selectedOptions=[{value:many[5].id}];await f.submit();
+  assert.equal(f.get('prep-start').children.length,many.length+1,'no track is silently truncated from the opening select');
+  assert.equal(f.get('prep-required').children.length,many.length,'no track is silently truncated from the multi-select');
+  assert.equal(f.get('prep-required').children.find(option=>option.value===many[5].id).selected,true,'deferred population preserves the selected ID');
+ }finally{f.restore();}
+});
 test('the known count-shortfall warning is Spanish with exact counts and unknown warnings remain intact',async()=>{
  const f=await fixture({generatePrep:async()=>({...review(),warnings:['Track count shortfall: selected 8 of 20 requested tracks','Unknown actionable warning: check this source']})});try{
   await f.submit();const warnings=descendants(f.get('review-alerts')).map(node=>node.textContent).join(' ');assert.match(warnings,/Se seleccionaron 8 de las 20 pistas solicitadas/);assert.match(warnings,/Unknown actionable warning: check this source/);assert.doesNotMatch(warnings,/Track count shortfall/);
