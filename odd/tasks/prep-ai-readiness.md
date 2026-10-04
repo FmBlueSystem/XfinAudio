@@ -17,11 +17,11 @@ User screenshot shows an entered Prep request, 'Asistencia activada solo para so
 - [x] **A2 — Verify and document** (delegated verifier; exact-byte offline gate). Mocked busy→idle + manual preview flow: Node 436 passed/0 skipped; Python gate 4205 passed, 94.45% coverage (floor 89%), Pyright 0 errors, Ruff lint/format, smoke/docs/source hygiene and PyInstaller check-only passed (exit 0). No network, credential lookup, or live music; real provider, live UI, local commit/native review/restart remain pending.
 
 ## Route and delivery
-A1 delegated because of multi-file writes and preparation trigger; A2 delegated verification. Forecast ~100-220 authored changed lines, delivery strategy `ask-on-risk`, branch point `f11fd3d9003f1c86668ac9683079b8aa24a15751`. User explicitly authorized a separate local work-unit commit on 2026-10-04; no push/PR/merge/restart is authorized.
+A1 delegated because of multi-file writes and preparation trigger; A2 delegated verification. Forecast ~100-220 authored changed lines, delivery strategy `ask-on-risk`, branch point `f11fd3d9003f1c86668ac9683079b8aa24a15751`. User explicitly authorized local work-unit commit `5da83fcfa21c9ee6cb6229bdd3e72a3f046dec49` (`fix(ai): retain Prep request during local work`) on 2026-10-04. Native committed-range assessment: medium, 101 changed lines, `reviewDue=false`, reason `under_budget`; no native review claimed. No push/PR/merge/restart is authorized.
 
 ## Progress
 - 2026-10-04: Read-only map and screenshot analysis completed. User requested parallel repair; second worktree created.
 - A1 behavior and tests verified: `npm run build && node --test tests/optional-ai-view.test.mjs tests/renderer.optional-ai-app.test.mjs` — 24 passed; `XFIN_PYTHON=... PATH=/opt/homebrew/bin:$PATH npm test` — 436 passed, 0 skipped. A2 verified: offline project gate passed (4205 Python tests, 94.45% coverage, type/lint/format/smoke/docs/hygiene green). Live 10,391-track flow and credential/provider access were deliberately not tested. No commit, native review or restart yet; project OpenSpec artifact requirement remains unresolved under the direct ODD route.
 
 ## Next step
-Reconcile project artifact requirement, then create the authorized local work-unit commit; a later safe app restart/integration needs separate authorization. Do not push/PR/merge automatically.
+Local work-unit commit exists, but project-required OpenSpec artifacts remain unfulfilled under the direct ODD route. Native review is deferred as `under_budget`; a later safe app restart/integration needs separate authorization. Do not push/PR/merge automatically.
