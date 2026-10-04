@@ -37,6 +37,17 @@ tag, draft release, or ad-hoc-signed app does not satisfy this goal.
    with bundled core, notices, provenance, checksum, and no project-root build
    artifacts. Acceptance: one documented invocation yields a DMG that opens on
    a clean macOS account; commit and tests stay within a reviewable slice.
+   Status: in progress (slice 1/2) via `openspec/changes/electron-dmg-local-validation`.
+   Slice 1 (docs only): specifies a separate credential-free `packaging/macos/dmg.py`
+   that consumes an already-built `XfinAudio Next.app` and its sibling
+   `.native-manifest.json`, validates source digest/manifest/provenance and a QA-only
+   name, stages the app with an `/Applications` symlink, runs `hdiutil create`/`verify`,
+   writes a sibling SHA-256 and QA provenance, rejects existing output, source-tree
+   output and symlink escapes, and never modifies the sealed app.
+   Slice 2 (behavior, strict TDD, <400 lines): synthetic-hdiutil tests then the module.
+   No real `.app` or DMG build until the owner supplies the exact V11 seal and
+   authorization per `packaging/macos/README.md`; Developer ID is absent; no
+   electron-builder, no legacy Qt DMG script, and `build.py` stays untouched.
    Evidence: pending.
 3. [ ] Add Developer ID signing and notarization for that exact Electron build.
    Acceptance: `codesign`, `spctl`, stapling and clean-account Gatekeeper checks
