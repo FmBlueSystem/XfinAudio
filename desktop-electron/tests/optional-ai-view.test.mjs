@@ -13,13 +13,13 @@ class Element extends EventTarget {
 const all = (node) => [node, ...node.children.flatMap(all)]; const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
 const uuid = '12345678-1234-4123-8123-123456789012';
 async function fixture(surface = 'library', resultPatch = {}) {
-  const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; let online = true; const calls = []; const root = new Element(); let render = () => {};
+  const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; let online = true; let busy = false; const calls = []; const root = new Element(); let render = () => {};
   const snapshot = { revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'fixture.env', configured: true, recipient: AI_RECIPIENT };
   const kinds = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection' };
   const api = { getAiStatus: async () => snapshot, saveAiSettings: async (input) => ({ ...snapshot, ...input }), chooseAiCredential: async () => snapshot, clearAiCredential: async () => ({ ...snapshot, configured: false, credentialLabel: null }), prepareAiRequest: async (input) => { calls.push(['prepare', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, disclosure: ['Datos autorizados de la pantalla, nunca audio'], requestPreview: '[ruta omitida] <img src=x>' }; }, runAiRequest: async (input) => { calls.push(['ask', input]); return { cancelled: false, result: { resultId: uuid, surface, kind: kinds[surface], title: '<script>modelo</script>', text: '<img src=x> Comentario externo', proposal: { genres: ['house'] }, canApply: true, ...resultPatch } }; }, applyAiSuggestion: async (input) => { calls.push(['apply', input]); return { surface, data: { genres: ['house'] } }; } };
-  const controller = new OptionalAiController(api, { canAct: () => online, changed: () => render(), dirtyChanged: () => {}, applied: () => {}, perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } } });
-  render = createOptionalAiView(root, controller, { canAct: () => online }); controller.setContext(surface, surface === 'review' ? { reviewId: uuid } : surface === 'editor' ? { editId: uuid } : surface === 'live' ? { sessionId: uuid, revision: 0 } : {}, 'local1'); await controller.load(); render();
-  return { root, controller, calls, render, get: (id) => all(root).find((node) => node.id === `optional-ai-${id}`), block: () => { online = false; controller.invalidate(); render(); }, restore: () => { globalThis.document = previous; } };
+  const controller = new OptionalAiController(api, { canAct: () => online && !busy, changed: () => render(), dirtyChanged: () => {}, applied: () => {}, perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } } });
+  render = createOptionalAiView(root, controller, { canAct: () => online && !busy, busy: () => busy }); controller.setContext(surface, surface === 'review' ? { reviewId: uuid } : surface === 'editor' ? { editId: uuid } : surface === 'live' ? { sessionId: uuid, revision: 0 } : {}, 'local1'); await controller.load(); render();
+  return { root, controller, calls, render, get: (id) => all(root).find((node) => node.id === `optional-ai-${id}`), setBusy: (value) => { busy = value; }, block: () => { online = false; controller.invalidate(); render(); }, restore: () => { globalThis.document = previous; } };
 }
 test('configuration is truthful and accessible with source chooser, no key or endpoint input', async () => {
   const f = await fixture(); try { assert.match(text(f.root), /No se ha comprobado la conexión/); assert.match(text(f.root), /fixture.env/); assert.ok(text(f.root).includes(AI_RECIPIENT)); assert.ok(!all(f.root).some((node) => node.tagName === 'input' && ['password', 'file', 'url'].includes(node.type))); for (const id of ['enabled', 'request', 'consent']) assert.ok(all(f.root).some((node) => node.tagName === 'label' && node.attrs.for === `optional-ai-${id}`)); assert.equal(f.get('consent').checked, false); assert.equal(f.get('ask').disabled, true); const request = f.get('request'); f.render(); assert.equal(f.get('request'), request); assert.equal(request.maxLength, 2000); } finally { f.restore(); }
@@ -32,6 +32,28 @@ test('fact explanations and connection use fixed requests, review disclosure nam
 });
 test('pending and offline controls disable every action, showing cancellation limits and preserving no late consent', async () => {
   const f = await fixture(); try { f.controller.pending = 'ask'; f.render(); assert.match(text(f.get('pending')), /enviados.*recuperar/); for (const node of all(f.root).filter((node) => ['button', 'input', 'textarea'].includes(node.tagName))) assert.equal(node.disabled, true, node.id); f.controller.pending = null; f.block(); for (const node of all(f.root).filter((node) => ['button', 'input', 'textarea'].includes(node.tagName))) assert.equal(node.disabled, true, node.id); assert.equal(f.get('error').attrs.role, 'alert'); assert.equal(f.get('consent').checked, false); } finally { f.restore(); }
+});
+test('a local job keeps the Prep request editable, states the wait, and leaves the preview manual after idle', async () => {
+  const f = await fixture('prep'); try {
+    f.setBusy(true); f.render();
+    const request = f.get('request');
+    assert.equal(request.disabled, false);
+    request.value = 'Sesión house';
+    request.dispatchEvent(new Event('input'));
+    assert.equal(f.get('local-hold').hidden, false);
+    assert.match(f.get('local-hold').textContent, /operación local/i);
+    assert.equal(f.get('prepare').disabled, true);
+    f.get('prepare').dispatchEvent(new Event('click'));
+    assert.equal(f.calls.some(([kind]) => kind === 'prepare'), false);
+    assert.equal(f.calls.some(([kind]) => kind === 'run'), false);
+    f.setBusy(false); f.render();
+    assert.equal(f.get('request').value, 'Sesión house');
+    assert.equal(f.get('local-hold').hidden, true);
+    assert.equal(f.get('prepare').disabled, false);
+    f.get('prepare').dispatchEvent(new Event('click'));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(f.calls.filter(([kind]) => kind === 'prepare').length, 1);
+  } finally { f.restore(); }
 });
 test('a completed connection test is described separately from mere credential-source configuration', async () => {
   const f = await fixture('connection'); try { await f.controller.prepare(); f.controller.setConsent(true); await f.controller.ask(); assert.doesNotMatch(f.get('status').textContent, /No se ha comprobado la conexión/); assert.match(f.get('status').textContent, /resultado de la prueba/); } finally { f.restore(); }

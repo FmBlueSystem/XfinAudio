@@ -238,7 +238,7 @@ ai = new OptionalAiController(api, {
     apply(value, current); showStatus('Asistencia IA', ai?.notice || 'Operación local completada; cada consulta requiere consentimiento');
   }, ai?.pending === 'ask', failure),
 });
-renderAi = createOptionalAiView(element('optional-ai-container'), ai, { canAct: () => coreAvailable && !gate.busy && aiAvailable(), openSettings: () => {navigate('ai');revealControl(element('optional-ai-enabled'));} });
+renderAi = createOptionalAiView(element('optional-ai-container'), ai, { canAct: () => coreAvailable && !gate.busy && aiAvailable(), busy: () => coreAvailable && gate.busy, openSettings: () => {navigate('ai');revealControl(element('optional-ai-enabled'));} });
 renderAi();
 function invalidateAiSource(): void { aiContextKey = ''; deferredAiApply = null; ai?.invalidate(); }
 function prepFields(): PrepFields {

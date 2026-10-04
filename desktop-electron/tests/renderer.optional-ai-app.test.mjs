@@ -53,6 +53,34 @@ async function aiResult(f, route = 'library') { await aiReady(f, route); f.click
 test('one AI panel loads status only when opened, with dedicated synthetic connection route', async () => {
   const f = await fixture(); try { assert.equal(f.calls.some(([kind]) => kind === 'aiStatus'), false); await f.openAi(); assert.equal(f.calls.filter(([kind]) => kind === 'aiStatus').length, 1); assert.equal(f.calls.some(([kind]) => kind === 'aiRun'), false); await f.navigate('ai'); assert.equal(document.title, 'XfinAudio · IA opcional'); assert.equal(f.get('optional-ai-request-field').hidden, true); f.click('optional-ai-prepare'); await settle(); assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], {surface:'connection',context:{},request:'Reply with OK. XfinAudio connection test.'}); assert.equal(f.get('optional-ai-consent').checked, false); } finally { f.restore(); }
 });
+test('Prep request survives a local job: editable while busy, explicit wait reason, preview manual only after idle', async () => {
+  const report = { totalTracks: 2, completeCount: 2, incompleteCount: 0, gaps: { bpm: 0, camelot_key: 0, energy_level: 0 }, yearCoverage: { withReleaseYear: 0, withoutReleaseYear: 2 }, tracks: [], repairPlan: 'Sin cambios', readOnly: true };
+  let finish; const f = await fixture({ getMetadataReport: () => new Promise((resolve) => { finish = resolve; }) });
+  try {
+    await f.navigate('prep'); await f.openAi();
+    assert.equal(f.calls.filter(([kind]) => kind === 'aiStatus').length, 1);
+    await f.navigate('metadata');
+    await f.navigate('prep');
+    const request = f.get('optional-ai-request');
+    assert.equal(request.disabled, false);
+    request.value = 'Prepara una sesión house';
+    request.dispatchEvent(new Event('input'));
+    assert.equal(f.get('optional-ai-local-hold').hidden, false);
+    assert.match(text(f.get('optional-ai-local-hold')), /operación local/i);
+    assert.equal(f.get('optional-ai-prepare').disabled, true);
+    assert.equal(f.calls.some(([kind]) => kind === 'aiPrepare'), false);
+    assert.equal(f.calls.some(([kind]) => kind === 'aiRun'), false);
+    finish(report); await settle();
+    assert.equal(f.get('optional-ai-request').value, 'Prepara una sesión house');
+    assert.equal(f.get('optional-ai-local-hold').hidden, true);
+    assert.equal(f.get('optional-ai-prepare').disabled, false);
+    f.click('optional-ai-prepare'); await settle();
+    assert.equal(f.calls.filter(([kind]) => kind === 'aiPrepare').length, 1);
+    assert.equal(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1].surface, 'prep');
+    assert.equal(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1].request, 'Prepara una sesión house');
+    assert.equal(f.calls.some(([kind]) => kind === 'aiRun'), false);
+  } finally { f.restore(); }
+});
 test('AI draft is shared across surfaces and joins other dirty-close guards', async () => {
   const f = await fixture(); try { await f.openAi(); f.get('optional-ai-enabled').checked = false; f.get('optional-ai-enabled').dispatchEvent(new Event('change')); await f.navigate('preferences'); f.get('preferences-volume').value = '.4'; f.get('preferences-volume').dispatchEvent(new Event('input')); f.click('preferences-discard'); assert.equal(f.calls.filter(([kind])=>kind==='dirty').at(-1)[1], true); await f.navigate('ai'); assert.equal(f.get('optional-ai-enabled').checked, false); f.click('optional-ai-discard'); assert.equal(f.calls.filter(([kind])=>kind==='dirty').at(-1)[1], false); } finally { f.restore(); }
 });
