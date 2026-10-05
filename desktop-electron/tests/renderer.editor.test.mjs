@@ -98,3 +98,184 @@ test('reopening a clean same-ID set refreshes externally changed name, order and
   let count = 0; const f = fixture({ openPlaylistEditor: async () => ++count === 1 ? snapshot() : snapshot({ name: 'Nombre actualizado', editId: 'external-refresh', revision: 'r2', tracks: [track('b'), track('a')] }) });
   await f.editor.open('1'); await f.editor.open('1'); assert.equal(count, 2); assert.equal(f.editor.draft.name, 'Nombre actualizado'); assert.equal(f.editor.draft.editId, 'external-refresh'); assert.deepEqual(f.editor.draft.tracks.map((track) => track.id), ['b', 'a']); assert.equal(f.editor.dirty, false);
 });
+
+// --- Improvement preview controller (bounded AI proposal) ---
+
+const h64 = (seed) => String(seed).repeat(64).slice(0, 64);
+const hexKey = (index) => index.toString(16).padStart(2, '0').repeat(32);
+const publicTrack = (name, patch = {}) => ({ id: h64(name), title: `Título ${name}`, artist: 'Artista', bpm: 120, key: '8A', energy: 5, duration: 60, genre: 'Techno', audioFormat: 'flac', audioCodec: 'flac', bitrateKbps: 900, bitrateMode: 'VBR', status: 'ok', missingFields: [], missing: false, ...patch });
+const trackById = (id) => publicTrack('seed', { id });
+const improvementEditId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const improvementSnapshot = (patch = {}) => ({ editId: improvementEditId, id: '1', name: 'Mi sesión', revision: 'r1', tracks: [publicTrack('a'), publicTrack('b'), publicTrack('c')], missingTrackCount: 0, ...patch });
+const improvement = (patch = {}) => ({
+  proposalId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', digest: 'f'.repeat(64), sourceRevision: 'r1',
+  before: [publicTrack('a'), publicTrack('b'), publicTrack('c')], after: [publicTrack('c'), publicTrack('a'), publicTrack('d')],
+  assessment: { description: 'Motor local', readiness: 'needs_review', qualityScore: 0.75, warnings: ['Aviso local'] },
+  addedIds: [h64('d')], removedIds: [h64('b')], ...patch,
+});
+const afterIds = [h64('c'), h64('a'), h64('d')];
+function improvementFixture(overrides = {}) {
+  const calls = []; const dirtiness = []; let busy = false; let revision = 0; let routes = 0;
+  const api = {
+    openPlaylistEditor: async (input) => { calls.push(['open', input]); return improvementSnapshot({ id: input.playlistId }); },
+    previewPlaylistEdit: async (input) => { calls.push(['preview', input]); return { editId: input.editId, previewId: 'legacy-1', revision: 'r1', tracks: [], assessment: { description: 'legacy', readiness: 'needs_review', qualityScore: 0.5, warnings: [] } }; },
+    savePlaylistEdit: async (input) => { calls.push(['save', input]); return improvementSnapshot({ editId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', revision: 'r2', name: input.name, tracks: input.trackIds.map(trackById) }); },
+    savePlaylistImprovement: async (input) => { calls.push(['saveImprovement', input]); return improvementSnapshot({ editId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', revision: 'r3', name: input.name, tracks: input.draftIds.map(trackById) }); },
+    discardPlaylistEdit: async (input) => { calls.push(['discard', input]); return improvementSnapshot({ editId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', revision: 'r4' }); },
+    ...overrides,
+  };
+  const host = {
+    canAct: () => !busy, changed: () => {}, dirtyChanged: (dirty) => dirtiness.push(dirty), navigate: () => { routes++; },
+    perform: async (_label, task, apply, failure) => {
+      if (busy) return; busy = true; const started = revision;
+      try { const result = await task(); apply(result, started === revision); } catch (error) { failure(error); } finally { busy = false; }
+    },
+  };
+  const editor = new SavedPlaylistEditor(api, host);
+  return { editor, calls, dirtiness, routes: () => routes, leave: () => { revision++; editor.invalidatePreview(); } };
+}
+
+test('improvement preview requires the exact before-order and current session revision', async () => {
+  const f = improvementFixture(); await f.editor.open('1');
+  assert.equal(f.editor.setImprovementPreview(improvement()), true);
+  assert.deepEqual(f.editor.improvement.after.map((track) => track.id), afterIds);
+  assert.equal(f.editor.improvement.proposalId, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+  f.editor.move(0, 1);
+  assert.equal(f.editor.improvement, null);
+  assert.equal(f.editor.setImprovementPreview(improvement()), false);
+  assert.equal(f.editor.improvement, null);
+  assert.equal(f.editor.improvementBound, false);
+  const g = improvementFixture(); await g.editor.open('1');
+  assert.equal(g.editor.setImprovementPreview(improvement({ sourceRevision: 'r9' })), false);
+  assert.equal(g.editor.setImprovementPreview(improvement(), 'ffffffff-ffff-4fff-8fff-ffffffffffff'), false);
+  assert.equal(g.editor.setImprovementPreview(improvement({ editId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' })), false);
+  assert.equal(g.editor.improvement, null);
+});
+
+test('improvement preview rejects malformed, oversized or unsafe payloads', async () => {
+  const f = improvementFixture(); await f.editor.open('1');
+  const rejected = [
+    improvement({ proposalId: '../proposal' }),
+    improvement({ digest: 'f'.repeat(63) }),
+    improvement({ after: [publicTrack('a')] }),
+    improvement({ after: Array.from({ length: 81 }, (_, index) => trackById(hexKey(index))) }),
+    improvement({ after: [publicTrack('a'), publicTrack('a')] }),
+    improvement({ after: [publicTrack('a', { id: 'short' })] }),
+    improvement({ after: [publicTrack('a', { missing: 'no' })] }),
+    improvement({ after: [publicTrack('a', { bpm: Number.POSITIVE_INFINITY })] }),
+    improvement({ assessment: { description: 'x', readiness: 'unknown', qualityScore: 1, warnings: [] } }),
+    improvement({ assessment: { description: 'x', readiness: 'ready', qualityScore: Number.NaN, warnings: [] } }),
+    improvement({ assessment: { description: 'x', readiness: 'ready', qualityScore: 1, warnings: [1] } }),
+    improvement({ assessment: null }),
+    improvement({ before: [publicTrack('b'), publicTrack('a'), publicTrack('c')] }),
+    null, [], 'improvement',
+  ];
+  for (const value of rejected) { assert.equal(f.editor.setImprovementPreview(value), false); assert.equal(f.editor.improvement, null); }
+  const unsafe = { ...improvement({ after: [{ ...publicTrack('d'), path: '/etc/passwd', evil: true }, publicTrack('c'), publicTrack('a')], addedIds: ['/etc/passwd'], removedIds: ['nonsense'] }) };
+  assert.equal(f.editor.setImprovementPreview(unsafe), true);
+  assert.equal('path' in f.editor.improvement.after[0], false);
+  assert.equal('evil' in f.editor.improvement.after[0], false);
+  assert.deepEqual(f.editor.improvement.addedIds, [h64('d')]);
+  assert.deepEqual(f.editor.improvement.removedIds, [h64('b')]);
+});
+
+test('improvement preview is read-only until an explicit apply', async () => {
+  const f = improvementFixture(); await f.editor.open('1');
+  f.editor.setImprovementPreview(improvement());
+  assert.deepEqual(f.calls.map(([method]) => method), ['open']);
+  assert.equal(f.editor.dirty, false);
+  assert.deepEqual(f.editor.draft.tracks.map((track) => track.id), [h64('a'), h64('b'), h64('c')]);
+  assert.equal(f.editor.improvementBound, false);
+  await f.editor.save();
+  assert.deepEqual(f.calls.map(([method]) => method), ['open']);
+});
+
+test('applying an improvement updates only the draft and binds the exact proposal for a dedicated save', async () => {
+  const f = improvementFixture(); await f.editor.open('1');
+  f.editor.setImprovementPreview(improvement());
+  assert.equal(f.editor.applyImprovementPreview(), true);
+  assert.deepEqual(f.editor.draft.tracks.map((track) => track.id), afterIds);
+  assert.equal(f.editor.dirty, true);
+  assert.equal(f.editor.improvementBound, true);
+  assert.deepEqual(f.calls.map(([method]) => method), ['open']);
+  await f.editor.save();
+  assert.deepEqual(f.calls.at(-1), ['saveImprovement', { editId: improvementEditId, name: 'Mi sesión', proposalId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', digest: 'f'.repeat(64), draftIds: afterIds }]);
+  assert.equal(f.calls.some(([method]) => method === 'save'), false);
+  assert.equal(f.editor.improvementBound, false);
+  assert.equal(f.editor.dirty, false);
+});
+
+test('manual edits after apply revoke the binding and restore the ordinary save', async () => {
+  for (const change of [(editor) => editor.move(0, 1), (editor) => editor.remove(0), (editor) => editor.rename('Otro nombre'), (editor) => editor.setRequest('acorta')]) {
+    const f = improvementFixture(); await f.editor.open('1'); f.editor.setImprovementPreview(improvement()); f.editor.applyImprovementPreview();
+    assert.equal(f.editor.improvementBound, true);
+    change(f.editor);
+    assert.equal(f.editor.improvementBound, false);
+    await f.editor.save();
+    assert.equal(f.calls.filter(([method]) => method === 'save').length, 1);
+    assert.equal(f.calls.some(([method]) => method === 'saveImprovement'), false);
+    assert.deepEqual(f.calls.at(-1)[1], { editId: improvementEditId, name: f.editor.draft.name.trim(), trackIds: f.editor.draft.tracks.map((track) => track.id) });
+  }
+});
+
+test('the ordinary save stays identical when no improvement is bound', async () => {
+  const f = improvementFixture(); await f.editor.open('1'); f.editor.move(0, 1); await f.editor.save();
+  assert.deepEqual(f.calls.at(-1), ['save', { editId: improvementEditId, name: 'Mi sesión', trackIds: [h64('b'), h64('a'), h64('c')] }]);
+});
+
+test('a blocked assessment is visible but can never be applied to the draft', async () => {
+  const f = improvementFixture(); await f.editor.open('1');
+  assert.equal(f.editor.setImprovementPreview(improvement({ assessment: { description: 'Bloqueado', readiness: 'blocked', qualityScore: 0, warnings: ['Metadatos incompletos'] } })), true);
+  assert.ok(f.editor.improvement);
+  assert.equal(f.editor.applyImprovementPreview(), false);
+  assert.deepEqual(f.editor.draft.tracks.map((track) => track.id), [h64('a'), h64('b'), h64('c')]);
+  assert.equal(f.editor.improvementBound, false);
+});
+
+test('a late improvement result never overwrites a newer draft', async () => {
+  const f = improvementFixture(); await f.editor.open('1'); const late = improvement();
+  f.editor.setImprovementPreview(late); f.editor.applyImprovementPreview(); f.editor.move(0, 1);
+  assert.equal(f.editor.setImprovementPreview(late), false);
+  assert.equal(f.editor.improvement, null);
+  assert.equal(f.editor.applyImprovementPreview(), false);
+  assert.deepEqual(f.editor.draft.tracks.map((track) => track.id), [h64('a'), h64('c'), h64('d')]);
+  const g = improvementFixture(); await g.editor.open('1'); g.editor.setImprovementPreview(late); await g.editor.discard();
+  assert.equal(g.editor.setImprovementPreview(late), false);
+  assert.equal(g.editor.improvementBound, false);
+});
+
+test('opening, discarding or resetting the editor revokes the improvement binding', async () => {
+  const f = improvementFixture(); await f.editor.open('1'); f.editor.setImprovementPreview(improvement()); f.editor.applyImprovementPreview(); await f.editor.discard();
+  assert.equal(f.editor.improvementBound, false);
+  const g = improvementFixture(); await g.editor.open('1'); g.editor.setImprovementPreview(improvement()); g.editor.applyImprovementPreview(); g.editor.resetAfterScan();
+  assert.equal(g.editor.improvementBound, false);
+  const h = improvementFixture(); await h.editor.open('1'); h.editor.setImprovementPreview(improvement()); h.editor.applyImprovementPreview(); await h.editor.open('2');
+  assert.equal(h.editor.improvementBound, false);
+});
+
+test('a newer improvement preview replaces the previous one for the same draft', async () => {
+  const f = improvementFixture(); await f.editor.open('1');
+  f.editor.setImprovementPreview(improvement());
+  const newer = improvement({ proposalId: '99999999-9999-4999-8999-999999999999', after: [publicTrack('b'), publicTrack('d'), publicTrack('a')] });
+  assert.equal(f.editor.setImprovementPreview(newer), true);
+  assert.equal(f.editor.improvement.proposalId, '99999999-9999-4999-8999-999999999999');
+  assert.deepEqual(f.editor.draft.tracks.map((track) => track.id), [h64('a'), h64('b'), h64('c')]);
+});
+
+test('a rejected improvement payload never replaces a valid preview for the same draft', async () => {
+  const f = improvementFixture(); await f.editor.open('1');
+  assert.equal(f.editor.setImprovementPreview(improvement()), true);
+  assert.equal(f.editor.setImprovementPreview(improvement({ proposalId: 'no', sourceRevision: 'r9' })), false);
+  assert.equal(f.editor.improvement.proposalId, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+});
+
+test('a failed improvement save keeps the bound draft and never falls back to the manual save', async () => {
+  let attempts = 0;
+  const f = improvementFixture({ savePlaylistImprovement: async () => { attempts++; const error = new Error('stale_edit'); error.code = 'stale_edit'; throw error; } });
+  await f.editor.open('1'); f.editor.setImprovementPreview(improvement()); f.editor.applyImprovementPreview(); await f.editor.save();
+  assert.equal(f.calls.filter(([method]) => method === 'save').length, 0);
+  assert.equal(attempts, 1);
+  assert.deepEqual(f.editor.draft.tracks.map((track) => track.id), afterIds);
+  assert.equal(f.editor.improvementBound, true);
+  assert.match(f.editor.error, /cambi[oó]|conflicto/i);
+});
