@@ -46,6 +46,7 @@ class _Pending:
 @dataclass(frozen=True)
 class _Completed:
     reference: _Reference
+    context: AssistContext
     answer: dict[str, Any]
 
 
@@ -102,13 +103,16 @@ class OptionalAI:
             if method == "ai.prepare":
                 preview = self._prepare(params)
                 assert self.preview is not None
-                # Identical normalized requests may retain the bounded history;
-                # a different request, surface, scope or configuration may not.
-                self.results.update(
-                    (result_id, completed)
-                    for result_id, completed in previous_results.items()
-                    if completed.reference == self.preview.reference
-                )
+                # Identical normalized requests may retain the bounded history for the
+                # original surfaces. An improvement request is request-scoped: each
+                # prepare allocates a fresh token snapshot, so an earlier improvement
+                # result must never be revived even when the reference matches.
+                if "candidates" not in self.preview.context.data:
+                    self.results.update(
+                        (result_id, completed)
+                        for result_id, completed in previous_results.items()
+                        if completed.reference == self.preview.reference
+                    )
                 return preview
             if method == "ai.confirmation":
                 pending = self._pending(params["previewId"])
@@ -120,8 +124,11 @@ class OptionalAI:
             completed = self.results.get(result_id)
             if completed is None:
                 raise BackendError("stale_ai", "Request a current assistance result before applying")
-            context = self._fresh(completed.reference)
-            return apply_context(self.backend, context, copy.deepcopy(completed.answer))
+            # Freshness re-checks the stable revision only. Apply keeps the prepare-time
+            # context, so the request-scoped improvement token snapshot survives the
+            # recomputation that `_fresh` performs.
+            self._fresh(completed.reference)
+            return apply_context(self.backend, completed.context, copy.deepcopy(completed.answer))
         except BackendError:
             raise
         except Exception:
@@ -243,7 +250,7 @@ class OptionalAI:
         if token.is_cancelled:
             return cancelled
         result_id = str(uuid4())
-        self.results[result_id] = _Completed(pending.reference, copy.deepcopy(answer))
+        self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(answer))
         while len(self.results) > 16:
             self.results.pop(next(iter(self.results)))
         return {"cancelled": False, "result": {"resultId": result_id, **copy.deepcopy(answer)}}
