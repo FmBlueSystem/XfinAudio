@@ -226,9 +226,16 @@ const loudness = new LoudnessController(api, {
 });
 renderLoudness = createLoudnessView(element('loudness-container'), loudness, { canAct: () => coreAvailable && !gate.busy && loudnessAvailable(), draftBlockers });
 const aiAvailable = (): boolean => ['getAiStatus', 'saveAiSettings', 'chooseAiCredential', 'clearAiCredential', 'prepareAiRequest', 'runAiRequest', 'applyAiSuggestion'].every((key) => typeof api?.[key as keyof AppApi] === 'function');
+// An improvement preview can only be persisted through the dedicated proposal-bound
+// route. Without that bridge the editor improvement surface is disabled rather than
+// producing a bound draft that could not be saved safely.
+const editorImprovementAvailable = (): boolean => typeof api?.savePlaylistImprovement === 'function';
 ai = new OptionalAiController(api, {
   canAct: () => coreAvailable && !gate.busy && aiAvailable(),
-  changed: () => renderAi(),
+  // The improvement replacement toggle changes the disclosed scope, so it must refresh
+  // the app-level context identity too. syncAiContext is idempotent: it only calls
+  // setContext while the identity differs, which bounds the re-entry.
+  changed: () => { renderAi(); syncAiContext(); },
   dirtyChanged: (dirty) => { aiDirty = dirty; syncDraftDirty(); },
   applied: (surface, data) => {
     const change = planAiApply(surface, data); const context = aiContextKey;
@@ -272,7 +279,21 @@ function syncAiContext(): void {
   else if (route === 'prep') { surface = 'prep'; revision = [libraryGeneration, prepFields()]; }
   else if (route === 'metadata') surface = 'metadata';
   else if (route === 'review' && review?.reviewId) { surface = 'review'; context = { reviewId: review.reviewId }; revision = [libraryGeneration, review.reviewId]; }
-  else if (route === 'editor' && editor.draft) { surface = 'editor'; context = { editId: editor.draft.editId }; revision = [libraryGeneration, editor.draft.editId, editor.draft.revision, editor.draft.name, editor.draft.tracks.map((track) => track.id), editor.request]; }
+  else if (route === 'editor' && editor.draft) {
+    const draftIds = editor.draft.tracks.map((track) => track.id);
+    // The improvement selector is the only editor AI context the app publishes: it
+    // carries the exact ordered draft and needs the bridge route that can persist a
+    // bound proposal. Outside 2..80 tracks, or without that route, the surface stays
+    // unavailable instead of falling back to the legacy editId-only request.
+    if (editorImprovementAvailable() && draftIds.length >= 2 && draftIds.length <= 80) {
+      surface = 'editor';
+      context = { editId: editor.draft.editId, draftIds, includeReplacements: ai.includeReplacements === true };
+      // The replacement toggle is carried by the context selector itself, which already
+      // makes it part of the app-level identity. Repeating it in the local revision would
+      // force a controller setContext on toggle and discard the typed instruction.
+      revision = [libraryGeneration, editor.draft.editId, editor.draft.revision, editor.draft.name, draftIds];
+    }
+  }
   else if (route === 'live' && live?.valid && live.snapshot) { surface = 'live'; context = { sessionId: live.snapshot.sessionId, revision: live.snapshot.revision }; revision = [libraryGeneration, live.snapshot.sessionId, live.snapshot.revision]; }
   else if (route === 'playlists' && (aiSavedScope.size > 0 || playlists.length <= 200)) {
     surface = 'saved'; context = aiSavedScope.size ? { playlistIds: [...aiSavedScope] } : {};
@@ -323,7 +344,30 @@ function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => v
     };
   }
   if (surface === 'editor') {
-    if (!editor.draft || typeof data.request !== 'string' || !data.request.trim() || data.request.length > 500) return invalid();
+    if (!editor.draft) return invalid();
+    if (ai && ai.improvementEditor) {
+      // Improvement data is local preview data, never a provider request. Verify the exact
+      // draft snapshot/revision identity here, before the deferred apply, and again when
+      // the app is idle. Nothing here mutates the draft or saves.
+      if (data === null || typeof data !== 'object' || Array.isArray(data)) return invalid();
+      if (data.editId !== undefined && data.editId !== editor.draft.editId) return invalid();
+      if (data.sourceRevision !== editor.draft.revision) return invalid();
+      const editId = editor.draft.editId; const revision = editor.draft.revision; const order = editor.draft.tracks.map((track) => track.id);
+      return () => {
+        const refuse = (): void => {
+          if (ai) { ai.notice = ''; ai.error = 'La propuesta de mejora no cumple el contrato local del editor. No se aplicó ni guardó nada.'; }
+          renderAi();
+          showStatus('No se pudo revisar la mejora', 'La respuesta no cumple el contrato local del editor; no se aplicó ni guardó nada.', true);
+        };
+        try {
+          const current = editor.draft;
+          if (!current || current.editId !== editId || current.revision !== revision || current.tracks.length !== order.length || current.tracks.some((track, index) => track.id !== order[index])) { refuse(); return; }
+          if (!editor.setImprovementPreview(data, editId)) refuse();
+        } catch { refuse(); }
+      };
+    }
+    // Legacy four-operation editor context, kept only for a legacy editId selector.
+    if (typeof data.request !== 'string' || !data.request.trim() || data.request.length > 500) return invalid();
     const request = data.request; return () => editor.setRequest(request);
   }
   if (surface === 'saved') {
