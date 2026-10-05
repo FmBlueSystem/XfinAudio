@@ -12,13 +12,13 @@ class Element extends EventTarget {
 }
 const all = (node) => [node, ...node.children.flatMap(all)]; const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
 const uuid = '12345678-1234-4123-8123-123456789012';
-async function fixture(surface = 'library', resultPatch = {}) {
+async function fixture(surface = 'library', resultPatch = {}, contextPatch = null) {
   const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; let online = true; let busy = false; const calls = []; const root = new Element(); let render = () => {};
   const snapshot = { revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'fixture.env', configured: true, recipient: AI_RECIPIENT };
   const kinds = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection' };
   const api = { getAiStatus: async () => snapshot, saveAiSettings: async (input) => ({ ...snapshot, ...input }), chooseAiCredential: async () => snapshot, clearAiCredential: async () => ({ ...snapshot, configured: false, credentialLabel: null }), prepareAiRequest: async (input) => { calls.push(['prepare', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, disclosure: ['Datos autorizados de la pantalla, nunca audio'], requestPreview: '[ruta omitida] <img src=x>' }; }, runAiRequest: async (input) => { calls.push(['ask', input]); return { cancelled: false, result: { resultId: uuid, surface, kind: kinds[surface], title: '<script>modelo</script>', text: '<img src=x> Comentario externo', proposal: { genres: ['house'] }, canApply: true, ...resultPatch } }; }, applyAiSuggestion: async (input) => { calls.push(['apply', input]); return { surface, data: { genres: ['house'] } }; } };
   const controller = new OptionalAiController(api, { canAct: () => online && !busy, changed: () => render(), dirtyChanged: () => {}, applied: () => {}, perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } } });
-  render = createOptionalAiView(root, controller, { canAct: () => online && !busy, busy: () => busy }); controller.setContext(surface, surface === 'review' ? { reviewId: uuid } : surface === 'editor' ? { editId: uuid } : surface === 'live' ? { sessionId: uuid, revision: 0 } : {}, 'local1'); await controller.load(); render();
+  render = createOptionalAiView(root, controller, { canAct: () => online && !busy, busy: () => busy }); controller.setContext(surface, contextPatch ?? (surface === 'review' ? { reviewId: uuid } : surface === 'editor' ? { editId: uuid } : surface === 'live' ? { sessionId: uuid, revision: 0 } : {}), 'local1'); await controller.load(); render();
   return { root, controller, calls, render, get: (id) => all(root).find((node) => node.id === `optional-ai-${id}`), setBusy: (value) => { busy = value; }, block: () => { online = false; controller.invalidate(); render(); }, restore: () => { globalThis.document = previous; } };
 }
 test('configuration is truthful and accessible with source chooser, no key or endpoint input', async () => {
@@ -57,6 +57,35 @@ test('a local job keeps the Prep request editable, states the wait, and leaves t
 });
 test('a completed connection test is described separately from mere credential-source configuration', async () => {
   const f = await fixture('connection'); try { await f.controller.prepare(); f.controller.setConsent(true); await f.controller.ask(); assert.doesNotMatch(f.get('status').textContent, /No se ha comprobado la conexión/); assert.match(f.get('status').textContent, /resultado de la prueba/); } finally { f.restore(); }
+});
+const improvementContext = (includeReplacements = false) => ({ editId: uuid, draftIds: ['a'.repeat(64), 'b'.repeat(64)], includeReplacements });
+const improvementPatch = { kind: 'improvement', proposal: { orderedTrackIds: ['a1b2c3d4e5f60718'], rationale: 'x' } };
+test('the editor improvement view states the instruction, the default-off replacement toggle and an accurate disclosure', async () => {
+  const f = await fixture('editor', improvementPatch, improvementContext(false));
+  try {
+    assert.ok(text(f.root).includes('Mejorar esta playlist'));
+    const toggle = f.get('include-replacements'); assert.equal(toggle.checked, false); assert.equal(toggle.disabled, false);
+    assert.ok(all(f.root).some((node) => node.tagName === 'label' && node.attrs.for === 'optional-ai-include-replacements' && /reemplazos/i.test(node.textContent)));
+    const disclosure = f.get('surface-disclosure').textContent;
+    for (const field of ['títulos', 'artistas', 'metadatos', 'rutas', 'audio']) assert.ok(disclosure.includes(field), field);
+    assert.match(disclosure, /borrador/i); assert.match(disclosure, /guardar/i); assert.match(disclosure, /sin candidatas de reemplazo/i);
+    assert.equal(f.calls.length, 0);
+  } finally { f.restore(); }
+});
+test('toggling replacements discards pending disclosure and consent, then reprepares the exact improvement context', async () => {
+  const f = await fixture('editor', improvementPatch, improvementContext(false));
+  try {
+    f.get('request').value = 'Mejorar esta playlist'; f.get('request').dispatchEvent(new Event('input'));
+    f.get('prepare').dispatchEvent(new Event('click')); await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(f.get('preview').hidden, false);
+    f.get('consent').checked = true; f.get('consent').dispatchEvent(new Event('change')); assert.equal(f.controller.consent, true);
+    const toggle = f.get('include-replacements'); toggle.checked = true; toggle.dispatchEvent(new Event('change'));
+    assert.equal(f.controller.includeReplacements, true); assert.equal(f.controller.consent, false); assert.equal(f.controller.preview, null);
+    f.render(); assert.equal(f.get('preview').hidden, true); assert.equal(f.get('consent').checked, false); assert.match(f.get('surface-disclosure').textContent, /posibles reemplazos/i);
+    f.get('prepare').dispatchEvent(new Event('click')); await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(f.calls.at(-1), ['prepare', { surface: 'editor', request: 'Mejorar esta playlist', context: { editId: uuid, draftIds: ['a'.repeat(64), 'b'.repeat(64)], includeReplacements: true } }]);
+    assert.equal(f.calls.some(([kind]) => kind === 'ask'), false); assert.equal(f.calls.some(([kind]) => kind === 'apply'), false);
+  } finally { f.restore(); }
 });
 test('all eight contexts share one draft while only global connection shows credential settings',async()=>{
  for(const surface of ['library','prep','review','saved','editor','metadata','live','connection']){

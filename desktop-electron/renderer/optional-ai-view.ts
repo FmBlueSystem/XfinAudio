@@ -14,6 +14,9 @@ const surfaceDisclosure: Record<AiSurface, string> = {
   live: 'La explicación usa opciones y puntuaciones ya calculadas localmente. No cambia el orden, las marcas ni la reproducción.',
   connection: 'Prueba sintética sin datos de la biblioteca. Es una consulta explícita al proveedor y puede consumir cuota.',
 };
+// The improvement selector is a different authority than the legacy editor request: it
+// shares real titles, artists, and bounded metadata, and optionally a replacement pool.
+const improvementDisclosure = (includeReplacements: boolean): string => `Para proponer una mejora se comparten los títulos, artistas y metadatos musicales de las pistas seleccionadas${includeReplacements ? ' y el conjunto de posibles reemplazos autorizado para esta solicitud' : ', sin candidatas de reemplazo'}. No se envían rutas de archivos, identificadores estables ni audio. Aplicar la propuesta cambia solo el borrador; guardar la playlist sigue siendo una acción explícita y aparte.`;
 export function createOptionalAiView(root: HTMLElement, controller: OptionalAiController, host: { canAct(): boolean; busy?(): boolean; idPrefix?: string; openSettings?(): void }): () => void {
   const prefix = host.idPrefix ?? 'optional-ai';
   const identify = <T extends HTMLElement>(node: T, suffix: string): T => { node.id = `${prefix}-${suffix}`; return node; };
@@ -51,6 +54,13 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const request = identify(make('textarea'), 'request'); request.maxLength = 2000; request.rows = 4; request.setAttribute('aria-describedby', `${prefix}-request-hint`);
   request.addEventListener('input', () => { if (localEditable()) controller.setRequest(request.value); });
   requestField.append(requestLabel, request, identify(make('p', 'Hasta 2000 caracteres. Revisa la versión redactada antes de autorizar el envío.', 'field-hint'), 'request-hint'));
+  // Explicit improvement scope: off by default, invalidates any pending disclosure and
+  // consent on change, and never contacts the provider by itself.
+  const includeField = identify(make('div'), 'include-replacements-field');
+  const include = identify(make('input'), 'include-replacements'); include.type = 'checkbox';
+  const includeLabel = make('label', 'Incluir reemplazos'); includeLabel.setAttribute('for', include.id);
+  include.addEventListener('change', () => { if (canAct()) controller.setIncludeReplacements(include.checked); });
+  includeField.append(include, includeLabel, identify(make('p', 'Desactivado, la propuesta solo puede reordenar o quitar pistas del borrador. Activarlo amplía los datos divulgados y exige una autorización nueva.', 'field-hint'), 'include-replacements-hint'));
   const localHoldNotice = identify(make('p', '', 'review-notice'), 'local-hold'); localHoldNotice.setAttribute('role', 'status');
   const fixedRequest = identify(make('p', '', 'field-hint'), 'fixed-request');
   const prepare = action('prepare', 'Revisar datos antes de enviar', () => { void controller.prepare(); }, true);
@@ -69,7 +79,7 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const proposal = make('details'); proposal.append(make('summary', 'Revisar datos de la propuesta')); const proposalText = make('pre'); proposal.append(proposalText);
   const apply = action('apply', 'Aplicar propuesta al trabajo local', () => { void controller.applySuggestion(); });
   result.append(resultHeading, resultTitle, resultCaution, resultText, proposal, apply, make('p', 'Aplicar no guarda, exporta ni reproduce audio. Esas acciones siguen siendo explícitas.', 'field-hint'));
-  section.append(heading, error, notice, status, settingsLink, config, recipient, disclosure, requestField, localHoldNotice, fixedRequest, prepare, preview, pending, result); root.replaceChildren(section);
+  section.append(heading, error, notice, status, settingsLink, config, recipient, disclosure, requestField, includeField, localHoldNotice, fixedRequest, prepare, preview, pending, result); root.replaceChildren(section);
   return () => {
     const snapshot = controller.snapshot; const blocked = !canAct();
     config.hidden = controller.surface !== 'connection'; settingsLink.hidden = !config.hidden; settingsLink.disabled = blocked;
@@ -82,7 +92,13 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
     dirty.textContent = controller.dirty ? 'Cambios de IA sin guardar. Se conservan al navegar.' : 'Sin ajustes de IA pendientes.';
     save.disabled = blocked || !controller.canSave; discard.disabled = blocked || !controller.dirty; refresh.disabled = blocked;
     choose.disabled = blocked || !snapshot || controller.dirty; clear.disabled = blocked || !snapshot?.configured || controller.dirty;
-    disclosure.textContent = surfaceDisclosure[controller.surface]; requestField.hidden = !controller.requestEditable;
+    disclosure.textContent = controller.improvementEditor ? improvementDisclosure(controller.includeReplacements) : surfaceDisclosure[controller.surface]; requestField.hidden = !controller.requestEditable;
+    // The improvement prompt is only truthful for the improvement selector; the legacy
+    // editor keeps its four-operation framing.
+    const improvement = controller.improvementEditor;
+    requestLabel.textContent = improvement ? 'Mejorar esta playlist' : '¿Qué quieres consultar?';
+    request.placeholder = improvement ? 'Ej.: abre con algo más energético y quita las pistas lentas' : '';
+    includeField.hidden = !improvement; include.checked = controller.includeReplacements; include.disabled = blocked || !improvement;
     request.disabled = !localEditable(); if (request.value !== controller.request) request.value = controller.request;
     localHoldNotice.hidden = !heldByLocalJob();
     localHoldNotice.textContent = controller.requestEditable ? 'Hay una operación local en curso. Puedes conservar tu petición en este campo; la vista previa se habilitará cuando termine.' : 'Hay una operación local en curso. Espera a que termine para continuar con la asistencia IA.';

@@ -74,3 +74,86 @@ test('trusted local library Apply admits up to100000 opaque IDs without expandin
   const g=fixture({runAiRequest:async()=>({cancelled:false,result:result({proposal:{trackIds:ids}})})}); await prepared(g);g.controller.setConsent(true);await g.controller.ask();assert.equal(g.controller.result,null);
 });
 test('oversized trusted local filter is refused rather than silently truncated',async()=>{const f=fixture({applyAiSuggestion:async()=>({surface:'library',data:{filters:{},trackIds:Array(100001).fill('a'.repeat(64))}})});await prepared(f);f.controller.setConsent(true);await f.controller.ask();await f.controller.applySuggestion();assert.equal(f.applied.length,0);assert.ok(f.controller.error);});
+
+// --- I3 U3: editor improvement context, kind, and local improvement preview bounds ---
+const draftIds = ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64)];
+const improvementResult = (patch = {}) => ({ resultId: uuid, surface: 'editor', kind: 'improvement', title: 'Mejora propuesta', text: 'Revisa el orden y su evaluación local antes de aplicarlo.', proposal: { orderedTrackIds: ['a1b2c3d4e5f60718'], rationale: 'Menos saltos de energía' }, canApply: true, ...patch });
+const pitchedTrack = (index) => ({ id: index.toString(16).padStart(64, '0'), title: `Pista ${index} ${'x'.repeat(200)}`, artist: `Artista ${index}`, bpm: 120, key: '8A', energy: 5, duration: 240, missing: false, missingFields: ['bpm'] });
+const largeImprovementPreview = () => {
+  const before = Array.from({ length: 80 }, (_, index) => pitchedTrack(index));
+  return { editId: uuid, sourceRevision: 'r1', proposalId: uuid, digest: 'c'.repeat(64), before, after: before.map((track) => ({ ...track })), assessment: { description: 'Orden con mejor flujo', readiness: 'ready', qualityScore: 0.7, warnings: ['Transición justa'] }, addedIds: [], removedIds: [] };
+};
+const improvementFixture = (overrides = {}) => fixture({
+  runAiRequest: async () => ({ cancelled: false, result: improvementResult() }),
+  applyAiSuggestion: async () => ({ surface: 'editor', data: largeImprovementPreview() }),
+  ...overrides,
+});
+async function improvementReady(overrides = {}) {
+  const f = improvementFixture(overrides); await f.controller.load();
+  f.controller.setContext('editor', { editId: uuid, draftIds, includeReplacements: false }, 'editor-1');
+  f.controller.setRequest('Mejorar esta playlist'); await f.controller.prepare(); f.controller.setConsent(true); await f.controller.ask();
+  return f;
+}
+test('editor improvement context is exact, keeps the legacy editId selector, and binds each selector to its own kind', async () => {
+  const f = improvementFixture(); await f.controller.load();
+  f.controller.setContext('editor', { editId: uuid, draftIds, includeReplacements: false }, 'editor-1');
+  assert.equal(f.controller.improvementEditor, true);
+  f.controller.setRequest('Mejorar esta playlist'); await f.controller.prepare();
+  assert.deepEqual(f.calls.at(-1), ['prepare', { surface: 'editor', request: 'Mejorar esta playlist', context: { editId: uuid, draftIds, includeReplacements: false } }]);
+  const legacy = improvementFixture(); await legacy.controller.load();
+  legacy.controller.setContext('editor', { editId: uuid }, 'editor-2'); assert.equal(legacy.controller.improvementEditor, false);
+  legacy.controller.setRequest('Añade una intro'); await legacy.controller.prepare();
+  assert.deepEqual(legacy.calls.at(-1)[1].context, { editId: uuid });
+  const wrong = improvementFixture({ runAiRequest: async () => ({ cancelled: false, result: improvementResult({ kind: 'editor_request', proposal: { request: 'remove' } }) }) });
+  await wrong.controller.load(); wrong.controller.setContext('editor', { editId: uuid, draftIds, includeReplacements: false }, 'e'); wrong.controller.setRequest('Mejorar'); await wrong.controller.prepare(); wrong.controller.setConsent(true); await wrong.controller.ask();
+  assert.equal(wrong.controller.result, null); assert.ok(wrong.controller.error);
+  const legacyWrong = improvementFixture();
+  await legacyWrong.controller.load(); legacyWrong.controller.setContext('editor', { editId: uuid }, 'e'); legacyWrong.controller.setRequest('Añade'); await legacyWrong.controller.prepare(); legacyWrong.controller.setConsent(true); await legacyWrong.controller.ask();
+  assert.equal(legacyWrong.controller.result, null); assert.ok(legacyWrong.controller.error);
+});
+test('a partial or malformed editor improvement selector is refused instead of guessed', async () => {
+  const f = improvementFixture(); await f.controller.load();
+  const cases = [
+    { editId: uuid, draftIds },
+    { editId: uuid, draftIds, includeReplacements: 'false' },
+    { editId: uuid, draftIds: [draftIds[0], draftIds[0]], includeReplacements: false },
+    { editId: uuid, draftIds: [draftIds[0]], includeReplacements: false },
+    { editId: uuid, draftIds: Array.from({ length: 81 }, (_, index) => index.toString(16).padStart(64, 'a')), includeReplacements: false },
+    { editId: uuid, draftIds: [draftIds[0], '/etc/passwd'], includeReplacements: false },
+  ];
+  for (const context of cases) { f.controller.setContext('editor', context, 'editor-x'); assert.equal(f.controller.improvementEditor, false); assert.equal(f.controller.canPrepare, false); assert.ok(f.controller.error); }
+});
+test('local improvement apply admits a realistic preview above the legacy bound while the legacy editor stays bounded', async () => {
+  const payload = largeImprovementPreview(); const size = JSON.stringify(payload).length;
+  assert.ok(size > 32000 && size < 512 * 1024, `unexpected fixture size ${size}`);
+  const f = await improvementReady({ applyAiSuggestion: async () => ({ surface: 'editor', data: payload }) });
+  await f.controller.applySuggestion();
+  assert.equal(f.applied.length, 1); assert.equal(f.applied[0][0], 'editor'); assert.equal(f.applied[0][1].proposalId, uuid); assert.equal(f.applied[0][1].after.length, 80);
+  const legacy = improvementFixture({ runAiRequest: async () => ({ cancelled: false, result: improvementResult({ kind: 'editor_request', proposal: { request: 'remove' } }) }), applyAiSuggestion: async () => ({ surface: 'editor', data: payload }) });
+  await legacy.controller.load(); legacy.controller.setContext('editor', { editId: uuid }, 'e'); legacy.controller.setRequest('Añade'); await legacy.controller.prepare(); legacy.controller.setConsent(true); await legacy.controller.ask(); await legacy.controller.applySuggestion();
+  assert.equal(legacy.applied.length, 0); assert.ok(legacy.controller.error);
+});
+test('local improvement apply rejects oversized, deep, dangerous and malformed payloads', async () => {
+  let deep = 1; for (let index = 0; index < 8; index += 1) deep = { child: deep };
+  const oversized = { warnings: Array.from({ length: 200 }, () => 'x'.repeat(4000)) };
+  const dangerous = JSON.parse('{"ok":1,"__proto__":{"polluted":true}}');
+  for (const data of [oversized, deep, dangerous, null, [], 'text', 7]) {
+    const f = await improvementReady({ applyAiSuggestion: async () => ({ surface: 'editor', data }) });
+    await f.controller.applySuggestion();
+    assert.equal(f.applied.length, 0, `accepted ${JSON.stringify(data)?.slice(0, 40)}`); assert.ok(f.controller.error);
+  }
+  assert.equal({}.polluted, undefined);
+});
+test('the replacement toggle discards prepared disclosure and consent and regenerates the exact context', async () => {
+  const f = improvementFixture(); await f.controller.load();
+  f.controller.setContext('editor', { editId: uuid, draftIds, includeReplacements: false }, 'editor-1');
+  f.controller.setRequest('Mejorar esta playlist'); await f.controller.prepare(); f.controller.setConsent(true);
+  assert.equal(f.controller.includeReplacements, false); assert.ok(f.controller.preview); assert.equal(f.controller.consent, true);
+  f.controller.setIncludeReplacements(true);
+  assert.equal(f.controller.includeReplacements, true); assert.equal(f.controller.preview, null); assert.equal(f.controller.result, null); assert.equal(f.controller.consent, false);
+  await f.controller.prepare();
+  assert.deepEqual(f.calls.at(-1), ['prepare', { surface: 'editor', request: 'Mejorar esta playlist', context: { editId: uuid, draftIds, includeReplacements: true } }]);
+  assert.equal(f.controller.canAsk, false);
+  const legacy = improvementFixture(); await legacy.controller.load(); legacy.controller.setContext('editor', { editId: uuid }, 'e');
+  legacy.controller.setIncludeReplacements(true); assert.equal(legacy.controller.includeReplacements, false);
+});

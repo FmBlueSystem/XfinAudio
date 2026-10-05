@@ -2,10 +2,10 @@ import { errorCode, userErrorMessage } from './errors.js';
 export const AI_RECIPIENT = 'https://api.nan.builders/v1/chat/completions';
 export const AI_CONNECTION_REQUEST = 'Reply with OK. XfinAudio connection test.';
 export type AiSurface = 'library' | 'prep' | 'review' | 'saved' | 'editor' | 'metadata' | 'live' | 'connection';
-export type AiContext = Record<string, string | number | string[]>;
+export type AiContext = Record<string, string | number | boolean | string[]>;
 export interface AiStatus { revision: string; enabled: boolean; provider: 'nan'; credentialLabel: string | null; configured: boolean; recipient: typeof AI_RECIPIENT; }
 export interface AiPreview { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; disclosure: string[]; requestPreview: string; }
-export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'saved_selection' | 'commentary' | 'connection'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; }
+export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; }
 export interface OptionalAiApi {
   getAiStatus(): Promise<AiStatus>;
   saveAiSettings(input: { revision: string; enabled: boolean }): Promise<AiStatus>;
@@ -22,13 +22,22 @@ export interface OptionalAiHost {
 }
 const kinds: Record<AiSurface, AiResult['kind']> = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection' };
 const editable = new Set<AiSurface>(['library', 'prep', 'editor', 'saved']);
+const JSON_LIMIT = 32000;
+// The improvement preview is a local before/after render, not provider text: it carries
+// up to 80 tracks per side plus the local assessment, so it is bounded well above the
+// legacy 32k provider-proposal bound. Fine-grained track/public-field validation stays
+// in editor.setImprovementPreview.
+const IMPROVEMENT_JSON_LIMIT = 512 * 1024;
+const MIN_IMPROVEMENT_TRACKS = 2;
+const MAX_IMPROVEMENT_TRACKS = 80;
+const HEX_ID = /^[a-f0-9]{64}$/;
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max;
 function bad(): never { throw Object.assign(new Error('Invalid AI response'), { code: 'invalid_ai_response' }); }
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
-function recordCopy(value: unknown): Record<string, unknown> {
+function recordCopy(value: unknown, limit = JSON_LIMIT): Record<string, unknown> {
   if (!isRecord(value)) bad();
-  const json = JSON.stringify(value); if (!json || json.length > 32000) bad();
+  const json = JSON.stringify(value); if (!json || json.length > limit) bad();
   const copy = JSON.parse(json) as Record<string, unknown>;
   const check = (item: unknown, depth: number): void => {
     if (depth > 6) bad();
@@ -39,14 +48,14 @@ function recordCopy(value: unknown): Record<string, unknown> {
   };
   check(value, 0); return copy;
 }
-function localApplyCopy(surface: AiSurface, value: unknown): Record<string, unknown> {
-  if (surface !== 'library') return recordCopy(value);
+function localApplyCopy(surface: AiSurface, value: unknown, improvement = false): Record<string, unknown> {
+  if (surface !== 'library') return recordCopy(value, improvement ? IMPROVEMENT_JSON_LIMIT : JSON_LIMIT);
   if (!isRecord(value)) bad();
   // Only the trusted local filter result gets a larger ID allowance; provider proposals retain their original bound.
   if (!Object.hasOwn(value, 'trackIds')) return recordCopy(value);
   const ids = value.trackIds;
   if (Object.keys(value).sort().join(',') !== 'filters,trackIds' || !Array.isArray(ids) || ids.length > 100000
-    || ids.some((id) => typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id)) || new Set(ids).size !== ids.length) bad();
+    || ids.some((id) => typeof id !== 'string' || !HEX_ID.test(id)) || new Set(ids).size !== ids.length) bad();
   return { filters: recordCopy(value.filters), trackIds: [...ids] };
 }
 function statusCopy(value: AiStatus): AiStatus {
@@ -59,7 +68,15 @@ function contextCopy(surface: AiSurface, context: AiContext): AiContext {
   const keys = Object.keys(context).sort().join(',');
   if (['library', 'prep', 'metadata', 'connection'].includes(surface)) { if (keys) bad(); return {}; }
   if (surface === 'review') { if (keys !== 'reviewId' || !uuid(context.reviewId)) bad(); return { reviewId: context.reviewId }; }
-  if (surface === 'editor') { if (keys !== 'editId' || !uuid(context.editId)) bad(); return { editId: context.editId }; }
+  if (surface === 'editor') {
+    if (keys === 'editId') { if (!uuid(context.editId)) bad(); return { editId: context.editId }; }
+    // Exact improvement selector only: a partial shape is refused rather than guessed.
+    if (keys !== 'draftIds,editId,includeReplacements' || !uuid(context.editId) || typeof context.includeReplacements !== 'boolean') bad();
+    const draftIds = context.draftIds;
+    if (!Array.isArray(draftIds) || draftIds.length < MIN_IMPROVEMENT_TRACKS || draftIds.length > MAX_IMPROVEMENT_TRACKS
+      || new Set(draftIds).size !== draftIds.length || !draftIds.every((id) => HEX_ID.test(id))) bad();
+    return { editId: context.editId, draftIds: [...draftIds], includeReplacements: context.includeReplacements };
+  }
   if (surface === 'live') {
     if (keys !== 'revision,sessionId' || !uuid(context.sessionId) || typeof context.revision !== 'number' || !Number.isInteger(context.revision) || context.revision < 0 || context.revision > 500) bad();
     return { sessionId: context.sessionId, revision: context.revision };
@@ -82,12 +99,16 @@ const errors: Record<string, string> = {
 };
 export class OptionalAiController {
   private api: OptionalAiApi; private host: OptionalAiHost; private base: AiStatus | null = null; private draft: AiStatus | null = null;
-  private context: AiContext | null = null; private identity = ''; private generation = 0; private conflict = false; private appliedId = '';
+  private context: AiContext | null = null; private identity = ''; private localRevision: string | number = ''; private generation = 0; private conflict = false; private appliedId = '';
+  private improvement = false;
   surface: AiSurface = 'library'; request = ''; consent = false; error = ''; notice = '';
+  includeReplacements = false;
   preview: AiPreview | null = null; result: AiResult | null = null;
   pending: 'load' | 'save' | 'choose' | 'clear' | 'prepare' | 'ask' | 'apply' | null = null;
   constructor(api: OptionalAiApi, host: OptionalAiHost) { this.api = api; this.host = host; }
   get snapshot(): AiStatus | null { return this.draft; }
+  /** True only for the exact AI improvement selector on the editor surface. */
+  get improvementEditor(): boolean { return this.surface === 'editor' && this.improvement; }
   get dirty(): boolean { return Boolean(this.base && this.draft && this.base.enabled !== this.draft.enabled); }
   get requestEditable(): boolean { return editable.has(this.surface); }
   get canSave(): boolean { return !this.pending && !this.conflict && this.dirty; }
@@ -96,15 +117,28 @@ export class OptionalAiController {
   get canApply(): boolean { return !this.pending && !this.dirty && !this.conflict && Boolean(this.result?.canApply && this.result.proposal && editable.has(this.result.surface) && this.result.resultId !== this.appliedId); }
   private notify(): void { this.host.dirtyChanged(this.dirty); this.host.changed(); }
   private reset(): void { this.generation++; this.preview = null; this.result = null; this.consent = false; this.appliedId = ''; }
-  invalidate(): void { this.reset(); this.context = null; this.identity = ''; this.request = ''; this.notice = ''; this.notify(); }
+  invalidate(): void { this.reset(); this.context = null; this.identity = ''; this.localRevision = ''; this.improvement = false; this.includeReplacements = false; this.request = ''; this.notice = ''; this.notify(); }
   cancelPending(): void { this.reset(); this.notice = 'Solicitud cancelada. Los datos ya enviados no se pueden recuperar.'; this.notify(); }
   setContext(surface: AiSurface, context: AiContext, localRevision: string | number): void {
     try {
       const copy = contextCopy(surface, context); const identity = JSON.stringify([surface, copy, localRevision]);
       if (identity === this.identity) return;
-      this.reset(); this.surface = surface; this.context = copy; this.identity = identity;
+      this.reset(); this.surface = surface; this.context = copy; this.identity = identity; this.localRevision = localRevision;
+      this.improvement = surface === 'editor' && Object.hasOwn(copy, 'draftIds');
+      this.includeReplacements = copy.includeReplacements === true;
       this.request = surface === 'connection' ? AI_CONNECTION_REQUEST : ''; this.error = ''; this.notice = ''; this.notify();
     } catch (error) { this.invalidate(); this.fail(error); }
+  }
+  /**
+   * Explicit user choice for the improvement selector. It invalidates the prepared
+   * disclosure and its consent, updates the exact context, and notifies the host so the
+   * app can regenerate the context. It never contacts the provider.
+   */
+  setIncludeReplacements(value: boolean): void {
+    if (typeof value !== 'boolean' || this.pending || !this.host.canAct() || !this.improvement || this.includeReplacements === value) return;
+    this.includeReplacements = value;
+    if (this.context) { this.context = { ...this.context, includeReplacements: value }; this.identity = JSON.stringify([this.surface, this.context, this.localRevision]); }
+    this.reset(); this.notice = ''; if (!this.conflict) this.error = ''; this.notify();
   }
   setRequest(value: string): void {
     if (!this.requestEditable || typeof value !== 'string' || value === this.request) return;
@@ -151,6 +185,7 @@ export class OptionalAiController {
   }
   chooseCredential(): Promise<void> { return this.credential('choose'); }
   clearCredential(): Promise<void> { return this.credential('clear'); }
+  private expectedKind(): AiResult['kind'] { return this.improvementEditor ? 'improvement' : kinds[this.surface]; }
   async prepare(): Promise<void> {
     if (!this.canPrepare || !this.context || !this.host.canAct()) return;
     this.reset(); this.notice = ''; const surface = this.surface; const context = contextCopy(surface, this.context); const request = this.requestEditable ? this.request.trim() : surface === 'connection' ? AI_CONNECTION_REQUEST : '';
@@ -168,16 +203,16 @@ export class OptionalAiController {
       this.preview = null;
       if (value.cancelled) { this.notice = 'Solicitud cancelada. Los datos ya enviados no se pueden recuperar.'; this.host.changed(); return; }
       const result = value.result;
-      if (!result || !uuid(result.resultId) || result.surface !== surface || result.kind !== kinds[surface] || !text(result.title, 200) || !text(result.text, 8000) || typeof result.canApply !== 'boolean') bad();
+      if (!result || !uuid(result.resultId) || result.surface !== surface || result.kind !== this.expectedKind() || !text(result.title, 200) || !text(result.text, 8000) || typeof result.canApply !== 'boolean') bad();
       const proposal = result.proposal === null ? null : recordCopy(result.proposal);
       this.result = { ...result, proposal, canApply: editable.has(surface) && result.canApply }; this.notice = 'Respuesta de IA recibida. Revisa la propuesta; los datos y validadores locales siguen siendo la referencia.'; this.host.changed();
     });
   }
   async applySuggestion(): Promise<void> {
     if (!this.canApply || !this.result || !this.host.canAct()) return;
-    const { resultId, surface } = this.result;
+    const { resultId, surface } = this.result; const improvement = this.improvementEditor;
     await this.perform('apply', 'Revisando propuesta con los validadores locales…', () => this.api.applyAiSuggestion({ resultId }), (value) => {
-      if (!value || value.surface !== surface) bad(); const data = localApplyCopy(surface, value.data); this.appliedId = resultId;
+      if (!value || value.surface !== surface) bad(); const data = localApplyCopy(surface, value.data, improvement); this.appliedId = resultId;
       this.host.applied(surface, data); this.notice = 'Propuesta aplicada al trabajo local. Guardar, exportar y reproducir requieren sus propias acciones.'; this.host.changed();
     });
   }
