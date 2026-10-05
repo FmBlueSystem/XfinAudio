@@ -31,7 +31,7 @@ contextBridge.exposeInMainWorld('xfin',Object.freeze({
   generatePrep:(params:unknown)=>invoke('generatePrep',params),savePlaylist:(params:unknown)=>invoke('savePlaylist',params),
   renamePlaylist:(params:unknown)=>invoke('renamePlaylist',params),duplicatePlaylist:(params:unknown)=>invoke('duplicatePlaylist',params),
   openPlaylistEditor:(params:unknown)=>invoke('openPlaylistEditor',params),previewPlaylistEdit:(params:unknown)=>invoke('previewPlaylistEdit',params),
-  savePlaylistEdit:(params:unknown)=>invoke('savePlaylistEdit',params),discardPlaylistEdit:(params:unknown)=>invoke('discardPlaylistEdit',params),
+  savePlaylistEdit:(params:unknown)=>invoke('savePlaylistEdit',params),savePlaylistImprovement:(params:unknown)=>invoke('savePlaylistImprovement',params),discardPlaylistEdit:(params:unknown)=>invoke('discardPlaylistEdit',params),
   setDraftDirty:(dirty:boolean)=>invoke('setDraftDirty',{dirty}),
   listPlaylists:()=>invoke('listPlaylists'),openPlaylist:(params:unknown)=>invoke('openPlaylist',params),
   cancelCurrent:()=>invoke('cancelCurrent'),

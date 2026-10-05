@@ -156,6 +156,7 @@ async function action(method:string,raw:unknown) {
     case 'openPlaylistEditor':return editSnapshot(await run('playlist.edit.open',{playlistId:Number(params.playlistId)}));
     case 'previewPlaylistEdit':return run('playlist.edit.preview',params);
     case 'savePlaylistEdit':return editSnapshot(await run('playlist.edit.save',params));
+    case 'savePlaylistImprovement':return editSnapshot(await run('playlist.edit.save_improvement',params));
     case 'discardPlaylistEdit':return editSnapshot(await run('playlist.edit.discard',params));
     case 'chooseLibrary': {
       if(dialogOpen||current)throw new Error('Another task is still running');

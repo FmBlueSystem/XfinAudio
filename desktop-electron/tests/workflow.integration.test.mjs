@@ -72,3 +72,12 @@ test('real preferences persist with authorized multi-root rescan and no audio mu
  const start=()=>new PythonBridge(python,['-m','xfinaudio.headless','--data-dir',data],{...process.env,PYTHONPATH:path.join(root,'src')});let core=start();
  try{const settings=await core.request('settings.get');assert.equal(settings.previewVolume,0.7);assert.equal(settings.capabilities.loudnessWriteback,true);await core.request('settings.update',{revision:settings.revision,previewVolume:0.23,watchLibrary:false});await core.request('library.scan',{root:first});await core.request('library.scan',{root:second});await core.close();core=start();const restored=await core.request('settings.get');assert.equal(restored.previewVolume,0.23);assert.equal(restored.watchLibrary,false);assert.equal(restored.libraryLabels.length,2);assert.equal((await core.request('library.rescan')).tracks.length,2);await assert.rejects(core.request('library.rescan',{root:'/private'}),error=>error.code==='invalid_params');assert.deepEqual(await hash(),before);}finally{await core.close();await rm(data,{recursive:true});}
 });
+test('improvement save bridge routes only to its dedicated bound command and keeps manual editing unchanged',async()=>{
+ const main=await readFile(new URL('../src/main.ts',import.meta.url),'utf8'),preload=await readFile(new URL('../src/preload.ts',import.meta.url),'utf8');
+ assert.ok(preload.includes("savePlaylistImprovement:(params:unknown)=>invoke('savePlaylistImprovement',params)"),'the bridge must expose only the opaque improvement save params');
+ assert.equal((main.match(/playlist\.edit\.save_improvement/g)??[]).length,1,'exactly one command may reach the improvement save');
+ assert.match(main,/case 'savePlaylistImprovement':return editSnapshot\(await run\('playlist\.edit\.save_improvement',params\)\);/,'the improvement save must route through the shared host request');
+ assert.match(main,/case 'previewPlaylistEdit':return run\('playlist\.edit\.preview',params\);/,'the manual preview command must stay unchanged');
+ assert.match(main,/case 'savePlaylistEdit':return editSnapshot\(await run\('playlist\.edit\.save',params\)\);/,'the manual save command must stay unchanged');
+ assert.match(main,/case 'discardPlaylistEdit':return editSnapshot\(await run\('playlist\.edit\.discard',params\)\);/,'the manual discard command must stay unchanged');
+});

@@ -15,3 +15,24 @@ test('native credential filesystem failures cannot expose selected paths in IPC 
 });
 
 test('renderer cannot supply or expand optional AI timeouts',()=>{for(const surface of ['library','prep','review','connection']){const context=surface==='review'?{reviewId:id}:{};const request=surface==='review'?'':surface==='connection'?'Reply with OK. XfinAudio connection test.':'Fixture request';assert.throws(()=>validateRequest('prepareAiRequest',{surface,request,context,timeout:120}));assert.throws(()=>validateRequest('prepareAiRequest',{surface,request,context:{...context,timeout:120}}));}assert.throws(()=>validateRequest('runAiRequest',{previewId:id,timeout:120}));});
+test('editor AI context accepts only the bounded improvement selector or the legacy edit identity',()=>{
+ const draftIds=['a'.repeat(64),'b'.repeat(64)],request='Acorta la lista';
+ const selector={editId:id,draftIds,includeReplacements:true};
+ assert.deepEqual(validateRequest('prepareAiRequest',{surface:'editor',request,context:selector}),{surface:'editor',request,context:selector});
+ assert.deepEqual(validateRequest('prepareAiRequest',{surface:'editor',request,context:{editId:id}}),{surface:'editor',request,context:{editId:id}});
+ assert.equal(validateRequest('prepareAiRequest',{surface:'editor',request,context:{editId:id,draftIds,includeReplacements:false}}).context.includeReplacements,false);
+ const edge=Array.from({length:80},(_,index)=>index.toString(16).padStart(64,'a'));
+ assert.deepEqual(validateRequest('prepareAiRequest',{surface:'editor',request,context:{editId:id,draftIds:edge,includeReplacements:true}}).context.draftIds,edge);
+ const rejected=[
+  {editId:id,draftIds,includeReplacements:'true'},
+  {editId:id,draftIds,includeReplacements:1},
+  {editId:id,draftIds:[draftIds[0]],includeReplacements:false},
+  {editId:id,draftIds:[draftIds[0],draftIds[0]],includeReplacements:false},
+  {editId:id,draftIds:[draftIds[0],'/etc/passwd'],includeReplacements:false},
+  {editId:id,draftIds:Array.from({length:81},(_,index)=>index.toString(16).padStart(64,'a')),includeReplacements:false},
+  {editId:id,draftIds,includeReplacements:false,path:'/private'},
+  {editId:id,draftIds},
+  {editId:id,includeReplacements:false},
+ ];
+ for(const context of rejected)assert.throws(()=>validateRequest('prepareAiRequest',{surface:'editor',request,context}));
+});
