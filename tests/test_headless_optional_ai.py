@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 
+from tests.test_headless_ai_context import improvement_selector
 from tests.test_headless_ai_context import setup as setup
 from xfinaudio.ai import nan_client
 from xfinaudio.headless.common import BackendError
@@ -349,3 +350,39 @@ def test_untrusted_fields_fail_without_network(fixture, method, params):
     with pytest.raises(BackendError):
         call(facade, method, params)
     assert not transport.requests
+
+
+# --- I2b: stable editor improvement disclosure and freshness ------------------
+
+
+def test_editor_improvement_prepare_discloses_without_contacting_provider(fixture):
+    facade, transport, backend, _, _ = fixture
+    selector, opened = improvement_selector(backend, include_replacements=True)
+    preview = call(facade, "ai.prepare", {"surface": "editor", "request": "Sube la energía", "context": selector})
+    assert transport.requests == []
+    assert preview["surface"] == "editor" and preview["recipient"] == nan_client.DEFAULT_ENDPOINT
+    assert str(len(opened["tracks"])) in preview["disclosure"][0]
+    assert "pseudónimos" in " ".join(preview["disclosure"])
+    assert call(facade, "ai.confirmation", {"previewId": preview["previewId"]}) == preview
+    assert transport.requests == []
+
+
+def test_editor_improvement_freshness_accepts_identical_selector_and_rejects_library_change(fixture):
+    facade, _, backend, _, root = fixture
+    selector, _ = improvement_selector(backend)
+    preview = call(facade, "ai.prepare", {"surface": "editor", "request": "Mejora el orden", "context": selector})
+    assert call(facade, "ai.confirmation", {"previewId": preview["previewId"]}) == preview
+    (root / "track-1.flac").unlink()
+    with pytest.raises(BackendError) as error:
+        call(facade, "ai.confirmation", {"previewId": preview["previewId"]})
+    assert error.value.code == "stale_ai"
+
+
+def test_editor_improvement_freshness_rejects_changed_saved_revision(fixture):
+    facade, _, backend, _, _ = fixture
+    selector, _ = improvement_selector(backend)
+    preview = call(facade, "ai.prepare", {"surface": "editor", "request": "Mejora el orden", "context": selector})
+    backend.playlists.update_name(backend.playlists.list_summaries()[0].id, "External rename")
+    with pytest.raises(BackendError) as error:
+        call(facade, "ai.confirmation", {"previewId": preview["previewId"]})
+    assert error.value.code == "stale_ai"
