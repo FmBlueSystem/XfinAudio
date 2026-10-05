@@ -46,8 +46,10 @@ Additional corrections carried through the artifacts:
   `MAX_REPLACEMENT_CANDIDATES = 20`, `MIN_IMPROVEMENT_TRACKS = 2`,
   `MAX_IMPROVEMENT_PAYLOAD_BYTES = 32 * 1024`) with fail-closed behavior above the
   draft cap and no silent truncation.
-- The canonical instruction bound is fixed at 2000 characters, with I3 aligning the
-  renderer input and view.
+- The canonical AI improvement instruction bound is 2000 characters across renderer,
+  bridge, and backend. The legacy manual UI stays at 500 while the IPC bridge
+  (`security.ts` `previewPlaylistEdit`) and headless backend (`playlist_editor.py`
+  `playlist.edit.preview`) accept 2000, pre-existing and not widened by this change.
 - The improvement schema, token format, caps, and any per-request model choice are
   editor-specific; the shared `_POLICY`, the 4096-character response bound, the 64 KiB
   request bound, and the global default model are not widened.
@@ -87,9 +89,11 @@ save. Its inaccurate assumptions are listed and corrected above.
 
 ## Decisions recorded from both sessions
 
-1. **Route.** Direct ODD documentation with strict TDD for the behavior slices. Status
-   and phases in `state.yaml` reflect docs-complete, I1 landed, and apply in progress;
-   I2–I4 are pending.
+1. **Route.** Direct ODD documentation with strict TDD for the behavior slices. The
+   OpenSpec artifacts are documented for I1–I3, and I4's artifact, durable-spec, and
+   limits tasks are recorded here, with any live provider/visual/library acceptance still
+   pending. The provider-owned `state.yaml` phase fields remain `apply: in-progress` and
+   `verify: pending`; documentation edits did not advance them.
 2. **Reuse, don't duplicate.** `OptionalAI` + `OptionalAiHost` own consent and native
    confirmation; no second consent path is introduced. A new save command is added only
    because exact-order replacement persistence genuinely needs one.
@@ -155,9 +159,114 @@ Structural whitespace and YAML checks were rerun after the edits. No source, tes
 provider, network, or credential work was performed, and nothing was staged or
 committed.
 
+## 2026-10-04 — I2 local AI proposal and disclosure
+
+I2 landed in three tested work units, all with injected or mocked transports:
+`38dbcc6` (strict token-only `ImprovementInterpretation` and
+`interpret_improvement_request`, plus editor-specific composition that does not widen
+the shared `_POLICY` or 4096-character bound), `6733dff` (bounded per-request disclosure
+and the `editId`/`draftIds`/`includeReplacements` editor selector with a draft-order
+fingerprint), and `235caae` (consented proposal binding through `ai.apply` and the local
+before/after preview, keeping random tokens out of `revision_data`). Focused runs
+observed 162, 155, and 203 tests after correction; the independent full offline gate
+after I2 is recorded once in `verify-report.md`. Failure injection confirmed
+assessment/render errors leave no bound proposal. The
+planned `tests/test_headless_ai_execution.py` and
+`tests/test_headless_playlist_improvement.py` were never created; verification ran
+against existing targets. `235caae` is 446 changed lines (422 additions, 24 deletions),
+an explicit advisory overage of the 400-line review heuristic. The legacy four-operation
+offline editor path remains supported. Native review assessed the I2a+I2b range
+medium/due and I2c medium/due, but no receipt was produced; two START consent bindings
+expired with `lineage_created:false`.
+
+## 2026-10-04/05 — I3 editor review wiring and closure
+
+I3 landed in five tested renderer/security work units: `f60f81b`
+(`savePlaylistImprovement` security/preload/main route and bounded editor improvement
+selector, with the legacy route intact), `7aef8b9` (bounded public proposal preview
+distinct from the legacy edit preview, with explicit draft apply binding
+`proposalId`/`digest` and later mutations revoking it), `a8ccb5a` (visible improvement
+prompt, default-off replacements toggle, distinct kind/selector and disclosure, 512 KiB
+limit for the local post-validation preview only), `a74bbed` (exact 2–80 draft selector,
+source identity and deferred preview checks, with the AI surface withheld when the save
+bridge or bounds are missing), and `e9bccb9` (discoverable editor CTA, honest
+local-preview wording, numbered before/after with readiness and warnings, explicit draft
+apply and separate bound save). Focused Node runs observed 439, 28/451, 32, 35, and 77
+tests respectively, with RED observed before GREEN in each unit. An independent full
+offline check after `e9bccb9` is recorded once in `verify-report.md` (480/480 Node passed
+with 0 skipped and the Python gate), plus Pyright, Ruff lint/format, release smoke,
+source docs/hygiene, and packaging green. `4533422` closed the ODD task document only; it did
+not touch OpenSpec artifacts. Native review assessed the U1 committed range high/due and
+the other units medium/under budget, but no approval or receipt exists; the U1 START
+consent expired with `lineage_created:false`. Mocked DOM and provider only: no visible
+macOS, installed app, real library, or real provider behavior was observed.
+
+## 2026-10-05 — I4 documentation reconciliation (this pass)
+
+This pass reconciled the OpenSpec artifacts with the observed I1/I2/I3 implementation
+and the independent offline evidence. It updated `proposal.md`, `spec.md`, `design.md`,
+`tasks.md`, this file, `verify-report.md`, and the prose notes in `state.yaml`.
+Corrections made:
+
+- `proposal.md`'s as-built note now records I1/I2/I3, both advisory 400-line overages
+  (`75a11a2` 461 lines, `235caae` 446 lines), the latest offline evidence, and the
+  absent native approval.
+- `spec.md` gained an as-built evidence note mapping requirements to observed evidence
+  and stating the unproven live/visual paths.
+- `design.md` replaced the "planned for I2/I3" file list with the landed files, recorded
+  the observed instruction-bound split (AI improvement prompt 2000 across renderer,
+  bridge, and backend; legacy manual UI 500 with a pre-existing IPC/backend bound of
+  2000), and corrected the review-slice as-built paragraph.
+- `tasks.md` checked the I2/I3 tasks with as-built notes, recorded the never-created
+  test targets, and marked I4.1/I4.2/I4.4. I4.3 was left pending in that pass because
+  the referenced `electron-playlist-editor` capability did not exist under
+  `openspec/specs/` and that surface was outside that pass's allowed edits; it was
+  landed in the following I4.3 pass (below).
+- `verify-report.md` now reports I1–I3 offline verification with the I4 non-claims,
+  instead of an I1-only partial.
+- `state.yaml` prose notes were updated; provider-owned phase fields (`status`,
+  `phases`, `next_recommended`) were deliberately left unchanged rather than advanced by
+  a documentation writer.
+
+Strict TDD was not active for this documentation pass; the behavior slices already carry
+observed RED/GREEN evidence. No source, test, provider, network, credential, library,
+staging, or commit operation was performed.
+
+## 2026-10-05 — I4.3 durable-spec reconciliation (this pass)
+
+Added the new durable capability `openspec/specs/electron-playlist-improvement/spec.md`,
+recording the as-built Electron AI playlist-improvement behavior with testable
+requirements and scenarios: the opt-in `2..80` draft / `0..20` replacement candidate
+set with `MAX_CANDIDATES = 100` and fail-closed over-cap behavior; request-scoped
+`16`-hex pseudonymous tokens; exact disclosure plus explicit consent and the existing
+native OS confirmation; the `2000`-character improvement instruction bound (the AI
+prompt across renderer, bridge, and backend) against the legacy manual UI `500` bound
+and its pre-existing IPC/backend `2000` bound; the bounded token-only response; the
+read-only before/after preview with assessment; explicit draft-only apply; the separate
+proposal-bound compare-and-update save (`playlist.edit.save_improvement`); stale-change
+revocation; and the unchanged manual rejection of additions.
+
+This pass did **not** rewrite `openspec/specs/my-playlists-screen/spec.md` and does not
+claim its absent "Add from Library" feature shipped. Real provider behavior, native
+OS-dialog confirmation, visual macOS rendering, and real-library acceptance are recorded
+as **pending evidence** in the new spec's non-claims section and in `verify-report.md`,
+which remains the evidence of record.
+
+Artifact updates: `tasks.md` checks I4.3 and points to the new spec; `design.md`
+references `openspec/specs/electron-playlist-improvement/spec.md` instead of the
+non-existent `electron-playlist-editor` capability; this file and `verify-report.md`
+record the pass. No `state.yaml` SDD phase field was advanced, no source or test changed,
+and nothing was staged or committed.
+
+Strict TDD was not active for this documentation pass; it cannot have a meaningful
+pre-implementation behavior test, and the behavior slices already carry their own
+observed RED/GREEN evidence. No test runner, gate, provider, network, credential,
+library, staging, or commit operation was performed.
+
 ## Next step
 
-Resolve the native review/workload boundary without inventing a START route, then
-implement I2's editor-specific AI response/disclosure with mocked transports. I3
-renderer wiring and I4 end-to-end checks remain pending. Existing documentation
-claims of no source change above describe only the earlier documentation sessions.
+Resolve the pending native review boundary without inventing a consent route. The durable
+spec is recorded; any live provider, native-confirmation, visual macOS, or real-library
+acceptance remains unverified and must not be claimed from the mocked and offline
+evidence above. Documentation claims of no source change describe only the documentation
+sessions.

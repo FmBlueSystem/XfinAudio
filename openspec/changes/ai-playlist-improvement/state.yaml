@@ -3,7 +3,7 @@ change: ai-playlist-improvement
 artifact_store: openspec
 status: apply
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-05
 strict_tdd: true
 phases:
   proposal: complete
@@ -21,8 +21,16 @@ delivery:
   review_budget_changed_lines: 400
 notes:
   - Direct ODD change, not an auto-selected SDD phase; OpenSpec artifacts are repository-required.
-  - I1 backend-only source and tests are now in five local work-unit commits 56c491c, 75a11a2, 7dadafb, 1297e12, 4707dbd; final tree identical to backup 97370f5. Original-byte gate 4293 Python passed, 94.45% coverage after type/format corrections.
-  - I1 observed strict RED (missing module/method) before GREEN; I2/I3 are not implemented or verified.
+  - I1 backend-only source and tests are now in five local work-unit commits 56c491c, 75a11a2, 7dadafb, 1297e12, 4707dbd; final tree identical to backup 97370f5. The I1 gate result is recorded once in openspec/changes/ai-playlist-improvement/verify-report.md (single detailed gate/commit evidence).
+  - I1 observed strict RED (missing module/method) before GREEN; I2 and I3 also observed strict RED before GREEN in each landed work unit.
+  - 'Provider-owned phase fields (status, phases, next_recommended) were not advanced by the documentation writer: this change was closed locally by an ODD task document, not by the SDD phase runner, and it carries no native review receipt. The prose notes below are the truthful as-built record.'
+  - I2 landed as three local work-unit commits 38dbcc6 (token-only response validation and editor-specific policy), 6733dff (bounded disclosure and draft-order fingerprint), and 235caae (consented proposal binding and local preview). Focused runs observed 162/155/203 tests; the independent gate evidence is recorded once in verify-report.md. All transports injected or mocked.
+  - I3 landed as five local work-unit commits f60f81b (save bridge and bounded selector), 7aef8b9 (proposal-bound preview), a8ccb5a (disclosure), a74bbed (draft-preview wiring), and e9bccb9 (before/after preview UI), with ODD-task documentation closure 4533422 that touched no OpenSpec artifact.
+  - 'Latest independent offline verification after I3 is recorded once in verify-report.md (single detailed gate/commit evidence), including the 480 Node passed with 0 skipped result.'
+  - 'Native review produced no approval for any slice: three consent bindings expired without lineage or receipt (two for the I2a+I2b range, one for the I3 U1 high-risk range), the docs slice 7d381ae and 235caae were assessed due without a receipt, and the remaining I3 units were assessed under budget without a receipt. Independent tests are not approval.'
+  - 'Two work units exceed the advisory 400-line review heuristic and are disclosed rather than minimized: 75a11a2 at 461 changed lines and 235caae at 446 changed lines (422 additions, 24 deletions). No other slice exceeds the budget.'
+  - The AI improvement prompt is bounded at 2000 characters across renderer (optional-ai-view.ts, optional-ai.ts), bridge (security.ts), and backend (ai_context.py, structured_common.py). The legacy manual request is 500 only at the renderer input/UI (editor.ts, editor-view.ts); the IPC bridge (security.ts previewPlaylistEdit) and the headless backend (playlist_editor.py playlist.edit.preview) already accepted up to 2000 before this change. The manual command does not universally reject instructions above 500, and there is no end-to-end manual 500 bound.
+  - 'I4 is recorded: I4.1 offline gates, I4.2 artifact reconciliation, I4.3 durable-spec reconciliation (openspec/specs/electron-playlist-improvement/spec.md), and I4.4 limits. No live provider, native-confirmation, installed-app, or visual macOS behavior was observed.'
   - Native assessment was unassessable with untracked OpenSpec/ODD files; INSPECT excluding them offered no START for the empty workspace projection. No review approval is claimed.
   - Repartitioned units were independently focused-tested; candidate-set unit 75a11a2 has 461 authored diff lines, an explicit advisory overage kept coherent with its tests. No push or PR.
   - Review chain I1 (tokens/candidate/validator/proposal binding) -> I2 (AI schema/disclosure/freshness) -> I3 (Electron review and save routing) -> I4 (verify).
@@ -33,8 +41,8 @@ notes:
   - 'Budgets: MAX_IMPROVEMENT_PAYLOAD_BYTES=32*1024; shared strict_object 4096-character response bound unchanged; worst-case order near 2340 characters.'
   - Current renderer draft order enters the editor context and the context revision; the renderer invalidates its own pending preview on a local draft mutation, and _fresh() compares only the submitted draft snapshot, not unreported client-only edits.
   - Editor-specific improvement schema; shared _POLICY, shared response bound, MAX_REQUEST_BYTES, and the global default model are not widened.
-  - Canonical improvement instruction bound is 2000 characters; I3 aligns the renderer input and view.
+  - Canonical AI improvement instruction bound is 2000 characters across renderer, bridge, and backend; the legacy manual UI remains 500 while the IPC/backend manual preview bound is 2000, pre-existing and not widened by this change.
   - 'Consent: one-shot per request, ai.run requires confirmed=True plus the native OptionalAiHost confirmation; no auto-send.'
   - Tokenization is disclosed as pseudonymization, not anonymity; titles and artists are transmitted after consent.
   - Manual no-new-path invariant and atomic compare_and_update save are preserved; saved-editor locks/excludes are not asserted because that surface has none.
-  - 'Artifacts reconciled before Git add: verify-report is explicitly partial (I1 independently verified, I2-I4 pending); tasks.md records the five landed I1 commits and scopes draft freshness to the submitted snapshot; design.md splits landed-I1 from planned-I2/I3 files. No source/test change, no stage, no commit.'
+  - 'Artifact reconciliation is recorded in openspec/changes/ai-playlist-improvement/verify-report.md, the single detailed gate and commit evidence of record: I1-I3 independently verified offline and I4 reconciliation recorded, with no native review approval claimed. No source/test change, no stage, no commit.'
