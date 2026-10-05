@@ -92,3 +92,26 @@ test('all eight contexts share one draft while only global connection shows cred
   const f=await fixture(surface);try{assert.equal(f.get('config').hidden,surface!=='connection');assert.equal(f.get('settings-link').hidden,surface==='connection');assert.equal(f.calls.length,0);const enabled=f.get('enabled');f.controller.setEnabled(false);f.render();assert.equal(f.get('enabled'),enabled);assert.equal(f.controller.dirty,true);assert.match(f.get('config-summary').textContent,/sin guardar/);assert.equal(f.get('consent').checked,false);}finally{f.restore();}
  }
 });
+
+test('the improvement result offers a local review action with truthful, non-applying copy', async () => {
+  const f = await fixture('editor', improvementPatch, improvementContext(false));
+  try {
+    f.get('request').value = 'Mejorar esta playlist'; f.get('request').dispatchEvent(new Event('input'));
+    await f.controller.prepare(); f.controller.setConsent(true); await f.controller.ask(); f.render();
+    assert.equal(f.get('apply').textContent, 'Revisar propuesta local');
+    assert.equal(f.get('apply').hidden, false);
+    assert.match(f.get('apply-hint').textContent, /no cambia el borrador/i);
+    assert.doesNotMatch(f.get('apply-hint').textContent, /aplicad[ao] al trabajo local/i);
+    await f.controller.applySuggestion();
+    assert.match(f.controller.notice, /borrador/i);
+    assert.doesNotMatch(f.controller.notice, /aplicad[ao] al trabajo local/i);
+  } finally { f.restore(); }
+});
+test('a non-improvement result keeps the original apply action copy', async () => {
+  const f = await fixture('library');
+  try {
+    await f.controller.prepare(); f.controller.setConsent(true); await f.controller.ask(); f.render();
+    assert.equal(f.get('apply').textContent, 'Aplicar propuesta al trabajo local');
+    assert.match(f.get('apply-hint').textContent, /no guarda/i);
+  } finally { f.restore(); }
+});

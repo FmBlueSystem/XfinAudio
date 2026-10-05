@@ -78,7 +78,8 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const resultCaution = make('p', 'Contenido de IA para revisar. No es una evaluación del motor ni sustituye los metadatos o validadores locales.', 'review-notice');
   const proposal = make('details'); proposal.append(make('summary', 'Revisar datos de la propuesta')); const proposalText = make('pre'); proposal.append(proposalText);
   const apply = action('apply', 'Aplicar propuesta al trabajo local', () => { void controller.applySuggestion(); });
-  result.append(resultHeading, resultTitle, resultCaution, resultText, proposal, apply, make('p', 'Aplicar no guarda, exporta ni reproduce audio. Esas acciones siguen siendo explícitas.', 'field-hint'));
+  const applyHint = identify(make('p', 'Aplicar no guarda, exporta ni reproduce audio. Esas acciones siguen siendo explícitas.', 'field-hint'), 'apply-hint');
+  result.append(resultHeading, resultTitle, resultCaution, resultText, proposal, apply, applyHint);
   section.append(heading, error, notice, status, settingsLink, config, recipient, disclosure, requestField, includeField, localHoldNotice, fixedRequest, prepare, preview, pending, result); root.replaceChildren(section);
   return () => {
     const snapshot = controller.snapshot; const blocked = !canAct();
@@ -108,6 +109,12 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
     consent.checked = controller.consent; consent.disabled = blocked || !controller.preview; ask.disabled = blocked || !controller.canAsk; ask.textContent = controller.surface === 'connection' ? 'Probar conexión…' : 'Consultar IA…';
     pending.hidden = controller.pending !== 'ask'; result.hidden = !controller.result;
     const value = controller.result; if (value) { resultTitle.textContent = value.title; resultText.textContent = value.text; proposal.hidden = value.proposal === null; proposalText.textContent = value.proposal === null ? '' : JSON.stringify(value.proposal, null, 2); }
+    // The improvement action only asks the local validators for a bounded preview; it must
+    // not imply the draft changed. Other surfaces keep their original applied wording.
+    const improvementResult = controller.improvementEditor;
+    apply.textContent = improvementResult ? 'Revisar propuesta local' : 'Aplicar propuesta al trabajo local';
+    applyHint.textContent = improvementResult ? 'Revisar la propuesta local no cambia el borrador: el editor muestra el antes y el después para que decidas si aplicarla y cuándo guardarla.' : 'Aplicar no guarda, exporta ni reproduce audio. Esas acciones siguen siendo explícitas.';
+    resultCaution.textContent = improvementResult ? 'Propuesta pendiente de revisión local. El editor muestra el antes y el después con la evaluación del motor; nada cambia hasta que la apliques en el borrador.' : 'Contenido de IA para revisar. No es una evaluación del motor ni sustituye los metadatos o validadores locales.';
     apply.hidden = !value?.canApply; apply.disabled = blocked || !controller.canApply;
   };
 }

@@ -213,7 +213,11 @@ export class OptionalAiController {
     const { resultId, surface } = this.result; const improvement = this.improvementEditor;
     await this.perform('apply', 'Revisando propuesta con los validadores locales…', () => this.api.applyAiSuggestion({ resultId }), (value) => {
       if (!value || value.surface !== surface) bad(); const data = localApplyCopy(surface, value.data, improvement); this.appliedId = resultId;
-      this.host.applied(surface, data); this.notice = 'Propuesta aplicada al trabajo local. Guardar, exportar y reproducir requieren sus propias acciones.'; this.host.changed();
+      this.host.applied(surface, data);
+      // The improvement preview is local staging for the editor only; the draft is untouched
+      // until the user applies it there, so the notice must not claim it was applied.
+      this.notice = improvement ? 'Propuesta local lista para revisar en el editor. El borrador no cambió y no se guardó nada.' : 'Propuesta aplicada al trabajo local. Guardar, exportar y reproducir requieren sus propias acciones.';
+      this.host.changed();
     });
   }
 }

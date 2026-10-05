@@ -157,3 +157,13 @@ test('the replacement toggle discards prepared disclosure and consent and regene
   const legacy = improvementFixture(); await legacy.controller.load(); legacy.controller.setContext('editor', { editId: uuid }, 'e');
   legacy.controller.setIncludeReplacements(true); assert.equal(legacy.controller.includeReplacements, false);
 });
+
+test('a local improvement review never claims the draft was applied while other surfaces keep that copy', async () => {
+  const f = await improvementReady({ applyAiSuggestion: async () => ({ surface: 'editor', data: largeImprovementPreview() }) });
+  await f.controller.applySuggestion();
+  assert.equal(f.applied.length, 1);
+  assert.match(f.controller.notice, /borrador/i);
+  assert.doesNotMatch(f.controller.notice, /aplicad[ao] al trabajo local/i);
+  const g = fixture(); await prepared(g); g.controller.setConsent(true); await g.controller.ask(); await g.controller.applySuggestion();
+  assert.match(g.controller.notice, /aplicada al trabajo local/i);
+});

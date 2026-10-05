@@ -6,7 +6,7 @@ class Element extends EventTarget {
   get options() { return this.children; } get selectedOptions() { return this.children.filter(node=>node.selected); }
   classList = { toggle: (key, active) => active ? this.classes.add(key) : this.classes.delete(key), contains: (key) => this.classes.has(key) };
   setAttribute(key, value) { this.attrs[key] = value; } removeAttribute(key) { delete this.attrs[key]; }
-  append(...nodes) { this.children.push(...nodes); } replaceChildren(...nodes) { this.children = nodes; } closest() { return null; } focus() {} pause() { this.paused = true; } load() {} async play() { this.paused = false; }
+  append(...nodes) { this.children.push(...nodes); } replaceChildren(...nodes) { this.children = nodes; } closest() { return null; } focus() { this.focused = true; } pause() { this.paused = true; } load() {} async play() { this.paused = false; }
 }
 const all = (node) => [node, ...node.children.flatMap(all)]; const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
 const tick = () => new Promise((resolve) => setImmediate(resolve)); const settle = async () => { for (let i = 0; i < 5; i++) await tick(); };
@@ -269,4 +269,98 @@ test('Prep AI Apply unions hard controls and never removes an exclusion to accep
  await aiResult(f,'prep');const before=f.get('prep-name').value;f.click('optional-ai-apply');await settle();
  assert.equal(f.get('prep-start').value,'');assert.equal(f.get('prep-name').value,before);assert.equal(required.selected,true);assert.equal(excluded.selected,true);assert.notEqual(f.get('optional-ai-error').textContent,'');assert.equal(f.calls.some(([kind])=>kind==='generate'),false);
  }finally{f.restore();}
+});
+
+// --- I3 U4b: discoverable improvement CTA, readable before/after and honest apply/save ---
+test('the editor summary CTA opens the existing AI panel, focuses the instruction and never prepares or contacts the provider', async () => {
+  const f = await fixture();
+  try {
+    await openEditor(f);
+    const cta = f.get('editor-improve');
+    assert.equal(cta.disabled, false);
+    f.click('editor-improve'); await settle();
+    assert.equal(f.get('ai-panel').open, true);
+    assert.equal(f.get('optional-ai-request').focused, true);
+    assert.equal(f.calls.some(([kind]) => ['aiPrepare', 'aiRun', 'aiApply', 'saveEdit', 'saveImprovement'].includes(kind)), false);
+  } finally { f.restore(); }
+});
+test('the editor CTA is disabled with an actionable hint outside the bounded draft and without the save bridge', async () => {
+  const drafts = [[{ ...tracks[0] }], Array.from({ length: 81 }, (_, index) => ({ ...tracks[0], id: index.toString(16).padStart(64, '0') }))];
+  for (const draftTracks of drafts) {
+    const f = await fixture({ openPlaylistEditor: async () => ({ id: '1', editId: aiUuid, revision: 'r1', name: 'Set', tracks: draftTracks, missingTrackCount: 0 }) });
+    try {
+      await openEditor(f);
+      assert.equal(f.get('editor-improve').disabled, true);
+      assert.match(f.get('editor-improve-hint').textContent, /2 y 80/);
+      assert.equal(f.calls.some(([kind]) => kind === 'aiPrepare'), false);
+    } finally { f.restore(); }
+  }
+  const g = await fixture({ savePlaylistImprovement: undefined });
+  try {
+    await openEditor(g);
+    assert.equal(g.get('editor-improve').disabled, true);
+    assert.notEqual(g.get('editor-improve-hint').textContent, '');
+    assert.equal(g.calls.some(([kind]) => kind === 'aiPrepare'), false);
+  } finally { g.restore(); }
+});
+test('reviewing an improvement result stages a read-only before/after preview and never touches draft or save', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: improvementPayload() }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    assert.equal(f.get('optional-ai-apply').textContent, 'Revisar propuesta local');
+    f.click('optional-ai-apply'); await settle();
+    assert.equal(f.get('optional-ai-error').textContent, '');
+    assert.equal(f.get('editor-improvement').hidden, false);
+    assert.match(text(f.get('editor-improvement')), /antes/i);
+    assert.match(text(f.get('editor-improvement')), /después/i);
+    assert.equal(f.get('editor-improvement-apply').disabled, false);
+    assert.equal(f.get('editor-dirty').textContent, 'Sin cambios pendientes');
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement' || kind === 'saveEdit'), false);
+    assert.doesNotMatch(f.get('optional-ai-notice').textContent, /aplicad[ao] al trabajo local/i);
+    assert.match(f.get('optional-ai-notice').textContent, /borrador/i);
+  } finally { f.restore(); }
+});
+test('applying the improvement changes only the draft, labels the bound save and persists through the dedicated command', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: improvementPayload() }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    f.click('optional-ai-apply'); await settle();
+    f.click('editor-improvement-apply'); await settle();
+    assert.equal(f.get('editor-save').textContent, 'Guardar mejora');
+    assert.equal(f.get('editor-dirty').textContent, 'Cambios sin guardar');
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement'), false);
+    f.click('editor-save'); await settle();
+    const saved = f.calls.findLast(([kind]) => kind === 'saveImprovement');
+    assert.ok(saved); assert.equal(saved[1].proposalId, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+    assert.equal(f.calls.some(([kind]) => kind === 'saveEdit'), false);
+  } finally { f.restore(); }
+});
+test('a manual change after applying revokes the binding and restores the manual save command', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: improvementPayload() }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    f.click('optional-ai-apply'); await settle();
+    f.click('editor-improvement-apply'); await settle();
+    assert.equal(f.get('editor-save').textContent, 'Guardar mejora');
+    f.get('editor-name').value = 'Otro nombre'; f.get('editor-name').dispatchEvent(new Event('input')); await settle();
+    assert.equal(f.get('editor-save').textContent, 'Guardar cambios');
+    f.click('editor-save'); await settle();
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement'), false);
+    assert.ok(f.calls.some(([kind]) => kind === 'saveEdit'));
+  } finally { f.restore(); }
+});
+test('other AI surfaces keep their original review and apply copy', async () => {
+  const f = await fixture();
+  try {
+    await aiResult(f);
+    assert.equal(f.get('optional-ai-apply').textContent, 'Aplicar propuesta al trabajo local');
+    f.click('optional-ai-apply'); await settle();
+    assert.match(f.get('operation-detail').textContent, /aplicada al trabajo local/i);
+  } finally { f.restore(); }
 });

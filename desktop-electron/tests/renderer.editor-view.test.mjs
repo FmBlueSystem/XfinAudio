@@ -13,12 +13,12 @@ class Element extends EventTarget {
 const all = (root) => [root, ...root.children.flatMap(all)];
 const text = (root) => [root.textContent, ...root.children.map(text)].join(' ');
 const click = (node) => { assert.ok(node); if (!node.disabled) node.dispatchEvent(new Event('click')); };
-function fixture() {
+function fixture(hostPatch = {}) {
   const before = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) };
   const calls = []; const tracks = [{ id: 'a', title: '<img src=x onerror=alert(1)>', artist: 'Artista', missing: false, bpm: 120, key: '8A', energy: 5, duration: 60 }, { id: 'b', title: 'Ausente', artist: 'Artista', missing: true, bpm: null, key: null, energy: null, duration: null }];
-  const editor = { draft: { id: '1', name: 'Prueba', tracks }, dirty: true, canSave: true, error: '', preview: null, pendingPlaylistId: null, request: '',
-    move: (...args) => calls.push(['move', ...args]), remove: (...args) => calls.push(['remove', ...args]), rename: (...args) => calls.push(['rename', ...args]), save: async () => calls.push(['save']), discard: async () => calls.push(['discard']), requestPreview: async () => calls.push(['preview']), applyPreview: () => calls.push(['apply']), setRequest: (...args) => calls.push(['request', ...args]), confirmSwitch: async () => calls.push(['confirm']), cancelSwitch: () => calls.push(['cancel']), };
-  let busy = false; const root = new Element(); const render = createEditorView(root, editor, { canAct: () => !busy, play: (track) => calls.push(['play', track.id]) }); render();
+  const editor = { draft: { id: '1', name: 'Prueba', tracks }, dirty: true, canSave: true, error: '', preview: null, improvement: null, improvementBound: false, pendingPlaylistId: null, request: '',
+    move: (...args) => calls.push(['move', ...args]), remove: (...args) => calls.push(['remove', ...args]), rename: (...args) => calls.push(['rename', ...args]), save: async () => calls.push(['save']), discard: async () => calls.push(['discard']), requestPreview: async () => calls.push(['preview']), applyPreview: () => calls.push(['apply']), applyImprovementPreview: () => calls.push(['applyImprovement']), setRequest: (...args) => calls.push(['request', ...args]), confirmSwitch: async () => calls.push(['confirm']), cancelSwitch: () => calls.push(['cancel']), };
+  let busy = false; const root = new Element(); const render = createEditorView(root, editor, { canAct: () => !busy, play: (track) => calls.push(['play', track.id]), improvement: () => ({ available: true, hint: '' }), openImprovement: () => calls.push(['improve']), ...hostPatch }); render();
   return { root, editor, render, calls, nodes: () => all(root), get: (id) => all(root).find((node) => node.id === `editor-${id}`), busy: () => { busy = true; render(); }, restore: () => { globalThis.document = before; } };
 }
 test('accessible Spanish editor keeps missing rows visible and metadata is text only', () => {
@@ -66,5 +66,55 @@ test('moving a row restores a keyboard action on that row after the table is reb
     f.editor.move = (index, direction) => { const tracks = [...f.editor.draft.tracks]; const next = index + direction; [tracks[index], tracks[next]] = [tracks[next], tracks[index]]; f.editor.draft = { ...f.editor.draft, tracks }; f.render(); };
     click(f.nodes().find((node) => node.attrs['aria-label']?.startsWith('Bajar 1')));
     const moved = f.nodes().find((node) => node.attrs['aria-label']?.startsWith('Subir 2')); assert.equal(moved.focused, true);
+  } finally { f.restore(); }
+});
+
+test('the summary improvement CTA is explicit-only and states an actionable reason when unavailable', () => {
+  const f = fixture(); try {
+    const cta = f.get('improve'); assert.equal(cta.textContent, 'Mejorar con IA…'); assert.equal(cta.disabled, false);
+    click(cta); assert.deepEqual(f.calls, [['improve']]);
+  } finally { f.restore(); }
+  const g = fixture({ improvement: () => ({ available: false, hint: 'La mejora con IA necesita entre 2 y 80 pistas en el borrador.' }) }); try {
+    assert.equal(g.get('improve').disabled, true);
+    assert.match(g.get('improve-hint').textContent, /2 y 80/);
+    click(g.get('improve')); assert.equal(g.calls.some(([kind]) => kind === 'improve'), false);
+  } finally { g.restore(); }
+});
+
+test('a read-only improvement preview renders numbered before/after rows, counts and assessment and mutates only on click', () => {
+  const f = fixture(); try {
+    f.editor.improvement = { before: f.editor.draft.tracks, after: [...f.editor.draft.tracks].reverse(), addedIds: ['x'.repeat(64)], removedIds: ['y'.repeat(64)], assessment: { description: 'Orden con mejor flujo', readiness: 'needs_review', qualityScore: 0.71, warnings: ['Transición justa'] } };
+    f.render();
+    assert.match(text(f.root), /antes/i); assert.match(text(f.root), /después/i);
+    assert.deepEqual(f.get('improvement-before').children.map((node) => node.textContent), ['1. <img src=x onerror=alert(1)> · Artista', '2. Ausente · Artista · Archivo no disponible']);
+    assert.deepEqual(f.get('improvement-after').children.map((node) => node.textContent), ['1. Ausente · Artista · Archivo no disponible', '2. <img src=x onerror=alert(1)> · Artista']);
+    assert.equal(f.get('improvement-counts').textContent, '1 pista añadida · 1 pista quitada');
+    for (const expected of ['Orden con mejor flujo', 'Transición justa', '0,71', 'Aplicar mejora al borrador']) assert.ok(text(f.root).includes(expected), expected);
+    assert.deepEqual(f.calls, []);
+    click(f.get('improvement-apply')); assert.deepEqual(f.calls, [['applyImprovement']]);
+    assert.ok(!f.nodes().some((node) => ['img', 'script'].includes(node.tagName)));
+  } finally { f.restore(); }
+});
+
+test('a blocked improvement states the block and disables apply while the bound save label stays honest', () => {
+  const f = fixture(); try {
+    assert.equal(f.get('save').textContent, 'Guardar cambios');
+    f.editor.improvement = { before: f.editor.draft.tracks, after: f.editor.draft.tracks, addedIds: [], removedIds: [], assessment: { description: 'Bloqueada', readiness: 'blocked', qualityScore: 0, warnings: ['Metadatos incompletos'] } };
+    f.editor.improvementBound = true; f.render();
+    assert.equal(f.get('improvement-apply').disabled, true);
+    assert.equal(f.get('improvement-blocked').hidden, false);
+    assert.match(f.get('improvement-blocked').textContent, /bloqueada/i);
+    assert.equal(f.get('save').textContent, 'Guardar mejora');
+    f.editor.improvementBound = false; f.render(); assert.equal(f.get('save').textContent, 'Guardar cambios');
+  } finally { f.restore(); }
+});
+
+test('the legacy local proposal stays reachable beside the improvement surface', () => {
+  const f = fixture(); try {
+    f.editor.preview = { tracks: [...f.editor.draft.tracks].reverse(), assessment: { description: 'Evaluación local', readiness: 'ready', qualityScore: 1, warnings: [] } };
+    f.editor.improvement = { before: f.editor.draft.tracks, after: [...f.editor.draft.tracks].reverse(), addedIds: [], removedIds: [], assessment: { description: 'Motor local', readiness: 'needs_review', qualityScore: 0.8, warnings: [] } };
+    f.render();
+    click(f.get('apply')); click(f.get('improvement-apply'));
+    assert.deepEqual(f.calls, [['apply'], ['applyImprovement']]);
   } finally { f.restore(); }
 });

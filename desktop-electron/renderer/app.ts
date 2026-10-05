@@ -57,6 +57,10 @@ const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
   return node;
 };
 const gate = new OperationGate();
+// An improvement preview can only be persisted through the dedicated proposal-bound
+// route. Without that bridge the editor improvement surface is disabled rather than
+// producing a bound draft that could not be saved safely.
+const editorImprovementAvailable = (): boolean => typeof api?.savePlaylistImprovement === 'function';
 let route: Route = 'library';
 const toolOrigins = new ToolOrigins();
 const toolTriggers = new Map<Route, HTMLElement>();
@@ -151,8 +155,28 @@ const editor = new SavedPlaylistEditor(api, {
 renderEditor = createEditorView(element('editor-container'), editor, {
   canAct: () => coreAvailable && !gate.busy,
   play: (track) => { void player.select(track).catch(() => showStatus('No se puede abrir esta pista', 'Comprueba que el archivo siga disponible', true)); },
+  improvement: editorImprovementStatus,
+  openImprovement,
 });
 renderEditor();
+/** Availability and actionable reason for the editor improvement CTA, derived from the exact draft. */
+function editorImprovementStatus(): { available: boolean; hint: string } {
+  const draft = editor.draft;
+  if (!draft) return { available: false, hint: 'Abre una playlist guardada para mejorarla con IA.' };
+  if (!editorImprovementAvailable()) return { available: false, hint: 'Esta versión no puede guardar una mejora con IA, así que no se enviará nada. Pide una propuesta local desde el editor.' };
+  const count = draft.tracks.length;
+  if (count < 2 || count > 80) return { available: false, hint: `La mejora con IA necesita entre 2 y 80 pistas en el borrador (ahora hay ${count}). Ajusta el borrador para continuar.` };
+  return { available: true, hint: '' };
+}
+/** Explicit reveal only: opens the existing AI panel and focuses its instruction. Never prepares or contacts the provider. */
+function openImprovement(): void {
+  const panel = element<HTMLDetailsElement>('ai-panel');
+  if (panel.hidden || !editor.draft || !editorImprovementStatus().available) return;
+  panel.open = true;
+  syncAiContext();
+  revealControl(element('optional-ai-request'));
+  loadAiIfOpen();
+}
 
 serato = new SeratoExportController(api, {
   canAct: () => coreAvailable && !gate.busy && !(editor.dirty && serato.source?.kind === 'saved' && serato.source.playlistId === editor.draft?.id),
@@ -226,10 +250,6 @@ const loudness = new LoudnessController(api, {
 });
 renderLoudness = createLoudnessView(element('loudness-container'), loudness, { canAct: () => coreAvailable && !gate.busy && loudnessAvailable(), draftBlockers });
 const aiAvailable = (): boolean => ['getAiStatus', 'saveAiSettings', 'chooseAiCredential', 'clearAiCredential', 'prepareAiRequest', 'runAiRequest', 'applyAiSuggestion'].every((key) => typeof api?.[key as keyof AppApi] === 'function');
-// An improvement preview can only be persisted through the dedicated proposal-bound
-// route. Without that bridge the editor improvement surface is disabled rather than
-// producing a bound draft that could not be saved safely.
-const editorImprovementAvailable = (): boolean => typeof api?.savePlaylistImprovement === 'function';
 ai = new OptionalAiController(api, {
   canAct: () => coreAvailable && !gate.busy && aiAvailable(),
   // The improvement replacement toggle changes the disclosed scope, so it must refresh
