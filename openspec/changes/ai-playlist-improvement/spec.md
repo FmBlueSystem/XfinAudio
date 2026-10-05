@@ -150,3 +150,34 @@ locks/excludes on the saved-editor surface.
   THEN it states that titles, artists, and bounded metadata are transmitted, that the
   tokens are random per-request pseudonyms rather than anonymous identities, and that
   no paths, `sha256(path)` ids, credentials, or audio are sent.
+
+## As-built evidence (2026-10-04/05)
+
+The requirements above state the intended behavior; this note records what has actually
+been observed, without claiming live acceptance.
+
+- Local, mocked-transport implementations landed in I1 (`56c491c`, `75a11a2`,
+  `7dadafb`, `1297e12`, `4707dbd`), I2 (`38dbcc6`, `6733dff`, `235caae`), and I3
+  (`f60f81b`, `7aef8b9`, `a8ccb5a`, `a74bbed`, `e9bccb9`), with ODD-task documentation
+  closure `4533422`.
+- The independent offline gate and commit evidence is recorded once in
+  `verify-report.md`.
+- R4, R5, R6, R9, and R16 were exercised only with injected or mocked transports. No
+  live provider, credential, network, real library, installed app, or visual macOS
+  confirmation was observed, so provider readiness and native acceptance are not
+  proven.
+- The AI improvement instruction bound (R13) is 2000 characters across renderer,
+  bridge, and backend. The legacy manual request is bounded at 500 only at the renderer
+  input/UI; the IPC bridge (`security.ts` `previewPlaylistEdit`) and the headless
+  backend (`playlist_editor.py` `playlist.edit.preview`) already accepted up to 2000
+  before this change. The manual command does not universally reject instructions above
+  500, there is no end-to-end manual 500 bound, and this change did not widen or narrow
+  those pre-existing 2000 bounds.
+- R11's dedicated save command is `playlist.edit.save_improvement` with
+  `{editId, name, proposalId, digest, draftIds}`; the ordinary `playlist.edit.save`
+  path is unchanged and still rejects additions.
+- No native review approval or receipt exists: three consent bindings expired without
+  lineage or receipt, and the assessed slices produced no approval.
+- I4's durable `openspec/specs` reconciliation is recorded in
+  `openspec/specs/electron-playlist-improvement/spec.md`. Live provider and visual
+  validation remain pending.

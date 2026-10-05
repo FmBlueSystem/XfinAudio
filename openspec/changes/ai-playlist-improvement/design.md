@@ -52,7 +52,9 @@ challenge disproved six earlier assumptions (see `proposal.md` "Correction notic
   has `previewPlaylistEdit`/`applyPreview`/`save`/`discard`, a `generation` guard for
   late responses, and `updateTracks()` that only replaces the draft array. It holds no
   authorization state and cannot authorize additions; the backend save is the
-  authority. The instruction bound there is 500 while `security.ts` allows 2000.
+  authority. The legacy manual instruction input there is bounded at 500, while the
+  manual preview bridge in `security.ts` and the headless `playlist.edit.preview`
+  backend accept up to 2000; those 2000 bounds pre-existed this change.
 - `desktop-electron/renderer/optional-ai.ts` — `OptionalAiController` owns consent,
   `prepare`/`ask`/`applySuggestion`, and strict response copying (`recordCopy`,
   `localApplyCopy`).
@@ -204,9 +206,11 @@ single editor session:
   before_paths, after_paths, sorted token→path pairs])`.
 
 The draft apply binds the renderer draft to `proposal_id` + `digest`. Saving a bound
-draft uses a **dedicated command** (for example `playlist.edit.save_improvement`) with
-`{editId, name, proposalId, digest}` — the renderer sends no raw path list on this
-command, so it cannot smuggle tracks. The backend:
+draft uses the **dedicated command** `playlist.edit.save_improvement` with
+`{editId, name, proposalId, digest, draftIds}`. `draftIds` is the bounded ordered list of
+public draft identities (`2..80`, unique), used only to recompute the draft fingerprint;
+the renderer still sends no raw path list on this command, so it cannot smuggle tracks.
+The backend:
 
 1. re-checks `_current(editId)` (edit session plus saved `_revision`);
 2. recomputes the current draft fingerprint from the renderer-supplied current draft
@@ -290,14 +294,21 @@ binding is valid, and to the unchanged manual command otherwise.
 - The editor surface keeps its existing 30-second timeout entry in
   `AI_REQUEST_TIMEOUT_SECONDS`.
 
-### Canonical instruction bound
+### Canonical instruction bound (as built)
 
-Three different numbers exist today: the renderer input is 500 in `editor.ts`, the
-Electron security layer allows 2000 for `previewPlaylistEdit`, and `ask_object` allows
-2000. The canonical bound for the AI improvement instruction is **2000 characters**,
-matching the existing security and transport layers. I3 aligns `editor.ts` and
-`editor-view.ts` to that single number so the UI-disable threshold matches what the
-backend will actually accept. The manual offline path is unaffected.
+**AI improvement prompt — 2000 characters across all three layers.** Renderer:
+`optional-ai-view.ts` (`maxLength = 2000`) and `optional-ai.ts` (`<= 2000`). IPC bridge:
+`security.ts` `validateAiRequest` rejects a request above 2000. Backend: `ai_context.py`
+(`len(request) > 2000`) and `ask_object` in `structured_common.py` (`> 2000`).
+
+**Legacy manual request — 500 only at the renderer input/UI.** `editor.ts` and
+`editor-view.ts` bound the manual instruction at 500. The IPC bridge (`security.ts`
+`previewPlaylistEdit`) and the headless backend (`playlist_editor.py`
+`playlist.edit.preview`) already accepted up to 2000 characters before this change; I3
+neither raised nor lowered them. The manual command therefore does not universally
+reject instructions above 500, and there is no end-to-end manual 500 bound. The earlier
+plan to align the manual renderer input to 2000 was not implemented, and this revision
+records the observed split rather than the plan.
 
 ## The no-new-path invariant: explicit decision
 
@@ -317,8 +328,10 @@ draft, so this change splits the invariant instead of silently relaxing it:
 
 Net effect: "no path outside the authorized candidate set, and no replacement persisted
 without its exact proposal binding". This is narrower than an open add-from-library
-feature and wider than the current manual draft. It must be recorded in the durable
-`electron-playlist-editor` capability wording when the slice lands (I4.3).
+feature and wider than the current manual draft. It is recorded in the durable
+`openspec/specs/electron-playlist-improvement/spec.md` capability (I4.3), which does not
+rewrite `my-playlists-screen/spec.md` and does not claim that spec's absent
+add-from-library feature shipped.
 
 ## Alternatives considered
 
@@ -361,33 +374,60 @@ Modified:
 - `tests/test_headless_playlist_editor.py` — editor authorization and exact-order save
   tests.
 
-### Planned for I2/I3 (not yet written)
+### Landed in I2 (AI boundary, mocked provider)
 
-New (names indicative; `tests/test_headless_playlist_improvement.py` and
-`tests/test_headless_ai_improvement.py` were planned but never created in I1):
-
-- `tests/test_headless_playlist_improvement.py`, `tests/test_headless_ai_improvement.py`.
+Committed as `38dbcc6`, `6733dff`, and `235caae`.
 
 Modified:
 
-- `src/xfinaudio/headless/ai_context.py` — `editor` candidate set, draft-order
-  fingerprint, and disclosure.
-- `src/xfinaudio/headless/ai_execution.py` — editor improvement schema execution and
-  local preview apply.
-- `src/xfinaudio/ai/structured_assists.py` — strict token improvement model; keep the
-  legacy `EditorInterpretation` for the offline path.
-- `desktop-electron/renderer/editor.ts` — `showImprovement(...)`, proposal-bound save
-  routing; keep `applyPreview`/generation guard.
-- `desktop-electron/renderer/editor-view.ts` — readable before/after diff and
-  assessment, Spanish UI copy consistent with existing strings.
-- `desktop-electron/renderer/app.ts` — `planAiApply('editor', ...)` local preview
-  branch and draft-order context; `syncAiContext` revision already includes the draft
-  ids.
-- `desktop-electron/src/security.ts` — editor improvement context and command fields,
-  bounded draft order and token counts.
-- `desktop-electron/tests/renderer.editor*.test.mjs`,
-  `desktop-electron/tests/optional-ai*.test.mjs`,
-  `desktop-electron/tests/editor-security.test.mjs`.
+- `src/xfinaudio/ai/structured_assists.py` — the strict token-only
+  `ImprovementInterpretation` model and `interpret_improvement_request`; the legacy
+  `EditorInterpretation` offline path is retained.
+- `src/xfinaudio/ai/structured_common.py` — editor-specific improvement composition
+  that does not widen the shared `_POLICY` or the 4096-character response bound.
+- `src/xfinaudio/headless/ai_context.py` — the exact `editId`/`draftIds`/
+  `includeReplacements` improvement selector, the bounded candidate set, the per-request
+  disclosure, and the draft-order fingerprint.
+- `src/xfinaudio/headless/ai_execution.py` — improvement execution and the local
+  before/after preview path carrying `proposalId`/`digest`.
+- `src/xfinaudio/headless/optional_ai.py` — one-shot consent retained through
+  `ai.apply`, with random tokens kept out of `revision_data`.
+
+Tests landed in `tests/test_ai_structured_assists.py`, `tests/test_ai_request_privacy.py`,
+`tests/test_headless_ai_context.py`, and `tests/test_headless_optional_ai.py`. The
+planned `tests/test_headless_playlist_improvement.py` and
+`tests/test_headless_ai_improvement.py` were never created; I1/I2 focused verification
+ran against the improvement, editor, context, and optional-AI targets that exist.
+
+### Landed in I3 (Electron renderer and security)
+
+Committed as `f60f81b`, `7aef8b9`, `a8ccb5a`, `a74bbed`, and `e9bccb9`.
+
+Modified:
+
+- `desktop-electron/src/main.ts`, `desktop-electron/src/preload.ts`, and
+  `desktop-electron/src/security.ts` — the `savePlaylistImprovement` route, its
+  `{editId, name, proposalId, digest, draftIds}` fields, and the bounded improvement
+  context (`draftIds`, `includeReplacements`) with the 2..80 draft bound and digest
+  validation.
+- `desktop-electron/renderer/editor.ts` — the bounded `ImprovementPreview` parser,
+  `setImprovementPreview`, `applyImprovementPreview`, the draft-to-proposal binding, and
+  the dedicated `savePlaylistImprovement` call; the legacy manual preview/save path is
+  unchanged.
+- `desktop-electron/renderer/app.ts` — the improvement selector published through
+  `syncAiContext`, the CTA availability derived from the exact draft and from the
+  presence of the save bridge, and the local-preview apply branch.
+- `desktop-electron/renderer/editor-view.ts` — the "Mejorar con IA…" CTA and the numbered
+  ANTES/DESPUÉS lists with readiness, score, warnings, and explicit apply/keep-separate
+  copy.
+- `desktop-electron/renderer/optional-ai.ts` and
+  `desktop-electron/renderer/optional-ai-view.ts` — the default-off "Incluir reemplazos"
+  toggle, the improvement disclosure, and the 2000-character improvement prompt.
+
+Tests landed in `desktop-electron/tests/renderer.editor.test.mjs`,
+`renderer.editor-view.test.mjs`, `renderer.optional-ai-app.test.mjs`,
+`optional-ai.test.mjs`, `optional-ai-view.test.mjs`, `optional-ai-host.test.mjs`,
+`editor-security.test.mjs`, and `workflow.integration.test.mjs`.
 
 ## Safety and security
 
@@ -416,10 +456,13 @@ resolve them as follows; they are no longer open and are not a reason to block I
 3. **Metadata completeness.** Incomplete pool candidates are excluded before the
    proposal is built, so `assess_playlist_edit` cannot fail a whole proposal because of
    a pool candidate's missing BPM/energy/key.
-4. **Durable spec reconciliation.** Recorded as I4.3; the manual rejection wording is
-   not weakened.
-5. **Canonical instruction bound.** Fixed at 2000 characters; I3 aligns the renderer
-   input and view to it.
+4. **Durable spec reconciliation.** Recorded as
+   `openspec/specs/electron-playlist-improvement/spec.md` (I4.3); the manual rejection
+   wording is not weakened and `my-playlists-screen/spec.md` is untouched.
+5. **Canonical instruction bound.** Fixed at 2000 characters for the AI improvement
+   prompt across renderer, bridge, and backend; the legacy manual request is 500 only at
+   the renderer input/UI, while its pre-existing IPC/backend bound is 2000 (see
+   "Canonical instruction bound (as built)").
 
 ## Review slices
 
@@ -429,6 +472,16 @@ before I3; I4 verifies the integrated result. Split further before exceeding the
 
 As built, I1 became five dependency-complete work-unit commits (`56c491c` → `75a11a2` →
 `7dadafb` → `1297e12` → `4707dbd`), each carrying its tests, with the final tree
-identical to the preserved original `97370f5`. The bounded-candidate unit `75a11a2` is
-461 changed lines, an explicit advisory overage kept coherent with its tests. I2, I3,
-and I4 are not implemented.
+identical to the preserved original `97370f5`. I2 landed as `38dbcc6`, `6733dff`, and
+`235caae`; I3 landed as `f60f81b`, `7aef8b9`, `a8ccb5a`, `a74bbed`, and `e9bccb9`, with
+ODD-task documentation closure `4533422`. Two units exceed the advisory 400-line review
+heuristic and are disclosed rather than minimized: `75a11a2` at 461 changed lines and
+`235caae` at 446 changed lines; each keeps its logic and tests coherent. The independent
+offline gate and commit evidence is recorded once in `verify-report.md`, all with mocked
+transports. No native review approved anything (three consent bindings expired without
+lineage or receipt), no live provider or real library was reached, and visual macOS
+behavior was not observed.
+The durable `openspec/specs` reconciliation landed as
+`openspec/specs/electron-playlist-improvement/spec.md` (I4.3), which records the as-built
+behavior and marks live provider, native-dialog, visual macOS, and real-library
+acceptance as pending; any such validation remains pending.

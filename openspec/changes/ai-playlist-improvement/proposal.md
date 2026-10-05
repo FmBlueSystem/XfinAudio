@@ -161,11 +161,39 @@ together; documentation reconciliation happens in I4.2. Split a slice further be
 diff exceeds the budget. Conventional commits only, no AI attribution, and no push, PR,
 merge, release, or deployment.
 
-**As-built note (I1).** I1 landed as five dependency-complete work-unit commits, each
-carrying its tests: `56c491c` (tokens, 155 lines), `75a11a2` (bounded candidates, 461
-lines), `7dadafb` (validation/binding, 396 lines), `1297e12` (editor authorization, 165
-lines), and `4707dbd` (exact-order CAS save, 285 lines). The final tree is byte-identical
-to the preserved original `97370f5`. The 461-line candidate-set unit is an explicit
-advisory overage of the 400-line heuristic, disclosed rather than minimized. I1 was
-backend-only; I2, I3, and I4 are not implemented, and no push, PR, merge, provider,
-credential, network, or real-library access was performed.
+## As-built note (2026-10-04/05)
+
+I1 landed as five dependency-complete work-unit commits, each carrying its tests:
+`56c491c` (tokens, 155 lines), `75a11a2` (bounded candidates, 461 lines), `7dadafb`
+(validation/binding, 396 lines), `1297e12` (editor authorization, 165 lines), and
+`4707dbd` (exact-order CAS save, 285 lines); the final tree is byte-identical to the
+preserved original `97370f5`. I2 landed as three commits: `38dbcc6` (token-only response
+validation), `6733dff` (bounded disclosure and draft-order freshness), and `235caae`
+(consented proposal binding and local preview). I3 landed as five renderer/security
+commits: `f60f81b` (save bridge and bounded selector), `7aef8b9` (proposal-bound
+preview), `a8ccb5a` (disclosure), `a74bbed` (draft-preview wiring), and `e9bccb9`
+(before/after preview UI). Documentation closure was `4533422`, which touched only
+`odd/tasks/ai-playlist-improvement.md`.
+
+The independent offline gate and commit evidence is recorded once in `verify-report.md`.
+Every provider path was exercised with injected or mocked transports only.
+
+Two work units exceed the advisory 400-line review heuristic and are disclosed rather
+than minimized: I1's bounded-candidate unit `75a11a2` at 461 changed lines and I2's
+`235caae` at 446 changed lines (422 additions, 24 deletions). Each keeps its logic and
+tests coherent. The AI improvement prompt is bounded at 2000 characters across the
+renderer, bridge, and backend. The legacy manual renderer input keeps its original
+500-character bound, but the IPC bridge (`security.ts` `previewPlaylistEdit`) and the
+headless backend (`playlist_editor.py` `playlist.edit.preview`) already accepted up to
+2000 characters before this change and were not widened or narrowed; there is no
+end-to-end manual 500 bound, and the manual command does not universally reject
+instructions above 500 (see `design.md`).
+
+No native review approved anything: three consent bindings expired without lineage or a
+receipt (two for the I2a+I2b range and one for the I3 U1 range), the docs slice `7d381ae`
+and `235caae` were assessed due without a receipt, and the remaining I3 units were
+assessed under budget without a receipt. No live provider, credential, network,
+real-library, installed-app, or visual macOS behavior was exercised, and no push, PR,
+merge, or release was performed. I4 reconciled the durable capability in
+`openspec/specs/electron-playlist-improvement/spec.md`; live and visual validation
+remain pending.
