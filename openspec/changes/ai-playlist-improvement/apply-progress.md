@@ -265,8 +265,14 @@ library, staging, or commit operation was performed.
 
 ## Next step
 
-Resolve the pending native review boundary without inventing a consent route. The durable
-spec is recorded; any live provider, native-confirmation, visual macOS, or real-library
-acceptance remains unverified and must not be claimed from the mocked and offline
-evidence above. Documentation claims of no source change describe only the documentation
-sessions.
+Seek field acceptance when the user authorizes it. The pending native review boundary is
+waived by the user's explicit clone-local RDD-off choice, which is never feature-level or
+delivery approval; acknowledged receipts exist
+only for the documentation chain `4533422..88ab13a`, I3 U1 `f60f81b`, and I3 U2 `7aef8b9`,
+while the `7aef8b9..a74bbed` slice stopped unapproved at lineage
+`review-c5bd20ee943fbd91` (`native_stop_required`/`unknown_causality`) and the I1, I2,
+first-docs `7d381ae`, and U4b `e9bccb9` slices have no receipt. The durable spec is
+recorded; field acceptance -- real provider, native confirmation dialog, visual macOS, and
+real library -- remains pending and unverified, and must not be claimed from the mocked
+and offline evidence above. Documentation claims of no source change describe only the
+documentation sessions.

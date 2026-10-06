@@ -28,8 +28,14 @@ I2 landed as `38dbcc6`, `6733dff`, and `235caae`; I3 landed as `f60f81b`, `7aef8
 units exceed the advisory 400-line review heuristic, disclosed rather than minimized:
 `75a11a2` at 461 changed lines and `235caae` at 446 changed lines (422 additions, 24
 deletions). The independent offline gate and commit evidence is recorded once in
-`verify-report.md`. No native review approval exists: three consent bindings expired
-without lineage or receipt. No push, PR, merge, provider, credential, network, or
+`verify-report.md`. Acknowledged native receipts exist only for the documentation chain
+`4533422..88ab13a` (`review-c9c388e5ff8775f0`), I3 U1 `f60f81b`
+(`review-3eca483813fe5bd4`), and I3 U2 `7aef8b9` (`review-f141608a936191bd`); the
+`7aef8b9..a74bbed` slice (U3 `a8ccb5a` and U4a `a74bbed`) stopped unapproved at lineage
+`review-c5bd20ee943fbd91` with `native_stop_required`/`unknown_causality`, and the I1, I2,
+first-docs `7d381ae`, and U4b `e9bccb9` slices have no receipt. Clone-local RDD is off by
+explicit user choice; that waives the pending native review but is never feature-level or
+delivery approval. No push, PR, merge, provider, credential, network, or
 real-library access was performed, and no visual macOS behavior was observed.
 
 ## Contract decisions already frozen (I1.0 is closed)

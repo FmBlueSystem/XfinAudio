@@ -1,15 +1,21 @@
 # Verification report
 
-**Status: partial, no native approval.** Slices I1 (backend ephemeral tokens, bounded
+**Status: partial, no native feature approval; clone-local RDD off by explicit user
+choice.** Slices I1 (backend ephemeral tokens, bounded
 candidates, token-only validator, proposal binding, and exact-order CAS save), I2 (AI
 boundary schema, disclosure, draft-order freshness, and consented binding), and I3
 (Electron renderer, security, and save routing) are implemented and independently
 verified **offline only, with mocked or injected transports**. Slice I4's artifact
 reconciliation (I4.2), durable-spec reconciliation (I4.3), and limits (I4.4) are
 recorded: the durable capability now lives at
-`openspec/specs/electron-playlist-improvement/spec.md`. No live provider,
-native-confirmation, installed-app, real-library, or visual macOS behavior was observed.
-This report must not be read as feature-complete or provider-ready.
+`openspec/specs/electron-playlist-improvement/spec.md`. Clone-local RDD is off by explicit
+user choice while global RDD remains on; that choice waives I1R, I2R, and the native part
+of I4R and is never native approval. Acknowledged native receipts exist only for the
+documentation chain `4533422..88ab13a`, I3 U1 `f60f81b`, and I3 U2 `7aef8b9`; the
+`7aef8b9..a74bbed` slice stopped unapproved. No live provider,
+native-confirmation, installed-app, real-library, or visual macOS behavior was observed,
+and none is authorized. This report must not be read as feature-complete or
+provider-ready.
 
 **Pending evidence (not acceptance).** Real provider behavior, the visible macOS
 native-confirmation dialog, visual macOS rendering, and real-library acceptance remain
@@ -28,14 +34,14 @@ Three evidence sources are recorded separately:
 1. the **documentation structural checks** for the 2026-10-05 reconciliation passes over
    the seven change artifacts and the new durable capability spec;
 2. the **I1/I2/I3 implementation record** observed by independent offline verifiers; and
-3. the **native review record**, which contains no approval: three consent bindings
-   expired without lineage or receipt.
+3. the **native review record**: acknowledged receipts on three named slices, one slice
+   that stopped unapproved, and no native feature approval.
 
 Requirement-by-requirement acceptance (R1–R17) is **not** claimed; the `spec.md` as-built
 note and the new durable spec map requirements to mock-only evidence, while live provider,
 native-dialog, visual, and real-library acceptance remain pending.
 
-## Part 1 — Documentation structural checks (this pass)
+## Part 1 — Documentation structural checks (earlier 2026-10-05 passes; historical)
 
 The parent-authorized verification for this documentation write was:
 
@@ -137,18 +143,32 @@ Two work units exceed the advisory 400-line review heuristic:
 No other slice exceeds the budget. The overages are advisory against
 `conventions.review_budget_changed_lines: 400`, not a correctness or safety failure.
 
-### Native review record — no approval
+### Native review record — receipts, one unapproved stop, no feature approval
 
-- Three consent bindings expired without lineage or receipt: two for the I2a+I2b range
-  (`38dbcc6..6733dff`) and one for the I3 U1 high-risk range.
-- The docs slice `7d381ae` and `235caae` were assessed `reviewDue=true` without a
-  receipt; the remaining I3 units were assessed under budget without a receipt.
-- Independent tests are not approval. No native receipt, consent envelope, or human
-  approval exists for any rewritten identity.
+Clone-local RDD is **off by explicit user choice**; global RDD remains on. That choice is
+the only basis for waiving I1R, I2R, and the native part of I4R. A waiver is never a
+native approval, and no feature-level native approval exists.
+
+Acknowledged native review receipts exist only for these committed slices:
+
+| Reviewed slice | Receipt |
+|----------------|---------|
+| documentation chain `4533422..88ab13a` | `review-c9c388e5ff8775f0` |
+| I3 U1 `f60f81b` | `review-3eca483813fe5bd4` |
+| I3 U2 `7aef8b9` | `review-f141608a936191bd` |
+
+The committed slice `7aef8b9..a74bbed` (U3 `a8ccb5a`, U4a `a74bbed`) reached lineage
+`review-c5bd20ee943fbd91` and **stopped unapproved** with `native_stop_required` and
+`unknown_causality` (`R3-001`/`R3-002`). No replay or recovery was performed.
+
+Everything else carries no receipt: the I1 work units (`56c491c`, `75a11a2`, `7dadafb`,
+`1297e12`, `4707dbd`), the I2 commits (`38dbcc6`, `6733dff`, `235caae`), the first
+documentation reconciliation `7d381ae`, and the remaining I3 UI unit `e9bccb9` (U4b).
+Independent tests are not approval.
 
 ## Readback — updated versus still pending
 
-Updated in this pass (all seven allowed artifacts):
+Updated in that pass (all seven allowed artifacts):
 
 - `proposal.md`: as-built note now records I1/I2/I3, both 400-line overages, the latest
   offline evidence, and the absent native approval.
@@ -190,6 +210,44 @@ Still pending (not claimed as done):
 - Any live provider, native-confirmation, installed-app, real-library, or visual macOS
   acceptance.
 
+## Part 3 — Current reconciliation pass (clone-local RDD off, exact HEAD `88ab13a`)
+
+The user explicitly turned clone-local RDD off and asked to advance. This pass is
+documentation-only and corrects the *current* native-review and verification claims;
+Part 1 and Part 2 above are preserved as historical record.
+
+Change scope for this pass:
+
+- `odd/tasks/ai-playlist-improvement.md`
+- `openspec/changes/ai-playlist-improvement/verify-report.md`
+
+Structural checks for this pass (passive documentation has no meaningful RED):
+
+- `git diff --check`: exit 0, no whitespace diagnostics.
+- Structural readback of both changed files: current claims corrected, older evidence
+  preserved as historical.
+- `git status --porcelain=v1`: only the two allowed documentation paths are modified;
+  nothing is staged or committed, and no source, `state.yaml`, or other artifact changed.
+
+Independent offline verification of record on the byte-identical HEAD `88ab13a`:
+
+- `UV_OFFLINE=1 uv run python scripts/release_gate_check.py --run`: 4,383 Python tests
+  passed, 94.47% coverage, Pyright, Ruff lint/format, release smoke, source docs/hygiene,
+  and packaging green.
+- `XFIN_PYTHON=<worktree>/.venv/bin/python npm test` in `desktop-electron` (worktree
+  `ai-playlist-improvement`): build succeeded and 480/480 Node tests passed with 0
+  skipped.
+- Honest caveat: the first Node attempt without `XFIN_PYTHON` reported 469 passed and 11
+  skipped; supplying the environment variable was the only correction, not a code or test
+  change.
+
+Still pending and outside this authorization:
+
+- Real-provider behavior, the real library, the visible native macOS confirmation dialog,
+  and visual macOS acceptance.
+- I1R, I2R, and the native part of I4R are waived only by the explicit clone-local RDD-off
+  choice and are **not** natively approved.
+
 ## Requirement evidence
 
 **Partial, mock-only.** No requirement is claimed as accepted end to end. I1/I2/I3 provide
@@ -202,6 +260,13 @@ not backfilled here.
 
 ## Non-claims and limits
 
+- The 2026-10-05 pass recorded in Part 3 corrected only
+  `odd/tasks/ai-playlist-improvement.md` and this report. A later documentation-only pass
+  then reconciled the superseded "no native receipt" wording in `proposal.md`, `spec.md`,
+  `design.md`, `tasks.md`, and `apply-progress.md`, so those artifacts no longer need the
+  follow-up that Part 3 required. Provider-owned `state.yaml` remains untouched and
+  byte-identical. These passes recorded uncommitted documentation changes; field
+  acceptance remains pending.
 - Tokenization is pseudonymization, not anonymity; titles and artists are transmitted
   after consent.
 - The saved-editor surface has no locks or excludes; nothing here claims otherwise.
@@ -209,7 +274,8 @@ not backfilled here.
   rendering.
 - No provider, credential, network, real-library, running-preview, or installed-app
   access occurred.
-- No commit, push, PR, merge, release, or deployment is claimed by this pass.
+- These verification passes do not grant commit or delivery authority; no push, PR,
+  merge, release, or deployment is claimed.
 - The AI improvement prompt is bounded at 2000 characters across renderer, bridge, and
   backend. The legacy manual request is 500 only at the renderer input/UI; the IPC
   bridge (`security.ts` `previewPlaylistEdit`) and the headless backend

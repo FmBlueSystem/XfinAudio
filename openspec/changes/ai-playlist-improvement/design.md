@@ -478,9 +478,13 @@ ODD-task documentation closure `4533422`. Two units exceed the advisory 400-line
 heuristic and are disclosed rather than minimized: `75a11a2` at 461 changed lines and
 `235caae` at 446 changed lines; each keeps its logic and tests coherent. The independent
 offline gate and commit evidence is recorded once in `verify-report.md`, all with mocked
-transports. No native review approved anything (three consent bindings expired without
-lineage or receipt), no live provider or real library was reached, and visual macOS
-behavior was not observed.
+transports. Acknowledged native receipts exist only for the documentation chain
+`4533422..88ab13a`, I3 U1 `f60f81b`, and I3 U2 `7aef8b9`; the `7aef8b9..a74bbed` slice
+stopped unapproved at lineage `review-c5bd20ee943fbd91`
+(`native_stop_required`/`unknown_causality`), and the I1, I2, first-docs `7d381ae`, and
+U4b `e9bccb9` slices have no receipt. Clone-local RDD is off by explicit user choice; that
+waives the pending native review but is never feature-level or delivery approval. No live
+provider or real library was reached, and visual macOS behavior was not observed.
 The durable `openspec/specs` reconciliation landed as
 `openspec/specs/electron-playlist-improvement/spec.md` (I4.3), which records the as-built
 behavior and marks live provider, native-dialog, visual macOS, and real-library

@@ -189,10 +189,14 @@ headless backend (`playlist_editor.py` `playlist.edit.preview`) already accepted
 end-to-end manual 500 bound, and the manual command does not universally reject
 instructions above 500 (see `design.md`).
 
-No native review approved anything: three consent bindings expired without lineage or a
-receipt (two for the I2a+I2b range and one for the I3 U1 range), the docs slice `7d381ae`
-and `235caae` were assessed due without a receipt, and the remaining I3 units were
-assessed under budget without a receipt. No live provider, credential, network,
+Acknowledged native receipts exist only for the documentation chain `4533422..88ab13a`
+(`review-c9c388e5ff8775f0`), I3 U1 `f60f81b` (`review-3eca483813fe5bd4`), and I3 U2
+`7aef8b9` (`review-f141608a936191bd`); the `7aef8b9..a74bbed` slice stopped unapproved at
+lineage `review-c5bd20ee943fbd91` (`native_stop_required`/`unknown_causality`), and the
+I1, I2, first-docs `7d381ae`, and U4b `e9bccb9` slices have no receipt. Clone-local RDD is
+off by explicit user choice; that waives the pending native review but is never
+feature-level or delivery approval. Field acceptance remains pending. No live provider,
+credential, network,
 real-library, installed-app, or visual macOS behavior was exercised, and no push, PR,
 merge, or release was performed. I4 reconciled the durable capability in
 `openspec/specs/electron-playlist-improvement/spec.md`; live and visual validation

@@ -176,8 +176,13 @@ been observed, without claiming live acceptance.
 - R11's dedicated save command is `playlist.edit.save_improvement` with
   `{editId, name, proposalId, digest, draftIds}`; the ordinary `playlist.edit.save`
   path is unchanged and still rejects additions.
-- No native review approval or receipt exists: three consent bindings expired without
-  lineage or receipt, and the assessed slices produced no approval.
+- Acknowledged native receipts exist only for the documentation chain `4533422..88ab13a`
+  (`review-c9c388e5ff8775f0`), I3 U1 `f60f81b` (`review-3eca483813fe5bd4`), and I3 U2
+  `7aef8b9` (`review-f141608a936191bd`); the `7aef8b9..a74bbed` slice stopped unapproved
+  at lineage `review-c5bd20ee943fbd91` (`native_stop_required`/`unknown_causality`), and
+  the I1, I2, first-docs `7d381ae`, and U4b `e9bccb9` slices have no receipt. Clone-local
+  RDD is off by explicit user choice; that waives the pending native review but is never
+  feature-level or delivery approval. Field acceptance remains pending.
 - I4's durable `openspec/specs` reconciliation is recorded in
   `openspec/specs/electron-playlist-improvement/spec.md`. Live provider and visual
   validation remain pending.
