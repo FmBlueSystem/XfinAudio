@@ -149,7 +149,10 @@ const editor = new SavedPlaylistEditor(api, {
   navigate: () => navigate('editor', false),
   perform: (label, task, apply, failure) => perform('editor', label, task, (result, current) => {
     apply(result, current);
-    showStatus(label.startsWith('Guardando') ? 'Cambios guardados' : 'Editor actualizado', 'Los cambios solo se conservan al pulsar Guardar cambios');
+    // The bound improvement save ran a different route, so the generic "only kept by pressing
+    // Guardar cambios" copy would contradict the draft state it just persisted.
+    if (label.startsWith('Guardando mejora')) showStatus('Mejora guardada en la playlist. Ya no hay cambios pendientes.');
+    else showStatus(label.startsWith('Guardando') ? 'Cambios guardados' : 'Editor actualizado', 'Los cambios solo se conservan al pulsar Guardar cambios');
   }, false, failure),
 });
 renderEditor = createEditorView(element('editor-container'), editor, {
@@ -157,6 +160,8 @@ renderEditor = createEditorView(element('editor-container'), editor, {
   play: (track) => { void player.select(track).catch(() => showStatus('No se puede abrir esta pista', 'Comprueba que el archivo siga disponible', true)); },
   improvement: editorImprovementStatus,
   openImprovement,
+  // Applying to the draft replaces the read-only review banner it invalidates.
+  improvementApplied: () => showStatus('Mejora aplicada al borrador. Usa «Guardar mejora» para conservarla en la playlist.'),
 });
 renderEditor();
 /** Availability and actionable reason for the editor improvement CTA, derived from the exact draft. */

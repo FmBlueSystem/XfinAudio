@@ -18,7 +18,7 @@ function fixture(hostPatch = {}) {
   const calls = []; const tracks = [{ id: 'a', title: '<img src=x onerror=alert(1)>', artist: 'Artista', missing: false, bpm: 120, key: '8A', energy: 5, duration: 60 }, { id: 'b', title: 'Ausente', artist: 'Artista', missing: true, bpm: null, key: null, energy: null, duration: null }];
   const editor = { draft: { id: '1', name: 'Prueba', tracks }, dirty: true, canSave: true, error: '', preview: null, improvement: null, improvementBound: false, pendingPlaylistId: null, request: '',
     move: (...args) => calls.push(['move', ...args]), remove: (...args) => calls.push(['remove', ...args]), rename: (...args) => calls.push(['rename', ...args]), save: async () => calls.push(['save']), discard: async () => calls.push(['discard']), requestPreview: async () => calls.push(['preview']), applyPreview: () => calls.push(['apply']), applyImprovementPreview: () => calls.push(['applyImprovement']), setRequest: (...args) => calls.push(['request', ...args]), confirmSwitch: async () => calls.push(['confirm']), cancelSwitch: () => calls.push(['cancel']), };
-  let busy = false; const root = new Element(); const render = createEditorView(root, editor, { canAct: () => !busy, play: (track) => calls.push(['play', track.id]), improvement: () => ({ available: true, hint: '' }), openImprovement: () => calls.push(['improve']), ...hostPatch }); render();
+  let busy = false; const root = new Element(); const render = createEditorView(root, editor, { canAct: () => !busy, play: (track) => calls.push(['play', track.id]), improvement: () => ({ available: true, hint: '' }), openImprovement: () => calls.push(['improve']), improvementApplied: () => {}, ...hostPatch }); render();
   return { root, editor, render, calls, nodes: () => all(root), get: (id) => all(root).find((node) => node.id === `editor-${id}`), busy: () => { busy = true; render(); }, restore: () => { globalThis.document = before; } };
 }
 test('accessible Spanish editor keeps missing rows visible and metadata is text only', () => {
@@ -87,12 +87,48 @@ test('a read-only improvement preview renders numbered before/after rows, counts
     f.render();
     assert.match(text(f.root), /antes/i); assert.match(text(f.root), /después/i);
     assert.deepEqual(f.get('improvement-before').children.map((node) => node.textContent), ['1. <img src=x onerror=alert(1)> · Artista', '2. Ausente · Artista · Archivo no disponible']);
-    assert.deepEqual(f.get('improvement-after').children.map((node) => node.textContent), ['1. Ausente · Artista · Archivo no disponible', '2. <img src=x onerror=alert(1)> · Artista']);
-    assert.equal(f.get('improvement-counts').textContent, '1 pista añadida · 1 pista quitada');
+    assert.deepEqual(f.get('improvement-after').children.map((node) => node.textContent), ['1. Ausente · Artista · Archivo no disponible · #2 → #1', '2. <img src=x onerror=alert(1)> · Artista · #1 → #2']);
+    assert.equal(f.get('improvement-counts').textContent, '1 pista añadida · 1 pista quitada · 2 movidas');
     for (const expected of ['Orden con mejor flujo', 'Transición justa', '0,71', 'Aplicar mejora al borrador']) assert.ok(text(f.root).includes(expected), expected);
     assert.deepEqual(f.calls, []);
     click(f.get('improvement-apply')); assert.deepEqual(f.calls, [['applyImprovement']]);
     assert.ok(!f.nodes().some((node) => ['img', 'script'].includes(node.tagName)));
+  } finally { f.restore(); }
+});
+
+test('the improvement diff marks only real moves inline and omits the moved clause when nothing moved', () => {
+  const f = fixture(); try {
+    const track = (id) => ({ id, title: id.toUpperCase(), artist: 'DJ', missing: false, bpm: null, key: null, energy: null, duration: null });
+    const before = [track('a'), track('b'), track('c')]; const added = track('d');
+    const assessment = { description: 'Motor local', readiness: 'ready', qualityScore: 1, warnings: [] };
+    f.editor.improvement = { before, after: [before[0], before[2], before[1]], addedIds: [], removedIds: [], assessment };
+    f.render();
+    assert.deepEqual(f.get('improvement-after').children.map((node) => node.textContent), ['1. A · DJ', '2. C · DJ · #3 → #2', '3. B · DJ · #2 → #3']);
+    assert.equal(f.get('improvement-before').children.map((node) => node.textContent).some((line) => line.includes('→')), false);
+    assert.equal(f.get('improvement-counts').textContent, '0 pistas añadidas · 0 pistas quitadas · 2 movidas');
+    f.editor.improvement = { before, after: [...before], addedIds: [], removedIds: [], assessment };
+    f.render();
+    assert.deepEqual(f.get('improvement-after').children.map((node) => node.textContent), ['1. A · DJ', '2. B · DJ', '3. C · DJ']);
+    assert.equal(f.get('improvement-counts').textContent, '0 pistas añadidas · 0 pistas quitadas');
+    f.editor.improvement = { before, after: [...before, added], addedIds: [added.id], removedIds: [], assessment };
+    f.render();
+    assert.deepEqual(f.get('improvement-after').children.map((node) => node.textContent), ['1. A · DJ', '2. B · DJ', '3. C · DJ', '4. D · DJ']);
+    assert.equal(f.get('improvement-counts').textContent, '1 pista añadida · 0 pistas quitadas');
+  } finally { f.restore(); }
+});
+
+test('the improvement apply button reports a successful transition and stays silent when the apply is refused', () => {
+  const applied = []; const f = fixture({ improvementApplied: () => applied.push('applied') }); try {
+    f.editor.improvement = { before: f.editor.draft.tracks, after: [...f.editor.draft.tracks].reverse(), addedIds: [], removedIds: [], assessment: { description: 'Motor local', readiness: 'ready', qualityScore: 1, warnings: [] } };
+    f.render();
+    assert.equal(f.get('improvement-apply').disabled, false);
+    f.editor.applyImprovementPreview = () => { f.calls.push(['applyImprovement']); return true; };
+    click(f.get('improvement-apply'));
+    assert.deepEqual(applied, ['applied']);
+    f.editor.applyImprovementPreview = () => { f.calls.push(['applyImprovement']); return false; };
+    click(f.get('improvement-apply'));
+    assert.deepEqual(applied, ['applied']);
+    assert.deepEqual(f.calls, [['applyImprovement'], ['applyImprovement']]);
   } finally { f.restore(); }
 });
 

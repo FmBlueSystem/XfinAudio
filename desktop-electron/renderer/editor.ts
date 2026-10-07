@@ -250,7 +250,7 @@ export class SavedPlaylistEditor {
     const name = draft.name.trim();
     const bound = this.boundProposal();
     if (bound) {
-      await this.host.perform('Guardando cambios…', () => this.api.savePlaylistImprovement({ editId: draft.editId, name, proposalId: bound.proposalId, digest: bound.digest, draftIds: draft.tracks.map((track) => track.id) }), (snapshot) => this.accept(snapshot), this.fail);
+      await this.host.perform('Guardando mejora…', () => this.api.savePlaylistImprovement({ editId: draft.editId, name, proposalId: bound.proposalId, digest: bound.digest, draftIds: draft.tracks.map((track) => track.id) }), (snapshot) => this.accept(snapshot), this.fail);
       return;
     }
     await this.host.perform('Guardando cambios…', () => this.api.savePlaylistEdit({ editId: draft.editId, name, trackIds: draft.tracks.map((track) => track.id) }), (snapshot) => this.accept(snapshot), this.fail);

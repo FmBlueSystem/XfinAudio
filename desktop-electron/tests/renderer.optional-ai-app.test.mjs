@@ -370,14 +370,38 @@ test('applying the improvement changes only the draft, labels the bound save and
     await aiReady(f, 'editor', 'Mejora el orden');
     f.click('optional-ai-ask'); await settle();
     f.click('optional-ai-apply'); await settle();
+    assert.equal(f.get('editor-improvement-counts').textContent, '0 pistas añadidas · 0 pistas quitadas · 2 movidas');
+    assert.deepEqual(f.get('editor-improvement-after').children.map((node) => node.textContent), ['1. b · DJ · #2 → #1', '2. a · DJ · #1 → #2']);
     f.click('editor-improvement-apply'); await settle();
     assert.equal(f.get('editor-save').textContent, 'Guardar mejora');
     assert.equal(f.get('editor-dirty').textContent, 'Cambios sin guardar');
+    assert.equal(f.get('operation-label').textContent, 'Mejora aplicada al borrador. Usa «Guardar mejora» para conservarla en la playlist.');
+    assert.equal(f.get('operation-detail').textContent, '');
+    assert.doesNotMatch(f.get('operation-detail').textContent, /no cambió y no se guardó/);
     assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement'), false);
     f.click('editor-save'); await settle();
     const saved = f.calls.findLast(([kind]) => kind === 'saveImprovement');
     assert.ok(saved); assert.equal(saved[1].proposalId, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
     assert.equal(f.calls.some(([kind]) => kind === 'saveEdit'), false);
+    assert.equal(f.get('operation-label').textContent, 'Mejora guardada en la playlist. Ya no hay cambios pendientes.');
+    assert.equal(f.get('operation-detail').textContent, '');
+    assert.equal(f.get('editor-save').textContent, 'Guardar cambios');
+  } finally { f.restore(); }
+});
+test('the ordinary editor save keeps its own confirmation copy after the improvement binding is revoked', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: improvementPayload() }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    f.click('optional-ai-apply'); await settle();
+    f.click('editor-improvement-apply'); await settle();
+    f.get('editor-name').value = 'Otro nombre'; f.get('editor-name').dispatchEvent(new Event('input')); await settle();
+    f.click('editor-save'); await settle();
+    assert.ok(f.calls.some(([kind]) => kind === 'saveEdit'));
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement'), false);
+    assert.equal(f.get('operation-label').textContent, 'Cambios guardados');
+    assert.equal(f.get('operation-detail').textContent, 'Los cambios solo se conservan al pulsar Guardar cambios');
   } finally { f.restore(); }
 });
 test('a manual change after applying revokes the binding and restores the manual save command', async () => {

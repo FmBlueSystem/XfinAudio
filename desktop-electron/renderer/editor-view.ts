@@ -11,7 +11,7 @@ const button = (id: string, label: string, action: () => void, primary = false):
 };
 const readiness: Record<Readiness, string> = { ready: 'Lista para revisar', needs_review: 'Revisión recomendada', blocked: 'Necesita atención' };
 
-export function createEditorView(root: HTMLElement, editor: SavedPlaylistEditor, host: { canAct(): boolean; play(track: EditorTrack): void; improvement(): { available: boolean; hint: string }; openImprovement(): void }): () => void {
+export function createEditorView(root: HTMLElement, editor: SavedPlaylistEditor, host: { canAct(): boolean; play(track: EditorTrack): void; improvement(): { available: boolean; hint: string }; openImprovement(): void; improvementApplied(): void }): () => void {
   const empty = make('div', 'Abre una playlist guardada con «Editar» para empezar.', 'surface empty-state');
   const content = make('div');
   const summary = make('section', '', 'surface editor-summary');
@@ -56,7 +56,7 @@ export function createEditorView(root: HTMLElement, editor: SavedPlaylistEditor,
   const improvementAfter = identify(make('ol', '', 'editor-improvement-list'), 'improvement-after');
   const improvementCounts = identify(make('p', '', 'field-hint'), 'improvement-counts');
   // Read-only until the user clicks: rendering the proposal never changes the draft.
-  const improvementApply = button('improvement-apply', 'Aplicar mejora al borrador', () => { editor.applyImprovementPreview(); }, true);
+  const improvementApply = button('improvement-apply', 'Aplicar mejora al borrador', () => { if (editor.applyImprovementPreview()) host.improvementApplied(); }, true);
   improvementSection.append(make('h3', 'Mejora con IA (sin aplicar)'), improvementBlocked, improvementAssessment,
     make('span', 'ANTES', 'eyebrow'), improvementBefore, make('span', 'DESPUÉS', 'eyebrow'), improvementAfter, improvementCounts,
     improvementApply, make('p', 'Aplicarla cambia solo el borrador. Después, usa Guardar mejora para conservarla en la playlist.', 'field-hint'));
@@ -136,10 +136,20 @@ export function createEditorView(root: HTMLElement, editor: SavedPlaylistEditor,
       improvementAssessment.replaceChildren(); improvementBefore.replaceChildren(); improvementAfter.replaceChildren();
       improvementAssessment.append(make('p', result.description), make('span', readiness[result.readiness], `readiness-pill ${result.readiness}`), make('p', `Puntuación del motor: ${Number.isFinite(result.qualityScore) ? result.qualityScore.toLocaleString('es', { maximumFractionDigits: 2 }) : '—'} · ${improvement.after.length} pistas`, 'field-hint'));
       const warnings = make('ul'); for (const warning of result.warnings) warnings.append(make('li', warning)); improvementAssessment.append(warnings);
-      const row = (track: EditorTrack, index: number): HTMLLIElement => make('li', `${index + 1}. ${track.title || 'Sin título'} · ${track.artist || 'Artista desconocido'}${track.missing ? ' · Archivo no disponible' : ''}`);
-      improvement.before.forEach((track, index) => improvementBefore.append(row(track, index)));
-      improvement.after.forEach((track, index) => improvementAfter.append(row(track, index)));
-      improvementCounts.textContent = `${improvement.addedIds.length} ${improvement.addedIds.length === 1 ? 'pista añadida' : 'pistas añadidas'} · ${improvement.removedIds.length} ${improvement.removedIds.length === 1 ? 'pista quitada' : 'pistas quitadas'}`;
+      // Positions are matched by track id so a reorder is visible in the DESPUÉS list itself.
+      // No marker means unchanged, or no previous match at all (added track).
+      const previousPositions = new Map(improvement.before.map((track, index) => [track.id, index]));
+      const line = (track: EditorTrack, index: number, marker = ''): HTMLLIElement => make('li', `${index + 1}. ${track.title || 'Sin título'} · ${track.artist || 'Artista desconocido'}${track.missing ? ' · Archivo no disponible' : ''}${marker}`);
+      improvement.before.forEach((track, index) => improvementBefore.append(line(track, index)));
+      let moved = 0;
+      improvement.after.forEach((track, index) => {
+        const previous = previousPositions.get(track.id);
+        if (previous === undefined || previous === index) { improvementAfter.append(line(track, index)); return; }
+        moved += 1;
+        improvementAfter.append(line(track, index, ` · #${previous + 1} → #${index + 1}`));
+      });
+      const added = improvement.addedIds.length; const removed = improvement.removedIds.length;
+      improvementCounts.textContent = `${added} ${added === 1 ? 'pista añadida' : 'pistas añadidas'} · ${removed} ${removed === 1 ? 'pista quitada' : 'pistas quitadas'}${moved ? ` · ${moved} ${moved === 1 ? 'movida' : 'movidas'}` : ''}`;
     }
   };
 }
