@@ -625,15 +625,26 @@ function navigate(next: Route, load = true, rememberOrigin = true, preservePrevi
   document.title = `XfinAudio · ${titles[next]}`;
   if (!preservePreviews) editor.invalidatePreview();
   if(next==='prep')ensureTrackChoices();
-  if(next==='prep'&&load&&!gate.busy&&prepSettings&&!prepSettings.snapshot&&!prepSettings.pending&&!prepSettings.dirty){prepSettingsBootstrapPending=false;void prepSettings.load();}
+  // The core's single job worker cannot refresh a screen while an exclusive task owns
+  // the gate; every deferred read is reported instead of silently doing nothing.
+  const deferredReads: Route[] = [];
+  const readyToRead = (): boolean => { if (gate.busy) { deferredReads.push(next); return false; } return true; };
+  if(next==='prep'&&load&&prepSettings&&!prepSettings.snapshot&&!prepSettings.pending&&!prepSettings.dirty&&readyToRead()){prepSettingsBootstrapPending=false;void prepSettings.load();}
   if (next === 'ai') element<HTMLDetailsElement>('ai-panel').open = true;
   syncAiContext();
-  if (next === 'preferences' && load && !gate.busy && !preferences.snapshot && preferencesAvailable()) void preferences.load();
-  if(next==='preferences'&&load&&!gate.busy&&!profileSettings.snapshot&&profileSettingsAvailable()){profileSettingsAttempted=true;void profileSettings.load();}
-  if (next === 'loudness' && load && !gate.busy && !loudness.statusFresh && !loudness.dirty && loudnessAvailable()) void loudness.load();
-  if (next === 'metadata' && load && !gate.busy && !metadataReport) void loadMetadata();
-  if (next === 'playlists' && load && !gate.busy) void loadPlaylists();
+  if (next === 'preferences' && load && !preferences.snapshot && preferencesAvailable() && readyToRead()) void preferences.load();
+  if(next==='preferences'&&load&&!profileSettings.snapshot&&profileSettingsAvailable()&&readyToRead()){profileSettingsAttempted=true;void profileSettings.load();}
+  if (next === 'loudness' && load && !loudness.statusFresh && !loudness.dirty && loudnessAvailable() && readyToRead()) void loudness.load();
+  if (next === 'metadata' && load && !metadataReport && readyToRead()) void loadMetadata();
+  if (next === 'playlists' && load && readyToRead()) void loadPlaylists();
   if (load) loadAiIfOpen();
+  if (deferredReads.length) explainDeferredRead(deferredReads[0]);
+}
+/** An exclusive task owns the core, so a read-only screen cannot refresh yet. Keep naming
+ *  the running task and say why the navigation looked inert; nothing is retried later. */
+function explainDeferredRead(next: Route): void {
+  const label = element('operation-label').textContent.trim() || 'Operación en curso';
+  showStatus(label, `La pantalla «${titles[next]}» se actualizará cuando termine la operación en curso. Los datos ya cargados siguen disponibles; los controles que modifican datos permanecen desactivados mientras tanto.`);
 }
 function renderTable(target: string, tracks: Track[]): void {
   const isLibrary=target==='library-table';

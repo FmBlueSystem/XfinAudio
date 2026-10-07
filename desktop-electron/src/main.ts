@@ -11,6 +11,7 @@ import {CloseFlow} from './close-flow';
 import {SeratoHost} from './serato-host';
 import {revealLoudnessBackups} from './loudness-backups';
 import {OptionalAiHost} from './optional-ai-host';
+import {assertDispatchable} from './ipc-reads';
 import {LoudnessHost} from './loudness-host';
 import {LegacyImportHost} from './legacy-import-host';
 import {OfflineHost} from './offline-host';
@@ -101,7 +102,7 @@ async function run(method:string,params:Record<string,unknown>={}) {
 }
 async function action(method:string,raw:unknown) {
   const params=validateRequest(method,raw);
-  if((legacy.busy||offline.busy||profiles.busy||serato.busy||optionalAi.busy||loudness.busy||libraryHost.busy||dialogOpen||current)&&!['setDraftDirty','cancelCurrent','getLibraryStatus'].includes(method))throw new Error('[busy] Another task is still running');
+  assertDispatchable(method,{legacy:legacy.busy,offline:offline.busy,profiles:profiles.busy,serato:serato.busy,optionalAi:optionalAi.busy,loudness:loudness.busy,library:libraryHost.busy,dialog:dialogOpen,job:current!==null});
   if(legacy.restartRequired&&method!=='setDraftDirty')throw new Error('[legacy_restart_required] Restart required after import');
   if(closeFlow.isClosing&&method!=='setDraftDirty')throw new Error('La aplicación se está cerrando');
   if(draftDirty&&method==='deletePlaylist')throw new Error('[dirty_saved_draft] Save or discard drafts before deletion');
