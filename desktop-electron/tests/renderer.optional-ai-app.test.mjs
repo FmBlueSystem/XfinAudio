@@ -134,6 +134,47 @@ test('renaming the draft while a proposal is prepared invalidates the disclosure
     assert.equal(f.get('optional-ai-consent').checked, false);
   } finally { f.restore(); }
 });
+test('a same-surface editor context refresh keeps the typed instruction ready to reprepare with a Spanish reminder', async () => {
+  const f = await fixture();
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.get('editor-name').value = 'Otro nombre'; f.get('editor-name').dispatchEvent(new Event('input')); await settle();
+    assert.equal(f.get('optional-ai-preview').hidden, true);
+    assert.equal(f.get('optional-ai-consent').checked, false);
+    assert.equal(f.get('optional-ai-request').value, 'Mejora el orden');
+    assert.equal(f.get('optional-ai-prepare').disabled, false);
+    assert.match(f.get('optional-ai-notice').textContent, /Contexto actualizado/);
+    f.click('optional-ai-prepare'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], { surface: 'editor', request: 'Mejora el orden', context: { editId: aiUuid, draftIds: [tracks[0].id, tracks[1].id], includeReplacements: false } });
+  } finally { f.restore(); }
+});
+test('a declined native confirmation keeps the prepared disclosure available for an explicit retry', async () => {
+  let runs = 0; const f = await fixture({ runAiRequest: async () => { runs += 1; return { cancelled: true, result: null }; } });
+  try {
+    await aiReady(f, 'library', 'Busca house');
+    assert.equal(f.get('optional-ai-preview').hidden, false);
+    f.click('optional-ai-ask'); await settle();
+    assert.equal(runs, 1);
+    assert.equal(f.get('optional-ai-preview').hidden, false);
+    assert.equal(f.get('optional-ai-consent').checked, false);
+    assert.equal(f.get('optional-ai-result').hidden, true);
+    assert.equal(f.get('optional-ai-notice').textContent, 'Envío cancelado: la vista previa sigue disponible; vuelve a marcar la autorización para reintentar.');
+    f.get('optional-ai-consent').checked = true; f.get('optional-ai-consent').dispatchEvent(new Event('change'));
+    f.click('optional-ai-ask'); await settle();
+    assert.equal(runs, 2);
+  } finally { f.restore(); }
+});
+test('an invalid improvement proposal shows the specific Spanish retry guidance in the panel', async () => {
+  const f = await fixture({ runAiRequest: async () => { throw new Error('[invalid_improvement] private backend detail'); } });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    assert.match(f.get('optional-ai-error').textContent, /playlist actual/);
+    assert.doesNotMatch(f.get('optional-ai-error').textContent, /invalid_improvement|private backend/);
+  } finally { f.restore(); }
+});
 test('changing the draft while a result is shown invalidates the result and any deferred apply', async () => {
   const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }) });
   try {

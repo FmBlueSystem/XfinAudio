@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { OptionalAiController, AI_RECIPIENT } from '../.out/renderer/optional-ai.js';
+import { OptionalAiController, AI_RECIPIENT, AI_CONNECTION_REQUEST } from '../.out/renderer/optional-ai.js';
 const uuid = '12345678-1234-4123-8123-123456789012';
 const status = (patch = {}) => ({ revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'apiIA.env', configured: true, recipient: AI_RECIPIENT, ...patch });
 const preview = (patch = {}) => ({ previewId: uuid, surface: 'library', recipient: AI_RECIPIENT, disclosure: ['Se enviará la petición y el vocabulario de géneros. No se envía audio.'], requestPreview: 'Busca house [ruta omitida]', ...patch });
@@ -26,7 +26,7 @@ test('explicit Apply alone invokes local parent integration and cannot be repeat
   const f = fixture(); await prepared(f); f.controller.setConsent(true); await f.controller.ask(); await f.controller.applySuggestion(); assert.deepEqual(f.calls.at(-1), ['apply', { resultId: uuid }]); assert.deepEqual(f.applied, [['library', { genres: ['house'] }]]); await f.controller.applySuggestion(); assert.equal(f.applied.length, 1);
 });
 test('same context keeps the draft while changed source/request/configuration removes consent and stale results', async () => {
-  const f = fixture(); await prepared(f); f.controller.setConsent(true); f.controller.setContext('library', {}, 'library-1'); assert.equal(f.controller.consent, true); f.controller.setRequest('Otra petición'); assert.equal(f.controller.preview, null); assert.equal(f.controller.consent, false); await f.controller.prepare(); f.controller.setConsent(true); f.controller.setEnabled(false); assert.equal(f.controller.preview, null); f.controller.discard(); f.controller.setContext('library', {}, 'library-2'); assert.equal(f.controller.request, ''); assert.equal(f.controller.result, null);
+  const f = fixture(); await prepared(f); f.controller.setConsent(true); f.controller.setContext('library', {}, 'library-1'); assert.equal(f.controller.consent, true); f.controller.setRequest('Otra petición'); assert.equal(f.controller.preview, null); assert.equal(f.controller.consent, false); await f.controller.prepare(); f.controller.setConsent(true); f.controller.setEnabled(false); assert.equal(f.controller.preview, null); f.controller.discard(); f.controller.setContext('library', {}, 'library-2'); assert.equal(f.controller.request, 'Otra petición'); assert.equal(f.controller.preview, null); assert.equal(f.controller.result, null);
 });
 test('source changes suppress a late prepared preview and a late remote result', async () => {
   let finish; const f = fixture({ prepareAiRequest: () => new Promise((resolve) => { finish = resolve; }) }); await f.controller.load(); f.controller.setRequest('House'); const pending = f.controller.prepare(); f.controller.setContext('library', {}, 'new'); finish(preview()); await pending; assert.equal(f.controller.preview, null);
@@ -36,8 +36,57 @@ test('cancellation cannot recall sent data and prevents any late result after na
   let finish; let runs = 0; const f = fixture({ runAiRequest: () => { runs++; return new Promise((resolve) => { finish = resolve; }); } }); await prepared(f); f.controller.setConsent(true); const running = f.controller.ask(); await f.controller.ask(); f.controller.cancelPending(); f.leave(); finish({ cancelled: false, result: result() }); await running; assert.equal(runs, 1); assert.equal(f.controller.result, null); assert.match(f.controller.notice, /enviados.*recuperar/); assert.equal(f.controller.consent, false);
   const g = fixture({ runAiRequest: () => new Promise((resolve) => { finish = resolve; }) }); await prepared(g); g.controller.setConsent(true); const work = g.controller.ask(); g.offline(); finish({ cancelled: false, result: result() }); await work; assert.equal(g.controller.result, null); assert.equal(g.controller.canAsk, false);
 });
-test('native confirmation cancellation creates no result and a new request needs new preview and consent', async () => {
-  const f = fixture({ runAiRequest: async () => ({ cancelled: true, result: null }) }); await prepared(f); f.controller.setConsent(true); await f.controller.ask(); assert.equal(f.controller.result, null); assert.equal(f.controller.preview, null); assert.equal(f.controller.consent, false); assert.match(f.controller.notice, /cancelada/i);
+test('native confirmation cancellation keeps the prepared disclosure and only removes the per-request consent', async () => {
+  let runs = 0; const f = fixture({ runAiRequest: async () => { runs += 1; return { cancelled: true, result: null }; } });
+  await prepared(f); f.controller.setConsent(true); const preparedPreview = f.controller.preview;
+  await f.controller.ask();
+  assert.equal(runs, 1);
+  assert.equal(f.controller.preview, preparedPreview);
+  assert.equal(f.controller.result, null); assert.equal(f.controller.consent, false); assert.equal(f.controller.pending, null);
+  assert.equal(f.controller.notice, 'Envío cancelado: la vista previa sigue disponible; vuelve a marcar la autorización para reintentar.');
+  assert.equal(f.controller.canAsk, false);
+  f.controller.setConsent(true);
+  assert.equal(f.controller.canAsk, true); assert.equal(f.controller.preview, preparedPreview); assert.equal(runs, 1);
+});
+test('a same-surface refresh keeps the typed instruction while a surface change or a non-editable surface clears it', async () => {
+  const f = fixture(); await f.controller.load();
+  f.controller.setContext('library', {}, 'library-1'); f.controller.setRequest('Busca house sin ruta');
+  f.controller.setContext('library', {}, 'library-2');
+  assert.equal(f.controller.request, 'Busca house sin ruta'); assert.equal(f.controller.preview, null); assert.equal(f.controller.result, null); assert.equal(f.controller.consent, false);
+  f.controller.setContext('prep', {}, 'prep-1');
+  assert.equal(f.controller.request, '');
+  f.controller.setRequest('Prepara una sesión house'); f.controller.setContext('metadata', {}, 'metadata-1');
+  assert.equal(f.controller.request, '');
+  f.controller.setContext('connection', {}, 'connection-1'); assert.equal(f.controller.request, AI_CONNECTION_REQUEST);
+  f.controller.setContext('connection', {}, 'connection-2'); assert.equal(f.controller.request, AI_CONNECTION_REQUEST);
+  const editor = fixture(); await editor.controller.load();
+  editor.controller.setContext('editor', { editId: uuid, draftIds, includeReplacements: false }, 'editor-1');
+  editor.controller.setRequest('Mejora el orden');
+  editor.controller.setContext('editor', { editId: uuid, draftIds, includeReplacements: true }, 'editor-1');
+  assert.equal(editor.controller.request, 'Mejora el orden'); assert.equal(editor.controller.improvementEditor, true); assert.equal(editor.controller.includeReplacements, true);
+});
+test('invalidating a prepared disclosure with a context refresh raises a Spanish review reminder only when one existed', async () => {
+  const f = fixture(); await f.controller.load();
+  assert.equal(f.controller.notice, '');
+  f.controller.setContext('library', {}, 'library-2'); assert.equal(f.controller.notice, '');
+  f.controller.setRequest('Busca house'); await f.controller.prepare(); assert.ok(f.controller.preview);
+  f.controller.setContext('library', {}, 'library-3');
+  assert.equal(f.controller.preview, null); assert.equal(f.controller.consent, false);
+  assert.equal(f.controller.notice, 'Contexto actualizado: revisa la vista previa antes de enviar.');
+  const g = fixture(); await g.controller.load(); g.controller.setRequest('Busca house'); await g.controller.prepare(); g.controller.setConsent(true);
+  g.controller.setContext('library', {}, 'library-2');
+  assert.equal(g.controller.consent, false);
+  assert.equal(g.controller.notice, 'Contexto actualizado: revisa la vista previa antes de enviar.');
+});
+test('improvement validation failures surface specific retry guidance instead of a generic message', async () => {
+  const f = fixture({ runAiRequest: async () => { throw new Error('[invalid_improvement] private backend detail'); } });
+  await prepared(f); f.controller.setConsent(true); await f.controller.ask();
+  assert.match(f.controller.error, /playlist actual/); assert.match(f.controller.error, /borrador/);
+  assert.doesNotMatch(f.controller.error, /invalid_improvement|private backend/);
+  const g = fixture({ prepareAiRequest: async () => { throw new Error('[ai_context_too_large] private backend detail'); } });
+  await g.controller.load(); g.controller.setRequest('Busca house'); await g.controller.prepare();
+  assert.match(g.controller.error, /límite/);
+  assert.notEqual(g.controller.error, f.controller.error);
 });
 test('commentary and connection output cannot be applied even if a response claims otherwise', async () => {
   for (const surface of ['review', 'metadata', 'live', 'connection']) { const kind = surface === 'connection' ? 'connection' : 'commentary'; const f = fixture({ runAiRequest: async () => ({ cancelled: false, result: result({ surface, kind, canApply: true }) }) }); await f.controller.load(); f.controller.setContext(surface, surface === 'review' ? { reviewId: uuid } : surface === 'live' ? { sessionId: uuid, revision: 0 } : {}, surface); await f.controller.prepare(); f.controller.setConsent(true); await f.controller.ask(); assert.equal(f.controller.canApply, false); await f.controller.applySuggestion(); assert.equal(f.applied.length, 0); }

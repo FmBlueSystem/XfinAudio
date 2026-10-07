@@ -5,6 +5,7 @@ const messages:Record<string,string>={
   stale_ai:'El contexto cambió. Prepara otra vista previa y revisa el consentimiento.',
   ai_request_failed:'No se pudo completar la consulta. Los datos ya enviados no se pueden recuperar.',
   ai_context_too_large:'Reduce la selección antes de consultar la asistencia IA.',
+  invalid_improvement:'La propuesta de la IA no coincide con la playlist actual (pistas fuera de alcance, duplicadas o desactualizadas). Revisa el borrador y prepara la solicitud de nuevo.',
   ai_context_unavailable:'Vuelve a abrir la pantalla o selección de origen para consultar la asistencia.',
   ai_disabled:'La asistencia IA está desactivada. Revisa sus ajustes.',
   ai_unconfigured:'Selecciona una fuente de credenciales desde IA opcional.',

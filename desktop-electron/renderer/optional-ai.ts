@@ -96,6 +96,7 @@ const errors: Record<string, string> = {
   invalid_ai_response: 'La respuesta no cumple los límites esperados. No se ha aplicado ninguna propuesta.',
   ai_context_unavailable: 'Este contexto ya no está disponible. Vuelve a abrir la selección o pantalla de origen.',
   ai_context_too_large: 'El contexto supera el límite de esta consulta. Reduce la selección antes de continuar.',
+  invalid_improvement: 'La propuesta de la IA no coincide con la playlist actual (pistas fuera de alcance, duplicadas o desactualizadas). Revisa el borrador y prepara la solicitud de nuevo.',
 };
 export class OptionalAiController {
   private api: OptionalAiApi; private host: OptionalAiHost; private base: AiStatus | null = null; private draft: AiStatus | null = null;
@@ -123,10 +124,16 @@ export class OptionalAiController {
     try {
       const copy = contextCopy(surface, context); const identity = JSON.stringify([surface, copy, localRevision]);
       if (identity === this.identity) return;
+      // A same-surface refresh (draft revision, order, selection) must not discard a long
+      // instruction the user is still typing: only a surface change or a surface without an
+      // editable request clears it.
+      const hadDisclosure = Boolean(this.preview) || this.consent;
+      const keepRequest = surface === this.surface && editable.has(surface);
       this.reset(); this.surface = surface; this.context = copy; this.identity = identity; this.localRevision = localRevision;
       this.improvement = surface === 'editor' && Object.hasOwn(copy, 'draftIds');
       this.includeReplacements = copy.includeReplacements === true;
-      this.request = surface === 'connection' ? AI_CONNECTION_REQUEST : ''; this.error = ''; this.notice = ''; this.notify();
+      if (!keepRequest) this.request = surface === 'connection' ? AI_CONNECTION_REQUEST : '';
+      this.error = ''; this.notice = hadDisclosure ? 'Contexto actualizado: revisa la vista previa antes de enviar.' : ''; this.notify();
     } catch (error) { this.invalidate(); this.fail(error); }
   }
   /**
@@ -200,8 +207,14 @@ export class OptionalAiController {
     this.notice = 'Confirma el envío en el diálogo del sistema. Cancelar no recupera los datos ya enviados.';
     await this.perform('ask', 'Consultando asistencia IA…', () => this.api.runAiRequest({ previewId }), (value) => {
       if (!value || typeof value.cancelled !== 'boolean') bad();
+      if (value.cancelled) {
+        // Declining the native dialog cancels nothing that was prepared: the disclosure and
+        // its preview stay available, and the user only has to tick consent again explicitly.
+        this.consent = false; this.result = null;
+        this.notice = 'Envío cancelado: la vista previa sigue disponible; vuelve a marcar la autorización para reintentar.';
+        this.host.changed(); return;
+      }
       this.preview = null;
-      if (value.cancelled) { this.notice = 'Solicitud cancelada. Los datos ya enviados no se pueden recuperar.'; this.host.changed(); return; }
       const result = value.result;
       if (!result || !uuid(result.resultId) || result.surface !== surface || result.kind !== this.expectedKind() || !text(result.title, 200) || !text(result.text, 8000) || typeof result.canApply !== 'boolean') bad();
       const proposal = result.proposal === null ? null : recordCopy(result.proposal);
