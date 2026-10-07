@@ -86,7 +86,10 @@ def test_prep_copilot_returns_three_comparable_variants_with_same_intent() -> No
     # later prefix-trimmed to three. Reaching E7 from E4 needs a two-level seam.
     assert all(variant.readiness.status == "needs_review" for variant in plan.variants)
     assert all(
-        any(check.label == "Continuidad de energía" and check.status == "needs_review" for check in variant.readiness.checks)
+        any(
+            check.label == "Continuidad de energía" and check.status == "needs_review"
+            for check in variant.readiness.checks
+        )
         for variant in plan.variants
     )
 

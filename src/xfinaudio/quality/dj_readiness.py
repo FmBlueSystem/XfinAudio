@@ -227,14 +227,17 @@ def _bpm_continuity_check(recommendation: PlaylistRecommendation) -> DjReadiness
             label="Continuidad de BPM",
             status="needs_review",
             detail=(
-                f"Salto máximo entre BPM vecinos: {max_jump:.2f}%, por encima del {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}% — "
+                f"Salto máximo entre BPM vecinos: {max_jump:.2f}%, "
+                f"por encima del {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}% — "
                 "exportación permitida, pero revisa la transición antes de tocar en directo"
             ),
         )
     return DjReadinessCheck(
         label="Continuidad de BPM",
         status="ready",
-        detail=(f"Salto máximo entre BPM vecinos: {max_jump:.2f}%, dentro del {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"),
+        detail=(
+            f"Salto máximo entre BPM vecinos: {max_jump:.2f}%, dentro del {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
+        ),
     )
 
 
@@ -263,14 +266,17 @@ def _energy_continuity_check(recommendation: PlaylistRecommendation) -> DjReadin
             label="Continuidad de energía",
             status="needs_review",
             detail=(
-                f"Salto máximo de energía entre pistas vecinas: {max_jump} niveles, por encima de {MAX_ADJACENT_ENERGY_JUMP} — "
+                f"Salto máximo de energía entre pistas vecinas: {max_jump} niveles, "
+                f"por encima de {MAX_ADJACENT_ENERGY_JUMP} — "
                 "exportación permitida, pero revisa la transición antes de tocar en directo"
             ),
         )
     return DjReadinessCheck(
         label="Continuidad de energía",
         status="ready",
-        detail=f"Salto máximo de energía entre pistas vecinas: {max_jump} niveles, dentro de {MAX_ADJACENT_ENERGY_JUMP}",
+        detail=(
+            f"Salto máximo de energía entre pistas vecinas: {max_jump} niveles, dentro de {MAX_ADJACENT_ENERGY_JUMP}"
+        ),
     )
 
 
