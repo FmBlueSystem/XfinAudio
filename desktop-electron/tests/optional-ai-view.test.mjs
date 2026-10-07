@@ -16,7 +16,7 @@ async function fixture(surface = 'library', resultPatch = {}, contextPatch = nul
   const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; let online = true; let busy = false; const calls = []; const root = new Element(); let render = () => {};
   const snapshot = { revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'fixture.env', configured: true, recipient: AI_RECIPIENT };
   const kinds = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection' };
-  const api = { getAiStatus: async () => snapshot, saveAiSettings: async (input) => ({ ...snapshot, ...input }), chooseAiCredential: async () => snapshot, clearAiCredential: async () => ({ ...snapshot, configured: false, credentialLabel: null }), prepareAiRequest: async (input) => { calls.push(['prepare', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, disclosure: ['Datos autorizados de la pantalla, nunca audio'], requestPreview: '[ruta omitida] <img src=x>' }; }, runAiRequest: async (input) => { calls.push(['ask', input]); return { cancelled: false, result: { resultId: uuid, surface, kind: kinds[surface], title: '<script>modelo</script>', text: '<img src=x> Comentario externo', proposal: { genres: ['house'] }, canApply: true, ...resultPatch } }; }, applyAiSuggestion: async (input) => { calls.push(['apply', input]); return { surface, data: { genres: ['house'] } }; } };
+  const api = { getAiStatus: async () => snapshot, saveAiSettings: async (input) => ({ ...snapshot, ...input }), chooseAiCredential: async () => snapshot, clearAiCredential: async () => ({ ...snapshot, configured: false, credentialLabel: null }), prepareAiRequest: async (input) => { calls.push(['prepare', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, disclosure: ['Datos autorizados de la pantalla, nunca audio'], requestPreview: '[ruta omitida] <img src=x>' }; }, runAiRequest: async (input) => { calls.push(['ask', input]); return { cancelled: false, result: { resultId: uuid, surface, kind: kinds[surface], title: '<script>modelo</script>', text: '<img src=x> Comentario externo', proposal: { genres: ['house'] }, canApply: true, ...resultPatch } }; }, applyAiSuggestion: async (input) => { calls.push(['apply', input]); return { surface, data: { genres: ['house'] } }; }, inspectAiPayload: async (input) => { calls.push(['aiPayload', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, request: 'house', body: '{"model":"deepseek","messages":[]}', bytes: 31, truncated: false }; } };
   const controller = new OptionalAiController(api, { canAct: () => online && !busy, changed: () => render(), dirtyChanged: () => {}, applied: () => {}, perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } } });
   render = createOptionalAiView(root, controller, { canAct: () => online && !busy, busy: () => busy }); controller.setContext(surface, contextPatch ?? (surface === 'review' ? { reviewId: uuid } : surface === 'editor' ? { editId: uuid } : surface === 'live' ? { sessionId: uuid, revision: 0 } : {}), 'local1'); await controller.load(); render();
   return { root, controller, calls, render, get: (id) => all(root).find((node) => node.id === `optional-ai-${id}`), setBusy: (value) => { busy = value; }, block: () => { online = false; controller.invalidate(); render(); }, restore: () => { globalThis.document = previous; } };
@@ -154,4 +154,40 @@ test('during the provider ask the panel shows phase copy, hides the local-job no
     assert.equal(f.get('pending').hidden, true);
     assert.equal(f.get('local-hold').hidden, false);
   } finally { globalThis.setInterval = realSet; globalThis.clearInterval = realClear; f.restore(); }
+});
+
+// --- F6: explicit, read-only exact payload viewer inside the disclosure block ---
+test('the disclosure block offers an on-demand exact payload viewer that renders JSON as text and sends nothing', async () => {
+  const f = await fixture();
+  try {
+    assert.equal(f.get('payload').hidden, true);
+    assert.equal(f.get('payload-body').textContent, '');
+    f.get('request').value = 'house'; f.get('request').dispatchEvent(new Event('input'));
+    f.get('prepare').dispatchEvent(new Event('click')); await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(f.get('payload').hidden, false);
+    assert.equal(f.get('payload').children[0].textContent, 'Ver payload exacto');
+    assert.match(f.get('payload-hint').textContent, /solo lectura/i);
+    assert.match(f.get('payload-hint').textContent, /no se envía nada/i);
+    assert.equal(f.calls.some(([kind]) => kind === 'aiPayload'), false);
+    f.get('payload').open = true; f.get('payload').dispatchEvent(new Event('toggle'));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(f.calls.at(-1), ['aiPayload', { previewId: uuid }]);
+    assert.equal(f.get('payload-body').textContent, f.controller.payload.body);
+    assert.equal(f.get('payload-body').children.length, 0);
+    assert.equal(f.calls.some(([kind]) => kind === 'ask'), false);
+    f.get('payload').open = false; f.get('payload').dispatchEvent(new Event('toggle'));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(f.calls.filter(([kind]) => kind === 'aiPayload').length, 1);
+  } finally { f.restore(); }
+});
+test('a truncated retained payload is labelled honestly instead of silently shortened', async () => {
+  const f = await fixture();
+  try {
+    f.get('request').value = 'house'; f.get('request').dispatchEvent(new Event('input'));
+    await f.controller.prepare();
+    f.controller.payload = { previewId: uuid, surface: 'library', recipient: AI_RECIPIENT, request: 'house', body: '{"a":1}', bytes: 99999, truncated: true };
+    f.render();
+    assert.match(f.get('payload-hint').textContent, /truncad/i);
+    assert.equal(f.get('payload-body').textContent, '{"a":1}');
+  } finally { f.restore(); }
 });

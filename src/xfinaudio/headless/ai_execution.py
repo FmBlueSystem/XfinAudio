@@ -82,7 +82,12 @@ def execute_context(context: AssistContext, transport: nan_client.Transport) -> 
             improvement = interpret_improvement_request(context.request, candidates, transport=transport)
             proposal = {"orderedTrackIds": list(improvement.orderedTrackIds), "rationale": improvement.rationale}
             kind = "improvement"
-            text = "Revisa el orden propuesto y su evaluación local antes de aplicarlo al borrador."
+            # The model's bounded, path-redacted rationale is the user-facing prose; the
+            # token order stays in the collapsed technical proposal. A missing rationale
+            # keeps the fixed local review text rather than showing empty prose.
+            text = improvement.rationale or (
+                "Revisa el orden propuesto y su evaluación local antes de aplicarlo al borrador."
+            )
     elif surface == "saved":
         interpreted = interpret_saved_request(context.request, data["descriptors"], transport=transport)
         selected = [data["playlists"][int(value[1:])] for value in interpreted.selected_ids]

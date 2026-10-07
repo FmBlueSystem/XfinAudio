@@ -13,6 +13,7 @@ AI_FIELDS = {
     "ai.credential.set": {"revision", "path"},
     "ai.prepare": {"surface", "request", "context"},
     "ai.confirmation": {"previewId"},
+    "ai.payload": {"previewId"},
     "ai.run": {"previewId", "confirmed"},
     "ai.apply": {"resultId"},
 }

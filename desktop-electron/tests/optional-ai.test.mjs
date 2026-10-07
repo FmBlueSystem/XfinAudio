@@ -6,8 +6,9 @@ const status = (patch = {}) => ({ revision: 'a'.repeat(64), enabled: true, provi
 const preview = (patch = {}) => ({ previewId: uuid, surface: 'library', recipient: AI_RECIPIENT, disclosure: ['Se enviará la petición y el vocabulario de géneros. No se envía audio.'], requestPreview: 'Busca house [ruta omitida]', ...patch });
 const result = (patch = {}) => ({ resultId: uuid, surface: 'library', kind: 'filters', title: 'Filtros sugeridos', text: 'Propuesta pendiente de revisión local', proposal: { genres: ['house'] }, canApply: true, ...patch });
 function fixture(overrides = {}) {
+  const payloadFixture = () => ({ previewId: uuid, surface: 'library', recipient: AI_RECIPIENT, request: 'Busca house', body: payloadBody, bytes: payloadBody.length, truncated: false });
   const calls = []; const applied = []; const dirty = []; let available = true; let busy = false; let route = 0;
-  const api = { getAiStatus: async () => { calls.push(['status']); return status(); }, saveAiSettings: async (input) => { calls.push(['save', input]); return status({ ...input, revision: 'b'.repeat(64) }); }, chooseAiCredential: async (input) => { calls.push(['choose', input]); return status({ credentialLabel: 'seleccionado.env', revision: 'b'.repeat(64) }); }, clearAiCredential: async (input) => { calls.push(['clear', input]); return status({ credentialLabel: null, configured: false, revision: 'b'.repeat(64) }); }, prepareAiRequest: async (input) => { calls.push(['prepare', input]); return preview({ surface: input.surface }); }, runAiRequest: async (input) => { calls.push(['run', input]); return { cancelled: false, result: result() }; }, applyAiSuggestion: async (input) => { calls.push(['apply', input]); return { surface: 'library', data: { genres: ['house'] } }; }, ...overrides };
+  const api = { getAiStatus: async () => { calls.push(['status']); return status(); }, saveAiSettings: async (input) => { calls.push(['save', input]); return status({ ...input, revision: 'b'.repeat(64) }); }, chooseAiCredential: async (input) => { calls.push(['choose', input]); return status({ credentialLabel: 'seleccionado.env', revision: 'b'.repeat(64) }); }, clearAiCredential: async (input) => { calls.push(['clear', input]); return status({ credentialLabel: null, configured: false, revision: 'b'.repeat(64) }); }, prepareAiRequest: async (input) => { calls.push(['prepare', input]); return preview({ surface: input.surface }); }, runAiRequest: async (input) => { calls.push(['run', input]); return { cancelled: false, result: result() }; }, applyAiSuggestion: async (input) => { calls.push(['apply', input]); return { surface: 'library', data: { genres: ['house'] } }; }, inspectAiPayload: async (input) => { calls.push(['payload', input]); return payloadFixture(); }, ...overrides };
   const controller = new OptionalAiController(api, { canAct: () => available && !busy, changed: () => {}, dirtyChanged: (value) => dirty.push(value), applied: (surface, data) => applied.push([surface, data]), perform: async (_label, task, apply, fail) => { busy = true; const current = route; try { apply(await task(), current === route); } catch (error) { fail(error); } finally { busy = false; } } });
   controller.setContext('library', {}, 'library-1');
   return { controller, calls, applied, dirty, leave: () => { route++; }, offline: () => { available = false; controller.invalidate(); } };
@@ -253,4 +254,46 @@ test('prepareBlocker returns the first failing reason in user order and is empty
   assert.equal(empty.controller.prepareBlocker(), 'Escribe qué quieres mejorar.');
   const oversized = fixture(); await oversized.controller.load(); oversized.controller.setRequest('x'.repeat(2001));
   assert.equal(oversized.controller.prepareBlocker(), 'La petición supera los 2000 caracteres.');
+});
+
+// --- F6: provider-free exact payload inspection, on demand only ---------------
+const payloadBody = '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"{\\"request\\":\\"Busca house\\"}"}]}';
+const aiPayload = (patch = {}) => ({ previewId: uuid, surface: 'library', recipient: AI_RECIPIENT, request: 'Busca house', body: payloadBody, bytes: payloadBody.length, truncated: false, ...patch });
+test('payload inspection is on demand, read-only, never automatic and cleared by any context change', async () => {
+  const f = fixture(); await prepared(f);
+  assert.equal(f.controller.payload, null);
+  assert.ok(!f.calls.some(([kind]) => kind === 'payload'));
+  assert.equal(f.controller.canInspectPayload, true);
+  await f.controller.inspectPayload();
+  assert.deepEqual(f.calls.at(-1), ['payload', { previewId: uuid }]);
+  assert.equal(f.controller.payload.body, payloadBody);
+  assert.equal(f.controller.payload.truncated, false);
+  assert.equal(f.controller.preview.previewId, uuid);
+  assert.ok(!f.calls.some(([kind]) => kind === 'run' || kind === 'apply'));
+  f.controller.setRequest('Otra petición');
+  assert.equal(f.controller.payload, null);
+  assert.equal(f.controller.canInspectPayload, false);
+  await f.controller.inspectPayload();
+  assert.equal(f.calls.filter(([kind]) => kind === 'payload').length, 1);
+  // A sent request leaves no inspectable body behind, and its consent is revoked.
+  f.controller.setRequest('Busca house'); await f.controller.prepare(); await f.controller.inspectPayload();
+  f.controller.setConsent(true); await f.controller.ask();
+  assert.equal(f.controller.preview, null); assert.equal(f.controller.payload, null); assert.equal(f.controller.canInspectPayload, false);
+});
+test('a foreign, malformed or out-of-bounds payload response is refused and never retained', async () => {
+  const patches = [{ previewId: '00000000-0000-4000-8000-000000000000' }, { body: 1 }, { body: 'x'.repeat(64 * 1024 + 1) }, { truncated: 'no' }, { bytes: -1 }, { request: 7 }, { recipient: 'https://elsewhere.example' }, null];
+  for (const patch of patches) {
+    const f = fixture({ inspectAiPayload: async () => (patch === null ? null : aiPayload(patch)) });
+    await prepared(f);
+    await f.controller.inspectPayload();
+    assert.equal(f.controller.payload, null, JSON.stringify(patch)?.slice(0, 60));
+    assert.notEqual(f.controller.error, '', JSON.stringify(patch)?.slice(0, 60));
+  }
+});
+test('an offline host cannot inspect a payload even when a preview is prepared', async () => {
+  const f = fixture(); await prepared(f); assert.equal(f.controller.canInspectPayload, true);
+  f.offline();
+  assert.equal(f.controller.canInspectPayload, false);
+  await f.controller.inspectPayload();
+  assert.ok(!f.calls.some(([kind]) => kind === 'payload'));
 });

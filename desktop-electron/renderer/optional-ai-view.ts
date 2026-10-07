@@ -67,11 +67,19 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const prepareHint = identify(make('p', '', 'field-hint'), 'prepare-hint');
   const preview = identify(make('section'), 'preview'); preview.setAttribute('aria-labelledby', `${prefix}-preview-heading`);
   const previewRecipient = identify(make('p'), 'preview-recipient'); const disclosureList = make('ul'); const redacted = identify(make('p'), 'redacted-request');
+  // The exact retained provider body is fetched only when the user opens this control. It is
+  // read-only: no consent, no request, and no credential access is involved.
+  const payload = identify(make('details'), 'payload');
+  const payloadSummary = identify(make('summary', 'Ver payload exacto'), 'payload-summary');
+  const payloadBody = identify(make('pre'), 'payload-body');
+  const payloadHint = identify(make('p', 'Solo lectura local del cuerpo exacto que se enviaría al proveedor. No se envía nada al abrirlo.', 'field-hint'), 'payload-hint');
+  payload.append(payloadSummary, payloadBody);
+  payload.addEventListener('toggle', () => { if (payload.open && canAct() && !controller.pending) void controller.inspectPayload(); });
   const consent = identify(make('input'), 'consent'); consent.type = 'checkbox'; consent.checked = false;
   const consentLabel = make('label', 'Autorizo enviar esta solicitud y los datos descritos a Nan Builders'); consentLabel.setAttribute('for', consent.id);
   consent.setAttribute('aria-describedby', `${prefix}-consent-hint`); consent.addEventListener('change', () => { if (canAct()) controller.setConsent(consent.checked); });
   const ask = action('ask', 'Consultar IA…', () => { void controller.ask(); }, true);
-  preview.append(identify(make('h4', 'Vista previa del envío'), 'preview-heading'), previewRecipient, disclosureList, redacted, consent, consentLabel,
+  preview.append(identify(make('h4', 'Vista previa del envío'), 'preview-heading'), previewRecipient, disclosureList, redacted, payload, payloadHint, consent, consentLabel,
     identify(make('p', 'Esta autorización vale solo para esta solicitud. Al continuar también se pide confirmación en el diálogo del sistema. Preparar esta vista no contacta al proveedor.', 'field-hint'), 'consent-hint'), ask);
   const pending = identify(make('p', 'Puedes cancelar desde el control de la operación. Los datos ya enviados no se pueden recuperar.', 'review-notice'), 'pending'); pending.setAttribute('role', 'status');
   const result = identify(make('section'), 'result'); result.setAttribute('aria-labelledby', `${prefix}-result-heading`);
@@ -112,6 +120,10 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
     prepareHint.textContent = prepare.disabled ? blocker : ''; prepareHint.hidden = !prepare.disabled || !blocker;
     preview.hidden = !controller.preview;
     disclosureList.replaceChildren(); if (controller.preview) { previewRecipient.textContent = `Destinatario: ${controller.preview.recipient}`; for (const line of controller.preview.disclosure) disclosureList.append(make('li', line)); redacted.textContent = controller.preview.requestPreview; }
+    payload.hidden = !controller.preview;
+    payloadSummary.setAttribute('aria-disabled', String(blocked || controller.pending !== null));
+    payloadBody.textContent = controller.payload ? controller.payload.body : '';
+    payloadHint.textContent = `${controller.payload?.truncated ? 'El cuerpo supera el límite y se muestra truncado. ' : ''}Solo lectura local del cuerpo exacto que se enviaría al proveedor. No se envía nada al abrirlo.`;
     consent.checked = controller.consent; consent.disabled = blocked || !controller.preview; ask.disabled = blocked || !controller.canAsk; ask.textContent = controller.surface === 'connection' ? 'Probar conexión…' : 'Consultar IA…';
     const phase = controller.pendingPhaseText; pending.hidden = controller.pending === null;
     if (controller.pending === 'ask') {

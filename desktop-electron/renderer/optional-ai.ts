@@ -5,6 +5,8 @@ export type AiSurface = 'library' | 'prep' | 'review' | 'saved' | 'editor' | 'me
 export type AiContext = Record<string, string | number | boolean | string[]>;
 export interface AiStatus { revision: string; enabled: boolean; provider: 'nan'; credentialLabel: string | null; configured: boolean; recipient: typeof AI_RECIPIENT; }
 export interface AiPreview { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; disclosure: string[]; requestPreview: string; }
+/** The exact retained provider body for one current preview: read-only, never sent by inspecting it. */
+export interface AiPayload { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; request: string; body: string; bytes: number; truncated: boolean; }
 export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; }
 export interface OptionalAiApi {
   getAiStatus(): Promise<AiStatus>;
@@ -12,6 +14,7 @@ export interface OptionalAiApi {
   chooseAiCredential(input: { revision: string }): Promise<AiStatus>;
   clearAiCredential(input: { revision: string }): Promise<AiStatus>;
   prepareAiRequest(input: { surface: AiSurface; request: string; context: AiContext }): Promise<AiPreview>;
+  inspectAiPayload(input: { previewId: string }): Promise<AiPayload>;
   runAiRequest(input: { previewId: string }): Promise<{ cancelled: boolean; result: AiResult | null }>;
   applyAiSuggestion(input: { resultId: string }): Promise<{ surface: AiSurface; data: Record<string, unknown> }>;
 }
@@ -23,6 +26,9 @@ export interface OptionalAiHost {
 const kinds: Record<AiSurface, AiResult['kind']> = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection' };
 const editable = new Set<AiSurface>(['library', 'prep', 'editor', 'saved']);
 const JSON_LIMIT = 32000;
+// The retained body is the provider's real request, bounded by the core's outbound 64 KiB cap.
+const AI_PAYLOAD_BODY_LIMIT = 64 * 1024;
+const AI_PAYLOAD_BYTES_LIMIT = 1024 * 1024;
 // The improvement preview is a local before/after render, not provider text: it carries
 // up to 80 tracks per side plus the local assessment, so it is bounded well above the
 // legacy 32k provider-proposal bound. Fine-grained track/public-field validation stays
@@ -104,8 +110,8 @@ export class OptionalAiController {
   private improvement = false;
   surface: AiSurface = 'library'; request = ''; consent = false; error = ''; notice = '';
   includeReplacements = false;
-  preview: AiPreview | null = null; result: AiResult | null = null;
-  pending: 'load' | 'save' | 'choose' | 'clear' | 'prepare' | 'ask' | 'apply' | null = null;
+  preview: AiPreview | null = null; result: AiResult | null = null; payload: AiPayload | null = null;
+  pending: 'load' | 'save' | 'choose' | 'clear' | 'prepare' | 'inspect' | 'ask' | 'apply' | null = null;
   askStartedAt: number | null = null;
   constructor(api: OptionalAiApi, host: OptionalAiHost) { this.api = api; this.host = host; }
   /** Phase-aware copy for the pending operation: the panel must not claim a local job while the provider is contacted. */
@@ -113,6 +119,7 @@ export class OptionalAiController {
     switch (this.pending) {
       case 'ask': return 'Consultando a Nan Builders… puede tardar hasta 30 s';
       case 'prepare': return 'Preparando la vista previa de datos…';
+      case 'inspect': return 'Recuperando el payload exacto…';
       case 'apply': return 'Revisando la propuesta con el motor local…';
       case 'load': return 'Consultando ajustes de IA…';
       case 'save': return 'Guardando ajustes de IA…';
@@ -146,9 +153,11 @@ export class OptionalAiController {
   get canSave(): boolean { return !this.pending && !this.conflict && this.dirty; }
   get canPrepare(): boolean { return !this.pending && !this.conflict && !this.dirty && Boolean(this.context && this.draft?.enabled && this.draft.configured) && (!this.requestEditable || Boolean(this.request.trim()) && this.request.length <= 2000); }
   get canAsk(): boolean { return this.canPrepare && this.consent && Boolean(this.preview); }
+  /** Only a current, unreplaced preview can be inspected, and only while the host can act. */
+  get canInspectPayload(): boolean { return !this.pending && Boolean(this.preview) && this.host.canAct(); }
   get canApply(): boolean { return !this.pending && !this.dirty && !this.conflict && Boolean(this.result?.canApply && this.result.proposal && editable.has(this.result.surface) && this.result.resultId !== this.appliedId); }
   private notify(): void { this.host.dirtyChanged(this.dirty); this.host.changed(); }
-  private reset(): void { this.generation++; this.preview = null; this.result = null; this.consent = false; this.appliedId = ''; }
+  private reset(): void { this.generation++; this.preview = null; this.result = null; this.payload = null; this.consent = false; this.appliedId = ''; }
   invalidate(): void { this.reset(); this.context = null; this.identity = ''; this.localRevision = ''; this.improvement = false; this.includeReplacements = false; this.request = ''; this.notice = ''; this.notify(); }
   cancelPending(): void { this.reset(); this.notice = 'Solicitud cancelada. Los datos ya enviados no se pueden recuperar.'; this.notify(); }
   setContext(surface: AiSurface, context: AiContext, localRevision: string | number): void {
@@ -232,6 +241,22 @@ export class OptionalAiController {
       this.preview = { ...value, disclosure: [...value.disclosure] }; this.consent = false; this.host.changed();
     });
   }
+  /**
+   * Fetches the exact retained provider body for the current preview on explicit user demand.
+   * It is read-only: it re-validates the exact preview identity, never sends the request, never
+   * contacts the provider, and keeps the disclosure and its consent untouched. Any context
+   * change clears the retained copy through `reset`.
+   */
+  async inspectPayload(): Promise<void> {
+    if (!this.host.canAct() || this.pending || !this.preview) return;
+    const { previewId, surface } = this.preview;
+    await this.perform('inspect', 'Recuperando el payload exacto…', () => this.api.inspectAiPayload({ previewId }), (value) => {
+      if (!value || !uuid(value.previewId) || value.previewId !== previewId || value.surface !== surface || value.recipient !== AI_RECIPIENT
+        || typeof value.request !== 'string' || value.request.length > 8000 || typeof value.truncated !== 'boolean'
+        || !Number.isInteger(value.bytes) || value.bytes < 0 || value.bytes > AI_PAYLOAD_BYTES_LIMIT || !text(value.body, AI_PAYLOAD_BODY_LIMIT)) bad();
+      this.payload = { previewId: value.previewId, surface: value.surface, recipient: AI_RECIPIENT, request: value.request, body: value.body, bytes: value.bytes, truncated: value.truncated };
+    });
+  }
   async ask(): Promise<void> {
     if (!this.canAsk || !this.preview || !this.host.canAct()) return;
     const { previewId, surface } = this.preview; this.consent = false; this.result = null;
@@ -245,7 +270,7 @@ export class OptionalAiController {
         this.notice = 'Envío cancelado: la vista previa sigue disponible; vuelve a marcar la autorización para reintentar.';
         this.host.changed(); return;
       }
-      this.preview = null;
+      this.preview = null; this.payload = null;
       const result = value.result;
       if (!result || !uuid(result.resultId) || result.surface !== surface || result.kind !== this.expectedKind() || !text(result.title, 200) || !text(result.text, 8000) || typeof result.canApply !== 'boolean') bad();
       const proposal = result.proposal === null ? null : recordCopy(result.proposal);

@@ -259,7 +259,7 @@ const loudness = new LoudnessController(api, {
   },
 });
 renderLoudness = createLoudnessView(element('loudness-container'), loudness, { canAct: () => coreAvailable && !gate.busy && loudnessAvailable(), draftBlockers });
-const aiAvailable = (): boolean => ['getAiStatus', 'saveAiSettings', 'chooseAiCredential', 'clearAiCredential', 'prepareAiRequest', 'runAiRequest', 'applyAiSuggestion'].every((key) => typeof api?.[key as keyof AppApi] === 'function');
+const aiAvailable = (): boolean => ['getAiStatus', 'saveAiSettings', 'chooseAiCredential', 'clearAiCredential', 'prepareAiRequest', 'inspectAiPayload', 'runAiRequest', 'applyAiSuggestion'].every((key) => typeof api?.[key as keyof AppApi] === 'function');
 ai = new OptionalAiController(api, {
   canAct: () => coreAvailable && !gate.busy && aiAvailable(),
   // The improvement replacement toggle changes the disclosed scope, so it must refresh

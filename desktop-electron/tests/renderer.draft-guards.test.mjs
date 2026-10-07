@@ -71,7 +71,7 @@ async function guardedFixture(previewWait) {
     getProfileSettings:async()=>({revision:'a'.repeat(64),spectralCohesion:.5}), saveProfileSettings:async input=>({...input,revision:'b'.repeat(64)}),
     prepSettings:async()=>prepSnapshot(), savePrepSettings:async input=>prepSnapshot({...input,revision:'b'.repeat(64)}),
     getAiStatus:async()=>aiSnapshot(), saveAiSettings:async input=>aiSnapshot({...input,revision:'b'.repeat(64)}),
-    chooseAiCredential:async()=>aiSnapshot(),clearAiCredential:async()=>aiSnapshot(),prepareAiRequest:async()=>{throw Error('Provider forbidden');},runAiRequest:async()=>{throw Error('Provider forbidden');},applyAiSuggestion:async()=>{throw Error('Provider forbidden');},
+    chooseAiCredential:async()=>aiSnapshot(),clearAiCredential:async()=>aiSnapshot(),prepareAiRequest:async()=>{throw Error('Provider forbidden');},inspectAiPayload:async()=>{throw Error('Provider forbidden');},runAiRequest:async()=>{throw Error('Provider forbidden');},applyAiSuggestion:async()=>{throw Error('Provider forbidden');},
   });
   return {...f,boundary,core,dirty:()=>dirty,confirms:()=>confirms};
 }

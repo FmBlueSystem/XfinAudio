@@ -409,7 +409,7 @@ def offline_setup(setup, monkeypatch):
 class ImprovementTransport:
     """Fake transport that can only answer with tokens read from the request payload."""
 
-    def __init__(self, order=None, rationale="Orden local sugerido."):
+    def __init__(self, order=None, rationale: str | None = "Orden local sugerido."):
         self.requests = []
         self.order = order
         self.rationale = rationale
@@ -705,3 +705,113 @@ def test_legacy_editor_four_operation_apply_is_unchanged(fixture, content, expec
     }
     assert backend.editor.session is not None and backend.editor.session.proposal is None
     assert "candidates" not in transport.requests[0].data.decode("utf-8")
+
+
+# --- F6: provider-free exact payload inspection -------------------------------
+
+
+def test_payload_inspection_returns_the_exact_retained_body_without_any_request(fixture):
+    facade, transport, backend, _, root = fixture
+    preview = prepare(facade, request="House bpm 120-130")
+    assert transport.requests == []
+    with pytest.raises(BackendError) as missing:
+        call(facade, "ai.payload", {"previewId": str(uuid4())})
+    assert missing.value.code == "stale_ai"
+
+    inspected = call(facade, "ai.payload", {"previewId": preview["previewId"]})
+    assert transport.requests == []
+    assert inspected["previewId"] == preview["previewId"] and inspected["surface"] == "library"
+    assert inspected["recipient"] == nan_client.DEFAULT_ENDPOINT
+    assert inspected["request"] == "House bpm 120-130"
+    assert inspected["truncated"] is False and inspected["bytes"] == len(inspected["body"].encode("utf-8"))
+    body = json.loads(inspected["body"])
+    assert body["model"] and [message["role"] for message in body["messages"]] == ["system", "user"]
+    payload = json.loads(body["messages"][-1]["content"])
+    assert set(payload) == {"request", "context"} and set(payload["context"]) == {"genres"}
+    assert str(root) not in inspected["body"] and "path" not in json.dumps(payload)
+    # Read-only: the retained pending state and the bounded result history are untouched.
+    assert facade.preview is not None and facade.preview.id == preview["previewId"]
+    assert facade.results == {}
+    assert call(facade, "ai.confirmation", {"previewId": preview["previewId"]}) == preview
+
+
+def test_payload_inspection_never_reads_credentials_and_never_needs_consent(fixture, monkeypatch):
+    import os
+
+    facade, transport, _, _, root = fixture
+    _, path = configure(facade, root)
+    preview = prepare(facade)
+    with monkeypatch.context() as guard:
+        guard.setattr(os, "read", lambda *args: pytest.fail("Credential read without a confirmed request"))
+        inspected = call(facade, "ai.payload", {"previewId": preview["previewId"]})
+    assert transport.requests == []
+    assert path.name not in inspected["body"] and str(path) not in json.dumps(inspected)
+
+
+def test_payload_inspection_fails_stale_when_the_context_changed(fixture):
+    facade, _, backend, _, root = fixture
+    selector, _ = improvement_selector(backend)
+    preview = call(facade, "ai.prepare", {"surface": "editor", "request": "Mejora el orden", "context": selector})
+    (root / "track-1.flac").unlink()
+    with pytest.raises(BackendError) as failure:
+        call(facade, "ai.payload", {"previewId": preview["previewId"]})
+    assert failure.value.code == "stale_ai"
+
+
+def test_payload_inspection_serializes_exactly_the_retained_improvement_candidates(offline_setup):
+    backend, root = offline_setup
+    selector, _ = improvement_selector(backend)
+    transport = ImprovementTransport()
+    facade = improvement_facade(backend, root, transport)
+    preview = prepare_improvement(facade, selector)
+    assert facade.preview is not None
+    retained = facade.preview.context.data["candidates"]
+
+    inspected = call(facade, "ai.payload", {"previewId": preview["previewId"]})
+    assert transport.requests == []
+    body = inspected["body"]
+    payload = json.loads(json.loads(body)["messages"][-1]["content"])
+    assert set(payload) == {"request", "context"} and set(payload["context"]) == {"candidates"}
+    candidates = payload["context"]["candidates"]
+    assert [item["token"] for item in candidates] == list(retained.tokens)
+    allowed = {"token", "title", "artist", "genre", "bpm", "key", "energy", "duration", "status", "missingFields"}
+    assert all(set(item) == allowed for item in candidates)
+    context_json = json.dumps(payload)
+    assert str(root) not in context_json and "path" not in context_json
+    assert all(draft_id not in context_json for draft_id in selector["draftIds"])
+    assert facade.preview.context.data["candidates"] is retained
+
+
+def test_payload_inspection_truncates_honestly_at_the_outbound_cap(fixture, monkeypatch):
+    from xfinaudio.headless import optional_ai as module
+
+    facade, transport, _, _, _ = fixture
+    preview = prepare(facade)
+    monkeypatch.setattr(module, "MAX_PAYLOAD_PREVIEW_BYTES", 64)
+    inspected = call(facade, "ai.payload", {"previewId": preview["previewId"]})
+    assert inspected["truncated"] is True
+    assert inspected["bytes"] > 64
+    assert len(inspected["body"].encode("utf-8")) <= 64
+    assert transport.requests == []
+
+
+# --- F9: the model's bounded rationale reaches the user as prose --------------
+
+
+def test_improvement_result_shows_the_bounded_rationale_as_prose(offline_setup):
+    backend, root = offline_setup
+    selector, _ = improvement_selector(backend)
+    transport = ImprovementTransport(rationale="Menos saltos de energía entre pistas.")
+    facade = improvement_facade(backend, root, transport)
+    answer = run(facade, prepare_improvement(facade, selector))["result"]
+    assert answer["kind"] == "improvement" and answer["canApply"]
+    assert answer["text"] == "Menos saltos de energía entre pistas."
+
+
+def test_improvement_result_without_rationale_keeps_the_fixed_local_review_text(offline_setup):
+    backend, root = offline_setup
+    selector, _ = improvement_selector(backend)
+    transport = ImprovementTransport(rationale=None)
+    facade = improvement_facade(backend, root, transport)
+    answer = run(facade, prepare_improvement(facade, selector))["result"]
+    assert answer["text"] == "Revisa el orden propuesto y su evaluación local antes de aplicarlo al borrador."

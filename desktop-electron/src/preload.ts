@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('xfin',Object.freeze({
   getProfileSettings:()=>invoke('getProfileSettings'),saveProfileSettings:(params:unknown)=>invoke('saveProfileSettings',params),
   getAiStatus:()=>invoke('getAiStatus'),saveAiSettings:(params:unknown)=>invoke('saveAiSettings',params),
   chooseAiCredential:(params:unknown)=>invoke('chooseAiCredential',params),clearAiCredential:(params:unknown)=>invoke('clearAiCredential',params),
-  prepareAiRequest:(params:unknown)=>invoke('prepareAiRequest',params),runAiRequest:(params:unknown)=>invoke('runAiRequest',params),applyAiSuggestion:(params:unknown)=>invoke('applyAiSuggestion',params),
+  prepareAiRequest:(params:unknown)=>invoke('prepareAiRequest',params),inspectAiPayload:(params:unknown)=>invoke('inspectAiPayload',params),runAiRequest:(params:unknown)=>invoke('runAiRequest',params),applyAiSuggestion:(params:unknown)=>invoke('applyAiSuggestion',params),
   revealLoudnessBackups:()=>invoke('revealLoudnessBackups'),
   getLoudnessStatus:()=>invoke('getLoudnessStatus'),saveLoudnessSettings:(params:unknown)=>invoke('saveLoudnessSettings',params),
   previewLoudness:(params:unknown)=>invoke('previewLoudness',params),runLoudness:(params:unknown)=>invoke('runLoudness',params),

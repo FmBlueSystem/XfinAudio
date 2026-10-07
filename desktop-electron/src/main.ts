@@ -138,6 +138,7 @@ async function action(method:string,raw:unknown) {
     case 'chooseAiCredential':return optionalAi.choose(params);
     case 'clearAiCredential':return run('ai.credential.set',{revision:params.revision,path:null});
     case 'prepareAiRequest':return optionalAi.prepare(params);
+    case 'inspectAiPayload':return run('ai.payload',params);
     case 'runAiRequest':return optionalAi.ask(params.previewId as string);
     case 'applyAiSuggestion':return run('ai.apply',params);
     case 'revealLoudnessBackups':return revealLoudnessBackups(dataDir,filename=>shell.showItemInFolder(filename));

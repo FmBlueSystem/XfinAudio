@@ -26,6 +26,7 @@ async function fixture(overrides = {}) {
   const api = {
     getAiStatus: async () => { calls.push(['aiStatus']); return aiStatus; }, saveAiSettings: async (input) => { calls.push(['aiSave',input]); return {...aiStatus,...input}; }, chooseAiCredential: async () => aiStatus, clearAiCredential: async () => ({...aiStatus,configured:false,credentialLabel:null}),
     prepareAiRequest: async (input) => { calls.push(['aiPrepare',input]); aiSurface=input.surface; return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,disclosure:['Datos autorizados'],requestPreview:input.request}; },
+    inspectAiPayload: async (input) => { calls.push(['aiPayload',input]); return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,request:'',body:'{"model":"deepseek","messages":[]}',bytes:31,truncated:false}; },
     runAiRequest: async (input) => { calls.push(['aiRun',input]); return {cancelled:false,result:{resultId:aiUuid,surface:aiSurface,kind:aiKinds[aiSurface],title:'Propuesta IA',text:'Revisión local',proposal:{summary:'sugerencia'},canApply:true}}; },
     applyAiSuggestion: async (input) => { calls.push(['aiApply',input]); return {surface:aiSurface,data:aiSurface==='library'?{filters:{genres:['house']},trackIds:[tracks[0].id]}:aiSurface==='prep'?{targetTrackCount:2,name:'Sesión propuesta',targetMinutes:30}:aiSurface==='editor'?{request:'acorta a 2 temas'}:{action:'compare',playlistIds:['1'],comparison:'Comparación local <img src=x>',names:['Set']}}; },
     getLoudnessStatus: async () => { calls.push(['loudness']); return loudness(); },
