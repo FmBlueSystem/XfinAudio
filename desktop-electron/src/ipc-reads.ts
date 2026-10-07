@@ -1,16 +1,30 @@
 /** The exact refusal every action outside the whitelist keeps while the host is occupied. */
 export const BUSY_MESSAGE='[busy] Another task is still running';
 /**
- * Read-only actions that may still be dispatched while an exclusive task holds the host.
+ * Read actions this process may still dispatch while an exclusive task holds the host,
+ * mapped to the core query each one sends.
  *
- * The audio core runs a single job worker: `JsonlServer.process_line` answers only
- * `track.resolve` and `prep.catalog` inline while a job is active and refuses every
- * other method with `busy`. A read therefore belongs here only when this process can
- * answer it without that worker: `getLibraryStatus` reads the cached native watcher
- * status and `getPrepCatalog` is the core's inline catalog lookup. Admitting any other
- * read would only move the same refusal from this boundary to the core.
+ * The audio core runs a single job worker, but `JsonlServer.process_line` answers the
+ * genuinely read-only queries inline. Every entry here is answered by an owned
+ * connection-per-call or an in-memory snapshot, so it cannot write state, control the
+ * running job, read credentials, or observe another operation's partial work. A read
+ * whose core query is not in that inline set stays refused rather than moving the same
+ * refusal from this boundary to the core.
  */
-export const READ_ONLY_ACTIONS:ReadonlySet<string>=new Set(['getLibraryStatus','getPrepCatalog']);
+export const READ_ONLY_CORE:Readonly<Record<string,string>>={
+  listLibrary:'library.list',listPlaylists:'playlist.list',openPlaylist:'playlist.open',
+  getMetadataReport:'metadata.report',getPreferences:'settings.get',prepSettings:'prep.settings.get',
+  getPrepCatalog:'prep.catalog',getProfileStatus:'profiles.status',getProfileSettings:'profiles.settings.get',
+  getLoudnessStatus:'loudness.status',getAiStatus:'ai.status',getLiveStatus:'live.status',
+  queryLibrary:'library.query',searchPlaylists:'playlist.search',comparePlaylists:'playlist.compare',
+  listDeletedPlaylists:'playlist.deleted.list',
+};
+/** Reads answered locally from a cache or in-memory snapshot, with no core query at all. */
+export const LOCAL_READ_ACTIONS:ReadonlySet<string>=new Set(['getLibraryStatus']);
+/** Every action admitted while the host is occupied; these two sets are the whole whitelist. */
+export const READ_ONLY_ACTIONS:ReadonlySet<string>=new Set([...Object.keys(READ_ONLY_CORE),...LOCAL_READ_ACTIONS]);
+/** Core methods the single worker answers inline, so the shared request may forward them during a job. */
+export const INLINE_CORE_METHODS:ReadonlySet<string>=new Set([...Object.values(READ_ONLY_CORE),'track.resolve']);
 /** Local draft bookkeeping and cancellation already run during an exclusive task. */
 export const ALWAYS_ALLOWED_ACTIONS:ReadonlySet<string>=new Set(['setDraftDirty','cancelCurrent']);
 /** Every host side exclusive source; a pending core job counts as one. */

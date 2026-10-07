@@ -11,7 +11,7 @@ import {CloseFlow} from './close-flow';
 import {SeratoHost} from './serato-host';
 import {revealLoudnessBackups} from './loudness-backups';
 import {OptionalAiHost} from './optional-ai-host';
-import {assertDispatchable} from './ipc-reads';
+import {assertDispatchable,INLINE_CORE_METHODS} from './ipc-reads';
 import {LoudnessHost} from './loudness-host';
 import {LegacyImportHost} from './legacy-import-host';
 import {OfflineHost} from './offline-host';
@@ -95,7 +95,13 @@ const profiles=new ProfilesHost({request:run,cancel:()=>current?.method==='profi
 const editSnapshot=(value:any)=>({...value,id:String(value.id)});
 const summaries=(items:any[])=>items.map(item=>({id:String(item.id),name:item.name,trackCount:item.trackCount,createdAt:item.updatedAt}));
 async function run(method:string,params:Record<string,unknown>={}) {
-  if(current)throw new Error('Another task is still running');
+  if(current){
+    // The core answers genuinely read-only queries inline; anything else would need
+    // the slot the running job owns, so it keeps the exact exclusive refusal.
+    // The reviewed inline set is the only path that may reach the core during a job.
+    if(INLINE_CORE_METHODS.has(method))return core.request(method,params);
+    throw new Error('Another task is still running');
+  }
   const id=randomUUID();current={id,method};
   window?.webContents.send('xfin:progress',{jobId:id,operation:method,phase:'started',message:'Procesando…'});
   try{return await core.request(method,params,id);}finally{if(current?.id===id)current=null;}

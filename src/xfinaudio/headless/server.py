@@ -18,6 +18,31 @@ MAX_LINE_BYTES = 64 * 1024
 CANCELLABLE_METHODS = frozenset(
     {"library.scan", "library.rescan", "prep.generate", "prep.select", "loudness.run", "ai.run", "profiles.complete"}
 )
+# Genuinely read-only queries answered inline while a job owns the worker. Each one is
+# served from an owned connection-per-call or an in-memory snapshot, so it cannot write
+# state, control the job, read credentials, or observe another operation's partial work.
+# Anything with a write side effect stays refused with the busy error below.
+INLINE_METHODS = frozenset(
+    {
+        "track.resolve",
+        "prep.catalog",
+        "library.list",
+        "library.query",
+        "playlist.list",
+        "playlist.open",
+        "playlist.search",
+        "playlist.compare",
+        "playlist.deleted.list",
+        "metadata.report",
+        "settings.get",
+        "prep.settings.get",
+        "profiles.status",
+        "profiles.settings.get",
+        "loudness.status",
+        "ai.status",
+        "live.status",
+    }
+)
 
 
 class JsonlServer:
@@ -79,8 +104,9 @@ class JsonlServer:
         with self._lock:
             if self._closed:
                 self._error(request_id, "closed", "Backend is shutting down")
-            elif method in ("track.resolve", "prep.catalog"):
-                # Read-only catalog or snapshot lookup; no database or mutable review access.
+            elif method in INLINE_METHODS:
+                # Read-only query or snapshot lookup; no database write, job control, or
+                # mutable review access, so it needs no slot on the single job worker.
                 self._send(self._execute(request_id, method, params, ScanCancellationToken()))
             elif self._active is not None:
                 self._error(request_id, "busy", "Another operation is still running")
