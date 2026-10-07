@@ -1468,8 +1468,8 @@ def _sort_by_hint(tracks: list[TrackRecord], strategy: PlaylistStrategy) -> list
 
 def _bpm_jump_warning(dropped_count: int, *, suffix: str = "") -> str:
     return (
-        "Dropped "
-        f"{dropped_count} generated track(s) because adjacent BPM jump exceeded "
+        "Se descartaron "
+        f"{dropped_count} pista(s) generada(s) porque el salto entre BPM vecinos superó el "
         f"{MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%{suffix}"
     )
 
@@ -1632,9 +1632,9 @@ def _spectral_jump_warnings(tracks: list[TrackRecord]) -> list[str]:
     if not shift_counts:
         return []
     summary = ", ".join(
-        f"{left}→{right} ({count} {'time' if count == 1 else 'times'})" for (left, right), count in shift_counts.items()
+        f"{left}→{right} ({count} {'vez' if count == 1 else 'veces'})" for (left, right), count in shift_counts.items()
     )
-    return [f"Spectral shifts: {summary}"]
+    return [f"Cambios espectrales: {summary}"]
 
 
 __all__ = [

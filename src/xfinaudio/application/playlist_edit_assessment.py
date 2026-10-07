@@ -72,8 +72,8 @@ def assess_playlist_edit(
         raise ValueError("; ".join(check.detail for check in readiness.checks if check.status == "blocked"))
     description = "\n".join(
         [
-            f"Engine validation (build strategy): {readiness.summary}",
-            f"Mean transition score: {quality.average_transition_score:.3f}",
+            f"Validación del motor (estrategia de construcción): {readiness.summary}",
+            f"Puntuación media de transición: {quality.average_transition_score:.3f}",
             *(f"{check.label}: {check.detail}" for check in readiness.checks if check.status != "ready"),
             *(warning for score in scores for warning in score.warnings),
         ]

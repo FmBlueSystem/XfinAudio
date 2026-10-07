@@ -305,7 +305,7 @@ def test_missing_analysis_is_honest_and_never_computed(
         assert result["tracks"] == []
         assert result["readiness"] == "blocked"
         with pytest.raises(BackendError) as blocked:
-            backend.execute("playlist.save", {"name": "Blocked", "reviewId": result["reviewId"]})
+            backend.execute("playlist.save", {"name": "Bloqueado", "reviewId": result["reviewId"]})
         assert blocked.value.code == "blocked_review"
 
 

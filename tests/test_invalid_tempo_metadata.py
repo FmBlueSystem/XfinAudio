@@ -66,7 +66,7 @@ def test_malformed_persisted_tempo_fails_closed(value: float | None, reverse: bo
     )
     report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
     assert report.status == "blocked"
-    for label in ("Required metadata", "BPM continuity"):
+    for label in ("Metadatos requeridos", "Continuidad de BPM"):
         assert next(check.status for check in report.checks if check.label == label) == "blocked"
 
 

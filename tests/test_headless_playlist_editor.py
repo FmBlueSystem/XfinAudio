@@ -104,7 +104,7 @@ def test_offline_preview_uses_real_assessment_without_persisting(saved_set) -> N
     assert preview["editId"] == opened["editId"]
     assert preview["revision"] == opened["revision"]
     assert ids(preview) == ids(opened)[::-1][:2]
-    assert "Engine validation (build strategy)" in preview["assessment"]["description"]
+    assert "Validación del motor (estrategia de construcción)" in preview["assessment"]["description"]
     assert isinstance(preview["assessment"]["qualityScore"], float)
     assert preview["assessment"]["readiness"] in {"ready", "needs_review"}
     assert isinstance(preview["assessment"]["warnings"], list)

@@ -162,7 +162,7 @@ def test_score_transition_scores_missing_tags_as_neutral_not_perfect() -> None:
 
     assert "tags" not in result.component_scores
     assert result.total_score < 1.0
-    assert "Tag score unavailable; both tracks have no tags or genre" in result.warnings
+    assert "Puntuación de etiquetas no disponible; ambas pistas no tienen etiquetas ni género" in result.warnings
 
 
 def test_sparse_metadata_pair_does_not_outrank_complete_agreeing_pair() -> None:
@@ -197,7 +197,7 @@ def test_score_transition_warns_and_returns_zero_when_required_metadata_is_incom
     assert result.total_score == 0.0
     assert result.compatibility_score is None
     assert result.mixability_score is None
-    assert "left missing required metadata: camelot_key" in result.warnings
+    assert "pista izquierda sin metadatos obligatorios: camelot_key" in result.warnings
 
 
 def test_score_transition_combines_weighted_component_scores() -> None:
@@ -257,7 +257,7 @@ def test_score_transition_warns_and_returns_zero_for_invalid_camelot_key() -> No
     assert result.total_score == 0.0
     assert result.compatibility_score is None
     assert result.mixability_score is None
-    assert "left has invalid Camelot key: not-a-key" in result.warnings
+    assert "pista izquierda tiene una tonalidad Camelot inválida: not-a-key" in result.warnings
 
 
 def test_transition_score_axes_default_to_none_for_existing_constructors() -> None:
@@ -487,7 +487,7 @@ def test_score_transition_warns_when_genre_and_tags_do_not_overlap() -> None:
     )
 
     assert result.component_scores["tags"] == 0.0
-    assert "Genre/tag mismatch: no shared genre, subgenre, mood, or tag metadata" in result.warnings
+    assert "Discrepancia de género/etiquetas: sin género, subgénero, ánimo o etiquetas en común" in result.warnings
 
 
 def test_score_transition_returns_cached_result_on_second_call() -> None:
@@ -570,7 +570,7 @@ def test_spectral_cohesion_penalizes_different_dominant_colors() -> None:
         + high_cohesion.component_scores["spectral"] * 0.20
     ) / (0.40 + 0.10 + 0.0 + 0.20)
     assert high_cohesion.compatibility_score == pytest.approx(expected_compatibility)
-    assert "Spectral color penalty applied" in " ".join(high_cohesion.warnings)
+    assert "Penalización de color espectral aplicada" in " ".join(high_cohesion.warnings)
 
 
 def test_spectral_cohesion_boosts_weight_for_same_color() -> None:
@@ -604,8 +604,8 @@ def test_new_color_rule_drives_spectral_penalty_for_different_and_same_colors() 
     )
     same = score_transition(track("red-1", spectral_profile=red), track("red-2", spectral_profile=red), config=config)
 
-    assert "Spectral color penalty applied" in " ".join(different.warnings)
-    assert "Spectral color penalty applied" not in " ".join(same.warnings)
+    assert "Penalización de color espectral aplicada" in " ".join(different.warnings)
+    assert "Penalización de color espectral aplicada" not in " ".join(same.warnings)
 
 
 def test_default_app_settings_drive_new_color_penalty_through_recommendation() -> None:
@@ -634,8 +634,8 @@ def test_default_app_settings_drive_new_color_penalty_through_recommendation() -
         spectral_cohesion=settings.scoring.spectral_cohesion,
     )
 
-    assert "Spectral color penalty applied" in " ".join(different.transition_scores[0].warnings)
-    assert "Spectral color penalty applied" not in " ".join(same.transition_scores[0].warnings)
+    assert "Penalización de color espectral aplicada" in " ".join(different.transition_scores[0].warnings)
+    assert "Penalización de color espectral aplicada" not in " ".join(same.transition_scores[0].warnings)
 
 
 def test_spectral_cohesion_out_of_range_is_rejected() -> None:
@@ -913,7 +913,7 @@ def test_shared_triad_identity_scores_one_and_joins_the_total() -> None:
     assert result.total_score == pytest.approx(1.0)
     assert result.mixability_score == pytest.approx(1.0)
     assert result.compatibility_score is None
-    assert "Rehearsed triad/tanda shared: a7f3" in result.explanations
+    assert "Tríada/tanda ensayada compartida: a7f3" in result.explanations
 
 
 def test_sharing_any_single_triad_identity_is_enough() -> None:

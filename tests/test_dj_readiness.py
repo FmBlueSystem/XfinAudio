@@ -64,7 +64,7 @@ def test_dj_readiness_marks_clean_recommendation_ready() -> None:
     assert report.status == "ready"
     assert report.blocker_count == 0
     assert report.review_count == 0
-    assert "Ready" in report.summary
+    assert "Listo" in report.summary
 
 
 def test_dj_readiness_flags_bpm_jump_for_review_not_blocked() -> None:
@@ -79,7 +79,7 @@ def test_dj_readiness_flags_bpm_jump_for_review_not_blocked() -> None:
 
     assert report.status == "needs_review"
     assert report.blocker_count == 0
-    assert any(check.label == "BPM continuity" and check.status == "needs_review" for check in report.checks)
+    assert any(check.label == "Continuidad de BPM" and check.status == "needs_review" for check in report.checks)
     assert "10.00%" in report.summary
 
 
@@ -97,7 +97,7 @@ def test_dj_readiness_treats_half_time_bpm_pair_as_continuous() -> None:
 
     report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
 
-    assert any(check.label == "BPM continuity" and check.status == "ready" for check in report.checks)
+    assert any(check.label == "Continuidad de BPM" and check.status == "ready" for check in report.checks)
     assert "0.00%" in report.summary
 
 
@@ -114,7 +114,7 @@ def test_dj_readiness_flags_genre_or_tag_warnings_for_review() -> None:
     assert report.status == "needs_review"
     assert report.blocker_count == 0
     assert report.review_count >= 1
-    assert any(check.label == "Transition warnings" and check.status == "needs_review" for check in report.checks)
+    assert any(check.label == "Avisos de transición" and check.status == "needs_review" for check in report.checks)
 
 
 def test_serato_round_trip_blocks_when_exported_crate_references_missing_files(tmp_path: Path) -> None:
@@ -141,7 +141,7 @@ def test_serato_round_trip_blocks_when_exported_crate_references_missing_files(t
     check = validate_serato_round_trip(plan, volume_root=volume_root)
 
     assert check.status == "blocked"
-    assert "1 unresolved track" in check.detail
+    assert "1 pista sin resolver" in check.detail
 
 
 def test_serato_round_trip_is_ready_when_written_crate_and_tracks_resolve(tmp_path: Path) -> None:
@@ -164,7 +164,7 @@ def test_serato_round_trip_is_ready_when_written_crate_and_tracks_resolve(tmp_pa
     check = validate_serato_round_trip(plan, volume_root=volume_root)
 
     assert check.status == "ready"
-    assert "2 track(s) resolve" in check.detail
+    assert "2 pista(s) existen" in check.detail
 
 
 def test_export_dj_readiness_json_is_deterministic() -> None:
@@ -182,7 +182,7 @@ def test_export_dj_readiness_json_is_deterministic() -> None:
 
     assert '"status": "needs_review"' in exported
     assert '"blocker_count": 0' in exported
-    assert '"label": "BPM continuity"' in exported
+    assert '"label": "Continuidad de BPM"' in exported
     assert exported.endswith("\n")
 
 
@@ -200,7 +200,7 @@ def test_export_dj_readiness_csv_has_stable_columns() -> None:
     exported = export_dj_readiness_csv(report)
 
     assert exported.splitlines()[0] == "check,status,detail"
-    assert "BPM continuity,ready," in exported
+    assert "Continuidad de BPM,ready," in exported
     assert exported.endswith("\n")
 
 
@@ -227,7 +227,7 @@ def test_dj_readiness_blocks_on_missing_metadata() -> None:
 
     assert report.status == "blocked"
     assert report.blocker_count >= 1
-    assert any(check.label == "Required metadata" and check.status == "blocked" for check in report.checks)
+    assert any(check.label == "Metadatos requeridos" and check.status == "blocked" for check in report.checks)
 
 
 def test_dj_readiness_blocks_complete_tracks_with_absent_required_field_values() -> None:
@@ -251,9 +251,9 @@ def test_dj_readiness_blocks_complete_tracks_with_absent_required_field_values()
 
     assert report.status == "blocked"
     assert any(
-        check.label == "Required metadata"
+        check.label == "Metadatos requeridos"
         and check.status == "blocked"
-        and "1 track(s) need BPM, key, or energy metadata" in check.detail
+        and "1 pista(s) necesita(n) metadatos de BPM, tonalidad o energía" in check.detail
         for check in report.checks
     )
 
@@ -276,7 +276,7 @@ def test_dj_readiness_flags_large_energy_jump_for_review() -> None:
 
     assert report.status == "needs_review"
     assert report.blocker_count == 0
-    assert any(check.label == "Energy continuity" and check.status == "needs_review" for check in report.checks)
+    assert any(check.label == "Continuidad de energía" and check.status == "needs_review" for check in report.checks)
 
 
 def test_dj_readiness_accepts_gradual_energy_progression() -> None:
@@ -296,7 +296,7 @@ def test_dj_readiness_accepts_gradual_energy_progression() -> None:
 
     report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
 
-    assert any(check.label == "Energy continuity" and check.status == "ready" for check in report.checks)
+    assert any(check.label == "Continuidad de energía" and check.status == "ready" for check in report.checks)
 
 
 def test_dj_readiness_uses_smooth_energy_handoff_for_continuity() -> None:
@@ -309,7 +309,7 @@ def test_dj_readiness_uses_smooth_energy_handoff_for_continuity() -> None:
 
     report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
 
-    assert any(check.label == "Energy continuity" and check.status == "ready" for check in report.checks)
+    assert any(check.label == "Continuidad de energía" and check.status == "ready" for check in report.checks)
 
 
 def test_dj_readiness_flags_a_two_level_energy_jump() -> None:
@@ -323,4 +323,4 @@ def test_dj_readiness_flags_a_two_level_energy_jump() -> None:
 
     report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
 
-    assert any(check.label == "Energy continuity" and check.status == "needs_review" for check in report.checks)
+    assert any(check.label == "Continuidad de energía" and check.status == "needs_review" for check in report.checks)
