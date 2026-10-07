@@ -35,7 +35,7 @@ def test_repository_publication_checklist_preserves_source_release_boundaries() 
         "NOTICE.md",
         "manual desktop QA",
         "clean macOS account validation",
-        "PySide6/Qt",
+        "Qt/PySide6 is no longer a dependency of XfinAudio",
         "mutagen",
         "no live Serato database V2 mutation",
         "No private audio files or library databases",

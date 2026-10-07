@@ -48,7 +48,7 @@ The following gates are not proven by source publication or GitHub Actions:
 - clean macOS account validation;
 - signing, notarization, and DMG creation;
 - binary/app bundle redistribution review;
-- PySide6/Qt legal review;
+- Qt/PySide6 is no longer a dependency of XfinAudio (removed from pyproject/uv.lock);
 - mutagen and other third-party dependency legal review;
 - disposable Serato import validation for exported crate fixtures.
 

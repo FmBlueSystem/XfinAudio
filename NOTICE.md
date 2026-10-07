@@ -10,9 +10,9 @@ XfinAudio is a personal, non-commercial, community-gifted open-source project. I
 
 ## Distribution intent
 
-The intended distribution is source publication and Python package installation (for example via `pip`, `pipx`, or `uv tool`). In that form the dependency resolver fetches PySide6/Qt, mutagen, and other dependencies directly from PyPI under their own licenses. This model is believed to present low legal risk for a non-commercial community project, but it is not a legal clearance.
+The intended distribution is source publication and Python package installation (for example via `pip`, `pipx`, or `uv tool`). In that form the dependency resolver fetches mutagen and other dependencies directly from PyPI. Qt/PySide6 is no longer a dependency of XfinAudio. under their own licenses. This model is believed to present low legal risk for a non-commercial community project, but it is not a legal clearance.
 
-Binary, signed, notarized, or bundled app distribution is a separate activity with additional licensing obligations (notably for Qt/PySide6) and remains pending formal legal review before any public redistribution.
+Binary, signed, notarized, or bundled app distribution is a separate activity with additional licensing obligations (Qt/PySide6 is no longer bundled) and remains pending formal legal review before any public redistribution.
 
 ## Third-party dependency posture
 
@@ -20,7 +20,7 @@ The project keeps a third-party dependency inventory in `docs/third-party-licens
 
 Known review caveats:
 
-- PySide6/Qt licensing and redistribution obligations require legal review before binary/app bundle redistribution.
+- Qt/PySide6 is no longer a dependency and is not bundled; binary/app bundle redistribution obligations for the remaining third-party dependencies (for example FFmpeg) require legal review before any public redistribution.
 - mutagen licensing and redistribution obligations require legal review before binary/app bundle redistribution.
 - librosa, numpy, scipy, and other scientific-Python transitive dependencies must be reviewed before binary/app bundle redistribution.
 - Other third-party dependencies must be reviewed before binary/app bundle redistribution.

@@ -15,8 +15,8 @@ project:
     requires: ">=3.11"
   application:
     type: desktop
-    ui_framework: PySide6
-    entrypoint: xfinaudio = xfinaudio.desktop.app:main
+    ui_framework: electron
+    entrypoint: "xfinaudio.headless.__main__:main"
   source_roots:
     - src/xfinaudio
   test_roots:

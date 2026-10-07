@@ -26,13 +26,6 @@ class FakeScanService:
         return []
 
 
-def test_playlist_coordinator_depends_on_playlist_repository_port() -> None:
-    source = Path("src/xfinaudio/desktop/playlist_coordinator.py").read_text()
-
-    assert "xfinaudio.library.ports import PlaylistRepositoryPort" in source
-    assert "xfinaudio.library.playlist_repository" not in source
-
-
 def test_playlist_workflow_uses_shared_track_repository_port() -> None:
     source = Path("src/xfinaudio/application/playlist_workflow.py").read_text()
 

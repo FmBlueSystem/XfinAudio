@@ -4,7 +4,7 @@
 
 XfinAudio is a **GPL-3.0-only full open-source desktop DJ playlist assistant**.
 
-It helps DJs generate explainable playlists from audio files already processed by **Mixed In Key**. Binary/app bundle redistribution, PySide6/Qt, mutagen, signing/notarization/DMG, and third-party dependencies still require release-specific legal review. No legal clearance is implied.
+It helps DJs generate explainable playlists from audio files already processed by **Mixed In Key**. Binary/app bundle redistribution, mutagen, signing/notarization/DMG, and third-party dependencies still require release-specific legal review. Qt/PySide6 is no longer a dependency of XfinAudio. No legal clearance is implied.
 
 It is **not**:
 
@@ -31,7 +31,7 @@ It is **not**:
 | Layer | Decision |
 |---|---|
 | Language | Python 3.12+ |
-| Desktop UI | PySide6 |
+| Desktop UI | Electron (Qt/PySide6 removed) |
 | Metadata | mutagen |
 | Persistence | SQLite |
 | Settings | versioned settings schema |
@@ -77,7 +77,7 @@ Goal: first desktop app slice.
 
 Deliverables:
 
-- PySide6 window;
+- Electron window;
 - folder picker;
 - metadata scan action;
 - tracks table;
@@ -227,7 +227,7 @@ Use this after restarting:
 ```text
 Continue XfinAudio implementation from docs/IMPLEMENTATION_HANDOFF.md.
 Start with HELP-3: Mixed In Key metadata contract discovery.
-Use Python 3.12+, PySide6, mutagen, SQLite, pydantic, pytest, ruff, uv.
+Use Python 3.12+, mutagen, SQLite, pydantic, pytest, ruff, uv (Qt/PySide6 is no longer a dependency of XfinAudio).
 Do not implement DSP, C++, audio rendering, or audio file mutation.
 First inspect 5–10 real Mixed In Key processed audio files, document raw tags, define parser contract, and create fixtures.
 Keep responses concise.

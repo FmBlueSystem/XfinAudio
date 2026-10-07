@@ -4,7 +4,7 @@ XfinAudio is a GPL-3.0-only desktop DJ playlist assistant for DJs who already or
 
 It does not mix audio or detect BPM/key, and it does not replace DJ judgment. It is a local desktop decision-support tool: it reads metadata, persists a searchable library, recommends musically coherent track sequences, explains every transition, and exports safe Serato crate worklists that help the DJ prepare, validate, and improve the library.
 
-**2.2.0 is an unreleased beta/source candidate.** The Qt-free Electron application reuses the original Python engines. Start with the [new desktop source guide](desktop-electron/README.md), [exact migration scope](desktop-electron/MIGRATION_SCOPE.md), and [2.2.0 changes / Cambios](docs/release-notes-v2.2.0.md). The retained Qt application and its detailed historical workflows below remain available for comparison and rollback. New-app loudness writes require a scope preview and native confirmation; they are not the legacy automatic-write policy described below. AI remains off by default.
+**2.2.0 is an unreleased beta/source candidate.** The Qt-free Electron application reuses the original Python engines. Start with the [new desktop source guide](desktop-electron/README.md), [exact migration scope](desktop-electron/MIGRATION_SCOPE.md), and [2.2.0 changes / Cambios](docs/release-notes-v2.2.0.md). The Qt application has been removed in this cycle; its historical workflows below remain for reference only. New-app loudness writes require a scope preview and native confirmation; they are not the legacy automatic-write policy described below. AI remains off by default.
 
 **2.2.0 es un candidato beta de código fuente, sin release.** La interfaz Electron conserva los motores Python. Consulta la [guía nueva](desktop-electron/README.md) y el [alcance exacto](desktop-electron/MIGRATION_SCOPE.md). No reemplaza automáticamente la app instalada ni importa datos reales. Los binarios V12 previos conservan su versión original.
 
@@ -75,7 +75,7 @@ It is designed around this principle:
 
 Current scope:
 
-- Local desktop app built with PySide6/Qt.
+- Local desktop app: Qt/PySide6 is no longer a dependency of XfinAudio; the Electron application is the only desktop runtime.
 - Python 3.12 package distributed from source/wheel.
 - Read-only metadata scanning through mutagen.
 - Mixed In Key-oriented metadata parsing.
@@ -616,8 +616,8 @@ These exports follow the same strategy-grouped, timestamped, non-overwriting con
 
 - **Author and maintainer:** [Freddy Molina](https://github.com/FmBlueSystem) — [BlueSystem.io](https://bluesystem.io), Audio Division.
 - License posture: full open source under GPL-3.0-only. See `LICENSE` and `docs/open-source-license.md`.
-- Distribution model: XfinAudio ships as an installable Python package (source/wheel). Users install it with `pip`, `pipx`, or `uv tool` and the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses.
-- **macOS .app bundle**: A PyInstaller spec is included under `packaging/pyinstaller/` for building a local `.app` bundle. The bundle includes Qt Multimedia plugins and FFmpeg libraries for audio preview. Unsigned bundles work for personal use; signed/notarized distribution requires Apple Developer ID and separate legal review.
+- Distribution model: XfinAudio ships as an installable Python package (source/wheel). Users install it with `pip`, `pipx`, or `uv tool` and the dependency resolver fetches mutagen from PyPI under its own license (Qt/PySide6 is no longer a dependency of XfinAudio).
+- **macOS .app bundle**: built by `packaging/macos/build.py` around the Electron shell and the frozen headless core (the Qt/PyInstaller app path was removed together with Qt). Unsigned bundles work for personal use; signed/notarized distribution requires Apple Developer ID and separate legal review.
 - **Test suite**: run `uv run pytest -q` for current status. Strict TDD is enforced for behavior-changing changes.
 - Target platform: macOS, Python 3.12 or newer. Current AI workflow evidence includes Linux/offscreen tests; it does not certify native macOS interaction, installation or real Serato import.
 - Historical manual QA does not certify this 2.2.0 candidate. Real NaN credentials/provider behavior and musical listening quality still require separate validation; check CI for the exact commit under review.
@@ -737,7 +737,7 @@ All other trademarks, service marks, and brand identifiers referenced are the pr
 
 Source code is distributed under GPL-3.0-only. Redistribution must comply with GPLv3 and third-party dependency obligations.
 
-No legal advice or legal clearance is implied by this repository documentation. Binary/app bundle redistribution needs legal review for PySide6/Qt, mutagen, and other third-party dependencies. See `NOTICE.md`, `docs/open-source-license.md`, and `docs/third-party-license-inventory.md`.
+No legal advice or legal clearance is implied by this repository documentation. Binary/app bundle redistribution needs legal review for mutagen and other third-party dependencies; Qt/PySide6 is no longer a dependency of XfinAudio. See `NOTICE.md`, `docs/open-source-license.md`, and `docs/third-party-license-inventory.md`.
 
 ---
 
@@ -773,7 +773,7 @@ Principio central:
 
 Alcance actual:
 
-- App desktop local construida con PySide6/Qt.
+- App desktop local: Qt/PySide6 ya no es una dependencia de XfinAudio; la aplicación Electron es el único runtime de escritorio.
 - Paquete Python 3.12 distribuido desde source/wheel.
 - Escaneo read-only con mutagen.
 - Parser orientado a metadata de Mixed In Key.

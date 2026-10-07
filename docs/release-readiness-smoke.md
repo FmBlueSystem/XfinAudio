@@ -21,7 +21,6 @@ CI runs the same default non-audio gate through `.github/workflows/non-audio-rel
 If local packaging validation is feasible, run the optional temp-only PyInstaller build and launch gate:
 
 ```bash
-uv run python scripts/release_gate_check.py --include-packaging-build
 ```
 
 The CI workflow exposes that heavy temp packaging build only as the manual `include_packaging_build` dispatch input, with a default of `false`. Pull request and push runs stay on the non-heavy `--run --report-json` gate.
@@ -30,7 +29,7 @@ The runner covers every automated gate that does not require audio files. It run
 
 XfinAudio source is full open source under GPL-3.0-only and is distributed as a Python package. The project is personal, non-commercial, and community-gifted. Source/wheel redistribution must comply with GPLv3 and third-party dependency obligations; this model is believed to present low legal risk but does not constitute legal clearance. Signed macOS `.app`/DMG redistribution is out of scope and remains pending legal review.
 
-Use `--report-json PATH` to persist structured CI/release evidence for check-only listing, `--run`, or `--include-packaging-build`. The report parent directories may be created, but the runner refuses to create project-root `build/` or `dist/` as report directories. Prefer a temporary path or a project-ignored local path for evidence that should not be committed.
+Use `--report-json PATH` to persist structured CI/release evidence for check-only listing or `--run`. The report parent directories may be created, but the runner refuses to create project-root `build/` or `dist/` as report directories. Prefer a temporary path or a project-ignored local path for evidence that should not be committed.
 
 Use `scripts/render_release_gate_evidence.py REPORT_JSON [--output PATH]` to convert that JSON into a copy/paste Markdown snippet. The output still documents only non-audio gates and explicitly does not prove manual audio QA or release completion.
 
@@ -78,7 +77,6 @@ PASS release readiness smoke completed
 |------|------------------|
 | `scripts/release_gate_check.py --check-only` | Lists automated and manual gates without running subprocess checks. |
 | `scripts/release_gate_check.py --run` | Runs pytest, Ruff lint, Ruff format check, release readiness smoke, open-source publication docs, publication artifact hygiene, source package hygiene, PyInstaller check-only, and root artifact hygiene. |
-| `scripts/release_gate_check.py --include-packaging-build` | Runs the non-audio gates plus temp-only PyInstaller build, package-smoke launch, and warning triage. |
 | `scripts/release_gate_check.py --run --report-json PATH` | Writes JSON evidence with schema version, mode, project root, automated gate status/return codes, pending manual gates, overall status, and limitations. |
 | `scripts/render_release_gate_evidence.py REPORT_JSON` | Renders the JSON evidence as Markdown for manual copy/paste into `docs/release-candidate-evidence.md`; stdout is the default and `--output PATH` is explicit. |
 | `.github/workflows/non-audio-release-gates.yml` | Runs the default non-audio gate in CI, renders `.release-evidence/release-gate-evidence.md` from `.release-evidence/release-gate-report.json`, appends the Markdown to the GitHub Step Summary, and uploads both files as artifact evidence. |
@@ -140,7 +138,6 @@ The automated smoke script does not create, read, render, mix, mutate, or analyz
 - [ ] JSON evidence recorded with `uv run python scripts/release_gate_check.py --run --report-json PATH` when CI/release evidence is needed.
 - [ ] JSON evidence rendered with `uv run python scripts/render_release_gate_evidence.py PATH` and manually copied into `docs/release-candidate-evidence.md` when evidence publication is needed.
 - [ ] CI Step Summary shows the rendered Markdown evidence, and `.github/workflows/non-audio-release-gates.yml` uploads both JSON report and Markdown snippet artifacts for pull request, push, or manual runs.
-- [ ] Optional PyInstaller temp build gate executed with `uv run python scripts/release_gate_check.py --include-packaging-build` when feasible.
 - [ ] Dependency sync completes.
 - [x] Full pytest suite passes in metadata-fixture smoke evidence.
 - [x] Ruff lint passes in metadata-fixture smoke evidence.

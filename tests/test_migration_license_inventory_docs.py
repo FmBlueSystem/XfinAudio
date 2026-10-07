@@ -50,7 +50,7 @@ def test_inventory_preserves_legacy_scope_and_binary_review_boundary() -> None:
     text = INVENTORY.read_text(encoding="utf-8")
 
     assert "## Legacy direct-Python snapshot" in text
-    assert "| PySide6 | 6.11.1 |" in text
+    assert "PySide6" not in text, "Qt/PySide6 is no longer a dependency of XfinAudio"
     assert "| mutagen | 1.47.0 |" in text
     assert "## Legacy bundled FFmpeg CLI provenance" in text
     assert "not a complete binary bill of materials" in text

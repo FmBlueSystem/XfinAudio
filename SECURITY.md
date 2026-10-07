@@ -40,7 +40,7 @@ If you can show a path that violates those boundaries, report it as a security i
 
 ## Dependency and redistribution caveats
 
-Binary/app bundle redistribution still needs legal review for PySide6/Qt, mutagen, and other third-party dependencies. Dependency metadata in this repository is evidence for review, not a clearance statement.
+Binary/app bundle redistribution still needs legal review for mutagen, FFmpeg, and other third-party dependencies; Qt/PySide6 is no longer a dependency of XfinAudio. Dependency metadata in this repository is evidence for review, not a clearance statement.
 
 No legal advice or legal clearance is implied by this security policy.
 
