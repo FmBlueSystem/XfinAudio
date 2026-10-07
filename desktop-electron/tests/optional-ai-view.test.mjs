@@ -115,3 +115,43 @@ test('a non-improvement result keeps the original apply action copy', async () =
     assert.match(f.get('apply-hint').textContent, /no guarda/i);
   } finally { f.restore(); }
 });
+
+// --- F2/F10: phase-aware pending feedback, elapsed timer and prepare blockers ---
+test('the prepare button renders the first blocker as a hint and hides it when preparation is possible', async () => {
+  const f = await fixture(); try {
+    f.render();
+    assert.equal(f.get('prepare').disabled, true);
+    assert.equal(f.get('prepare-hint').hidden, false);
+    assert.equal(f.get('prepare-hint').className, 'field-hint');
+    assert.equal(f.get('prepare-hint').textContent, 'Escribe qué quieres mejorar.');
+    f.get('request').value = 'Busca house'; f.get('request').dispatchEvent(new Event('input')); f.render();
+    assert.equal(f.get('prepare').disabled, false);
+    assert.equal(f.get('prepare-hint').hidden, true);
+    assert.equal(f.get('prepare-hint').textContent, '');
+  } finally { f.restore(); }
+});
+test('during the provider ask the panel shows phase copy, hides the local-job notice and refreshes elapsed seconds once per second', async () => {
+  const realSet = globalThis.setInterval; const realClear = globalThis.clearInterval; const timers = [];
+  globalThis.setInterval = (fn, ms) => { const timer = { fn, ms, cleared: false }; timers.push(timer); return timer; };
+  globalThis.clearInterval = (timer) => { if (timer) timer.cleared = true; };
+  const f = await fixture('prep');
+  try {
+    f.setBusy(true); f.controller.pending = 'prepare'; f.render();
+    assert.equal(f.get('local-hold').hidden, false);
+    assert.equal(f.get('pending').hidden, false);
+    assert.equal(f.get('pending').textContent, 'Preparando la vista previa de datos…');
+    assert.equal(timers.length, 0);
+    f.controller.pending = 'ask'; f.controller.askStartedAt = Date.now() - 12000; f.render();
+    assert.equal(f.get('local-hold').hidden, true);
+    assert.match(f.get('pending').textContent, /Consultando a Nan Builders/);
+    assert.match(f.get('pending').textContent, /· 12 s/);
+    assert.match(f.get('pending').textContent, /enviados.*recuperar/);
+    assert.equal(timers.length, 1); assert.equal(timers[0].ms, 1000);
+    f.controller.askStartedAt = Date.now() - 15000; timers[0].fn();
+    assert.match(f.get('pending').textContent, /· 15 s/);
+    f.controller.pending = null; f.render();
+    assert.equal(timers[0].cleared, true);
+    assert.equal(f.get('pending').hidden, true);
+    assert.equal(f.get('local-hold').hidden, false);
+  } finally { globalThis.setInterval = realSet; globalThis.clearInterval = realClear; f.restore(); }
+});

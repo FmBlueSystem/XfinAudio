@@ -216,3 +216,41 @@ test('a local improvement review never claims the draft was applied while other 
   const g = fixture(); await prepared(g); g.controller.setConsent(true); await g.controller.ask(); await g.controller.applySuggestion();
   assert.match(g.controller.notice, /aplicada al trabajo local/i);
 });
+
+// --- F2/F10: phase-aware pending copy, elapsed helper and prepare blockers ---
+test('pendingPhaseText names the current phase while ask exposes a pure elapsed-seconds helper', async () => {
+  const f = fixture(); await f.controller.load();
+  assert.equal(f.controller.pendingPhaseText, '');
+  assert.equal(f.controller.askElapsedSeconds(Date.now()), null);
+  f.controller.pending = 'load'; assert.equal(f.controller.pendingPhaseText, 'Consultando ajustes de IA…');
+  f.controller.pending = 'prepare'; assert.equal(f.controller.pendingPhaseText, 'Preparando la vista previa de datos…');
+  f.controller.pending = 'apply'; assert.equal(f.controller.pendingPhaseText, 'Revisando la propuesta con el motor local…');
+  f.controller.pending = 'save'; assert.equal(f.controller.pendingPhaseText, 'Guardando ajustes de IA…');
+  f.controller.pending = 'choose'; assert.equal(f.controller.pendingPhaseText, 'Elige el archivo de credenciales en el sistema');
+  f.controller.pending = 'clear'; assert.equal(f.controller.pendingPhaseText, 'Quitando fuente de credenciales…');
+  f.controller.pending = 'ask'; assert.equal(f.controller.pendingPhaseText, 'Consultando a Nan Builders… puede tardar hasta 30 s');
+  const now = Date.now(); f.controller.askStartedAt = now - 12000;
+  assert.equal(f.controller.askElapsedSeconds(now), 12);
+  assert.equal(f.controller.askElapsedSeconds(now - 12000), 0);
+  f.controller.pending = null; f.controller.askStartedAt = null;
+  assert.equal(f.controller.pendingPhaseText, ''); assert.equal(f.controller.askElapsedSeconds(now), null);
+});
+test('prepareBlocker returns the first failing reason in user order and is empty only when preparation is possible', async () => {
+  const enabled = fixture(); await enabled.controller.load(); enabled.controller.setRequest('Busca house');
+  assert.equal(enabled.controller.canPrepare, true); assert.equal(enabled.controller.prepareBlocker(), '');
+  enabled.controller.setEnabled(false); assert.equal(enabled.controller.prepareBlocker(), 'Activa la asistencia IA en Ajustes.');
+  const unconfigured = fixture({ getAiStatus: async () => status({ configured: false, credentialLabel: null }) }); await unconfigured.controller.load(); unconfigured.controller.setRequest('Busca house');
+  assert.equal(unconfigured.controller.prepareBlocker(), 'Selecciona una fuente de credenciales en Ajustes.');
+  const dirty = fixture({ getAiStatus: async () => status({ enabled: false }) }); await dirty.controller.load(); dirty.controller.setEnabled(true); dirty.controller.setRequest('Busca house');
+  assert.equal(dirty.controller.prepareBlocker(), 'Guarda o descarta los cambios de IA pendientes.');
+  const pending = fixture(); await pending.controller.load(); pending.controller.setRequest('Busca house'); pending.controller.pending = 'prepare';
+  assert.equal(pending.controller.prepareBlocker(), 'Hay una operación local en curso.');
+  pending.controller.pending = 'ask';
+  assert.equal(pending.controller.prepareBlocker(), 'Hay una consulta a la IA en curso.');
+  const stale = fixture(); await stale.controller.load(); stale.controller.setRequest('Busca house'); stale.controller.invalidate();
+  assert.equal(stale.controller.prepareBlocker(), 'Abre la selección o pantalla de origen de nuevo.');
+  const empty = fixture(); await empty.controller.load();
+  assert.equal(empty.controller.prepareBlocker(), 'Escribe qué quieres mejorar.');
+  const oversized = fixture(); await oversized.controller.load(); oversized.controller.setRequest('x'.repeat(2001));
+  assert.equal(oversized.controller.prepareBlocker(), 'La petición supera los 2000 caracteres.');
+});

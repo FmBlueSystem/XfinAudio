@@ -405,3 +405,38 @@ test('other AI surfaces keep their original review and apply copy', async () => 
     assert.match(f.get('operation-detail').textContent, /aplicada al trabajo local/i);
   } finally { f.restore(); }
 });
+
+// --- F10: the editor CTA must explain AI settings that block every panel action ---
+test('the editor loads local AI settings so the CTA can refuse before the AI panel is opened', async () => {
+  const f = await fixture({ getAiStatus: async () => ({ ...aiStatus, enabled: false }) });
+  try {
+    await openEditor(f);
+    assert.equal(f.get('editor-improve').disabled, true);
+    assert.match(f.get('editor-improve-hint').textContent, /Ajustes/);
+    assert.equal(f.calls.some(([kind]) => kind === 'aiPrepare'), false);
+  } finally { f.restore(); }
+});
+test('the editor CTA is disabled with a settings hint when AI is off or unconfigured', async () => {
+  for (const patch of [{ enabled: false }, { configured: false, credentialLabel: null }]) {
+    const f = await fixture({ getAiStatus: async () => ({ ...aiStatus, ...patch }) });
+    try {
+      await f.openAi();
+      await openEditor(f);
+      assert.equal(f.get('editor-improve').disabled, true);
+      assert.match(f.get('editor-improve-hint').textContent, /Ajustes/);
+      assert.equal(f.calls.some(([kind]) => kind === 'aiPrepare'), false);
+    } finally { f.restore(); }
+  }
+});
+test('the editor CTA re-renders with a save-or-discard hint when the AI draft becomes dirty', async () => {
+  const f = await fixture({ getAiStatus: async () => ({ ...aiStatus, enabled: false }) });
+  try {
+    await openEditor(f);
+    assert.equal(f.get('editor-improve').disabled, true);
+    f.get('optional-ai-enabled').checked = true;
+    f.get('optional-ai-enabled').dispatchEvent(new Event('change'));
+    await settle();
+    assert.equal(f.get('editor-improve').disabled, true);
+    assert.match(f.get('editor-improve-hint').textContent, /cambios de IA/);
+  } finally { f.restore(); }
+});

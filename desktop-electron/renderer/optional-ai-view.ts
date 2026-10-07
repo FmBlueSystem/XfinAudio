@@ -64,6 +64,7 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const localHoldNotice = identify(make('p', '', 'review-notice'), 'local-hold'); localHoldNotice.setAttribute('role', 'status');
   const fixedRequest = identify(make('p', '', 'field-hint'), 'fixed-request');
   const prepare = action('prepare', 'Revisar datos antes de enviar', () => { void controller.prepare(); }, true);
+  const prepareHint = identify(make('p', '', 'field-hint'), 'prepare-hint');
   const preview = identify(make('section'), 'preview'); preview.setAttribute('aria-labelledby', `${prefix}-preview-heading`);
   const previewRecipient = identify(make('p'), 'preview-recipient'); const disclosureList = make('ul'); const redacted = identify(make('p'), 'redacted-request');
   const consent = identify(make('input'), 'consent'); consent.type = 'checkbox'; consent.checked = false;
@@ -80,8 +81,10 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const apply = action('apply', 'Aplicar propuesta al trabajo local', () => { void controller.applySuggestion(); });
   const applyHint = identify(make('p', 'Aplicar no guarda, exporta ni reproduce audio. Esas acciones siguen siendo explícitas.', 'field-hint'), 'apply-hint');
   result.append(resultHeading, resultTitle, resultCaution, resultText, proposal, apply, applyHint);
-  section.append(heading, error, notice, status, settingsLink, config, recipient, disclosure, requestField, includeField, localHoldNotice, fixedRequest, prepare, preview, pending, result); root.replaceChildren(section);
-  return () => {
+  section.append(heading, error, notice, status, settingsLink, config, recipient, disclosure, requestField, includeField, localHoldNotice, fixedRequest, prepare, prepareHint, preview, pending, result); root.replaceChildren(section);
+  let askTimer: ReturnType<typeof globalThis.setInterval> | null = null;
+  const stopAskTimer = (): void => { if (askTimer !== null) globalThis.clearInterval(askTimer); askTimer = null; };
+  const render = (): void => {
     const snapshot = controller.snapshot; const blocked = !canAct();
     config.hidden = controller.surface !== 'connection'; settingsLink.hidden = !config.hidden; settingsLink.disabled = blocked;
     configSummary.textContent = `Ajustes de asistencia IA${controller.dirty ? ' · cambios sin guardar' : ''}`;
@@ -101,13 +104,22 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
     request.placeholder = improvement ? 'Ej.: abre con algo más energético y quita las pistas lentas' : '';
     includeField.hidden = !improvement; include.checked = controller.includeReplacements; include.disabled = blocked || !improvement;
     request.disabled = !localEditable(); if (request.value !== controller.request) request.value = controller.request;
-    localHoldNotice.hidden = !heldByLocalJob();
+    localHoldNotice.hidden = !heldByLocalJob() || controller.pending === 'ask';
     localHoldNotice.textContent = controller.requestEditable ? 'Hay una operación local en curso. Puedes conservar tu petición en este campo; la vista previa se habilitará cuando termine.' : 'Hay una operación local en curso. Espera a que termine para continuar con la asistencia IA.';
     fixedRequest.hidden = controller.requestEditable; fixedRequest.textContent = controller.surface === 'connection' ? AI_CONNECTION_REQUEST : 'Solicitud fija: explicar los hechos de esta pantalla, sin añadir una petición libre.';
-    prepare.disabled = blocked || !controller.canPrepare; preview.hidden = !controller.preview;
+    const blocker = controller.prepareBlocker();
+    prepare.disabled = blocked || !controller.canPrepare;
+    prepareHint.textContent = prepare.disabled ? blocker : ''; prepareHint.hidden = !prepare.disabled || !blocker;
+    preview.hidden = !controller.preview;
     disclosureList.replaceChildren(); if (controller.preview) { previewRecipient.textContent = `Destinatario: ${controller.preview.recipient}`; for (const line of controller.preview.disclosure) disclosureList.append(make('li', line)); redacted.textContent = controller.preview.requestPreview; }
     consent.checked = controller.consent; consent.disabled = blocked || !controller.preview; ask.disabled = blocked || !controller.canAsk; ask.textContent = controller.surface === 'connection' ? 'Probar conexión…' : 'Consultar IA…';
-    pending.hidden = controller.pending !== 'ask'; result.hidden = !controller.result;
+    const phase = controller.pendingPhaseText; pending.hidden = controller.pending === null;
+    if (controller.pending === 'ask') {
+      const seconds = controller.askElapsedSeconds(Date.now());
+      pending.textContent = `${seconds === null ? phase : `${phase} · ${seconds} s`} Puedes cancelar desde el control de la operación. Los datos ya enviados no se pueden recuperar.`;
+      if (askTimer === null) askTimer = globalThis.setInterval(render, 1000);
+    } else { stopAskTimer(); pending.textContent = phase; }
+    result.hidden = !controller.result;
     const value = controller.result; if (value) { resultTitle.textContent = value.title; resultText.textContent = value.text; proposal.hidden = value.proposal === null; proposalText.textContent = value.proposal === null ? '' : JSON.stringify(value.proposal, null, 2); }
     // The improvement action only asks the local validators for a bounded preview; it must
     // not imply the draft changed. Other surfaces keep their original applied wording.
@@ -117,4 +129,5 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
     resultCaution.textContent = improvementResult ? 'Propuesta pendiente de revisión local. El editor muestra el antes y el después con la evaluación del motor; nada cambia hasta que la apliques en el borrador.' : 'Contenido de IA para revisar. No es una evaluación del motor ni sustituye los metadatos o validadores locales.';
     apply.hidden = !value?.canApply; apply.disabled = blocked || !controller.canApply;
   };
+  return render;
 }

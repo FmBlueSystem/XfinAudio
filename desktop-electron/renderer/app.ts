@@ -166,6 +166,11 @@ function editorImprovementStatus(): { available: boolean; hint: string } {
   if (!editorImprovementAvailable()) return { available: false, hint: 'Esta versión no puede guardar una mejora con IA, así que no se enviará nada. Pide una propuesta local desde el editor.' };
   const count = draft.tracks.length;
   if (count < 2 || count > 80) return { available: false, hint: `La mejora con IA necesita entre 2 y 80 pistas en el borrador (ahora hay ${count}). Ajusta el borrador para continuar.` };
+  // The panel's prepare action also depends on the AI settings, so refuse the CTA with the
+  // reason instead of opening a panel where nothing can be clicked.
+  const aiStatus = ai?.snapshot;
+  if (aiStatus && (!aiStatus.enabled || !aiStatus.configured)) return { available: false, hint: 'Configura la asistencia IA en Ajustes antes de mejorar con IA.' };
+  if (aiDirty) return { available: false, hint: 'Guarda o descarta los cambios de IA pendientes antes de mejorar con IA.' };
   return { available: true, hint: '' };
 }
 /** Explicit reveal only: opens the existing AI panel and focuses its instruction. Never prepares or contacts the provider. */
@@ -255,7 +260,7 @@ ai = new OptionalAiController(api, {
   // The improvement replacement toggle changes the disclosed scope, so it must refresh
   // the app-level context identity too. syncAiContext is idempotent: it only calls
   // setContext while the identity differs, which bounds the re-entry.
-  changed: () => { renderAi(); syncAiContext(); },
+  changed: () => { renderAi(); syncAiContext(); renderEditor(); },
   dirtyChanged: (dirty) => { aiDirty = dirty; syncDraftDirty(); },
   applied: (surface, data) => {
     const change = planAiApply(surface, data); const context = aiContextKey;
@@ -326,6 +331,10 @@ function syncAiContext(): void {
   if (!surface) { if (aiContextKey) invalidateAiSource(); return; }
   const identity = JSON.stringify([surface, context, revision]);
   if (identity !== aiContextKey) { aiContextKey = identity; ai.setContext(surface, context, JSON.stringify(revision)); }
+  // The editor improvement CTA mirrors the live AI settings, so load the local status once
+  // when that surface is published; the CTA then explains a disabled action instead of
+  // opening a panel where nothing is clickable.
+  if (surface === 'editor' && !ai.snapshot && !ai.pending && !ai.dirty) void ai.load();
   renderAi();
 }
 function loadAiIfOpen(): boolean {

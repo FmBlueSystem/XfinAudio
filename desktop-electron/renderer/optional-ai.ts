@@ -106,7 +106,38 @@ export class OptionalAiController {
   includeReplacements = false;
   preview: AiPreview | null = null; result: AiResult | null = null;
   pending: 'load' | 'save' | 'choose' | 'clear' | 'prepare' | 'ask' | 'apply' | null = null;
+  askStartedAt: number | null = null;
   constructor(api: OptionalAiApi, host: OptionalAiHost) { this.api = api; this.host = host; }
+  /** Phase-aware copy for the pending operation: the panel must not claim a local job while the provider is contacted. */
+  get pendingPhaseText(): string {
+    switch (this.pending) {
+      case 'ask': return 'Consultando a Nan Builders… puede tardar hasta 30 s';
+      case 'prepare': return 'Preparando la vista previa de datos…';
+      case 'apply': return 'Revisando la propuesta con el motor local…';
+      case 'load': return 'Consultando ajustes de IA…';
+      case 'save': return 'Guardando ajustes de IA…';
+      case 'choose': return 'Elige el archivo de credenciales en el sistema';
+      case 'clear': return 'Quitando fuente de credenciales…';
+      default: return '';
+    }
+  }
+  /** Pure elapsed seconds since the provider ask started; null when no ask is pending, so the view can own the timer. */
+  askElapsedSeconds(now: number): number | null {
+    if (this.askStartedAt === null || !Number.isFinite(now)) return null;
+    return Math.max(0, Math.floor((now - this.askStartedAt) / 1000));
+  }
+  /** First failing reason that keeps prepare disabled, as user copy; empty only when canPrepare is true. */
+  prepareBlocker(): string {
+    if (!this.draft?.enabled) return 'Activa la asistencia IA en Ajustes.';
+    if (!this.draft.configured) return 'Selecciona una fuente de credenciales en Ajustes.';
+    if (this.dirty) return 'Guarda o descarta los cambios de IA pendientes.';
+    if (this.conflict) return 'Actualiza o descarta los ajustes de IA pendientes.';
+    if (this.pending) return this.pending === 'ask' ? 'Hay una consulta a la IA en curso.' : 'Hay una operación local en curso.';
+    if (!this.context) return 'Abre la selección o pantalla de origen de nuevo.';
+    if (this.requestEditable && !this.request.trim()) return 'Escribe qué quieres mejorar.';
+    if (this.requestEditable && this.request.length > 2000) return 'La petición supera los 2000 caracteres.';
+    return this.canPrepare ? '' : 'Revisa el estado de la asistencia IA antes de preparar la solicitud.';
+  }
   get snapshot(): AiStatus | null { return this.draft; }
   /** True only for the exact AI improvement selector on the editor surface. */
   get improvementEditor(): boolean { return this.surface === 'editor' && this.improvement; }
@@ -168,10 +199,10 @@ export class OptionalAiController {
   }
   private async perform<T>(kind: NonNullable<OptionalAiController['pending']>, label: string, task: () => Promise<T>, apply: (value: T) => void): Promise<void> {
     if (this.pending || !this.host.canAct()) return;
-    const generation = this.generation; this.pending = kind; this.error = ''; this.host.changed();
+    const generation = this.generation; this.pending = kind; this.error = ''; if (kind === 'ask') this.askStartedAt = Date.now(); this.host.changed();
     const failure = (error: unknown): void => { if (generation === this.generation) this.fail(error); };
     try { await this.host.perform(label, task, (value) => { if (generation === this.generation) apply(value); }, failure); }
-    catch (error) { failure(error); } finally { this.pending = null; this.notify(); }
+    catch (error) { failure(error); } finally { this.pending = null; this.askStartedAt = null; this.notify(); }
   }
   private accept(value: AiStatus): void { const copy = statusCopy(value); this.reset(); this.base = copy; this.draft = { ...copy }; this.conflict = false; this.error = ''; this.notify(); }
   async load(): Promise<void> {
