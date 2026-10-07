@@ -135,7 +135,7 @@ export class OptionalAiController {
   }
   /** First failing reason that keeps prepare disabled, as user copy; empty only when canPrepare is true. */
   prepareBlocker(): string {
-    if (!this.draft?.enabled) return 'Activa la asistencia IA en Ajustes.';
+    if (!this.draft?.enabled) return this.surface === 'connection' ? 'Activa la asistencia IA en «Ajustes de asistencia IA».' : 'Activa la asistencia IA en Ajustes.';
     if (!this.draft.configured) return 'Selecciona una fuente de credenciales en Ajustes.';
     if (this.dirty) return 'Guarda o descarta los cambios de IA pendientes.';
     if (this.conflict) return 'Actualiza o descarta los ajustes de IA pendientes.';

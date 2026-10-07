@@ -42,6 +42,8 @@ h2 { margin: 8px 0; font-size: 25px; font-weight: 560; letter-spacing: -.8px; }
 .button { display: inline-flex; justify-content: center; align-items: center; gap: 13px; border-radius: 6px; border: 1px solid #393d43; padding: 11px 15px; white-space: nowrap; font-size: 11px; font-weight: 650; min-height: 39px; }
 .button.primary { background: var(--cyan); color: #102622; border-color: var(--cyan); }
 .button.primary:hover:not(:disabled) { background: #80efe5; border-color: #80efe5; }
+.button.primary:disabled { background: #23272d; border-color: #343a42; color: #6d7885; opacity: 1; }
+
 .button.subtle { background: #22252b; color: #d4d9df; }
 .button.subtle:hover:not(:disabled) { background: #30343b; }
 .full-width { width: 100%; }

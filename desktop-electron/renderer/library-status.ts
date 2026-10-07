@@ -20,7 +20,7 @@ export function createLibraryStatusView(root: HTMLElement, host: { canAct(): boo
     current = status; rescan.disabled = !host.canAct() || !status || status.rootCount === 0;
     if (!status) { changes.textContent = 'Estado de la biblioteca no disponible.'; watch.textContent = ''; counts.textContent = ''; return; }
     changes.textContent = ({
-      restored: 'Biblioteca restaurada tras reiniciar. Todavía no se ha verificado de nuevo después del reinicio.',
+      restored: 'Biblioteca cargada tras el reinicio. Aún no se ha verificado en esta sesión; usa «Revisar biblioteca».',
       clean: status.rootCount ? 'Escaneo completado. No se han detectado cambios desde el último escaneo.' : 'No hay carpetas autorizadas para verificar. Elige una carpeta de música para empezar.',
       changed: 'Se han detectado cambios en la biblioteca. Vuelve a escanear para revisar los archivos y actualizar la selección.',
     })[status.changeState];

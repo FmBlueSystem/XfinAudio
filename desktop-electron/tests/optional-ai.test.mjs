@@ -240,6 +240,9 @@ test('prepareBlocker returns the first failing reason in user order and is empty
   const enabled = fixture(); await enabled.controller.load(); enabled.controller.setRequest('Busca house');
   assert.equal(enabled.controller.canPrepare, true); assert.equal(enabled.controller.prepareBlocker(), '');
   enabled.controller.setEnabled(false); assert.equal(enabled.controller.prepareBlocker(), 'Activa la asistencia IA en Ajustes.');
+  enabled.controller.surface = 'connection';
+  assert.equal(enabled.controller.prepareBlocker(), 'Activa la asistencia IA en «Ajustes de asistencia IA».');
+  enabled.controller.surface = 'editor';
   const unconfigured = fixture({ getAiStatus: async () => status({ configured: false, credentialLabel: null }) }); await unconfigured.controller.load(); unconfigured.controller.setRequest('Busca house');
   assert.equal(unconfigured.controller.prepareBlocker(), 'Selecciona una fuente de credenciales en Ajustes.');
   const dirty = fixture({ getAiStatus: async () => status({ enabled: false }) }); await dirty.controller.load(); dirty.controller.setEnabled(true); dirty.controller.setRequest('Busca house');

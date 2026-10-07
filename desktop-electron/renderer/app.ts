@@ -152,7 +152,7 @@ const editor = new SavedPlaylistEditor(api, {
     // The bound improvement save ran a different route, so the generic "only kept by pressing
     // Guardar cambios" copy would contradict the draft state it just persisted.
     if (label.startsWith('Guardando mejora')) showStatus('Mejora guardada en la playlist. Ya no hay cambios pendientes.');
-    else showStatus(label.startsWith('Guardando') ? 'Cambios guardados' : 'Editor actualizado', 'Los cambios solo se conservan al pulsar Guardar cambios');
+    else showStatus(label.startsWith('Guardando') ? 'Cambios guardados' : 'Borrador actualizado', 'Los cambios solo se conservan al pulsar Guardar cambios');
   }, false, failure),
 });
 renderEditor = createEditorView(element('editor-container'), editor, {
@@ -224,7 +224,7 @@ const profileSettings=new ProfileSettingsController(api,{
   canAct:()=>coreAvailable&&!gate.busy&&profileSettingsAvailable(),changed:()=>renderProfileSettings(),
   dirtyChanged:dirty=>{profileSettingsDirty=dirty;syncDraftDirty();},
   applied:()=>{libraryGeneration++;invalidateAiSource();editor.invalidatePreview();serato.invalidatePreview();invalidatePrep();},
-  perform:(label,task,apply,failure)=>perform('profile-settings',label,task,value=>{apply(value);showStatus('Cohesión espectral actualizada');},false,failure),
+  perform:(label,task,apply,failure)=>perform('profile-settings',label,task,value=>{apply(value);showStatus('Ajustes de cohesión guardados', 'Se aplican a las próximas generaciones de listas.');},false,failure),
 });
 renderProfileSettings=createProfileSettingsView(element('profile-settings-container'),profileSettings,{canAct:()=>coreAvailable&&!gate.busy&&profileSettingsAvailable()});
 let renderLoudness = (): void => {};
@@ -428,7 +428,7 @@ if(prepSettingsAvailable()){
     read:()=>{const fields=prepFields();return {requiredTrackIds:fields.required,excludedTrackIds:fields.excluded,genreFocus:fields.genre};},
     restore:value=>{ensureTrackChoices();for(const [key,ids] of [['required',value.requiredTrackIds],['excluded',value.excludedTrackIds]] as const)for(const option of element<HTMLSelectElement>(`prep-${key}`).options??[])option.selected=ids.includes(option.value);element<HTMLInputElement>('prep-genre').value=value.genreFocus;invalidatePrep();},
     changed:()=>{prepSettingsDirty=prepSettings?.dirty??false;renderPrepSettings();syncDraftDirty();},saved:()=>{invalidateAiSource();invalidatePrep();},
-    perform:(label,task,apply,failure)=>perform('prep-settings',label,task,value=>{apply(value);showStatus('Controles de preparación actualizados');},false,failure),
+    perform:(label,task,apply,failure)=>perform('prep-settings',label,task,value=>{apply(value);showStatus('Ajustes de preparación guardados', 'Se aplican a la próxima generación de listas.');},false,failure),
   });
   renderPrepSettings=createPrepSettingsView(element('prep-settings-container'),prepSettings,{canAct:()=>coreAvailable&&!gate.busy});
 }
@@ -477,7 +477,7 @@ function syncDraftDirty(): void {
 function renderContextStatus(): void {
   const parts = [`${library.length} pistas`, `${library.filter(hasPrepMetadata).length} con metadatos completos`];
   if (libraryStatus?.changeState === 'changed') parts.push('Cambios detectados: vuelve a escanear');
-  else if (libraryStatus?.changeState === 'restored') parts.push('Biblioteca restaurada: pendiente de verificar');
+  else if (libraryStatus?.changeState === 'restored') parts.push('Biblioteca cargada del perfil local · sin revalidar en esta sesión');
   if (libraryStatus?.watchState === 'unavailable') parts.push('Vigilancia no disponible: comprueba manualmente');
   else if (libraryStatus && libraryStatus.watchState !== 'active') parts.push(({starting:'Vigilancia iniciándose',disabled:'Vigilancia desactivada',paused:'Vigilancia en pausa'} as Record<string,string>)[libraryStatus.watchState]);
   if (activeKind === 'profiles') parts.push('Completando perfiles…');
@@ -583,7 +583,17 @@ function syncControls(): void {
   element<HTMLSelectElement>('prep-strategy').disabled = gate.busy || !coreAvailable || !catalogLoaded;
   element<HTMLButtonElement>('export-library-worklist').disabled=gate.busy||!coreAvailable||!libraryWorklist||libraryStatus?.changeState==='changed';
   element<HTMLButtonElement>('generate-prep').disabled = gate.busy || !coreAvailable || library.length < 2;
-  element<HTMLButtonElement>('start-live').disabled = gate.busy || !coreAvailable || !canStartLive();
+  const liveButton = element<HTMLButtonElement>('start-live');
+  liveButton.disabled = gate.busy || !coreAvailable || !canStartLive();
+  const liveHint = element<HTMLElement>('start-live-hint');
+  if (liveHint) {
+    liveHint.hidden = !liveButton.disabled;
+    liveHint.textContent = !coreAvailable ? 'El motor local no está conectado.'
+      : gate.busy ? 'Espera a que termine la operación actual.'
+      : !review || !review.reviewId || review.variant === 'saved' ? 'Abre la guía desde una revisión activa.'
+      : review.readiness === 'blocked' || review.blockers.length > 0 ? 'Resuelve los bloqueos de la selección.'
+      : 'Resuelve los avisos de revisión para abrir la guía.';
+  }
   element<HTMLButtonElement>('export-review').disabled = gate.busy || !coreAvailable || !review || !(review.reviewId || review.savedPlaylistId);
   element<HTMLButtonElement>('save-playlist').disabled = gate.busy || !coreAvailable || !canSave();
   element<HTMLButtonElement>('cancel-operation').hidden = !gate.busy || !cancellable || !coreAvailable;
