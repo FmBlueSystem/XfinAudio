@@ -19,7 +19,7 @@ def test_assessment_scores_actual_adjacency_and_shows_engine_review_warnings():
     assert result.recommendation.transition_scores[0].right_path == "a"
     assert result.quality.transition_count == 1
     assert result.readiness.status == "needs_review"
-    assert "Energy" in result.description
+    assert "energía" in result.description
 
 
 @pytest.mark.parametrize(
@@ -42,7 +42,7 @@ def test_bad_metadata_and_hard_readiness_blockers_reject_proposals(update):
 def test_unknown_tracks_or_too_small_set_are_blocked_without_fabrication():
     with pytest.raises(ValueError, match="metadata"):
         assess_playlist_edit(("a", "unknown"), tracks())
-    with pytest.raises(ValueError, match="2 tracks"):
+    with pytest.raises(ValueError, match="2 pistas"):
         assess_playlist_edit(("a",), tracks())
 
 

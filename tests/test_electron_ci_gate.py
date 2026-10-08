@@ -135,8 +135,8 @@ def test_subprocess_timeout_is_enforced(tmp_path):
 
 def test_workflow_runs_complete_sharded_aggregate_and_keeps_manifest_evidence():
     workflow = (ROOT / ".github/workflows/non-audio-release-gates.yml").read_text()
-    assert workflow.count("--coverage-batch-size 120") == 2
-    assert workflow.count('--coverage-evidence-dir "${{ runner.temp }}/coverage-evidence"') == 2
+    assert workflow.count("--coverage-batch-size 120") == 1
+    assert workflow.count('--coverage-evidence-dir "${{ runner.temp }}/coverage-evidence"') == 1
     assert "${{ runner.temp }}/coverage-evidence/" in workflow
     assert "include-hidden-files: true" in workflow
     assert "--cov-fail-under" not in workflow

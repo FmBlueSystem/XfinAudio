@@ -1,0 +1,45 @@
+schema: gentle-ai.sdd-state.v1
+change: electron-ipc-contract
+artifact_store: openspec
+status: verify
+created: 2026-10-03
+updated: 2026-10-03
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: commit-slice-b-then-review
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - First narrow work unit only; artifacts were authored without touching production code or tests.
+  - Apply target is one throwing default arm in the action() switch plus one focused guard test.
+  - Parity is defined over security.ts, main.ts and preload.ts only; Python backend routing differs and is excluded.
+  - Existing changes electron-qt-free and electron-publication-readiness are referenced, not modified.
+  - No release, tag or publication claim; v2.2.0 remains an unreleased source candidate.
+  - Delivery is two local commits on feat/electron-ipc-contract; no push, PR, merge or publish.
+  - Slice A: ODD plan plus proposal/spec/design/tasks/state and minimal apply-progress/verify-report
+    placeholders; documentation only, under 400 added lines; rollback is a docs-only revert.
+  - Slice B: one fail-closed default arm in action() plus the guard test and expanded progress/report
+    under strict TDD RED then GREEN; under 400 added lines; rollback is a single two-file revert.
+  - Apply-phase edit surfaces were authorized by the parent for this session.
+  - Slice B (2026-10-03): RED observed (exit 1, AssertionError R1), GREEN observed (exit 0),
+    triangulation observed; full local Electron suite green (429 tests, 418 pass, 11 pre-existing
+    skips, 0 fail) and the Qt-free wrapper green (429 tests, 429 pass, 0 skipped). Production diff
+    is one line in main.ts; the guard test is now 63 readable lines with the R1 assertion at line 42
+    (a 22-line draft with R1 at line 14 at the observed RED).
+  - Slice B verify is complete (2026-10-03): all four contract commands observed green — command 3
+    (`electron_ci_check.py`, 429/429, 0 skipped; report `.release-evidence/electron-test-report.json`)
+    and command 4 (`release_gate_check.py --run`, exit 0, 4189 pytest passed, 94.45% coverage,
+    pyright 0, ruff pass) in addition to commands 1-2; an independent verifier corroborated the
+    scoped checks.
+  - RDD/native review is pending until the Slice B commit exists; the commit, push, PR and review
+    invocation remain outside this session.

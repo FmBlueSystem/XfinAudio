@@ -86,7 +86,10 @@ def test_prep_copilot_returns_three_comparable_variants_with_same_intent() -> No
     # later prefix-trimmed to three. Reaching E7 from E4 needs a two-level seam.
     assert all(variant.readiness.status == "needs_review" for variant in plan.variants)
     assert all(
-        any(check.label == "Energy continuity" and check.status == "needs_review" for check in variant.readiness.checks)
+        any(
+            check.label == "Continuidad de energía" and check.status == "needs_review"
+            for check in variant.readiness.checks
+        )
         for variant in plan.variants
     )
 
@@ -241,10 +244,10 @@ def test_pool_notes_record_how_the_variant_pool_shrank() -> None:
         assert variant.pool_notes, "pool notes must explain how the pool was built"
         assert variant.pool_notes[0] == "Incoming pool: 10 track(s)"
         assert any("Genre focus 'Classical'" in note for note in variant.pool_notes)
-    gated = [variant for variant in plan.variants if any("BPM jump" in warning for warning in variant.warnings)]
+    gated = [variant for variant in plan.variants if any("BPM vecinos" in warning for warning in variant.warnings)]
     assert gated, "scattered BPMs must exercise the adjacency gate"
     for variant in gated:
-        assert any("BPM jump" in note for note in variant.pool_notes)
+        assert any("BPM vecinos" in note for note in variant.pool_notes)
 
 
 def test_pool_notes_warn_when_variant_collapses_to_the_anchor() -> None:
@@ -311,7 +314,7 @@ def test_prep_copilot_blocks_variant_when_required_track_breaks_bpm_gate() -> No
 
     assert all(variant.readiness.status == "blocked" for variant in plan.variants)
     assert any(
-        check.label == "BPM continuity" and check.status == "blocked"
+        check.label == "Continuidad de BPM" and check.status == "blocked"
         for variant in plan.variants
         for check in variant.readiness.checks
     )

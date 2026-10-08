@@ -770,7 +770,7 @@ def test_warmup_drops_generated_tracks_after_impossible_bpm_jump_from_selected_s
 
     assert [item.path for item in result.ordered_tracks] == ["/stay.flac", "/thinking.flac", "/more.flac"]
     assert all(score.component_scores["bpm"] > 0.0 for score in result.transition_scores)
-    assert "Dropped 2 generated track(s) because adjacent BPM jump exceeded 3.0%" in result.warnings
+    assert "Se descartaron 2 pista(s) generada(s) porque el salto entre BPM vecinos superó el 3.0%" in result.warnings
 
 
 def test_harmonic_journey_drops_generated_tracks_after_bpm_jump_over_three_percent() -> None:
@@ -783,7 +783,7 @@ def test_harmonic_journey_drops_generated_tracks_after_bpm_jump_over_three_perce
     result = recommend_playlist(tracks, "harmonic_journey", controls=DJControls(start_path="/start.flac"))
 
     assert [item.path for item in result.ordered_tracks] == ["/start.flac", "/good.flac"]
-    assert "Dropped 1 generated track(s) because adjacent BPM jump exceeded 3.0%" in result.warnings
+    assert "Se descartaron 1 pista(s) generada(s) porque el salto entre BPM vecinos superó el 3.0%" in result.warnings
     assert all(score.component_scores["bpm"] > 0.0 for score in result.transition_scores)
 
 
@@ -797,7 +797,7 @@ def test_warmup_drops_generated_track_after_impossible_bpm_jump_from_manual_pref
     result = recommend_playlist(tracks, "warmup", controls=DJControls(manual_order_paths=["/manual.flac"]))
 
     assert [item.path for item in result.ordered_tracks] == ["/manual.flac", "/ok.flac"]
-    assert "Dropped 1 generated track(s) because adjacent BPM jump exceeded 3.0%" in result.warnings
+    assert "Se descartaron 1 pista(s) generada(s) porque el salto entre BPM vecinos superó el 3.0%" in result.warnings
 
 
 def test_harmonic_journey_drops_generated_track_after_bpm_jump_from_manual_seam() -> None:
@@ -874,7 +874,7 @@ def test_spectral_jump_warnings_aggregate_consecutive_same_direction_shifts() ->
     warnings = _spectral_jump_warnings(tracks)
 
     assert warnings == [
-        "Spectral shifts: RED→GREEN (2 times), GREEN→RED (1 time), GREEN→BLUE (1 time), BLUE→RED (1 time)"
+        "Cambios espectrales: RED→GREEN (2 veces), GREEN→RED (1 vez), GREEN→BLUE (1 vez), BLUE→RED (1 vez)"
     ]
 
 
@@ -2634,7 +2634,7 @@ def test_strategy_order_with_manual_prefix_drops_an_unplayable_seam() -> None:
     result = recommend_playlist(tracks, "chill", controls=controls)
 
     assert [item.path for item in result.ordered_tracks] == ["/man.flac"]
-    assert any("Dropped 2 generated track(s)" in warning for warning in result.warnings)
+    assert any("Se descartaron 2 pista(s) generada(s)" in warning for warning in result.warnings)
 
 
 def test_move_path_to_edge_returns_the_tracks_when_the_path_is_absent() -> None:

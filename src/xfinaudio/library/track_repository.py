@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import sqlite3
 from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager
@@ -28,6 +29,8 @@ from xfinaudio.library.sqlite_connection import database_connection
 from xfinaudio.metadata.mixedinkey_contract import PARSED_TAG_KEYS
 
 SCHEMA_VERSION = 7
+
+LOGGER = logging.getLogger(__name__)
 
 # Schema version that introduced the PARSED_TAG_KEYS allowlist for raw metadata
 # (see library/scan_service.py). Databases older than this still hold blobs the
@@ -308,7 +311,7 @@ class TrackRepository:
                       AND spectral_profile_json IS NOT NULL
                 """
                 for row in connection.execute(query, chunk):
-                    profile = _deserialize_profile(row["spectral_profile_json"])
+                    profile = _deserialize_profile(row["spectral_profile_json"], path=row["path"])
                     if profile is not None and profile.analysis_version == CURRENT_ANALYSIS_VERSION:
                         cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
@@ -407,7 +410,7 @@ class TrackRepository:
                       AND danceability_profile_json IS NOT NULL
                 """
                 for row in connection.execute(query, chunk):
-                    profile = _deserialize_danceability_profile(row["danceability_profile_json"])
+                    profile = _deserialize_danceability_profile(row["danceability_profile_json"], path=row["path"])
                     if profile is not None and profile.analysis_version == CURRENT_DANCEABILITY_VERSION:
                         cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
@@ -506,7 +509,7 @@ class TrackRepository:
                       AND edge_spectral_profile_json IS NOT NULL
                 """
                 for row in connection.execute(query, chunk):
-                    profile = _deserialize_edge_spectral_profile(row["edge_spectral_profile_json"])
+                    profile = _deserialize_edge_spectral_profile(row["edge_spectral_profile_json"], path=row["path"])
                     if profile is not None and profile.analysis_version == CURRENT_EDGE_ANALYSIS_VERSION:
                         cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
@@ -597,7 +600,7 @@ class TrackRepository:
                       AND tonal_profile_json IS NOT NULL
                 """
                 for row in connection.execute(query, chunk):
-                    profile = _deserialize_tonal_profile(row["tonal_profile_json"])
+                    profile = _deserialize_tonal_profile(row["tonal_profile_json"], path=row["path"])
                     if profile is not None and profile.analysis_version == CURRENT_TONAL_VERSION:
                         cache[row["path"]] = (row["file_mtime_ns"], row["file_size_bytes"], profile)
         return cache
@@ -662,7 +665,7 @@ class TrackRepository:
                 placeholders = ",".join("?" * len(chunk))
                 query = f"SELECT path, loudness_profile_json FROM tracks WHERE path IN ({placeholders})"
                 for row in connection.execute(query, chunk):
-                    profile = _deserialize_loudness_profile(row["loudness_profile_json"])
+                    profile = _deserialize_loudness_profile(row["loudness_profile_json"], path=row["path"])
                     if profile is None or profile.analysis_version != CURRENT_LOUDNESS_VERSION:
                         continue
                     if profile.engine_fingerprint != engine_fingerprint:
@@ -882,11 +885,13 @@ class TrackRepository:
             source_fields=json.loads(row["source_fields_json"]),
             raw_metadata=json.loads(row["raw_metadata_json"]),
             audio_md5=row["audio_md5"],
-            spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
-            danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"]),
-            edge_spectral_profile=_deserialize_edge_spectral_profile(row["edge_spectral_profile_json"]),
-            loudness_profile=_deserialize_loudness_profile(row["loudness_profile_json"]),
-            tonal_profile=_deserialize_tonal_profile(row["tonal_profile_json"]),
+            spectral_profile=_deserialize_profile(row["spectral_profile_json"], path=row["path"]),
+            danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"], path=row["path"]),
+            edge_spectral_profile=_deserialize_edge_spectral_profile(
+                row["edge_spectral_profile_json"], path=row["path"]
+            ),
+            loudness_profile=_deserialize_loudness_profile(row["loudness_profile_json"], path=row["path"]),
+            tonal_profile=_deserialize_tonal_profile(row["tonal_profile_json"], path=row["path"]),
         )
 
     @staticmethod
@@ -912,12 +917,15 @@ class TrackRepository:
             metadata_status=row["metadata_status"],
             missing_required_fields=json.loads(row["missing_required_fields_json"]),
             audio_md5=row["audio_md5"],
-            spectral_profile=_deserialize_profile(row["spectral_profile_json"]),
-            danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"]),
-            edge_spectral_profile=_deserialize_edge_spectral_profile(row["edge_spectral_profile_json"]),
-            tonal_profile=_deserialize_tonal_profile(row["tonal_profile_json"]),
+            spectral_profile=_deserialize_profile(row["spectral_profile_json"], path=row["path"]),
+            danceability_profile=_deserialize_danceability_profile(row["danceability_profile_json"], path=row["path"]),
+            edge_spectral_profile=_deserialize_edge_spectral_profile(
+                row["edge_spectral_profile_json"], path=row["path"]
+            ),
+            tonal_profile=_deserialize_tonal_profile(row["tonal_profile_json"], path=row["path"]),
             loudness_profile=_deserialize_current_loudness_profile(
                 row["loudness_profile_json"],
+                path=row["path"],
                 source_mtime_ns=row["file_mtime_ns"],
                 source_size_bytes=row["file_size_bytes"],
             ),
@@ -930,7 +938,16 @@ def _serialize_profile(profile: SpectralProfile | None) -> str | None:
     return profile.model_dump_json()
 
 
-def _deserialize_profile(value: str | None) -> SpectralProfile | None:
+def _log_unreadable_profile(label: str, *, path: str | None, exc: Exception) -> None:
+    """Report a stored profile the repository had to discard.
+
+    A degraded read is tolerable, but it must not be invisible: without this line a corrupt
+    row and a track that was never analysed look identical to the operator.
+    """
+    LOGGER.warning("Discarding unreadable %s for %s: %s", label, path or "<unknown track>", exc)
+
+
+def _deserialize_profile(value: str | None, *, path: str | None = None) -> SpectralProfile | None:
     if value is None:
         return None
     try:
@@ -941,7 +958,8 @@ def _deserialize_profile(value: str | None) -> SpectralProfile | None:
             profile_data["blue_ratio"],
         )
         return SpectralProfile.model_validate(profile_data)
-    except Exception:
+    except Exception as exc:
+        _log_unreadable_profile("spectral profile", path=path, exc=exc)
         return None
 
 
@@ -951,12 +969,13 @@ def _serialize_danceability_profile(profile: DanceabilityProfile | None) -> str 
     return profile.model_dump_json()
 
 
-def _deserialize_danceability_profile(value: str | None) -> DanceabilityProfile | None:
+def _deserialize_danceability_profile(value: str | None, *, path: str | None = None) -> DanceabilityProfile | None:
     if value is None:
         return None
     try:
         return DanceabilityProfile.model_validate(json.loads(value))
-    except Exception:
+    except Exception as exc:
+        _log_unreadable_profile("danceability profile", path=path, exc=exc)
         return None
 
 
@@ -966,12 +985,13 @@ def _serialize_edge_spectral_profile(profile: EdgeSpectralProfile | None) -> str
     return profile.model_dump_json()
 
 
-def _deserialize_edge_spectral_profile(value: str | None) -> EdgeSpectralProfile | None:
+def _deserialize_edge_spectral_profile(value: str | None, *, path: str | None = None) -> EdgeSpectralProfile | None:
     if value is None:
         return None
     try:
         return EdgeSpectralProfile.model_validate(json.loads(value))
-    except Exception:
+    except Exception as exc:
+        _log_unreadable_profile("edge spectral profile", path=path, exc=exc)
         return None
 
 
@@ -981,12 +1001,13 @@ def _serialize_tonal_profile(profile: TonalProfile | None) -> str | None:
     return profile.model_dump_json()
 
 
-def _deserialize_tonal_profile(value: str | None) -> TonalProfile | None:
+def _deserialize_tonal_profile(value: str | None, *, path: str | None = None) -> TonalProfile | None:
     if value is None:
         return None
     try:
         return TonalProfile.model_validate(json.loads(value))
-    except Exception:
+    except Exception as exc:
+        _log_unreadable_profile("tonal profile", path=path, exc=exc)
         return None
 
 
@@ -994,22 +1015,24 @@ def _serialize_loudness_profile(profile: LoudnessProfile | None) -> str | None:
     return profile.model_dump_json() if profile is not None else None
 
 
-def _deserialize_loudness_profile(value: str | None) -> LoudnessProfile | None:
+def _deserialize_loudness_profile(value: str | None, *, path: str | None = None) -> LoudnessProfile | None:
     if value is None:
         return None
     try:
         return LoudnessProfile.model_validate_json(value)
-    except Exception:
+    except Exception as exc:
+        _log_unreadable_profile("loudness profile", path=path, exc=exc)
         return None
 
 
 def _deserialize_current_loudness_profile(
     value: str | None,
     *,
+    path: str | None = None,
     source_mtime_ns: int | None,
     source_size_bytes: int | None,
 ) -> LoudnessProfile | None:
-    profile = _deserialize_loudness_profile(value)
+    profile = _deserialize_loudness_profile(value, path=path)
     if profile is None:
         return None
     if (profile.source_mtime_ns, profile.source_size_bytes) != (source_mtime_ns, source_size_bytes):

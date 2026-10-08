@@ -62,8 +62,8 @@ def test_folded_reachability_ignores_intervening_unconnected_tempo() -> None:
     pool = [track("a60", 60), track("b90", 90), track("c120", 120)]
     result = recommend_playlist(pool, "harmonic_journey", controls=DJControls(start_path="a60"), target_count=2)
     assert [item.path for item in result.ordered_tracks] == ["a60", "c120"]
-    assert any("Dropped 1 generated track(s)" in warning for warning in result.warnings)
-    assert not any("Dropped 2 generated track(s)" in warning for warning in result.warnings)
+    assert any("Se descartaron 1 pista(s) generada(s)" in warning for warning in result.warnings)
+    assert not any("Se descartaron 2 pista(s) generada(s)" in warning for warning in result.warnings)
 
 
 @pytest.mark.parametrize("ceiling", [0.0, 0.1, 1.0, 2.0, 3.0, 10.0, 100.0])

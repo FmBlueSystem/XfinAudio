@@ -12,7 +12,9 @@ Use Node24+, native Python3.12 and an external clean environment synchronized wi
 `uv pip sync --require-hashes packaging/macos/requirements-build.txt`. The lock
 reuses unchanged official cross-platform Linux hashes plus pinned Darwin Macholib;
 a full native resolution and reference-lock sync are retained in handoff evidence.
-Do not install the legacy Qt-bearing root project. Electron comes from the npm
+Do not install the root project into that environment; the freezer lock is its
+only supported input, and the Electron runtime it bundles is not a Python
+dependency. Electron comes from the npm
 lock; compile TypeScript before final assembly. Outputs must be new and outside
 source. Shared engines, Electron and Linux bootstrap remain unchanged.
 
@@ -69,3 +71,19 @@ pause/seek/resume/switch. Packaged Electron intentionally ignores development
 XFIN_DATA_DIR: QA must first verify its actual userData/session/log/crash paths
 under a new canonical profile using the approved native launch flow. Never infer
 isolation from that development variable alone or select real legacy data.
+
+## QA-only local DMG
+
+```
+MAC_FREEZER_PYTHON packaging/macos/dmg.py --app NEW_EXTERNAL_BUILD/"XfinAudio Next.app" \
+  --expected-source-sha256 EXACT_V11_SEAL --output NEW_EXTERNAL_BUILD/"XfinAudio Next QA.dmg"
+```
+
+The basename is fixed to `XfinAudio Next QA.dmg`. From a self-derived source root, the
+module rejects an existing output/evidence, an output inside that root, a manifest
+that is not the exact `post-final-signing` seal, a missing declared notice or
+executable, and any staging symlink escaping the staged app except root
+`/Applications -> /Applications`; it then runs `hdiutil create`/`verify` and writes
+the sibling `.sha256`/`.provenance.json` for the exact bytes. This ad-hoc local QA
+image is not Developer ID-signed, notarized or Gatekeeper-approved, claims no UDZO
+byte-determinism, and still requires the owner's V11 seal.

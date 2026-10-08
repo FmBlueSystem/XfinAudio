@@ -95,10 +95,20 @@ remain available. See [Mixed In Key's advanced guide](https://mixedinkey.com/boo
 
 ## Desktop usage
 
-For the current desktop app, use the source/development launcher:
+The desktop app is the Electron shell; build and launch it from source:
 
 ```bash
-uv run xfinaudio
+cd desktop-electron
+npm ci
+npm run build
+npm start
+```
+
+For the metadata, recommendation and export core without the shell, run the headless bridge with an
+absolute, isolated data directory:
+
+```bash
+uv run python -m xfinaudio.headless --data-dir "$HOME/.xfinaudio-headless"
 ```
 
 The desktop flow is:

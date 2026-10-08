@@ -146,7 +146,7 @@ def test_docs_reference_inventory_and_pending_legal_review() -> None:
     open_source_release_backlog = OPEN_SOURCE_RELEASE_BACKLOG_DOC.read_text(encoding="utf-8")
 
     assert "uv run python scripts/third_party_license_inventory.py" in inventory_doc
-    assert "PySide6/Qt licensing requires legal review" in inventory_doc
+    assert "PySide6" not in inventory_doc, "Qt/PySide6 is no longer a dependency of XfinAudio"
     assert "No legal clearance or binary redistribution approval is implied" in inventory_doc
     assert "docs/third-party-license-inventory.md" in packaging_strategy
     assert "third-party dependency/license inventory" in release_evidence

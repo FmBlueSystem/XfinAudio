@@ -9,7 +9,55 @@ from pathlib import Path
 from uuid import uuid4
 
 from xfinaudio.headless.backend import HeadlessBackend
-from xfinaudio.headless.server import MAX_LINE_BYTES, JsonlServer
+from xfinaudio.headless.server import INLINE_METHODS, MAX_LINE_BYTES, JsonlServer
+
+# The reviewed contract: every query a read-only screen may need while the single job
+# worker is occupied. Each one is answerable from an owned connection or in-memory
+# snapshot, so none of them can mutate state or interfere with the running job.
+EXPECTED_INLINE_METHODS = frozenset(
+    {
+        "ai.status",
+        "library.list",
+        "library.query",
+        "live.status",
+        "loudness.status",
+        "metadata.report",
+        "playlist.compare",
+        "playlist.deleted.list",
+        "playlist.list",
+        "playlist.open",
+        "playlist.search",
+        "prep.catalog",
+        "prep.settings.get",
+        "profiles.settings.get",
+        "profiles.status",
+        "settings.get",
+        "track.resolve",
+    }
+)
+# Mutating or job-controlling commands that keep the exact busy refusal during a job.
+EXPECTED_REFUSED_METHODS = (
+    "ai.apply",
+    "ai.credential.set",
+    "ai.prepare",
+    "ai.run",
+    "library.rescan",
+    "library.scan",
+    "legacy.preview",
+    "loudness.run",
+    "playlist.delete.commit",
+    "playlist.delete.preview",
+    "playlist.edit.save",
+    "playlist.rename",
+    "playlist.restore",
+    "playlist.save",
+    "prep.generate",
+    "prep.select",
+    "profiles.complete",
+    "review.remove",
+    "serato.commit",
+    "settings.update",
+)
 
 
 def request(method: str, params: dict | None = None, request_id: str | None = None) -> bytes:
@@ -48,7 +96,8 @@ def test_worker_serialization_cancellation_and_shutdown(tmp_path: Path) -> None:
     job_id = str(uuid4())
     server.process_line(request("library.scan", {"root": "/somewhere"}, job_id))
     assert started.wait(5)
-    server.process_line(request("library.list"))
+    # A write command stays refused; only the reviewed read-only queries answer inline.
+    server.process_line(request("playlist.rename", {"playlistId": 1, "name": "Set"}))
     server.process_line(request("cancel", {"jobId": str(uuid4())}))
     server.process_line(request("cancel", {"jobId": job_id}))
     released.set()
@@ -102,6 +151,102 @@ def test_track_resolution_remains_available_during_active_job(tmp_path: Path) ->
     finally:
         release.set()
         server.close()
+
+
+def test_inline_methods_are_exactly_the_reviewed_read_only_queries() -> None:
+    assert INLINE_METHODS == EXPECTED_INLINE_METHODS
+
+
+def test_read_only_queries_answer_inline_while_a_job_is_active(tmp_path: Path) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    served: list[str] = []
+
+    class Backend(HeadlessBackend):
+        def execute(self, method, params, *, cancellation_token=None, progress=None):
+            if method == "library.scan":
+                started.set()
+                assert release.wait(5)
+                return {}
+            served.append(method)
+            return {"method": method}
+
+    output = io.StringIO()
+    server = JsonlServer(Backend(tmp_path), output)
+    server.process_line(request("library.scan", {"root": "/somewhere"}))
+    assert started.wait(5)
+    inline_ids = {method: str(uuid4()) for method in sorted(EXPECTED_INLINE_METHODS)}
+    refused_ids = {method: str(uuid4()) for method in EXPECTED_REFUSED_METHODS}
+    try:
+        for method, request_id in inline_ids.items():
+            server.process_line(request(method, request_id=request_id))
+        for method, request_id in refused_ids.items():
+            server.process_line(request(method, request_id=request_id))
+    finally:
+        release.set()
+        server.close()
+    by_id = {item["id"]: item for item in messages(output) if "id" in item}
+    for method, request_id in inline_ids.items():
+        assert by_id[request_id]["ok"] is True, f"{method} must answer inline during a job"
+        assert by_id[request_id]["result"] == {"method": method}
+    assert sorted(served) == sorted(EXPECTED_INLINE_METHODS)
+    for method, request_id in refused_ids.items():
+        assert by_id[request_id]["ok"] is False, f"{method} must stay refused during a job"
+        assert by_id[request_id]["error"] == {
+            "code": "busy",
+            "message": "Another operation is still running",
+        }
+
+
+def test_inline_reads_answer_identically_when_the_host_is_idle(tmp_path: Path) -> None:
+    served: list[str] = []
+
+    class Backend(HeadlessBackend):
+        def execute(self, method, params, *, cancellation_token=None, progress=None):
+            served.append(method)
+            return {"method": method}
+
+    output = io.StringIO()
+    server = JsonlServer(Backend(tmp_path), output)
+    request_ids = {method: str(uuid4()) for method in sorted(EXPECTED_INLINE_METHODS)}
+    for method, request_id in request_ids.items():
+        server.process_line(request(method, request_id=request_id))
+    server.close()
+    by_id = {item["id"]: item for item in messages(output) if "id" in item}
+    for method, request_id in request_ids.items():
+        assert by_id[request_id] == {"id": request_id, "ok": True, "result": {"method": method}}
+    assert sorted(served) == sorted(EXPECTED_INLINE_METHODS)
+
+
+def test_inline_reads_do_not_consume_the_job_slot_or_block_cancellation(tmp_path: Path) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    class Backend(HeadlessBackend):
+        def execute(self, method, params, *, cancellation_token=None, progress=None):
+            if method == "library.scan":
+                started.set()
+                assert release.wait(5)
+                cancelled = cancellation_token is not None and cancellation_token.is_cancelled
+                return {"cancelled": cancelled}
+            return {"method": method}
+
+    output = io.StringIO()
+    server = JsonlServer(Backend(tmp_path), output)
+    job_id, read_id = str(uuid4()), str(uuid4())
+    server.process_line(request("library.scan", {"root": "/somewhere"}, job_id))
+    assert started.wait(5)
+    try:
+        server.process_line(request("library.query", request_id=read_id))
+        assert next(item for item in messages(output) if item.get("id") == read_id)["ok"] is True
+        # An inline read never becomes the active job, so the real job is still cancellable.
+        server.process_line(request("cancel", {"jobId": job_id}))
+        assert messages(output)[-1]["result"] == {"cancelled": True}
+    finally:
+        release.set()
+        server.close()
+    job = next(item for item in messages(output) if item.get("id") == job_id)
+    assert job["result"] == {"cancelled": True}
 
 
 def test_late_prep_cancellation_invalidates_completed_review(tmp_path: Path) -> None:

@@ -1,12 +1,12 @@
 # XfinAudio Next: Qt-free migration preview
 
-## Current 2.2.0 source candidate
+## Current 2.3.0 source candidate
 
-This is an unreleased beta/source candidate prepared after V12. The [migration scope](MIGRATION_SCOPE.md) and [2.2.0 notes](../docs/release-notes-v2.2.0.md) describe current functionality and limits. Real spectral/danceability/edge completion, preferences/watch, Live, optional AI, safe legacy import and Linux/Mac runtime recipes are implemented. Earlier checkpoints below are historical evidence, not a current missing-feature list. The original Qt installation and V12 native candidate are not rebuilt or relabeled by this metadata/CI follow-up. No release, automatic updater or binary redistribution clearance is claimed.
+This is an unreleased beta/source candidate prepared after V12. The [migration scope](MIGRATION_SCOPE.md) and [2.3.0 notes](../docs/release-notes-v2.3.0.md) describe current functionality and limits. Real spectral/danceability/edge completion, preferences/watch, Live, optional AI, safe legacy import and Linux/Mac runtime recipes are implemented. Earlier checkpoints below are historical evidence, not a current missing-feature list. The original Qt installation and V12 native candidate are not rebuilt or relabeled by this metadata/CI follow-up. No release, automatic updater or binary redistribution clearance is claimed.
 
 CI uses the supported complete-manifest Python aggregate and runs every Electron test with an explicitly selected locked Qt-free interpreter; skipped or missing Node results fail the CI verification wrapper. Local `npm test` remains useful for focused development, but its optional skips alone are not release evidence.
 
-This is a source-development migration preview, not a signed/released replacement for the installed app. Baseline: `dd15f0dffb9d524169d9559e538e23afb23861a4`. The original Qt application is retained unchanged as rollback.
+This is a source-development migration preview, not a signed/released replacement for the installed app. Baseline: `dd15f0dffb9d524169d9559e538e23afb23861a4`. The Qt desktop no longer exists in this tree: it was removed in `4e31a3a`, so rollback means checking out the previous release, not starting it from here.
 
 ## Current V8 checkpoint
 
@@ -34,7 +34,7 @@ npm start
 
 XFIN_DATA_DIR isolates the application databases and, before Electron becomes ready, its Chromium profile, session/cache data, logs and crash-dump directory. Its path must be absolute.
 
-The new interpreter contains mutagen, Pydantic and NumPy, with transitive requirements hash-locked. It does not install or import Qt. Do not use `uv sync` at the root for this new application: the legacy app still declares Qt there. On macOS, use a native arm64 Node/Python environment on M1. Do not disable Electron's sandbox to work around a host startup error.
+The new interpreter contains mutagen, Pydantic and NumPy, with transitive requirements hash-locked. It does not install or import Qt. Do not point the Electron shell at the root `uv sync` environment: that environment carries the development tools and the library's own resolution, while `.venv-headless` reproduces the exact hash-locked closure the shell is tested against. On macOS, use a native arm64 Node/Python environment on M1. Do not disable Electron's sandbox to work around a host startup error.
 
 ## First workflow
 
@@ -51,9 +51,8 @@ Metadata scanning stays read-only. App-owned databases and root authorizations a
 ## Tests
 
 ```sh
-# From repository root, an environment also needs pytest, ruff and pyright to run Python checks
-PYTHONPATH=src .venv-headless/bin/python -m pytest --noconftest -q tests/test_headless_backend.py tests/test_headless_protocol.py
-# The legacy tests/conftest.py imports Qt, hence --noconftest for isolated headless tests
+# From the repository root; the root environment already provides pytest and the core dependencies
+uv run pytest -q tests/test_headless_backend.py tests/test_headless_protocol.py
 cd desktop-electron
 XFIN_PYTHON="$(cd .. && pwd)/.venv-headless/bin/python" npm test
 ```

@@ -18,11 +18,6 @@ jobs:
     runs-on: macos-latest
     # Must match the environment configured on the PyPI trusted publisher.
     environment: pypi
-    # The suite imports Qt during collection. A headless runner with no
-    # platform hint is where two jobs stalled to the 20-minute timeout
-    # without emitting a single line of pytest output.
-    env:
-      QT_QPA_PLATFORM: offscreen
     # Same reasoning as the release gates: bound the job so a hung publish
     # cannot burn six hours of macOS runner time.
     timeout-minutes: 20

@@ -169,10 +169,10 @@ def test_required_track_gate_remains_blocking_after_reorder(tmp_path):
     )
     assert updated["readiness"] == "blocked"
     assert any(
-        check["label"] == "Required tracks" and check["status"] == "blocked" for check in updated["readinessChecks"]
+        check["label"] == "Pistas obligatorias" and check["status"] == "blocked" for check in updated["readinessChecks"]
     )
     with pytest.raises(BackendError) as error:
-        backend.execute("playlist.save", {"reviewId": updated["reviewId"], "name": "Blocked"})
+        backend.execute("playlist.save", {"reviewId": updated["reviewId"], "name": "Bloqueado"})
     assert error.value.code == "blocked_review"
 
 

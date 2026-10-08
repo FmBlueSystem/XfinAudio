@@ -8,8 +8,8 @@ from xfinaudio.quality.dj_readiness import DjReadinessCheck, DjReadinessReport
 def _report() -> DjReadinessReport:
     return DjReadinessReport(
         status="ready",
-        summary="Ready — 0 blocker(s), 0 review item(s); max BPM jump 0.00%",
-        checks=[DjReadinessCheck(label="Playlist size", status="ready", detail="2 tracks available")],
+        summary="Ready — 0 bloqueo(s), 0 aviso(s); salto máx. de BPM 0.00%",
+        checks=[DjReadinessCheck(label="Tamaño de la lista", status="ready", detail="2 tracks available")],
         blocker_count=0,
         review_count=0,
     )

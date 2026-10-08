@@ -135,3 +135,30 @@ def test_genre_and_ratio_before_relative_path_remain_musical_context():
     assert redact_paths("funk/soul at 120/128 bpm using Music/Private Song.wav") == (
         "funk/soul at 120/128 bpm using [private path]"
     )
+
+
+def test_improvement_request_redacts_paths_and_sends_no_path_or_stable_id(monkeypatch, tmp_path):
+    from tests.test_playlist_improvement import record, token_factory
+    from xfinaudio.ai.structured_assists import interpret_improvement_request
+    from xfinaudio.application.playlist_improvement import build_candidate_set, track_id
+
+    monkeypatch.setenv("XFINAUDIO_AI_ENABLED", "1")
+    monkeypatch.setenv("NAN_API_KEY", "synthetic-never-live")
+    monkeypatch.setenv("XFINAUDIO_AI_ENV_FILE", str(tmp_path / "absent"))
+    paths = ["/Users/Private/Music/one.wav", "/Users/Private/Music/two.wav"]
+    records = [record(path, title=f"Song {index}", artist="Artist", genre="House") for index, path in enumerate(paths)]
+    candidates = build_candidate_set(paths, records, token_source=token_factory())
+    transport = FakeTransport(json.dumps({"orderedTrackIds": list(candidates.draft_tokens)}))
+    result = interpret_improvement_request(f"reorder using {paths[0]} and keep house", candidates, transport=transport)
+    assert result.orderedTrackIds == list(candidates.draft_tokens)
+    prompt = message_text(transport)
+    assert "Private" not in prompt
+    assert "[private path]" in prompt
+    assert paths[0] not in prompt
+    assert track_id(paths[0]) not in prompt
+    assert candidates.draft_tokens[0] in prompt
+    assert "Song 0" in prompt
+    # The only context the provider receives is the bounded display fields.
+    context = json.loads(json.loads(transport.request.data.decode("utf-8"))["messages"][1]["content"])["context"]
+    fields = {key for candidate in context["candidates"] for key in candidate}
+    assert not fields & {"path", "id", "trackId", "sha256"}

@@ -57,11 +57,21 @@ const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
   return node;
 };
 const gate = new OperationGate();
+// An improvement preview can only be persisted through the dedicated proposal-bound
+// route. Without that bridge the editor improvement surface is disabled rather than
+// producing a bound draft that could not be saved safely.
+const editorImprovementAvailable = (): boolean => typeof api?.savePlaylistImprovement === 'function';
 let route: Route = 'library';
 const toolOrigins = new ToolOrigins();
 const toolTriggers = new Map<Route, HTMLElement>();
 let routeRevision = 0;
 let library: Track[] = [];
+const LIBRARY_WINDOW = 200;
+let libraryVisibleLimit = LIBRARY_WINDOW;
+let libraryWindowKey = '';
+let libraryRevision = 0;
+let visibleRevision = 0;
+let renderedTrackChoicesRevision = -1;
 let offlineLibrary:Track[]|null=null;
 let libraryWorklist:SeratoExportSource|null=null;
 let offline:OfflineBrowseView|undefined;
@@ -85,6 +95,7 @@ let renderProfileSettings=():void=>{};
 const profilesAvailable=():boolean=>typeof api?.getProfileStatus==='function'&&typeof api?.completeProfiles==='function';
 const profileSettingsAvailable=():boolean=>typeof api?.getProfileSettings==='function'&&typeof api?.saveProfileSettings==='function';
 let libraryBootstrapped = false;
+let libraryBootError: string | null = null;
 let preferencesBootstrapPending = typeof api?.getPreferences === 'function' && typeof api?.savePreferences === 'function';
 let statusBootstrapPending = Boolean(api?.getLibraryStatus);
 let editorDirty = false;
@@ -138,14 +149,44 @@ const editor = new SavedPlaylistEditor(api, {
   navigate: () => navigate('editor', false),
   perform: (label, task, apply, failure) => perform('editor', label, task, (result, current) => {
     apply(result, current);
-    showStatus(label.startsWith('Guardando') ? 'Cambios guardados' : 'Editor actualizado', 'Los cambios solo se conservan al pulsar Guardar cambios');
+    // The bound improvement save ran a different route, so the generic "only kept by pressing
+    // Guardar cambios" copy would contradict the draft state it just persisted.
+    if (label.startsWith('Guardando mejora')) showStatus('Mejora guardada en la playlist. Ya no hay cambios pendientes.');
+    else showStatus(label.startsWith('Guardando') ? 'Cambios guardados' : 'Borrador actualizado', 'Los cambios solo se conservan al pulsar Guardar cambios');
   }, false, failure),
 });
 renderEditor = createEditorView(element('editor-container'), editor, {
   canAct: () => coreAvailable && !gate.busy,
   play: (track) => { void player.select(track).catch(() => showStatus('No se puede abrir esta pista', 'Comprueba que el archivo siga disponible', true)); },
+  improvement: editorImprovementStatus,
+  openImprovement,
+  // Applying to the draft replaces the read-only review banner it invalidates.
+  improvementApplied: () => showStatus('Mejora aplicada al borrador. Usa «Guardar mejora» para conservarla en la playlist.'),
 });
 renderEditor();
+/** Availability and actionable reason for the editor improvement CTA, derived from the exact draft. */
+function editorImprovementStatus(): { available: boolean; hint: string } {
+  const draft = editor.draft;
+  if (!draft) return { available: false, hint: 'Abre una playlist guardada para mejorarla con IA.' };
+  if (!editorImprovementAvailable()) return { available: false, hint: 'Esta versión no puede guardar una mejora con IA, así que no se enviará nada. Pide una propuesta local desde el editor.' };
+  const count = draft.tracks.length;
+  if (count < 2 || count > 80) return { available: false, hint: `La mejora con IA necesita entre 2 y 80 pistas en el borrador (ahora hay ${count}). Ajusta el borrador para continuar.` };
+  // The panel's prepare action also depends on the AI settings, so refuse the CTA with the
+  // reason instead of opening a panel where nothing can be clicked.
+  const aiStatus = ai?.snapshot;
+  if (aiStatus && (!aiStatus.enabled || !aiStatus.configured)) return { available: false, hint: 'Configura la asistencia IA en Ajustes antes de mejorar con IA.' };
+  if (aiDirty) return { available: false, hint: 'Guarda o descarta los cambios de IA pendientes antes de mejorar con IA.' };
+  return { available: true, hint: '' };
+}
+/** Explicit reveal only: opens the existing AI panel and focuses its instruction. Never prepares or contacts the provider. */
+function openImprovement(): void {
+  const panel = element<HTMLDetailsElement>('ai-panel');
+  if (panel.hidden || !editor.draft || !editorImprovementStatus().available) return;
+  panel.open = true;
+  syncAiContext();
+  revealControl(element('optional-ai-request'));
+  loadAiIfOpen();
+}
 
 serato = new SeratoExportController(api, {
   canAct: () => coreAvailable && !gate.busy && !(editor.dirty && serato.source?.kind === 'saved' && serato.source.playlistId === editor.draft?.id),
@@ -183,7 +224,7 @@ const profileSettings=new ProfileSettingsController(api,{
   canAct:()=>coreAvailable&&!gate.busy&&profileSettingsAvailable(),changed:()=>renderProfileSettings(),
   dirtyChanged:dirty=>{profileSettingsDirty=dirty;syncDraftDirty();},
   applied:()=>{libraryGeneration++;invalidateAiSource();editor.invalidatePreview();serato.invalidatePreview();invalidatePrep();},
-  perform:(label,task,apply,failure)=>perform('profile-settings',label,task,value=>{apply(value);showStatus('Cohesión espectral actualizada');},false,failure),
+  perform:(label,task,apply,failure)=>perform('profile-settings',label,task,value=>{apply(value);showStatus('Ajustes de cohesión guardados', 'Se aplican a las próximas generaciones de listas.');},false,failure),
 });
 renderProfileSettings=createProfileSettingsView(element('profile-settings-container'),profileSettings,{canAct:()=>coreAvailable&&!gate.busy&&profileSettingsAvailable()});
 let renderLoudness = (): void => {};
@@ -218,20 +259,23 @@ const loudness = new LoudnessController(api, {
   },
 });
 renderLoudness = createLoudnessView(element('loudness-container'), loudness, { canAct: () => coreAvailable && !gate.busy && loudnessAvailable(), draftBlockers });
-const aiAvailable = (): boolean => ['getAiStatus', 'saveAiSettings', 'chooseAiCredential', 'clearAiCredential', 'prepareAiRequest', 'runAiRequest', 'applyAiSuggestion'].every((key) => typeof api?.[key as keyof AppApi] === 'function');
+const aiAvailable = (): boolean => ['getAiStatus', 'saveAiSettings', 'chooseAiCredential', 'clearAiCredential', 'prepareAiRequest', 'inspectAiPayload', 'runAiRequest', 'applyAiSuggestion'].every((key) => typeof api?.[key as keyof AppApi] === 'function');
 ai = new OptionalAiController(api, {
   canAct: () => coreAvailable && !gate.busy && aiAvailable(),
-  changed: () => renderAi(),
+  // The improvement replacement toggle changes the disclosed scope, so it must refresh
+  // the app-level context identity too. syncAiContext is idempotent: it only calls
+  // setContext while the identity differs, which bounds the re-entry.
+  changed: () => { renderAi(); syncAiContext(); renderEditor(); },
   dirtyChanged: (dirty) => { aiDirty = dirty; syncDraftDirty(); },
   applied: (surface, data) => {
     const change = planAiApply(surface, data); const context = aiContextKey;
     deferredAiApply = () => { if (context === aiContextKey) change(); };
   },
   perform: (label, task, apply, failure) => perform(ai?.pending === 'ask' ? 'ai' : ai?.pending === 'apply' ? 'ai-apply' : 'ai-settings', label, task, (value, current) => {
-    apply(value, current); showStatus('Asistencia IA', ai?.notice || 'Operación local completada; cada consulta requiere consentimiento');
+    apply(value, current); showStatus('Asistencia IA', ai?.notice || 'Operación local completada; el envío exige tu autorización explícita');
   }, ai?.pending === 'ask', failure),
 });
-renderAi = createOptionalAiView(element('optional-ai-container'), ai, { canAct: () => coreAvailable && !gate.busy && aiAvailable(), openSettings: () => {navigate('ai');revealControl(element('optional-ai-enabled'));} });
+renderAi = createOptionalAiView(element('optional-ai-container'), ai, { canAct: () => coreAvailable && !gate.busy && aiAvailable(), busy: () => coreAvailable && gate.busy, openSettings: () => {navigate('ai');revealControl(element('optional-ai-enabled'));} });
 renderAi();
 function invalidateAiSource(): void { aiContextKey = ''; deferredAiApply = null; ai?.invalidate(); }
 function prepFields(): PrepFields {
@@ -265,7 +309,21 @@ function syncAiContext(): void {
   else if (route === 'prep') { surface = 'prep'; revision = [libraryGeneration, prepFields()]; }
   else if (route === 'metadata') surface = 'metadata';
   else if (route === 'review' && review?.reviewId) { surface = 'review'; context = { reviewId: review.reviewId }; revision = [libraryGeneration, review.reviewId]; }
-  else if (route === 'editor' && editor.draft) { surface = 'editor'; context = { editId: editor.draft.editId }; revision = [libraryGeneration, editor.draft.editId, editor.draft.revision, editor.draft.name, editor.draft.tracks.map((track) => track.id), editor.request]; }
+  else if (route === 'editor' && editor.draft) {
+    const draftIds = editor.draft.tracks.map((track) => track.id);
+    // The improvement selector is the only editor AI context the app publishes: it
+    // carries the exact ordered draft and needs the bridge route that can persist a
+    // bound proposal. Outside 2..80 tracks, or without that route, the surface stays
+    // unavailable instead of falling back to the legacy editId-only request.
+    if (editorImprovementAvailable() && draftIds.length >= 2 && draftIds.length <= 80) {
+      surface = 'editor';
+      context = { editId: editor.draft.editId, draftIds, includeReplacements: ai.includeReplacements === true };
+      // The replacement toggle is carried by the context selector itself, which already
+      // makes it part of the app-level identity. Repeating it in the local revision would
+      // force a controller setContext on toggle and discard the typed instruction.
+      revision = [libraryGeneration, editor.draft.editId, editor.draft.revision, editor.draft.name, draftIds];
+    }
+  }
   else if (route === 'live' && live?.valid && live.snapshot) { surface = 'live'; context = { sessionId: live.snapshot.sessionId, revision: live.snapshot.revision }; revision = [libraryGeneration, live.snapshot.sessionId, live.snapshot.revision]; }
   else if (route === 'playlists' && (aiSavedScope.size > 0 || playlists.length <= 200)) {
     surface = 'saved'; context = aiSavedScope.size ? { playlistIds: [...aiSavedScope] } : {};
@@ -278,6 +336,10 @@ function syncAiContext(): void {
   if (!surface) { if (aiContextKey) invalidateAiSource(); return; }
   const identity = JSON.stringify([surface, context, revision]);
   if (identity !== aiContextKey) { aiContextKey = identity; ai.setContext(surface, context, JSON.stringify(revision)); }
+  // The editor improvement CTA mirrors the live AI settings, so load the local status once
+  // when that surface is published; the CTA then explains a disabled action instead of
+  // opening a panel where nothing is clickable.
+  if (surface === 'editor' && !ai.snapshot && !ai.pending && !ai.dirty) void ai.load();
   renderAi();
 }
 function loadAiIfOpen(): boolean {
@@ -316,7 +378,30 @@ function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => v
     };
   }
   if (surface === 'editor') {
-    if (!editor.draft || typeof data.request !== 'string' || !data.request.trim() || data.request.length > 500) return invalid();
+    if (!editor.draft) return invalid();
+    if (ai && ai.improvementEditor) {
+      // Improvement data is local preview data, never a provider request. Verify the exact
+      // draft snapshot/revision identity here, before the deferred apply, and again when
+      // the app is idle. Nothing here mutates the draft or saves.
+      if (data === null || typeof data !== 'object' || Array.isArray(data)) return invalid();
+      if (data.editId !== undefined && data.editId !== editor.draft.editId) return invalid();
+      if (data.sourceRevision !== editor.draft.revision) return invalid();
+      const editId = editor.draft.editId; const revision = editor.draft.revision; const order = editor.draft.tracks.map((track) => track.id);
+      return () => {
+        const refuse = (): void => {
+          if (ai) { ai.notice = ''; ai.error = 'La propuesta de mejora no cumple el contrato local del editor. No se aplicó ni guardó nada.'; }
+          renderAi();
+          showStatus('No se pudo revisar la mejora', 'La respuesta no cumple el contrato local del editor; no se aplicó ni guardó nada.', true);
+        };
+        try {
+          const current = editor.draft;
+          if (!current || current.editId !== editId || current.revision !== revision || current.tracks.length !== order.length || current.tracks.some((track, index) => track.id !== order[index])) { refuse(); return; }
+          if (!editor.setImprovementPreview(data, editId)) refuse();
+        } catch { refuse(); }
+      };
+    }
+    // Legacy four-operation editor context, kept only for a legacy editId selector.
+    if (typeof data.request !== 'string' || !data.request.trim() || data.request.length > 500) return invalid();
     const request = data.request; return () => editor.setRequest(request);
   }
   if (surface === 'saved') {
@@ -341,9 +426,9 @@ if(prepSettingsAvailable()){
   prepSettings=new PrepSettingsController(api,{
     canAct:()=>coreAvailable&&!gate.busy,
     read:()=>{const fields=prepFields();return {requiredTrackIds:fields.required,excludedTrackIds:fields.excluded,genreFocus:fields.genre};},
-    restore:value=>{for(const [key,ids] of [['required',value.requiredTrackIds],['excluded',value.excludedTrackIds]] as const)for(const option of element<HTMLSelectElement>(`prep-${key}`).options??[])option.selected=ids.includes(option.value);element<HTMLInputElement>('prep-genre').value=value.genreFocus;invalidatePrep();},
+    restore:value=>{ensureTrackChoices();for(const [key,ids] of [['required',value.requiredTrackIds],['excluded',value.excludedTrackIds]] as const)for(const option of element<HTMLSelectElement>(`prep-${key}`).options??[])option.selected=ids.includes(option.value);element<HTMLInputElement>('prep-genre').value=value.genreFocus;invalidatePrep();},
     changed:()=>{prepSettingsDirty=prepSettings?.dirty??false;renderPrepSettings();syncDraftDirty();},saved:()=>{invalidateAiSource();invalidatePrep();},
-    perform:(label,task,apply,failure)=>perform('prep-settings',label,task,value=>{apply(value);showStatus('Controles de preparación actualizados');},false,failure),
+    perform:(label,task,apply,failure)=>perform('prep-settings',label,task,value=>{apply(value);showStatus('Ajustes de preparación guardados', 'Se aplican a la próxima generación de listas.');},false,failure),
   });
   renderPrepSettings=createPrepSettingsView(element('prep-settings-container'),prepSettings,{canAct:()=>coreAvailable&&!gate.busy});
 }
@@ -357,7 +442,7 @@ if(['previewLegacyImport','applyLegacyImport','discardLegacyImport'].every(key=>
 if(typeof api?.queryLibrary==='function'&&typeof api?.searchPlaylists==='function')offline=new OfflineBrowseView(element('offline-library-container'),element('offline-saved-container'),api,{
   canAct:()=>coreAvailable&&!gate.busy,canDelete:()=>draftBlockers().length===0,draftBlockers,
   perform:(label,task,apply)=>perform('offline',label,task,apply),
-  libraryChanged:tracks=>{offlineLibrary=tracks;renderLibrary();},savedChanged:()=>renderPlaylists(),
+  libraryChanged:tracks=>{offlineLibrary=tracks;visibleRevision++;renderLibrary();},savedChanged:()=>renderPlaylists(),
   deleted:id=>{playlists=playlists.filter(item=>item.id!==id);if(editor.draft?.id===id)editor.resetAfterScan();if(review?.savedPlaylistId===id){review=null;renderReview();}serato.invalidatePreview();invalidateAiSource();aiSavedSelection=null;renderPlaylists();},
   restored:playlist=>{playlists=[playlist,...playlists.filter(item=>item.id!==playlist.id)];invalidateAiSource();aiSavedSelection=null;renderPlaylists();},
 });
@@ -392,7 +477,7 @@ function syncDraftDirty(): void {
 function renderContextStatus(): void {
   const parts = [`${library.length} pistas`, `${library.filter(hasPrepMetadata).length} con metadatos completos`];
   if (libraryStatus?.changeState === 'changed') parts.push('Cambios detectados: vuelve a escanear');
-  else if (libraryStatus?.changeState === 'restored') parts.push('Biblioteca restaurada: pendiente de verificar');
+  else if (libraryStatus?.changeState === 'restored') parts.push('Biblioteca cargada del perfil local · sin revalidar en esta sesión');
   if (libraryStatus?.watchState === 'unavailable') parts.push('Vigilancia no disponible: comprueba manualmente');
   else if (libraryStatus && libraryStatus.watchState !== 'active') parts.push(({starting:'Vigilancia iniciándose',disabled:'Vigilancia desactivada',paused:'Vigilancia en pausa'} as Record<string,string>)[libraryStatus.watchState]);
   if (activeKind === 'profiles') parts.push('Completando perfiles…');
@@ -425,6 +510,21 @@ function acceptLibraryStatus(status: LibraryStatus): void {
 }
 function loadLibraryStatus(): Promise<void> {
   return perform('library-status', 'Consultando estado de la biblioteca…', () => api.getLibraryStatus(), acceptLibraryStatus);
+}
+function bootstrapLibrary(): Promise<void> {
+  return perform('library', 'Cargando biblioteca…', () => api.listLibrary(), (result) => {
+    libraryBootError = null;
+    applyLibrary(result);
+    element('operation-status').hidden = true;
+    renderLibraryRecovery();
+  }, false, (error) => {
+    libraryBootError = userErrorMessage(error);
+    renderLibraryRecovery();
+  });
+}
+function retryLibraryBootstrap(): void {
+  if (!coreAvailable || gate.busy) return;
+  void bootstrapLibrary();
 }
 function refreshPreferenceLabelsIfNeeded(): boolean {
   if(!preferenceLabelsPending||!coreAvailable||gate.busy||!preferencesAvailable()||!preferences.snapshot||preferences.pending)return false;
@@ -483,7 +583,17 @@ function syncControls(): void {
   element<HTMLSelectElement>('prep-strategy').disabled = gate.busy || !coreAvailable || !catalogLoaded;
   element<HTMLButtonElement>('export-library-worklist').disabled=gate.busy||!coreAvailable||!libraryWorklist||libraryStatus?.changeState==='changed';
   element<HTMLButtonElement>('generate-prep').disabled = gate.busy || !coreAvailable || library.length < 2;
-  element<HTMLButtonElement>('start-live').disabled = gate.busy || !coreAvailable || !canStartLive();
+  const liveButton = element<HTMLButtonElement>('start-live');
+  liveButton.disabled = gate.busy || !coreAvailable || !canStartLive();
+  const liveHint = element<HTMLElement>('start-live-hint');
+  if (liveHint) {
+    liveHint.hidden = !liveButton.disabled;
+    liveHint.textContent = !coreAvailable ? 'El motor local no está conectado.'
+      : gate.busy ? 'Espera a que termine la operación actual.'
+      : !review || !review.reviewId || review.variant === 'saved' ? 'Abre la guía desde una revisión activa.'
+      : review.readiness === 'blocked' || review.blockers.length > 0 ? 'Resuelve los bloqueos de la selección.'
+      : 'Resuelve los avisos de revisión para abrir la guía.';
+  }
   element<HTMLButtonElement>('export-review').disabled = gate.busy || !coreAvailable || !review || !(review.reviewId || review.savedPlaylistId);
   element<HTMLButtonElement>('save-playlist').disabled = gate.busy || !coreAvailable || !canSave();
   element<HTMLButtonElement>('cancel-operation').hidden = !gate.busy || !cancellable || !coreAvailable;
@@ -524,15 +634,27 @@ function navigate(next: Route, load = true, rememberOrigin = true, preservePrevi
   element('page-title').textContent = titles[next];
   document.title = `XfinAudio · ${titles[next]}`;
   if (!preservePreviews) editor.invalidatePreview();
-  if(next==='prep'&&load&&!gate.busy&&prepSettings&&!prepSettings.snapshot&&!prepSettings.pending&&!prepSettings.dirty){prepSettingsBootstrapPending=false;void prepSettings.load();}
+  if(next==='prep')ensureTrackChoices();
+  // The core's single job worker cannot refresh a screen while an exclusive task owns
+  // the gate; every deferred read is reported instead of silently doing nothing.
+  const deferredReads: Route[] = [];
+  const readyToRead = (): boolean => { if (gate.busy) { deferredReads.push(next); return false; } return true; };
+  if(next==='prep'&&load&&prepSettings&&!prepSettings.snapshot&&!prepSettings.pending&&!prepSettings.dirty&&readyToRead()){prepSettingsBootstrapPending=false;void prepSettings.load();}
   if (next === 'ai') element<HTMLDetailsElement>('ai-panel').open = true;
   syncAiContext();
-  if (next === 'preferences' && load && !gate.busy && !preferences.snapshot && preferencesAvailable()) void preferences.load();
-  if(next==='preferences'&&load&&!gate.busy&&!profileSettings.snapshot&&profileSettingsAvailable()){profileSettingsAttempted=true;void profileSettings.load();}
-  if (next === 'loudness' && load && !gate.busy && !loudness.statusFresh && !loudness.dirty && loudnessAvailable()) void loudness.load();
-  if (next === 'metadata' && load && !gate.busy && !metadataReport) void loadMetadata();
-  if (next === 'playlists' && load && !gate.busy) void loadPlaylists();
+  if (next === 'preferences' && load && !preferences.snapshot && preferencesAvailable() && readyToRead()) void preferences.load();
+  if(next==='preferences'&&load&&!profileSettings.snapshot&&profileSettingsAvailable()&&readyToRead()){profileSettingsAttempted=true;void profileSettings.load();}
+  if (next === 'loudness' && load && !loudness.statusFresh && !loudness.dirty && loudnessAvailable() && readyToRead()) void loudness.load();
+  if (next === 'metadata' && load && !metadataReport && readyToRead()) void loadMetadata();
+  if (next === 'playlists' && load && readyToRead()) void loadPlaylists();
   if (load) loadAiIfOpen();
+  if (deferredReads.length) explainDeferredRead(deferredReads[0]);
+}
+/** An exclusive task owns the core, so a read-only screen cannot refresh yet. Keep naming
+ *  the running task and say why the navigation looked inert; nothing is retried later. */
+function explainDeferredRead(next: Route): void {
+  const label = element('operation-label').textContent.trim() || 'Operación en curso';
+  showStatus(label, `La pantalla «${titles[next]}» se actualizará cuando termine la operación en curso. Los datos ya cargados siguen disponibles; los controles que modifican datos permanecen desactivados mientras tanto.`);
 }
 function renderTable(target: string, tracks: Track[]): void {
   const isLibrary=target==='library-table';
@@ -583,32 +705,47 @@ function renderTable(target: string, tracks: Track[]): void {
   table.append(head, body);
   element(target).replaceChildren(table);
 }
+function renderLibraryRecovery(): void {
+  element('library-recovery').hidden = libraryBootError === null;
+  element('library-recovery-message').textContent = libraryBootError ?? '';
+}
 function renderLibrary(): void {
+  renderLibraryRecovery();
   const complete = library.filter(hasPrepMetadata).length;
   for (const id of ['library-total', 'nav-library-count']) element(id).textContent = String(library.length);
   element('library-ready').textContent = String(complete);
   element('library-incomplete').textContent = String(library.length - complete);
   const browsed=offlineLibrary??library;
   const visible = filterTracks(aiLibraryFilter ? browsed.filter((track) => aiLibraryFilter!.has(track.id)) : browsed, element<HTMLInputElement>('library-search').value, element<HTMLSelectElement>('metadata-filter').value as MetadataFilter);
+  const windowKey = JSON.stringify([element<HTMLInputElement>('library-search').value, element<HTMLSelectElement>('metadata-filter').value, aiFilterRevision, libraryRevision, visibleRevision, offline?.librarySort.field ?? '', offline?.librarySort.descending ?? false]);
+  if (windowKey !== libraryWindowKey) { libraryWindowKey = windowKey; libraryVisibleLimit = LIBRARY_WINDOW; }
+  const displayed = visible.slice(0, libraryVisibleLimit);
+  const windowed = visible.length > displayed.length;
   const metadataFilter=element<HTMLSelectElement>('metadata-filter').value;
   libraryWorklist=['ready','incomplete'].includes(metadataFilter)&&visible.length>0&&visible.length<=500?{kind:'metadata',status:metadataFilter==='ready'?'complete':'incomplete',missingField:null,trackIds:visible.map(track=>track.id)}:null;
-  renderTable('library-table', visible);
+  renderTable('library-table', displayed);
   element('library-table').hidden = library.length === 0;
   element('library-empty').hidden = library.length > 0;
   element('library-no-results').hidden = library.length === 0 || visible.length > 0;
   element('ai-library-filter').hidden = aiLibraryFilter === null;
   element('ai-library-filter-notice').textContent = aiLibraryFilter ? `Filtro local de IA: ${aiLibraryFilter.size} coincidencias. La biblioteca completa sigue disponible para preparar sesiones.` : '';
   element('library-visible-count').textContent = `${visible.length} ${visible.length === 1 ? 'pista' : 'pistas'}`;
+  element('library-window').hidden = !windowed;
+  element('library-show-more').hidden = !windowed;
+  element<HTMLButtonElement>('library-show-more').disabled = false;
+  element('library-window-note').hidden = !windowed;
+  element('library-window-note').textContent = windowed ? `Mostrando ${displayed.length} de ${visible.length} pistas. La búsqueda y el orden siguen aplicando a toda la biblioteca.` : '';
   syncControls();
 }
 function applyLibrary(result: LibraryResult): void {
   const controlsDirty=prepSettings?.dirty??false;prepSettings?.libraryChanged();if(prepSettings&&!controlsDirty)prepSettingsBootstrapPending=true;
   library = result.tracks;
+  libraryRevision++; visibleRevision++;
   offline?.invalidateLibrary();offline?.invalidateSaved();
   aiLibraryFilter = null; aiFilterRevision++;
   metadataReport = null;
   player.stopIfMissing(new Set(library.map((track) => track.id)));
-  renderTrackChoices();
+  if (route === 'prep') ensureTrackChoices();
   renderLibrary();
 }
 function option(value: string, label: string): HTMLOptionElement {
@@ -624,6 +761,12 @@ function renderTrackChoices(): void {
     if(!scalar&&prepSettingsDirty)for(const value of selected)if(!library.some(track=>track.id===value)){const missing=option(value,`No disponible: ${value.slice(0,8)}`);missing.disabled=true;missing.selected=true;select.append(missing);}
     if(scalar)select.value=library.some(track=>selected.has(track.id))?[...selected][0]:'';
   }
+}
+/** Full Prep option lists are built lazily; a large library must not pay for them at boot. */
+function ensureTrackChoices(): void {
+  if (renderedTrackChoicesRevision === libraryRevision) return;
+  renderTrackChoices();
+  renderedTrackChoicesRevision = libraryRevision;
 }
 function renderStrategyHint(): void {
   const strategy = strategies.find((item) => item.name === element<HTMLSelectElement>('prep-strategy').value);
@@ -918,7 +1061,9 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-route]'
 element('export-library-worklist').addEventListener('click',()=>{if(libraryWorklist&&libraryStatus?.changeState!=='changed')openSerato(libraryWorklist,libraryWorklist.kind==='metadata'&&libraryWorklist.status==='complete'?'Metadatos completos':'Metadatos pendientes');});
 element('choose-library').addEventListener('click', () => scan());
 element('choose-library-empty').addEventListener('click', () => scan());
+element('library-retry').addEventListener('click', retryLibraryBootstrap);
 element('library-search').addEventListener('input', renderLibrary);
+element('library-show-more').addEventListener('click', () => { libraryVisibleLimit += LIBRARY_WINDOW; renderLibrary(); });
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
 element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
 for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'start', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
@@ -934,6 +1079,7 @@ element('refresh-playlists').addEventListener('click', () => { void loadPlaylist
 element('prep-form').addEventListener('submit', (event) => {
   event.preventDefault();
   if (gate.busy) return;
+  ensureTrackChoices();
   const name = normalizePrepName(element<HTMLInputElement>('prep-name').value);
   const value = (id: string) => element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value;
   const selected = (id: string) => Array.from(element<HTMLSelectElement>(`prep-${id}`).selectedOptions ?? [], (option) => option.value);
@@ -1028,10 +1174,7 @@ if (api) {
   });
   window.addEventListener('beforeunload', unsubscribe, { once: true });
   void loadCatalog();
-  void perform('library', 'Cargando biblioteca…', () => api.listLibrary(), (result) => {
-    applyLibrary(result);
-    element('operation-status').hidden = true;
-  });
+  void bootstrapLibrary();
 } else {
   showStatus('El servicio local no está disponible', 'Abre XfinAudio desde su aplicación de escritorio', true);
   syncControls();

@@ -104,7 +104,7 @@ def test_offline_preview_uses_real_assessment_without_persisting(saved_set) -> N
     assert preview["editId"] == opened["editId"]
     assert preview["revision"] == opened["revision"]
     assert ids(preview) == ids(opened)[::-1][:2]
-    assert "Engine validation (build strategy)" in preview["assessment"]["description"]
+    assert "Validación del motor (estrategia de construcción)" in preview["assessment"]["description"]
     assert isinstance(preview["assessment"]["qualityScore"], float)
     assert preview["assessment"]["readiness"] in {"ready", "needs_review"}
     assert isinstance(preview["assessment"]["warnings"], list)
@@ -308,3 +308,327 @@ def test_save_racing_external_writer_rejects_without_partial_rename(saved_set, m
     saved = backend.playlists.get_by_id(original.id)
     assert saved.name == original.name
     assert saved.track_paths == original.track_paths[:2]
+
+
+# --- I1.7 / I1.8 proposal-bound exact-order save ------------------------------
+
+
+def improvement_setup(tmp_path: Path):
+    """A scanned playlist whose replacement pool is local to the same backend."""
+    root = tmp_path / "music"
+    for index in range(5):
+        tagged_flac(root / f"{index}.flac", index)
+    backend = HeadlessBackend(tmp_path / "data")
+    backend.execute("library.scan", {"root": str(root)})
+    paths = [str(root / f"{index}.flac") for index in range(5)]
+    playlist = backend.playlists.create("Improvement set", paths[:3])
+    opened = backend.execute("playlist.edit.open", {"playlistId": playlist.id})
+    return backend, playlist, opened, paths
+
+
+def public_ids(paths) -> list[str]:
+    return [hashlib.sha256(str(path).encode("utf-8")).hexdigest() for path in paths]
+
+
+def bind_improvement(backend, opened, *, include_replacements: bool = True):
+    draft_ids = ids(opened)
+    candidate_set = backend.editor.improvement_candidates(
+        opened["editId"], draft_ids, include_replacements=include_replacements
+    )
+    ordered = list(candidate_set.draft_tokens)
+    if candidate_set.replacement_tokens:
+        ordered[-1] = candidate_set.replacement_tokens[0]
+    proposal = backend.editor.bind_improvement_proposal(opened["editId"], candidate_set, ordered, draft_ids=draft_ids)
+    return candidate_set, proposal
+
+
+def save_improvement(backend, opened, proposal, **overrides):
+    params = {
+        "editId": opened["editId"],
+        "name": "AI improvement",
+        "proposalId": proposal.proposal_id,
+        "digest": proposal.digest,
+        "draftIds": public_ids(proposal.after_paths),
+    }
+    params.update(overrides)
+    return backend.execute("playlist.edit.save_improvement", params)
+
+
+def test_improvement_candidates_only_authorize_replacements_after_opt_in(tmp_path: Path) -> None:
+    backend, _, opened, paths = improvement_setup(tmp_path)
+    draft_ids = ids(opened)
+    without_pool = backend.editor.improvement_candidates(opened["editId"], draft_ids)
+    with_pool = backend.editor.improvement_candidates(opened["editId"], draft_ids, include_replacements=True)
+    assert without_pool.replacement_tokens == ()
+    assert [without_pool.paths_by_token[token] for token in without_pool.draft_tokens] == paths[:3]
+    assert with_pool.replacement_tokens
+    assert {with_pool.paths_by_token[token] for token in with_pool.replacement_tokens} == set(paths[3:])
+
+
+def test_dedicated_improvement_save_persists_exactly_the_validated_order(tmp_path: Path) -> None:
+    backend, playlist, opened, paths = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    files = {path: hashlib.sha256(Path(path).read_bytes()).digest() for path in paths}
+    candidate_set, proposal = bind_improvement(backend, opened)
+    assert proposal.after_paths[-1] == candidate_set.paths_by_token[candidate_set.replacement_tokens[0]]
+    saved = save_improvement(backend, opened, proposal, name="AI improved")
+    persisted = backend.playlists.get_by_id(playlist.id)
+    assert persisted.name == "AI improved"
+    assert persisted.track_paths == list(proposal.after_paths)
+    assert ids(saved) == public_ids(proposal.after_paths)
+    assert saved["editId"] != opened["editId"]
+    assert proposal.after_paths[-1] in paths[3:]
+    assert all(hashlib.sha256(Path(path).read_bytes()).digest() == digest for path, digest in files.items())
+
+
+def test_manual_save_still_rejects_the_replacement_draft(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    candidate_set, _ = bind_improvement(backend, opened)
+    replacement = candidate_set.paths_by_token[candidate_set.replacement_tokens[0]]
+    with pytest.raises(BackendError) as error:
+        backend.execute(
+            "playlist.edit.save",
+            {
+                "editId": opened["editId"],
+                "name": "Manual add",
+                "trackIds": [*ids(opened), public_ids([replacement])[0]],
+            },
+        )
+    assert error.value.code == "invalid_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_manual_reorder_save_after_binding_invalidates_the_improvement(tmp_path: Path) -> None:
+    backend, playlist, opened, paths = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    _, proposal = bind_improvement(backend, opened)
+    backend.execute(
+        "playlist.edit.save",
+        {"editId": opened["editId"], "name": "Manual", "trackIds": ids(opened)[::-1]},
+    )
+    assert backend.playlists.get_by_id(playlist.id).track_paths == paths[:3][::-1]
+    with pytest.raises(BackendError) as error:
+        save_improvement(backend, opened, proposal)
+    assert error.value.code == "stale_edit"
+    assert backend.playlists.get_by_id(playlist.id).track_paths == paths[:3][::-1]
+
+
+@pytest.mark.parametrize("field", ["proposalId", "digest"])
+def test_bound_save_rejects_mismatched_proposal_identity_without_write(tmp_path: Path, field: str) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    _, proposal = bind_improvement(backend, opened)
+    with pytest.raises(BackendError) as error:
+        save_improvement(backend, opened, proposal, **{field: "mismatch"})
+    assert error.value.code == "invalid_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_bound_save_rejects_a_mutated_draft_order_without_write(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    _, proposal = bind_improvement(backend, opened)
+    with pytest.raises(BackendError) as error:
+        save_improvement(backend, opened, proposal, draftIds=list(reversed(public_ids(proposal.after_paths))))
+    assert error.value.code == "stale_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_bound_save_rejects_an_extra_draft_track_without_write(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    _, proposal = bind_improvement(backend, opened)
+    with pytest.raises(BackendError) as error:
+        save_improvement(
+            backend,
+            opened,
+            proposal,
+            draftIds=[*public_ids(proposal.after_paths), *public_ids(["/music/not-authorized.flac"])],
+        )
+    assert error.value.code == "stale_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_bound_save_rejects_a_stale_saved_revision_without_write(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    _, proposal = bind_improvement(backend, opened)
+    backend.playlists.update_name(playlist.id, "External rename")
+    with pytest.raises(BackendError) as error:
+        save_improvement(backend, opened, proposal)
+    assert error.value.code == "stale_edit"
+    assert backend.playlists.get_by_id(playlist.id).name == "External rename"
+
+
+def test_bound_save_rejects_a_swapped_edit_session_without_write(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    _, proposal = bind_improvement(backend, opened)
+    backend.execute("playlist.edit.open", {"playlistId": playlist.id})
+    with pytest.raises(BackendError) as error:
+        save_improvement(backend, opened, proposal)
+    assert error.value.code == "stale_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_bound_save_requires_a_locally_bound_proposal(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    with pytest.raises(BackendError) as error:
+        backend.execute(
+            "playlist.edit.save_improvement",
+            {
+                "editId": opened["editId"],
+                "name": "Forged",
+                "proposalId": str(uuid4()),
+                "digest": "0" * 64,
+                "draftIds": ids(opened),
+            },
+        )
+    assert error.value.code == "invalid_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_bound_save_rejects_a_raw_path_list(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    _, proposal = bind_improvement(backend, opened)
+    with pytest.raises(BackendError) as error:
+        save_improvement(backend, opened, proposal, trackIds=ids(opened))
+    assert error.value.code == "invalid_params"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_bind_rejects_a_candidate_set_from_a_different_draft(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    draft_ids = ids(opened)
+    candidate_set = backend.editor.improvement_candidates(opened["editId"], draft_ids, include_replacements=True)
+    with pytest.raises(BackendError) as error:
+        backend.editor.bind_improvement_proposal(
+            opened["editId"],
+            candidate_set,
+            list(candidate_set.draft_tokens),
+            draft_ids=list(reversed(draft_ids)),
+        )
+    assert error.value.code == "stale_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_bound_save_revalidates_the_stored_order_before_writing(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    _, proposal = bind_improvement(backend, opened)
+    session = backend.editor.session
+    assert session is not None
+    tampered = replace(proposal, after_paths=tuple(reversed(proposal.after_paths)))
+    backend.editor.session = replace(session, proposal=tampered)
+    with pytest.raises(BackendError) as error:
+        save_improvement(backend, opened, proposal)
+    assert error.value.code == "invalid_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+@pytest.mark.parametrize("method", ["playlist.edit.propose_improvement", "playlist.edit.improvement"])
+def test_no_ipc_command_creates_an_arbitrary_authority_proposal(tmp_path: Path, method: str) -> None:
+    backend, _, _, _ = improvement_setup(tmp_path)
+    with pytest.raises(BackendError) as error:
+        backend.execute(method, {})
+    assert error.value.code == "unknown_method"
+
+
+def test_improvement_candidates_reject_an_unknown_renderer_track(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    forged = [*ids(opened), *public_ids(["/music/not-scanned.flac"])]
+    with pytest.raises(BackendError) as error:
+        backend.editor.improvement_candidates(opened["editId"], forged, include_replacements=True)
+    assert error.value.code == "invalid_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_bind_rejects_an_order_below_the_minimum(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    draft_ids = ids(opened)
+    candidate_set = backend.editor.improvement_candidates(opened["editId"], draft_ids)
+    with pytest.raises(BackendError) as error:
+        backend.editor.bind_improvement_proposal(
+            opened["editId"], candidate_set, [candidate_set.draft_tokens[0]], draft_ids=draft_ids
+        )
+    assert error.value.code == "invalid_improvement"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_improvement_save_persists_a_draft_only_reorder(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    draft_ids = ids(opened)
+    candidate_set = backend.editor.improvement_candidates(opened["editId"], draft_ids)
+    proposal = backend.editor.bind_improvement_proposal(
+        opened["editId"], candidate_set, list(reversed(candidate_set.draft_tokens)), draft_ids=draft_ids
+    )
+    saved = save_improvement(backend, opened, proposal)
+    assert backend.playlists.get_by_id(playlist.id).track_paths == list(proposal.after_paths)
+    assert ids(saved) == list(reversed(draft_ids))
+
+
+def test_improvement_save_can_replace_the_whole_draft_with_pool_tracks(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    draft_ids = ids(opened)
+    candidate_set = backend.editor.improvement_candidates(opened["editId"], draft_ids, include_replacements=True)
+    ordered = list(candidate_set.replacement_tokens[:2])
+    assert len(ordered) == 2
+    proposal = backend.editor.bind_improvement_proposal(opened["editId"], candidate_set, ordered, draft_ids=draft_ids)
+    assert proposal.after_paths == tuple(
+        candidate_set.paths_by_token[token] for token in candidate_set.replacement_tokens[:2]
+    )
+    saved = save_improvement(backend, opened, proposal)
+    assert backend.playlists.get_by_id(playlist.id).track_paths == list(proposal.after_paths)
+    assert ids(saved) == public_ids(proposal.after_paths)
+
+
+def test_discard_clears_the_bound_improvement_proposal(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    _, proposal = bind_improvement(backend, opened)
+    backend.execute("playlist.edit.discard", {"editId": opened["editId"]})
+    with pytest.raises(BackendError) as error:
+        save_improvement(backend, opened, proposal)
+    assert error.value.code == "stale_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_bound_save_rejects_a_duplicated_draft_track_without_write(tmp_path: Path) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    _, proposal = bind_improvement(backend, opened)
+    applied = public_ids(proposal.after_paths)
+    with pytest.raises(BackendError) as error:
+        save_improvement(backend, opened, proposal, draftIds=[applied[0], applied[0]])
+    assert error.value.code == "invalid_edit"
+    assert backend.playlists.get_by_id(playlist.id) == playlist
+
+
+def test_improvement_save_racing_external_writer_rejects_without_partial_write(tmp_path: Path, monkeypatch) -> None:
+    backend, playlist, opened, _ = improvement_setup(tmp_path)
+    assert playlist.id is not None
+    playlist_id = playlist.id
+    _, proposal = bind_improvement(backend, opened)
+    commit = backend.playlists.compare_and_update
+
+    def concurrent_change(*args, **kwargs):
+        backend.playlists.update_tracks(playlist_id, playlist.track_paths[:2])
+        return commit(*args, **kwargs)
+
+    monkeypatch.setattr(backend.playlists, "compare_and_update", concurrent_change)
+    with pytest.raises(BackendError) as error:
+        save_improvement(backend, opened, proposal)
+    assert error.value.code == "stale_edit"
+    saved = backend.playlists.get_by_id(playlist.id)
+    assert saved.name == playlist.name
+    assert saved.track_paths == playlist.track_paths[:2]

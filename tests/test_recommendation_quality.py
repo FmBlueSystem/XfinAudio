@@ -131,7 +131,7 @@ def test_recommend_playlist_warns_on_red_to_green_spectral_shift() -> None:
         "harmonic_journey",
     )
 
-    assert any("Spectral shift" in warning for warning in recommendation.warnings)
+    assert any("Cambios espectrales" in warning for warning in recommendation.warnings)
 
 
 def test_recommend_playlist_does_not_warn_when_adjacent_colors_match() -> None:
@@ -144,7 +144,7 @@ def test_recommend_playlist_does_not_warn_when_adjacent_colors_match() -> None:
         "harmonic_journey",
     )
 
-    assert not any("Spectral shift" in warning for warning in recommendation.warnings)
+    assert not any("Cambios espectrales" in warning for warning in recommendation.warnings)
 
 
 def test_recommend_playlist_does_not_warn_when_spectral_profile_is_missing() -> None:
@@ -156,4 +156,4 @@ def test_recommend_playlist_does_not_warn_when_spectral_profile_is_missing() -> 
         "harmonic_journey",
     )
 
-    assert not any("Spectral shift" in warning for warning in recommendation.warnings)
+    assert not any("Cambios espectrales" in warning for warning in recommendation.warnings)

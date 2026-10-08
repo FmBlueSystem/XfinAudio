@@ -19,10 +19,3 @@ def test_application_writes_dj_readiness_report_through_quality_writer() -> None
 
     writer.assert_called_once_with(report, json_path, csv_path)
     assert result == (json_path, csv_path)
-
-
-def test_desktop_exports_use_application_dj_readiness_writer() -> None:
-    for path in (Path("src/xfinaudio/desktop/export_actions.py"), Path("src/xfinaudio/desktop/export_coordinator.py")):
-        source = path.read_text()
-        assert "from xfinaudio.application.dj_readiness import write_application_dj_readiness_report" in source
-        assert "from xfinaudio.quality.dj_readiness import write_dj_readiness_report" not in source

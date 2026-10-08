@@ -41,7 +41,7 @@ A future background worker/thread can reuse the same domain seam:
 Focused verification:
 
 ```bash
-uv run pytest -v tests/test_scan_service.py tests/test_playlist_workflow.py tests/test_main_window.py
+uv run pytest -v tests/test_playlist_workflow.py tests/test_scan_planning.py
 ```
 
 Full verification should include:

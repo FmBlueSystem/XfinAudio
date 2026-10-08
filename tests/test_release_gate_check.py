@@ -51,7 +51,6 @@ def test_default_check_only_lists_non_audio_gates_without_running_commands(
     )
     assert "uv run pytest -q tests/test_publication_artifact_hygiene.py" in output
     assert "uv run python scripts/source_package_hygiene_check.py" in output
-    assert "uv run python scripts/pyinstaller_build_smoke.py --check-only" in output
     assert "root artifact hygiene: project-root build/ and dist/ must be absent" in output
     expected_mik_text = (
         "real Mixed In Key audio QA: COMPLETED"
@@ -59,51 +58,6 @@ def test_default_check_only_lists_non_audio_gates_without_running_commands(
         else "real Mixed In Key audio QA: PENDING MANUAL"
     )
     assert expected_mik_text in output
-
-
-def test_check_only_with_include_packaging_build_lists_optional_command_without_running(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    calls: list[list[str]] = []
-
-    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append(command)
-        return subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(release_gate_check.subprocess, "run", fake_run)
-
-    assert release_gate_check.main(["--check-only", "--include-packaging-build"]) == 0
-
-    output = capsys.readouterr().out
-    assert calls == []
-    assert "optional packaging temp build + launch/warning triage" in output
-    assert "uv run python scripts/pyinstaller_build_smoke.py --build-temp --validate-launch" in output
-
-
-def test_include_packaging_build_adds_temp_launch_validation_command(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    calls: list[list[str]] = []
-
-    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append(command)
-        return subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(release_gate_check.subprocess, "run", fake_run)
-    monkeypatch.setattr(release_gate_check, "check_root_artifact_hygiene", lambda: None)
-
-    assert release_gate_check.main(["--include-packaging-build"]) == 0
-
-    assert calls[-1] == [
-        "uv",
-        "run",
-        "python",
-        "scripts/pyinstaller_build_smoke.py",
-        "--build-temp",
-        "--validate-launch",
-    ]
-    output = capsys.readouterr().out
-    assert "PASS packaging temp build + launch/warning triage" in output
 
 
 def test_run_mode_propagates_subprocess_failure_and_stops(
@@ -212,6 +166,29 @@ def test_documented_verification_sequence_defers_the_coverage_floor_to_pyproject
     assert "pyproject.toml" in section, "the documented sequence must name where the coverage floor lives"
 
 
+def test_sdd_skill_verification_sequence_defers_the_coverage_floor_to_pyproject() -> None:
+    """Regression: the SDD skill kept the retired ``--cov-fail-under=70`` sequence.
+
+    ``test_documented_verification_sequence_defers_the_coverage_floor_to_pyproject``
+    already refused the flag in ``AGENTS.md``, but the project skill that agents are
+    told to follow (``.atl/skills/gentle-ai-sdd-tdd/SKILL.md``) still listed
+    ``uv run pytest --cov --cov-fail-under=70 -q``. An agent following the skill
+    would have overridden the 89 floor configured in ``pyproject.toml`` with 70 and
+    repeated the four gates the runner already covers.
+    """
+    skill = (PROJECT_ROOT / ".atl" / "skills" / "gentle-ai-sdd-tdd" / "SKILL.md").read_text(encoding="utf-8")
+    assert "## Verification commands" in skill, "the SDD skill no longer documents verification commands"
+    section = skill.split("## Verification commands", 1)[1].split("\n## ", 1)[0]
+    assert "```bash" in section, "the verification commands are no longer a runnable bash block"
+    block = section.split("```bash", 1)[1].split("```", 1)[0]
+
+    assert "--cov-fail-under" not in block, (
+        "the SDD skill must not pass a coverage floor flag; it overrides pyproject.toml"
+    )
+    assert "pyproject.toml" in section, "the SDD skill must name where the coverage floor lives"
+    assert "release_gate_check.py --run" in block, "the SDD skill must keep the gate as the verification command"
+
+
 # The scope AGENTS.md promises for the gate, and the commands that have to carry it.
 DOCUMENTED_GATE_CLAIM = (
     "The gate already includes the test suite with coverage, the type check, and the lint and format checks"
@@ -317,7 +294,6 @@ def test_check_only_report_json_lists_gates_and_pending_manual_gates(
         "open-source publication docs": "listed",
         "publication artifact hygiene": "listed",
         "source package hygiene": "listed",
-        "PyInstaller check-only": "listed",
         "root artifact hygiene": "listed",
     }
     assert report["gates"][0]["command"] == ["uv", "run", "pytest", "--cov", "-q"]
@@ -369,7 +345,6 @@ def test_successful_run_report_json_records_passed_gates(tmp_path: Path, monkeyp
         "open-source publication docs": ("passed", 0),
         "publication artifact hygiene": ("passed", 0),
         "source package hygiene": ("passed", 0),
-        "PyInstaller check-only": ("passed", 0),
         "root artifact hygiene": ("passed", 0),
     }
     assert calls == [gate.command for gate in release_gate_check.NON_AUDIO_COMMAND_GATES]
@@ -396,36 +371,6 @@ def test_failure_report_json_is_written_before_nonzero_return(tmp_path: Path, mo
     assert report["manual_gates"][0] == {"name": "real Mixed In Key audio QA", "status": expected_mik_status}
 
 
-def test_include_packaging_build_report_json_includes_optional_gate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(release_gate_check.subprocess, "run", fake_run)
-    monkeypatch.setattr(release_gate_check, "check_root_artifact_hygiene", lambda: None)
-    report_path = tmp_path / "release-gate-report.json"
-
-    assert release_gate_check.main(["--include-packaging-build", "--report-json", str(report_path)]) == 0
-
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["mode"] == "include-packaging-build"
-    assert report["overall_status"] == "passed"
-    assert report["gates"][-1] == {
-        "name": "packaging temp build + launch/warning triage",
-        "command": [
-            "uv",
-            "run",
-            "python",
-            "scripts/pyinstaller_build_smoke.py",
-            "--build-temp",
-            "--validate-launch",
-        ],
-        "status": "passed",
-        "return_code": 0,
-    }
-
-
 def test_release_docs_reference_non_audio_gate_runner_and_limits() -> None:
     docs = [
         RELEASE_READINESS_DOC.read_text(encoding="utf-8"),
@@ -443,7 +388,6 @@ def test_release_docs_reference_non_audio_gate_runner_and_limits() -> None:
         "uv run python scripts/release_gate_check.py --run --report-json /tmp/xfinaudio-release-gate-report.json"
         in readiness_text
     )
-    assert "uv run python scripts/release_gate_check.py --include-packaging-build" in readiness_text
     assert "does not require audio files" in readiness_text
     assert "cannot prove real Mixed In Key audio QA" in readiness_text
     assert "The equivalent individual commands are:" not in readiness_text

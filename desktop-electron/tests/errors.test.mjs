@@ -19,3 +19,10 @@ test('export conflicts and limits explain the safe next step without backend det
 test('Live failures explain readiness, stale source and eligible-choice recovery',()=>{
  for(const [code,expected] of [['live_not_ready',/lista.*sin avisos/],['stale_live',/guía.*cambió/],['invalid_live_choice',/sugerencias.*disponibles/]])assert.match(userErrorMessage(new Error(`[${code}] technical detail`)),expected);
 });
+test('improvement and oversize AI context failures explain the exact retry path',()=>{
+ for(const [code,expected] of [['invalid_improvement',/playlist actual/],['ai_context_too_large',/reduce la selección/i]]) {
+  const error=Object.assign(new Error('technical private details'),{code});
+  assert.equal(errorCode(error),code);assert.match(userErrorMessage(error),expected);assert.doesNotMatch(userErrorMessage(error),/technical|private|\[[a-z_]+\]/);
+ }
+ assert.notEqual(userErrorMessage({code:'invalid_improvement'}),userErrorMessage({code:'ai_context_too_large'}));
+});

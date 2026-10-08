@@ -95,18 +95,18 @@ Update `status`, `updated`, and the current phase after every session.
 
 ## Verification commands
 
-Run these in order before declaring any task or change complete:
+Run the gate before declaring any task or change complete:
 
 ```bash
-uv run pytest -q
-uv run pyright src tests
-uv run pytest --cov --cov-fail-under=70 -q
-uv run ruff check .
-uv run ruff format --check .
 uv run python scripts/release_gate_check.py --run
 ```
 
-For focused work, run the smallest relevant `pytest` target first, then the full suite.
+The gate already runs pytest with coverage, Pyright, `ruff check` and `ruff format --check`, so
+running those separately only repeats work. The coverage floor lives in `pyproject.toml`
+(`[tool.coverage.report] fail_under`) and nowhere else — never pass `--cov-fail-under` on a
+command line, because that flag overrides the configured floor.
+
+For focused work, run the smallest relevant `pytest` target first, then the full gate.
 
 ## Definition of done for a change
 

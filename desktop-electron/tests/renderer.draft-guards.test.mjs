@@ -52,7 +52,7 @@ const guardLine = mainSource.split('\n').find(line => line.includes("if(draftDir
 assert.ok(guardLine, 'main loudness draft guard must be represented by this fixture');
 const enforceMainGuard = new Function('draftDirty', 'method', guardLine);
 const prepSnapshot = patch => ({revision:'a'.repeat(64), requiredTrackIds:[], excludedTrackIds:[], genreFocus:'', unavailableRequiredCount:0, unavailableExcludedCount:0, ...patch});
-const aiSnapshot = patch => ({revision:'a'.repeat(64), enabled:false, provider:'nan', credentialLabel:null, configured:false, recipient:'https://api.nan.builders/v1/chat/completions', ...patch});
+const aiSnapshot = patch => ({revision:'a'.repeat(64), enabled:false, provider:'nan', autoAuthorize: false, credentialLabel:null, configured:false, recipient:'https://api.nan.builders/v1/chat/completions', ...patch});
 async function guardedFixture(previewWait) {
   let dirty = false; const boundary = []; const core = []; let confirms = 0;
   const host = new LoudnessHost({isClosing:()=>false, cancel:async()=>({cancelled:false}), confirm:async()=>{confirms++;return false;}, request:async(method,input)=>{
@@ -71,7 +71,7 @@ async function guardedFixture(previewWait) {
     getProfileSettings:async()=>({revision:'a'.repeat(64),spectralCohesion:.5}), saveProfileSettings:async input=>({...input,revision:'b'.repeat(64)}),
     prepSettings:async()=>prepSnapshot(), savePrepSettings:async input=>prepSnapshot({...input,revision:'b'.repeat(64)}),
     getAiStatus:async()=>aiSnapshot(), saveAiSettings:async input=>aiSnapshot({...input,revision:'b'.repeat(64)}),
-    chooseAiCredential:async()=>aiSnapshot(),clearAiCredential:async()=>aiSnapshot(),prepareAiRequest:async()=>{throw Error('Provider forbidden');},runAiRequest:async()=>{throw Error('Provider forbidden');},applyAiSuggestion:async()=>{throw Error('Provider forbidden');},
+    chooseAiCredential:async()=>aiSnapshot(),clearAiCredential:async()=>aiSnapshot(),prepareAiRequest:async()=>{throw Error('Provider forbidden');},inspectAiPayload:async()=>{throw Error('Provider forbidden');},runAiRequest:async()=>{throw Error('Provider forbidden');},applyAiSuggestion:async()=>{throw Error('Provider forbidden');},
   });
   return {...f,boundary,core,dirty:()=>dirty,confirms:()=>confirms};
 }

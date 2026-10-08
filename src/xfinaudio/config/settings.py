@@ -83,6 +83,9 @@ class AiSettings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     enabled: bool = False
+    # Persisted per-user consent: when true, AI requests skip the per-request
+    # confirmation dialog. Opt-in and revocable from the AI settings panel.
+    auto_authorize: bool = False
     provider: Literal["nan"] = "nan"
     env_file: Path | None = None
 

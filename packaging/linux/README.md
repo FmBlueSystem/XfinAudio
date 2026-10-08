@@ -20,7 +20,12 @@ host limitation. A frozen-core smoke is not a graphical launch test.
 
 - Electron 44.5.1 from the existing npm lock; TypeScript UI built locally
 - Python runtime dependencies from `desktop-electron/requirements-headless.txt`
-- Freezer toolchain from `requirements-build.txt`, installed with `--require-hashes`
+- Freezer toolchain from `requirements-build.txt`, installed with `--require-hashes`.
+  Regenerate it with `uv pip compile --generate-hashes --python-platform linux
+  requirements-build.in -o requirements-build.txt`; the platform flag is what keeps the
+  Darwin-only `macholib` pin out of this lock, and
+  `tests/test_headless_requirements_lock_drift.py` fails if the compiled file stops
+  matching `desktop-electron/requirements-headless.txt`
 - FFmpeg 7.1.1 from `ffmpeg-source.json` (official HTTPS source and pinned SHA256)
 - `ffmpeg-configure.args` uses static FFmpeg libraries, no networking/external codec
   libraries, required AIFF/FLAC/MP3/M4A/WAV decoders and true-peak EBU R128; raw PCM

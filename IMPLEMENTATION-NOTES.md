@@ -1,5 +1,10 @@
 # Implementation Notes
 
+> **Historical (PySide6/Qt era):** these notes record the loudness work delivered
+> on the Qt desktop, which was removed in `4e31a3a`. The loudness module itself
+> survives in `src/xfinaudio/audio/`; the Qt screens, table models and test names
+> below no longer exist. Treat this file as evidence, not as instructions.
+
 ## add-loudness-module WU1a
 
 - The minimum loudness duration is **3.0 seconds**. EBU R128 short-term loudness uses a

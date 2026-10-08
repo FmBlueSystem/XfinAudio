@@ -10,12 +10,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from xfinaudio.ai.nan_client import DEFAULT_ENDPOINT, Transport
+from xfinaudio.ai.nan_client import DEFAULT_ENDPOINT, Transport, request_context
 from xfinaudio.config.settings import AiSettings
 from xfinaudio.headless.ai_context import AssistContext, build_context
 from xfinaudio.headless.ai_execution import apply_context, execute_context
 from xfinaudio.headless.ai_protocol import AI_FIELDS
-from xfinaudio.headless.ai_transport import CredentialBinding, bind_credential, provider_request
+from xfinaudio.headless.ai_transport import (
+    MAX_REQUEST_BYTES,
+    CredentialBinding,
+    bind_credential,
+    provider_request,
+)
 from xfinaudio.headless.common import BackendError
 from xfinaudio.library.scan_service import ScanCancellationToken
 
@@ -46,7 +51,52 @@ class _Pending:
 @dataclass(frozen=True)
 class _Completed:
     reference: _Reference
+    context: AssistContext
     answer: dict[str, Any]
+
+
+# The exact body a confirmed request would carry may be inspected, never re-sent. It is
+# bounded by the same outbound cap the transport enforces, so the preview can never claim
+# more than one sendable request would.
+MAX_PAYLOAD_PREVIEW_BYTES = MAX_REQUEST_BYTES
+# The preview builds a real request object and aborts before the transport transfers it. The
+# discardable header filler is never a credential: no key provider, binding, or file is read.
+_UNUSED_PREVIEW_KEY = "preview-only-no-credential-is-read"
+
+
+class _PayloadPreviewed(Exception):
+    """Private abort raised once one provider body has been built and captured."""
+
+
+def _serialized_body(context: AssistContext) -> bytes:
+    """Build the exact provider body for ``context`` with no network, key, or credential access.
+
+    The surface builders run unchanged through the ordinary execution path with a capture
+    transport, so the preview is the provider's real body rather than a re-derived copy. The
+    captured request object is discarded: only its JSON body leaves this function, never the
+    authorization header.
+    """
+    captured: list[bytes] = []
+
+    def capture(request: Any, *, timeout: float) -> Any:
+        data = getattr(request, "data", None)
+        if not isinstance(data, bytes):
+            raise BackendError("ai_unavailable", "The retained request could not be previewed")
+        captured.append(data)
+        raise _PayloadPreviewed
+
+    try:
+        with request_context(enabled=True, key_provider=lambda: _UNUSED_PREVIEW_KEY):
+            execute_context(context, capture)
+    except _PayloadPreviewed:
+        pass
+    except BackendError:
+        raise
+    except Exception:
+        raise BackendError("ai_unavailable", "The retained request could not be previewed") from None
+    if not captured:
+        raise BackendError("ai_unavailable", "The retained request could not be previewed")
+    return captured[0]
 
 
 def _identity(value: Any) -> str:
@@ -81,7 +131,11 @@ class OptionalAI:
             # New or malformed input immediately revokes older consent/results and
             # prevents an already-running request from publishing into this scope.
             self.invalidate()
-        if not isinstance(params, dict) or set(params) != AI_FIELDS[method]:
+        # Fail-closed shapes: no unknown keys, and every required key present.
+        # Only autoAuthorize (ai.settings.update) is optional, so older callers
+        # that only send revision/enabled keep working.
+        required = AI_FIELDS[method] - {"autoAuthorize"}
+        if not isinstance(params, dict) or not set(params) <= AI_FIELDS[method] or not required <= set(params):
             raise BackendError("invalid_params", "Missing or unexpected optional assistance fields")
         try:
             if method == "ai.status":
@@ -102,26 +156,34 @@ class OptionalAI:
             if method == "ai.prepare":
                 preview = self._prepare(params)
                 assert self.preview is not None
-                # Identical normalized requests may retain the bounded history;
-                # a different request, surface, scope or configuration may not.
-                self.results.update(
-                    (result_id, completed)
-                    for result_id, completed in previous_results.items()
-                    if completed.reference == self.preview.reference
-                )
+                # Identical normalized requests may retain the bounded history for the
+                # original surfaces. An improvement request is request-scoped: each
+                # prepare allocates a fresh token snapshot, so an earlier improvement
+                # result must never be revived even when the reference matches.
+                if "candidates" not in self.preview.context.data:
+                    self.results.update(
+                        (result_id, completed)
+                        for result_id, completed in previous_results.items()
+                        if completed.reference == self.preview.reference
+                    )
                 return preview
             if method == "ai.confirmation":
                 pending = self._pending(params["previewId"])
                 self._fresh(pending.reference)
                 return self._public_preview(pending)
+            if method == "ai.payload":
+                return self.inspect_payload(params)
             if method == "ai.run":
                 return self._run(params, token, emit)
             result_id = _identity(params["resultId"])
             completed = self.results.get(result_id)
             if completed is None:
                 raise BackendError("stale_ai", "Request a current assistance result before applying")
-            context = self._fresh(completed.reference)
-            return apply_context(self.backend, context, copy.deepcopy(completed.answer))
+            # Freshness re-checks the stable revision only. Apply keeps the prepare-time
+            # context, so the request-scoped improvement token snapshot survives the
+            # recomputation that `_fresh` performs.
+            self._fresh(completed.reference)
+            return apply_context(self.backend, completed.context, copy.deepcopy(completed.answer))
         except BackendError:
             raise
         except Exception:
@@ -158,6 +220,30 @@ class OptionalAI:
             disclosure = (*disclosure, f"Credencial seleccionada: {public['credentialLabel']}")
         self.preview = _Pending(str(uuid4()), reference, context, disclosure, self._epoch)
         return self._public_preview(self.preview)
+
+    def inspect_payload(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Return the exact retained request body for the current preview, without sending it.
+
+        Read-only and side-effect free: it re-validates freshness through the same path as
+        ``ai.confirmation``, then serializes the retained pending context. It never reads a
+        credential, never opens a socket, and never publishes a result, so the bounded
+        pending state survives the inspection unchanged. ``bytes`` is the exact outbound
+        length; ``body`` is truncated to the transport cap and flagged when it exceeds it.
+        """
+        pending = self._pending(params["previewId"])
+        self._fresh(pending.reference)
+        body = _serialized_body(pending.context)
+        truncated = len(body) > MAX_PAYLOAD_PREVIEW_BYTES
+        text = body[:MAX_PAYLOAD_PREVIEW_BYTES].decode("utf-8", errors="ignore") if truncated else body.decode("utf-8")
+        return {
+            "previewId": pending.id,
+            "surface": pending.context.surface,
+            "recipient": DEFAULT_ENDPOINT,
+            "request": pending.context.request,
+            "body": text,
+            "bytes": len(body),
+            "truncated": truncated,
+        }
 
     @staticmethod
     def _public_preview(pending: _Pending) -> dict[str, Any]:
@@ -243,7 +329,7 @@ class OptionalAI:
         if token.is_cancelled:
             return cancelled
         result_id = str(uuid4())
-        self.results[result_id] = _Completed(pending.reference, copy.deepcopy(answer))
+        self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(answer))
         while len(self.results) > 16:
             self.results.pop(next(iter(self.results)))
         return {"cancelled": False, "result": {"resultId": result_id, **copy.deepcopy(answer)}}

@@ -1,4 +1,5 @@
-import {app,BrowserWindow,dialog,ipcMain,protocol,session,shell} from 'electron';
+import {app,BrowserWindow,dialog,ipcMain,protocol,session,shell} from './electron-shim';
+import type {BrowserWindow as BrowserWindowType} from 'electron';
 import path from 'node:path';
 import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
@@ -11,6 +12,7 @@ import {CloseFlow} from './close-flow';
 import {SeratoHost} from './serato-host';
 import {revealLoudnessBackups} from './loudness-backups';
 import {OptionalAiHost} from './optional-ai-host';
+import {assertDispatchable,INLINE_CORE_METHODS} from './ipc-reads';
 import {LoudnessHost} from './loudness-host';
 import {LegacyImportHost} from './legacy-import-host';
 import {OfflineHost} from './offline-host';
@@ -26,7 +28,7 @@ protocol.registerSchemesAsPrivileged([
   {scheme:'xfin-app',privileges:{standard:true,secure:true,supportFetchAPI:true}},
   {scheme:'xfin-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}},
 ]);
-let window:BrowserWindow|null=null;
+let window:BrowserWindowType|null=null;
 let core:PythonBridge;
 let current:{id:string;method:string}|null=null;
 let draftDirty=false;
@@ -73,8 +75,17 @@ const optionalAi=new OptionalAiHost({
   choose:async()=>{const result=await dialog.showOpenDialog(window!,{title:'Selecciona el archivo de credenciales de Nan Builders (no se leerá hasta una petición confirmada)',properties:['openFile','showHiddenFiles']});return result.canceled||result.filePaths.length!==1?null:result.filePaths[0];},
   confirm:async summary=>{
     const detail=[`Destinatario: ${summary.recipient}`,...summary.disclosure,summary.requestPreview,'La petición puede generar consumo en tu proveedor. Cancelar después del envío descarta la respuesta; no puede recuperar los datos ya enviados.'].filter(Boolean).join('\n\n');
-    const result=await dialog.showMessageBox(window!,{type:'warning',title:'Confirmar solicitud opcional a Nan Builders',message:'¿Enviar solo esta solicitud?',detail,buttons:['Cancelar','Enviar esta solicitud'],defaultId:0,cancelId:0,noLink:true});return result.response===1;
+    const result=await dialog.showMessageBox(window!,{type:'warning',title:'Confirmar solicitud opcional a Nan Builders',message:'¿Enviar solo esta solicitud?',detail,buttons:['Cancelar','Enviar esta solicitud'],checkboxLabel:'No volver a preguntar en cada consulta (activa la IA; puedes revertirlo en Ajustes)',defaultId:0,cancelId:0,noLink:true});
+    if(result.response!==1)return false;
+    if(result.checkboxChecked){
+      // Best-effort persistence of the explicit opt-out chosen in the dialog.
+      // A stale revision only means Ajustes must save it again; the current
+      // confirmed send proceeds either way.
+      try{const status=await run('ai.status',{});await run('ai.settings.update',{revision:status.revision,enabled:true,autoAuthorize:true});}catch{/* Ajustes remains the reliable path. */}
+    }
+    return true;
   },
+  autoAuthorize:async()=>{try{const status=await run('ai.status',{});return status.autoAuthorize===true;}catch{return false;}},
   cancel:()=>current?.method==='ai.run'?core.request('cancel',{jobId:current.id}):Promise.resolve({cancelled:false}),
   isClosing:()=>closeFlow.isClosing,
 });
@@ -94,14 +105,20 @@ const profiles=new ProfilesHost({request:run,cancel:()=>current?.method==='profi
 const editSnapshot=(value:any)=>({...value,id:String(value.id)});
 const summaries=(items:any[])=>items.map(item=>({id:String(item.id),name:item.name,trackCount:item.trackCount,createdAt:item.updatedAt}));
 async function run(method:string,params:Record<string,unknown>={}) {
-  if(current)throw new Error('Another task is still running');
+  if(current){
+    // The core answers genuinely read-only queries inline; anything else would need
+    // the slot the running job owns, so it keeps the exact exclusive refusal.
+    // The reviewed inline set is the only path that may reach the core during a job.
+    if(INLINE_CORE_METHODS.has(method))return core.request(method,params);
+    throw new Error('Another task is still running');
+  }
   const id=randomUUID();current={id,method};
   window?.webContents.send('xfin:progress',{jobId:id,operation:method,phase:'started',message:'Procesando…'});
   try{return await core.request(method,params,id);}finally{if(current?.id===id)current=null;}
 }
 async function action(method:string,raw:unknown) {
   const params=validateRequest(method,raw);
-  if((legacy.busy||offline.busy||profiles.busy||serato.busy||optionalAi.busy||loudness.busy||libraryHost.busy||dialogOpen||current)&&!['setDraftDirty','cancelCurrent','getLibraryStatus'].includes(method))throw new Error('[busy] Another task is still running');
+  assertDispatchable(method,{legacy:legacy.busy,offline:offline.busy,profiles:profiles.busy,serato:serato.busy,optionalAi:optionalAi.busy,loudness:loudness.busy,library:libraryHost.busy,dialog:dialogOpen,job:current!==null});
   if(legacy.restartRequired&&method!=='setDraftDirty')throw new Error('[legacy_restart_required] Restart required after import');
   if(closeFlow.isClosing&&method!=='setDraftDirty')throw new Error('La aplicación se está cerrando');
   if(draftDirty&&method==='deletePlaylist')throw new Error('[dirty_saved_draft] Save or discard drafts before deletion');
@@ -131,6 +148,7 @@ async function action(method:string,raw:unknown) {
     case 'chooseAiCredential':return optionalAi.choose(params);
     case 'clearAiCredential':return run('ai.credential.set',{revision:params.revision,path:null});
     case 'prepareAiRequest':return optionalAi.prepare(params);
+    case 'inspectAiPayload':return run('ai.payload',params);
     case 'runAiRequest':return optionalAi.ask(params.previewId as string);
     case 'applyAiSuggestion':return run('ai.apply',params);
     case 'revealLoudnessBackups':return revealLoudnessBackups(dataDir,filename=>shell.showItemInFolder(filename));
@@ -156,6 +174,7 @@ async function action(method:string,raw:unknown) {
     case 'openPlaylistEditor':return editSnapshot(await run('playlist.edit.open',{playlistId:Number(params.playlistId)}));
     case 'previewPlaylistEdit':return run('playlist.edit.preview',params);
     case 'savePlaylistEdit':return editSnapshot(await run('playlist.edit.save',params));
+    case 'savePlaylistImprovement':return editSnapshot(await run('playlist.edit.save_improvement',params));
     case 'discardPlaylistEdit':return editSnapshot(await run('playlist.edit.discard',params));
     case 'chooseLibrary': {
       if(dialogOpen||current)throw new Error('Another task is still running');
@@ -178,6 +197,7 @@ async function action(method:string,raw:unknown) {
       return {...result,savedPlaylistId:String(result.id),reviewId:'',variant:'saved',canSave:false,warnings:result.missingTrackCount?[`${result.missingTrackCount} pistas no disponibles`]:[],blockers:[],readiness:'needs_review'};
     }
     case 'cancelCurrent':if(profiles.busy)return profiles.cancel();if(optionalAi.asking)return optionalAi.cancel();if(loudness.busy)return loudness.cancel();return current&&['library.scan','library.rescan','prep.generate','prep.select'].includes(current.method)?core.request('cancel',{jobId:current.id}):{cancelled:false};
+    default:throw new Error('Unsupported action');
   }
 }
 async function start() {

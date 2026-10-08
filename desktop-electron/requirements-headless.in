@@ -1,6 +1,0 @@
-# Qt-free runtime including original read-only audio profiles. Legacy Qt dependencies stay separate.
-mutagen>=1.47,<2.0
-pydantic>=2.0,<3.0
-numpy>=1.24,<3.0
-# Original read-only spectral, danceability and edge analyzers.
-librosa>=0.10,<0.12

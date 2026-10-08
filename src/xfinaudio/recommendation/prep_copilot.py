@@ -237,7 +237,7 @@ def _build_variant(
             if any(warning.startswith("No tracks match genre focus") for warning in variant_warnings)
             else _genre_filter_pool_note(name, intent, incoming_count, len(variant_tracks))
         ),
-        *(warning for warning in recommendation.warnings if "Dropped" in warning and "BPM jump" in warning),
+        *(warning for warning in recommendation.warnings if "Se descartaron" in warning and "BPM vecinos" in warning),
     ]
     warnings = [*variant_warnings, *recommendation.warnings]
     near_empty_warning = _near_empty_pool_warning(
@@ -363,20 +363,20 @@ def _add_required_track_gate(
         checks = [
             *readiness.checks,
             DjReadinessCheck(
-                label="Required tracks",
+                label="Pistas obligatorias",
                 status="ready",
                 detail="All required tracks are present in the playlist variant",
             ),
         ]
     else:
         missing_check = DjReadinessCheck(
-            label="Required tracks",
+            label="Pistas obligatorias",
             status="blocked",
             detail=f"{missing_required_count} required track(s) could not pass playlist gates",
         )
         if any("BPM jump" in warning or "BPM ceiling" in warning for warning in recommendation.warnings):
             bpm_check = DjReadinessCheck(
-                label="BPM continuity",
+                label="Continuidad de BPM",
                 status="blocked",
                 detail="A required transition cannot satisfy the adjacent BPM gate",
             )

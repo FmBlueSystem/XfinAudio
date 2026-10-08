@@ -125,10 +125,10 @@ def make_recommendation(tracks: list[TrackRecord] | None = None) -> PlaylistReco
 def make_readiness() -> DjReadinessReport:
     return DjReadinessReport(
         status="needs_review",
-        summary="Needs Review — 0 blocker(s), 2 review item(s); max BPM jump 5.08%",
+        summary="Needs Review — 0 blocker(s), 2 review item(s); salto máx. de BPM 5.08%",
         checks=[
             DjReadinessCheck(label="Metadata", status="needs_review", detail="Two tracks miss energy"),
-            DjReadinessCheck(label="Playlist size", status="ready", detail="Three tracks is a full set"),
+            DjReadinessCheck(label="Tamaño de la lista", status="ready", detail="Three tracks is a full set"),
         ],
         blocker_count=0,
         review_count=2,

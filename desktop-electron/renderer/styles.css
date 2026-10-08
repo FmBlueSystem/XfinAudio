@@ -42,6 +42,8 @@ h2 { margin: 8px 0; font-size: 25px; font-weight: 560; letter-spacing: -.8px; }
 .button { display: inline-flex; justify-content: center; align-items: center; gap: 13px; border-radius: 6px; border: 1px solid #393d43; padding: 11px 15px; white-space: nowrap; font-size: 11px; font-weight: 650; min-height: 39px; }
 .button.primary { background: var(--cyan); color: #102622; border-color: var(--cyan); }
 .button.primary:hover:not(:disabled) { background: #80efe5; border-color: #80efe5; }
+.button.primary:disabled { background: #23272d; border-color: #343a42; color: #6d7885; opacity: 1; }
+
 .button.subtle { background: #22252b; color: #d4d9df; }
 .button.subtle:hover:not(:disabled) { background: #30343b; }
 .full-width { width: 100%; }
@@ -118,6 +120,10 @@ h3 { font-weight: 550; font-size: 18px; letter-spacing: -.35px; }
 .readiness-pill.needs_review { background: #473e2c; color: #d9c59b; }.readiness-pill.blocked { background: #492e32; color: #e3a8b0; }
 .review-notice { border: 1px solid #594b31; background: #29251e; border-radius: 6px; padding: 14px 18px; margin-bottom: 16px; color: #cbbc9f; font-size: 11px; line-height: 1.7; }
 .review-notice ul { margin: 8px 0 0; padding-left: 19px; }.review-notice.blocker { border-color: #633b42; background: #2c1f24; color: #d4a0a8; }
+.library-recovery { display: flex; align-items: center; gap: 18px; margin-top: 16px; }
+.library-window { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 0 16px 16px; }
+.library-window .field-hint { margin: 0; }
+.library-recovery .status-copy { flex: 1; }.library-recovery .status-copy strong { color: #e9bac3; }.library-recovery .status-copy span { color: #d0a3ad; white-space: normal; }
 #review-table { max-height: calc(100vh - 445px); }
 .save-bar { display: flex; align-items: center; gap: 18px; padding: 19px; margin-top: 19px; }
 .save-bar > div { min-width: 170px; flex: 1; }.save-bar label { display: block; margin-bottom: 8px; font-size: 10px; color: #a2abb6; }.save-bar input { width: 100%; }.save-bar p { flex: 1; color: #8693a0; font-size: 10px; line-height: 1.7; max-width: 230px; }.save-bar button { align-self: flex-end; }

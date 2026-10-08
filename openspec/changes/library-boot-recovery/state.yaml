@@ -1,0 +1,26 @@
+schema: gentle-ai.sdd-state.v1
+change: library-boot-recovery
+artifact_store: openspec
+status: verify
+created: 2026-10-03
+updated: 2026-10-03
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: pending
+next_recommended: verify
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - ODD work unit 1 (recovery) and work unit 2 (bounded first paint) are implemented; the sealed QA artifact stays in work unit 3.
+  - Unit 2 RED: 25/27 focused renderer tests passed with 2 expected failures; GREEN: 27/27 passed, 0 failed.
+  - Focused regression: 434 Electron tests, 423 passed, 0 failed, 11 pre-existing skips; the parent owns the full repository gate.
+  - A source fake-DOM test never proves the real Electron launch or the owner's empty-GUI cause.

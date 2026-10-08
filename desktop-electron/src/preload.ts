@@ -1,3 +1,6 @@
+// Sandboxed preloads (sandbox: true) can only require the electron built-in;
+// a relative require throws before exposeInMainWorld runs. The launch guard
+// lives in the unsandboxed main process via ./electron-shim.
 import {contextBridge,ipcRenderer} from 'electron';
 const invoke = (method:string,params?:unknown)=>ipcRenderer.invoke('xfin:action',method,params);
 contextBridge.exposeInMainWorld('xfin',Object.freeze({
@@ -10,7 +13,7 @@ contextBridge.exposeInMainWorld('xfin',Object.freeze({
   getProfileSettings:()=>invoke('getProfileSettings'),saveProfileSettings:(params:unknown)=>invoke('saveProfileSettings',params),
   getAiStatus:()=>invoke('getAiStatus'),saveAiSettings:(params:unknown)=>invoke('saveAiSettings',params),
   chooseAiCredential:(params:unknown)=>invoke('chooseAiCredential',params),clearAiCredential:(params:unknown)=>invoke('clearAiCredential',params),
-  prepareAiRequest:(params:unknown)=>invoke('prepareAiRequest',params),runAiRequest:(params:unknown)=>invoke('runAiRequest',params),applyAiSuggestion:(params:unknown)=>invoke('applyAiSuggestion',params),
+  prepareAiRequest:(params:unknown)=>invoke('prepareAiRequest',params),inspectAiPayload:(params:unknown)=>invoke('inspectAiPayload',params),runAiRequest:(params:unknown)=>invoke('runAiRequest',params),applyAiSuggestion:(params:unknown)=>invoke('applyAiSuggestion',params),
   revealLoudnessBackups:()=>invoke('revealLoudnessBackups'),
   getLoudnessStatus:()=>invoke('getLoudnessStatus'),saveLoudnessSettings:(params:unknown)=>invoke('saveLoudnessSettings',params),
   previewLoudness:(params:unknown)=>invoke('previewLoudness',params),runLoudness:(params:unknown)=>invoke('runLoudness',params),
@@ -31,7 +34,7 @@ contextBridge.exposeInMainWorld('xfin',Object.freeze({
   generatePrep:(params:unknown)=>invoke('generatePrep',params),savePlaylist:(params:unknown)=>invoke('savePlaylist',params),
   renamePlaylist:(params:unknown)=>invoke('renamePlaylist',params),duplicatePlaylist:(params:unknown)=>invoke('duplicatePlaylist',params),
   openPlaylistEditor:(params:unknown)=>invoke('openPlaylistEditor',params),previewPlaylistEdit:(params:unknown)=>invoke('previewPlaylistEdit',params),
-  savePlaylistEdit:(params:unknown)=>invoke('savePlaylistEdit',params),discardPlaylistEdit:(params:unknown)=>invoke('discardPlaylistEdit',params),
+  savePlaylistEdit:(params:unknown)=>invoke('savePlaylistEdit',params),savePlaylistImprovement:(params:unknown)=>invoke('savePlaylistImprovement',params),discardPlaylistEdit:(params:unknown)=>invoke('discardPlaylistEdit',params),
   setDraftDirty:(dirty:boolean)=>invoke('setDraftDirty',{dirty}),
   listPlaylists:()=>invoke('listPlaylists'),openPlaylist:(params:unknown)=>invoke('openPlaylist',params),
   cancelCurrent:()=>invoke('cancelCurrent'),

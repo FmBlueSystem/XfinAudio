@@ -71,7 +71,7 @@ def test_open_source_license_doc_states_model_and_legal_caveats() -> None:
     assert "XfinAudio source is distributed as a full open-source project under GPL-3.0-only" in doc
     assert "Redistribution must comply with GPLv3" in doc
     assert "No legal advice or legal clearance is implied" in doc
-    assert "PySide6/Qt" in doc
+    assert "Qt/PySide6 is no longer a dependency of XfinAudio" in doc
     assert "mutagen" in doc
     assert "third-party dependencies" in doc
     assert "binary" in doc.lower()
@@ -91,7 +91,7 @@ def test_key_docs_keep_binary_dependency_review_pending_without_clearance_claims
     combined = "\n".join(read(path) for path in KEY_DOCS)
 
     assert "GPL-3.0-only" in combined
-    assert "PySide6/Qt" in combined
+    assert "Qt/PySide6 is no longer a dependency of XfinAudio" in combined
     assert "mutagen" in combined
     assert "binary" in combined.lower()
     assert "legal review" in combined.lower()
@@ -150,7 +150,7 @@ def test_legacy_posture_docs_are_updated_for_full_gplv3_open_source_release() ->
 
     assert "GPL-3.0-only" in combined
     assert "full open-source" in normalized
-    assert "PySide6/Qt" in combined
+    assert "Qt/PySide6 is no longer a dependency of XfinAudio" in combined
     assert "mutagen" in combined
     assert "third-party dependencies" in normalized
     assert "binary" in normalized

@@ -4,13 +4,24 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from xfinaudio.application.playlist_edit_assessment import assess_playlist_edit
 from xfinaudio.application.playlist_edit_intents import propose_edit, validate_edit
+from xfinaudio.application.playlist_improvement import (
+    MAX_DRAFT_TRACKS,
+    MIN_IMPROVEMENT_TRACKS,
+    ImprovementCandidateSet,
+    ImprovementError,
+    ImprovementProposal,
+    build_candidate_set,
+    build_improvement_proposal,
+    draft_fingerprint,
+    validate_improvement_proposal,
+)
 from xfinaudio.headless.common import BackendError, _inside, _public_track, _text
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_models import Playlist
@@ -24,6 +35,8 @@ EDIT_FIELDS = {
     "playlist.edit.open": {"playlistId"},
     "playlist.edit.preview": {"editId", "trackIds", "request"},
     "playlist.edit.save": {"editId", "name", "trackIds"},
+    # No raw path list: the ordered paths come only from the locally bound proposal.
+    "playlist.edit.save_improvement": {"editId", "name", "proposalId", "digest", "draftIds"},
     "playlist.edit.discard": {"editId"},
 }
 
@@ -51,6 +64,7 @@ class EditSession:
     original: Playlist
     revision: str
     paths_by_id: dict[str, str]
+    proposal: ImprovementProposal | None = None
 
 
 class PlaylistEditor:
@@ -138,6 +152,114 @@ class PlaylistEditor:
         return paths
 
     @staticmethod
+    def _draft_id_list(value: Any) -> list[str]:
+        """Validate the bounded, unique 64-hex identity list the renderer sends for a draft order."""
+        if (
+            not isinstance(value, list)
+            or not MIN_IMPROVEMENT_TRACKS <= len(value) <= MAX_DRAFT_TRACKS
+            or any(not isinstance(item, str) or len(item) != 64 for item in value)
+        ):
+            raise BackendError(
+                "invalid_params",
+                f"Provide between {MIN_IMPROVEMENT_TRACKS} and {MAX_DRAFT_TRACKS} valid track identities",
+            )
+        if len(set(value)) != len(value):
+            raise BackendError("invalid_edit", "The draft repeats a track")
+        return value
+
+    @classmethod
+    def _draft_paths(cls, session: EditSession, value: Any) -> list[str]:
+        """Resolve a renderer draft order through the open session, rejecting unknown ids."""
+        draft_ids = cls._draft_id_list(value)
+        try:
+            return [session.paths_by_id[item] for item in draft_ids]
+        except KeyError as exc:
+            raise BackendError("invalid_edit", "A draft cannot add unknown or duplicate tracks.") from exc
+
+    def improvement_candidates(
+        self, edit_id: Any, draft_ids: Any, *, include_replacements: bool = False
+    ) -> ImprovementCandidateSet:
+        """Build the request-scoped authorized candidate set locally, after opt-in selection.
+
+        This is a trusted local collaborator for the AI boundary, not an IPC method: no
+        command in :data:`EDIT_FIELDS` exposes it, so a caller can never supply its own
+        candidate list or invent authority the local state did not grant.
+        """
+        session = self._current(edit_id)
+        draft_paths = self._draft_paths(session, draft_ids)
+        try:
+            return build_candidate_set(draft_paths, self.backend._records(), include_replacements=include_replacements)
+        except ImprovementError as exc:
+            raise BackendError(exc.code, str(exc)) from exc
+
+    def bind_improvement_proposal(
+        self, edit_id: Any, candidate_set: ImprovementCandidateSet, ordered_tokens: Any, *, draft_ids: Any
+    ) -> ImprovementProposal:
+        """Bind a validated token order to this session, draft order, revision, and digest.
+
+        The candidate set must have been built from exactly the supplied renderer draft
+        order, and every resolved path must already be known locally. The bound proposal
+        is the only route by which an addition may be saved, and only
+        ``playlist.edit.save_improvement`` consumes it.
+        """
+        session = self._current(edit_id)
+        draft_paths = self._draft_paths(session, draft_ids)
+        source_paths = tuple(candidate_set.paths_by_token[token] for token in candidate_set.draft_tokens)
+        if source_paths != tuple(draft_paths):
+            raise BackendError("stale_edit", "The draft changed; rebuild the improvement candidates")
+        known = set(session.original.track_paths) | {record.path for record in self.backend._records()}
+        authorized_paths = list(candidate_set.paths_by_token.values())
+        if len(authorized_paths) != len(set(authorized_paths)):
+            raise BackendError("invalid_edit", "The improvement candidate set repeats a track")
+        if not set(authorized_paths) <= known:
+            raise BackendError("invalid_edit", "The improvement proposal references a track outside the library")
+        try:
+            proposal = build_improvement_proposal(
+                edit_id=session.edit_id,
+                source_revision=session.revision,
+                before_paths=draft_paths,
+                candidate_set=candidate_set,
+                ordered_tokens=ordered_tokens,
+            )
+        except ImprovementError as exc:
+            raise BackendError(exc.code, str(exc)) from exc
+        self.session = replace(session, proposal=proposal)
+        return proposal
+
+    def _save_improvement(self, session: EditSession, params: dict[str, Any]) -> dict[str, Any]:
+        """Persist exactly the locally validated order behind its proposal binding.
+
+        The renderer sends no paths here. The applied draft order must still fingerprint
+        to the authorized order, and the stored order is re-validated from the bound
+        tokens before the atomic compare-and-update runs.
+        """
+        proposal = session.proposal
+        if proposal is None:
+            raise BackendError("invalid_edit", "No validated improvement proposal is bound to this draft")
+        if params.get("proposalId") != proposal.proposal_id or params.get("digest") != proposal.digest:
+            raise BackendError("invalid_edit", "This draft is not bound to the validated proposal")
+        draft_ids = self._draft_id_list(params.get("draftIds"))
+        if draft_fingerprint(proposal.edit_id, proposal.source_revision, draft_ids) != proposal.draft_fingerprint:
+            raise BackendError("stale_edit", "The draft changed; re-apply the validated improvement before saving")
+        try:
+            resolved = validate_improvement_proposal(
+                proposal.source_tokens, proposal.candidates_by_token, proposal.order_tokens
+            )
+        except ImprovementError as exc:
+            raise BackendError(exc.code, str(exc)) from exc
+        if tuple(resolved) != proposal.after_paths:
+            raise BackendError("invalid_edit", "The stored improvement proposal is inconsistent")
+        name = _text(params.get("name"), "playlist name")
+        saved = self.backend.playlists.compare_and_update(
+            session.original, name=name, track_paths=list(proposal.after_paths)
+        )
+        if saved is None:
+            raise BackendError(
+                "stale_edit", "The saved playlist changed; discard this draft and reopen the current version"
+            )
+        return self._open(saved)
+
+    @staticmethod
     def _summary(playlist: Playlist) -> dict[str, Any]:
         return {
             "id": playlist.id,
@@ -162,6 +284,8 @@ class PlaylistEditor:
         session = self._current(params.get("editId"), require_revision=method != "playlist.edit.discard")
         if method == "playlist.edit.discard":
             return self._open(self._get(_playlist_id(session.original.id)))
+        if method == "playlist.edit.save_improvement":
+            return self._save_improvement(session, params)
         paths = self._paths(session, params.get("trackIds"))
         if method == "playlist.edit.save":
             name = _text(params.get("name"), "playlist name")

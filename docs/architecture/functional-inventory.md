@@ -1,5 +1,11 @@
 # XfinAudio Functional Inventory and Module Boundaries
 
+> **Historical (PySide6/Qt era):** this note was written against the Qt desktop,
+> which was removed in `4e31a3a`. The boundary intent still describes the core
+> (`recommendation`, `library`, `exporting`, `quality`, `metadata`, `audio`), but
+> every `xfinaudio.desktop` path and Qt screen it names no longer exists. See
+> `docs/architecture/README.md` for the live shape.
+
 This document groups XfinAudio features into independent modules and marks where business logic should live versus where PySide6 UI code should live. The goal is to make refactors and tests smaller: domain/application modules own decisions; `xfinaudio.desktop` renders state and forwards user intent.
 
 ## Quick path

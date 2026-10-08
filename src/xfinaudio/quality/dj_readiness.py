@@ -23,9 +23,9 @@ LOGGER = logging.getLogger(__name__)
 
 ReadinessStatus = Literal["ready", "needs_review", "blocked"]
 _STATUS_LABELS: dict[ReadinessStatus, str] = {
-    "ready": "Ready",
-    "needs_review": "Needs Review",
-    "blocked": "Blocked",
+    "ready": "Listo",
+    "needs_review": "Revisión recomendada",
+    "blocked": "Bloqueado",
 }
 _STATUS_RANK: dict[ReadinessStatus, int] = {"ready": 0, "needs_review": 1, "blocked": 2}
 
@@ -96,8 +96,8 @@ def build_dj_readiness_report(
     max_bpm_jump = _max_bpm_jump_percent(recommendation)
     summary = (
         f"{_STATUS_LABELS[status]} — "
-        f"{blocker_count} blocker(s), {review_count} review item(s); "
-        f"max BPM jump {max_bpm_jump:.2f}%"
+        f"{blocker_count} bloqueo(s), {review_count} aviso(s); "
+        f"salto máx. de BPM {max_bpm_jump:.2f}%"
     )
     return DjReadinessReport(
         status=status,
@@ -144,51 +144,51 @@ def validate_serato_round_trip(plan: SeratoExportPlan, *, volume_root: Path | No
     """Validate that a written Serato crate matches the plan and its track paths resolve on disk."""
     if not plan.target_path.exists():
         return DjReadinessCheck(
-            label="Serato round-trip",
+            label="Verificación Serato",
             status="blocked",
-            detail=f"Serato crate was not written: {plan.target_path}",
+            detail=f"No se escribió el crate de Serato: {plan.target_path}",
         )
     if not validate_serato_crate_file(plan):
         return DjReadinessCheck(
-            label="Serato round-trip",
+            label="Verificación Serato",
             status="blocked",
-            detail="Serato crate bytes do not match the planned export",
+            detail="Los bytes del crate de Serato no coinciden con la exportación planificada",
         )
 
     root = volume_root or plan.serato_root.parent
     unresolved = [relative_path for relative_path in plan.relative_paths if not (root / Path(relative_path)).exists()]
     if unresolved:
-        track_word = "track" if len(unresolved) == 1 else "tracks"
+        track_word = "pista" if len(unresolved) == 1 else "pistas"
         return DjReadinessCheck(
-            label="Serato round-trip",
+            label="Verificación Serato",
             status="blocked",
-            detail=f"{len(unresolved)} unresolved {track_word}; Serato may not load those files",
+            detail=f"{len(unresolved)} {track_word} sin resolver; Serato podría no cargar esos archivos",
         )
 
     return DjReadinessCheck(
-        label="Serato round-trip",
+        label="Verificación Serato",
         status="ready",
-        detail=f"Serato crate validates and {len(plan.relative_paths)} track(s) resolve on disk",
+        detail=f"El crate de Serato valida y {len(plan.relative_paths)} pista(s) existen en disco",
     )
 
 
 def format_dj_readiness_summary(report: DjReadinessReport) -> str:
     """Return a compact desktop label for a readiness report."""
-    return f"DJ Readiness: {report.summary}"
+    return f"Preparación DJ: {report.summary}"
 
 
 def _playlist_size_check(recommendation: PlaylistRecommendation) -> DjReadinessCheck:
     track_count = len(recommendation.ordered_tracks)
     if track_count < 2:
         return DjReadinessCheck(
-            label="Playlist size",
+            label="Tamaño de la lista",
             status="blocked",
-            detail="At least 2 tracks are required to validate a DJ transition",
+            detail="Se necesitan al menos 2 pistas para validar una transición de DJ",
         )
     return DjReadinessCheck(
-        label="Playlist size",
+        label="Tamaño de la lista",
         status="ready",
-        detail=f"{track_count} track(s) available for transition review",
+        detail=f"{track_count} pista(s) disponibles para revisión de transiciones",
     )
 
 
@@ -203,38 +203,41 @@ def _metadata_check(recommendation: PlaylistRecommendation) -> DjReadinessCheck:
     if incomplete or missing or absent_required_values:
         affected_paths = {track.path for track in [*incomplete, *missing, *absent_required_values]}
         return DjReadinessCheck(
-            label="Required metadata",
+            label="Metadatos requeridos",
             status="blocked",
-            detail=f"{len(affected_paths)} track(s) need BPM, key, or energy metadata",
+            detail=f"{len(affected_paths)} pista(s) necesita(n) metadatos de BPM, tonalidad o energía",
         )
     return DjReadinessCheck(
-        label="Required metadata",
+        label="Metadatos requeridos",
         status="ready",
-        detail="All recommended tracks have BPM, key, and energy metadata",
+        detail="Todas las pistas recomendadas tienen metadatos de BPM, tonalidad y energía",
     )
 
 
 def _bpm_continuity_check(recommendation: PlaylistRecommendation) -> DjReadinessCheck:
     if any(not is_valid_bpm(track.bpm) for track in recommendation.ordered_tracks):
         return DjReadinessCheck(
-            label="BPM continuity",
+            label="Continuidad de BPM",
             status="blocked",
-            detail="BPM continuity unavailable: repair missing or invalid tempo metadata",
+            detail="Continuidad de BPM no disponible: corrige los metadatos de tempo ausentes o inválidos",
         )
     max_jump = _max_bpm_jump_percent(recommendation)
     if max_jump > MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:
         return DjReadinessCheck(
-            label="BPM continuity",
+            label="Continuidad de BPM",
             status="needs_review",
             detail=(
-                f"Max adjacent BPM jump is {max_jump:.2f}%, above {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}% — "
-                "export allowed, but review the transition before playing live"
+                f"Salto máximo entre BPM vecinos: {max_jump:.2f}%, "
+                f"por encima del {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}% — "
+                "exportación permitida, pero revisa la transición antes de tocar en directo"
             ),
         )
     return DjReadinessCheck(
-        label="BPM continuity",
+        label="Continuidad de BPM",
         status="ready",
-        detail=(f"Max adjacent BPM jump is {max_jump:.2f}%, within {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"),
+        detail=(
+            f"Salto máximo entre BPM vecinos: {max_jump:.2f}%, dentro del {MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:.1f}%"
+        ),
     )
 
 
@@ -260,17 +263,20 @@ def _energy_continuity_check(recommendation: PlaylistRecommendation) -> DjReadin
     max_jump = _max_energy_jump(recommendation)
     if max_jump > MAX_ADJACENT_ENERGY_JUMP:
         return DjReadinessCheck(
-            label="Energy continuity",
+            label="Continuidad de energía",
             status="needs_review",
             detail=(
-                f"Max adjacent energy jump is {max_jump} levels, above {MAX_ADJACENT_ENERGY_JUMP} — "
-                "export allowed, but review the transition before playing live"
+                f"Salto máximo de energía entre pistas vecinas: {max_jump} niveles, "
+                f"por encima de {MAX_ADJACENT_ENERGY_JUMP} — "
+                "exportación permitida, pero revisa la transición antes de tocar en directo"
             ),
         )
     return DjReadinessCheck(
-        label="Energy continuity",
+        label="Continuidad de energía",
         status="ready",
-        detail=f"Max adjacent energy jump is {max_jump} level(s), within {MAX_ADJACENT_ENERGY_JUMP}",
+        detail=(
+            f"Salto máximo de energía entre pistas vecinas: {max_jump} niveles, dentro de {MAX_ADJACENT_ENERGY_JUMP}"
+        ),
     )
 
 
@@ -280,34 +286,34 @@ def _transition_warning_check(recommendation: PlaylistRecommendation) -> DjReadi
     )
     if warning_count:
         return DjReadinessCheck(
-            label="Transition warnings",
+            label="Avisos de transición",
             status="needs_review",
-            detail=f"{warning_count} warning(s) need DJ review before export",
+            detail=f"{warning_count} aviso(s) requieren revisión del DJ antes de exportar",
         )
     return DjReadinessCheck(
-        label="Transition warnings",
+        label="Avisos de transición",
         status="ready",
-        detail="No recommendation or transition warnings",
+        detail="Sin avisos de recomendación ni de transición",
     )
 
 
 def _average_score_check(report: RecommendationQualityReport, minimum_score: float) -> DjReadinessCheck:
     if report.transition_count == 0:
         return DjReadinessCheck(
-            label="Average transition score",
+            label="Puntuación media de transición",
             status="blocked",
-            detail="No transitions are available to score",
+            detail="No hay transiciones disponibles para puntuar",
         )
     if report.average_transition_score < minimum_score:
         return DjReadinessCheck(
-            label="Average transition score",
+            label="Puntuación media de transición",
             status="needs_review",
-            detail=f"Average score {report.average_transition_score:.3f} is below {minimum_score:.2f}",
+            detail=f"La puntuación media {report.average_transition_score:.3f} está por debajo de {minimum_score:.2f}",
         )
     return DjReadinessCheck(
-        label="Average transition score",
+        label="Puntuación media de transición",
         status="ready",
-        detail=f"Average score {report.average_transition_score:.3f} is at or above {minimum_score:.2f}",
+        detail=f"La puntuación media {report.average_transition_score:.3f} está en o por encima de {minimum_score:.2f}",
     )
 
 

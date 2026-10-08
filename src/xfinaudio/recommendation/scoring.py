@@ -288,12 +288,12 @@ def score_transition(
 
     tag_score = _score_tags(left, right)
     if tag_score is None:
-        warnings.append("Tag score unavailable; both tracks have no tags or genre")
+        warnings.append("Puntuación de etiquetas no disponible; ambas pistas no tienen etiquetas ni género")
     else:
         component_scores["tags"] = tag_score[0]
         explanations.append(f"Tag overlap is {tag_score[1]}/{tag_score[2]}")
         if tag_score[1] == 0:
-            warnings.append("Genre/tag mismatch: no shared genre, subgenre, mood, or tag metadata")
+            warnings.append("Discrepancia de género/etiquetas: sin género, subgénero, ánimo o etiquetas en común")
 
     spectral_score = _score_spectral(left, right)
     if spectral_score is not None:
@@ -318,12 +318,12 @@ def score_transition(
     triad_score = _score_triad(left, right)
     if triad_score is not None:
         component_scores["triad"] = triad_score[0]
-        explanations.append(f"Rehearsed triad/tanda shared: {'/'.join(sorted(triad_score[1]))}")
+        explanations.append(f"Tríada/tanda ensayada compartida: {'/'.join(sorted(triad_score[1]))}")
 
     spectral_penalty = _spectral_color_penalty(left, right, scoring_config.spectral_cohesion)
     if spectral_penalty:
         warnings.append(
-            f"Spectral color penalty applied: {spectral_penalty:.2f} "
+            f"Penalización de color espectral aplicada: {spectral_penalty:.2f} "
             f"({left.spectral_profile.dominant_color} → {right.spectral_profile.dominant_color})"
         )
 
@@ -348,23 +348,23 @@ def score_transition(
 
 def _metadata_warnings(left: TrackRecord, right: TrackRecord, required_fields: tuple[str, ...]) -> list[str]:
     warnings: list[str] = []
-    for label, track in (("left", left), ("right", right)):
+    for label, track in (("pista izquierda", left), ("pista derecha", right)):
         missing = [field for field in required_fields if getattr(track, field) is None]
         if missing:
-            warnings.append(f"{label} missing required metadata: {', '.join(missing)}")
+            warnings.append(f"{label} sin metadatos obligatorios: {', '.join(missing)}")
         if track.bpm is not None and not is_valid_bpm(track.bpm):
-            warnings.append(f"{label} has invalid BPM: expected a finite positive tempo")
+            warnings.append(f"{label} tiene un BPM inválido: se espera un tempo positivo finito")
     return warnings
 
 
 def _invalid_camelot_warnings(left: TrackRecord, right: TrackRecord) -> list[str]:
     warnings: list[str] = []
-    for label, track in (("left", left), ("right", right)):
+    for label, track in (("pista izquierda", left), ("pista derecha", right)):
         if track.camelot_key is not None:
             try:
                 score_camelot_transition(track.camelot_key, track.camelot_key)
             except ValueError:
-                warnings.append(f"{label} has invalid Camelot key: {track.camelot_key}")
+                warnings.append(f"{label} tiene una tonalidad Camelot inválida: {track.camelot_key}")
     return warnings or ["invalid Camelot key"]
 
 

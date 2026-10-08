@@ -2,16 +2,19 @@ import { errorCode, userErrorMessage } from './errors.js';
 export const AI_RECIPIENT = 'https://api.nan.builders/v1/chat/completions';
 export const AI_CONNECTION_REQUEST = 'Reply with OK. XfinAudio connection test.';
 export type AiSurface = 'library' | 'prep' | 'review' | 'saved' | 'editor' | 'metadata' | 'live' | 'connection';
-export type AiContext = Record<string, string | number | string[]>;
-export interface AiStatus { revision: string; enabled: boolean; provider: 'nan'; credentialLabel: string | null; configured: boolean; recipient: typeof AI_RECIPIENT; }
+export type AiContext = Record<string, string | number | boolean | string[]>;
+export interface AiStatus { revision: string; enabled: boolean; autoAuthorize: boolean; provider: 'nan'; credentialLabel: string | null; configured: boolean; recipient: typeof AI_RECIPIENT; }
 export interface AiPreview { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; disclosure: string[]; requestPreview: string; }
-export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'saved_selection' | 'commentary' | 'connection'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; }
+/** The exact retained provider body for one current preview: read-only, never sent by inspecting it. */
+export interface AiPayload { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; request: string; body: string; bytes: number; truncated: boolean; }
+export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; }
 export interface OptionalAiApi {
   getAiStatus(): Promise<AiStatus>;
-  saveAiSettings(input: { revision: string; enabled: boolean }): Promise<AiStatus>;
+  saveAiSettings(input: { revision: string; enabled: boolean; autoAuthorize: boolean }): Promise<AiStatus>;
   chooseAiCredential(input: { revision: string }): Promise<AiStatus>;
   clearAiCredential(input: { revision: string }): Promise<AiStatus>;
   prepareAiRequest(input: { surface: AiSurface; request: string; context: AiContext }): Promise<AiPreview>;
+  inspectAiPayload(input: { previewId: string }): Promise<AiPayload>;
   runAiRequest(input: { previewId: string }): Promise<{ cancelled: boolean; result: AiResult | null }>;
   applyAiSuggestion(input: { resultId: string }): Promise<{ surface: AiSurface; data: Record<string, unknown> }>;
 }
@@ -22,13 +25,25 @@ export interface OptionalAiHost {
 }
 const kinds: Record<AiSurface, AiResult['kind']> = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection' };
 const editable = new Set<AiSurface>(['library', 'prep', 'editor', 'saved']);
+const JSON_LIMIT = 32000;
+// The retained body is the provider's real request, bounded by the core's outbound 64 KiB cap.
+const AI_PAYLOAD_BODY_LIMIT = 64 * 1024;
+const AI_PAYLOAD_BYTES_LIMIT = 1024 * 1024;
+// The improvement preview is a local before/after render, not provider text: it carries
+// up to 80 tracks per side plus the local assessment, so it is bounded well above the
+// legacy 32k provider-proposal bound. Fine-grained track/public-field validation stays
+// in editor.setImprovementPreview.
+const IMPROVEMENT_JSON_LIMIT = 512 * 1024;
+const MIN_IMPROVEMENT_TRACKS = 2;
+const MAX_IMPROVEMENT_TRACKS = 80;
+const HEX_ID = /^[a-f0-9]{64}$/;
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max;
 function bad(): never { throw Object.assign(new Error('Invalid AI response'), { code: 'invalid_ai_response' }); }
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
-function recordCopy(value: unknown): Record<string, unknown> {
+function recordCopy(value: unknown, limit = JSON_LIMIT): Record<string, unknown> {
   if (!isRecord(value)) bad();
-  const json = JSON.stringify(value); if (!json || json.length > 32000) bad();
+  const json = JSON.stringify(value); if (!json || json.length > limit) bad();
   const copy = JSON.parse(json) as Record<string, unknown>;
   const check = (item: unknown, depth: number): void => {
     if (depth > 6) bad();
@@ -39,27 +54,35 @@ function recordCopy(value: unknown): Record<string, unknown> {
   };
   check(value, 0); return copy;
 }
-function localApplyCopy(surface: AiSurface, value: unknown): Record<string, unknown> {
-  if (surface !== 'library') return recordCopy(value);
+function localApplyCopy(surface: AiSurface, value: unknown, improvement = false): Record<string, unknown> {
+  if (surface !== 'library') return recordCopy(value, improvement ? IMPROVEMENT_JSON_LIMIT : JSON_LIMIT);
   if (!isRecord(value)) bad();
   // Only the trusted local filter result gets a larger ID allowance; provider proposals retain their original bound.
   if (!Object.hasOwn(value, 'trackIds')) return recordCopy(value);
   const ids = value.trackIds;
   if (Object.keys(value).sort().join(',') !== 'filters,trackIds' || !Array.isArray(ids) || ids.length > 100000
-    || ids.some((id) => typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id)) || new Set(ids).size !== ids.length) bad();
+    || ids.some((id) => typeof id !== 'string' || !HEX_ID.test(id)) || new Set(ids).size !== ids.length) bad();
   return { filters: recordCopy(value.filters), trackIds: [...ids] };
 }
 function statusCopy(value: AiStatus): AiStatus {
-  if (!value || !/^[a-f0-9]{64}$/.test(value.revision) || typeof value.enabled !== 'boolean' || value.provider !== 'nan'
+  if (!value || !/^[a-f0-9]{64}$/.test(value.revision) || typeof value.enabled !== 'boolean' || typeof value.autoAuthorize !== 'boolean' || value.provider !== 'nan'
     || value.recipient !== AI_RECIPIENT || typeof value.configured !== 'boolean' || (value.credentialLabel !== null && (!text(value.credentialLabel, 200) || /[\\/\p{C}]/u.test(value.credentialLabel)))) bad();
-  return { revision: value.revision, enabled: value.enabled, provider: 'nan', recipient: AI_RECIPIENT, configured: value.configured, credentialLabel: value.credentialLabel };
+  return { revision: value.revision, enabled: value.enabled, autoAuthorize: value.autoAuthorize, provider: 'nan', recipient: AI_RECIPIENT, configured: value.configured, credentialLabel: value.credentialLabel };
 }
 function contextCopy(surface: AiSurface, context: AiContext): AiContext {
   if (!Object.hasOwn(kinds, surface) || !isRecord(context)) bad();
   const keys = Object.keys(context).sort().join(',');
   if (['library', 'prep', 'metadata', 'connection'].includes(surface)) { if (keys) bad(); return {}; }
   if (surface === 'review') { if (keys !== 'reviewId' || !uuid(context.reviewId)) bad(); return { reviewId: context.reviewId }; }
-  if (surface === 'editor') { if (keys !== 'editId' || !uuid(context.editId)) bad(); return { editId: context.editId }; }
+  if (surface === 'editor') {
+    if (keys === 'editId') { if (!uuid(context.editId)) bad(); return { editId: context.editId }; }
+    // Exact improvement selector only: a partial shape is refused rather than guessed.
+    if (keys !== 'draftIds,editId,includeReplacements' || !uuid(context.editId) || typeof context.includeReplacements !== 'boolean') bad();
+    const draftIds = context.draftIds;
+    if (!Array.isArray(draftIds) || draftIds.length < MIN_IMPROVEMENT_TRACKS || draftIds.length > MAX_IMPROVEMENT_TRACKS
+      || new Set(draftIds).size !== draftIds.length || !draftIds.every((id) => HEX_ID.test(id))) bad();
+    return { editId: context.editId, draftIds: [...draftIds], includeReplacements: context.includeReplacements };
+  }
   if (surface === 'live') {
     if (keys !== 'revision,sessionId' || !uuid(context.sessionId) || typeof context.revision !== 'number' || !Number.isInteger(context.revision) || context.revision < 0 || context.revision > 500) bad();
     return { sessionId: context.sessionId, revision: context.revision };
@@ -79,41 +102,107 @@ const errors: Record<string, string> = {
   invalid_ai_response: 'La respuesta no cumple los límites esperados. No se ha aplicado ninguna propuesta.',
   ai_context_unavailable: 'Este contexto ya no está disponible. Vuelve a abrir la selección o pantalla de origen.',
   ai_context_too_large: 'El contexto supera el límite de esta consulta. Reduce la selección antes de continuar.',
+  invalid_improvement: 'La propuesta de la IA no coincide con la playlist actual (pistas fuera de alcance, duplicadas o desactualizadas). Revisa el borrador y prepara la solicitud de nuevo.',
 };
 export class OptionalAiController {
   private api: OptionalAiApi; private host: OptionalAiHost; private base: AiStatus | null = null; private draft: AiStatus | null = null;
-  private context: AiContext | null = null; private identity = ''; private generation = 0; private conflict = false; private appliedId = '';
+  private context: AiContext | null = null; private identity = ''; private localRevision: string | number = ''; private generation = 0; private conflict = false; private appliedId = '';
+  private improvement = false;
   surface: AiSurface = 'library'; request = ''; consent = false; error = ''; notice = '';
-  preview: AiPreview | null = null; result: AiResult | null = null;
-  pending: 'load' | 'save' | 'choose' | 'clear' | 'prepare' | 'ask' | 'apply' | null = null;
+  includeReplacements = false;
+  preview: AiPreview | null = null; result: AiResult | null = null; payload: AiPayload | null = null;
+  pending: 'load' | 'save' | 'choose' | 'clear' | 'prepare' | 'inspect' | 'ask' | 'apply' | null = null;
+  askStartedAt: number | null = null;
   constructor(api: OptionalAiApi, host: OptionalAiHost) { this.api = api; this.host = host; }
+  /** Phase-aware copy for the pending operation: the panel must not claim a local job while the provider is contacted. */
+  get pendingPhaseText(): string {
+    switch (this.pending) {
+      case 'ask': return 'Consultando a Nan Builders… puede tardar hasta 30 s';
+      case 'prepare': return 'Preparando la vista previa de datos…';
+      case 'inspect': return 'Recuperando el payload exacto…';
+      case 'apply': return 'Revisando la propuesta con el motor local…';
+      case 'load': return 'Consultando ajustes de IA…';
+      case 'save': return 'Guardando ajustes de IA…';
+      case 'choose': return 'Elige el archivo de credenciales en el sistema';
+      case 'clear': return 'Quitando fuente de credenciales…';
+      default: return '';
+    }
+  }
+  /** Pure elapsed seconds since the provider ask started; null when no ask is pending, so the view can own the timer. */
+  askElapsedSeconds(now: number): number | null {
+    if (this.askStartedAt === null || !Number.isFinite(now)) return null;
+    return Math.max(0, Math.floor((now - this.askStartedAt) / 1000));
+  }
+  /** First failing reason that keeps prepare disabled, as user copy; empty only when canPrepare is true. */
+  prepareBlocker(): string {
+    if (!this.draft?.enabled) return this.surface === 'connection' ? 'Activa la asistencia IA en «Ajustes de asistencia IA».' : 'Activa la asistencia IA en Ajustes.';
+    if (!this.draft.configured) return 'Selecciona una fuente de credenciales en Ajustes.';
+    if (this.dirty) return 'Guarda o descarta los cambios de IA pendientes.';
+    if (this.conflict) return 'Actualiza o descarta los ajustes de IA pendientes.';
+    if (this.pending) return this.pending === 'ask' ? 'Hay una consulta a la IA en curso.' : 'Hay una operación local en curso.';
+    if (!this.context) return 'Abre la selección o pantalla de origen de nuevo.';
+    if (this.requestEditable && !this.request.trim()) return 'Escribe qué quieres mejorar.';
+    if (this.requestEditable && this.request.length > 2000) return 'La petición supera los 2000 caracteres.';
+    return this.canPrepare ? '' : 'Revisa el estado de la asistencia IA antes de preparar la solicitud.';
+  }
   get snapshot(): AiStatus | null { return this.draft; }
-  get dirty(): boolean { return Boolean(this.base && this.draft && this.base.enabled !== this.draft.enabled); }
+  /** True only for the exact AI improvement selector on the editor surface. */
+  get improvementEditor(): boolean { return this.surface === 'editor' && this.improvement; }
+  get dirty(): boolean { return Boolean(this.base && this.draft && (this.base.enabled !== this.draft.enabled || this.base.autoAuthorize !== this.draft.autoAuthorize)); }
   get requestEditable(): boolean { return editable.has(this.surface); }
   get canSave(): boolean { return !this.pending && !this.conflict && this.dirty; }
   get canPrepare(): boolean { return !this.pending && !this.conflict && !this.dirty && Boolean(this.context && this.draft?.enabled && this.draft.configured) && (!this.requestEditable || Boolean(this.request.trim()) && this.request.length <= 2000); }
-  get canAsk(): boolean { return this.canPrepare && this.consent && Boolean(this.preview); }
+  /** Persisted automatic authorization (opt-in) removes the per-send consent tick. */
+  get canAsk(): boolean { return this.canPrepare && (this.consent || this.base?.autoAuthorize === true) && Boolean(this.preview); }
+  /** Only a current, unreplaced preview can be inspected, and only while the host can act. */
+  get canInspectPayload(): boolean { return !this.pending && Boolean(this.preview) && this.host.canAct(); }
   get canApply(): boolean { return !this.pending && !this.dirty && !this.conflict && Boolean(this.result?.canApply && this.result.proposal && editable.has(this.result.surface) && this.result.resultId !== this.appliedId); }
   private notify(): void { this.host.dirtyChanged(this.dirty); this.host.changed(); }
-  private reset(): void { this.generation++; this.preview = null; this.result = null; this.consent = false; this.appliedId = ''; }
-  invalidate(): void { this.reset(); this.context = null; this.identity = ''; this.request = ''; this.notice = ''; this.notify(); }
+  private reset(): void { this.generation++; this.preview = null; this.result = null; this.payload = null; this.consent = false; this.appliedId = ''; }
+  invalidate(): void { this.reset(); this.context = null; this.identity = ''; this.localRevision = ''; this.improvement = false; this.includeReplacements = false; this.request = ''; this.notice = ''; this.notify(); }
   cancelPending(): void { this.reset(); this.notice = 'Solicitud cancelada. Los datos ya enviados no se pueden recuperar.'; this.notify(); }
   setContext(surface: AiSurface, context: AiContext, localRevision: string | number): void {
     try {
       const copy = contextCopy(surface, context); const identity = JSON.stringify([surface, copy, localRevision]);
       if (identity === this.identity) return;
-      this.reset(); this.surface = surface; this.context = copy; this.identity = identity;
-      this.request = surface === 'connection' ? AI_CONNECTION_REQUEST : ''; this.error = ''; this.notice = ''; this.notify();
+      // A same-surface refresh (draft revision, order, selection) must not discard a long
+      // instruction the user is still typing: only a surface change or a surface without an
+      // editable request clears it.
+      const hadDisclosure = Boolean(this.preview) || this.consent;
+      const keepRequest = surface === this.surface && editable.has(surface);
+      this.reset(); this.surface = surface; this.context = copy; this.identity = identity; this.localRevision = localRevision;
+      this.improvement = surface === 'editor' && Object.hasOwn(copy, 'draftIds');
+      this.includeReplacements = copy.includeReplacements === true;
+      if (!keepRequest) this.request = surface === 'connection' ? AI_CONNECTION_REQUEST : '';
+      this.error = ''; this.notice = hadDisclosure ? 'Contexto actualizado: revisa la vista previa antes de enviar.' : ''; this.notify();
     } catch (error) { this.invalidate(); this.fail(error); }
   }
+  /**
+   * Explicit user choice for the improvement selector. It invalidates the prepared
+   * disclosure and its consent, updates the exact context, and notifies the host so the
+   * app can regenerate the context. It never contacts the provider.
+   */
+  setIncludeReplacements(value: boolean): void {
+    if (typeof value !== 'boolean' || this.pending || !this.host.canAct() || !this.improvement || this.includeReplacements === value) return;
+    this.includeReplacements = value;
+    if (this.context) { this.context = { ...this.context, includeReplacements: value }; this.identity = JSON.stringify([this.surface, this.context, this.localRevision]); }
+    this.reset(); this.notice = ''; if (!this.conflict) this.error = ''; this.notify();
+  }
   setRequest(value: string): void {
-    if (!this.requestEditable || typeof value !== 'string' || value === this.request) return;
+    // A sent request is bound to its disclosure, its one-shot consent and a paid provider
+    // call. Editing it mid-flight would reset the generation and silently discard all three,
+    // so the instruction stays frozen for as long as the ask is in flight.
+    if (this.pending === 'ask' || !this.requestEditable || typeof value !== 'string' || value === this.request) return;
     this.reset(); this.request = value; this.error = value.length > 2000 ? 'La petición admite como máximo 2000 caracteres.' : ''; this.notice = ''; this.notify();
   }
   setConsent(value: boolean): void { if (typeof value !== 'boolean' || this.pending || !this.host.canAct() || !this.preview) return; this.consent = value; this.host.changed(); }
   setEnabled(value: boolean): void {
     if (!this.draft || this.pending || !this.host.canAct() || typeof value !== 'boolean' || this.draft.enabled === value) return;
     this.reset(); this.draft = { ...this.draft, enabled: value }; this.notice = ''; if (!this.conflict) this.error = ''; this.notify();
+  }
+  setAutoAuthorize(value: boolean): void {
+    if (!this.draft || this.pending || !this.host.canAct() || typeof value !== 'boolean' || this.draft.autoAuthorize === value) return;
+    this.reset(); this.draft = { ...this.draft, autoAuthorize: value }; this.notice = ''; if (!this.conflict) this.error = ''; this.notify();
   }
   discard(): void {
     if (!this.base || this.pending || !this.host.canAct()) return;
@@ -127,10 +216,10 @@ export class OptionalAiController {
   }
   private async perform<T>(kind: NonNullable<OptionalAiController['pending']>, label: string, task: () => Promise<T>, apply: (value: T) => void): Promise<void> {
     if (this.pending || !this.host.canAct()) return;
-    const generation = this.generation; this.pending = kind; this.error = ''; this.host.changed();
+    const generation = this.generation; this.pending = kind; this.error = ''; if (kind === 'ask') this.askStartedAt = Date.now(); this.host.changed();
     const failure = (error: unknown): void => { if (generation === this.generation) this.fail(error); };
     try { await this.host.perform(label, task, (value) => { if (generation === this.generation) apply(value); }, failure); }
-    catch (error) { failure(error); } finally { this.pending = null; this.notify(); }
+    catch (error) { failure(error); } finally { this.pending = null; this.askStartedAt = null; this.notify(); }
   }
   private accept(value: AiStatus): void { const copy = statusCopy(value); this.reset(); this.base = copy; this.draft = { ...copy }; this.conflict = false; this.error = ''; this.notify(); }
   async load(): Promise<void> {
@@ -140,8 +229,8 @@ export class OptionalAiController {
   }
   async save(): Promise<void> {
     if (!this.canSave || !this.draft || !this.host.canAct()) return;
-    this.reset(); const { revision, enabled } = this.draft;
-    await this.perform('save', 'Guardando ajustes de IA…', () => this.api.saveAiSettings({ revision, enabled }), (value) => this.accept(value));
+    this.reset(); const { revision, enabled, autoAuthorize } = this.draft;
+    await this.perform('save', 'Guardando ajustes de IA…', () => this.api.saveAiSettings({ revision, enabled, autoAuthorize }), (value) => this.accept(value));
   }
   private async credential(kind: 'choose' | 'clear'): Promise<void> {
     if (!this.draft || this.pending || !this.host.canAct()) return;
@@ -151,6 +240,7 @@ export class OptionalAiController {
   }
   chooseCredential(): Promise<void> { return this.credential('choose'); }
   clearCredential(): Promise<void> { return this.credential('clear'); }
+  private expectedKind(): AiResult['kind'] { return this.improvementEditor ? 'improvement' : kinds[this.surface]; }
   async prepare(): Promise<void> {
     if (!this.canPrepare || !this.context || !this.host.canAct()) return;
     this.reset(); this.notice = ''; const surface = this.surface; const context = contextCopy(surface, this.context); const request = this.requestEditable ? this.request.trim() : surface === 'connection' ? AI_CONNECTION_REQUEST : '';
@@ -159,26 +249,54 @@ export class OptionalAiController {
       this.preview = { ...value, disclosure: [...value.disclosure] }; this.consent = false; this.host.changed();
     });
   }
+  /**
+   * Fetches the exact retained provider body for the current preview on explicit user demand.
+   * It is read-only: it re-validates the exact preview identity, never sends the request, never
+   * contacts the provider, and keeps the disclosure and its consent untouched. Any context
+   * change clears the retained copy through `reset`.
+   */
+  async inspectPayload(): Promise<void> {
+    if (!this.host.canAct() || this.pending || !this.preview) return;
+    const { previewId, surface } = this.preview;
+    await this.perform('inspect', 'Recuperando el payload exacto…', () => this.api.inspectAiPayload({ previewId }), (value) => {
+      if (!value || !uuid(value.previewId) || value.previewId !== previewId || value.surface !== surface || value.recipient !== AI_RECIPIENT
+        || typeof value.request !== 'string' || value.request.length > 8000 || typeof value.truncated !== 'boolean'
+        || !Number.isInteger(value.bytes) || value.bytes < 0 || value.bytes > AI_PAYLOAD_BYTES_LIMIT || !text(value.body, AI_PAYLOAD_BODY_LIMIT)) bad();
+      this.payload = { previewId: value.previewId, surface: value.surface, recipient: AI_RECIPIENT, request: value.request, body: value.body, bytes: value.bytes, truncated: value.truncated };
+    });
+  }
   async ask(): Promise<void> {
     if (!this.canAsk || !this.preview || !this.host.canAct()) return;
     const { previewId, surface } = this.preview; this.consent = false; this.result = null;
-    this.notice = 'Confirma el envío en el diálogo del sistema. Cancelar no recupera los datos ya enviados.';
+    this.notice = this.base?.autoAuthorize === true
+      ? 'Enviando con la autorización automática guardada en Ajustes. Cancelar no recupera los datos ya enviados.'
+      : 'Confirma el envío en el diálogo del sistema. Cancelar no recupera los datos ya enviados.';
     await this.perform('ask', 'Consultando asistencia IA…', () => this.api.runAiRequest({ previewId }), (value) => {
       if (!value || typeof value.cancelled !== 'boolean') bad();
-      this.preview = null;
-      if (value.cancelled) { this.notice = 'Solicitud cancelada. Los datos ya enviados no se pueden recuperar.'; this.host.changed(); return; }
+      if (value.cancelled) {
+        // Declining the native dialog cancels nothing that was prepared: the disclosure and
+        // its preview stay available, and the user only has to tick consent again explicitly.
+        this.consent = false; this.result = null;
+        this.notice = 'Envío cancelado: la vista previa sigue disponible; vuelve a marcar la autorización para reintentar.';
+        this.host.changed(); return;
+      }
+      this.preview = null; this.payload = null;
       const result = value.result;
-      if (!result || !uuid(result.resultId) || result.surface !== surface || result.kind !== kinds[surface] || !text(result.title, 200) || !text(result.text, 8000) || typeof result.canApply !== 'boolean') bad();
+      if (!result || !uuid(result.resultId) || result.surface !== surface || result.kind !== this.expectedKind() || !text(result.title, 200) || !text(result.text, 8000) || typeof result.canApply !== 'boolean') bad();
       const proposal = result.proposal === null ? null : recordCopy(result.proposal);
       this.result = { ...result, proposal, canApply: editable.has(surface) && result.canApply }; this.notice = 'Respuesta de IA recibida. Revisa la propuesta; los datos y validadores locales siguen siendo la referencia.'; this.host.changed();
     });
   }
   async applySuggestion(): Promise<void> {
     if (!this.canApply || !this.result || !this.host.canAct()) return;
-    const { resultId, surface } = this.result;
+    const { resultId, surface } = this.result; const improvement = this.improvementEditor;
     await this.perform('apply', 'Revisando propuesta con los validadores locales…', () => this.api.applyAiSuggestion({ resultId }), (value) => {
-      if (!value || value.surface !== surface) bad(); const data = localApplyCopy(surface, value.data); this.appliedId = resultId;
-      this.host.applied(surface, data); this.notice = 'Propuesta aplicada al trabajo local. Guardar, exportar y reproducir requieren sus propias acciones.'; this.host.changed();
+      if (!value || value.surface !== surface) bad(); const data = localApplyCopy(surface, value.data, improvement); this.appliedId = resultId;
+      this.host.applied(surface, data);
+      // The improvement preview is local staging for the editor only; the draft is untouched
+      // until the user applies it there, so the notice must not claim it was applied.
+      this.notice = improvement ? 'Propuesta local lista para revisar en el editor. El borrador no cambió y no se guardó nada.' : 'Propuesta aplicada al trabajo local. Guardar, exportar y reproducir requieren sus propias acciones.';
+      this.host.changed();
     });
   }
 }

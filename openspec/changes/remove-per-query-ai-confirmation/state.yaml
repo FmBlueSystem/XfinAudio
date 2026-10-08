@@ -1,0 +1,25 @@
+schema: gentle-ai.sdd-state.v1
+change: remove-per-query-ai-confirmation
+artifact_store: openspec
+status: verify-complete
+created: 2026-10-08
+updated: 2026-10-08
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: none
+blocked_reasons: []
+delivery:
+  strategy: auto-chain
+  chained_prs_recommended: false
+  chain_strategy: feature-branch-chain
+  review_budget_changed_lines: 400
+notes:
+  - Behavior-changing tasks required RED -> GREEN; each task's RED observation is recorded in apply-progress.md.
+  - The consent-copy follow-up fix followed the same discipline (RED observed against the pre-fix build).
+  - Gate of record on the final tree; live E2E evidence captured via CDP against port 9222.

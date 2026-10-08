@@ -31,12 +31,14 @@ export function parseRange(header: string | null, size: number): {start:number;e
   return {start,end,status:206};
 }
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+// Bounds mirror the backend improvement contract: MIN/MAX draft tracks and the SHA-256 digest length.
+const MIN_IMPROVEMENT_DRAFT_TRACKS = 2,MAX_IMPROVEMENT_DRAFT_TRACKS = 80,DIGEST = /^[a-f0-9]{64}$/;
 export function validateRequest(method:string, value:unknown): Record<string,unknown> {
   const fields:Record<string,string[]> = {
     ...OFFLINE_FIELDS,...REVIEW_CONTROL_FIELDS,
     previewLegacyImport:[],applyLegacyImport:['previewId'],discardLegacyImport:['previewId'],
     getProfileStatus:[],completeProfiles:[],getProfileSettings:[],saveProfileSettings:['revision','spectralCohesion'],
-    getAiStatus:[],saveAiSettings:['revision','enabled'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],
+    getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],
     getLoudnessStatus:[],revealLoudnessBackups:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
@@ -44,7 +46,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],selectPrepVariant:['planId','variant'],
     generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds'],
     savePlaylist:['name','reviewId'],listPlaylists:[],renamePlaylist:['playlistId','name'],duplicatePlaylist:['playlistId'],openPlaylistEditor:['playlistId'],
-    previewPlaylistEdit:['editId','trackIds','request'],savePlaylistEdit:['editId','name','trackIds'],discardPlaylistEdit:['editId'],setDraftDirty:['dirty'],openPlaylist:['playlistId'],cancelCurrent:[],
+    previewPlaylistEdit:['editId','trackIds','request'],savePlaylistEdit:['editId','name','trackIds'],savePlaylistImprovement:['editId','name','proposalId','digest','draftIds'],discardPlaylistEdit:['editId'],setDraftDirty:['dirty'],openPlaylist:['playlistId'],cancelCurrent:[],
   };
   if (!Object.hasOwn(fields,method)) throw new Error('Unsupported action');
   if (value === undefined) value = {};
@@ -91,11 +93,18 @@ function validatePrepIntent(params:Record<string,unknown>):void {
 }
 
 function validateEditorRequest(method:string,params:Record<string,unknown>):void {
-  if(['previewPlaylistEdit','savePlaylistEdit','discardPlaylistEdit'].includes(method) && (typeof params.editId!=='string'||!uuid.test(params.editId)))throw new Error('Invalid edit session');
-  if(['renamePlaylist','savePlaylistEdit'].includes(method) && typeof params.name!=='string')throw new Error('A playlist name is required');
+  if(['previewPlaylistEdit','savePlaylistEdit','savePlaylistImprovement','discardPlaylistEdit'].includes(method) && (typeof params.editId!=='string'||!uuid.test(params.editId)))throw new Error('Invalid edit session');
+  if(['renamePlaylist','savePlaylistEdit','savePlaylistImprovement'].includes(method) && typeof params.name!=='string')throw new Error('A playlist name is required');
   if(['previewPlaylistEdit','savePlaylistEdit'].includes(method)) {
     if(!Array.isArray(params.trackIds)||params.trackIds.length>500)throw new Error('Choose at most 500 track references');
     params.trackIds.forEach(assertTrackId);
+  }
+  if(method==='savePlaylistImprovement') {
+    if(typeof params.proposalId!=='string'||!uuid.test(params.proposalId)||typeof params.digest!=='string'||!DIGEST.test(params.digest))throw new Error('Invalid improvement proposal binding');
+    const draftIds=params.draftIds;
+    if(!Array.isArray(draftIds)||draftIds.length<MIN_IMPROVEMENT_DRAFT_TRACKS||draftIds.length>MAX_IMPROVEMENT_DRAFT_TRACKS)throw new Error(`Choose between ${MIN_IMPROVEMENT_DRAFT_TRACKS} and ${MAX_IMPROVEMENT_DRAFT_TRACKS} draft tracks`);
+    draftIds.forEach(assertTrackId);
+    if(new Set(draftIds).size!==draftIds.length)throw new Error('The draft repeats a track');
   }
   if(method==='previewPlaylistEdit' && (typeof params.request!=='string'||!params.request.trim()||params.request.length>2000||/[\x00-\x1f]/.test(params.request)))throw new Error('Invalid edit request');
   if(method==='setDraftDirty' && typeof params.dirty!=='boolean')throw new Error('Invalid draft state');
@@ -146,7 +155,8 @@ function validateLoudnessRequest(method:string,params:Record<string,unknown>):vo
 function validateAiRequest(method:string,params:Record<string,unknown>):void {
   if(['saveAiSettings','chooseAiCredential','clearAiCredential'].includes(method)&&(typeof params.revision!=='string'||!/^[a-f0-9]{64}$/.test(params.revision)))throw new Error('Invalid settings revision');
   if(method==='saveAiSettings'&&typeof params.enabled!=='boolean')throw new Error('Invalid optional AI setting');
-  if(method==='runAiRequest'&&(typeof params.previewId!=='string'||!uuid.test(params.previewId)))throw new Error('Invalid AI preview');
+  if(method==='saveAiSettings'&&'autoAuthorize' in params&&typeof params.autoAuthorize!=='boolean')throw new Error('Invalid optional AI setting');
+  if(['runAiRequest','inspectAiPayload'].includes(method)&&(typeof params.previewId!=='string'||!uuid.test(params.previewId)))throw new Error('Invalid AI preview');
   if(method==='applyAiSuggestion'&&(typeof params.resultId!=='string'||!uuid.test(params.resultId)))throw new Error('Invalid AI result');
   if(method!=='prepareAiRequest')return;
   const {surface,request,context}=params;
@@ -155,7 +165,17 @@ function validateAiRequest(method:string,params:Record<string,unknown>):void {
   const token=(value:unknown)=>typeof value==='string'&&uuid.test(value);
   if(['library','prep','metadata','connection'].includes(surface)&&keys)throw new Error('Unexpected AI context');
   if(surface==='review'&&(keys!=='reviewId'||!token(item.reviewId)))throw new Error('Invalid review context');
-  if(surface==='editor'&&(keys!=='editId'||!token(item.editId)))throw new Error('Invalid editor context');
+  if(surface==='editor') {
+    const improvement=keys==='draftIds,editId,includeReplacements';
+    if(keys!=='editId'&&!improvement)throw new Error('Invalid editor context');
+    if(!token(item.editId))throw new Error('Invalid editor context');
+    if(improvement) {
+      const draftIds=item.draftIds;
+      if(!Array.isArray(draftIds)||draftIds.length<MIN_IMPROVEMENT_DRAFT_TRACKS||draftIds.length>MAX_IMPROVEMENT_DRAFT_TRACKS||typeof item.includeReplacements!=='boolean')throw new Error('Invalid editor improvement scope');
+      draftIds.forEach(assertTrackId);
+      if(new Set(draftIds).size!==draftIds.length)throw new Error('The draft repeats a track');
+    }
+  }
   if(surface==='live'&&(keys!=='revision,sessionId'||!token(item.sessionId)||!Number.isInteger(item.revision)||Number(item.revision)<0||Number(item.revision)>500))throw new Error('Invalid Live context');
   if(surface==='saved'&&keys){const ids=item.playlistIds;if(keys!=='playlistIds'||!Array.isArray(ids)||ids.length<1||ids.length>200||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!/^[1-9]\d{0,14}$/.test(id)))throw new Error('Invalid saved-set scope');}
   if(['library','prep','editor','saved'].includes(surface)?!request.trim():request!==(surface==='connection'?'Reply with OK. XfinAudio connection test.':''))throw new Error('Invalid request text for this surface');

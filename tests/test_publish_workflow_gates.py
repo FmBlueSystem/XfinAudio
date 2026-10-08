@@ -13,6 +13,7 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = PROJECT_ROOT / ".github" / "workflows" / "publish-to-pypi.yml"
+RELEASE_GATES_WORKFLOW_PATH = PROJECT_ROOT / ".github" / "workflows" / "non-audio-release-gates.yml"
 
 
 def workflow_text() -> str:
@@ -215,6 +216,19 @@ def test_publish_workflow_preserves_the_release_gate_evidence() -> None:
     assert "if: always()" in upload_step, "evidence must upload even when a gate fails"
 
 
-def test_publish_workflow_declares_the_offscreen_qt_platform() -> None:
-    """The suite imports Qt while collecting; a headless runner needs the hint."""
-    assert "QT_QPA_PLATFORM: offscreen" in workflow_text()
+def test_workflows_carry_no_offscreen_qt_platform_hint() -> None:
+    """Regression: the workflows still set a platform hint for a Qt suite that is gone.
+
+    ``QT_QPA_PLATFORM: offscreen`` was added when the desktop app still used
+    PySide6 and collection imported Qt. The Qt desktop was deleted in 4e31a3a and
+    PySide6 is absent from ``uv.lock`` and ``.venv``, so the variable configures
+    nothing: no test can construct a ``QApplication``. It cannot prevent a stall
+    either, because there is no toolkit left to reach a display through. The
+    comment above it also told the reader the suite imports Qt while collecting,
+    which is the stale claim that kept the variable alive.
+    """
+    for path in (WORKFLOW_PATH, RELEASE_GATES_WORKFLOW_PATH):
+        text = path.read_text(encoding="utf-8")
+
+        assert "QT_QPA_PLATFORM" not in text, f"{path.name} still sets a platform hint for the removed Qt desktop"
+        assert "imports Qt" not in text, f"{path.name} still claims the suite imports Qt"

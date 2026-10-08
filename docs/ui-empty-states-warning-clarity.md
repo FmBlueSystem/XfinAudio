@@ -22,14 +22,14 @@ This change does not add recommendation algorithms, DSP, audio analysis, audio r
 Focused RED evidence before implementation:
 
 ```text
-uv run pytest -v tests/test_main_window.py
+uv run pytest -v tests/test_main_window.py  (historical: this Qt test was removed in 4e31a3a; the empty-state and warning rules now live under src/xfinaudio/quality/ and desktop-electron/renderer/)
 5 failed, 4 passed
 ```
 
 Focused GREEN evidence after implementation:
 
 ```text
-uv run pytest -v tests/test_main_window.py
+uv run pytest -v tests/test_main_window.py  (historical: this Qt test was removed in 4e31a3a; the empty-state and warning rules now live under src/xfinaudio/quality/ and desktop-electron/renderer/)
 9 passed
 ```
 

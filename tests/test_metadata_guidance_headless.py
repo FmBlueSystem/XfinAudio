@@ -1,7 +1,6 @@
 """Neutral guidance preserves the desktop contract without importing Qt or writing tags."""
 
 import hashlib
-import importlib.util
 import json
 import os
 import subprocess
@@ -135,31 +134,3 @@ assert not any(name.startswith(("PySide6", "PyQt6", "PyQt5", "shiboken6")) for n
         env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
     )
     assert result.returncode == 0, result.stdout + result.stderr
-
-
-@pytest.mark.skipif(importlib.util.find_spec("PySide6") is None, reason="Legacy adapter requires Qt environment")
-def test_legacy_wrapper_preserves_type_translation_context_and_output(monkeypatch):
-    from xfinaudio.metadata import repair_guidance as legacy
-    from xfinaudio.metadata import repair_guidance_core as core
-
-    calls = []
-
-    def translate(context, text):
-        calls.append(context)
-        return f"translated:{text}"
-
-    monkeypatch.setattr(legacy.QCoreApplication, "translate", translate)
-
-    def translator(text):
-        return f"translated:{text}"
-
-    locks = frozenset({_records()[1].path})
-    assert legacy.RepairPriority is core.RepairPriority
-    assert legacy.prioritize_repairs(_records(), locked_paths=locks) == core.prioritize_repairs(
-        _records(), locked_paths=locks, translate=translator
-    )
-    assert legacy.explain_track_gaps(_records()[1]) == core.explain_track_gaps(_records()[1], translate=translator)
-    assert legacy.repair_plan_text(_records(), locked_paths=locks) == core.repair_plan_text(
-        _records(), locked_paths=locks, translate=translator
-    )
-    assert calls and set(calls) == {"MetadataRepairGuidance"}

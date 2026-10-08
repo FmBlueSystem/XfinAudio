@@ -43,15 +43,6 @@ def test_all_direct_dependencies_have_upper_bounds_or_exact_pins() -> None:
     assert unbounded == []
 
 
-def test_pyobjc_range_supports_python_314_compatible_release() -> None:
-    config = tomllib.loads(Path("pyproject.toml").read_text())
-    pyobjc = next(item for item in config["project"]["dependencies"] if item.startswith("pyobjc-framework-Cocoa"))
-
-    requirement = Requirement(pyobjc)
-    assert requirement.specifier.contains("12.2.1")
-    assert not requirement.specifier.contains("13.0")
-
-
 def test_coverage_report_uses_two_decimal_precision_for_baseline_gates() -> None:
     config = tomllib.loads(Path("pyproject.toml").read_text())
 

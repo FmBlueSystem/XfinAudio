@@ -1,5 +1,11 @@
 # Theme Renewal — "Spectrum" Palette
 
+> **Historical (PySide6/Qt era):** this palette belonged to the Qt desktop's
+> `_DJ_VISUAL_STYLESHEET` in `src/xfinaudio/desktop/theme.py`, which was removed
+> in `4e31a3a`. The Electron shell owns its own styling in
+> `desktop-electron/renderer/styles.css`; the Qt screens and tests named below no
+> longer exist.
+
 Celebration refresh for the EBU R128 loudness-analysis milestone. This is a
 visual refresh of the existing dark theme, not a redesign: the layout, the
 component structure and the Serato warm accent are untouched.

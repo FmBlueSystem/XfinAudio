@@ -6,7 +6,7 @@ class Element extends EventTarget {
   get options() { return this.children; } get selectedOptions() { return this.children.filter(node=>node.selected); }
   classList = { toggle: (key, active) => active ? this.classes.add(key) : this.classes.delete(key), contains: (key) => this.classes.has(key) };
   setAttribute(key, value) { this.attrs[key] = value; } removeAttribute(key) { delete this.attrs[key]; }
-  append(...nodes) { this.children.push(...nodes); } replaceChildren(...nodes) { this.children = nodes; } closest() { return null; } focus() {} pause() { this.paused = true; } load() {} async play() { this.paused = false; }
+  append(...nodes) { this.children.push(...nodes); } replaceChildren(...nodes) { this.children = nodes; } closest() { return null; } focus() { this.focused = true; } pause() { this.paused = true; } load() {} async play() { this.paused = false; }
 }
 const all = (node) => [node, ...node.children.flatMap(all)]; const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
 const tick = () => new Promise((resolve) => setImmediate(resolve)); const settle = async () => { for (let i = 0; i < 5; i++) await tick(); };
@@ -16,7 +16,7 @@ const tracks = ['a', 'b'].map((id) => ({ id: id.repeat(64), title: id, artist: '
 const loudness = (patch = {}) => ({ revision: 'a'.repeat(64), enabled: true, targetLufs: -10, toleranceLu: 2, available: true, reason: 'ready', totalTracks: tracks.length, tracks: tracks.map((track) => ({ track, state: 'unmeasured', complete: false, lufs: null, lra: null, truePeak: null })), ...patch });
 const receipt = (patch = {}) => ({ cancelled: false, changedCount: 1, unchangedCount: 1, failureCount: 0, backupCount: 1, status: loudness(), ...patch });
 const aiUuid = '12345678-1234-4123-8123-123456789012';
-const aiStatus = { revision: 'c'.repeat(64), enabled: true, provider: 'nan', configured: true, credentialLabel: 'dummy.env', recipient: 'https://api.nan.builders/v1/chat/completions' };
+const aiStatus = { revision: 'c'.repeat(64), enabled: true, provider: 'nan', autoAuthorize: false, configured: true, credentialLabel: 'dummy.env', recipient: 'https://api.nan.builders/v1/chat/completions' };
 let sequence = 0;
 async function fixture(overrides = {}) {
   const previousDocument = globalThis.document; const previousWindow = globalThis.window; const elements = new Map(); const calls = []; let onStatus; let progress; let statusUnsubscribed = false;
@@ -26,6 +26,7 @@ async function fixture(overrides = {}) {
   const api = {
     getAiStatus: async () => { calls.push(['aiStatus']); return aiStatus; }, saveAiSettings: async (input) => { calls.push(['aiSave',input]); return {...aiStatus,...input}; }, chooseAiCredential: async () => aiStatus, clearAiCredential: async () => ({...aiStatus,configured:false,credentialLabel:null}),
     prepareAiRequest: async (input) => { calls.push(['aiPrepare',input]); aiSurface=input.surface; return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,disclosure:['Datos autorizados'],requestPreview:input.request}; },
+    inspectAiPayload: async (input) => { calls.push(['aiPayload',input]); return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,request:'',body:'{"model":"deepseek","messages":[]}',bytes:31,truncated:false}; },
     runAiRequest: async (input) => { calls.push(['aiRun',input]); return {cancelled:false,result:{resultId:aiUuid,surface:aiSurface,kind:aiKinds[aiSurface],title:'Propuesta IA',text:'Revisión local',proposal:{summary:'sugerencia'},canApply:true}}; },
     applyAiSuggestion: async (input) => { calls.push(['aiApply',input]); return {surface:aiSurface,data:aiSurface==='library'?{filters:{genres:['house']},trackIds:[tracks[0].id]}:aiSurface==='prep'?{targetTrackCount:2,name:'Sesión propuesta',targetMinutes:30}:aiSurface==='editor'?{request:'acorta a 2 temas'}:{action:'compare',playlistIds:['1'],comparison:'Comparación local <img src=x>',names:['Set']}}; },
     getLoudnessStatus: async () => { calls.push(['loudness']); return loudness(); },
@@ -38,6 +39,8 @@ async function fixture(overrides = {}) {
     getLibraryStatus: async () => { calls.push(['status']); return status(); }, onLibraryStatus: (callback) => { onStatus = callback; return () => { statusUnsubscribed = true; }; },
     rescanLibrary: async () => { calls.push(['rescan']); return { tracks, count: 2 }; }, setDraftDirty: async (dirty) => { calls.push(['dirty', dirty]); },
     listPlaylists: async () => [{ id: '1', name: 'Set', trackCount: 2, createdAt: '' }], openPlaylistEditor: async () => ({ id: '1', editId: aiUuid, revision: 'r1', name: 'Set', tracks, missingTrackCount: 0 }), discardPlaylistEdit: async () => ({ id: '1', editId: aiUuid, revision: 'r1', name: 'Set', tracks, missingTrackCount: 0 }),
+    savePlaylistEdit: async (input) => { calls.push(['saveEdit', input]); return { id: '1', editId: aiUuid, revision: 'r2', name: input.name, tracks, missingTrackCount: 0 }; },
+    savePlaylistImprovement: async (input) => { calls.push(['saveImprovement', input]); return { id: '1', editId: aiUuid, revision: 'r2', name: input.name, tracks, missingTrackCount: 0 }; },
     generatePrep: async (input) => { calls.push(['generate', input]); return ({ reviewId: aiUuid, name: 'Set', variant: 'balanced', readiness: 'ready', tracks, warnings: [], blockers: [] }); },
     openLive: async () => ({ sessionId: aiUuid, revision: 0, sourceReviewId: aiUuid, state: 'active', current: tracks[0], history: [], candidates: [{ track: tracks[1], score: 1, alerts: [] }], elapsedSeconds: 0 }),
     chooseSeratoDestination: async () => ({ destinationId: 'dest', label: '_Serato_' }), previewSeratoExport: async () => ({ previewId: 'preview', sourceRevision: 'r', filename: 'Set.crate', destinationLabel: '_Serato_', trackCount: 2, readiness: 'ready', warnings: [], blockers: [], canCommit: true, tracks, backup: { required: false } }), ...overrides,
@@ -50,8 +53,39 @@ async function fixture(overrides = {}) {
 }
 async function aiReady(f, route = 'library', request = 'Busca house') { await f.navigate(route); await f.openAi(); f.get('optional-ai-request').value = request; f.get('optional-ai-request').dispatchEvent(new Event('input')); f.click('optional-ai-prepare'); await settle(); f.get('optional-ai-consent').checked = true; f.get('optional-ai-consent').dispatchEvent(new Event('change')); }
 async function aiResult(f, route = 'library') { await aiReady(f, route); f.click('optional-ai-ask'); await settle(); }
+const editorImprovementResult = { resultId: aiUuid, surface: 'editor', kind: 'improvement', title: 'Mejora propuesta', text: 'Revisa el orden local', proposal: { orderedTrackIds: ['a1b2c3d4e5f60718'] }, canApply: true };
+const improvementPayload = (patch = {}) => ({ proposalId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', digest: 'f'.repeat(64), sourceRevision: 'r1', before: tracks.map((track) => ({ ...track })), after: [tracks[1], tracks[0]].map((track) => ({ ...track })), assessment: { description: 'Motor local', readiness: 'needs_review', qualityScore: 0.8, warnings: ['Aviso local'] }, addedIds: [], removedIds: [], ...patch });
+const openEditor = async (f) => { await f.navigate('playlists'); f.nodes().find((node) => node.tagName === 'button' && node.textContent === 'Editar').dispatchEvent(new Event('click')); await settle(); };
 test('one AI panel loads status only when opened, with dedicated synthetic connection route', async () => {
   const f = await fixture(); try { assert.equal(f.calls.some(([kind]) => kind === 'aiStatus'), false); await f.openAi(); assert.equal(f.calls.filter(([kind]) => kind === 'aiStatus').length, 1); assert.equal(f.calls.some(([kind]) => kind === 'aiRun'), false); await f.navigate('ai'); assert.equal(document.title, 'XfinAudio · IA opcional'); assert.equal(f.get('optional-ai-request-field').hidden, true); f.click('optional-ai-prepare'); await settle(); assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], {surface:'connection',context:{},request:'Reply with OK. XfinAudio connection test.'}); assert.equal(f.get('optional-ai-consent').checked, false); } finally { f.restore(); }
+});
+test('Prep request survives a local job: editable while busy, explicit wait reason, preview manual only after idle', async () => {
+  const report = { totalTracks: 2, completeCount: 2, incompleteCount: 0, gaps: { bpm: 0, camelot_key: 0, energy_level: 0 }, yearCoverage: { withReleaseYear: 0, withoutReleaseYear: 2 }, tracks: [], repairPlan: 'Sin cambios', readOnly: true };
+  let finish; const f = await fixture({ getMetadataReport: () => new Promise((resolve) => { finish = resolve; }) });
+  try {
+    await f.navigate('prep'); await f.openAi();
+    assert.equal(f.calls.filter(([kind]) => kind === 'aiStatus').length, 1);
+    await f.navigate('metadata');
+    await f.navigate('prep');
+    const request = f.get('optional-ai-request');
+    assert.equal(request.disabled, false);
+    request.value = 'Prepara una sesión house';
+    request.dispatchEvent(new Event('input'));
+    assert.equal(f.get('optional-ai-local-hold').hidden, false);
+    assert.match(text(f.get('optional-ai-local-hold')), /operación local/i);
+    assert.equal(f.get('optional-ai-prepare').disabled, true);
+    assert.equal(f.calls.some(([kind]) => kind === 'aiPrepare'), false);
+    assert.equal(f.calls.some(([kind]) => kind === 'aiRun'), false);
+    finish(report); await settle();
+    assert.equal(f.get('optional-ai-request').value, 'Prepara una sesión house');
+    assert.equal(f.get('optional-ai-local-hold').hidden, true);
+    assert.equal(f.get('optional-ai-prepare').disabled, false);
+    f.click('optional-ai-prepare'); await settle();
+    assert.equal(f.calls.filter(([kind]) => kind === 'aiPrepare').length, 1);
+    assert.equal(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1].surface, 'prep');
+    assert.equal(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1].request, 'Prepara una sesión house');
+    assert.equal(f.calls.some(([kind]) => kind === 'aiRun'), false);
+  } finally { f.restore(); }
 });
 test('AI draft is shared across surfaces and joins other dirty-close guards', async () => {
   const f = await fixture(); try { await f.openAi(); f.get('optional-ai-enabled').checked = false; f.get('optional-ai-enabled').dispatchEvent(new Event('change')); await f.navigate('preferences'); f.get('preferences-volume').value = '.4'; f.get('preferences-volume').dispatchEvent(new Event('input')); f.click('preferences-discard'); assert.equal(f.calls.filter(([kind])=>kind==='dirty').at(-1)[1], true); await f.navigate('ai'); assert.equal(f.get('optional-ai-enabled').checked, false); f.click('optional-ai-discard'); assert.equal(f.calls.filter(([kind])=>kind==='dirty').at(-1)[1], false); } finally { f.restore(); }
@@ -62,8 +96,177 @@ test('library Apply filters display only, has a clear action and retains the ful
 test('Prep Apply only fills fields and local input changes revoke consent', async () => {
   const f = await fixture(); try { await aiResult(f,'prep'); f.click('optional-ai-apply'); await settle(); assert.equal(f.get('prep-name').value, 'Sesión propuesta'); assert.equal(f.get('prep-minutes').value, '30'); assert.equal(f.get('optional-ai-error').textContent, ''); assert.equal(f.calls.some(([kind])=>kind==='generate'), false); await aiReady(f,'prep'); f.get('prep-name').value='Cambio manual'; f.get('prep-name').dispatchEvent(new Event('input')); assert.equal(f.get('optional-ai-preview').hidden,true); assert.equal(f.get('optional-ai-consent').checked,false); } finally { f.restore(); }
 });
-test('editor Apply only fills its local request and context tracks current name/order/request', async () => {
-  const f = await fixture(); try { await f.navigate('playlists'); f.nodes().find(node=>node.tagName==='button'&&node.textContent==='Editar').dispatchEvent(new Event('click')); await settle(); await aiResult(f,'editor'); assert.deepEqual(f.calls.findLast(([kind])=>kind==='aiPrepare')[1].context,{editId:aiUuid}); f.click('optional-ai-apply'); await settle(); assert.equal(f.get('editor-request').value,'acorta a 2 temas'); assert.equal(f.get('editor-proposal').hidden,true); assert.equal(f.get('audio-player').paused,true); await aiReady(f,'editor'); f.get('editor-name').value='Borrador nuevo'; f.get('editor-name').dispatchEvent(new Event('input')); assert.equal(f.get('optional-ai-preview').hidden,true); } finally { f.restore(); }
+test('editor improvement Apply stages a local preview from the exact ordered selector without touching the draft or the legacy request', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: improvementPayload() }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], { surface: 'editor', request: 'Mejora el orden', context: { editId: aiUuid, draftIds: [tracks[0].id, tracks[1].id], includeReplacements: false } });
+    f.click('optional-ai-ask'); await settle();
+    f.click('optional-ai-apply'); await settle();
+    assert.equal(f.get('optional-ai-error').textContent, '');
+    assert.equal(f.get('editor-request').value, '');
+    assert.equal(f.get('editor-dirty').textContent, 'Sin cambios pendientes');
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement' || kind === 'saveEdit'), false);
+  } finally { f.restore(); }
+});
+test('changing the draft order while a proposal is prepared invalidates it and reprepares with the exact current order', async () => {
+  const f = await fixture();
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    assert.equal(f.get('optional-ai-consent').checked, true);
+    f.click('editor-down-0'); await settle();
+    assert.equal(f.get('optional-ai-preview').hidden, true);
+    assert.equal(f.get('optional-ai-consent').checked, false);
+    f.get('optional-ai-request').value = 'Mejora el orden'; f.get('optional-ai-request').dispatchEvent(new Event('input'));
+    f.click('optional-ai-prepare'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1].context, { editId: aiUuid, draftIds: [tracks[1].id, tracks[0].id], includeReplacements: false });
+  } finally { f.restore(); }
+});
+test('renaming the draft while a proposal is prepared invalidates the disclosure identity', async () => {
+  const f = await fixture();
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    assert.equal(f.get('optional-ai-consent').checked, true);
+    f.get('editor-name').value = 'Otro nombre'; f.get('editor-name').dispatchEvent(new Event('input')); await settle();
+    assert.equal(f.get('optional-ai-preview').hidden, true);
+    assert.equal(f.get('optional-ai-consent').checked, false);
+  } finally { f.restore(); }
+});
+test('a same-surface editor context refresh keeps the typed instruction ready to reprepare with a Spanish reminder', async () => {
+  const f = await fixture();
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.get('editor-name').value = 'Otro nombre'; f.get('editor-name').dispatchEvent(new Event('input')); await settle();
+    assert.equal(f.get('optional-ai-preview').hidden, true);
+    assert.equal(f.get('optional-ai-consent').checked, false);
+    assert.equal(f.get('optional-ai-request').value, 'Mejora el orden');
+    assert.equal(f.get('optional-ai-prepare').disabled, false);
+    assert.match(f.get('optional-ai-notice').textContent, /Contexto actualizado/);
+    f.click('optional-ai-prepare'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], { surface: 'editor', request: 'Mejora el orden', context: { editId: aiUuid, draftIds: [tracks[0].id, tracks[1].id], includeReplacements: false } });
+  } finally { f.restore(); }
+});
+test('a declined native confirmation keeps the prepared disclosure available for an explicit retry', async () => {
+  let runs = 0; const f = await fixture({ runAiRequest: async () => { runs += 1; return { cancelled: true, result: null }; } });
+  try {
+    await aiReady(f, 'library', 'Busca house');
+    assert.equal(f.get('optional-ai-preview').hidden, false);
+    f.click('optional-ai-ask'); await settle();
+    assert.equal(runs, 1);
+    assert.equal(f.get('optional-ai-preview').hidden, false);
+    assert.equal(f.get('optional-ai-consent').checked, false);
+    assert.equal(f.get('optional-ai-result').hidden, true);
+    assert.equal(f.get('optional-ai-notice').textContent, 'Envío cancelado: la vista previa sigue disponible; vuelve a marcar la autorización para reintentar.');
+    f.get('optional-ai-consent').checked = true; f.get('optional-ai-consent').dispatchEvent(new Event('change'));
+    f.click('optional-ai-ask'); await settle();
+    assert.equal(runs, 2);
+  } finally { f.restore(); }
+});
+test('an invalid improvement proposal shows the specific Spanish retry guidance in the panel', async () => {
+  const f = await fixture({ runAiRequest: async () => { throw new Error('[invalid_improvement] private backend detail'); } });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    assert.match(f.get('optional-ai-error').textContent, /playlist actual/);
+    assert.doesNotMatch(f.get('optional-ai-error').textContent, /invalid_improvement|private backend/);
+  } finally { f.restore(); }
+});
+test('changing the draft while a result is shown invalidates the result and any deferred apply', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    assert.equal(f.get('optional-ai-result').hidden, false);
+    f.click('editor-down-0'); await settle();
+    assert.equal(f.get('optional-ai-result').hidden, true);
+    assert.equal(f.get('optional-ai-apply').disabled, true);
+  } finally { f.restore(); }
+});
+test('toggling replacements keeps the typed instruction while invalidating consent and resyncing the exact selector', async () => {
+  const f = await fixture();
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    assert.equal(f.get('optional-ai-request').value, 'Mejora el orden');
+    assert.equal(f.get('optional-ai-consent').checked, true);
+    const toggle = f.get('optional-ai-include-replacements');
+    assert.equal(toggle.hidden, false);
+    toggle.checked = true; toggle.dispatchEvent(new Event('change')); await settle();
+    assert.equal(toggle.checked, true);
+    assert.equal(f.get('optional-ai-request').value, 'Mejora el orden');
+    assert.equal(f.get('optional-ai-preview').hidden, true);
+    assert.equal(f.get('optional-ai-consent').checked, false);
+    f.click('optional-ai-prepare'); await settle();
+    assert.equal(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1].context.includeReplacements, true);
+  } finally { f.restore(); }
+});
+test('the replacement toggle resyncs the improvement context, discards consent and never recurses', async () => {
+  const f = await fixture();
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    assert.equal(f.get('optional-ai-consent').checked, true);
+    const toggle = f.get('optional-ai-include-replacements');
+    assert.equal(toggle.hidden, false);
+    toggle.checked = true; toggle.dispatchEvent(new Event('change')); await settle();
+    assert.equal(toggle.checked, true);
+    assert.equal(f.get('optional-ai-preview').hidden, true);
+    assert.equal(f.get('optional-ai-consent').checked, false);
+    f.get('optional-ai-request').value = 'Mejora el orden'; f.get('optional-ai-request').dispatchEvent(new Event('input'));
+    f.click('optional-ai-prepare'); await settle();
+    assert.equal(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1].context.includeReplacements, true);
+  } finally { f.restore(); }
+});
+test('an editor draft outside the improvement bounds offers no AI surface instead of the legacy editId request', async () => {
+  const many = Array.from({ length: 81 }, (_, index) => ({ ...tracks[0], id: index.toString(16).padStart(64, '0') }));
+  const few = [{ ...tracks[0] }];
+  for (const draftTracks of [many, few]) {
+    const f = await fixture({ openPlaylistEditor: async () => ({ id: '1', editId: aiUuid, revision: 'r1', name: 'Set', tracks: draftTracks, missingTrackCount: 0 }) });
+    try {
+      await openEditor(f);
+      assert.equal(f.get('ai-panel').hidden, true);
+      assert.equal(f.calls.some(([kind]) => kind === 'aiPrepare'), false);
+    } finally { f.restore(); }
+  }
+});
+test('a bridge without the improvement save route disables the editor AI surface safely', async () => {
+  const f = await fixture({ savePlaylistImprovement: undefined });
+  try {
+    await openEditor(f);
+    assert.equal(f.get('ai-panel').hidden, true);
+    assert.equal(f.calls.some(([kind]) => kind === 'aiPrepare'), false);
+  } finally { f.restore(); }
+});
+test('a stale editor improvement payload is refused with an error and never changes or saves the draft', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: improvementPayload({ sourceRevision: 'r9' }) }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    f.click('optional-ai-apply'); await settle();
+    assert.notEqual(f.get('optional-ai-error').textContent, '');
+    assert.equal(f.get('editor-dirty').textContent, 'Sin cambios pendientes');
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement' || kind === 'saveEdit'), false);
+  } finally { f.restore(); }
+});
+test('a malformed editor improvement payload with a matching revision is refused at apply time without touching the draft', async () => {
+  const malformed = improvementPayload({ assessment: { description: 'x', readiness: 'unknown', qualityScore: 1, warnings: [] } });
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: malformed }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    f.click('optional-ai-apply'); await settle();
+    assert.notEqual(f.get('optional-ai-error').textContent, '');
+    assert.equal(f.get('editor-dirty').textContent, 'Sin cambios pendientes');
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement' || kind === 'saveEdit'), false);
+  } finally { f.restore(); }
 });
 test('saved Apply renders local selection and comparison as plain text without playlist mutation', async () => {
   const f = await fixture(); try { await aiResult(f,'playlists'); f.click('optional-ai-apply'); await settle(); assert.match(text(f.get('saved-ai-selection')),/Comparación local <img src=x>/); assert.equal(f.get('saved-ai-selection').hidden,false); assert.ok(!f.nodes().some(node=>node.tagName==='img')); assert.equal(f.calls.some(([kind])=>['save','rename','generate'].includes(kind)),false); } finally { f.restore(); }
@@ -108,4 +311,157 @@ test('Prep AI Apply unions hard controls and never removes an exclusion to accep
  await aiResult(f,'prep');const before=f.get('prep-name').value;f.click('optional-ai-apply');await settle();
  assert.equal(f.get('prep-start').value,'');assert.equal(f.get('prep-name').value,before);assert.equal(required.selected,true);assert.equal(excluded.selected,true);assert.notEqual(f.get('optional-ai-error').textContent,'');assert.equal(f.calls.some(([kind])=>kind==='generate'),false);
  }finally{f.restore();}
+});
+
+// --- I3 U4b: discoverable improvement CTA, readable before/after and honest apply/save ---
+test('the editor summary CTA opens the existing AI panel, focuses the instruction and never prepares or contacts the provider', async () => {
+  const f = await fixture();
+  try {
+    await openEditor(f);
+    const cta = f.get('editor-improve');
+    assert.equal(cta.disabled, false);
+    f.click('editor-improve'); await settle();
+    assert.equal(f.get('ai-panel').open, true);
+    assert.equal(f.get('optional-ai-request').focused, true);
+    assert.equal(f.calls.some(([kind]) => ['aiPrepare', 'aiRun', 'aiApply', 'saveEdit', 'saveImprovement'].includes(kind)), false);
+  } finally { f.restore(); }
+});
+test('the editor CTA is disabled with an actionable hint outside the bounded draft and without the save bridge', async () => {
+  const drafts = [[{ ...tracks[0] }], Array.from({ length: 81 }, (_, index) => ({ ...tracks[0], id: index.toString(16).padStart(64, '0') }))];
+  for (const draftTracks of drafts) {
+    const f = await fixture({ openPlaylistEditor: async () => ({ id: '1', editId: aiUuid, revision: 'r1', name: 'Set', tracks: draftTracks, missingTrackCount: 0 }) });
+    try {
+      await openEditor(f);
+      assert.equal(f.get('editor-improve').disabled, true);
+      assert.match(f.get('editor-improve-hint').textContent, /2 y 80/);
+      assert.equal(f.calls.some(([kind]) => kind === 'aiPrepare'), false);
+    } finally { f.restore(); }
+  }
+  const g = await fixture({ savePlaylistImprovement: undefined });
+  try {
+    await openEditor(g);
+    assert.equal(g.get('editor-improve').disabled, true);
+    assert.notEqual(g.get('editor-improve-hint').textContent, '');
+    assert.equal(g.calls.some(([kind]) => kind === 'aiPrepare'), false);
+  } finally { g.restore(); }
+});
+test('reviewing an improvement result stages a read-only before/after preview and never touches draft or save', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: improvementPayload() }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    assert.equal(f.get('optional-ai-apply').textContent, 'Revisar propuesta local');
+    f.click('optional-ai-apply'); await settle();
+    assert.equal(f.get('optional-ai-error').textContent, '');
+    assert.equal(f.get('editor-improvement').hidden, false);
+    assert.match(text(f.get('editor-improvement')), /antes/i);
+    assert.match(text(f.get('editor-improvement')), /después/i);
+    assert.equal(f.get('editor-improvement-apply').disabled, false);
+    assert.equal(f.get('editor-dirty').textContent, 'Sin cambios pendientes');
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement' || kind === 'saveEdit'), false);
+    assert.doesNotMatch(f.get('optional-ai-notice').textContent, /aplicad[ao] al trabajo local/i);
+    assert.match(f.get('optional-ai-notice').textContent, /borrador/i);
+  } finally { f.restore(); }
+});
+test('applying the improvement changes only the draft, labels the bound save and persists through the dedicated command', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: improvementPayload() }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    f.click('optional-ai-apply'); await settle();
+    assert.equal(f.get('editor-improvement-counts').textContent, '0 pistas añadidas · 0 pistas quitadas · 2 movidas');
+    assert.deepEqual(f.get('editor-improvement-after').children.map((node) => node.textContent), ['1. b · DJ · #2 → #1', '2. a · DJ · #1 → #2']);
+    f.click('editor-improvement-apply'); await settle();
+    assert.equal(f.get('editor-save').textContent, 'Guardar mejora');
+    assert.equal(f.get('editor-dirty').textContent, 'Cambios sin guardar');
+    assert.equal(f.get('operation-label').textContent, 'Mejora aplicada al borrador. Usa «Guardar mejora» para conservarla en la playlist.');
+    assert.equal(f.get('operation-detail').textContent, '');
+    assert.doesNotMatch(f.get('operation-detail').textContent, /no cambió y no se guardó/);
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement'), false);
+    f.click('editor-save'); await settle();
+    const saved = f.calls.findLast(([kind]) => kind === 'saveImprovement');
+    assert.ok(saved); assert.equal(saved[1].proposalId, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+    assert.equal(f.calls.some(([kind]) => kind === 'saveEdit'), false);
+    assert.equal(f.get('operation-label').textContent, 'Mejora guardada en la playlist. Ya no hay cambios pendientes.');
+    assert.equal(f.get('operation-detail').textContent, '');
+    assert.equal(f.get('editor-save').textContent, 'Guardar cambios');
+  } finally { f.restore(); }
+});
+test('the ordinary editor save keeps its own confirmation copy after the improvement binding is revoked', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: improvementPayload() }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    f.click('optional-ai-apply'); await settle();
+    f.click('editor-improvement-apply'); await settle();
+    f.get('editor-name').value = 'Otro nombre'; f.get('editor-name').dispatchEvent(new Event('input')); await settle();
+    f.click('editor-save'); await settle();
+    assert.ok(f.calls.some(([kind]) => kind === 'saveEdit'));
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement'), false);
+    assert.equal(f.get('operation-label').textContent, 'Cambios guardados');
+    assert.equal(f.get('operation-detail').textContent, 'Los cambios solo se conservan al pulsar Guardar cambios');
+  } finally { f.restore(); }
+});
+test('a manual change after applying revokes the binding and restores the manual save command', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: editorImprovementResult }), applyAiSuggestion: async () => ({ surface: 'editor', data: improvementPayload() }) });
+  try {
+    await openEditor(f);
+    await aiReady(f, 'editor', 'Mejora el orden');
+    f.click('optional-ai-ask'); await settle();
+    f.click('optional-ai-apply'); await settle();
+    f.click('editor-improvement-apply'); await settle();
+    assert.equal(f.get('editor-save').textContent, 'Guardar mejora');
+    f.get('editor-name').value = 'Otro nombre'; f.get('editor-name').dispatchEvent(new Event('input')); await settle();
+    assert.equal(f.get('editor-save').textContent, 'Guardar cambios');
+    f.click('editor-save'); await settle();
+    assert.equal(f.calls.some(([kind]) => kind === 'saveImprovement'), false);
+    assert.ok(f.calls.some(([kind]) => kind === 'saveEdit'));
+  } finally { f.restore(); }
+});
+test('other AI surfaces keep their original review and apply copy', async () => {
+  const f = await fixture();
+  try {
+    await aiResult(f);
+    assert.equal(f.get('optional-ai-apply').textContent, 'Aplicar propuesta al trabajo local');
+    f.click('optional-ai-apply'); await settle();
+    assert.match(f.get('operation-detail').textContent, /aplicada al trabajo local/i);
+  } finally { f.restore(); }
+});
+
+// --- F10: the editor CTA must explain AI settings that block every panel action ---
+test('the editor loads local AI settings so the CTA can refuse before the AI panel is opened', async () => {
+  const f = await fixture({ getAiStatus: async () => ({ ...aiStatus, enabled: false }) });
+  try {
+    await openEditor(f);
+    assert.equal(f.get('editor-improve').disabled, true);
+    assert.match(f.get('editor-improve-hint').textContent, /Ajustes/);
+    assert.equal(f.calls.some(([kind]) => kind === 'aiPrepare'), false);
+  } finally { f.restore(); }
+});
+test('the editor CTA is disabled with a settings hint when AI is off or unconfigured', async () => {
+  for (const patch of [{ enabled: false }, { configured: false, credentialLabel: null }]) {
+    const f = await fixture({ getAiStatus: async () => ({ ...aiStatus, ...patch }) });
+    try {
+      await f.openAi();
+      await openEditor(f);
+      assert.equal(f.get('editor-improve').disabled, true);
+      assert.match(f.get('editor-improve-hint').textContent, /Ajustes/);
+      assert.equal(f.calls.some(([kind]) => kind === 'aiPrepare'), false);
+    } finally { f.restore(); }
+  }
+});
+test('the editor CTA re-renders with a save-or-discard hint when the AI draft becomes dirty', async () => {
+  const f = await fixture({ getAiStatus: async () => ({ ...aiStatus, enabled: false }) });
+  try {
+    await openEditor(f);
+    assert.equal(f.get('editor-improve').disabled, true);
+    f.get('optional-ai-enabled').checked = true;
+    f.get('optional-ai-enabled').dispatchEvent(new Event('change'));
+    await settle();
+    assert.equal(f.get('editor-improve').disabled, true);
+    assert.match(f.get('editor-improve-hint').textContent, /cambios de IA/);
+  } finally { f.restore(); }
 });

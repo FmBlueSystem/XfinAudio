@@ -61,7 +61,7 @@ Settings JSON is saved with indentation and sorted keys for supportability.
 Automated verification on 2026-06-03:
 
 ```bash
-uv run pytest -v tests/test_settings.py tests/test_settings_repository.py tests/test_main_window.py
+uv run pytest -v tests/test_settings.py tests/test_settings_repository.py
 uv run pytest -v
 uv run ruff check .
 uv run ruff format --check .

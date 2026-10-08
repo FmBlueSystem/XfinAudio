@@ -11,7 +11,7 @@ const button = (id: string, label: string, action: () => void, primary = false):
 };
 const readiness: Record<Readiness, string> = { ready: 'Lista para revisar', needs_review: 'Revisión recomendada', blocked: 'Necesita atención' };
 
-export function createEditorView(root: HTMLElement, editor: SavedPlaylistEditor, host: { canAct(): boolean; play(track: EditorTrack): void }): () => void {
+export function createEditorView(root: HTMLElement, editor: SavedPlaylistEditor, host: { canAct(): boolean; play(track: EditorTrack): void; improvement(): { available: boolean; hint: string }; openImprovement(): void; improvementApplied(): void }): () => void {
   const empty = make('div', 'Abre una playlist guardada con «Editar» para empezar.', 'surface empty-state');
   const content = make('div');
   const summary = make('section', '', 'surface editor-summary');
@@ -23,7 +23,11 @@ export function createEditorView(root: HTMLElement, editor: SavedPlaylistEditor,
   const save = button('save', 'Guardar cambios', () => { void editor.save(); }, true);
   const discard = button('discard', 'Descartar cambios', () => { void editor.discard(); });
   const actions = make('div', '', 'editor-actions'); actions.append(save, discard);
-  summary.append(label, name, dirty, count, actions, make('p', 'Guardar actualiza esta playlist local. Descartar recupera la versión guardada. El audio no se modifica.', 'field-hint'));
+  // Discoverability without authority: this only reveals the existing AI panel and moves
+  // focus to its instruction. It never prepares, authorizes, or contacts the provider.
+  const improve = button('improve', 'Mejorar con IA…', () => host.openImprovement());
+  const improveHint = identify(make('p', '', 'field-hint'), 'improve-hint');
+  summary.append(label, name, dirty, count, actions, improve, improveHint, make('p', 'Guardar actualiza esta playlist local. Descartar recupera la versión guardada. El audio no se modifica.', 'field-hint'));
   const error = identify(make('p', '', 'review-notice blocker'), 'error'); error.setAttribute('role', 'alert');
   const switching = identify(make('section', '', 'review-notice'), 'switch'); switching.setAttribute('aria-labelledby', 'editor-switch-title');
   switching.append(identify(make('h3', 'Tienes cambios sin guardar'), 'switch-title'), make('p', 'Para abrir otra playlist, decide qué hacer con este borrador.'));
@@ -45,7 +49,18 @@ export function createEditorView(root: HTMLElement, editor: SavedPlaylistEditor,
   const assessment = make('div'); const proposedTracks = identify(make('ol', '', 'editor-proposed-tracks'), 'proposal-tracks');
   const apply = button('apply', 'Aplicar al borrador', () => editor.applyPreview(), true);
   proposal.append(make('h3', 'Propuesta sin aplicar'), assessment, proposedTracks, apply, make('p', 'Aplicar cambia solo el borrador. Después, usa Guardar cambios para conservarlo.', 'field-hint'));
-  content.append(switching, error, summary, missing, tableWrap, noTracks, form, proposal); root.replaceChildren(empty, content);
+  const improvementSection = identify(make('section', '', 'surface editor-improvement'), 'improvement');
+  const improvementBlocked = identify(make('p', '', 'review-notice blocker'), 'improvement-blocked'); improvementBlocked.setAttribute('role', 'alert');
+  const improvementAssessment = make('div');
+  const improvementBefore = identify(make('ol', '', 'editor-improvement-list'), 'improvement-before');
+  const improvementAfter = identify(make('ol', '', 'editor-improvement-list'), 'improvement-after');
+  const improvementCounts = identify(make('p', '', 'field-hint'), 'improvement-counts');
+  // Read-only until the user clicks: rendering the proposal never changes the draft.
+  const improvementApply = button('improvement-apply', 'Aplicar mejora al borrador', () => { if (editor.applyImprovementPreview()) host.improvementApplied(); }, true);
+  improvementSection.append(make('h3', 'Mejora con IA (sin aplicar)'), improvementBlocked, improvementAssessment,
+    make('span', 'ANTES', 'eyebrow'), improvementBefore, make('span', 'DESPUÉS', 'eyebrow'), improvementAfter, improvementCounts,
+    improvementApply, make('p', 'Aplicarla cambia solo el borrador. Después, usa Guardar mejora para conservarla en la playlist.', 'field-hint'));
+  content.append(switching, error, summary, missing, tableWrap, noTracks, form, proposal, improvementSection); root.replaceChildren(empty, content);
   root.addEventListener('keydown', (event) => { if (event.key === 'Escape' && editor.pendingPlaylistId) editor.cancelSwitch(); });
   const rowControls = new Map<string, HTMLButtonElement>();
   const focusRow = (id: string, index: number): void => {
@@ -62,9 +77,17 @@ export function createEditorView(root: HTMLElement, editor: SavedPlaylistEditor,
     if (name.value !== draft.name) name.value = draft.name;
     if (request.value !== editor.request) request.value = editor.request;
     name.disabled = request.disabled = blocked;
+    // The improvement CTA and its reason are decided by the app from the exact draft
+    // bounds and the presence of the dedicated save bridge.
+    const improvementStatus = host.improvement();
+    improve.disabled = blocked || !improvementStatus.available;
+    improveHint.textContent = improvementStatus.hint; improveHint.hidden = improvementStatus.available;
     dirty.textContent = editor.dirty ? 'Cambios sin guardar' : 'Sin cambios pendientes';
     count.textContent = `${draft.tracks.length} pistas · ${formatDuration(draft.tracks.reduce((total, track) => total + (track.duration ?? 0), 0))}`;
     save.disabled = blocked || !editor.canSave; discard.disabled = blocked || (!editor.dirty && !editor.error);
+    // Once the draft holds the exact bound improvement order, saving is a distinct,
+    // deliberate action; any manual edit revokes the binding and restores this label.
+    save.textContent = editor.improvementBound ? 'Guardar mejora' : 'Guardar cambios';
     previewButton.disabled = blocked || !editor.request.trim() || editor.request.length > 500 || draft.tracks.length < 2 || draft.tracks.length > 500;
     switching.hidden = !editor.pendingPlaylistId; cancelSwitch.disabled = discardSwitch.disabled = blocked;
     if (editor.pendingPlaylistId && editor.pendingPlaylistId !== previousPending) cancelSwitch.focus();
@@ -101,6 +124,32 @@ export function createEditorView(root: HTMLElement, editor: SavedPlaylistEditor,
       assessment.append(make('p', result.description), make('span', readiness[result.readiness], `readiness-pill ${result.readiness}`), make('p', `Puntuación del motor: ${Number.isFinite(result.qualityScore) ? result.qualityScore.toLocaleString('es', { maximumFractionDigits: 2 }) : '—'} · ${preview.tracks.length} pistas`, 'field-hint'));
       const warnings = make('ul'); for (const warning of result.warnings) warnings.append(make('li', warning)); assessment.append(warnings);
       preview.tracks.forEach((track, index) => proposedTracks.append(make('li', `${index + 1}. ${track.title || 'Sin título'} · ${track.artist || 'Artista desconocido'}${track.missing ? ' · Archivo no disponible' : ''}`)));
+    }
+    const improvement = editor.improvement;
+    improvementSection.hidden = !improvement;
+    improvementApply.disabled = blocked || !improvement || improvement.assessment.readiness === 'blocked';
+    if (improvement) {
+      const result = improvement.assessment;
+      const isBlocked = result.readiness === 'blocked';
+      improvementBlocked.hidden = !isBlocked;
+      improvementBlocked.textContent = isBlocked ? 'La propuesta está bloqueada: revisa las advertencias; no puede aplicarse al borrador.' : '';
+      improvementAssessment.replaceChildren(); improvementBefore.replaceChildren(); improvementAfter.replaceChildren();
+      improvementAssessment.append(make('p', result.description), make('span', readiness[result.readiness], `readiness-pill ${result.readiness}`), make('p', `Puntuación del motor: ${Number.isFinite(result.qualityScore) ? result.qualityScore.toLocaleString('es', { maximumFractionDigits: 2 }) : '—'} · ${improvement.after.length} pistas`, 'field-hint'));
+      const warnings = make('ul'); for (const warning of result.warnings) warnings.append(make('li', warning)); improvementAssessment.append(warnings);
+      // Positions are matched by track id so a reorder is visible in the DESPUÉS list itself.
+      // No marker means unchanged, or no previous match at all (added track).
+      const previousPositions = new Map(improvement.before.map((track, index) => [track.id, index]));
+      const line = (track: EditorTrack, index: number, marker = ''): HTMLLIElement => make('li', `${index + 1}. ${track.title || 'Sin título'} · ${track.artist || 'Artista desconocido'}${track.missing ? ' · Archivo no disponible' : ''}${marker}`);
+      improvement.before.forEach((track, index) => improvementBefore.append(line(track, index)));
+      let moved = 0;
+      improvement.after.forEach((track, index) => {
+        const previous = previousPositions.get(track.id);
+        if (previous === undefined || previous === index) { improvementAfter.append(line(track, index)); return; }
+        moved += 1;
+        improvementAfter.append(line(track, index, ` · #${previous + 1} → #${index + 1}`));
+      });
+      const added = improvement.addedIds.length; const removed = improvement.removedIds.length;
+      improvementCounts.textContent = `${added} ${added === 1 ? 'pista añadida' : 'pistas añadidas'} · ${removed} ${removed === 1 ? 'pista quitada' : 'pistas quitadas'}${moved ? ` · ${moved} ${moved === 1 ? 'movida' : 'movidas'}` : ''}`;
     }
   };
 }

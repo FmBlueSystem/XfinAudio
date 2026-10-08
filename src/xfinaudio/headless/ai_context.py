@@ -11,6 +11,11 @@ from typing import TYPE_CHECKING, Any, cast
 from xfinaudio.ai.connection_test import PROBE_MESSAGE
 from xfinaudio.ai.privacy import redact_paths
 from xfinaudio.ai.saved_assists import anonymize_saved_request, build_saved_descriptors
+from xfinaudio.application.playlist_improvement import (
+    MAX_DRAFT_TRACKS,
+    MIN_IMPROVEMENT_TRACKS,
+    ImprovementCandidateSet,
+)
 from xfinaudio.headless.common import BackendError
 from xfinaudio.headless.serato_safety import source_identity
 from xfinaudio.headless.serato_source import load_source
@@ -23,6 +28,24 @@ if TYPE_CHECKING:
 
 SURFACES = frozenset({"library", "prep", "review", "saved", "editor", "metadata", "live", "connection"})
 FREE_TEXT = frozenset({"library", "prep", "saved", "editor"})
+
+# A distinct, explicit improvement selector for the editor surface. The legacy
+# ``{editId}`` selector keeps the four-operation behavior and its disclosure; the
+# improvement selector is the only shape that authorizes a bounded candidate set.
+_IMPROVEMENT_SELECTOR_FIELDS = frozenset({"editId", "draftIds", "includeReplacements"})
+_HEX_DIGITS = frozenset("0123456789abcdef")
+_IMPROVEMENT_FIELDS = (
+    "token",
+    "title",
+    "artist",
+    "genre",
+    "bpm",
+    "key",
+    "energy",
+    "duration",
+    "status",
+    "missingFields",
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +60,48 @@ class AssistContext:
 
 def _fingerprint(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
+
+def _improvement_draft_ids(value: Any) -> list[str]:
+    """Bound the ordered public draft ids before any candidate set is materialized."""
+    if not isinstance(value, list):
+        raise BackendError("invalid_params", "Provide the ordered draft track identities")
+    if len(value) > MAX_DRAFT_TRACKS:
+        raise BackendError(
+            "ai_context_too_large",
+            f"This draft has more than {MAX_DRAFT_TRACKS} tracks; no request was prepared",
+        )
+    if len(value) < MIN_IMPROVEMENT_TRACKS:
+        raise BackendError(
+            "invalid_params",
+            f"Provide between {MIN_IMPROVEMENT_TRACKS} and {MAX_DRAFT_TRACKS} draft track identities",
+        )
+    if any(not isinstance(item, str) or len(item) != 64 or not set(item) <= _HEX_DIGITS for item in value):
+        raise BackendError("invalid_params", "Provide valid draft track identities")
+    if len(set(value)) != len(value):
+        raise BackendError("invalid_edit", "The draft repeats a track")
+    return value
+
+
+def _improvement_disclosure(candidates: ImprovementCandidateSet, include_replacements: bool) -> tuple[str, ...]:
+    """The exact per-request disclosure for one bounded improvement candidate set."""
+    replacements = "incluidas" if include_replacements else "excluidas"
+    return (
+        (
+            f"Se revelarían {len(candidates.draft_tokens)} pistas del borrador y "
+            f"{len(candidates.replacement_tokens)} candidatas de reemplazo ({replacements})."
+        ),
+        "Campos por candidata: " + ", ".join(_IMPROVEMENT_FIELDS) + ".",
+        (
+            "Se revelan títulos y artistas; los tokens son pseudónimos aleatorios válidos solo para esta "
+            "solicitud, no anonimato."
+        ),
+        "No se envían rutas de archivos, ids estables, audio ni credenciales.",
+        (
+            "El envío requiere tu aprobación explícita e individual para esta solicitud; "
+            "preparar no contacta al proveedor."
+        ),
+    )
 
 
 def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, Any], request: str) -> AssistContext:
@@ -59,7 +124,8 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
         "live": {"sessionId", "revision"},
         "saved": {"playlistIds"},
     }.get(surface, set())
-    if set(selector) != expected and not (surface == "saved" and not selector):
+    is_improvement_editor = surface == "editor" and set(selector) == _IMPROVEMENT_SELECTOR_FIELDS
+    if set(selector) != expected and not (surface == "saved" and not selector) and not is_improvement_editor:
         raise BackendError("invalid_params", "Unexpected assistance context fields")
     records = backend._records() if surface != "connection" else []
     if not records and surface != "connection":
@@ -105,10 +171,23 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
     elif surface == "editor":
         session = backend.editor._current(selector["editId"])
         revision_data.append([session.edit_id, session.revision])
-        disclosure = (
-            "Solo tu petición de edición, sin rutas.",
-            "No se envían títulos, listas de pistas ni audio. La propuesta requiere previsualización local.",
-        )
+        if is_improvement_editor:
+            include_replacements = selector["includeReplacements"]
+            if type(include_replacements) is not bool:
+                raise BackendError("invalid_params", "Choose whether to include replacement candidates")
+            draft_ids = _improvement_draft_ids(selector["draftIds"])
+            # Trusted local collaborator: the renderer cannot supply its own candidate list.
+            candidates = backend.editor.improvement_candidates(
+                selector["editId"], draft_ids, include_replacements=include_replacements
+            )
+            # Retain the prepare-time token snapshot; never let random tokens reach the revision.
+            data["candidates"] = candidates
+            disclosure = _improvement_disclosure(candidates, include_replacements)
+        else:
+            disclosure = (
+                "Solo tu petición de edición, sin rutas.",
+                "No se envían títulos, listas de pistas ni audio. La propuesta requiere previsualización local.",
+            )
     elif surface == "saved":
         ids = selector.get("playlistIds", [str(item.id) for item in backend.playlists.list_summaries()])
         if (

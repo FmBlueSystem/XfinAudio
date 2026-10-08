@@ -93,6 +93,18 @@ test('global header ordering preserves active filters, preview and Prep selectio
   const rendered=f.get('library-table').children[0].children[1].children;assert.equal(rendered.length,61);assert.equal(rendered[0].children[1].children[0].textContent,'Track 649');assert.equal(f.get('prep-start').value,rows[6].id);assert.equal(f.get('audio-player').src,source);assert.equal(f.get('audio-player').currentTime,42);assert.equal(f.get('audio-player').paused,false);
  }finally{f.restore();}
 });
+test('Library first paint is bounded, keeps every match reachable, and preserves key metadata',async()=>{
+ const rows=Array.from({length:650},(_,i)=>({...tracks[0],id:i.toString(16).padStart(64,'0'),title:'Track '+i}));const f=await fixture({listLibrary:async()=>({tracks:rows,count:rows.length})});try{
+  const body=()=>f.get('library-table').children[0].children[1].children;
+  assert.equal(body().length,200,'first paint renders only the bounded window');assert.equal(f.get('library-visible-count').textContent,'650 pistas','the count still reflects every match');
+  assert.equal(f.get('library-window').hidden,false);assert.equal(f.get('library-show-more').hidden,false);assert.match(f.get('library-window-note').textContent,/200 de 650/);
+  assert.match(text(f.get('library-table')),/8A/,'bounded rows still expose the Camelot key column');
+  f.click('library-show-more');assert.equal(body().length,400);f.click('library-show-more');assert.equal(body().length,600);f.click('library-show-more');assert.equal(body().length,650);
+  assert.equal(f.get('library-show-more').hidden,true);assert.equal(f.get('library-window').hidden,true,'the load-more affordance disappears once all matches are shown');
+  f.get('library-search').value='Track 6';f.get('library-search').dispatchEvent(new Event('input'));assert.equal(body().length,61);assert.equal(f.get('library-visible-count').textContent,'61 pistas');assert.equal(f.get('library-show-more').hidden,true,'a search change resets the window');
+  f.get('library-search').value='Track';f.get('library-search').dispatchEvent(new Event('input'));assert.equal(body().length,200);assert.equal(f.get('library-show-more').hidden,false);assert.match(f.get('library-window-note').textContent,/200 de 650/);
+ }finally{f.restore();}
+});
 test('failed global sorting retains the last successful order and stale replies cannot overwrite a refreshed Library',async()=>{
  let reject=false,resolve;const calls=[];const f=await fixture({...offlineApi(calls),queryLibrary:async input=>{calls.push(['query',input]);if(reject)throw new Error('failed');if(input.sortBy==='format')return new Promise(r=>resolve=r);return resultFor(tracks,input);}});try{
   f.click('library-sort-bpm');await settle();reject=true;f.click('library-sort-bitrate');await settle();assert.match(text(f.get('library-sort-bpm')),/↑/);assert.doesNotMatch(text(f.get('library-sort-bitrate')),/[↑↓]/);assert.equal(f.get('offline-library-sort').value,'bpm');

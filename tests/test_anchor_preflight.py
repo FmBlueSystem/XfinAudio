@@ -8,7 +8,7 @@ def _track(path: str, title: str, status: MetadataStatus = "complete") -> TrackR
 
 
 def test_anchor_preflight_returns_no_warnings_without_controls() -> None:
-    assert anchor_preflight_warnings(None, [_track("/ready.flac", "Ready")]) == []
+    assert anchor_preflight_warnings(None, [_track("/ready.flac", "Listo")]) == []
 
 
 def test_anchor_preflight_warns_when_start_or_end_track_is_unusable() -> None:
@@ -28,7 +28,7 @@ def test_anchor_preflight_collapses_unusable_manual_tracks_into_count_warning() 
         manual_order_paths=["/ready.flac", "/incomplete-manual.flac", "/missing.flac"],
     )
     records = [
-        _track("/ready.flac", "Ready"),
+        _track("/ready.flac", "Listo"),
         _track("/incomplete-manual.flac", "Incomplete Manual", status="incomplete"),
     ]
 
