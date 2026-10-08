@@ -1,5 +1,11 @@
 # PyInstaller packaging spike
 
+> **Historical (superseded):** this spike is over. The spec, the smoke script and
+> their tests were removed with the Qt desktop in `4e31a3a`, and 2.3.0 ships
+> macOS packaging through the owner-gated lane in `packaging/macos/README.md`
+> (see also `docs/packaging-strategy.md`). The commands below are kept as a
+> record of the spike and do not run.
+
 XfinAudio now has a safe, pinned PyInstaller packaging spike for a macOS app-bundle candidate. The committed artifacts are limited to the spec file, smoke script, tests, lockfile, and documentation; generated `build/` and `dist/` outputs must stay out of the project root.
 
 ## Quick path

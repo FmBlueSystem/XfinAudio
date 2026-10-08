@@ -417,12 +417,9 @@ Persisting the last scan folder turns a later scan into a real refresh workflow.
 
 ### Internationalization (i18n)
 
-XfinAudio uses Qt's `QTranslator` system for English/Spanish localization:
+The Qt-free desktop shell renders its labels from the renderer's own string tables. The Python core keeps the language preference in `UiSettings.language` (`""` = auto from the system locale, `"en"`, `"es"`) and reports the effective value back to the shell.
 
-- Translatable UI strings use `self.tr()` / `QCoreApplication.translate()`; coverage is still being completed.
-- Source language is English; Spanish translations ship as compiled `.qm` files.
-- Language can be changed in **Settings → Language** (requires app restart).
-- Translation workflow: mark strings → run `scripts/update_translations.py` → edit `.ts` source or run `scripts/fill_spanish_translations.py` → `.qm` files compiled automatically.
+There is no translation toolchain in this repository. The `translations/*.ts` sources and the `assets/translations/*.qm` bundles ship with the 2.2.0 tree and are neither compiled nor loaded by the current code (historical: the Qt translator workflow was removed with the Qt desktop in `4e31a3a`).
 
 ### Serato crate generation
 
@@ -645,36 +642,25 @@ Non-goals:
 
 ## Install
 
-XfinAudio is distributed as a Python package, not as a signed binary. Install it as an isolated tool straight from the repository (no PyPI account or Apple Developer ID required):
+XfinAudio ships as a Python package, not as a signed binary. Install it from the repository into your own environment (no PyPI account or Apple Developer ID required):
 
 ```bash
-uv tool install git+https://github.com/FmBlueSystem/XfinAudio.git
+uv add git+https://github.com/FmBlueSystem/XfinAudio.git
 # or
-pipx install git+https://github.com/FmBlueSystem/XfinAudio.git
+pip install git+https://github.com/FmBlueSystem/XfinAudio.git
 ```
 
-Then launch the desktop app:
+The package provides the Python core and its JSON-lines headless server:
 
 ```bash
-xfinaudio
+python -m xfinaudio.headless --data-dir /absolute/path/to/data
 ```
+
+It declares no console script, so there is no `xfinaudio` command to run. The desktop experience is the Electron shell; follow the [desktop source guide](desktop-electron/README.md).
 
 ### Building a macOS .app bundle (optional)
 
-For personal use or testing on macOS, first pass the release gate on the exact commit you will package. Then build a local `.app` bundle with PyInstaller:
-
-```bash
-uv run python -m PyInstaller packaging/pyinstaller/xfinaudio.spec \
-  --clean --noconfirm \
-  --distpath packaging/pyinstaller/dist \
-  --workpath packaging/pyinstaller/build
-```
-
-The resulting `packaging/pyinstaller/dist/XfinAudio.app` can be launched with:
-
-```bash
-open packaging/pyinstaller/dist/XfinAudio.app
-```
+The native arm64 candidate is assembled by the owner-gated recipe in `packaging/macos/`: it needs an exact source seal, a trusted FFmpeg closure manifest and a green gate report for the packaged commit, so there is no one-command local build. Read [packaging/macos/README.md](packaging/macos/README.md) and the [packaging strategy](docs/packaging-strategy.md) first. The Qt-era PyInstaller spec and its smoke script were removed in 2.3.0.
 
 #### Downloaded apps and release status
 
@@ -698,18 +684,17 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-Launch the local desktop app for manual QA:
+Launch the local desktop shell for manual QA:
 
 ```bash
-uv run xfinaudio
+uv venv --python 3.12 .venv-headless
+uv pip sync --python .venv-headless/bin/python desktop-electron/requirements-headless.txt
+cd desktop-electron
+npm ci
+XFIN_PYTHON="$(cd .. && pwd)/.venv-headless/bin/python" XFIN_DATA_DIR="$(mktemp -d -t xfinaudio-next.XXXXXX)" npm start
 ```
 
-Update translations after adding new translatable strings:
-
-```bash
-uv run python scripts/update_translations.py
-uv run python scripts/fill_spanish_translations.py
-```
+The [desktop source guide](desktop-electron/README.md) documents the recipe, the isolated data directory and the Node suite, which runs separately from `pytest`.
 
 ## Release gates
 
@@ -717,8 +702,9 @@ Before any release claim, run the automated gates and record the manual gates de
 
 ```bash
 uv run python scripts/release_gate_check.py --run
-uv run python scripts/smoke_release_readiness.py
 ```
+
+The runner already includes the release-readiness smoke check, the type check, the lint and format checks and the publication hygiene gates; running them again separately only repeats work.
 
 Manual desktop QA is still required for real user workflows. Signed macOS `.app`/DMG redistribution requires Apple Developer ID, notarization, and separate legal review for binary redistribution.
 
@@ -1118,12 +1104,9 @@ Guardar la última carpeta escaneada convierte el siguiente scan en un refresh r
 
 ### Internacionalización (i18n)
 
-XfinAudio usa el sistema `QTranslator` de Qt para localización en inglés y español:
+El shell de escritorio sin Qt renderiza sus etiquetas desde sus propias tablas de strings. El core Python conserva la preferencia de idioma en `UiSettings.language` (`""` = auto según el locale del sistema, `"en"`, `"es"`) y reporta el valor efectivo al shell.
 
-- Las cadenas traducibles usan `self.tr()` / `QCoreApplication.translate()`; la cobertura todavía no es completa.
-- El idioma fuente es inglés; las traducciones al español se distribuyen como archivos `.qm` compilados.
-- El idioma se puede cambiar en **Ajustes → Idioma** (requiere reiniciar la app).
-- Flujo de traducción: marcar cadenas → ejecutar `scripts/update_translations.py` → editar fuente `.ts` o ejecutar `scripts/fill_spanish_translations.py` → archivos `.qm` compilados automáticamente.
+No hay toolchain de traducción en este repositorio. Las fuentes `translations/*.ts` y los bundles `assets/translations/*.qm` viajan con el árbol 2.2.0 y el código actual no los compila ni los carga (historical: el flujo del traductor Qt se eliminó con el escritorio Qt en `4e31a3a`).
 
 ### Generación de Serato crates
 
@@ -1317,8 +1300,8 @@ Estas exportaciones siguen la misma convención de agrupación por estrategia, t
 
 - **Autor y mantenedor:** [Freddy Molina](https://github.com/FmBlueSystem) — [BlueSystem.io](https://bluesystem.io), División de Audio.
 - Licencia: open source bajo GPL-3.0-only. Ver `LICENSE` y `docs/open-source-license.md`.
-- Modelo de distribución: XfinAudio se distribuye como paquete Python instalable (source/wheel). El usuario instala con `pip`, `pipx` o `uv tool`; el resolver descarga PySide6 y mutagen desde PyPI bajo sus propias licencias.
-- **Bundle .app para macOS**: Se incluye un spec de PyInstaller bajo `packaging/pyinstaller/` para construir un bundle `.app` local. El bundle incluye plugins de Qt Multimedia y librerías FFmpeg para audio preview. Los bundles no firmados sirven para uso personal; la distribución firmada/notarizada requiere Apple Developer ID y revisión legal separada.
+- Modelo de distribución: XfinAudio se distribuye como paquete Python instalable (source/wheel); el resolver descarga mutagen, Pydantic y NumPy desde PyPI bajo sus propias licencias. El paquete no declara console script.
+- **Bundle .app para macOS**: el candidato arm64 se ensambla con la receta del propietario en `packaging/macos/`, que exige el sello exacto del source, el manifest de FFmpeg y un gate verde del commit empaquetado. El spec de PyInstaller y su smoke script se eliminaron con Qt en 2.3.0. Los bundles no firmados sirven para uso personal; la distribución firmada/notarizada requiere Apple Developer ID y revisión legal separada.
 - **Suite de tests**: ejecutar `uv run pytest -q` para ver el estado actual. Se aplica TDD estricto para cambios que modifican comportamiento.
 - Plataforma objetivo: macOS, Python 3.12 o posterior. Las pruebas actuales de los flujos IA incluyen Linux/offscreen; no certifican interacción nativa macOS, instalación ni importación real en Serato.
 - El QA manual histórico no certifica este candidato 2.3.0. Faltan pruebas separadas con credenciales/proveedor NaN reales y escucha musical; consulta CI para el commit exacto en revisión.
@@ -1346,36 +1329,25 @@ No-objetivos:
 
 ## Instalación
 
-XfinAudio se distribuye como paquete Python, no como binario firmado. Se puede instalar como herramienta aislada desde el repositorio:
+XfinAudio se distribuye como paquete Python, no como binario firmado. Se instala desde el repositorio en tu propio entorno:
 
 ```bash
-uv tool install git+https://github.com/FmBlueSystem/XfinAudio.git
+uv add git+https://github.com/FmBlueSystem/XfinAudio.git
 # o
-pipx install git+https://github.com/FmBlueSystem/XfinAudio.git
+pip install git+https://github.com/FmBlueSystem/XfinAudio.git
 ```
 
-Luego lanzar la app:
+El paquete aporta el core Python y su servidor headless JSON-lines:
 
 ```bash
-xfinaudio
+python -m xfinaudio.headless --data-dir /ruta/absoluta/a/datos
 ```
+
+No declara console script, así que no existe un comando `xfinaudio`. La experiencia de escritorio es el shell Electron: sigue la [guía de desarrollo del escritorio](desktop-electron/README.md).
 
 ### Construir un bundle .app para macOS (opcional)
 
-Para uso personal o pruebas en macOS, primero aprueba el gate de release sobre el commit exacto que vas a empaquetar. Después puedes construir un bundle `.app` local con PyInstaller:
-
-```bash
-uv run python -m PyInstaller packaging/pyinstaller/xfinaudio.spec \
-  --clean --noconfirm \
-  --distpath packaging/pyinstaller/dist \
-  --workpath packaging/pyinstaller/build
-```
-
-El resultado en `packaging/pyinstaller/dist/XfinAudio.app` se puede lanzar con:
-
-```bash
-open packaging/pyinstaller/dist/XfinAudio.app
-```
+El candidato nativo arm64 se ensambla con la receta del propietario en `packaging/macos/`: requiere el sello exacto del source, el manifest de la closure de FFmpeg y un gate verde del commit empaquetado, por lo que no hay build local de un solo comando. Lee primero [packaging/macos/README.md](packaging/macos/README.md) y la [estrategia de empaquetado](docs/packaging-strategy.md). El spec de PyInstaller de la era Qt y su smoke script se eliminaron en 2.3.0.
 
 #### Aplicaciones descargadas y estado de release
 
@@ -1400,18 +1372,17 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-Lanzar la app local para QA manual:
+Lanzar el shell de escritorio local para QA manual:
 
 ```bash
-uv run xfinaudio
+uv venv --python 3.12 .venv-headless
+uv pip sync --python .venv-headless/bin/python desktop-electron/requirements-headless.txt
+cd desktop-electron
+npm ci
+XFIN_PYTHON="$(cd .. && pwd)/.venv-headless/bin/python" XFIN_DATA_DIR="$(mktemp -d -t xfinaudio-next.XXXXXX)" npm start
 ```
 
-Actualizar traducciones después de agregar nuevas cadenas traducibles:
-
-```bash
-uv run python scripts/update_translations.py
-uv run python scripts/fill_spanish_translations.py
-```
+La [guía de desarrollo del escritorio](desktop-electron/README.md) documenta la receta, el directorio de datos aislado y la suite Node, que corre aparte de `pytest`.
 
 ## Compuertas de release
 
@@ -1419,8 +1390,9 @@ Antes de afirmar cualquier release, ejecutar gates automáticos y registrar gate
 
 ```bash
 uv run python scripts/release_gate_check.py --run
-uv run python scripts/smoke_release_readiness.py
 ```
+
+El runner ya incluye el smoke de release readiness, el type check, los chequeos de lint y formato y las compuertas de higiene de publicación; ejecutarlos otra vez por separado solo repite trabajo.
 
 Manual desktop QA sigue siendo obligatorio para flujos reales de usuario. La redistribución como `.app`/DMG firmado para macOS requiere Apple Developer ID, notarization y revisión legal separada.
 

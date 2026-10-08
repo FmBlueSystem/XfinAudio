@@ -108,8 +108,8 @@ console.log(m.resolveGentleAiBinary(process.cwd(), process.platform));"
 
 If that last command prints a path but `gentle_review inspect` still answers
 `native-status-package-binary-missing`, do **not** start a transaction. Restart the Pi
-session and repeat. If the resolver fails, re-run the installer from the package directory:
-`node scripts/install-gentle-ai.mjs`.
+session and repeat. If the resolver fails, re-run the installer `install-gentle-ai.mjs` from inside the
+`gentle-pi` package directory (under the Pi agent's own `node_modules`, not from this checkout).
 
 ## The lifecycle — facade first, never invent an operation
 

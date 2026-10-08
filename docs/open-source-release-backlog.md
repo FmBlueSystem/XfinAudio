@@ -7,7 +7,7 @@ This backlog captures post-MVP work needed to turn XfinAudio release readiness i
 | Priority | Item | Acceptance criteria |
 |----------|------|---------------------|
 | P0 | Reproducible release smoke | `scripts/smoke_release_readiness.py` passes on a clean checkout and prints the documented checklist. |
-| P0 | Automated non-audio release gates | `scripts/release_gate_check.py --run` executes pytest, lint, format, open-source/publication hygiene checks, source package hygiene, PyInstaller check-only, and root artifact hygiene without requiring audio; optional `--report-json PATH` writes CI/release evidence; `.github/workflows/non-audio-release-gates.yml` uploads that JSON in CI; optional `--include-packaging-build` runs temp build + launch/warning triage only under temporary directories and only through explicit manual dispatch in CI. |
+| P0 | Automated non-audio release gates | `scripts/release_gate_check.py --run` executes pytest with coverage, Pyright, lint, format, release readiness smoke, open-source/publication hygiene checks, source package hygiene, and root artifact hygiene without requiring audio; optional `--report-json PATH` writes CI/release evidence; `.github/workflows/non-audio-release-gates.yml` uploads that JSON in CI. (Historical: the PyInstaller check-only gate and the optional `--include-packaging-build` temp build were removed with the Qt app path in `4e31a3a`.) |
 | P0 | Manual desktop QA evidence | Completed 2026-06-14: recorded scan, recommendation, and temporary Serato crate export results from `/Volumes/dd/_Lossless/por_decada`. Evidence: `docs/qa-manual-mik-evidence.md`. |
 | P0 | No unsafe live writes | Release notes and UI copy clearly state that live Serato writes are not part of the release candidate. |
 | P0 | GPLv3 project posture | `LICENSE`, `pyproject.toml`, and docs state the full open-source GPL-3.0-only model without claiming legal clearance. |
@@ -33,8 +33,8 @@ This backlog captures post-MVP work needed to turn XfinAudio release readiness i
 | Priority | Item | Acceptance criteria |
 |----------|------|---------------------|
 | P1 | Remember safe export folder | Completed 2026-06-03: the app persists a user-selected safe export folder in app-owned JSON settings and never infers it from the audio scan folder. Caveat: desktop export UI/workflow remains future work. Evidence: `docs/safe-export-folder-settings.md`. |
-| P1 | Scan settings review | Completed 2026-06-14: metadata field mappings and scan options are visible before long scans. Evidence: `src/xfinaudio/desktop/screens/library_screen.py`, `docs/help-4-desktop-metadata-walking-skeleton.md`. |
-| P2 | Reset settings | Completed 2026-06-14: users can restore defaults from the Settings dialog without deleting the application database. Evidence: `src/xfinaudio/desktop/settings_dialog.py`, `tests/test_settings_dialog.py`. |
+| P1 | Scan settings review | Completed 2026-06-14: metadata field mappings and scan options are visible before long scans. Evidence: `docs/help-4-desktop-metadata-walking-skeleton.md` (historical: the Qt `library_screen.py` cited here was removed in `4e31a3a`; the Electron preferences view owns this UI now). |
+| P2 | Reset settings | Completed 2026-06-14: users can restore defaults from the Settings dialog without deleting the application database. (Historical: the Qt `settings_dialog.py` and its test were removed in `4e31a3a`; settings now live in `desktop-electron/renderer/preferences.ts` and are covered by the Node suite.) |
 
 ## Desktop UX
 
@@ -42,7 +42,7 @@ This backlog captures post-MVP work needed to turn XfinAudio release readiness i
 |----------|------|---------------------|
 | P1 | Scan progress feedback | Completed 2026-06-03: scans expose supported-file progress updates and a cooperative cancel token; desktop shows progress/cancel state and canceled workflow results do not persist partial records. Caveat: still synchronous, so cancellation is checked between files rather than interrupting an active metadata read. Evidence: `docs/scan-progress-cancel.md`. |
 | P1 | Recommendation review view | Completed 2026-06-04: desktop recommendation review shows quality summary counts, transition component scores, and human-readable warnings before export guidance. Evidence: `docs/recommendation-review-view.md`. |
-| P2 | Keyboard and accessibility pass | Completed 2026-06-14: main workflow exposes global shortcuts, logical tab order, and accessible names. Evidence: `src/xfinaudio/desktop/main_window.py`, `src/xfinaudio/desktop/screens/*.py`, `tests/test_keyboard_accessibility.py`. |
+| P2 | Keyboard and accessibility pass | Completed 2026-06-14: main workflow exposes global shortcuts, logical tab order, and accessible names. (Historical: the Qt `MainWindow` and the `test_keyboard_accessibility.py` evidence were removed in `4e31a3a`; the Electron shell carries its own keyboard/ARIA coverage in `desktop-electron/tests/`.) |
 
 ## QA and fixtures
 
@@ -50,7 +50,7 @@ This backlog captures post-MVP work needed to turn XfinAudio release readiness i
 |----------|------|---------------------|
 | P1 | Mixed In Key fixture pack | Completed 2026-06-14: a small open fixture library covers complete and incomplete metadata cases. Evidence: `tests/fixtures/mik_processed/`, `tests/fixtures/mixedinkey_tag_variants.json`. |
 | P1 | Regression checklist | Completed 2026-06-14: manual QA checklist covers scan, recommend, explainability, export, and dry-run Serato planning. Evidence: `docs/qa-manual-mik-evidence.md`, `scripts/manual_mik_qa_harness.py`. |
-| P2 | Performance baseline | Completed 2026-06-14: scan and recommendation timings are recorded for a representative local library size. Evidence: `tests/test_performance_baseline.py`, `scripts/performance_baseline_report.py`. |
+| P2 | Performance baseline | Completed 2026-06-14: scan and recommendation timings are recorded for a representative local library size. Evidence: `tests/test_performance_baseline.py`, `scripts/performance_baseline.py`. |
 
 ## Packaging and distribution
 
@@ -64,7 +64,7 @@ This backlog captures post-MVP work needed to turn XfinAudio release readiness i
 | P1 | PyInstaller warning triage | Completed 2026-06-04: temp builds report `warn-xfinaudio.txt`, expected/unexpected counts, and unexpected lines; observed local validation reported 57 expected and 0 unexpected warnings. Evidence: `docs/pyinstaller-packaging-spike.md`. |
 | P1 | Non-audio release gate CI | Completed 2026-06-04: GitHub Actions workflow runs default non-heavy release gates on macOS with Python 3.11, locked uv sync, JSON evidence upload, and a manual-only optional packaging build input defaulting to false. Evidence: `.github/workflows/non-audio-release-gates.yml` and `tests/test_non_audio_release_gates_workflow.py`. |
 | P1 | Third-party dependency/license inventory | Completed 2026-06-04: stdlib inventory script renders direct runtime/dev/build dependency metadata as Markdown or JSON and refuses project-root `build/`/`dist/` output. Legal review remains pending for binary redistribution, especially for PySide6/Qt and mutagen. Evidence: `docs/third-party-license-inventory.md`. |
-| P1 | Python package distribution model | XfinAudio is distributed as a Python package installed via `pip`, `pipx`, or `uv tool`; the dependency resolver fetches PySide6 and mutagen from PyPI under their own licenses. Signed macOS `.app`/DMG redistribution is out of scope and not pursued. Evidence: `README.md`. |
+| P1 | Python package distribution model | XfinAudio is distributed as a Python package installed via `pip`, `pipx`, or `uv tool`; the dependency resolver fetches runtime dependencies such as mutagen and pydantic from PyPI under their own licenses. Signed macOS `.app`/DMG redistribution is out of scope and not pursued. Evidence: `README.md`. |
 | P1 | PyPI publication | Completed 2026-06-14: published `xfinaudio==1.0.0` to PyPI and added a tag-triggered GitHub Actions workflow for future releases. Evidence: https://pypi.org/project/xfinaudio/1.0.0/, `.github/workflows/publish-to-pypi.yml`. |
 | P1 | Distribution license review | Completed 2026-06-14: source/wheel distribution model assessed as low legal risk for a personal non-commercial community project under GPL-3.0-only, with dependency metadata inventory and trademark disclaimers in place. Binary/app bundle redistribution remains pending formal legal review. No legal clearance is implied. Evidence: `NOTICE.md`, `docs/open-source-license.md`, `docs/third-party-license-inventory.md`. |
-| P2 | Update path | Completed 2026-06-14: documented update approach preserves the app database and user settings. Evidence: `docs/update-path.md`, `tests/test_update_path.py`. |
+| P2 | Update path | Completed 2026-06-14: documented update approach preserves the app database and user settings. Evidence: `docs/update-path.md` (historical: the Qt-era `tests/test_update_path.py` was removed in `4e31a3a`). |

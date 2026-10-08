@@ -1,5 +1,10 @@
 # Responsibility Separation Handoff
 
+> **Historical (PySide6/Qt era):** this handoff records work done on
+> `xfinaudio.desktop` (AppState transition helpers, screens and controllers)
+> before the Qt desktop was removed in `4e31a3a`. It is evidence of that chain,
+> not an instruction for the current tree; see `docs/architecture/README.md`.
+
 This document records the completed XfinAudio responsibility-separation chain and the safe follow-up path for future work.
 
 ## Current state

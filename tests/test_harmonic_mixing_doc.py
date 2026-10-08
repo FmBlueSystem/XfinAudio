@@ -26,7 +26,7 @@ def test_harmonic_mixing_doc_matches_public_project_contract() -> None:
         "does not mutate audio files",
         "does not mutate live Serato database V2 files",
         "safe export/backup/validation flow",
-        "uv run xfinaudio",
+        "uv run python -m xfinaudio.headless",
         "No legal advice or legal clearance is implied",
     ]
     for fragment in required_fragments:

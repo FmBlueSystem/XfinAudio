@@ -18,14 +18,9 @@ Copy the rendered Markdown snippet manually into `docs/release-candidate-evidenc
 
 CI runs the same default non-audio gate through `.github/workflows/non-audio-release-gates.yml` on pull requests, pushes to `main`, and manual dispatch. It uses a macOS runner for packaging relevance, Python 3.12, `uv sync --locked`, writes `.release-evidence/release-gate-report.json`, renders `.release-evidence/release-gate-evidence.md` from that JSON, appends the Markdown to the GitHub Step Summary, and uploads both files as workflow artifact evidence for manual review/copy-paste.
 
-If local packaging validation is feasible, run the optional temp-only PyInstaller build and launch gate:
+If local packaging validation is feasible, run the owner-gated macOS packaging lane documented in `packaging/macos/README.md`. It needs an exact sealed source root, a recorded FFmpeg closure and a verified dependency-license directory, so it is an owner action rather than a routine gate. 2.3.0 has no PyInstaller check-only or temp-build smoke command (historical: both were removed with the Qt app path in `4e31a3a`).
 
-```bash
-```
-
-The CI workflow exposes that heavy temp packaging build only as the manual `include_packaging_build` dispatch input, with a default of `false`. Pull request and push runs stay on the non-heavy `--run --report-json` gate.
-
-The runner covers every automated gate that does not require audio files. It runs or documents tests, lint, format, release readiness smoke, open-source publication docs, publication artifact hygiene, source package hygiene, PyInstaller check-only metadata, root artifact hygiene, and optional PyInstaller temp build + launch/warning triage without creating project-root `build/` or `dist/` artifacts.
+The runner covers every automated gate that does not require audio files. It runs tests with coverage, type-checking, lint, format, release readiness smoke, open-source publication docs, publication artifact hygiene and source package hygiene, and it lists the root artifact hygiene check. It creates no project-root `build/` or `dist/` artifacts.
 
 XfinAudio source is full open source under GPL-3.0-only and is distributed as a Python package. The project is personal, non-commercial, and community-gifted. Source/wheel redistribution must comply with GPLv3 and third-party dependency obligations; this model is believed to present low legal risk but does not constitute legal clearance. Signed macOS `.app`/DMG redistribution is out of scope and remains pending legal review.
 
@@ -36,17 +31,17 @@ Use `scripts/render_release_gate_evidence.py REPORT_JSON [--output PATH]` to con
 Individual automated gate commands used by the runner are:
 
 ```bash
-uv run pytest -q
+uv run pytest --cov -q
+uv run pyright src tests
 uv run ruff check .
 uv run ruff format --check .
 uv run python scripts/smoke_release_readiness.py
 uv run pytest -q tests/test_open_source_license_docs.py tests/test_public_open_source_docs.py tests/test_github_community_templates.py tests/test_repository_publication_checklist.py tests/test_harmonic_mixing_doc.py
 uv run pytest -q tests/test_publication_artifact_hygiene.py
 uv run python scripts/source_package_hygiene_check.py
-uv run python scripts/pyinstaller_build_smoke.py --check-only
 ```
 
-Additional non-audio smoke command for deterministic in-memory workflow coverage:
+Additional non-audio smoke command — the same script the runner executes as a gate, runnable alone to re-check the deterministic in-memory fixture workflow:
 
 ```bash
 uv run python scripts/smoke_release_readiness.py
@@ -55,7 +50,9 @@ uv run python scripts/smoke_release_readiness.py
 Manual desktop launch command for interactive QA; this is not part of the automated non-audio release gate runner:
 
 ```bash
-uv run xfinaudio
+cd desktop-electron
+npm run build
+npm start
 ```
 
 Expected smoke script checklist:
@@ -76,7 +73,7 @@ PASS release readiness smoke completed
 | Gate | What it verifies |
 |------|------------------|
 | `scripts/release_gate_check.py --check-only` | Lists automated and manual gates without running subprocess checks. |
-| `scripts/release_gate_check.py --run` | Runs pytest, Ruff lint, Ruff format check, release readiness smoke, open-source publication docs, publication artifact hygiene, source package hygiene, PyInstaller check-only, and root artifact hygiene. |
+| `scripts/release_gate_check.py --run` | Runs pytest with coverage, Pyright, Ruff lint, Ruff format check, release readiness smoke, open-source publication docs, publication artifact hygiene, source package hygiene, and root artifact hygiene. |
 | `scripts/release_gate_check.py --run --report-json PATH` | Writes JSON evidence with schema version, mode, project root, automated gate status/return codes, pending manual gates, overall status, and limitations. |
 | `scripts/render_release_gate_evidence.py REPORT_JSON` | Renders the JSON evidence as Markdown for manual copy/paste into `docs/release-candidate-evidence.md`; stdout is the default and `--output PATH` is explicit. |
 | `.github/workflows/non-audio-release-gates.yml` | Runs the default non-audio gate in CI, renders `.release-evidence/release-gate-evidence.md` from `.release-evidence/release-gate-report.json`, appends the Markdown to the GitHub Step Summary, and uploads both files as artifact evidence. |
@@ -111,7 +108,9 @@ The automated smoke script does not create, read, render, mix, mutate, or analyz
 
 1. Launch the app:
    ```bash
-   uv run xfinaudio
+   cd desktop-electron
+   npm run build
+   npm start
    ```
 2. Choose a folder that contains audio already processed by Mixed In Key.
 3. Scan the folder.
@@ -124,7 +123,7 @@ The automated smoke script does not create, read, render, mix, mutate, or analyz
 ## Known limitations
 
 - This is release readiness verification, not an installer or packaging workflow.
-- GPL-3.0-only source licensing and wheel distribution do not clear PySide6/Qt, mutagen, or third-party dependency obligations for binary/app bundle distribution.
+- GPL-3.0-only source licensing and wheel distribution do not clear mutagen, FFmpeg, or other third-party dependency obligations for binary/app bundle distribution.
 - The automated smoke uses deterministic metadata fixtures, not real audio files.
 - The non-audio gate runner cannot prove real Mixed In Key audio QA.
 - Signed macOS `.app`/DMG redistribution is out of scope for this distribution model.

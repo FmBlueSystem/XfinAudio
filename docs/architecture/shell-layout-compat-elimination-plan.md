@@ -1,5 +1,11 @@
 # Shell Layout Compatibility Elimination Plan
 
+> **Historical (PySide6/Qt era, superseded):** the compatibility surface this
+> plan removes no longer exists — `shell_layout_compat.py` went away with the Qt
+> desktop in `4e31a3a`, along with the `MainWindow` and graft map it names. The
+> plan is kept as a record of how the elimination was sequenced. See
+> `docs/architecture/README.md` for the live shape.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `gentle-ai-sdd-tdd` and strict RED -> GREEN -> VERIFY for every behavior-changing slice. Each slice must stay reviewable, create/update OpenSpec artifacts, merge with CI green, then archive in a docs-only PR before starting the next risky slice.
 
 **Goal:** Remove all remaining methods from `src/xfinaudio/desktop/shell_layout_compat.py::LEGACY_LAYOUT_METHODS` until the graft map is empty or safely removable.

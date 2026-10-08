@@ -2,7 +2,7 @@
 
 XfinAudio is a full open-source GPL-3.0-only project. The current release channel is a local macOS QA DMG built by `packaging/macos/build.py` and `packaging/macos/dmg.py` around the Electron shell and the frozen headless core (the legacy Qt `build_dmg.sh`/PyInstaller app path was removed together with Qt). Developer/QA execution runs the Electron app via `npm start` in `desktop-electron/`, and Qt/PySide6 is no longer a dependency of XfinAudio. PyPI is no longer an automatic release channel: its workflow is retained as a manual-only, gated fallback using trusted publishing (OIDC). None of these mechanisms implies completed native macOS validation or legal clearance for third-party binary redistribution.
 
-The Electron packaging recipe lives in `packaging/macos/`: `build.py` assembles `XfinAudio Next.app` from the compiled Electron app plus the frozen headless core (entry `packaging/macos/core_entry.py` → `xfinaudio.headless.__main__`) with a trusted FFmpeg closure and ad-hoc integrity signing; `dmg.py` produces the explicitly QA-only `XfinAudio Next QA.dmg` with sibling `.sha256`/`.provenance.json` evidence. The PyInstaller spec (`packaging/pyinstaller/xfinaudio.spec`) and its smoke script were removed with Qt. The non-audio release gate runner at `scripts/release_gate_check.py` lists or executes all automated release-readiness gates that do not require audio files, including open-source publication docs, publication artifact hygiene, and source package hygiene, can write structured JSON evidence with `--report-json PATH`, and clearly leaves audio QA, clean-account validation, signing/notarization, DMG distribution, and legal review as pending manual gates. The GitHub Actions workflow at `.github/workflows/non-audio-release-gates.yml` runs the default non-heavy gate on macOS with Python 3.12, renders `.release-evidence/release-gate-evidence.md` from the JSON report, appends it to the GitHub Step Summary, and uploads both JSON and Markdown evidence files.
+The Electron packaging recipe lives in `packaging/macos/`: `build.py` assembles `XfinAudio Next.app` from the compiled Electron app plus the frozen headless core (entry `packaging/macos/core_entry.py` → `xfinaudio.headless.__main__`) with a trusted FFmpeg closure and ad-hoc integrity signing; `dmg.py` produces the explicitly QA-only `XfinAudio Next QA.dmg` with sibling `.sha256`/`.provenance.json` evidence. The old PyInstaller spec (`packaging/pyinstaller/xfinaudio.spec`) and its smoke script were removed with Qt (historical: both went away in `4e31a3a`). The non-audio release gate runner at `scripts/release_gate_check.py` lists or executes all automated release-readiness gates that do not require audio files, including open-source publication docs, publication artifact hygiene, and source package hygiene, can write structured JSON evidence with `--report-json PATH`, and clearly leaves audio QA, clean-account validation, signing/notarization, DMG distribution, and legal review as pending manual gates. The GitHub Actions workflow at `.github/workflows/non-audio-release-gates.yml` runs the default non-heavy gate on macOS with Python 3.12, renders `.release-evidence/release-gate-evidence.md` from the JSON report, appends it to the GitHub Step Summary, and uploads both JSON and Markdown evidence files.
 
 ## Recommended path
 
@@ -10,7 +10,7 @@ The Electron packaging recipe lives in `packaging/macos/`: `build.py` assembles 
 |-------|----------|---------|
 | Developer/QA run | `npm start` in `desktop-electron/` | Fast Electron validation from source without installer artifacts. |
 | Primary distribution | macOS DMG | Local packaging from a clean, gated commit; native macOS QA and redistribution review remain required. |
-| Optional local build | PyInstaller app bundle | Unsigned `.app` for personal local use only; not a distributed artifact. |
+| Optional local build | `packaging/macos/build.py` (owner-gated) | Locally assembled `XfinAudio Next.app` for personal local use only; not a distributed artifact. |
 
 ## Target platforms
 
@@ -23,7 +23,7 @@ The Electron packaging recipe lives in `packaging/macos/`: `build.py` assembles 
 ## Distribution and licensing
 
 - The current release channel is the macOS DMG; the Python source/package workflow remains available to developers. Signing is optional and does not establish redistribution clearance.
-- PyInstaller-built `.app` bundles are unsigned by default and for personal local use only; optional Developer ID signing/notarization is credential-gated and documented under "Signing and notarization".
+- Locally assembled `XfinAudio Next.app` bundles are ad-hoc signed by default and for personal local use only; optional Developer ID signing/notarization is credential-gated and documented under "Signing and notarization".
 - XfinAudio source is GPL-3.0-only; redistribution must comply with GPLv3.
 - Third-party dependency/license inventory tooling is documented in `docs/third-party-license-inventory.md`; it records package metadata evidence only.
 - GPLv3 compliance and third-party dependency obligations (especially mutagen and FFmpeg; Qt/PySide6 is no longer a dependency of XfinAudio) for package distribution warrant legal review.
@@ -107,7 +107,7 @@ does not authorize publishing, account configuration, or permission changes.
 
 ## Open decisions and risks
 
-- PyInstaller is pinned in project dev dependencies for optional local builds, but reproducible release confidence still needs clean-machine evidence when that path is used.
+- PyInstaller is pinned in project dev dependencies and drives the Linux and macOS freezer lanes, but reproducible release confidence still needs clean-machine evidence before any DMG is handed out.
 - Validate Windows and Linux behavior before claiming cross-platform support.
 - Manual desktop QA with real Mixed In Key files remains required before release claims.
 - Third-party package metadata can be incomplete; legal review remains required before binary redistribution claims, especially for mutagen and FFmpeg (Qt/PySide6 is no longer a dependency of XfinAudio).

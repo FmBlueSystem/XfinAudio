@@ -1,5 +1,11 @@
 # XfinAudio Layered Architecture Map
 
+> **Historical (PySide6/Qt era):** the presentation layer this map describes —
+> `xfinaudio.desktop` — was removed in `4e31a3a`. The layer intent survives: the
+> Electron renderer in `desktop-electron/` is presentation, `xfinaudio.headless`
+> and `application/` carry use cases, and the domain packages own product rules.
+> Read `docs/architecture/README.md` for the current mapping.
+
 XfinAudio should evolve toward a layered architecture where UI renders and adapts, application use cases orchestrate, domain modules decide product behavior, ports describe external contracts, and infrastructure touches real systems. This document maps the current repo to those layers and identifies the next reviewable SDD/TDD slices.
 
 ## Quick path

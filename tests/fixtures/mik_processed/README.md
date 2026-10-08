@@ -11,7 +11,7 @@ This directory contains MIK-style metadata fixtures used by XfinAudio tests.
 
 For pure parser tests, load `tag_variants.json` and pass the dictionary directly to `parse_mixedinkey_tags`.
 
-For real-scan integration tests, use the helper in `tests/test_smoke_real_audio_scan_recommend_export.py` or a similar helper to copy `silence_1s.wav` and write the tags via mutagen.
+For real-scan integration tests, write the tags onto a copy via mutagen the way `tests/test_headless_metadata_export.py` does (it builds its own audio file with `mutagen.flac.FLAC` and calls `tags.save()`); `silence_1s.wav` lives in the parent `tests/fixtures/` directory. (historical: the Qt-era helper in `tests/test_smoke_real_audio_scan_recommend_export.py` that copied `silence_1s.wav` was removed in `4e31a3a`.)
 
 ## Cases covered
 
