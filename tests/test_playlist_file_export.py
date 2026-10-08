@@ -97,3 +97,101 @@ def test_plan_playlist_file_export_rejects_unknown_software(tmp_path: Path) -> N
             requested_name=None,
             variant_name=None,
         )
+
+
+def test_plan_playlist_file_export_keeps_absolute_requested_name_inside_safe_folder(tmp_path: Path) -> None:
+    """An absolute requested name must never redirect the write outside the safe folder."""
+    recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+    safe_folder = tmp_path / "safe"
+
+    plan = plan_playlist_file_export(
+        software="Rekordbox",
+        recommendation=recommendation,
+        safe_folder=safe_folder,
+        requested_name="/etc/evil.xml",
+        variant_name=None,
+    )
+
+    assert plan.target_name == "evil.xml"
+    assert plan.target_path == safe_folder / "evil.xml.xml"
+    assert plan.target_path.parent == safe_folder
+
+
+def test_plan_playlist_file_export_flattens_parent_traversal_in_requested_name(tmp_path: Path) -> None:
+    """A relative traversal must collapse to a single component inside the safe folder."""
+    recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+    safe_folder = tmp_path / "safe"
+
+    plan = plan_playlist_file_export(
+        software="Traktor",
+        recommendation=recommendation,
+        safe_folder=safe_folder,
+        requested_name="../../outside",
+        variant_name=None,
+    )
+
+    assert plan.target_name == "outside"
+    assert plan.target_path == safe_folder / "outside.nml"
+    assert plan.target_path.parent == safe_folder
+    assert safe_folder in plan.target_path.parents
+
+
+def test_plan_playlist_file_export_flattens_nested_subdirectory_in_requested_name(tmp_path: Path) -> None:
+    recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+    safe_folder = tmp_path / "safe"
+
+    plan = plan_playlist_file_export(
+        software="VirtualDJ",
+        recommendation=recommendation,
+        safe_folder=safe_folder,
+        requested_name="nested/deeper/set",
+        variant_name=None,
+    )
+
+    assert plan.target_name == "set"
+    assert plan.target_path == safe_folder / "set.xml"
+
+
+def test_plan_playlist_file_export_contains_parent_traversal_in_variant_name(tmp_path: Path) -> None:
+    """The variant fallback is the same write path, so it needs the same containment."""
+    recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+    safe_folder = tmp_path / "safe"
+
+    plan = plan_playlist_file_export(
+        software="Rekordbox",
+        recommendation=recommendation,
+        safe_folder=safe_folder,
+        requested_name=None,
+        variant_name="../../outside",
+    )
+
+    assert plan.target_name == "outside"
+    assert plan.target_path == safe_folder / "outside.xml"
+
+
+@pytest.mark.parametrize("degenerate", [".", "..", "   ", "/", "../..", "nested/.."])
+def test_plan_playlist_file_export_rejects_name_that_is_not_a_file_component(tmp_path: Path, degenerate: str) -> None:
+    """A name with no usable file component is rejected instead of resolved to the folder itself."""
+    recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+
+    with pytest.raises(ValueError, match="single file name"):
+        plan_playlist_file_export(
+            software="Rekordbox",
+            recommendation=recommendation,
+            safe_folder=tmp_path / "safe",
+            requested_name=degenerate,
+            variant_name=None,
+        )
+
+
+def test_plan_playlist_file_export_rejects_requested_name_with_null_byte(tmp_path: Path) -> None:
+    recommendation = _make_recommendation([str(tmp_path / "track.flac")])
+
+    with pytest.raises(ValueError, match="single file name"):
+        plan_playlist_file_export(
+            software="Rekordbox",
+            recommendation=recommendation,
+            safe_folder=tmp_path / "safe",
+            requested_name="evil\x00.xml",
+            variant_name=None,
+        )

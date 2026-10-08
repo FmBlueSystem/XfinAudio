@@ -21,6 +21,22 @@ class PlaylistFileExportPlan:
     playlist_name: str
 
 
+def safe_target_name(value: str) -> str:
+    """Reduce a caller-supplied export name to one safe filesystem path component.
+
+    The export name reaches a plain ``write_text`` call, so it must never be able to
+    select a directory. Only the final component is kept, which neutralises absolute
+    paths, ``..`` traversal, and nested subdirectories; anything that leaves no usable
+    component is rejected instead of silently resolving to the folder itself.
+    """
+    if "\x00" in value:
+        raise ValueError("Playlist export name must be a single file name.")
+    component = Path(value.strip()).name.strip()
+    if component in {"", ".", ".."}:
+        raise ValueError("Playlist export name must be a single file name.")
+    return component
+
+
 def plan_playlist_file_export(
     *,
     software: str,
@@ -33,7 +49,7 @@ def plan_playlist_file_export(
     """Build a deterministic non-Serato playlist file export plan without writing files."""
     extension = playlist_file_extension(software)
 
-    target_name = (
+    chosen_name = (
         requested_name
         or variant_name
         or default_export_filename(
@@ -42,9 +58,13 @@ def plan_playlist_file_export(
             suffix=software.lower(),
         )
     )
+    target_name = safe_target_name(chosen_name)
+    target_path = safe_folder / f"{target_name}{extension}"
+    if target_path.parent != safe_folder:
+        raise ValueError("Playlist export name must resolve inside the export folder.")
     return PlaylistFileExportPlan(
         software=software,
         target_name=target_name,
-        target_path=safe_folder / f"{target_name}{extension}",
+        target_path=target_path,
         playlist_name=target_name,
     )
