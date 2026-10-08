@@ -188,7 +188,10 @@ export class OptionalAiController {
     this.reset(); this.notice = ''; if (!this.conflict) this.error = ''; this.notify();
   }
   setRequest(value: string): void {
-    if (!this.requestEditable || typeof value !== 'string' || value === this.request) return;
+    // A sent request is bound to its disclosure, its one-shot consent and a paid provider
+    // call. Editing it mid-flight would reset the generation and silently discard all three,
+    // so the instruction stays frozen for as long as the ask is in flight.
+    if (this.pending === 'ask' || !this.requestEditable || typeof value !== 'string' || value === this.request) return;
     this.reset(); this.request = value; this.error = value.length > 2000 ? 'La petición admite como máximo 2000 caracteres.' : ''; this.notice = ''; this.notify();
   }
   setConsent(value: boolean): void { if (typeof value !== 'boolean' || this.pending || !this.host.canAct() || !this.preview) return; this.consent = value; this.host.changed(); }

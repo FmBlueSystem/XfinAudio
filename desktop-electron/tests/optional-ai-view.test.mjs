@@ -191,3 +191,21 @@ test('a truncated retained payload is labelled honestly instead of silently shor
     assert.equal(f.get('payload-body').textContent, '{"a":1}');
   } finally { f.restore(); }
 });
+
+// --- The instruction bound to a sent request must be frozen, not silently editable ---
+test('during the provider ask the bound instruction is frozen while a local job still keeps it editable', async () => {
+  const f = await fixture('prep');
+  try {
+    f.get('request').value = 'Sesión house'; f.get('request').dispatchEvent(new Event('input'));
+    assert.equal(f.controller.request, 'Sesión house');
+    f.setBusy(true); f.controller.pending = 'ask'; f.render();
+    assert.equal(f.get('request').disabled, true, 'the instruction already sent must not be editable');
+    const frozen = f.controller.request;
+    f.get('request').value = 'Otra cosa'; f.get('request').dispatchEvent(new Event('input'));
+    assert.equal(f.controller.request, frozen, 'a dispatched input during the ask changes nothing');
+    f.render();
+    assert.equal(f.get('request').value, frozen, 'every render re-asserts the bound instruction');
+    f.controller.pending = 'prepare'; f.render();
+    assert.equal(f.get('request').disabled, false, 'a prepare-only wait keeps the pending instruction editable');
+  } finally { f.controller.pending = null; f.setBusy(false); f.render(); f.restore(); }
+});

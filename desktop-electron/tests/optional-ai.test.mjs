@@ -300,3 +300,38 @@ test('an offline host cannot inspect a payload even when a preview is prepared',
   await f.controller.inspectPayload();
   assert.ok(!f.calls.some(([kind]) => kind === 'payload'));
 });
+
+// --- Mid-flight instruction edits must not destroy a paid, consented provider response ---
+test('a keystroke during the in-flight ask cannot discard the sent request, its disclosure or its result', async () => {
+  let finish; let runs = 0;
+  const f = fixture({ runAiRequest: () => { runs += 1; return new Promise((resolve) => { finish = resolve; }); } });
+  await prepared(f);
+  const previewBefore = f.controller.preview;
+  f.controller.setConsent(true);
+  const running = f.controller.ask();
+  assert.equal(f.controller.pending, 'ask');
+  f.controller.setRequest('Otra petición distinta');
+  assert.equal(f.controller.request, 'Busca house /Users/private', 'the instruction bound to the sent request must stay authoritative');
+  assert.equal(f.controller.preview, previewBefore);
+  finish({ cancelled: false, result: result() });
+  await running;
+  assert.ok(f.controller.result, 'the paid provider result must survive a mid-flight keystroke');
+  assert.equal(f.controller.result.kind, 'filters');
+  assert.equal(f.controller.consent, false, 'the one-shot consent is still consumed exactly once');
+  assert.equal(f.controller.pending, null);
+  assert.equal(runs, 1, 'no silent re-send');
+});
+
+test('a keystroke during the in-flight ask does not silently swallow a provider failure either', async () => {
+  let reject; const f = fixture({ runAiRequest: () => new Promise((_resolve, fail) => { reject = fail; }) });
+  await prepared(f); f.controller.setConsent(true);
+  const running = f.controller.ask();
+  f.controller.setRequest('Otra petición distinta');
+  reject(new Error('provider exploded'));
+  await running;
+  // The controller normalizes provider detail into one bounded message; what matters is that the
+  // failure stays reported instead of being erased by the reset a mid-flight edit used to trigger.
+  assert.notEqual(f.controller.error, '', 'the failure stays visible instead of being swallowed by a reset');
+  assert.equal(f.controller.pending, null);
+  assert.equal(f.calls.filter(([kind]) => kind === 'run').length, 0);
+});

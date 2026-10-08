@@ -21,8 +21,10 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const prefix = host.idPrefix ?? 'optional-ai';
   const identify = <T extends HTMLElement>(node: T, suffix: string): T => { node.id = `${prefix}-${suffix}`; return node; };
   const canAct = (): boolean => host.canAct() && !controller.pending;
-  // A local job holds the single core, not the request text: keeping it editable preserves the entered request.
-  const heldByLocalJob = (): boolean => Boolean(host.busy?.());
+  // A local job holds the single core, not the instruction: the field stays editable so the
+  // entered request survives the wait. An in-flight ask is different — its instruction is already
+  // bound to the disclosed payload and the paid call, so it is frozen and the field disabled.
+  const heldByLocalJob = (): boolean => controller.pending !== 'ask' && Boolean(host.busy?.());
   const localEditable = (): boolean => controller.requestEditable && (canAct() || heldByLocalJob());
   const section = make('section', '', 'surface prep-form'); section.setAttribute('aria-labelledby', `${prefix}-heading`);
   const heading = identify(make('h3'), 'heading');
