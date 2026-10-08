@@ -1,3 +1,6 @@
+// Sandboxed preloads (sandbox: true) can only require the electron built-in;
+// a relative require throws before exposeInMainWorld runs. The launch guard
+// lives in the unsandboxed main process via ./electron-shim.
 import {contextBridge,ipcRenderer} from 'electron';
 const invoke = (method:string,params?:unknown)=>ipcRenderer.invoke('xfin:action',method,params);
 contextBridge.exposeInMainWorld('xfin',Object.freeze({

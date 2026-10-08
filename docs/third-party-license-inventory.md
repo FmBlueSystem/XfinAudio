@@ -51,7 +51,7 @@ Evidence: committed npm/headless/freezer locks, matching installed Linux Python 
 
 ### npm lock metadata
 
-`desktop-electron/package.json` directly pins Electron 44.5.1, TypeScript 7.0.2 and `@types/node` 26.6.3. The v3 `package-lock.json` records the following 36 non-root entries, all with registry URLs and SHA-512 integrity values and all marked development dependencies. The optional TypeScript platform packages are alternative compiler binaries, not evidence that every platform is installed or bundled. These `license` fields do not replace each component's actual notices.
+`desktop-electron/package.json` directly pins Electron 43.3.0, TypeScript 7.0.2 and `@types/node` 26.6.3. The v3 `package-lock.json` records the following 36 non-root entries, all with registry URLs and SHA-512 integrity values and all marked development dependencies. The optional TypeScript platform packages are alternative compiler binaries, not evidence that every platform is installed or bundled. These `license` fields do not replace each component's actual notices.
 
 | Lock package path | Locked version | License field |
 |-------------------|----------------|---------------|
@@ -79,7 +79,7 @@ Evidence: committed npm/headless/freezer locks, matching installed Linux Python 
 | `node_modules/@typescript/typescript-win32-arm64` | 7.0.2 | Apache-2.0 |
 | `node_modules/@typescript/typescript-win32-x64` | 7.0.2 | Apache-2.0 |
 | `node_modules/debug` | 4.4.3 | MIT |
-| `node_modules/electron` | 44.5.1 | MIT |
+| `node_modules/electron` | 43.3.0 | MIT |
 | `node_modules/electron/node_modules/@types/node` | 24.19.0 | MIT |
 | `node_modules/electron/node_modules/undici-types` | 7.24.6 | MIT |
 | `node_modules/env-paths` | 3.0.0 | MIT |
@@ -94,7 +94,7 @@ Evidence: committed npm/headless/freezer locks, matching installed Linux Python 
 
 ### Runtime and freezer evidence beyond the two application locks
 
-- The inspected Linux Electron 44.5.1 executable reports embedded Node.js 24.21.0 and Chromium 152.0.7977.130 via `process.versions`. Electron's npm package is MIT; Chromium, Node.js, V8 and their dependencies have their own notices. Retain the exact Electron distribution's `LICENSE` and `LICENSES.chromium.html` and verify component-notice coverage for the delivered platform. The [Electron license](https://github.com/electron/electron/blob/main/LICENSE) and [Node.js license collection](https://github.com/nodejs/node/blob/main/LICENSE) are upstream review references, not substitutes for matching release material
+- The inspected macOS arm64 Electron 43.3.0 executable reports embedded Node.js 24.18.1 and Chromium 150.0.7871.212 via `process.versions`. Electron's npm package is MIT; Chromium, Node.js, V8 and their dependencies have their own notices. Retain the exact Electron distribution's `LICENSE` and `LICENSES.chromium.html` and verify component-notice coverage for the delivered platform. The [Electron license](https://github.com/electron/electron/blob/main/LICENSE) and [Node.js license collection](https://github.com/nodejs/node/blob/main/LICENSE) are upstream review references, not substitutes for matching release material
 - The review host's build tools report Node.js 24.19.0 and npm 11.9.0. These are observations, not pins in `package-lock.json`, and `@types/node` versions are type declarations, not Node runtime versions. TypeScript and npm are build tooling; determine whether any of their files are actually shipped before assigning binary inventory scope
 - The inspected Python interpreter is CPython 3.12.14; the headless lock targets Python 3.12 but does not lock an interpreter distribution. The Linux freezer recipe copies that interpreter's `LICENSE.txt` to `_internal/licenses/python/LICENSE.txt`. Preserve its PSF/history/third-party notices and inspect the selected runtime's native dependencies separately
 - `packaging/linux/requirements-build.txt` is compiled from `packaging/linux/requirements-build.in`, which includes the headless export and pins `altgraph` 0.17.5 (installed metadata: MIT), `pyinstaller` 6.20.0 (metadata: GPLv2-or-later with its special exception), `pyinstaller-hooks-contrib` 2026.5, `setuptools` 82.0.1 (MIT) and `packaging` 25.0. `packaging` is already inside the headless closure, so that pin only has to agree with it. The compiled file was regenerated on 2026-10-07 from that input: 37 packages, `packaging` 25.0, `setproctitle` 1.3.7 and `watchdog` 6.0.0 present, no `cloudpickle` (nothing pulls it in) and no Darwin-only `macholib` (that pin lives in the macOS file). Regenerate it with `uv pip compile --generate-hashes --python-platform linux packaging/linux/requirements-build.in -o packaging/linux/requirements-build.txt` — never by hand — and compare the result with `uv.lock`; `tests/test_headless_requirements_lock_drift.py` fails when the compiled file stops matching the headless export. The `--python-platform linux` flag is what keeps the Darwin-only freezer dependency out of the Linux lock. The inspected hooks-contrib `licenses/LICENSE` assigns GPL-2.0-or-later to standard hooks/files and Apache-2.0 to runtime hooks; preserve the actual terms and identify which files enter a bundle

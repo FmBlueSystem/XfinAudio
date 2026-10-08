@@ -1,6 +1,6 @@
 {
   "name": "xfinaudio-desktop-next",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "private": true,
   "description": "Qt-free XfinAudio desktop migration preview",
   "license": "GPL-3.0-only",
@@ -8,11 +8,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.renderer.json && node scripts/copy-assets.cjs",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "start": "npm run build && electron ."
+    "start": "npm run build && env -u ELECTRON_RUN_AS_NODE electron ."
   },
   "devDependencies": {
     "@types/node": "26.6.3",
-    "electron": "44.5.1",
+    "electron": "^43.3.0",
     "typescript": "7.0.2"
   }
 }

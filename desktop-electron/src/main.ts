@@ -1,4 +1,5 @@
-import {app,BrowserWindow,dialog,ipcMain,protocol,session,shell} from 'electron';
+import {app,BrowserWindow,dialog,ipcMain,protocol,session,shell} from './electron-shim';
+import type {BrowserWindow as BrowserWindowType} from 'electron';
 import path from 'node:path';
 import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
@@ -27,7 +28,7 @@ protocol.registerSchemesAsPrivileged([
   {scheme:'xfin-app',privileges:{standard:true,secure:true,supportFetchAPI:true}},
   {scheme:'xfin-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}},
 ]);
-let window:BrowserWindow|null=null;
+let window:BrowserWindowType|null=null;
 let core:PythonBridge;
 let current:{id:string;method:string}|null=null;
 let draftDirty=false;
