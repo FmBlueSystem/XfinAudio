@@ -1,108 +1,44 @@
-"""All connection probes use fake transport and synthetic credentials."""
+"""The probe message is a literal shared with the Electron shell.
 
-import io
-import json
-import urllib.error
-from email.message import Message
+The connection probe used to be driven by a Qt dialog state machine in
+``xfinaudio.ai.connection_test`` that turned transport failures into safe user
+messages. The Qt desktop was removed in ``4e31a3a``; the live probe now runs in
+``xfinaudio.headless.ai_execution`` on top of the same ``nan_client`` transport.
+Only the synthetic message survived, because the Electron security layer
+whitelists that exact string for the ``connection`` surface. A retired second
+implementation would drift from it, so the module is guarded as a single
+constant plus the two literals it has to match.
+"""
 
-import pytest
+from __future__ import annotations
 
-from xfinaudio.ai import nan_client
-from xfinaudio.ai.connection_test import PROBE_MESSAGE, configuration_status, endpoint_label, run_connection_test
-from xfinaudio.config.settings import AiSettings
+from pathlib import Path
 
+from xfinaudio.ai import connection_test
 
-@pytest.fixture(autouse=True)
-def isolated_environment(monkeypatch, tmp_path):
-    monkeypatch.setenv(nan_client.ENABLED_ENV, "0")
-    monkeypatch.setenv(nan_client.API_KEY_ENV, "SYNTHETIC-SECRET")
-    monkeypatch.setenv(nan_client.ENDPOINT_ENV, "https://provider.invalid/chat")
-    monkeypatch.setenv(nan_client.ENV_FILE_ENV, str(tmp_path / "absent.env"))
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-
-def test_status_is_offline_by_default_without_reading_credentials(monkeypatch):
-    monkeypatch.setattr(nan_client, "load_api_key_from_env_file", lambda _: pytest.fail("credential read"))
-    assert configuration_status(AiSettings()).state == "disabled"
-    assert configuration_status(AiSettings(enabled=True)).state == "untested"
-    assert endpoint_label() == "provider.invalid"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RENDERER_REQUEST = PROJECT_ROOT / "desktop-electron" / "renderer" / "optional-ai.ts"
+ELECTRON_SECURITY = PROJECT_ROOT / "desktop-electron" / "src" / "security.ts"
+HEADLESS_EXECUTION = PROJECT_ROOT / "src" / "xfinaudio" / "headless" / "ai_execution.py"
+EXPECTED_PROBE_MESSAGE = "Reply with OK. XfinAudio connection test."
 
 
-def test_missing_key_and_invalid_endpoint_never_call_transport(monkeypatch):
-    def send(*args, **kwargs):
-        pytest.fail("unexpected transmission")
-
-    monkeypatch.delenv(nan_client.API_KEY_ENV)
-    assert run_connection_test(AiSettings(enabled=True), transport=send).state == "missing_key"
-    assert run_connection_test(AiSettings(), transport=send).state == "disabled"
-    monkeypatch.setenv(nan_client.ENDPOINT_ENV, "http://unsafe.invalid/chat")
-    assert configuration_status(AiSettings(enabled=True)).state == "invalid_configuration"
-    assert endpoint_label() == "Invalid HTTPS endpoint"
+def test_the_retired_qt_connection_dialog_surface_is_gone() -> None:
+    """The dialog helpers have no caller, so a leftover copy would be dead code."""
+    for name in ("ConnectionStatus", "endpoint_label", "configuration_status", "run_connection_test"):
+        assert not hasattr(connection_test, name), f"{name} belongs to the removed Qt dialog"
 
 
-def test_probe_discloses_and_sends_only_fixed_content_without_enabling_runtime():
-    sent = []
-
-    def send(request, **kwargs):
-        sent.append((request, kwargs))
-        return io.BytesIO(b'{"choices":[{"message":{"content":"arbitrary-provider-response"}}]}')
-
-    result = run_connection_test(AiSettings(enabled=True), transport=send)
-    assert result.state == "connected"
-    assert "arbitrary-provider-response" not in result.message
-    assert not nan_client.is_ai_enabled()
-    request, options = sent[0]
-    assert json.loads(request.data)["messages"] == [{"role": "user", "content": PROBE_MESSAGE}]
-    assert options["timeout"] == 10.0
-    assert request.get_header("Authorization") == "Bearer SYNTHETIC-SECRET"
+def test_probe_message_is_the_literal_the_electron_shell_whitelists() -> None:
+    assert connection_test.PROBE_MESSAGE == EXPECTED_PROBE_MESSAGE
+    quoted = f"'{EXPECTED_PROBE_MESSAGE}'"
+    assert quoted in RENDERER_REQUEST.read_text(encoding="utf-8")
+    assert quoted in ELECTRON_SECURITY.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize(
-    ("failure", "expected"),
-    [
-        (
-            urllib.error.HTTPError("https://provider.invalid", 401, "SYNTHETIC-SECRET", Message(), None),
-            "authentication_failed",
-        ),
-        (urllib.error.URLError("SYNTHETIC-SECRET"), "unavailable"),
-        (TimeoutError("SYNTHETIC-SECRET"), "unavailable"),
-        (ValueError("SYNTHETIC-SECRET"), "invalid_configuration"),
-    ],
-)
-def test_failure_is_safe_and_retry_succeeds(failure, expected):
-    def send(*args, **kwargs):
-        raise failure
+def test_the_live_headless_probe_imports_this_constant_instead_of_copying_it() -> None:
+    execution = HEADLESS_EXECUTION.read_text(encoding="utf-8")
 
-    result = run_connection_test(AiSettings(enabled=True), transport=send)
-    assert result.state == expected
-    assert "SYNTHETIC-SECRET" not in result.message
-    result = run_connection_test(
-        AiSettings(enabled=True),
-        transport=lambda *args, **kwargs: io.BytesIO(b'{"choices":[{"message":{"content":"OK"}}]}'),
-    )
-    assert result.state == "connected"
-
-
-def test_malformed_response_is_not_success():
-    result = run_connection_test(AiSettings(enabled=True), transport=lambda *args, **kwargs: io.BytesIO(b"invalid"))
-    assert result.state == "invalid_response"
-
-
-def test_file_presence_is_not_claimed_as_valid_credentials(monkeypatch, tmp_path):
-    monkeypatch.delenv(nan_client.API_KEY_ENV)
-    path = tmp_path / "empty.env"
-    path.write_text("")
-    settings = AiSettings(enabled=True, env_file=path)
-    assert configuration_status(settings).state == "untested"
-    result = run_connection_test(settings, transport=lambda *args, **kwargs: pytest.fail("unexpected transmission"))
-    assert result.state == "invalid_configuration"
-
-
-def test_environment_key_precedence_does_not_require_access_to_file(monkeypatch):
-    from pathlib import Path
-
-    def denied_stat(*args, **kwargs):
-        raise OSError("synthetic inaccessible path")
-
-    monkeypatch.setattr(Path, "is_file", denied_stat)
-    assert configuration_status(AiSettings(enabled=True)).state == "untested"
+    assert "from xfinaudio.ai.connection_test import PROBE_MESSAGE" in execution
+    assert "nan_client.chat(PROBE_MESSAGE" in execution
+    assert EXPECTED_PROBE_MESSAGE not in execution, "the probe text must have one definition"

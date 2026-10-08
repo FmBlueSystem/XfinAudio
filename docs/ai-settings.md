@@ -4,13 +4,13 @@
 
 AI is off by default. The deterministic playlist tools remain available without a provider, key or network connection.
 
-Open **Settings → AI Settings**, or use a **Configure AI** action. Nan Builders is the supported provider. The recipient host is shown, including a custom HTTPS endpoint supplied by the operator. Opening Settings, choosing a file, toggling the checkbox and cancelling never send a request.
+Open the **Ajustes de IA** panel from the workflow list. Nan Builders is the supported provider. The recipient host is shown, including a custom HTTPS endpoint supplied by the operator. Opening the panel, choosing a file, toggling the checkbox and cancelling never send a request.
 
 ## Credentials stay outside Settings
 
 The app does not provide a key text field and does not write credential files. Configure `NAN_API_KEY` in the launch environment or in an operator-owned env file outside the app. Keep that file private with owner-only access; do not place it in a repository, shared folder, screenshot or support log. The app does not encrypt this file or repair its permissions. Use your trusted local credential-entry workflow; do not paste a secret into shell commands or chat.
 
-An existing env file may contain a bare key or a `NAN_API_KEY` assignment. The default path is `~/.xfinaudio/apiIA.env`. **Choose existing env file** selects only its path; **Use default file** clears the custom path. The UI inspects presence, not the file contents. The adapter reads the credential only when an explicitly requested AI operation runs.
+An existing env file may contain a bare key or a `NAN_API_KEY` assignment. The default path is `~/.xfinaudio/apiIA.env`. **Elegir archivo de credenciales…** selects only its path; **Quitar fuente de credenciales** clears the custom path. The UI inspects presence, not the file contents. The adapter reads the credential only when an explicitly requested AI operation runs.
 
 Environment credentials take precedence over file credentials. Existing launcher controls remain supported:
 - `XFINAUDIO_AI_ENABLED` controls the initial enable override
@@ -18,17 +18,17 @@ Environment credentials take precedence over file credentials. Existing launcher
 - `NAN_API_BASE` selects an absolute HTTPS endpoint; credential-bearing redirects are rejected
 - `NAN_MODEL` selects the provider model
 
-Settings displays effective initial enable/file overrides. Pressing **OK** explicitly saves the selected preference and changes subsequent runtime requests immediately. A later relaunch still respects explicit launch overrides. Failed saves preserve prior preferences. No restart is required for AI changes; changing UI language retains its existing restart requirement.
+The panel displays the effective initial enable/file overrides. **Guardar ajustes de IA** explicitly persists the selected preference and changes subsequent runtime requests immediately. A later relaunch still respects explicit launch overrides. Failed saves preserve prior preferences. No restart is required for AI changes; changing UI language retains its existing restart requirement.
 
 ## What is sent
 
-Requested AI actions may send request text and track/set metadata such as titles, artists, genres, BPM, key, energy and transition/readiness summaries. They never send audio files. Dedicated local path fields are omitted; known and recognizable paths, including relative audio-file paths, are redacted from text. Arbitrary free text cannot be guaranteed free of private information, so avoid private details in prompts. The UI shows this disclosure before opt-in. The exact scope varies by action; see [the per-action data table](ai-workflows.md#data-sent-by-each-action). The new optional panels start unconsented; changing the recipient resets that consent.
+Requested AI actions may send request text and track/set metadata such as titles, artists, genres, BPM, key, energy and transition/readiness summaries. They never send audio files. Dedicated local path fields are omitted; known and recognizable paths, including relative audio-file paths, are redacted from text. Arbitrary free text cannot be guaranteed free of private information, so avoid private details in prompts. The UI shows this disclosure before opt-in. The exact scope varies by action; see [the per-action data table](ai-workflows.md#data-sent-by-each-action). The optional panels start unconsented; changing the recipient resets that consent.
 
-**Test connection** sends only `Reply with OK. XfinAudio connection test.`, plus the selected model name and app identifier, authenticated with the configured credential. No library content is sent. This may consume provider quota. Testing uses the staged configuration and does not save it or enable other AI actions.
+**Probar conexión** sends only `Reply with OK. XfinAudio connection test.`, plus the selected model name and app identifier, authenticated with the configured credential. No library content is sent. This may consume provider quota. Testing uses the staged configuration and does not save it or enable other AI actions.
 
 A configuration-present status is not a connection success. Missing or invalid credentials, rejected authentication, malformed responses and network failures display recovery guidance, while offline tools continue working. The connection status never echoes raw provider response text or transport errors.
 
-The test runs in the background. Duplicate clicks are blocked. **Cancel test**, closing Settings or editing the configuration discards pending results. An already sent request cannot be recalled; retry becomes available when that bounded request finishes.
+The test runs in the background. Duplicate clicks are blocked. Cancelling the test, closing the panel or editing the configuration discards pending results. An already sent request cannot be recalled; retry becomes available when that bounded request finishes.
 
 ## Verification boundary
 
@@ -41,13 +41,14 @@ el destino predeterminado es `api.nan.builders`. Las acciones configuradas y
 solicitadas explícitamente pueden hacer peticiones reales. Tener una configuración
 presente no demuestra que la clave funcione ni que exista una suscripción válida.
 
-1. Abre **Ajustes → Ajustes de IA** o **Configurar IA** desde la acción que falla.
-   Comprueba el destinatario mostrado. Abrir el diálogo no envía la biblioteca
-   ni hace una llamada al proveedor.
+1. Abre el panel **Ajustes de IA** desde la lista de flujos. Comprueba el
+   destinatario mostrado. Abrir el panel no envía la biblioteca ni hace una
+   llamada al proveedor.
 2. Configura la credencial fuera de XfinAudio mediante tu procedimiento local de
    confianza. Se admite `NAN_API_KEY` en el entorno de inicio o un archivo env
    privado de tu propiedad. La ruta predeterminada es `~/.xfinaudio/apiIA.env`;
-   **Elegir archivo env existente** selecciona otra ruta, sin importar su contenido.
+   **Elegir archivo de credenciales…** selecciona otra ruta, sin importar su
+   contenido.
 3. Mantén el archivo fuera de repositorios y carpetas compartidas, con acceso solo
    para tu usuario. La app no cifra el archivo ni corrige sus permisos. No pegues
    claves en prompts, comandos de terminal, capturas, informes o conversaciones.
@@ -57,10 +58,11 @@ presente no demuestra que la clave funcione ni que exista una suscripción váli
    y el identificador de la app, autenticados con tu credencial. Puede consumir
    cuota. No envía música ni metadata de tu biblioteca; tampoco guarda los ajustes
    ni habilita por sí sola otras acciones.
-5. Pulsa **OK** para guardar la preferencia. En cada asistencia, lee su contexto
-   y destinatario antes de consentir y solicitar la llamada. No se envían archivos
-   de audio. Los nuevos paneles requieren renovar el consentimiento si cambia el
-   destinatario; habilitar IA en Ajustes no aplica filtros ni guarda playlists.
+5. Pulsa **Guardar ajustes de IA** para conservar la preferencia. En cada
+   asistencia, lee su contexto y destinatario antes de consentir y solicitar la
+   llamada. No se envían archivos de audio. Los paneles requieren renovar el
+   consentimiento si cambia el destinatario; habilitar IA en los ajustes no aplica
+   filtros ni guarda playlists.
 
 La clave del entorno tiene prioridad sobre la del archivo. `XFINAUDIO_AI_ENABLED`
 y `XFINAUDIO_AI_ENV_FILE` pueden establecer preferencias al iniciar;
@@ -69,9 +71,9 @@ implica enviar las peticiones y la autenticación a ese destino: revísalo antes
 continuar. No se siguen redirecciones de las llamadas autenticadas.
 
 Si falla la conexión, revisa la configuración fuera de la app y reintenta de
-forma explícita. **Cancelar prueba** o cerrar el diálogo ignora la respuesta
-pendiente, pero no retira una petición que el proveedor ya recibió. Las funciones
-locales siguen disponibles sin clave ni conexión.
+forma explícita. **Cancelar** o cerrar el panel ignora la respuesta pendiente,
+pero no retira una petición que el proveedor ya recibió. Las funciones locales
+siguen disponibles sin clave ni conexión.
 
 Estas instrucciones describen el comportamiento implementado. La verificación
 actual usa credenciales sintéticas y transportes inyectados; no certifica una

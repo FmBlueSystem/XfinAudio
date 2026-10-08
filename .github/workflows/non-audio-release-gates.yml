@@ -13,11 +13,6 @@ jobs:
   non-audio-release-gates:
     name: Non-audio release gates
     runs-on: macos-latest
-    # The suite imports Qt while collecting. A headless runner with no platform
-    # hint is where two jobs stalled to the 20-minute timeout without emitting
-    # a single line of output.
-    env:
-      QT_QPA_PLATFORM: offscreen
     # Bound the complete fresh-process manifest instead of allowing a hung
     # coverage batch to consume the 6-hour default on a macOS runner.
     timeout-minutes: 20
