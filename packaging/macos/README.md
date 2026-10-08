@@ -12,7 +12,9 @@ Use Node24+, native Python3.12 and an external clean environment synchronized wi
 `uv pip sync --require-hashes packaging/macos/requirements-build.txt`. The lock
 reuses unchanged official cross-platform Linux hashes plus pinned Darwin Macholib;
 a full native resolution and reference-lock sync are retained in handoff evidence.
-Do not install the legacy Qt-bearing root project. Electron comes from the npm
+Do not install the root project into that environment; the freezer lock is its
+only supported input, and the Electron runtime it bundles is not a Python
+dependency. Electron comes from the npm
 lock; compile TypeScript before final assembly. Outputs must be new and outside
 source. Shared engines, Electron and Linux bootstrap remain unchanged.
 

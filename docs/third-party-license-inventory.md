@@ -5,48 +5,49 @@ It is evidence for release readiness review, not legal clearance.
 
 ## Electron/Qt-free migration scope (2026-10-01)
 
-This manually maintained supplement records dependency declarations and observed metadata, not a complete binary bill of materials or a license-compatibility determination. It covers the new `desktop-electron/` and headless Python path. The root `pyproject.toml`, `uv.lock`, and original UI remain legacy Qt-bearing inputs; installing the root project is not a Qt-free installation.
+This manually maintained supplement records dependency declarations and observed metadata, not a complete binary bill of materials or a license-compatibility determination. It covers the new `desktop-electron/` and headless Python path. The root `pyproject.toml` and `uv.lock` remain the library's own declaration, and the legacy direct-Python snapshot further down is preserved as history; a root-project install is not evidence for the Electron/headless shipment described here. The Qt desktop and its UI toolkit were removed in `4e31a3a`, so no current lane installs one.
 
-Evidence: committed npm/headless/freezer locks, matching installed Linux Python distribution metadata and license files, the installed Electron distribution, and notice-presence checks in the earlier V9 Linux package. All 32 headless package versions below matched installed metadata at review time. The exact native Mac closure was not present for this review. Linux evidence does not establish Mac contents or approval to redistribute either platform. Dependency locks record selected packages/artifact integrity; they do not themselves contain the runtimes or prove license compliance.
+Evidence: committed npm/headless/freezer locks, matching installed Linux Python distribution metadata and license files, the installed Electron distribution, and notice-presence checks in the earlier V9 Linux package. All 33 headless package versions below matched installed metadata at review time. The exact native Mac closure was not present for this review. Linux evidence does not establish Mac contents or approval to redistribute either platform. Dependency locks record selected packages/artifact integrity; they do not themselves contain the runtimes or prove license compliance.
 
 ### Hash-locked headless Python dependencies
 
-`desktop-electron/requirements-headless.in` declares Mutagen, Pydantic, NumPy and librosa; `requirements-headless.txt` pins the full 32-package closure with SHA-256 artifact hashes. License cells prefer installed `License-Expression`, then `License`, then license classifiers. Labels are metadata as supplied, not newly inferred SPDX classifications. SciPy's long license field is described rather than truncated into a misleading single identifier.
+`desktop-electron/requirements-headless.txt` is exported from `uv.lock` instead of being resolved separately, so it pins the full 33-package runtime closure that the migration lane installs, with SHA-256 artifact hashes. `tests/test_headless_requirements_lock_drift.py` recomputes that closure from the lock and fails if the exported file diverges in membership, version, or hash. License cells prefer installed `License-Expression`, then `License`, then license classifiers. Labels are metadata as supplied, not newly inferred SPDX classifications. SciPy's long license field is described rather than truncated into a misleading single identifier.
 
 | Package | Locked version | Observed license metadata |
 |---------|----------------|---------------------------|
-| `annotated-types` | 0.8.0 | MIT |
+| `annotated-types` | 0.7.0 | MIT |
 | `audioread` | 3.1.0 | MIT |
-| `certifi` | 2026.7.22 | MPL-2.0 |
-| `cffi` | 2.1.1 | MIT-0 |
-| `charset-normalizer` | 3.5.2 | MIT |
-| `cloudpickle` | 3.1.2 | BSD-3-Clause |
+| `certifi` | 2026.5.20 | MPL-2.0 |
+| `cffi` | 2.0.0 | MIT |
+| `charset-normalizer` | 3.4.7 | MIT |
 | `decorator` | 5.3.1 | BSD-2-Clause |
-| `idna` | 3.20 | BSD-3-Clause |
-| `joblib` | 1.6.0 | BSD-3-Clause |
-| `lazy-loader` | 0.6 | BSD-3-Clause |
+| `idna` | 3.18 | BSD-3-Clause |
+| `joblib` | 1.5.3 | BSD-3-Clause |
+| `lazy-loader` | 0.5 | BSD-3-Clause |
 | `librosa` | 0.11.0 | ISC |
-| `llvmlite` | 0.50.0 | BSD-2-Clause AND Apache-2.0 WITH LLVM-exception |
-| `msgpack` | 1.2.3 | Apache-2.0 |
-| `mutagen` | 1.48.1 | GPL-2.0-or-later |
-| `narwhals` | 2.26.0 | MIT |
-| `numba` | 0.68.0 | BSD |
-| `numpy` | 2.5.3 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |
-| `packaging` | 26.3 | Apache-2.0 OR BSD-2-Clause |
-| `platformdirs` | 4.12.2 | MIT |
+| `llvmlite` | 0.47.0 | BSD-2-Clause AND Apache-2.0 WITH LLVM-exception |
+| `msgpack` | 1.2.0 | Apache-2.0 |
+| `mutagen` | 1.47.0 | GPL-2.0-or-later |
+| `narwhals` | 2.22.1 | MIT |
+| `numba` | 0.65.1 | BSD |
+| `numpy` | 2.4.6 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |
+| `packaging` | 25.0 | License classifiers only: Apache Software License; BSD License |
+| `platformdirs` | 4.10.0 | MIT |
 | `pooch` | 1.9.0 | BSD-3-Clause |
 | `pycparser` | 3.0 | BSD-3-Clause |
-| `pydantic` | 2.13.5 | MIT |
-| `pydantic-core` | 2.46.5 | MIT |
+| `pydantic` | 2.13.4 | MIT |
+| `pydantic-core` | 2.46.4 | MIT |
 | `requests` | 2.34.2 | Apache-2.0 |
-| `scikit-learn` | 1.9.1 | BSD-3-Clause |
-| `scipy` | 1.18.1 | Full license/third-party text in `License`; classifier: BSD License; see `scipy-1.18.1.dist-info/LICENSE.txt` |
+| `scikit-learn` | 1.9.0 | BSD-3-Clause |
+| `scipy` | 1.17.1 | Full license/third-party text in `License`; classifier: BSD License; see `scipy-1.17.1.dist-info/LICENSE.txt` |
+| `setproctitle` | 1.3.7 | BSD-3-Clause |
 | `soundfile` | 0.14.0 | BSD 3-Clause License |
 | `soxr` | 1.1.0 | LGPL-2.1-or-later |
-| `threadpoolctl` | 3.7.0 | BSD-3-Clause |
-| `typing-extensions` | 4.16.0 | PSF-2.0 |
-| `typing-inspection` | 0.4.4 | MIT |
-| `urllib3` | 2.8.0 | MIT |
+| `threadpoolctl` | 3.6.0 | BSD-3-Clause |
+| `typing-extensions` | 4.15.0 | PSF-2.0 |
+| `typing-inspection` | 0.4.2 | MIT |
+| `urllib3` | 2.7.0 | MIT |
+| `watchdog` | 6.0.0 | Apache-2.0 |
 
 ### npm lock metadata
 
@@ -96,12 +97,12 @@ Evidence: committed npm/headless/freezer locks, matching installed Linux Python 
 - The inspected Linux Electron 44.5.1 executable reports embedded Node.js 24.21.0 and Chromium 152.0.7977.130 via `process.versions`. Electron's npm package is MIT; Chromium, Node.js, V8 and their dependencies have their own notices. Retain the exact Electron distribution's `LICENSE` and `LICENSES.chromium.html` and verify component-notice coverage for the delivered platform. The [Electron license](https://github.com/electron/electron/blob/main/LICENSE) and [Node.js license collection](https://github.com/nodejs/node/blob/main/LICENSE) are upstream review references, not substitutes for matching release material
 - The review host's build tools report Node.js 24.19.0 and npm 11.9.0. These are observations, not pins in `package-lock.json`, and `@types/node` versions are type declarations, not Node runtime versions. TypeScript and npm are build tooling; determine whether any of their files are actually shipped before assigning binary inventory scope
 - The inspected Python interpreter is CPython 3.12.14; the headless lock targets Python 3.12 but does not lock an interpreter distribution. The Linux freezer recipe copies that interpreter's `LICENSE.txt` to `_internal/licenses/python/LICENSE.txt`. Preserve its PSF/history/third-party notices and inspect the selected runtime's native dependencies separately
-- `packaging/linux/requirements-build.txt` pins the 32 headless packages plus `altgraph` 0.17.5 (installed metadata: MIT), `pyinstaller` 6.20.0 (metadata: GPLv2-or-later with its special exception), `pyinstaller-hooks-contrib` 2026.5 and `setuptools` 82.0.1 (MIT). `packaging` 26.3 is already in the headless closure. The inspected hooks-contrib `licenses/LICENSE` assigns GPL-2.0-or-later to standard hooks/files and Apache-2.0 to runtime hooks; preserve the actual terms and identify which files enter a bundle
-- `packaging/macos/requirements-build.txt` includes the Linux build lock and adds hash-pinned `macholib` 1.16.4, for 37 effective packages. Its exact installed metadata/licenses and the native Mac build environment were not inspected here; those remain to be captured on the selected Mac. A lock entry is not evidence of its installed or redistributed contents
+- `packaging/linux/requirements-build.txt` is compiled from `packaging/linux/requirements-build.in`, which includes the headless export and pins `altgraph` 0.17.5 (installed metadata: MIT), `pyinstaller` 6.20.0 (metadata: GPLv2-or-later with its special exception), `pyinstaller-hooks-contrib` 2026.5, `setuptools` 82.0.1 (MIT) and `packaging` 25.0. `packaging` is already inside the headless closure, so that pin only has to agree with it. The compiled file was regenerated on 2026-10-07 from that input: 37 packages, `packaging` 25.0, `setproctitle` 1.3.7 and `watchdog` 6.0.0 present, no `cloudpickle` (nothing pulls it in) and no Darwin-only `macholib` (that pin lives in the macOS file). Regenerate it with `uv pip compile --generate-hashes --python-platform linux packaging/linux/requirements-build.in -o packaging/linux/requirements-build.txt` — never by hand — and compare the result with `uv.lock`; `tests/test_headless_requirements_lock_drift.py` fails when the compiled file stops matching the headless export. The `--python-platform linux` flag is what keeps the Darwin-only freezer dependency out of the Linux lock. The inspected hooks-contrib `licenses/LICENSE` assigns GPL-2.0-or-later to standard hooks/files and Apache-2.0 to runtime hooks; preserve the actual terms and identify which files enter a bundle
+- `packaging/macos/requirements-build.txt` includes the Linux build lock and adds hash-pinned `macholib` 1.16.4, so it carries one package more than the Linux lock (38 entries against that lock's 37). Its exact installed metadata/licenses and the native Mac build environment were not inspected here; those remain to be captured on the selected Mac. A lock entry is not evidence of its installed or redistributed contents
 
 ### Native-wheel notice evidence and remaining review
 
-The 32-row Python table is not a native-library closure. In the inspected Linux wheels:
+The 33-row Python table is not a native-library closure. In the inspected Linux wheels:
 
 - NumPy and SciPy ship OpenBLAS/LAPACK, libgfortran and libquadmath libraries. Their wheel `LICENSE.txt` files identify those components and additional terms, including the GCC Runtime Library Exception. NumPy's metadata expression alone does not enumerate all these binary-library terms; retain the complete wheel notices and match the actual native inventory
 - llvmlite provides `licenses/LICENSE.thirdparty` for LLVM; Numba provides `licenses/LICENSES.third-party`; SoXR provides `COPYING.LGPL`, `LICENSE-libsoxr.txt` and `LICENSE-PFFFT.txt` alongside its own `LICENSE.txt`. Check source/build and redistribution requirements against the files actually included
