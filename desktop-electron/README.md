@@ -1,8 +1,8 @@
 # XfinAudio Next: Qt-free migration preview
 
-## Current 2.2.0 source candidate
+## Current 2.3.0 source candidate
 
-This is an unreleased beta/source candidate prepared after V12. The [migration scope](MIGRATION_SCOPE.md) and [2.2.0 notes](../docs/release-notes-v2.2.0.md) describe current functionality and limits. Real spectral/danceability/edge completion, preferences/watch, Live, optional AI, safe legacy import and Linux/Mac runtime recipes are implemented. Earlier checkpoints below are historical evidence, not a current missing-feature list. The original Qt installation and V12 native candidate are not rebuilt or relabeled by this metadata/CI follow-up. No release, automatic updater or binary redistribution clearance is claimed.
+This is an unreleased beta/source candidate prepared after V12. The [migration scope](MIGRATION_SCOPE.md) and [2.3.0 notes](../docs/release-notes-v2.3.0.md) describe current functionality and limits. Real spectral/danceability/edge completion, preferences/watch, Live, optional AI, safe legacy import and Linux/Mac runtime recipes are implemented. Earlier checkpoints below are historical evidence, not a current missing-feature list. The original Qt installation and V12 native candidate are not rebuilt or relabeled by this metadata/CI follow-up. No release, automatic updater or binary redistribution clearance is claimed.
 
 CI uses the supported complete-manifest Python aggregate and runs every Electron test with an explicitly selected locked Qt-free interpreter; skipped or missing Node results fail the CI verification wrapper. Local `npm test` remains useful for focused development, but its optional skips alone are not release evidence.
 
