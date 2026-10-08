@@ -85,6 +85,22 @@ def test_valid_report_renders_expected_markdown_tables_and_limitations(tmp_path:
     assert "release is complete" not in markdown
 
 
+def test_preamble_does_not_advertise_the_removed_pyinstaller_gate() -> None:
+    """The preamble is a claim about the runner, and it drifted from it.
+
+    The PyInstaller check-only gate existed only while the Qt app bundle was
+    packaged; it was removed with that lane in 4e31a3a. Evidence that still
+    lists it tells a reader the run verified something it never ran.
+    """
+    markdown = render_release_gate_evidence.render_report(sample_report())
+
+    assert "PyInstaller" not in markdown
+    assert "pyinstaller_build_smoke.py" not in markdown
+    assert "root artifact hygiene" in markdown
+    assert "harmonic mixing guide" in markdown
+    assert "Source publication readiness refresh" in markdown
+
+
 def test_main_writes_markdown_to_stdout_by_default(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
     report_path = tmp_path / "release-gate-report.json"
     write_report(report_path)
