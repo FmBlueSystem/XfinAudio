@@ -414,8 +414,12 @@ def read_mutagen_tags(path: Path) -> dict[str, Any] | None:
         signature = getattr(audio.info, "md5_signature", 0)
         if signature:
             tags["__audio_md5__"] = format(signature, "032x")
-    except Exception:
-        pass
+    except Exception as exc:
+        LOGGER.warning(
+            "Unreadable audio MD5 signature for %s; loudness freshness falls back to size and mtime: %s",
+            path,
+            exc,
+        )
     return tags
 
 
