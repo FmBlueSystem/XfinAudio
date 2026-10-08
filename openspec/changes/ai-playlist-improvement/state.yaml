@@ -1,18 +1,18 @@
 schema: gentle-ai.sdd-state.v1
 change: ai-playlist-improvement
 artifact_store: openspec
-status: apply
+status: verify
 created: 2026-10-04
-updated: 2026-10-05
+updated: 2026-10-07
 strict_tdd: true
 phases:
   proposal: complete
   specs: complete
   design: complete
   tasks: complete
-  apply: in-progress
-  verify: pending
-next_recommended: apply
+  apply: complete
+  verify: complete
+next_recommended: native-validation
 blocked_reasons: []
 delivery:
   strategy: auto-chain
@@ -46,3 +46,5 @@ notes:
   - Tokenization is disclosed as pseudonymization, not anonymity; titles and artists are transmitted after consent.
   - Manual no-new-path invariant and atomic compare_and_update save are preserved; saved-editor locks/excludes are not asserted because that surface has none.
   - 'Artifact reconciliation is recorded in openspec/changes/ai-playlist-improvement/verify-report.md, the single detailed gate and commit evidence of record: I1-I3 independently verified offline and I4 reconciliation recorded, with no native review approval claimed. No source/test change, no stage, no commit.'
+  - 'Phase fields reconciled 2026-10-07: the previous values (status: apply, apply: in-progress, verify: pending) contradicted the landed artifacts, because tasks.md, apply-progress.md and verify-report.md all record I1-I4 as done. apply is now complete and verify is complete for the offline evidence of record; next_recommended is the native/live acceptance that no agent in this sandbox can obtain (live provider call, native confirmation dialog, visual macOS behavior, installed app, real library). This matches the electron-preferences-watch precedent of verify: complete plus a native-evidence next step.'
+  - 'The 2026-10-07 reconciliation was performed by an agent during a repository review, not by the documentation writer and not by a native reviewer; it advances provider-owned fields only to stop them contradicting the committed artifacts, and it claims no approval. No source/test change, no stage, no commit.'

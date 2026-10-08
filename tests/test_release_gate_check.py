@@ -166,6 +166,29 @@ def test_documented_verification_sequence_defers_the_coverage_floor_to_pyproject
     assert "pyproject.toml" in section, "the documented sequence must name where the coverage floor lives"
 
 
+def test_sdd_skill_verification_sequence_defers_the_coverage_floor_to_pyproject() -> None:
+    """Regression: the SDD skill kept the retired ``--cov-fail-under=70`` sequence.
+
+    ``test_documented_verification_sequence_defers_the_coverage_floor_to_pyproject``
+    already refused the flag in ``AGENTS.md``, but the project skill that agents are
+    told to follow (``.atl/skills/gentle-ai-sdd-tdd/SKILL.md``) still listed
+    ``uv run pytest --cov --cov-fail-under=70 -q``. An agent following the skill
+    would have overridden the 89 floor configured in ``pyproject.toml`` with 70 and
+    repeated the four gates the runner already covers.
+    """
+    skill = (PROJECT_ROOT / ".atl" / "skills" / "gentle-ai-sdd-tdd" / "SKILL.md").read_text(encoding="utf-8")
+    assert "## Verification commands" in skill, "the SDD skill no longer documents verification commands"
+    section = skill.split("## Verification commands", 1)[1].split("\n## ", 1)[0]
+    assert "```bash" in section, "the verification commands are no longer a runnable bash block"
+    block = section.split("```bash", 1)[1].split("```", 1)[0]
+
+    assert "--cov-fail-under" not in block, (
+        "the SDD skill must not pass a coverage floor flag; it overrides pyproject.toml"
+    )
+    assert "pyproject.toml" in section, "the SDD skill must name where the coverage floor lives"
+    assert "release_gate_check.py --run" in block, "the SDD skill must keep the gate as the verification command"
+
+
 # The scope AGENTS.md promises for the gate, and the commands that have to carry it.
 DOCUMENTED_GATE_CLAIM = (
     "The gate already includes the test suite with coverage, the type check, and the lint and format checks"
