@@ -16,7 +16,7 @@ const tracks = ['a', 'b'].map((id) => ({ id: id.repeat(64), title: id, artist: '
 const loudness = (patch = {}) => ({ revision: 'a'.repeat(64), enabled: true, targetLufs: -10, toleranceLu: 2, available: true, reason: 'ready', totalTracks: tracks.length, tracks: tracks.map((track) => ({ track, state: 'unmeasured', complete: false, lufs: null, lra: null, truePeak: null })), ...patch });
 const receipt = (patch = {}) => ({ cancelled: false, changedCount: 1, unchangedCount: 1, failureCount: 0, backupCount: 1, status: loudness(), ...patch });
 const aiUuid = '12345678-1234-4123-8123-123456789012';
-const aiStatus = { revision: 'c'.repeat(64), enabled: true, provider: 'nan', configured: true, credentialLabel: 'dummy.env', recipient: 'https://api.nan.builders/v1/chat/completions' };
+const aiStatus = { revision: 'c'.repeat(64), enabled: true, provider: 'nan', autoAuthorize: false, configured: true, credentialLabel: 'dummy.env', recipient: 'https://api.nan.builders/v1/chat/completions' };
 let sequence = 0;
 async function fixture(overrides = {}) {
   const previousDocument = globalThis.document; const previousWindow = globalThis.window; const elements = new Map(); const calls = []; let onStatus; let progress; let statusUnsubscribed = false;

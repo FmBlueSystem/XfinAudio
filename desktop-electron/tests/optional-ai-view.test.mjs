@@ -12,9 +12,9 @@ class Element extends EventTarget {
 }
 const all = (node) => [node, ...node.children.flatMap(all)]; const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
 const uuid = '12345678-1234-4123-8123-123456789012';
-async function fixture(surface = 'library', resultPatch = {}, contextPatch = null) {
+async function fixture(surface = 'library', resultPatch = {}, contextPatch = null, snapshotPatch = {}) {
   const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; let online = true; let busy = false; const calls = []; const root = new Element(); let render = () => {};
-  const snapshot = { revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'fixture.env', configured: true, recipient: AI_RECIPIENT };
+  const snapshot = { revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'fixture.env', configured: true, autoAuthorize: false, recipient: AI_RECIPIENT, ...snapshotPatch };
   const kinds = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection' };
   const api = { getAiStatus: async () => snapshot, saveAiSettings: async (input) => ({ ...snapshot, ...input }), chooseAiCredential: async () => snapshot, clearAiCredential: async () => ({ ...snapshot, configured: false, credentialLabel: null }), prepareAiRequest: async (input) => { calls.push(['prepare', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, disclosure: ['Datos autorizados de la pantalla, nunca audio'], requestPreview: '[ruta omitida] <img src=x>' }; }, runAiRequest: async (input) => { calls.push(['ask', input]); return { cancelled: false, result: { resultId: uuid, surface, kind: kinds[surface], title: '<script>modelo</script>', text: '<img src=x> Comentario externo', proposal: { genres: ['house'] }, canApply: true, ...resultPatch } }; }, applyAiSuggestion: async (input) => { calls.push(['apply', input]); return { surface, data: { genres: ['house'] } }; }, inspectAiPayload: async (input) => { calls.push(['aiPayload', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, request: 'house', body: '{"model":"deepseek","messages":[]}', bytes: 31, truncated: false }; } };
   const controller = new OptionalAiController(api, { canAct: () => online && !busy, changed: () => render(), dirtyChanged: () => {}, applied: () => {}, perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } } });
@@ -208,4 +208,29 @@ test('during the provider ask the bound instruction is frozen while a local job 
     f.controller.pending = 'prepare'; f.render();
     assert.equal(f.get('request').disabled, false, 'a prepare-only wait keeps the pending instruction editable');
   } finally { f.controller.pending = null; f.setBusy(false); f.render(); f.restore(); }
+});
+
+test('automatic authorization toggle lives beside enable, drafts dirty, and discards cleanly', async () => {
+  const f = await fixture(); try {
+    assert.ok(all(f.root).some((node) => node.tagName === 'label' && node.attrs.for === 'optional-ai-auto-authorize'));
+    const toggle = f.get('auto-authorize'); assert.equal(toggle.checked, false);
+    toggle.checked = true; toggle.dispatchEvent(new Event('change'));
+    assert.equal(f.controller.dirty, true);
+    f.controller.discard(); f.render();
+    assert.equal(f.get('auto-authorize').checked, false);
+  } finally { f.restore(); }
+});
+
+test('the consent copy names the real authority: system dialog only when automatic authorization is off', async () => {
+  const dialogPath = await fixture('connection'); try {
+    assert.match(text(dialogPath.get('consent-hint')), /diálogo del sistema/);
+    await dialogPath.controller.prepare(); dialogPath.render();
+    assert.doesNotMatch(text(dialogPath.get('consent-hint')), /sin el diálogo del sistema/);
+  } finally { dialogPath.restore(); }
+  const autoPath = await fixture('connection', {}, null, { autoAuthorize: true }); try {
+    await autoPath.controller.prepare(); autoPath.render();
+    assert.doesNotMatch(text(autoPath.get('consent-hint')), /también se pide confirmación en el diálogo del sistema/);
+    assert.match(text(autoPath.get('consent-hint')), /sin el diálogo del sistema/);
+    assert.equal(autoPath.get('ask').disabled, false);
+  } finally { autoPath.restore(); }
 });

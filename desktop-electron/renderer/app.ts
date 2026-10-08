@@ -272,7 +272,7 @@ ai = new OptionalAiController(api, {
     deferredAiApply = () => { if (context === aiContextKey) change(); };
   },
   perform: (label, task, apply, failure) => perform(ai?.pending === 'ask' ? 'ai' : ai?.pending === 'apply' ? 'ai-apply' : 'ai-settings', label, task, (value, current) => {
-    apply(value, current); showStatus('Asistencia IA', ai?.notice || 'Operación local completada; cada consulta requiere consentimiento');
+    apply(value, current); showStatus('Asistencia IA', ai?.notice || 'Operación local completada; el envío exige tu autorización explícita');
   }, ai?.pending === 'ask', failure),
 });
 renderAi = createOptionalAiView(element('optional-ai-container'), ai, { canAct: () => coreAvailable && !gate.busy && aiAvailable(), busy: () => coreAvailable && gate.busy, openSettings: () => {navigate('ai');revealControl(element('optional-ai-enabled'));} });

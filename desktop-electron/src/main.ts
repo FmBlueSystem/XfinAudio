@@ -75,8 +75,17 @@ const optionalAi=new OptionalAiHost({
   choose:async()=>{const result=await dialog.showOpenDialog(window!,{title:'Selecciona el archivo de credenciales de Nan Builders (no se leerá hasta una petición confirmada)',properties:['openFile','showHiddenFiles']});return result.canceled||result.filePaths.length!==1?null:result.filePaths[0];},
   confirm:async summary=>{
     const detail=[`Destinatario: ${summary.recipient}`,...summary.disclosure,summary.requestPreview,'La petición puede generar consumo en tu proveedor. Cancelar después del envío descarta la respuesta; no puede recuperar los datos ya enviados.'].filter(Boolean).join('\n\n');
-    const result=await dialog.showMessageBox(window!,{type:'warning',title:'Confirmar solicitud opcional a Nan Builders',message:'¿Enviar solo esta solicitud?',detail,buttons:['Cancelar','Enviar esta solicitud'],defaultId:0,cancelId:0,noLink:true});return result.response===1;
+    const result=await dialog.showMessageBox(window!,{type:'warning',title:'Confirmar solicitud opcional a Nan Builders',message:'¿Enviar solo esta solicitud?',detail,buttons:['Cancelar','Enviar esta solicitud'],checkboxLabel:'No volver a preguntar en cada consulta (activa la IA; puedes revertirlo en Ajustes)',defaultId:0,cancelId:0,noLink:true});
+    if(result.response!==1)return false;
+    if(result.checkboxChecked){
+      // Best-effort persistence of the explicit opt-out chosen in the dialog.
+      // A stale revision only means Ajustes must save it again; the current
+      // confirmed send proceeds either way.
+      try{const status=await run('ai.status',{});await run('ai.settings.update',{revision:status.revision,enabled:true,autoAuthorize:true});}catch{/* Ajustes remains the reliable path. */}
+    }
+    return true;
   },
+  autoAuthorize:async()=>{try{const status=await run('ai.status',{});return status.autoAuthorize===true;}catch{return false;}},
   cancel:()=>current?.method==='ai.run'?core.request('cancel',{jobId:current.id}):Promise.resolve({cancelled:false}),
   isClosing:()=>closeFlow.isClosing,
 });

@@ -12,3 +12,9 @@ test('Live boundary rejects raw paths, recommendation payloads, scores and stale
  for(const patch of [{revision:NaN},{revision:Infinity},{revision:-1},{revision:501},{revision:1.5},{revision:true},{trackId:'/tmp/a'},{trackId:'z'.repeat(64)},{sessionId:'bad'},{score:1},{ready:true}])assert.throws(()=>validateRequest('advanceLive',{...good,...patch}));
  for(const method of ['getLiveStatus','clearLive']){assert.throws(()=>validateRequest(method,{sessionId:id,path:'/tmp'}));assert.throws(()=>validateRequest(method,{}));}
 });
+
+test('saveAiSettings accepts an optional boolean autoAuthorize and rejects other types',()=>{
+  assert.doesNotThrow(()=>validateRequest('saveAiSettings',{revision:track,enabled:true,autoAuthorize:true}));
+  assert.doesNotThrow(()=>validateRequest('saveAiSettings',{revision:track,enabled:true,autoAuthorize:false}));
+  for(const bad of ['true',1,null,{}])assert.throws(()=>validateRequest('saveAiSettings',{revision:track,enabled:true,autoAuthorize:bad}));
+});

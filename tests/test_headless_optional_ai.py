@@ -815,3 +815,19 @@ def test_improvement_result_without_rationale_keeps_the_fixed_local_review_text(
     facade = improvement_facade(backend, root, transport)
     answer = run(facade, prepare_improvement(facade, selector))["result"]
     assert answer["text"] == "Revisa el orden propuesto y su evaluación local antes de aplicarlo al borrador."
+
+
+def test_auto_authorize_is_default_off_and_persists_across_facade_restarts(fixture):
+    facade, transport, backend, _, _ = fixture
+    status = call(facade, "ai.status")
+    assert status["autoAuthorize"] is False
+    updated = call(
+        facade,
+        "ai.settings.update",
+        {"revision": status["revision"], "enabled": status["enabled"], "autoAuthorize": True},
+    )
+    assert updated["autoAuthorize"] is True and updated["enabled"] == status["enabled"]
+    from xfinaudio.headless.optional_ai import OptionalAI
+
+    reborn = OptionalAI(backend, transport=transport)
+    assert call(reborn, "ai.status")["autoAuthorize"] is True

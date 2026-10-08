@@ -35,6 +35,8 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const configSummary = identify(make('summary'), 'config-summary'); config.append(configSummary);
   const enabled = identify(make('input'), 'enabled'); enabled.type = 'checkbox';
   const enabledLabel = make('label', 'Permitir solicitudes explícitas de asistencia IA'); enabledLabel.setAttribute('for', enabled.id);
+  const autoAuthorize = identify(make('input'), 'auto-authorize'); autoAuthorize.type = 'checkbox';
+  const autoAuthorizeLabel = make('label', 'No volver a preguntar en cada consulta (autorización automática)'); autoAuthorizeLabel.setAttribute('for', autoAuthorize.id);
   const dirty = identify(make('p', '', 'field-hint'), 'dirty'); dirty.setAttribute('aria-live', 'polite');
   const action = (id: string, caption: string, callback: () => void, primary = false): HTMLButtonElement => {
     const button = identify(make('button', caption, `button ${primary ? 'primary' : 'subtle'}`), id); button.type = 'button';
@@ -47,8 +49,10 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const choose = action('choose', 'Elegir archivo de credenciales…', () => { void controller.chooseCredential(); });
   const clear = action('clear', 'Quitar fuente de credenciales', () => { void controller.clearCredential(); });
   enabled.addEventListener('change', () => { if (canAct()) controller.setEnabled(enabled.checked); });
+  autoAuthorize.addEventListener('change', () => { if (canAct()) controller.setAutoAuthorize(autoAuthorize.checked); });
   const configActions = make('div', '', 'editor-actions'); configActions.append(save, discard, refresh, choose, clear);
-  config.append(enabled, enabledLabel, make('p', 'El proveedor es Nan Builders. Estos ajustes guardan la fuente elegida, sin leer claves ni probar la conexión. Guarda o descarta el borrador antes de cambiar esa fuente. No pegues claves en la petición.', 'field-hint'), dirty, configActions);
+  config.append(enabled, enabledLabel, autoAuthorize, autoAuthorizeLabel, identify(make('p', 'Con la autorización automática, cada consulta preparada se envía sin el diálogo del sistema. Puedes revertirla aquí en cualquier momento.', 'field-hint'), 'auto-authorize-hint'),
+    make('p', 'El proveedor es Nan Builders. Estos ajustes guardan la fuente elegida, sin leer claves ni probar la conexión. Guarda o descarta el borrador antes de cambiar esa fuente. No pegues claves en la petición.', 'field-hint'), dirty, configActions);
   const recipient = identify(make('p', `Destinatario: Nan Builders · ${AI_RECIPIENT}`, 'review-notice'), 'recipient');
   const disclosure = identify(make('p', '', 'field-hint'), 'surface-disclosure');
   const requestField = identify(make('div'), 'request-field');
@@ -81,8 +85,9 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const consentLabel = make('label', 'Autorizo enviar esta solicitud y los datos descritos a Nan Builders'); consentLabel.setAttribute('for', consent.id);
   consent.setAttribute('aria-describedby', `${prefix}-consent-hint`); consent.addEventListener('change', () => { if (canAct()) controller.setConsent(consent.checked); });
   const ask = action('ask', 'Consultar IA…', () => { void controller.ask(); }, true);
+  const consentHint = identify(make('p', '', 'field-hint'), 'consent-hint');
   preview.append(identify(make('h4', 'Vista previa del envío'), 'preview-heading'), previewRecipient, disclosureList, redacted, payload, payloadHint, consent, consentLabel,
-    identify(make('p', 'Esta autorización vale solo para esta solicitud. Al continuar también se pide confirmación en el diálogo del sistema. Preparar esta vista no contacta al proveedor.', 'field-hint'), 'consent-hint'), ask);
+    consentHint, ask);
   const pending = identify(make('p', 'Puedes cancelar desde el control de la operación. Los datos ya enviados no se pueden recuperar.', 'review-notice'), 'pending'); pending.setAttribute('role', 'status');
   const result = identify(make('section'), 'result'); result.setAttribute('aria-labelledby', `${prefix}-result-heading`);
   const resultHeading = identify(make('h4', 'Respuesta de IA'), 'result-heading'); const resultTitle = make('h5'); const resultText = make('p');
@@ -103,10 +108,16 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
     status.textContent = !snapshot ? 'Carga los ajustes para conocer el estado de la asistencia.'
       : `${snapshot.enabled ? 'Asistencia activada solo para solicitudes explícitas.' : 'Asistencia desactivada.'} ${snapshot.configured ? `Fuente seleccionada: ${snapshot.credentialLabel ?? 'archivo autorizado'}. ${controller.result?.kind === 'connection' ? 'Consulta el resultado de la prueba; seleccionar una fuente no garantiza la conexión.' : 'No se ha comprobado la conexión.'}` : 'No hay una fuente de credenciales seleccionada.'}`;
     enabled.checked = snapshot?.enabled ?? false; enabled.disabled = blocked || !snapshot;
+    autoAuthorize.checked = snapshot?.autoAuthorize ?? false; autoAuthorize.disabled = blocked || !snapshot;
     dirty.textContent = controller.dirty ? 'Cambios de IA sin guardar. Se conservan al navegar.' : 'Sin ajustes de IA pendientes.';
     save.disabled = blocked || !controller.canSave; discard.disabled = blocked || !controller.dirty; refresh.disabled = blocked;
     choose.disabled = blocked || !snapshot || controller.dirty; clear.disabled = blocked || !snapshot?.configured || controller.dirty;
     disclosure.textContent = controller.improvementEditor ? improvementDisclosure(controller.includeReplacements) : surfaceDisclosure[controller.surface]; requestField.hidden = !controller.requestEditable;
+    // The consent copy must name the authority actually in force: with persisted automatic
+    // authorization no system dialog appears, so the hint must not claim one.
+    consentHint.textContent = snapshot?.autoAuthorize === true
+      ? 'Esta autorización vale solo para esta solicitud. Con la autorización automática activada en Ajustes, continuar envía la consulta directamente, sin el diálogo del sistema. Preparar esta vista no contacta al proveedor.'
+      : 'Esta autorización vale solo para esta solicitud. Al continuar también se pide confirmación en el diálogo del sistema. Preparar esta vista no contacta al proveedor.';
     // The improvement prompt is only truthful for the improvement selector; the legacy
     // editor keeps its four-operation framing.
     const improvement = controller.improvementEditor;

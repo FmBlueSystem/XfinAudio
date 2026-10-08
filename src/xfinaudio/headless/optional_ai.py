@@ -131,7 +131,11 @@ class OptionalAI:
             # New or malformed input immediately revokes older consent/results and
             # prevents an already-running request from publishing into this scope.
             self.invalidate()
-        if not isinstance(params, dict) or set(params) != AI_FIELDS[method]:
+        # Fail-closed shapes: no unknown keys, and every required key present.
+        # Only autoAuthorize (ai.settings.update) is optional, so older callers
+        # that only send revision/enabled keep working.
+        required = AI_FIELDS[method] - {"autoAuthorize"}
+        if not isinstance(params, dict) or not set(params) <= AI_FIELDS[method] or not required <= set(params):
             raise BackendError("invalid_params", "Missing or unexpected optional assistance fields")
         try:
             if method == "ai.status":

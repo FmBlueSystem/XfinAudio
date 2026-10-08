@@ -38,7 +38,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     ...OFFLINE_FIELDS,...REVIEW_CONTROL_FIELDS,
     previewLegacyImport:[],applyLegacyImport:['previewId'],discardLegacyImport:['previewId'],
     getProfileStatus:[],completeProfiles:[],getProfileSettings:[],saveProfileSettings:['revision','spectralCohesion'],
-    getAiStatus:[],saveAiSettings:['revision','enabled'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],
+    getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],
     getLoudnessStatus:[],revealLoudnessBackups:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
@@ -155,6 +155,7 @@ function validateLoudnessRequest(method:string,params:Record<string,unknown>):vo
 function validateAiRequest(method:string,params:Record<string,unknown>):void {
   if(['saveAiSettings','chooseAiCredential','clearAiCredential'].includes(method)&&(typeof params.revision!=='string'||!/^[a-f0-9]{64}$/.test(params.revision)))throw new Error('Invalid settings revision');
   if(method==='saveAiSettings'&&typeof params.enabled!=='boolean')throw new Error('Invalid optional AI setting');
+  if(method==='saveAiSettings'&&'autoAuthorize' in params&&typeof params.autoAuthorize!=='boolean')throw new Error('Invalid optional AI setting');
   if(['runAiRequest','inspectAiPayload'].includes(method)&&(typeof params.previewId!=='string'||!uuid.test(params.previewId)))throw new Error('Invalid AI preview');
   if(method==='applyAiSuggestion'&&(typeof params.resultId!=='string'||!uuid.test(params.resultId)))throw new Error('Invalid AI result');
   if(method!=='prepareAiRequest')return;

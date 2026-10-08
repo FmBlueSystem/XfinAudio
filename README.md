@@ -803,6 +803,9 @@ exportación. Los comentarios generados deben contrastarse con los hechos visibl
 
 La IA está **desactivada por defecto**. Sigue la [configuración segura de IA](docs/ai-settings.md#configuración-segura-en-español),
 revisa el destinatario y los datos compartidos y autoriza la acción concreta.
+Si activas la **autorización automática** en Ajustes, cada consulta preparada se
+envía sin repetir el diálogo de confirmación del sistema; puedes revertirlo
+cuando quieras en Ajustes.
 Nunca se envía audio. Biblioteca y Editor comparten peticiones; Mis playlists,
 agregados anónimos; Metadatos y Live, hechos calculados. Crear y Revisar muestran
 su contexto específico. No escribas datos privados ni credenciales en las consultas.

@@ -255,10 +255,20 @@ class PreferencesService:
             raise BackendError("invalid_params", "Invalid AI preference fields or revision")
 
     def update_ai(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Persist the explicit enable choice without composing any provider."""
-        self._validate_ai_fields(params, "enabled")
+        """Persist the explicit enable choice and optional automatic authorization."""
+        allowed = {"revision", "enabled", "autoAuthorize"}
+        if (
+            not isinstance(params, dict)
+            or not set(params) <= allowed
+            or not {"revision", "enabled"} <= set(params)
+            or not isinstance(params["revision"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", params["revision"]) is None
+        ):
+            raise BackendError("invalid_params", "Invalid AI preference fields or revision")
         if type(params["enabled"]) is not bool:
             raise BackendError("invalid_params", "Invalid AI enabled preference")
+        if "autoAuthorize" in params and type(params["autoAuthorize"]) is not bool:
+            raise BackendError("invalid_params", "Invalid AI automatic-authorization preference")
         return self._ai_access(params)[0]
 
     def set_ai_credential(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -283,7 +293,18 @@ class PreferencesService:
                 if params is not None:
                     if params["revision"] != self.revision:
                         raise BackendError("stale_settings", "Preferences changed; refresh before saving")
-                    changes = {"enabled": params["enabled"]} if "enabled" in params else {"env_file": params["path"]}
+                    if "path" in params:
+                        changes = {"env_file": params["path"]}
+                    else:
+                        # Settings save: the UI sends enabled and may toggle the
+                        # persisted automatic authorization in the same request;
+                        # absent means keep the persisted value.
+                        changes = {
+                            "enabled": params["enabled"],
+                            # Model field name is snake_case; the protocol key is
+                            # camelCase (autoAuthorize) and maps here.
+                            "auto_authorize": params.get("autoAuthorize", self.settings.ai.auto_authorize),
+                        }
                     self._save(self.settings.model_copy(update={"ai": self.settings.ai.model_copy(update=changes)}))
                 settings = self.settings.ai
                 label = None
@@ -296,6 +317,7 @@ class PreferencesService:
                     {
                         "revision": self.revision,
                         "enabled": settings.enabled,
+                        "autoAuthorize": settings.auto_authorize,
                         "provider": settings.provider,
                         "credentialLabel": label,
                         "configured": settings.env_file is not None,

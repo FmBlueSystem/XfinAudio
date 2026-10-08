@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { OptionalAiController, AI_RECIPIENT, AI_CONNECTION_REQUEST } from '../.out/renderer/optional-ai.js';
 const uuid = '12345678-1234-4123-8123-123456789012';
-const status = (patch = {}) => ({ revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'apiIA.env', configured: true, recipient: AI_RECIPIENT, ...patch });
+const status = (patch = {}) => ({ revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'apiIA.env', configured: true, autoAuthorize: false, recipient: AI_RECIPIENT, ...patch });
 const preview = (patch = {}) => ({ previewId: uuid, surface: 'library', recipient: AI_RECIPIENT, disclosure: ['Se enviará la petición y el vocabulario de géneros. No se envía audio.'], requestPreview: 'Busca house [ruta omitida]', ...patch });
 const result = (patch = {}) => ({ resultId: uuid, surface: 'library', kind: 'filters', title: 'Filtros sugeridos', text: 'Propuesta pendiente de revisión local', proposal: { genres: ['house'] }, canApply: true, ...patch });
 function fixture(overrides = {}) {
@@ -15,7 +15,7 @@ function fixture(overrides = {}) {
 }
 async function prepared(f) { await f.controller.load(); f.controller.setRequest('Busca house /Users/private'); await f.controller.prepare(); }
 test('status and configuration are local only, dirty draft survives navigation until save or discard', async () => {
-  const f = fixture(); await f.controller.load(); assert.deepEqual(f.calls, [['status']]); f.controller.setEnabled(false); assert.equal(f.controller.dirty, true); f.leave(); await f.controller.load(); assert.equal(f.calls.length, 1); assert.match(f.controller.error, /descarta/i); f.controller.discard(); assert.equal(f.controller.snapshot.enabled, true); assert.equal(f.controller.dirty, false); f.controller.setEnabled(false); await f.controller.save(); assert.deepEqual(f.calls.at(-1), ['save', { revision: 'a'.repeat(64), enabled: false }]); assert.equal(f.controller.dirty, false); assert.equal(f.applied.length, 0);
+  const f = fixture(); await f.controller.load(); assert.deepEqual(f.calls, [['status']]); f.controller.setEnabled(false); assert.equal(f.controller.dirty, true); f.leave(); await f.controller.load(); assert.equal(f.calls.length, 1); assert.match(f.controller.error, /descarta/i); f.controller.discard(); assert.equal(f.controller.snapshot.enabled, true); assert.equal(f.controller.dirty, false); f.controller.setEnabled(false); await f.controller.save(); assert.deepEqual(f.calls.at(-1), ['save', { revision: 'a'.repeat(64), enabled: false, autoAuthorize: false }]); assert.equal(f.controller.dirty, false); assert.equal(f.applied.length, 0);
 });
 test('credential source picker and removal use only current revision and never request provider data', async () => {
   const f = fixture(); await f.controller.load(); await f.controller.chooseCredential(); assert.deepEqual(f.calls.at(-1), ['choose', { revision: 'a'.repeat(64) }]); assert.equal(f.controller.snapshot.credentialLabel, 'seleccionado.env'); await f.controller.clearCredential(); assert.deepEqual(f.calls.at(-1), ['clear', { revision: 'b'.repeat(64) }]); assert.equal(f.controller.snapshot.configured, false); assert.equal(f.controller.canPrepare, false); assert.ok(!f.calls.some(([kind]) => kind === 'run'));
@@ -334,4 +334,24 @@ test('a keystroke during the in-flight ask does not silently swallow a provider 
   assert.notEqual(f.controller.error, '', 'the failure stays visible instead of being swallowed by a reset');
   assert.equal(f.controller.pending, null);
   assert.equal(f.calls.filter(([kind]) => kind === 'run').length, 0);
+});
+
+test('persisted automatic authorization sends without per-request consent or dialog', async () => {
+  const f = fixture({ getAiStatus: async () => status({ autoAuthorize: true }) }); await prepared(f);
+  assert.equal(f.controller.canAsk, true);
+  await f.controller.ask();
+  assert.deepEqual(f.calls.at(-1), ['run', { previewId: uuid }]);
+  assert.doesNotMatch(f.controller.notice, /diálogo del sistema/);
+});
+test('the automatic-authorization toggle is part of the AI draft, its dirty state and its save', async () => {
+  const f = fixture(); await prepared(f);
+  f.controller.setAutoAuthorize(true);
+  assert.equal(f.controller.dirty, true); assert.equal(f.controller.canSave, true);
+  await f.controller.save();
+  assert.deepEqual(f.calls.at(-1)[0], 'save'); assert.equal(f.calls.at(-1)[1].autoAuthorize, true);
+});
+test('a core response without autoAuthorize is rejected fail-closed', async () => {
+  const f = fixture({ getAiStatus: async () => { const s = status(); delete s.autoAuthorize; return s; } });
+  await f.controller.load();
+  assert.equal(f.controller.base, null); assert.ok(f.controller.error);
 });

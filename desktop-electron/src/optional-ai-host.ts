@@ -6,10 +6,11 @@ interface Dependencies {
   choose:()=>Promise<string|null>;
   confirm:(summary:any)=>Promise<boolean>;
   cancel:()=>Promise<unknown>;
+  autoAuthorize:()=>Promise<boolean>;
   isClosing:()=>boolean;
 }
 const failure=(code:string)=>Object.assign(new Error(`[${code}] Optional assistance unavailable`),{code});
-/** Only native file selection and per-request confirmation grant sensitive authority. */
+/** Sensitive authority: native file selection, or persisted automatic authorization granted in Ajustes. */
 export class OptionalAiHost {
   private previews=new Set<string>();
   private cancelRequested=false;
@@ -51,6 +52,13 @@ export class OptionalAiHost {
       if(!this.previews.has(previewId))throw failure('stale_ai');
       this.asking=true;this.cancelRequested=false;
       try{
+        // Persisted automatic authorization (opt-in from Ajustes) replaces the
+        // per-query ai.confirmation fetch and native dialog. Anything other
+        // than === true keeps the dialog path (fail-closed).
+        if(await this.dependencies.autoAuthorize()===true){
+          this.previews.delete(previewId);this.active=true;
+          try{return await this.dependencies.request('ai.run',{previewId,confirmed:true});}finally{this.active=false;}
+        }
         const summary=await this.dependencies.request('ai.confirmation',{previewId});
         if(summary.recipient!==AI_RECIPIENT)throw failure('ai_request_failed');
         const confirmed=await this.dependencies.confirm(summary);this.assertOpen();

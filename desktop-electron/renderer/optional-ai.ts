@@ -3,14 +3,14 @@ export const AI_RECIPIENT = 'https://api.nan.builders/v1/chat/completions';
 export const AI_CONNECTION_REQUEST = 'Reply with OK. XfinAudio connection test.';
 export type AiSurface = 'library' | 'prep' | 'review' | 'saved' | 'editor' | 'metadata' | 'live' | 'connection';
 export type AiContext = Record<string, string | number | boolean | string[]>;
-export interface AiStatus { revision: string; enabled: boolean; provider: 'nan'; credentialLabel: string | null; configured: boolean; recipient: typeof AI_RECIPIENT; }
+export interface AiStatus { revision: string; enabled: boolean; autoAuthorize: boolean; provider: 'nan'; credentialLabel: string | null; configured: boolean; recipient: typeof AI_RECIPIENT; }
 export interface AiPreview { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; disclosure: string[]; requestPreview: string; }
 /** The exact retained provider body for one current preview: read-only, never sent by inspecting it. */
 export interface AiPayload { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; request: string; body: string; bytes: number; truncated: boolean; }
 export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; }
 export interface OptionalAiApi {
   getAiStatus(): Promise<AiStatus>;
-  saveAiSettings(input: { revision: string; enabled: boolean }): Promise<AiStatus>;
+  saveAiSettings(input: { revision: string; enabled: boolean; autoAuthorize: boolean }): Promise<AiStatus>;
   chooseAiCredential(input: { revision: string }): Promise<AiStatus>;
   clearAiCredential(input: { revision: string }): Promise<AiStatus>;
   prepareAiRequest(input: { surface: AiSurface; request: string; context: AiContext }): Promise<AiPreview>;
@@ -65,9 +65,9 @@ function localApplyCopy(surface: AiSurface, value: unknown, improvement = false)
   return { filters: recordCopy(value.filters), trackIds: [...ids] };
 }
 function statusCopy(value: AiStatus): AiStatus {
-  if (!value || !/^[a-f0-9]{64}$/.test(value.revision) || typeof value.enabled !== 'boolean' || value.provider !== 'nan'
+  if (!value || !/^[a-f0-9]{64}$/.test(value.revision) || typeof value.enabled !== 'boolean' || typeof value.autoAuthorize !== 'boolean' || value.provider !== 'nan'
     || value.recipient !== AI_RECIPIENT || typeof value.configured !== 'boolean' || (value.credentialLabel !== null && (!text(value.credentialLabel, 200) || /[\\/\p{C}]/u.test(value.credentialLabel)))) bad();
-  return { revision: value.revision, enabled: value.enabled, provider: 'nan', recipient: AI_RECIPIENT, configured: value.configured, credentialLabel: value.credentialLabel };
+  return { revision: value.revision, enabled: value.enabled, autoAuthorize: value.autoAuthorize, provider: 'nan', recipient: AI_RECIPIENT, configured: value.configured, credentialLabel: value.credentialLabel };
 }
 function contextCopy(surface: AiSurface, context: AiContext): AiContext {
   if (!Object.hasOwn(kinds, surface) || !isRecord(context)) bad();
@@ -148,11 +148,12 @@ export class OptionalAiController {
   get snapshot(): AiStatus | null { return this.draft; }
   /** True only for the exact AI improvement selector on the editor surface. */
   get improvementEditor(): boolean { return this.surface === 'editor' && this.improvement; }
-  get dirty(): boolean { return Boolean(this.base && this.draft && this.base.enabled !== this.draft.enabled); }
+  get dirty(): boolean { return Boolean(this.base && this.draft && (this.base.enabled !== this.draft.enabled || this.base.autoAuthorize !== this.draft.autoAuthorize)); }
   get requestEditable(): boolean { return editable.has(this.surface); }
   get canSave(): boolean { return !this.pending && !this.conflict && this.dirty; }
   get canPrepare(): boolean { return !this.pending && !this.conflict && !this.dirty && Boolean(this.context && this.draft?.enabled && this.draft.configured) && (!this.requestEditable || Boolean(this.request.trim()) && this.request.length <= 2000); }
-  get canAsk(): boolean { return this.canPrepare && this.consent && Boolean(this.preview); }
+  /** Persisted automatic authorization (opt-in) removes the per-send consent tick. */
+  get canAsk(): boolean { return this.canPrepare && (this.consent || this.base?.autoAuthorize === true) && Boolean(this.preview); }
   /** Only a current, unreplaced preview can be inspected, and only while the host can act. */
   get canInspectPayload(): boolean { return !this.pending && Boolean(this.preview) && this.host.canAct(); }
   get canApply(): boolean { return !this.pending && !this.dirty && !this.conflict && Boolean(this.result?.canApply && this.result.proposal && editable.has(this.result.surface) && this.result.resultId !== this.appliedId); }
@@ -199,6 +200,10 @@ export class OptionalAiController {
     if (!this.draft || this.pending || !this.host.canAct() || typeof value !== 'boolean' || this.draft.enabled === value) return;
     this.reset(); this.draft = { ...this.draft, enabled: value }; this.notice = ''; if (!this.conflict) this.error = ''; this.notify();
   }
+  setAutoAuthorize(value: boolean): void {
+    if (!this.draft || this.pending || !this.host.canAct() || typeof value !== 'boolean' || this.draft.autoAuthorize === value) return;
+    this.reset(); this.draft = { ...this.draft, autoAuthorize: value }; this.notice = ''; if (!this.conflict) this.error = ''; this.notify();
+  }
   discard(): void {
     if (!this.base || this.pending || !this.host.canAct()) return;
     this.reset(); this.draft = { ...this.base }; this.error = this.conflict ? 'Borrador descartado. Pulsa Actualizar para cargar los ajustes vigentes.' : ''; this.notify();
@@ -224,8 +229,8 @@ export class OptionalAiController {
   }
   async save(): Promise<void> {
     if (!this.canSave || !this.draft || !this.host.canAct()) return;
-    this.reset(); const { revision, enabled } = this.draft;
-    await this.perform('save', 'Guardando ajustes de IA…', () => this.api.saveAiSettings({ revision, enabled }), (value) => this.accept(value));
+    this.reset(); const { revision, enabled, autoAuthorize } = this.draft;
+    await this.perform('save', 'Guardando ajustes de IA…', () => this.api.saveAiSettings({ revision, enabled, autoAuthorize }), (value) => this.accept(value));
   }
   private async credential(kind: 'choose' | 'clear'): Promise<void> {
     if (!this.draft || this.pending || !this.host.canAct()) return;
@@ -263,7 +268,9 @@ export class OptionalAiController {
   async ask(): Promise<void> {
     if (!this.canAsk || !this.preview || !this.host.canAct()) return;
     const { previewId, surface } = this.preview; this.consent = false; this.result = null;
-    this.notice = 'Confirma el envío en el diálogo del sistema. Cancelar no recupera los datos ya enviados.';
+    this.notice = this.base?.autoAuthorize === true
+      ? 'Enviando con la autorización automática guardada en Ajustes. Cancelar no recupera los datos ya enviados.'
+      : 'Confirma el envío en el diálogo del sistema. Cancelar no recupera los datos ya enviados.';
     await this.perform('ask', 'Consultando asistencia IA…', () => this.api.runAiRequest({ previewId }), (value) => {
       if (!value || typeof value.cancelled !== 'boolean') bad();
       if (value.cancelled) {
