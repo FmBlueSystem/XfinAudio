@@ -25,7 +25,12 @@ export class SeratoHost {
   }
   async choose():Promise<{destinationId:string;label:string}|null> {
     return this.exclusive(async()=>{
-      const selected=await this.dependencies.choose();if(selected===null)return null;
+      let selected:string|null=null;
+      try{
+        const suggestion=await this.dependencies.request('serato.suggestDestination',{});
+        if(typeof suggestion?.suggestion==='string')selected=suggestion.suggestion;
+      }catch{/* Discovery is best-effort; the native picker stays the authority. */}
+      if(selected===null){selected=await this.dependencies.choose();if(selected===null)return null;}
       this.assertOpen();const root=await realpath(selected);
       const result=await this.dependencies.request('serato.registerDestination',{seratoRoot:root});
       this.destinations.set(result.destinationId,root);return result;
