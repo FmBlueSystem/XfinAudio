@@ -22,8 +22,9 @@ host limitation. A frozen-core smoke is not a graphical launch test.
 - Python runtime dependencies from `desktop-electron/requirements-headless.txt`
 - Freezer toolchain from `requirements-build.txt`, installed with `--require-hashes`.
   Regenerate it with `uv pip compile --generate-hashes --python-platform linux
-  requirements-build.in -o requirements-build.txt`; the platform flag is what keeps the
-  Darwin-only `macholib` pin out of this lock, and
+  --python-version 3.12 requirements-build.in -o requirements-build.txt`; the platform flag
+  is what keeps the Darwin-only `macholib` pin out of this lock, and the explicit Python
+  version flag prevents a non-3.12 default interpreter from rejecting `numpy>=2.5`;
   `tests/test_headless_requirements_lock_drift.py` fails if the compiled file stops
   matching `desktop-electron/requirements-headless.txt`
 - FFmpeg 7.1.1 from `ffmpeg-source.json` (official HTTPS source and pinned SHA256)

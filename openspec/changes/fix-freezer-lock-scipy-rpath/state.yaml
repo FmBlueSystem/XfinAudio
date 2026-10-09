@@ -1,0 +1,20 @@
+schema: gentle-ai.sdd-state.v1
+change: fix-freezer-lock-scipy-rpath
+artifact_store: openspec
+status: verify-complete
+created: 2026-10-08
+updated: 2026-10-08
+strict_tdd: true
+phases:
+  proposal: complete
+  specs: complete
+  design: complete
+  tasks: complete
+  apply: complete
+  verify: complete
+next_recommended: pr-ci-tag-dmg
+blocked_reasons: []
+delivery:
+  strategy: single-pr
+  chained_prs_recommended: false
+  chain_strategy: none

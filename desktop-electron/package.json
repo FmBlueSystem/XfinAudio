@@ -1,6 +1,6 @@
 {
   "name": "xfinaudio-desktop-next",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "private": true,
   "description": "Qt-free XfinAudio desktop migration preview",
   "license": "GPL-3.0-only",
@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@types/node": "26.6.3",
-    "electron": "^43.3.0",
+    "electron": "43.3.0",
     "typescript": "7.0.2"
   }
 }

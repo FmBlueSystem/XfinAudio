@@ -2,6 +2,12 @@
 
 Date: 2026-10-08
 
+> **Status update (2026-10-08):** 2.3.1 remains **code-only**: no DMG was produced for this
+> tag because the regenerated freezer locks (commit `8d18125`) downgraded the numeric stack to
+> a scipy wheel whose packaging trips the post-freeze native audit. The fix and the QA DMG
+> ship as **2.3.2** — see `docs/release-notes-v2.3.2.md`. The `v2.3.1` tag is immutable and
+> stays on its commit.
+
 ## Summary
 
 2.3.1 is an **unreleased beta/source candidate** that repairs the desktop shell launch: the Electron runtime is pinned to 43.3.0 and the shell now starts correctly even when the launching environment leaks `ELECTRON_RUN_AS_NODE=1`. It also adds one opt-in convenience for the optional AI assistance: a persisted automatic-authorization preference that removes the per-query native confirmation dialog for users who explicitly enable it. AI remains off by default.
