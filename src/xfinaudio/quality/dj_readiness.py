@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from xfinaudio.exporting.csv_safety import spreadsheet_safe_text
 from xfinaudio.exporting.serato_crate import SeratoExportPlan, validate_serato_crate_file
 from xfinaudio.metadata.tempo import is_valid_bpm
+from xfinaudio.quality.duplicate_tracks import find_duplicate_groups, format_duplicate_detail
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.playlist_service import MAX_ADJACENT_BPM_DIFFERENCE_PERCENT, PlaylistRecommendation
 from xfinaudio.recommendation.scoring import bpm_difference_percent, effective_energy_delta
@@ -72,6 +73,7 @@ def build_dj_readiness_report(
     checks = [
         _playlist_size_check(recommendation),
         _metadata_check(recommendation),
+        _duplicate_tracks_check(recommendation),
         _bpm_continuity_check(recommendation),
         _energy_continuity_check(recommendation),
         _transition_warning_check(recommendation),
@@ -314,6 +316,25 @@ def _average_score_check(report: RecommendationQualityReport, minimum_score: flo
         label="Puntuación media de transición",
         status="ready",
         detail=f"La puntuación media {report.average_transition_score:.3f} está en o por encima de {minimum_score:.2f}",
+    )
+
+
+def _duplicate_tracks_check(recommendation: PlaylistRecommendation) -> DjReadinessCheck:
+    """Advisory check: the same song or recording appearing twice in the session.
+
+    Read-only and explainable; the DJ decides what to do, so the worst outcome
+    is `needs_review` and export is never blocked.
+    """
+    groups = find_duplicate_groups(recommendation.ordered_tracks)
+    if not groups:
+        return DjReadinessCheck(label="Pistas repetidas", status="ready", detail="Sin pistas repetidas detectadas")
+    LOGGER.warning(
+        "DJ readiness: %d duplicate group(s) in %d-track playlist", len(groups), len(recommendation.ordered_tracks)
+    )
+    return DjReadinessCheck(
+        label="Pistas repetidas",
+        status="needs_review",
+        detail=format_duplicate_detail(groups),
     )
 
 

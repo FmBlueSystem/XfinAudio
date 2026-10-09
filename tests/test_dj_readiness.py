@@ -324,3 +324,58 @@ def test_dj_readiness_flags_a_two_level_energy_jump() -> None:
     report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
 
     assert any(check.label == "Continuidad de energía" and check.status == "needs_review" for check in report.checks)
+
+
+def repeated_track(path: str, title: str, *, key: str, bpm: float = 105.02) -> TrackRecord:
+    """The real damaged-metadata pair: same recording, different title and key."""
+    return TrackRecord(
+        path=path,
+        title=title,
+        artist="Dolly Parton",
+        bpm=bpm,
+        camelot_key=key,
+        energy_level=5,
+        energy_in=5,
+        energy_out=5,
+        duration=153.0,
+        genre="Pop",
+        tags=["Peak"],
+        metadata_status="complete",
+    )
+
+
+def test_dj_readiness_flags_repeated_tracks_for_review() -> None:
+    recommendation = manual_recommendation(
+        [
+            repeated_track("/music/9to5-edit.flac", "9 To 5 [DJ Edit]", key="2B"),
+            repeated_track("/music/to5-edit.flac", "To 5 (DJ Edit)", key="1B"),
+        ]
+    )
+
+    report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
+
+    duplicate_checks = [check for check in report.checks if check.label == "Pistas repetidas"]
+    assert len(duplicate_checks) == 1
+    assert duplicate_checks[0].status == "needs_review"
+    assert "posiciones 1 y 2" in duplicate_checks[0].detail
+    assert "9 To 5 [DJ Edit]" in duplicate_checks[0].detail
+    assert "To 5 (DJ Edit)" in duplicate_checks[0].detail
+    assert report.status == "needs_review"
+    assert report.review_count >= 1
+    assert report.blocker_count == 0
+
+
+def test_dj_readiness_reports_no_repeats_when_clean() -> None:
+    recommendation = manual_recommendation(
+        [
+            repeated_track("/music/a.flac", "9 To 5 [DJ Edit]", key="2B"),
+            repeated_track("/music/b.flac", "Islands In The Stream", key="8A", bpm=118.0),
+        ]
+    )
+
+    report = build_dj_readiness_report(recommendation, build_quality_report(recommendation))
+
+    duplicate_checks = [check for check in report.checks if check.label == "Pistas repetidas"]
+    assert len(duplicate_checks) == 1
+    assert duplicate_checks[0].status == "ready"
+    assert duplicate_checks[0].detail == "Sin pistas repetidas detectadas"
