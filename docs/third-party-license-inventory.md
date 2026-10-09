@@ -25,12 +25,12 @@ Evidence: committed npm/headless/freezer locks, matching installed Linux Python 
 | `joblib` | 1.5.3 | BSD-3-Clause |
 | `lazy-loader` | 0.5 | BSD-3-Clause |
 | `librosa` | 0.11.0 | ISC |
-| `llvmlite` | 0.47.0 | BSD-2-Clause AND Apache-2.0 WITH LLVM-exception |
+| `llvmlite` | 0.50.0 | BSD-2-Clause AND Apache-2.0 WITH LLVM-exception |
 | `msgpack` | 1.2.0 | Apache-2.0 |
 | `mutagen` | 1.47.0 | GPL-2.0-or-later |
 | `narwhals` | 2.22.1 | MIT |
-| `numba` | 0.65.1 | BSD |
-| `numpy` | 2.4.6 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |
+| `numba` | 0.68.0 | BSD |
+| `numpy` | 2.5.3 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |
 | `packaging` | 25.0 | License classifiers only: Apache Software License; BSD License |
 | `platformdirs` | 4.10.0 | MIT |
 | `pooch` | 1.9.0 | BSD-3-Clause |
@@ -39,7 +39,7 @@ Evidence: committed npm/headless/freezer locks, matching installed Linux Python 
 | `pydantic-core` | 2.46.4 | MIT |
 | `requests` | 2.34.2 | Apache-2.0 |
 | `scikit-learn` | 1.9.0 | BSD-3-Clause |
-| `scipy` | 1.17.1 | Full license/third-party text in `License`; classifier: BSD License; see `scipy-1.17.1.dist-info/LICENSE.txt` |
+| `scipy` | 1.18.1 | Full license/third-party text in `License`; classifier: BSD License; see `scipy-1.18.1.dist-info/LICENSE.txt` |
 | `setproctitle` | 1.3.7 | BSD-3-Clause |
 | `soundfile` | 0.14.0 | BSD 3-Clause License |
 | `soxr` | 1.1.0 | LGPL-2.1-or-later |
@@ -97,7 +97,7 @@ Evidence: committed npm/headless/freezer locks, matching installed Linux Python 
 - The inspected macOS arm64 Electron 43.3.0 executable reports embedded Node.js 24.18.1 and Chromium 150.0.7871.212 via `process.versions`. Electron's npm package is MIT; Chromium, Node.js, V8 and their dependencies have their own notices. Retain the exact Electron distribution's `LICENSE` and `LICENSES.chromium.html` and verify component-notice coverage for the delivered platform. The [Electron license](https://github.com/electron/electron/blob/main/LICENSE) and [Node.js license collection](https://github.com/nodejs/node/blob/main/LICENSE) are upstream review references, not substitutes for matching release material
 - The review host's build tools report Node.js 24.19.0 and npm 11.9.0. These are observations, not pins in `package-lock.json`, and `@types/node` versions are type declarations, not Node runtime versions. TypeScript and npm are build tooling; determine whether any of their files are actually shipped before assigning binary inventory scope
 - The inspected Python interpreter is CPython 3.12.14; the headless lock targets Python 3.12 but does not lock an interpreter distribution. The Linux freezer recipe copies that interpreter's `LICENSE.txt` to `_internal/licenses/python/LICENSE.txt`. Preserve its PSF/history/third-party notices and inspect the selected runtime's native dependencies separately
-- `packaging/linux/requirements-build.txt` is compiled from `packaging/linux/requirements-build.in`, which includes the headless export and pins `altgraph` 0.17.5 (installed metadata: MIT), `pyinstaller` 6.20.0 (metadata: GPLv2-or-later with its special exception), `pyinstaller-hooks-contrib` 2026.5, `setuptools` 82.0.1 (MIT) and `packaging` 25.0. `packaging` is already inside the headless closure, so that pin only has to agree with it. The compiled file was regenerated on 2026-10-07 from that input: 37 packages, `packaging` 25.0, `setproctitle` 1.3.7 and `watchdog` 6.0.0 present, no `cloudpickle` (nothing pulls it in) and no Darwin-only `macholib` (that pin lives in the macOS file). Regenerate it with `uv pip compile --generate-hashes --python-platform linux packaging/linux/requirements-build.in -o packaging/linux/requirements-build.txt` — never by hand — and compare the result with `uv.lock`; `tests/test_headless_requirements_lock_drift.py` fails when the compiled file stops matching the headless export. The `--python-platform linux` flag is what keeps the Darwin-only freezer dependency out of the Linux lock. The inspected hooks-contrib `licenses/LICENSE` assigns GPL-2.0-or-later to standard hooks/files and Apache-2.0 to runtime hooks; preserve the actual terms and identify which files enter a bundle
+- `packaging/linux/requirements-build.txt` is compiled from `packaging/linux/requirements-build.in`, which includes the headless export and pins `altgraph` 0.17.5 (installed metadata: MIT), `pyinstaller` 6.20.0 (metadata: GPLv2-or-later with its special exception), `pyinstaller-hooks-contrib` 2026.5, `setuptools` 82.0.1 (MIT) and `packaging` 25.0. `packaging` is already inside the headless closure, so that pin only has to agree with it. The compiled file was regenerated on 2026-10-07 from that input: 37 packages, `packaging` 25.0, `setproctitle` 1.3.7 and `watchdog` 6.0.0 present, no `cloudpickle` (nothing pulls it in) and no Darwin-only `macholib` (that pin lives in the macOS file). Regenerate it with `uv pip compile --generate-hashes --python-platform linux --python-version 3.12 packaging/linux/requirements-build.in -o packaging/linux/requirements-build.txt` — never by hand — and compare the result with `uv.lock`; `tests/test_headless_requirements_lock_drift.py` fails when the compiled file stops matching the headless export. The `--python-platform linux` flag is what keeps the Darwin-only freezer dependency out of the Linux lock. The inspected hooks-contrib `licenses/LICENSE` assigns GPL-2.0-or-later to standard hooks/files and Apache-2.0 to runtime hooks; preserve the actual terms and identify which files enter a bundle
 - `packaging/macos/requirements-build.txt` includes the Linux build lock and adds hash-pinned `macholib` 1.16.4, so it carries one package more than the Linux lock (38 entries against that lock's 37). Its exact installed metadata/licenses and the native Mac build environment were not inspected here; those remain to be captured on the selected Mac. A lock entry is not evidence of its installed or redistributed contents
 
 ### Native-wheel notice evidence and remaining review
