@@ -27,6 +27,7 @@ from xfinaudio.exporting.serato_playlist_exporter import (
     plan_serato_playlist_export,
 )
 from xfinaudio.headless.common import BackendError
+from xfinaudio.headless.serato_discovery import suggest_destination
 from xfinaudio.headless.serato_safety import (
     DirectoryIdentity,
     FileIdentity,
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 SERATO_FIELDS = {
     "serato.registerDestination": {"seratoRoot"},
+    "serato.suggestDestination": set(),
     "serato.preview": {"source", "destinationId", "name"},
     "serato.confirmation": {"previewId"},
     "serato.commit": {"previewId", "confirmed"},
@@ -98,6 +100,8 @@ class SeratoExporter:
             raise BackendError("invalid_params", "Missing export parameters")
         if method == "serato.registerDestination":
             return self._register(params["seratoRoot"])
+        if method == "serato.suggestDestination":
+            return self._suggest()
         if method == "serato.preview":
             return self._preview(params)
         if method == "serato.receipt.resolve":
@@ -130,6 +134,11 @@ class SeratoExporter:
         if preview_id in self.completed:
             return copy.deepcopy(self.receipts[self.completed[preview_id]][0])
         return self._commit(preview_id, preview)
+
+    def _suggest(self) -> dict[str, Any]:
+        """Best-effort `_Serato_` folder so the export needs no folder picker."""
+        suggestion = suggest_destination(self.backend.roots, home=Path.home())
+        return {"suggestion": None if suggestion is None else str(suggestion)}
 
     def _register(self, value: Any) -> dict[str, Any]:
         try:
