@@ -12,7 +12,9 @@ advisory-style (`needs_review`, never `blocked`). Two rules:
   `To 5 (DJ Edit)`, both Dolly Parton, 2:33, 105.02 BPM). Equal normalized
   artist, duration within `DURATION_TOLERANCE_SECONDS` and BPM within
   `BPM_TOLERANCE_PERCENT` (half-time notation folds, so 52.51 ≈ 105.02) are
-  treated as the same recording when the normalized titles differ.
+  treated as the same recording when one normalized title contains the other
+  (`_MIN_DAMAGED_TITLE_CHARS` minimum): a damaged copy keeps the rest of the
+  title, while genuinely different songs of the same tempo do not overlap.
 
 Rule B never fires on equal normalized titles (that is rule A's job) and never
 fires without both a duration and a BPM, keeping false positives rare and every
@@ -38,6 +40,7 @@ SAME_RECORDING = "grabación-duplicada"
 
 DURATION_TOLERANCE_SECONDS = 2.0
 BPM_TOLERANCE_PERCENT = 0.5
+_MIN_DAMAGED_TITLE_CHARS = 3
 
 _MAX_DETAIL_GROUPS = 3
 
@@ -93,8 +96,8 @@ def find_duplicate_groups(tracks: Sequence[TrackRecord]) -> list[DuplicateTrackG
 def format_duplicate_detail(groups: Sequence[DuplicateTrackGroup]) -> str:
     """Render the human-readable detail line used by the readiness check."""
     parts = [
-        f"{' ≈ '.join(f"'{title}'" for title in group.titles)} (posiciones "
-        f"{' y '.join(_position_words(group.positions))})"
+        " ≈ ".join(f"'{title}'" for title in group.titles)
+        + f" (posiciones {' y '.join(_position_words(group.positions))})"
         for group in groups[:_MAX_DETAIL_GROUPS]
     ]
     detail = f"{len(groups)} grupo(s) de posibles pistas repetidas: " + "; ".join(parts)
@@ -141,6 +144,9 @@ def _suspected_same_recording(left: TrackRecord, right: TrackRecord) -> bool:
     left_title = normalize_title_for_playlist_grouping(left.title or "")
     right_title = normalize_title_for_playlist_grouping(right.title or "")
     if not left_title or not right_title or left_title == right_title:
+        return False
+    shorter, longer = sorted((left_title, right_title), key=len)
+    if len(shorter) < _MIN_DAMAGED_TITLE_CHARS or shorter not in longer:
         return False
     if left.duration is None or right.duration is None:
         return False
