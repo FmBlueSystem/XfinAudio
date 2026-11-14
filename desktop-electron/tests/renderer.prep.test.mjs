@@ -45,6 +45,8 @@ class Element extends EventTarget {
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const descendants = (element) => [element, ...element.children.flatMap(descendants)];
+const text = (node) => [node.textContent, ...node.children.map(text)].join(' ').replace(/\s+/g, ' ').trim();
+const keydown = (node, key) => { const event = new Event('keydown', { cancelable: true }); event.key = key; node.dispatchEvent(event); return event; };
 let sequence = 0;
 async function fixture(overrides = {}) {
   const elements = new Map();
@@ -116,7 +118,16 @@ test('navigation and core disconnect suppress late variant navigation and mutati
 });
 test('Prep controls and variant comparison have Spanish accessible labels and an expandable advanced panel', async () => {
   const html = await readFile(new URL('../renderer/index.html', import.meta.url), 'utf8');
-  for (const name of ['strategy', 'minutes', 'role', 'genre', 'start', 'end', 'required', 'excluded']) { assert.match(html, new RegExp(`id="prep-${name}"`)); assert.match(html, new RegExp(`for="prep-${name}"`)); }
+  for (const name of ['strategy', 'minutes', 'role', 'genre', 'end', 'required', 'excluded']) { assert.match(html, new RegExp(`id="prep-${name}"`)); assert.match(html, new RegExp(`for="prep-${name}"`)); }
+  assert.match(html, /for="prep-start-search"/);
+  assert.match(html, /id="prep-start-search"[^>]*role="combobox"/);
+  assert.match(html, /id="prep-start-search"[^>]*aria-expanded="false"/);
+  assert.match(html, /id="prep-start-search"[^>]*aria-controls="prep-start-results"/);
+  assert.match(html, /id="prep-start-results"[^>]*role="listbox"/);
+  assert.match(html, /id="prep-start-status"[^>]*aria-live="polite"/);
+  assert.match(html, /id="prep-start-clear"[^>]*>Quitar</);
+  assert.match(html, /id="prep-start" type="hidden"/);
+  assert.doesNotMatch(html, /<select id="prep-start"/);
   assert.match(html, /<details[^>]*id="prep-advanced"/); assert.match(html, /id="prep-variants"/); assert.match(html, /no.*(?:inventa|fabrican|generan)/i);
 });
 
@@ -141,7 +152,7 @@ test('blocked alternatives remain reviewable while saving is disabled and warnin
     await f.submit(); f.variant('adventurous').dispatchEvent(new Event('click')); await tick();
     assert.equal(f.get('review-content').hidden, false); assert.equal(f.get('review-readiness').textContent, 'Necesita atención'); assert.equal(f.get('save-playlist').disabled, true);
     const notices = descendants(f.get('review-alerts')).map((node) => node.textContent).join(' '); assert.match(notices, /Falta información vibe/); assert.match(notices, /Pistas insuficientes/);
-    assert.deepEqual(f.get('prep-start').children.slice(1).map((option) => option.value), tracks.map((track) => track.id));
+    assert.deepEqual(f.get('prep-end').children.slice(1).map((option) => option.value), tracks.map((track) => track.id), 'the closing select still lists every track');
   } finally { f.restore(); }
 });
 test('current review enters Serato with its exact review identity and new generation invalidates export source', async () => {
@@ -163,11 +174,14 @@ for(const scope of ['required','excluded','both'])test(`101 distinct ${scope} co
   await f.submit();assert.equal(f.generated.length,0);assert.equal(document.activeElement,f.get(scope==='excluded'?'prep-excluded':'prep-required'));assert.equal(group.open,true);assert.match(f.get('prep-validation').textContent,/100 pistas distintas/);
  }finally{f.restore();}
 });
-test('a large library defers Prep option population until the form is used, then keeps every track and the selection',async()=>{
+test('a large library keeps the opening search usable without building one option per track',async()=>{
  const many=Array.from({length:650},(_,i)=>({...tracks[0],id:i.toString(16).padStart(64,'0'),title:'Track '+i}));const f=await fixture({listLibrary:async()=>({tracks:many,count:many.length})});try{
-  assert.equal(f.get('library-total').textContent,'650');assert.equal(f.get('prep-start').children.length,0,'options must not be built before Prep is used');
+  assert.equal(f.get('library-total').textContent,'650');assert.equal(f.get('prep-start-results').children.length,0,'no per-track DOM is built before the search is used');
   f.get('prep-required').selectedOptions=[{value:many[5].id}];await f.submit();
-  assert.equal(f.get('prep-start').children.length,many.length+1,'no track is silently truncated from the opening select');
+  assert.equal(f.get('prep-end').children.length,many.length+1,'no track is silently truncated from the closing select');
+  const search=f.get('prep-start-search');search.value='Track 649';search.dispatchEvent(new Event('input'));
+  assert.equal(f.get('prep-start-results').children.length,1,'the opening search reaches every track without rendering every option');
+  assert.match(text(f.get('prep-start-results').children[0]),/Track 649 Artist 120 BPM · 8A/);
   assert.equal(f.get('prep-required').children.length,many.length,'no track is silently truncated from the multi-select');
   assert.equal(f.get('prep-required').children.find(option=>option.value===many[5].id).selected,true,'deferred population preserves the selected ID');
  }finally{f.restore();}
@@ -176,4 +190,80 @@ test('the known count-shortfall warning is Spanish with exact counts and unknown
  const f=await fixture({generatePrep:async()=>({...review(),warnings:['Track count shortfall: selected 8 of 20 requested tracks','Unknown actionable warning: check this source']})});try{
   await f.submit();const warnings=descendants(f.get('review-alerts')).map(node=>node.textContent).join(' ');assert.match(warnings,/Se seleccionaron 8 de las 20 pistas solicitadas/);assert.match(warnings,/Unknown actionable warning: check this source/);assert.doesNotMatch(warnings,/Track count shortfall/);
  }finally{f.restore();}
+});
+test('opening track is chosen with a searchable combobox and sent as startTrackId', async () => {
+  const f = await fixture();
+  try {
+    const search = f.get('prep-start-search'); const list = f.get('prep-start-results');
+    assert.equal(list.hidden, true); assert.equal(f.get('prep-start').value, '');
+    search.value = 'ARTIST'; search.dispatchEvent(new Event('input'));
+    assert.equal(list.hidden, false); assert.equal(search.attrs['aria-expanded'], 'true');
+    assert.equal(list.children.length, 3, 'matching tracks appear while typing');
+    assert.deepEqual(list.children.map((item) => item.attrs.role), ['option', 'option', 'option']);
+    assert.match(text(list.children[0]), /a Artist 120 BPM · 8A/);
+    assert.equal(search.attrs['aria-activedescendant'], 'prep-start-option-0');
+    assert.equal(list.children[0].attrs['aria-selected'], 'true');
+    assert.equal(f.get('prep-start-status').textContent, '3 coincidencias. Usa las flechas para moverte y Enter para elegir.');
+    keydown(search, 'ArrowDown');
+    assert.equal(search.attrs['aria-activedescendant'], 'prep-start-option-1');
+    assert.equal(list.children[1].attrs['aria-selected'], 'true');
+    keydown(search, 'ArrowUp'); keydown(search, 'ArrowUp');
+    assert.equal(search.attrs['aria-activedescendant'], 'prep-start-option-2', 'arrows wrap around the options');
+    keydown(search, 'ArrowDown'); keydown(search, 'ArrowDown'); keydown(search, 'Enter');
+    assert.equal(f.get('prep-start').value, tracks[1].id);
+    assert.equal(search.value, ''); assert.equal(list.hidden, true); assert.equal(search.attrs['aria-expanded'], 'false');
+    assert.equal(f.get('prep-start-selected-label').textContent, 'b · Artist');
+    assert.equal(f.get('prep-start-clear').hidden, false);
+    assert.equal(f.get('prep-start-selected-meta').textContent, '121 BPM · 8A');
+    assert.equal(f.get('prep-start-status').textContent, 'Pista de apertura: b · Artist.');
+    await f.submit();
+    assert.equal(f.generated[0].startTrackId, tracks[1].id);
+  } finally { f.restore(); }
+});
+test('opening search closes with Escape, selects by click and Quitar keeps the request shape', async () => {
+  const f = await fixture();
+  try {
+    const search = f.get('prep-start-search'); const list = f.get('prep-start-results');
+    search.value = 'b'; search.dispatchEvent(new Event('input'));
+    assert.equal(list.children.length, 1);
+    assert.equal(keydown(search, 'Escape').defaultPrevented, true);
+    assert.equal(list.hidden, true); assert.equal(search.attrs['aria-expanded'], 'false');
+    assert.equal(f.get('prep-start').value, '', 'Escape never changes the stored choice');
+    search.dispatchEvent(new Event('input'));
+    list.children[0].dispatchEvent(new Event('click'));
+    assert.equal(f.get('prep-start').value, tracks[1].id);
+    assert.equal(f.get('prep-start-selected-label').textContent, 'b · Artist');
+    f.get('prep-start-clear').dispatchEvent(new Event('click'));
+    assert.equal(f.get('prep-start').value, '');
+    assert.equal(f.get('prep-start-selected-label').textContent, 'Sin preferencia');
+    assert.equal(f.get('prep-start-clear').hidden, true);
+    assert.equal(f.get('prep-start-status').textContent, 'Sin preferencia de apertura.');
+    await f.submit();
+    assert.equal('startTrackId' in f.generated[0], false, 'no choice sends no opening track');
+  } finally { f.restore(); }
+});
+test('an opening id that is no longer in the library stays visible and blocks generation', async () => {
+  const f = await fixture();
+  try {
+    f.get('prep-start').value = 'f'.repeat(64);
+    await f.submit();
+    assert.equal(f.generated.length, 0);
+    assert.equal(f.get('prep-start-selection').hidden, false);
+    assert.equal(f.get('prep-start-selected-label').textContent, 'No disponible: ffffffff');
+    assert.equal(f.get('prep-start-selection').attrs['data-state'], 'unavailable');
+    assert.match(f.get('prep-validation').textContent, /biblioteca actual/);
+    assert.equal(document.activeElement, f.get('prep-start-search'));
+  } finally { f.restore(); }
+});
+test('the opening and closing tracks still cannot be the same track', async () => {
+  const f = await fixture();
+  try {
+    const search = f.get('prep-start-search');
+    search.value = 'artist'; search.dispatchEvent(new Event('input')); keydown(search, 'Enter');
+    assert.equal(f.get('prep-start').value, tracks[0].id);
+    f.get('prep-end').value = tracks[0].id;
+    await f.submit();
+    assert.equal(f.generated.length, 0);
+    assert.match(f.get('prep-validation').textContent, /La apertura y el cierre deben ser pistas distintas/);
+  } finally { f.restore(); }
 });

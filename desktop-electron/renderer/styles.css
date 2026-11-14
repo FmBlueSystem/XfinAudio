@@ -151,6 +151,19 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 .prep-fields > div { min-width: 0; }.prep-fields .full-row { grid-column: 1 / -1; }
 .prep-fields label { display: block; color: #b6bec8; font-size: 11px; line-height: 1.5; margin-bottom: 9px; }
 .prep-fields input, .prep-fields select { width: 100%; font-size: 11px; }.prep-fields select[multiple] { min-height: 135px; padding: 5px; }.prep-fields option { padding: 5px; }
+.track-search { position: relative; }
+.track-selection { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 9px; background: #1d1f24; border: 1px solid #33363c; border-radius: 5px; font-size: 11px; }
+.track-selection[data-state="empty"] .track-selection-label { color: #7d8794; }
+.track-selection[data-state="unavailable"] { border-color: #b4553f; }
+.track-selection-label { color: #e7e9ec; overflow-wrap: anywhere; }
+.track-selection-meta { color: #7d8794; font-size: 10px; }
+.track-selection .text-button { margin-left: auto; }
+.track-results { position: absolute; z-index: 5; left: 0; right: 0; margin: 4px 0 0; padding: 4px; list-style: none; max-height: 280px; overflow-y: auto; background: #14161a; border: 1px solid #373b42; border-radius: 5px; }
+.track-result { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 7px 9px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+.track-result[aria-selected="true"] { background: #262b33; }
+.track-result-title { color: #e7e9ec; overflow-wrap: anywhere; }
+.track-result-artist { color: #b9bec6; font-size: 10px; overflow-wrap: anywhere; }
+.track-result-meta { grid-row: 1 / span 2; grid-column: 2; align-self: center; color: #7d8794; font-size: 10px; white-space: nowrap; }
 #catalog-retry { margin-top: 9px; }
 .prep-variants { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 24px; }
 .prep-variant { display: flex; flex-direction: column; padding: 18px; min-width: 0; }.prep-variant h3 { margin: 0 0 10px; }.prep-variant p { color: #a4acb7; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }.prep-variant .readiness-pill { align-self: flex-start; }.prep-variant .button { margin-top: auto; white-space: normal; }.prep-variant [aria-pressed=true] { border-color: var(--cyan); color: var(--cyan); }

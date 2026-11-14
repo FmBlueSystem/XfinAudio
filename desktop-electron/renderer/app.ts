@@ -40,6 +40,7 @@ import type { LibraryResult, MetadataFilter, PlaylistSummary, PrepFields, PrepSt
 import { renderMetadataPanel } from './metadata.js';
 import type { MetadataReport } from './metadata.js';
 import { createPlayer } from './player.js';
+import { createTrackSearchView } from './track-search-view.js';
 
 type Route = ExistingRoute | 'preferences' | 'loudness' | 'ai';
 type AppApi = XfinApi & LegacyImportApi & GeneratedReviewApi & PrepSettingsApi & OfflineBrowseApi & ProfilesApi & ProfileSettingsApi & PreferencesApi & LoudnessApi & OptionalAiApi & { getLibraryStatus(): Promise<LibraryStatus>; rescanLibrary(): Promise<LibraryResult>; onLibraryStatus(callback: (status: LibraryStatus) => void): () => void; };
@@ -57,6 +58,11 @@ const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
   return node;
 };
 const gate = new OperationGate();
+// The opening track is chosen with a searchable combobox. The picker keeps the selected
+// opaque id in #prep-start, so PrepFields, its validations and startTrackId are unchanged.
+const trackSearch = createTrackSearchView({
+  changed: () => { renderPrepSummaries(); element('prep-validation').hidden = true; syncAiContext(); },
+});
 // An improvement preview can only be persisted through the dedicated proposal-bound
 // route. Without that bridge the editor improvement surface is disabled rather than
 // producing a bound draft that could not be saved safely.
@@ -299,7 +305,8 @@ function renderSettingsSummaries(): void {
 }
 function showPrepValidation(input: HTMLElement, message: string): void {
   const notice=element('prep-validation'); notice.textContent=message; notice.hidden=false;
-  revealControl(input); showStatus('Revisa la configuración de la sesión', message, true);
+  // The opaque id lives in a hidden input; the actionable control is the visible combobox.
+  revealControl(input === element('prep-start') ? element('prep-start-search') : input); showStatus('Revisa la configuración de la sesión', message, true);
 }
 function syncAiContext(): void {
   if (!ai) return;
@@ -372,7 +379,8 @@ function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => v
     }
     buildPrepInput(fields, library, strategies);
     return () => {
-      for (const key of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'start', 'end'] as const) element<HTMLInputElement | HTMLSelectElement>(`prep-${key}`).value = fields[key];
+      for (const key of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end'] as const) element<HTMLInputElement | HTMLSelectElement>(`prep-${key}`).value = fields[key];
+      trackSearch.setSelected(fields.start);
       for (const key of ['required', 'excluded'] as const) for (const option of element<HTMLSelectElement>(`prep-${key}`).options) option.selected = fields[key].includes(option.value);
       renderStrategyHint(); syncAiContext();
     };
@@ -740,6 +748,7 @@ function renderLibrary(): void {
 function applyLibrary(result: LibraryResult): void {
   const controlsDirty=prepSettings?.dirty??false;prepSettings?.libraryChanged();if(prepSettings&&!controlsDirty)prepSettingsBootstrapPending=true;
   library = result.tracks;
+  trackSearch.setLibrary(library);
   libraryRevision++; visibleRevision++;
   offline?.invalidateLibrary();offline?.invalidateSaved();
   aiLibraryFilter = null; aiFilterRevision++;
@@ -752,9 +761,9 @@ function option(value: string, label: string): HTMLOptionElement {
   const node = make('option', label); node.value = value; return node;
 }
 function renderTrackChoices(): void {
-  for (const id of ['start', 'end', 'required', 'excluded']) {
+  for (const id of ['end', 'required', 'excluded']) {
     const select = element<HTMLSelectElement>(`prep-${id}`);
-    const selected=new Set(Array.from(select.selectedOptions??[],item=>item.value));const scalar=id==='start'||id==='end';if(scalar&&select.value)selected.add(select.value);
+    const selected=new Set(Array.from(select.selectedOptions??[],item=>item.value));const scalar=id==='end';if(scalar&&select.value)selected.add(select.value);
     select.replaceChildren();
     if(scalar)select.append(option('', 'Sin preferencia'));
     for(const track of library){const item=option(track.id,`${track.title||'Sin título'} · ${track.artist||'Artista desconocido'}`);item.selected=selected.has(track.id);select.append(item);}
@@ -764,6 +773,7 @@ function renderTrackChoices(): void {
 }
 /** Full Prep option lists are built lazily; a large library must not pay for them at boot. */
 function ensureTrackChoices(): void {
+  trackSearch.sync();
   if (renderedTrackChoicesRevision === libraryRevision) return;
   renderTrackChoices();
   renderedTrackChoicesRevision = libraryRevision;
@@ -1066,8 +1076,8 @@ element('library-search').addEventListener('input', renderLibrary);
 element('library-show-more').addEventListener('click', () => { libraryVisibleLimit += LIBRARY_WINDOW; renderLibrary(); });
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
 element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
-for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'start', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
-for (const id of ['name','count','strategy','minutes','role','genre','start','end','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
+for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
+for (const id of ['name','count','strategy','minutes','role','genre','end','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
   event.preventDefault(); const input=element<HTMLInputElement>(`prep-${id}`);
   showPrepValidation(input, input.validationMessage || 'Revisa este valor antes de generar.');
 });
