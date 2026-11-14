@@ -50,6 +50,7 @@ def call(facade, method, params=None, *, token=None, emit=None):
 def configure(facade, root):
     path = root.resolve().parent / "dummy-selected.env"
     path.write_bytes(b"NAN_API_KEY=synthetic-test-only\n")
+    path.chmod(0o600)
     status = call(facade, "ai.status")
     selected = call(facade, "ai.credential.set", {"revision": status["revision"], "path": str(path)})
     return call(facade, "ai.settings.update", {"revision": selected["revision"], "enabled": True}), path
