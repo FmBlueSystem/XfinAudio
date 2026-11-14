@@ -9,6 +9,7 @@ that "detect the folder again" never becomes "ask the user for a folder".
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -71,10 +72,54 @@ def test_the_same_core_still_previews_its_own_destination(tmp_path: Path) -> Non
     assert preview["destinationLabel"] == destination["label"]
 
 
-def test_a_destination_whose_folder_changed_keeps_the_invalid_destination_refusal(tmp_path: Path) -> None:
+def _rewritten_by_serato(serato: Path) -> None:
+    """Rewrite the crate folder the way Serato does: the folder and its crates come back new."""
+    subcrates = serato / "Subcrates"
+    contents = {path.name: path.read_bytes() for path in subcrates.iterdir()}
+    replaced = serato / "Subcrates-replacing"
+    subcrates.rename(replaced)
+    subcrates.mkdir()
+    for name, data in contents.items():
+        (subcrates / name).write_bytes(data)
+    shutil.rmtree(replaced)
+
+
+def test_a_crate_folder_rewritten_by_serato_still_previews(tmp_path: Path) -> None:
     backend, source, destination, serato = _fixture(tmp_path)
-    (serato / "Subcrates").rename(serato / "Subcrates-replaced")
-    (serato / "Subcrates").mkdir()
+    (serato / "Subcrates" / "Warmup.crate").write_bytes(b"an earlier export")
+
+    _rewritten_by_serato(serato)
+    preview = backend.execute(
+        "serato.preview",
+        {"source": source, "destinationId": destination["destinationId"], "name": "Warmup"},
+    )
+
+    assert preview["filename"] == "Warmup.crate"
+    assert preview["canCommit"]
+    assert preview["backup"] == {"required": True}
+
+
+def test_a_crate_folder_swapped_for_a_symlink_keeps_the_invalid_destination_refusal(tmp_path: Path) -> None:
+    backend, source, destination, serato = _fixture(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    shutil.rmtree(serato / "Subcrates")
+    (serato / "Subcrates").symlink_to(elsewhere)
+
+    with pytest.raises(BackendError) as failure:
+        backend.execute(
+            "serato.preview",
+            {"source": source, "destinationId": destination["destinationId"], "name": "Warmup"},
+        )
+
+    assert failure.value.code == "invalid_destination"
+
+
+def test_a_replaced_serato_folder_keeps_the_invalid_destination_refusal(tmp_path: Path) -> None:
+    backend, source, destination, serato = _fixture(tmp_path)
+    shutil.move(str(serato), str(tmp_path / "_Serato_-old"))
+    serato.mkdir()
+    shutil.move(str(tmp_path / "_Serato_-old" / "Subcrates"), str(serato / "Subcrates"))
 
     with pytest.raises(BackendError) as failure:
         backend.execute(

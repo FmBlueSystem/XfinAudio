@@ -72,6 +72,40 @@ def directory_identity(path: Path) -> tuple[DirectoryIdentity, ...]:
         return lineage
 
 
+@contextmanager
+def open_destination(root: Path) -> Iterator[tuple[int, tuple[DirectoryIdentity, ...], int]]:
+    """Open `<root>/Subcrates` from the `_Serato_` descriptor, never through a symlink.
+
+    The crate folder is reached from the verified `_Serato_` folder instead of a second
+    path walk, so the descriptor that later receives the crate belongs to the folder the
+    user authorized: nothing can redirect the write after the checks.
+    """
+    with open_directory(root) as (root_descriptor, lineage):
+        descriptor = os.open("Subcrates", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root_descriptor)
+    try:
+        yield descriptor, lineage, os.fstat(descriptor).st_dev
+    finally:
+        os.close(descriptor)
+
+
+def destination_identity(root: Path) -> tuple[DirectoryIdentity, ...]:
+    """Identity of the `_Serato_` folder the user authorized, never of the crate folder.
+
+    Serato rewrites its own crate folder: `Subcrates` and every crate in it come back with
+    new inode numbers whenever Serato rewrites its crates, while `_Serato_` and the volume
+    keep theirs (observed on the user's drive). Binding the leaf therefore refused the very
+    folder the user had just authorized. The leaf is proven structurally on every call
+    instead — a real directory, opened below `_Serato_` without following a symlink, on that
+    folder's own volume — and only the chain down to `_Serato_` is compared, so a replaced,
+    moved or symlinked `_Serato_` or volume is still refused. The bytes that are about to be
+    replaced are separately bound by `target_state`.
+    """
+    with open_destination(root) as (_descriptor, lineage, folder_device):
+        if folder_device != lineage[-1][0]:
+            raise OSError("The crate folder is not on the selected volume")
+    return lineage
+
+
 def file_identity(path: Path) -> FileIdentity | None:
     with open_directory(path.parent) as (descriptor, _):
         try:

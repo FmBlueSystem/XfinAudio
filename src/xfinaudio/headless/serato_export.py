@@ -37,10 +37,10 @@ from xfinaudio.headless.serato_safety import (
     FileIdentity,
     backup_target,
     crate_name,
-    directory_identity,
+    destination_identity,
     file_identity,
     opaque_id,
-    open_directory,
+    open_destination,
     target_state,
     volume_root,
 )
@@ -63,6 +63,14 @@ SERATO_FIELDS = {
 
 @dataclass(frozen=True)
 class Destination:
+    """One authorized `_Serato_` folder.
+
+    `lineage` binds the volume and `_Serato_` itself. The `Subcrates` folder inside it is
+    deliberately not part of the binding: Serato recreates it, with new inode numbers,
+    every time it rewrites its crates, so the leaf is re-proven structurally on each call
+    (`destination_identity`) instead of being compared to a snapshot.
+    """
+
     root: Path
     label: str
     lineage: tuple[DirectoryIdentity, ...]
@@ -200,7 +208,7 @@ class SeratoExporter:
             root = Path(value)
             if not root.is_absolute() or root.name != "_Serato_" or root.resolve(strict=True) != root:
                 raise OSError("Select a canonical existing Serato directory")
-            lineage = directory_identity(root / "Subcrates")
+            lineage = destination_identity(root)
         except (OSError, ValueError, RuntimeError) as error:
             raise BackendError(
                 "invalid_destination", "Choose an existing _Serato_ folder containing Subcrates"
@@ -212,7 +220,7 @@ class SeratoExporter:
 
     @staticmethod
     def _destination_current(destination: Destination) -> None:
-        if directory_identity(destination.folder) != destination.lineage:
+        if destination_identity(destination.root) != destination.lineage:
             raise OSError("Selected destination changed")
 
     def _preview(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -341,8 +349,8 @@ class SeratoExporter:
                 raise OSError("Export binding changed") from error
 
         try:
-            with open_directory(preview.destination.folder) as (descriptor, lineage):
-                if lineage != preview.destination.lineage:
+            with open_destination(preview.destination.root) as (descriptor, lineage, folder_device):
+                if lineage != preview.destination.lineage or folder_device != lineage[-1][0]:
                     raise BackendError("stale_destination", "The destination changed; preview the export again")
                 created: list[tuple[Path, FileIdentity]] = []
                 try:

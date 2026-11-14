@@ -57,6 +57,16 @@ validation rules as the child, never rewriting, replacing or backing up a parent
 that already exists, removing the parents it created if the export fails, and
 naming them in the confirmation and in the preview.
 
+A destination the app found keeps working while Serato is open. Serato rewrites
+its own `Subcrates` folder: the folder and every crate inside it come back with
+new identities every time Serato rewrites its crates. The app therefore binds the
+drive and the `_Serato_` folder you authorized, re-proves the crate folder inside
+it on every preview and every write, and still opens each step without following
+a symlink. A `_Serato_` folder that was replaced, moved or swapped for a symlink
+is still refused, as is a crate folder that is no longer a real directory and a
+destination on another volume; the bytes an export would replace stay bound to
+the crate the preview showed.
+
 ## Opening track search
 
 The Prepare screen no longer makes you scroll a full library list to pick the
