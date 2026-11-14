@@ -12,7 +12,9 @@ export const CANCELLABLE_JOB_METHODS:ReadonlySet<string>=new Set([
   'library.scan','library.rescan','profiles.complete','loudness.run','prep.generate','prep.select','ai.run',
 ]);
 /** Every other request must settle inside this budget or the core is considered hung. */
-export const REQUEST_TIMEOUT_MS=30000;
+// Generous on purpose: ordinary reads walk the whole library and stat every
+// file, so a large library on a slow disk must not be mistaken for a hang.
+export const REQUEST_TIMEOUT_MS=120000;
 /** The deadline for one method: cancellable jobs have none, everything else the default. */
 export function requestDeadline(method:string,defaultMs:number=REQUEST_TIMEOUT_MS):number|null {
   if(CANCELLABLE_JOB_METHODS.has(method))return null;

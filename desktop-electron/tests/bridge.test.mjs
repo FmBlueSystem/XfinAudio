@@ -33,7 +33,7 @@ test('safe backend error codes survive the bridge for stale-draft recovery',asyn
 });
 const silentCore=`process.stdin.resume();setInterval(()=>{},1000);`;
 test('the deadline is per method and long cancellable jobs never carry one',()=>{
- assert.equal(REQUEST_TIMEOUT_MS,30000);
+ assert.equal(REQUEST_TIMEOUT_MS,120000);
  assert.deepEqual([...CANCELLABLE_JOB_METHODS].sort(),['ai.run','library.rescan','library.scan','loudness.run','prep.generate','prep.select','profiles.complete']);
  for(const method of CANCELLABLE_JOB_METHODS)assert.equal(requestDeadline(method),null,`${method} owns its lifetime through cancellation`);
  for(const method of ['library.list','review.details','prep.generate.confirm','shutdown'])assert.equal(requestDeadline(method),REQUEST_TIMEOUT_MS,`${method} is bounded by the default deadline`);
