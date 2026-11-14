@@ -191,3 +191,26 @@ def test_records_logged_by_analysis_worker_threads_reach_the_log_file(
         list(pool.map(_log_worker_failure, range(3)))
 
     assert _log_file(tmp_path).read_text(encoding="utf-8").count("worker analysis failure") == 3
+
+
+def test_refused_data_directory_is_left_untouched_by_logging(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_root_logger: logging.Logger,
+) -> None:
+    # The backend refuses an unsafe data directory before using it; logging must
+    # not have written into that directory first.
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "sentinel.bin").write_bytes(b"keep")
+
+    def refuse(_data_dir: Path) -> None:
+        raise RuntimeError("data directory refused")
+
+    monkeypatch.setattr(sys, "argv", ["xfinaudio-headless", "--data-dir", str(data_dir)])
+    monkeypatch.setattr(core_entry, "HeadlessBackend", refuse)
+
+    with pytest.raises(RuntimeError, match="data directory refused"):
+        core_entry.main()
+
+    assert sorted(entry.name for entry in data_dir.iterdir()) == ["sentinel.bin"]

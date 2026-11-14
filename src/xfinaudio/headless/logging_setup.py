@@ -30,6 +30,11 @@ def log_file_path(data_dir: Path | str) -> Path:
     return Path(data_dir) / LOG_FILE_NAME
 
 
+def configure_stderr_logging(*, level: int = logging.WARNING) -> None:
+    """Send records to stderr only; safe to call before the data directory is trusted."""
+    _attach_stderr_handler(logging.getLogger(), level)
+
+
 def configure_logging(
     data_dir: Path | str,
     *,
