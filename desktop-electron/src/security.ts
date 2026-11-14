@@ -39,7 +39,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     previewLegacyImport:[],applyLegacyImport:['previewId'],discardLegacyImport:['previewId'],
     getProfileStatus:[],completeProfiles:[],getProfileSettings:[],saveProfileSettings:['revision','spectralCohesion'],
     getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],
-    getLoudnessStatus:[],revealLoudnessBackups:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
+    getLoudnessStatus:[],revealLoudnessBackups:[],revealLogs:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
     chooseSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],

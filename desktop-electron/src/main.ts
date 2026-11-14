@@ -4,6 +4,8 @@ import path from 'node:path';
 import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {PythonBridge} from './bridge';
+import {CoreSupervisor} from './core-supervisor';
+import {RotatingLog,revealLogFolder} from './log-file';
 import {coreEnvironment} from './core-environment';
 import {APP_URL,CSP,assetPath,isTrustedSender,validateRequest} from './security';
 import {audioResponse} from './audio';
@@ -22,6 +24,9 @@ import {LibraryWatch} from './library-watch';
 import {createNativeWatchFactory} from './native-watch';
 app.setName('XfinAudio Next');
 const dataDir=configureStorage(app,process.env.XFIN_DATA_DIR);
+const log=new RotatingLog(path.join(dataDir,'logs'));
+/** Only an error name and message reach the log; a rejection value is never serialized. */
+const describeFailure=(value:unknown):string=>value instanceof Error?`${value.name}: ${value.message}`.slice(0,500):`non-error failure (${typeof value})`;
 const ownsInstance=app.requestSingleInstanceLock();
 if(!ownsInstance)app.quit();
 protocol.registerSchemesAsPrivileged([
@@ -30,6 +35,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 let window:BrowserWindowType|null=null;
 let core:PythonBridge;
+let supervisor:CoreSupervisor<PythonBridge>|null=null;
 let current:{id:string;method:string}|null=null;
 let draftDirty=false;
 let dialogOpen=false;
@@ -43,7 +49,7 @@ const closeFlow=new CloseFlow(
     const result=window?await dialog.showMessageBox(window,options):await dialog.showMessageBox(options);
     return result.response===1;
   },
-  async()=>{await legacy.shutdown();await profiles.shutdown();await optionalAi.shutdown();await loudness.shutdown();await libraryHost.close();await serato.waitForCommit();await offline.waitForCommit();await core?.close();},
+  async()=>{supervisor?.shutdown();await legacy.shutdown();await profiles.shutdown();await optionalAi.shutdown();await loudness.shutdown();await libraryHost.close();await serato.waitForCommit();await offline.waitForCommit();await core?.close();},
   ()=>app.quit(),
 );
 const serato=new SeratoHost({
@@ -152,6 +158,7 @@ async function action(method:string,raw:unknown) {
     case 'runAiRequest':return optionalAi.ask(params.previewId as string);
     case 'applyAiSuggestion':return run('ai.apply',params);
     case 'revealLoudnessBackups':return revealLoudnessBackups(dataDir,filename=>shell.showItemInFolder(filename));
+    case 'revealLogs':return revealLogFolder(dataDir,filename=>shell.showItemInFolder(filename));
     case 'getLoudnessStatus':return run('loudness.status');
     case 'saveLoudnessSettings':return run('loudness.settings.update',params);
     case 'previewLoudness':return loudness.preview(params);
@@ -200,6 +207,28 @@ async function action(method:string,raw:unknown) {
     default:throw new Error('Unsupported action');
   }
 }
+/** Progress from whichever core the supervisor is running is forwarded to the window. */
+function onCoreProgress(message:any):void {
+  const job=current;
+  if(!job||message.jobId!==job.id)return;
+  const data=message.data??{};
+  if(job.method==='profiles.complete'){const progress=profileProgress(data);if(progress)window?.webContents.send('xfin:progress',{jobId:message.jobId,operation:job.method,...progress,current:progress.processedCount,total:progress.totalCount});return;}
+  if(job.method==='loudness.run'&&data.phase==='loudness_write'&&Array.isArray(data.trackIds)&&data.trackIds.length<=2){
+    for(const trackId of data.trackIds)if(typeof trackId==='string'&&/^[a-f0-9]{64}$/.test(trackId))void core.request('track.resolve',{trackId}).then(track=>libraryHost.suppressPaths([track.path],5000)).catch(error=>console.error('Owned-write observation suppression unavailable',error));
+    return;
+  }
+  window?.webContents.send('xfin:progress',{jobId:message.jobId,operation:job.method,phase:data.phase,current:data.processedCount,total:data.totalCount,message:data.fileName??data.message??data.phase});
+}
+/**
+ * A stopped core can neither finish the running job nor keep watching the library.
+ * Releasing the slot here is what keeps the host usable after a timeout, a crash or
+ * a supervised restart; the supervisor decides whether a fresh core follows.
+ */
+function onCoreStopped(message:string):void {
+  current=null;
+  void libraryHost.close();
+  if(window&&!window.isDestroyed())window.webContents.send('xfin:progress',{jobId:'',operation:'core',phase:'error',message});
+}
 async function start() {
   const repoRoot=path.resolve(__dirname,'../../..');
   const env=coreEnvironment(process.env);
@@ -209,7 +238,26 @@ async function start() {
     executable=process.env.XFIN_PYTHON??path.join(repoRoot,'.venv-headless','bin','python');
     args=['-m','xfinaudio.headless',...args];env.PYTHONPATH=path.join(repoRoot,'src');
   }
-  core=new PythonBridge(executable,args,env);
+  /** Every core the supervisor creates is wired here, so main keeps one event contract across restarts. */
+  const wireCore=(next:PythonBridge):PythonBridge=>{
+    core=next;
+    next.on('progress',message=>onCoreProgress(message));
+    next.on('stopped',message=>onCoreStopped(message));
+    return next;
+  };
+  supervisor=new CoreSupervisor<PythonBridge>({
+    create:()=>wireCore(new PythonBridge(executable,args,env,{log:line=>log.write(`[core] ${line}`)})),
+    onStarted:(_next,attempt)=>{
+      log.write(attempt===0?'core started':`core restarted (attempt ${attempt})`);
+      // The watcher and the window were bound to the previous process; a fresh
+      // core must reload its roots before anything else waits on it.
+      if(attempt>0)void libraryHost.initialize();
+    },
+    onStopped:message=>log.write(`core stopped: ${message}`),
+    onRestart:(attempt,delayMs)=>log.write(`core restart ${attempt} scheduled in ${delayMs} ms`),
+    onExhausted:restarts=>log.write(`core restart limit reached after ${restarts} restarts; the app keeps its restart message`),
+  });
+  supervisor.start();
   const isolated=session.fromPartition('xfin-offline');
   isolated.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
   isolated.setPermissionCheckHandler(()=>false);
@@ -239,18 +287,6 @@ async function start() {
     if(event.sender!==window?.webContents||!event.senderFrame||event.senderFrame!==window.webContents.mainFrame||!isTrustedSender(event.senderFrame.url))throw new Error('Untrusted caller');
     return action(method,params);
   });
-  core.on('progress',message=>{
-    const job=current;
-    if(!job||message.jobId!==job.id)return;
-    const data=message.data??{};
-    if(job.method==='profiles.complete'){const progress=profileProgress(data);if(progress)window?.webContents.send('xfin:progress',{jobId:message.jobId,operation:job.method,...progress,current:progress.processedCount,total:progress.totalCount});return;}
-    if(job.method==='loudness.run'&&data.phase==='loudness_write'&&Array.isArray(data.trackIds)&&data.trackIds.length<=2){
-      for(const trackId of data.trackIds)if(typeof trackId==='string'&&/^[a-f0-9]{64}$/.test(trackId))void core.request('track.resolve',{trackId}).then(track=>libraryHost.suppressPaths([track.path],5000)).catch(error=>console.error('Owned-write observation suppression unavailable',error));
-      return;
-    }
-    window?.webContents.send('xfin:progress',{jobId:message.jobId,operation:job.method,phase:data.phase,current:data.processedCount,total:data.totalCount,message:data.fileName??data.message??data.phase});
-  });
-  core.on('stopped',message=>{void libraryHost.close();if(window&&!window.isDestroyed())window.webContents.send('xfin:progress',{jobId:'',operation:'core',phase:'error',message});});
   window.once('ready-to-show',()=>window?.show());
   window.on('close',event=>{if(!closeFlow.readyToQuit){event.preventDefault();void closeFlow.request().catch(error=>console.error(error));}});
   window.on('closed',()=>{window=null;});
@@ -264,4 +300,6 @@ app.on('before-quit',event=>{
 });
 app.on('window-all-closed',()=>app.quit());
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.focus();}});
+process.on('uncaughtException',error=>{log.write(`uncaught exception: ${describeFailure(error)}`);console.error(error);});
+process.on('unhandledRejection',reason=>{log.write(`unhandled rejection: ${describeFailure(reason)}`);console.error(reason);});
 if(ownsInstance)app.whenReady().then(start).catch(error=>{console.error(error);app.quit();});

@@ -27,11 +27,14 @@ export function createPreferencesView(root: HTMLElement, controller: Preferences
   const save = action('save', 'Guardar preferencias', () => { void controller.save(); }, true);
   const discard = action('discard', 'Descartar cambios', () => controller.discard());
   const refresh = action('refresh', 'Actualizar', () => { void controller.load(); });
-  const actions = make('div', '', 'editor-actions'); actions.append(save, discard, refresh);
+  const revealLogs = action('reveal-logs', 'Mostrar registros', () => { void controller.revealLogs(); });
+  const actions = make('div', '', 'editor-actions'); actions.append(save, discard, refresh, revealLogs);
+  const logsNotice = identify(make('p', '', 'field-hint'), 'logs-notice'); logsNotice.setAttribute('role', 'status');
+  const logsHint = identify(make('p', 'Abre en Finder la carpeta de registros de XfinAudio. Sirve para soporte: no incluye credenciales, parámetros de petición ni el contenido de tus pistas.', 'field-hint'), 'logs-hint');
   const labels = identify(make('ul'), 'libraries'); const labelsSection = make('section'); labelsSection.setAttribute('aria-labelledby', 'preferences-libraries-heading');
   labelsSection.append(identify(make('h3', 'Bibliotecas registradas'), 'libraries-heading'), labels);
   const capabilities = make('p', 'La escritura de etiquetas por sonoridad y los proveedores siguen en pausa. No se leen ni importan credenciales. La interfaz está en español.', 'field-hint');
-  section.append(identify(make('h3', 'Preferencias locales'), 'heading'), empty, error, recovery, controls, dirty, actions, labelsSection, capabilities); root.replaceChildren(section);
+  section.append(identify(make('h3', 'Preferencias locales'), 'heading'), empty, error, recovery, controls, dirty, actions, logsNotice, logsHint, labelsSection, capabilities); root.replaceChildren(section);
   let renderedLabels: string | undefined;
   return () => {
     const snapshot = controller.snapshot; const blocked = !canAct();
@@ -39,6 +42,8 @@ export function createPreferencesView(root: HTMLElement, controller: Preferences
     error.hidden = !controller.error; error.textContent = controller.error; recovery.hidden = !snapshot?.recoveryWarning;
     dirty.textContent = controller.dirty ? 'Cambios sin guardar. Se conservan al cambiar de pantalla.' : 'Sin cambios pendientes.';
     save.disabled = blocked || !controller.canSave; discard.disabled = blocked || !controller.dirty; refresh.disabled = blocked;
+    revealLogs.disabled = blocked || !controller.canRevealLogs;
+    logsNotice.hidden = !controller.logNotice; logsNotice.textContent = controller.logNotice;
     volume.disabled = watch.disabled = blocked || !snapshot;
     if (!snapshot) return;
     capabilities.textContent = `${snapshot.capabilities.loudnessWriteback ? 'Configura el análisis y la escritura automática de etiquetas en Sonoridad; allí se comprueba el motor y se confirma cada ejecución.' : 'La escritura de etiquetas por sonoridad sigue en pausa.'} ${snapshot.capabilities.providers ? 'IA opcional permite configurar una fuente y realizar consultas con consentimiento y confirmación explícitos. Revisa cada envío en esa pantalla.' : 'Los proveedores siguen en pausa. No se leen ni importan credenciales.'} La interfaz está en español.`;
