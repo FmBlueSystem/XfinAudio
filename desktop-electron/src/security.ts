@@ -42,7 +42,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     getLoudnessStatus:[],revealLoudnessBackups:[],revealLogs:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
-    chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
+    chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
     chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],selectPrepVariant:['planId','variant'],
     generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds'],
     savePlaylist:['name','reviewId'],listPlaylists:[],renamePlaylist:['playlistId','name'],duplicatePlaylist:['playlistId'],openPlaylistEditor:['playlistId'],
@@ -114,8 +114,10 @@ function validateSeratoRequest(method:string,params:Record<string,unknown>):void
   const validToken=(value:unknown)=>typeof value==='string'&&uuid.test(value);
   if(method==='commitSeratoExport'&&!validToken(params.previewId))throw new Error('Invalid export preview');
   if(method==='revealSeratoExport'&&!validToken(params.receiptId))throw new Error('Invalid export receipt');
-  if(method!=='previewSeratoExport')return;
-  if(!validToken(params.destinationId))throw new Error('Invalid Serato destination');
+  // One preview contract serves both entry points: the quick action carries the same source and
+  // crate name, and main picks the destination, so a path or a confirmation flag can never pass.
+  if(method!=='previewSeratoExport'&&method!=='quickSeratoExport')return;
+  if(method==='previewSeratoExport'&&!validToken(params.destinationId))throw new Error('Invalid Serato destination');
   const source=params.source;
   if(!source||typeof source!=='object'||Array.isArray(source))throw new Error('Invalid export source');
   const item=source as Record<string,unknown>;

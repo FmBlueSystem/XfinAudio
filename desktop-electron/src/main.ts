@@ -11,7 +11,7 @@ import {APP_URL,CSP,assetPath,isTrustedSender,validateRequest} from './security'
 import {audioResponse} from './audio';
 import {configureStorage} from './storage';
 import {CloseFlow} from './close-flow';
-import {SeratoHost} from './serato-host';
+import {SeratoHost,confirmationDetail} from './serato-host';
 import {revealLoudnessBackups} from './loudness-backups';
 import {OptionalAiHost} from './optional-ai-host';
 import {assertDispatchable,INLINE_CORE_METHODS} from './ipc-reads';
@@ -59,7 +59,7 @@ const serato=new SeratoHost({
     return selected.canceled||selected.filePaths.length!==1?null:selected.filePaths[0];
   },
   confirm:async summary=>{
-    const detail=[`Destino: ${path.join(summary.destinationPath,'Subcrates',summary.filename)}`,`${summary.trackCount} pistas en el orden revisado`,summary.backup.required?'Se reemplazará el crate existente y se conservará una copia de seguridad.':'Se creará un crate nuevo.',...summary.warnings].join('\n\n');
+    const detail=confirmationDetail(summary);
     const result=await dialog.showMessageBox(window!,{type:'warning',title:'Confirmar exportación a Serato',message:`¿Exportar ${summary.filename}?`,detail,buttons:['Cancelar','Exportar a Serato'],defaultId:0,cancelId:0,noLink:true});
     return result.response===1;
   },
@@ -174,6 +174,7 @@ async function action(method:string,raw:unknown) {
     case 'chooseSeratoDestination':return serato.choose();
     case 'detectSeratoDestination':return serato.detect();
     case 'previewSeratoExport':return serato.preview(params);
+    case 'quickSeratoExport':return serato.quickExport(params);
     case 'commitSeratoExport':return serato.commit(params.previewId as string);
     case 'revealSeratoExport':return serato.reveal(params.receiptId as string);
     case 'setDraftDirty':draftDirty=params.dirty as boolean;return {dirty:draftDirty};

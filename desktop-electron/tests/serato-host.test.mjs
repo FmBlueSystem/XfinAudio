@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {mkdtemp,mkdir,writeFile,symlink,realpath,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,symlink,realpath,rm,readFile} from 'node:fs/promises';
 import os from 'node:os';import path from 'node:path';
 const require=createRequire(import.meta.url);
-const {SeratoHost}=require('../.out/main/serato-host.js');
+const {SeratoHost,confirmationDetail}=require('../.out/main/serato-host.js');
 const deferred=()=>{let resolve;return {promise:new Promise(r=>{resolve=r;}),resolve:v=>resolve(v)};};
 async function fixture(overrides={}) {
  const temp=await realpath(await mkdtemp(path.join(os.tmpdir(),'xfin-serato-host-'))),root=path.join(temp,'_Serato_');await mkdir(path.join(root,'Subcrates'),{recursive:true});
@@ -116,4 +116,75 @@ test('a chosen folder without Subcrates keeps the existing invalid_destination r
  try{await assert.rejects(host.choose(),error=>error.code==='invalid_destination');
   assert.deepEqual(calls.at(-1),['serato.registerDestination',{seratoRoot:drive}],'an unusable inner folder is never invented');
  }finally{await rm(temp,{recursive:true,force:true});}
+});
+
+test('quick export reuses the session destination, previews once, confirms natively and commits',async()=>{
+ const f=await fixture();try{
+  await f.host.choose();f.calls.length=0;
+  const result=await f.host.quickExport({source:{kind:'saved',playlistId:'42'},name:'Set'});
+  assert.deepEqual(result,{status:'exported',receipt:f.receipt});
+  assert.deepEqual(f.calls.map(c=>c[0]),['serato.preview','serato.confirmation','dialog','serato.commit'],'one click never discovers or previews twice');
+  assert.equal(f.calls[0][1].destinationId,'dest');assert.equal(f.calls[0][1].source.playlistId,42);assert.equal(f.calls[0][1].name,'Set');
+  assert.deepEqual(f.calls.at(-1)[1],{previewId:'preview',confirmed:true});
+ }finally{await f.clean();}
+});
+test('quick export detects the destination when the session has none and never opens the picker',async()=>{
+ const temp=await realpath(await mkdtemp(path.join(os.tmpdir(),'xfin-serato-host-'))),root=path.join(temp,'_Serato_');await mkdir(path.join(root,'Subcrates'),{recursive:true});
+ const calls=[];let dialogs=0;
+ const summary={previewId:'preview',filename:'Set.crate',destinationLabel:'_Serato_ · dd',trackCount:2,readiness:'ready',warnings:[],blockers:[],canCommit:true,backup:{required:false}};
+ const receipt={receiptId:'receipt',filename:'Set.crate',destinationLabel:'_Serato_ · dd',trackCount:2,validated:true,backupCreated:false};
+ const host=new SeratoHost({request:async(method,params)=>{calls.push([method,params]);
+  if(method==='serato.suggestDestination')return {suggestion:root};
+  if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_ · dd'};
+  if(method==='serato.preview'||method==='serato.confirmation')return summary;
+  if(method==='serato.commit')return receipt;throw new Error(method);},
+  choose:async()=>{throw new Error('picker must not open');},confirm:async()=>{dialogs++;return true;},reveal:()=>{},isClosing:()=>false});
+ try{
+  assert.deepEqual(await host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'}),{status:'exported',receipt});
+  assert.deepEqual(calls.map(c=>c[0]),['serato.suggestDestination','serato.registerDestination','serato.preview','serato.confirmation','serato.commit']);
+  assert.deepEqual(calls[1][1],{seratoRoot:root});assert.equal(dialogs,1);
+ }finally{await rm(temp,{recursive:true,force:true});}
+});
+test('quick export with nothing to detect answers a typed result and never opens a dialog',async()=>{
+ const calls=[];let dialogs=0;
+ const host=new SeratoHost({request:async(method,params)=>{calls.push([method,params]);if(method==='serato.suggestDestination')return {suggestion:null};throw new Error(method);},
+  choose:async()=>{throw new Error('picker must not open');},confirm:async()=>{dialogs++;return true;},reveal:()=>{},isClosing:()=>false});
+ assert.deepEqual(await host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'}),{status:'needs_destination'});
+ assert.deepEqual(calls.map(c=>c[0]),['serato.suggestDestination']);assert.equal(dialogs,0);
+});
+test('a blocked quick export returns the blockers without a dialog or a write',async()=>{
+ const blocked={previewId:'preview',filename:'Set.crate',destinationLabel:'_Serato_',trackCount:2,readiness:'blocked',warnings:['Aviso'],blockers:['All tracks and the selected Serato folder must belong to the same source volume'],canCommit:false,backup:{required:false}};
+ let dialogs=0;
+ const f=await fixture({request:async(method,params)=>{f.calls.push([method,params]);
+  if(method==='serato.suggestDestination')return {suggestion:null};
+  if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_'};
+  if(method==='serato.preview'||method==='serato.confirmation')return blocked;
+  throw new Error(`must not ${method}`);},confirm:async()=>{dialogs++;return true;}});
+ try{
+  await f.host.choose();
+  assert.deepEqual(await f.host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'}),{status:'blocked',filename:'Set.crate',blockers:[blocked.blockers[0]]});
+  assert.equal(dialogs,0);assert.equal(f.calls.some(c=>c[0]==='serato.commit'),false);
+ }finally{await f.clean();}
+});
+test('a cancelled quick export dialog writes nothing and reports the cancellation',async()=>{
+ const f=await fixture({confirm:async()=>false});try{
+  await f.host.choose();
+  assert.deepEqual(await f.host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'}),{status:'cancelled'});
+  assert.equal(f.calls.some(c=>c[0]==='serato.commit'),false);
+ }finally{await f.clean();}
+});
+test('the native confirmation detail carries the crate name, destination, count, replacement line and warnings',async()=>{
+ const f=await fixture();try{
+  await f.host.choose();await f.host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'});
+  const summary=f.calls.find(c=>c[0]==='dialog')[1];
+  const detail=confirmationDetail(summary);
+  assert.ok(detail.includes(path.join(f.root,'Subcrates','Set.crate')),'the exact crate path must be shown');
+  assert.match(detail,/2 pistas en el orden revisado/);
+  assert.match(detail,/Se reemplazará el crate existente y se conservará una copia de seguridad\./);
+  assert.match(detail,/Review/);
+  assert.match(confirmationDetail({...summary,backup:{required:false}}),/Se creará un crate nuevo\./);
+  const main=await readFile(new URL('../src/main.ts',import.meta.url),'utf8');
+  assert.match(main,/const detail=confirmationDetail\(summary\)/,'main must build the dialog from the shared detail');
+  assert.match(main,/\{type:'warning',title:'Confirmar exportación a Serato',message:`¿Exportar \$\{summary\.filename\}\?`,detail,buttons:\['Cancelar','Exportar a Serato'\]/,'the one native consent uses that detail');
+ }finally{await f.clean();}
 });

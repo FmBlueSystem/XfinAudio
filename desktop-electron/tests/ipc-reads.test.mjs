@@ -136,3 +136,14 @@ test('automatic destination detection keeps the exact busy refusal', () => {
     );
   }
 });
+test('the quick export keeps the exact busy refusal because it writes after one confirmation', () => {
+  assert.equal(reads.isAllowedWhileBusy('quickSeratoExport'), false, 'a two-action export still owns a write path, so it is never a busy-time action');
+  for (const source of SOURCES) {
+    assert.throws(
+      () => reads.assertDispatchable('quickSeratoExport', busy({[source]: true})),
+      (error) => error.message === '[busy] Another task is still running',
+      `quickSeratoExport must keep failing while ${source} is running`,
+    );
+  }
+  assert.doesNotThrow(() => reads.assertDispatchable('quickSeratoExport', idle));
+});

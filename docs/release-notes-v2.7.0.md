@@ -25,6 +25,20 @@ and anything else keeps the existing `invalid_destination` refusal. Detection an
 registration keep the same-volume rule, canonical folder and backup checks as
 before, and nothing is written until the final confirmation.
 
+Exporting itself is now two actions instead of a walk through separate screens.
+From a generated set on the review screen or from a saved playlist card, one
+**Exportar a Serato** click runs detection and the preview in the background and
+opens the system confirmation with the crate name, the destination path, the
+track count, whether the crate is new or replaced with a backup, and the
+warnings; confirming is the second action and still the only write consent. The
+result is reported where you are, without changing screen: **Crate «name»
+exportado a Serato** with a **Mostrar en Finder** action, the blockers in
+Spanish when the preview refuses to export, or **Elegir carpeta** when no
+destination was found, which continues to the same confirmation after a valid
+choice. The export screen remains one click away as **Opciones de exportación**
+for renaming the crate or changing the folder, and metadata worklist exports keep
+their current page flow.
+
 ## Opening track search
 
 The Prepare screen no longer makes you scroll a full library list to pick the

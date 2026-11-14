@@ -1,7 +1,13 @@
 import path from 'node:path';
 import {lstat,realpath} from 'node:fs/promises';
-interface Preview {previewId:string;filename:string;destinationLabel:string;trackCount:number;readiness:string;warnings:string[];blockers:string[];canCommit:boolean;backup:{required:boolean};}
-interface Receipt {receiptId:string;filename:string;destinationLabel:string;trackCount:number;validated:true;backupCreated:boolean;}
+export interface Preview {previewId:string;filename:string;destinationLabel:string;trackCount:number;readiness:string;warnings:string[];blockers:string[];canCommit:boolean;backup:{required:boolean};}
+export interface Receipt {receiptId:string;filename:string;destinationLabel:string;trackCount:number;validated:true;backupCreated:boolean;}
+/** What one quick export answered: a receipt, a block, a missing destination, or a native cancellation. */
+export type QuickExportResult={status:'exported';receipt:Receipt}|{status:'cancelled'}|{status:'blocked';filename:string;blockers:string[]}|{status:'needs_destination'};
+/** The exact native confirmation copy, built in one place so the dialog cannot drift from the preview. */
+export function confirmationDetail(summary:{destinationPath:string;filename:string;trackCount:number;backup:{required:boolean};warnings:string[]}):string {
+  return [`Destino: ${path.join(summary.destinationPath,'Subcrates',summary.filename)}`,`${summary.trackCount} pistas en el orden revisado`,summary.backup.required?'Se reemplazará el crate existente y se conservará una copia de seguridad.':'Se creará un crate nuevo.',...summary.warnings].join('\n\n');
+}
 interface Dependencies {
   request:(method:string,params:Record<string,unknown>)=>Promise<any>;
   choose:()=>Promise<string|null>;
@@ -15,6 +21,7 @@ export class SeratoHost {
   private readonly destinations=new Map<string,string>();
   private readonly previews=new Map<string,string>();
   private readonly receipts=new Map<string,string>();
+  private lastDestination:string|null=null;
   private critical:Promise<unknown>|null=null;
   busy=false;
   constructor(private readonly dependencies:Dependencies) {}
@@ -36,17 +43,21 @@ export class SeratoHost {
   }
   /** The same discovery the picker uses, run on its own so the screen never needs a dialog. */
   async detect():Promise<{destinationId:string;label:string}|null> {
-    return this.exclusive(async()=>{
-      const suggestion=await this.dependencies.request('serato.suggestDestination',{});
-      if(typeof suggestion?.suggestion!=='string')return null;
-      this.assertOpen();return this.register(suggestion.suggestion);
-    });
+    return this.exclusive(()=>this.detectDestination());
+  }
+  private async detectDestination():Promise<{destinationId:string;label:string}|null> {
+    const suggestion=await this.dependencies.request('serato.suggestDestination',{});
+    if(typeof suggestion?.suggestion!=='string')return null;
+    this.assertOpen();return this.register(suggestion.suggestion);
   }
   /** Registering keeps the core's canonical check, so only an existing folder reaches it. */
   private async register(selected:string):Promise<{destinationId:string;label:string}> {
     const root=await this.resolveSelection(selected);
     const result=await this.dependencies.request('serato.registerDestination',{seratoRoot:root});
-    this.destinations.set(result.destinationId,root);return result;
+    this.destinations.set(result.destinationId,root);
+    // One session keeps one destination: discovery must not accumulate core export sessions.
+    this.lastDestination=result.destinationId;
+    return result;
   }
   /**
    * A drive root or `~/Music` is a fair choice: use the `_Serato_` folder it directly
@@ -65,28 +76,50 @@ export class SeratoHost {
     return root;
   }
   async preview(params:Record<string,unknown>):Promise<Preview> {
-    return this.exclusive(async()=>{
-      const destination=this.destinations.get(String(params.destinationId));if(!destination)throw failure('invalid_destination');
-      const source=params.source as {kind:string;playlistId?:string;reviewId?:string};
-      const resolved=source.kind==='saved'?{kind:'saved',playlistId:Number(source.playlistId)}:source;
-      const result:Preview=await this.dependencies.request('serato.preview',{...params,source:resolved});
-      this.previews.set(result.previewId,destination);return result;
-    });
+    return this.exclusive(()=>this.previewSource(params));
+  }
+  private async previewSource(params:Record<string,unknown>):Promise<Preview> {
+    const destination=this.destinations.get(String(params.destinationId));if(!destination)throw failure('invalid_destination');
+    const source=params.source as {kind:string;playlistId?:string;reviewId?:string};
+    const resolved=source.kind==='saved'?{kind:'saved',playlistId:Number(source.playlistId)}:source;
+    const result:Preview=await this.dependencies.request('serato.preview',{...params,source:resolved});
+    this.previews.set(result.previewId,destination);return result;
   }
   async commit(previewId:string):Promise<Receipt|{cancelled:true}> {
-    return this.exclusive(async()=>{
-      const destinationPath=this.previews.get(previewId);if(!destinationPath)throw failure('invalid_preview');
-      const summary:Preview=await this.dependencies.request('serato.confirmation',{previewId});
-      if(!summary.canCommit||summary.blockers.length)throw failure('blocked_export');
-      if(!await this.dependencies.confirm({...summary,destinationPath}))return {cancelled:true};
-      this.assertOpen();
-      const publication:Promise<Receipt>=this.dependencies.request('serato.commit',{previewId,confirmed:true});
-      this.critical=publication;
-      try {const receipt=await publication;this.receipts.set(receipt.receiptId,destinationPath);return receipt;}
-      finally {if(this.critical===publication)this.critical=null;}
-    });
+    return this.exclusive(()=>this.commitPreview(previewId));
+  }
+  private async commitPreview(previewId:string):Promise<Receipt|{cancelled:true}> {
+    const destinationPath=this.previews.get(previewId);if(!destinationPath)throw failure('invalid_preview');
+    const summary:Preview=await this.dependencies.request('serato.confirmation',{previewId});
+    if(!summary.canCommit||summary.blockers.length)throw failure('blocked_export');
+    if(!await this.dependencies.confirm({...summary,destinationPath}))return {cancelled:true};
+    this.assertOpen();
+    const publication:Promise<Receipt>=this.dependencies.request('serato.commit',{previewId,confirmed:true});
+    this.critical=publication;
+    try {const receipt=await publication;this.receipts.set(receipt.receiptId,destinationPath);return receipt;}
+    finally {if(this.critical===publication)this.critical=null;}
   }
   async waitForCommit():Promise<void> {try{await this.critical;}catch{/* Writer rollback completes before shutdown. */}}
+  /**
+   * The two-action export: one serialized operation runs the existing discovery, preview,
+   * native confirmation and commit in order. Nothing here is a second write path; a block
+   * or a missing destination answers before any dialog opens.
+   */
+  async quickExport(params:Record<string,unknown>):Promise<QuickExportResult> {
+    return this.exclusive(async()=>{
+      let destinationId=this.lastDestination;
+      if(!destinationId){
+        const detected=await this.detectDestination();
+        if(!detected)return {status:'needs_destination'};
+        destinationId=detected.destinationId;
+      }
+      this.assertOpen();
+      const preview=await this.previewSource({...params,destinationId});
+      if(!preview.canCommit||preview.blockers.length)return {status:'blocked',filename:preview.filename,blockers:[...preview.blockers]};
+      const committed=await this.commitPreview(preview.previewId);
+      return 'cancelled' in committed?{status:'cancelled'}:{status:'exported',receipt:committed};
+    });
+  }
   async reveal(receiptId:string):Promise<void> {
     return this.exclusive(async()=>{
       const root=this.receipts.get(receiptId);if(!root)throw failure('invalid_preview');

@@ -32,6 +32,7 @@ import { createLiveView } from './live-view.js';
 import { SeratoExportController } from './serato-export.js';
 import type { SeratoExportSource } from './serato-export.js';
 import { createSeratoExportView } from './serato-export-view.js';
+import { SeratoQuickExportController, createSeratoQuickExportView, quickExportAvailable } from './serato-quick-export.js';
 import { errorCode,userErrorMessage } from './errors.js';
 import { SavedPlaylistEditor } from './editor.js';
 import { createEditorView } from './editor-view.js';
@@ -201,6 +202,22 @@ serato = new SeratoExportController(api, {
 });
 renderSerato = createSeratoExportView(element('serato-container'), serato, { canAct: () => coreAvailable && !gate.busy && !(editor.dirty && serato.source?.kind === 'saved' && serato.source.playlistId === editor.draft?.id) });
 renderSerato();
+let renderSeratoQuick = (): void => {};
+const seratoQuickCanAct = (): boolean => coreAvailable && !gate.busy;
+const seratoQuick = new SeratoQuickExportController(api, {
+  canAct: seratoQuickCanAct,
+  changed: () => renderSeratoQuick(),
+  // The result must survive a navigation; the quick notice keeps its own receipt.
+  perform: (label, task, apply, failure) => perform('serato-quick', label, task, (value, current) => {
+    apply(value, current);
+    // A success is reported in the quick notice; the bar keeps a short completion so it
+    // never keeps saying the export is still running.
+    if (seratoQuick.tone === 'success') showStatus('Exportación a Serato completada', seratoQuick.receipt?.filename ?? '');
+    else showStatus(seratoQuick.notice, seratoQuick.detail, seratoQuick.tone === 'blocked');
+  }, false, failure),
+});
+renderSeratoQuick = createSeratoQuickExportView(element('serato-quick-export-container'), seratoQuick, { canAct: seratoQuickCanAct }, (source, name) => openSerato(source, name));
+renderSeratoQuick();
 live = new LiveController(api, {
   canAct: () => coreAvailable && !gate.busy,
   changed: () => { renderLive(); syncAiContext(); },
@@ -567,6 +584,15 @@ function openSerato(source: SeratoExportSource, name: string): void {
   }
   serato.setSource(source, name); navigate('serato', false);
 }
+/** The short path: one click exports from wherever the user is, or keeps the page flow on an older bridge. */
+function quickExportToSerato(source: SeratoExportSource, name: string): void {
+  if (!coreAvailable || gate.busy) return;
+  if (source.kind === 'saved' && editor.dirty && editor.draft?.id === source.playlistId) {
+    showStatus('Tienes un borrador sin guardar', 'Guarda o descarta los cambios del editor antes de exportar esta playlist', true); navigate('editor', false); return;
+  }
+  if (!quickExportAvailable(api)) { openSerato(source, name); return; }
+  void seratoQuick.export(source, name);
+}
 
 function showStatus(label: string, detail = '', error = false): void {
   if(restartRequired){label='Reinicio necesario';detail=coreFailure;error=true;}
@@ -609,6 +635,7 @@ function syncControls(): void {
   element('cancel-operation').textContent = gate.cancelled ? 'Cancelando…' : 'Cancelar';
   renderEditor();
   renderSerato();
+  renderSeratoQuick();
   renderLive();
   renderPreferences();
   renderProfileSettings();renderProfiles();renderGeneratedReview();renderPrepSettings();renderLegacyImport();offline?.sync();
@@ -895,7 +922,7 @@ function renderPlaylistActions(card: HTMLElement, playlist: PlaylistSummary): vo
     });
   });
   for (const [caption, action] of [
-    ['Exportar a Serato', () => { openSerato({ kind: 'saved', playlistId: playlist.id }, playlist.name); }],
+    ['Exportar a Serato', () => { quickExportToSerato({ kind: 'saved', playlistId: playlist.id }, playlist.name); }],
     ['Editar', () => { void editor.open(playlist.id); }],
     ['Renombrar', () => {
       if (editor.draft?.id === playlist.id) { void editor.open(playlist.id).then(() => element<HTMLInputElement>('editor-name').focus()); return; }
@@ -969,7 +996,7 @@ async function perform<T>(kind: string, label: string, task: () => Promise<T>, a
     const terminalLegacy=kind==='legacy-import'&&activeKind==='legacy-import'&&gate.busy;
     const terminalProfiles=kind==='profiles'&&activeKind==='profiles'&&gate.busy;
     const terminalLoudness = kind === 'loudness' && activeKind === 'loudness' && gate.busy;
-    if ((gate.isCurrent(token) || terminalLoudness || terminalProfiles || terminalLegacy) && (coreAvailable || kind === 'serato' || terminalLoudness || terminalLegacy)) {
+    if ((gate.isCurrent(token) || terminalLoudness || terminalProfiles || terminalLegacy) && (coreAvailable || kind === 'serato' || kind === 'serato-quick' || terminalLoudness || terminalLegacy)) {
       if (sourceGeneration !== libraryGeneration && ['prep', 'select', 'open', 'metadata','profiles'].includes(kind)) showStatus('La biblioteca cambió', 'Vuelve a escanear antes de preparar una nueva selección');
       else apply(result, token.routeRevision === routeRevision);
     }
@@ -1119,8 +1146,8 @@ element('start-live').addEventListener('click', () => {
 });
 element('export-review').addEventListener('click', () => {
   if (!review) return;
-  if (review.savedPlaylistId) openSerato({ kind: 'saved', playlistId: review.savedPlaylistId }, review.name);
-  else if (review.reviewId) openSerato({ kind: 'review', reviewId: review.reviewId }, review.name);
+  if (review.savedPlaylistId) quickExportToSerato({ kind: 'saved', playlistId: review.savedPlaylistId }, review.name);
+  else if (review.reviewId) quickExportToSerato({ kind: 'review', reviewId: review.reviewId }, review.name);
 });
 element('save-form').addEventListener('submit', (event) => {
   event.preventDefault();

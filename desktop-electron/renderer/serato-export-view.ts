@@ -1,6 +1,7 @@
 import type { Readiness } from './model.js';
 import type { SeratoExportController } from './serato-export.js';
 import { validSeratoName } from './serato-export.js';
+import { SERATO_NOT_FOUND_MESSAGE } from './serato-quick-export.js';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
 };
@@ -21,7 +22,7 @@ export function createSeratoExportView(root: HTMLElement, controller: SeratoExpo
   name.addEventListener('input', () => controller.setName(name.value));
   const hint = identify(make('p', 'Usa un nombre breve, sin barras, dos puntos ni caracteres de control. Los nombres con muchos caracteres acentuados pueden necesitar acortarse.', 'field-hint'), 'name-hint');
   const destination = identify(make('p', '', 'field-hint'), 'destination'); destination.setAttribute('aria-live', 'polite');
-  const notFound = identify(make('p', 'No se encontró la carpeta _Serato_ en el disco de música. Abre Serato una vez con ese disco conectado para crearla; después podrás elegir la carpeta manualmente.', 'review-notice'), 'not-found'); notFound.setAttribute('role', 'status'); notFound.setAttribute('aria-live', 'polite'); notFound.hidden = true;
+  const notFound = identify(make('p', SERATO_NOT_FOUND_MESSAGE, 'review-notice'), 'not-found'); notFound.setAttribute('role', 'status'); notFound.setAttribute('aria-live', 'polite'); notFound.hidden = true;
   const choose = button('choose', 'Elegir carpeta _Serato_', () => { void controller.chooseDestination(); });
   const previewButton = button('preview', 'Ver vista previa', () => { void controller.requestPreview(); });
   const actions = make('div', '', 'editor-actions'); actions.append(choose, previewButton);

@@ -1,5 +1,6 @@
 import type { LiveApi } from './live.js';
 import type { SeratoExportApi } from './serato-export.js';
+import type { SeratoQuickExportApi } from './serato-quick-export.js';
 import type { EditorApi } from './editor.js';
 import type { MetadataReport } from './metadata.js';
 export interface Track {
@@ -53,7 +54,7 @@ export interface ProgressEvent {
   message?: string;
   stage?: string; readyCount?: number; failedCount?: number;
 }
-export interface XfinApi extends EditorApi, SeratoExportApi, LiveApi {
+export interface XfinApi extends EditorApi, SeratoExportApi, SeratoQuickExportApi, LiveApi {
   chooseLibrary(): Promise<LibraryResult | null>;
   listLibrary(): Promise<LibraryResult>;
   getMetadataReport(): Promise<MetadataReport>;

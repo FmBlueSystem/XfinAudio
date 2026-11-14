@@ -16,3 +16,16 @@ test('automatic destination detection accepts no parameters at all',()=>{
  assert.deepEqual(validateRequest('detectSeratoDestination',undefined),{});
  for(const p of [{root:'/tmp'},{path:'/Volumes/dd/_Serato_'},{seratoRoot:'/Volumes/dd/_Serato_'}])assert.throws(()=>validateRequest('detectSeratoDestination',p));
 });
+test('quick export accepts only the same scoped source and crate name the preview accepts',()=>{
+ for(const source of [{kind:'review',reviewId:id},{kind:'saved',playlistId:'1'}]){const p={source,name:'Sesión 1'};assert.deepEqual(validateRequest('quickSeratoExport',p),p);}
+ const metadata={kind:'metadata',status:'incomplete',missingField:'bpm',trackIds:['a'.repeat(64)]};
+ const p={source:metadata,name:'Reparar BPM'};assert.deepEqual(validateRequest('quickSeratoExport',p),p);
+ assert.deepEqual(validateRequest('quickSeratoExport',{source:{kind:'review',reviewId:id},name:'Set'}),{source:{kind:'review',reviewId:id},name:'Set'});
+});
+test('quick export rejects paths, confirmation, destinations and unknown keys exactly like the preview',()=>{
+ const valid={source:{kind:'review',reviewId:id},name:'Set'};
+ for(const extra of [{path:'/tmp/live'},{confirmed:true},{destinationId:id},{receiptId:id},{readiness:'ready'},{bytes:'abc'},{previewId:id}])assert.throws(()=>validateRequest('quickSeratoExport',{...valid,...extra}));
+ for(const source of [{kind:'review',reviewId:id,path:'/tmp/x'},{kind:'saved',playlistId:1},{kind:'saved',playlistId:'../x'},{kind:'path',path:'/tmp/a'},{kind:'review'},{kind:['review']}])assert.throws(()=>validateRequest('quickSeratoExport',{...valid,source}));
+ for(const name of ['','  ','.','..','../Set','a/b','a\\b','A\nB','x'.repeat(201)])assert.throws(()=>validateRequest('quickSeratoExport',{...valid,name}));
+ for(const params of [{},{source:valid.source},{name:'Set'},{source:valid.source,name:'Set',seratoRoot:'/tmp'}])assert.throws(()=>validateRequest('quickSeratoExport',params));
+});

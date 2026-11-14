@@ -58,3 +58,11 @@ test('Settings outer heading stays distinct from the dynamically-created Prefere
 test('short-height Create has an explicit compact spacing rule without hiding the primary action',()=>{
  const css=readFileSync(new URL('../renderer/styles.css',import.meta.url),'utf8');assert.match(css,/@media \(max-height: 850px\) and \(min-width: 701px\)/);assert.match(css,/#page-prep \.prep-form \.full-width \{ margin-top: 12px; \}/);byId('prep-count-unit');
 });
+test('the review export button starts the two-action Serato export and keeps the export page as the advanced option',()=>{
+ const button=byId('export-review');assert.equal(button.tag,'button');assert.match(button.attrs.class,/primary/);
+ assert.match(html,/<button id="export-review"[^>]*>Exportar a Serato<\/button>/,'the review action names the short Serato export');
+ assert.ok(!html.includes('Preparar exportación'),'the old preview-first label is gone');
+ byId('serato-quick-export-container');
+ assert.ok(!ancestor(byId('serato-quick-export-container'),'page-review'),'the notice stays mounted so both entry points can use it');
+ byId('page-serato');
+});
