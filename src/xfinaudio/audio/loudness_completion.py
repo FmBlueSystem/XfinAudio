@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,6 +13,8 @@ from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
 from xfinaudio.audio.loudness_tags import LoudnessTagWriteResult, LoudnessTagWriteStatus, write_loudness_tags
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.ports import TrackLoudnessProfileCachePort
+
+LOGGER = logging.getLogger(__name__)
 
 _MAX_DISK_WORKERS = 2
 LoudnessTagWriter = Callable[[Path, LoudnessProfile], LoudnessTagWriteResult]
@@ -152,7 +155,8 @@ class LoudnessCompletionService:
             return None
         try:
             return self._analyzer.analyze(Path(record.path), duration_seconds=record.duration or 0.0)
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning("Loudness analysis failed for %s: %s: %s", record.path, type(exc).__name__, exc)
             return _transient_failure(self._engine_fingerprint)
 
     def _commit_profile(
@@ -171,7 +175,8 @@ class LoudnessCompletionService:
                 refresh_siblings = False
             else:
                 raise RuntimeError("unsafe loudness tag write result")
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning("Loudness tag write failed for %s: %s: %s", record.path, type(exc).__name__, exc)
             profile = _transient_failure(profile.engine_fingerprint)
             refresh_siblings = _file_identity(record.path) != before_write
         profile = _stamp_profile(profile, record)
