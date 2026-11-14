@@ -6,12 +6,15 @@ mel-frequency energy distribution without mutating the source file.
 
 from __future__ import annotations
 
+import logging
 import warnings
 from pathlib import Path
 from typing import Literal
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
+
+LOGGER = logging.getLogger(__name__)
 
 ColorName = Literal["RED", "GREEN", "BLUE", "MIXED"]
 CURRENT_ANALYSIS_VERSION = 2
@@ -101,7 +104,8 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
     """
     try:
         import librosa
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("Spectral analysis unavailable for %s: %s: %s", path, type(exc).__name__, exc)
         return None
 
     try:
@@ -114,7 +118,8 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
             return None
         try:
             track_duration = float(librosa.get_duration(path=audio_path))
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning("Spectral duration probe failed for %s: %s: %s", audio_path, type(exc).__name__, exc)
             track_duration = None
         offset = 0.0
         if track_duration is not None and track_duration > _ANALYSIS_WINDOW_SECONDS:
@@ -137,7 +142,8 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
                 duration=_ANALYSIS_WINDOW_SECONDS,
             )
         return _profile_from_samples(y, sr, librosa)
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("Spectral analysis failed for %s: %s: %s", path, type(exc).__name__, exc)
         return None
 
 
@@ -199,7 +205,8 @@ def analyze_edge_spectral_profile(path: Path | str) -> EdgeSpectralProfile | Non
     """Return fixed-window intro and outro spectral profiles for ``path``."""
     try:
         import librosa
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("Edge spectral analysis unavailable for %s: %s: %s", path, type(exc).__name__, exc)
         return None
 
     try:
@@ -234,7 +241,8 @@ def analyze_edge_spectral_profile(path: Path | str) -> EdgeSpectralProfile | Non
         if intro is None or outro is None:
             return None
         return EdgeSpectralProfile(intro=intro, outro=outro)
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("Edge spectral analysis failed for %s: %s: %s", path, type(exc).__name__, exc)
         return None
 
 
