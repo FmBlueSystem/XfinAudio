@@ -163,7 +163,9 @@ class SeratoExporter:
             raise OSError("Selected destination changed")
 
     def _preview(self, params: dict[str, Any]) -> dict[str, Any]:
-        name = crate_name(params["name"]) if "name" in params else None
+        # An absent or empty name means the app names the crate: a generated set is named
+        # from its strategy and the export date, inside the destination folder it writes to.
+        name = crate_name(params["name"]) if params.get("name") else None
         source = load_source(self.backend, params["source"])
         destination = self.destinations.get(opaque_id(params["destinationId"]))
         if destination is None:

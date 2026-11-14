@@ -161,7 +161,7 @@ test('current review enters Serato with its exact review identity and new genera
  try {
   await f.submit();f.get('export-review').dispatchEvent(new Event('click'));assert.equal(document.title,'XfinAudio · Exportar a Serato');
   dynamic('serato-export-choose').dispatchEvent(new Event('click'));await tick();dynamic('serato-export-preview').dispatchEvent(new Event('click'));await tick();
-  assert.deepEqual(previews,[{source:{kind:'review',reviewId:'fresh'},destinationId:'dest',name:'Sesión equilibrada'}]);assert.equal(dynamic('serato-export-commit').disabled,false);
+  assert.deepEqual(previews,[{source:{kind:'review',reviewId:'fresh'},destinationId:'dest'}]);assert.equal(dynamic('serato-export-commit').disabled,false);
   f.variant('safe').dispatchEvent(new Event('click'));await tick();assert.equal(dynamic('serato-export-proposal').hidden,true);assert.equal(dynamic('serato-export-preview').disabled,true);
   f.get('export-review').dispatchEvent(new Event('click'));dynamic('serato-export-preview').dispatchEvent(new Event('click'));await tick();assert.equal(previews.at(-1).source.reviewId,'selected-review');
   await f.submit();assert.equal(dynamic('serato-export-proposal').hidden,true);assert.equal(dynamic('serato-export-preview').disabled,true);

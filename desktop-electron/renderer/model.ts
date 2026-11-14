@@ -77,6 +77,10 @@ export function normalizePrepName(value: string): string { return value.trim() |
 export function isCoreFailure(event: Pick<ProgressEvent, 'operation' | 'phase'>): boolean {
   return event.operation === 'core' && event.phase === 'error';
 }
+/** A supervised restart brought a fresh core up: the app is usable again with no user action. */
+export function isCoreRestored(event: Pick<ProgressEvent, 'operation' | 'phase'>): boolean {
+  return event.operation === 'core' && event.phase === 'restarted';
+}
 
 export function canSaveReview(review: ReviewResult | null): boolean {
   return review !== null && ['safe', 'balanced', 'adventurous'].includes(review.variant) && review.canSave !== false

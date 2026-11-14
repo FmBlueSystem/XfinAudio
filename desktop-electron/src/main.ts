@@ -233,6 +233,13 @@ function onCoreStopped(message:string):void {
   void libraryHost.close();
   if(window&&!window.isDestroyed())window.webContents.send('xfin:progress',{jobId:'',operation:'core',phase:'error',message});
 }
+/**
+ * The window was told the core stopped, so a supervised restart must tell it the core is
+ * back; otherwise the app keeps asking for a restart that already happened.
+ */
+function notifyCoreRestarted():void {
+  if(window&&!window.isDestroyed())window.webContents.send('xfin:progress',{jobId:'',operation:'core',phase:'restarted',message:'El servicio local volvió a estar disponible.'});
+}
 async function start() {
   const repoRoot=path.resolve(__dirname,'../../..');
   const env=coreEnvironment(process.env);
@@ -257,11 +264,15 @@ async function start() {
       log.write(attempt===0?'core started':`core restarted (attempt ${attempt})`);
       // The watcher and the window were bound to the previous process; a fresh
       // core must reload its roots before anything else waits on it.
-      if(attempt>0)void libraryHost.initialize();
+      if(attempt>0)void libraryHost.initialize().then(notifyCoreRestarted,notifyCoreRestarted);
     },
     onStopped:message=>log.write(`core stopped: ${message}`),
     onRestart:(attempt,delayMs)=>log.write(`core restart ${attempt} scheduled in ${delayMs} ms`),
-    onExhausted:restarts=>log.write(`core restart limit reached after ${restarts} restarts; the app keeps its restart message`),
+    onExhausted:restarts=>{
+      log.write(`core restart limit reached after ${restarts} restarts; the app keeps its restart message`);
+      // The retry budget is spent: the existing restart-the-app message stands.
+      if(window&&!window.isDestroyed())window.webContents.send('xfin:progress',{jobId:'',operation:'core',phase:'error',message:'El servicio local se detuvo y no se pudo reiniciar.'});
+    },
   });
   supervisor.start();
   const isolated=session.fromPartition('xfin-offline');

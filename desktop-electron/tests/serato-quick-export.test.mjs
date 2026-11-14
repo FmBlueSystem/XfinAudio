@@ -144,3 +144,15 @@ test('a core stop drops a stale notice and receipt but keeps the request for the
  assert.deepEqual(f.calls.filter(([operation])=>operation==='export').length,2,'the button exports again through the fresh core');
  assert.deepEqual(f.controller.receipt,receipt);
 });
+test('a generated set exports without a crate name and reports the name the core chose', async () => {
+  const sent = [];
+  const f = fixture({ quickSeratoExport: async (input) => { sent.push(['export', input]); return { status: 'exported', receipt: { ...receipt, filename: 'XfinAudio%%Build 6-jun.crate' } }; } });
+  await f.controller.export(source, '');
+  assert.deepEqual(sent, [['export', { source }]], 'no name travels for a generated set');
+  assert.equal(f.controller.notice, 'Crate «XfinAudio%%Build 6-jun» exportado a Serato');
+  assert.match(f.controller.detail, /XfinAudio%%Build 6-jun\.crate · _Serato_ · dd · 2 pistas/);
+});
+test('a saved playlist keeps exporting its own name unchanged', async () => {
+  const f = fixture(); await f.controller.export({ kind: 'saved', playlistId: '1' }, 'Sesión guardada');
+  assert.deepEqual(f.calls, [['export', { source: { kind: 'saved', playlistId: '1' }, name: 'Sesión guardada' }]]);
+});

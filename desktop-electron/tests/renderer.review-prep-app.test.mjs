@@ -57,7 +57,7 @@ test('the review button exports to Serato in two actions, stays on the review sc
   await f.generate();
   assert.equal(document.title,'XfinAudio · Revisar y exportar');
   f.click('export-review');await settle();
-  assert.deepEqual(sent,[{source:{kind:'review',reviewId:'review'},name:'Set'}],'one click sends only the scoped source and the crate name');
+  assert.deepEqual(sent,[{source:{kind:'review',reviewId:'review'}}],'one click sends only the scoped source: the core names the crate');
   assert.equal(sent[0].source.destinationId,undefined);assert.equal(sent[0].confirmed,undefined);
   assert.equal(document.title,'XfinAudio · Revisar y exportar','the export must not leave the review screen');
   assert.equal(f.get('serato-quick-export').hidden,false);
@@ -124,5 +124,58 @@ test('cancelling the native dialog leaves a quiet note and no receipt to reveal'
   assert.equal(f.get('serato-quick-export-notice').textContent,'Exportación cancelada');
   assert.equal(f.get('serato-quick-export-reveal').hidden,true);
   assert.equal(f.get('serato-quick-export-choose').hidden,true);
+ }finally{f.restore();}
+});
+test('a supervised restart returns the app to its normal state and an exhausted one keeps the restart message',async()=>{
+ const f=await fixture();
+ try{
+  await f.navigate('prep');
+  assert.equal(f.get('generate-prep').disabled,false);
+  f.offline();await settle();
+  assert.equal(f.get('generate-prep').disabled,true,'a stopped core gates every action');
+  assert.equal(f.get('operation-label').textContent,'Servicio local desconectado');
+  f.progress({operation:'core',phase:'restarted',message:'El servicio local volvió a estar disponible.'});await settle();
+  assert.equal(f.get('generate-prep').disabled,false,'a restarted core makes the app usable again without a manual restart');
+  assert.equal(f.get('operation-label').textContent,'Servicio local disponible');
+  assert.doesNotMatch(text(f.get('operation-status')),/Reinicia XfinAudio/);
+  f.offline();await settle();
+  assert.equal(f.get('generate-prep').disabled,true);
+  assert.equal(f.get('operation-label').textContent,'Servicio local desconectado','restarts that run out keep the existing restart message');
+ }finally{f.restore();}
+});
+test('a generated set exports and previews with the crate name the core proposes',async()=>{
+ const sent=[];const previews=[];
+ const receipt=quickReceipt({filename:'XfinAudio%%Build 6-jun.crate'});
+ const f=await fixture({
+  quickSeratoExport:async(input)=>{sent.push(input);return {status:'exported',receipt};},
+  previewSeratoExport:async(input)=>{previews.push(input);return {previewId:'preview',sourceRevision:'r',filename:'XfinAudio%%Build 6-jun.crate',destinationLabel:'_Serato_ · dd',trackCount:2,readiness:'ready',warnings:[],blockers:[],canCommit:true,tracks,backup:{required:false}};},
+ });
+ try{
+  await f.generate();
+  f.click('export-review');await settle();
+  assert.deepEqual(sent,[{source:{kind:'review',reviewId:'review'}}],'a generated set sends no crate name');
+  assert.equal(f.get('serato-quick-export-notice').textContent,'Crate «XfinAudio%%Build 6-jun» exportado a Serato');
+  assert.match(f.get('serato-quick-export-detail').textContent,/XfinAudio%%Build 6-jun\.crate/);
+  f.click('serato-quick-export-advanced');await settle();
+  assert.equal(document.title,'XfinAudio · Exportar a Serato');
+  assert.equal(f.get('serato-export-name').value,'','the page starts from the automatic name, not from the set name');
+  f.click('serato-export-choose');await settle();
+  f.click('serato-export-preview');await settle();
+  assert.deepEqual(previews,[{source:{kind:'review',reviewId:'review'},destinationId:'dest'}],'the page also sends no name');
+  assert.match(text(f.get('serato-export-proposal')),/Archivo: XfinAudio%%Build 6-jun\.crate/,'the preview shows the crate name the core chose');
+ }finally{f.restore();}
+});
+test('a name typed on the Serato page is used unchanged',async()=>{
+ const previews=[];
+ const f=await fixture({previewSeratoExport:async(input)=>{previews.push(input);return {previewId:'preview',sourceRevision:'r',filename:'Viernes 14-nov.crate',destinationLabel:'_Serato_ · dd',trackCount:2,readiness:'ready',warnings:[],blockers:[],canCommit:true,tracks,backup:{required:false}};}});
+ try{
+  await f.generate();
+  f.click('export-review');await settle();
+  f.click('serato-quick-export-advanced');await settle();
+  f.get('serato-export-name').value='Viernes 14-nov';f.get('serato-export-name').dispatchEvent(new Event('input'));
+  f.click('serato-export-choose');await settle();
+  f.click('serato-export-preview');await settle();
+  assert.deepEqual(previews,[{source:{kind:'review',reviewId:'review'},destinationId:'dest',name:'Viernes 14-nov'}]);
+  assert.match(text(f.get('serato-export-proposal')),/Viernes 14-nov\.crate/);
  }finally{f.restore();}
 });

@@ -102,3 +102,17 @@ test('core disconnect is handled before operation-only progress filters and gate
   assert.match(app, /button.disabled = gate.busy \|\| !coreAvailable/);
   assert.match(app, /if \(!coreAvailable\) \{/);
 });
+
+test('a supervised restart is a distinct signal that never reads as a failure', async () => {
+  const { isCoreFailure, isCoreRestored } = await import('../renderer/model.ts');
+  assert.equal(isCoreRestored({ operation: 'core', phase: 'restarted' }), true);
+  assert.equal(isCoreRestored({ operation: 'core', phase: 'error' }), false);
+  assert.equal(isCoreRestored({ operation: 'scan', phase: 'restarted' }), false);
+  assert.equal(isCoreFailure({ operation: 'core', phase: 'restarted' }), false);
+  const app = await readFile(new URL('../renderer/app.ts', import.meta.url), 'utf8');
+  const gate = app.indexOf('if (!gate.busy || gate.cancelled || !cancellable)');
+  assert.ok(app.indexOf('if (isCoreFailure(event))') < gate);
+  assert.ok(app.indexOf('if (isCoreRestored(event))') < gate, 'the restart signal is read before any job-progress filter drops it');
+  const restored = app.slice(app.indexOf('if (isCoreRestored(event))'), gate);
+  assert.match(restored, /coreAvailable = true/, 'the restart signal returns the app to its normal state');
+});

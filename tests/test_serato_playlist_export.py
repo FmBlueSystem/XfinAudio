@@ -20,7 +20,7 @@ from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 from xfinaudio.recommendation.strategies import default_strategy_registry
 
 
-def _recommendation(paths: list[str]) -> PlaylistRecommendation:
+def _recommendation(paths: list[str], strategy: str = "build") -> PlaylistRecommendation:
     tracks = [
         TrackRecord(
             path=path,
@@ -35,7 +35,7 @@ def _recommendation(paths: list[str]) -> PlaylistRecommendation:
     return PlaylistRecommendation(
         ordered_tracks=tracks,
         transition_scores=[],
-        strategy=default_strategy_registry().get("build"),
+        strategy=default_strategy_registry().get(strategy),
         warnings=[],
         applied_controls={},
         optimizer="test",
@@ -110,45 +110,108 @@ def test_plan_serato_playlist_export_preserves_detected_home_volume_root(tmp_pat
     assert plan.relative_paths == ("Users/freddy/Music/Track.wav",)
 
 
-def test_plan_generated_serato_playlist_export_groups_crate_by_strategy(tmp_path: Path) -> None:
+def test_plan_generated_serato_playlist_export_names_crate_by_strategy_and_short_date(tmp_path: Path) -> None:
     serato_folder = tmp_path / "dd" / "_Serato_"
     (serato_folder / "Subcrates").mkdir(parents=True)
     recommendation = _recommendation(
-        [str(tmp_path / "dd" / "_Lossless" / "Stayin Alive.flac"), str(tmp_path / "dd" / "_Lossless" / "B.flac")]
+        [str(tmp_path / "dd" / "_Lossless" / "Stayin Alive.flac"), str(tmp_path / "dd" / "_Lossless" / "B.flac")],
+        strategy="harmonic_journey",
     )
 
     plan = plan_generated_serato_playlist_export(
         recommendation,
         SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd"),
-        generated_at=datetime(2026, 6, 6, 3, 5, 0),
+        generated_at=datetime(2026, 11, 14, 3, 5, 0),
     )
 
-    assert plan.target_path == (serato_folder / "Subcrates" / "XfinAudio%%Build%%Stayin Alive · 2 · 0606-0305.crate")
-    folder, leaf = plan.target_path.stem.rsplit("%%", 1)
-    assert folder == "XfinAudio%%Build"
-    assert leaf.startswith("Stayin Alive")
-    assert "· 2 · 0606-0305" in leaf
-    assert "build" not in leaf.casefold()
+    assert plan.target_path == (serato_folder / "Subcrates" / "XfinAudio%%Harmonic Journey 14-nov.crate")
+    # Style plus date is the whole name: no strategy sub-crate level and no anchor, count or stamp.
+    assert plan.target_path.stem.split("%%") == ["XfinAudio", "Harmonic Journey 14-nov"]
     assert plan.backup_path == plan.target_path.with_name(f"{plan.target_path.name}.bak")
     assert plan.relative_paths == ("_Lossless/Stayin Alive.flac", "_Lossless/B.flac")
 
 
-def test_plan_generated_serato_playlist_export_avoids_existing_crate_collision(tmp_path: Path) -> None:
+def test_plan_generated_serato_playlist_export_numbers_every_existing_short_name(tmp_path: Path) -> None:
     serato_folder = tmp_path / "dd" / "_Serato_"
     target_folder = serato_folder / "Subcrates"
     target_folder.mkdir(parents=True)
-    existing = target_folder / "XfinAudio%%Build%%Track · 1 · 0606-0305.crate"
-    existing.write_bytes(b"existing")
+    first = target_folder / "XfinAudio%%Build 14-nov.crate"
+    first.write_bytes(b"existing")
     recommendation = _recommendation([str(tmp_path / "dd" / "_Lossless" / "Track.flac")])
+    library = SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd")
 
-    plan = plan_generated_serato_playlist_export(
-        recommendation,
-        SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd"),
-        generated_at=datetime(2026, 6, 6, 3, 5, 0),
+    second = plan_generated_serato_playlist_export(
+        recommendation, library, generated_at=datetime(2026, 11, 14, 3, 5, 0)
     )
 
-    assert plan.target_path == target_folder / "XfinAudio%%Build%%Track · 1 · 0606-0305-2.crate"
-    assert plan.target_path != existing
+    assert second.target_path == target_folder / "XfinAudio%%Build 14-nov (2).crate"
+    second.target_path.write_bytes(b"second")
+
+    third = plan_generated_serato_playlist_export(recommendation, library, generated_at=datetime(2026, 11, 14, 3, 5, 0))
+
+    assert third.target_path == target_folder / "XfinAudio%%Build 14-nov (3).crate"
+    assert first.read_bytes() == b"existing"
+    assert second.target_path.read_bytes() == b"second"
+
+
+def test_generated_short_name_spells_the_export_month_in_spanish_without_a_leading_zero(tmp_path: Path) -> None:
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    recommendation = _recommendation([str(tmp_path / "dd" / "_Lossless" / "Track.flac")])
+    library = SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd")
+    months = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+    names = [
+        plan_generated_serato_playlist_export(
+            recommendation, library, generated_at=datetime(2026, month, 5, 22, 0, 0)
+        ).target_path.stem
+        for month in range(1, 13)
+    ]
+
+    assert names == [f"XfinAudio%%Build 5-{month}" for month in months]
+
+
+def test_a_typed_or_saved_playlist_name_is_used_unchanged_even_when_it_looks_automatic(tmp_path: Path) -> None:
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    target_folder = serato_folder / "Subcrates"
+    target_folder.mkdir(parents=True)
+    existing = target_folder / "XfinAudio%%Build 14-nov.crate"
+    existing.write_bytes(b"earlier export")
+    recommendation = _recommendation([str(tmp_path / "dd" / "_Lossless" / "Track.flac")])
+
+    plan = plan_serato_playlist_export("XfinAudio%%Build 14-nov", recommendation, serato_folder)
+
+    # A name the user typed (or a saved playlist name) is never renumbered: a confirmed
+    # export replaces it and keeps the backup copy instead.
+    assert plan.target_path == existing
+    assert plan.backup_path == existing.with_name(f"{existing.name}.bak")
+
+
+def test_metadata_worklist_collision_keeps_the_unchanged_worklist_suffix(tmp_path: Path) -> None:
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    target_folder = serato_folder / "Subcrates"
+    target_folder.mkdir(parents=True)
+    records = [
+        TrackRecord(
+            path=str(tmp_path / "dd" / "_Lossless" / "Needs Key.flac"),
+            title="Needs Key",
+            bpm=120,
+            metadata_status="incomplete",
+            missing_required_fields=["camelot_key"],
+        )
+    ]
+    existing = target_folder / "XfinAudio%%Metadata%%Incomplete%%1 track · 0606-0420.crate"
+    existing.write_bytes(b"existing")
+
+    plan = plan_metadata_status_serato_export(
+        records,
+        "incomplete",
+        SeratoLibrary(serato_folder=serato_folder, volume_root=tmp_path / "dd"),
+        generated_at=datetime(2026, 6, 6, 4, 20, 0),
+    )
+
+    # Metadata worklists are out of scope for the short names: same name, same old suffix.
+    assert plan.target_path == target_folder / "XfinAudio%%Metadata%%Incomplete%%1 track · 0606-0420-2.crate"
     assert existing.read_bytes() == b"existing"
 
 
@@ -270,23 +333,18 @@ def test_plan_copilot_variant_serato_playlist_export_groups_by_strategy_and_vari
         generated_at=datetime(2026, 6, 6, 14, 30, 0),
     )
 
-    assert plan.target_path == (
-        serato_folder / "Subcrates" / "XfinAudio%%Prep Copilot%%Build%%Balanced%%Stayin Alive · 2 · 0606-1430.crate"
-    )
-    folder, leaf = plan.target_path.stem.rsplit("%%", 1)
-    assert folder == "XfinAudio%%Prep Copilot%%Build%%Balanced"
-    assert "build" not in leaf.casefold()
-    assert "balanced" not in leaf.casefold()
+    assert plan.target_path == (serato_folder / "Subcrates" / "XfinAudio%%Build 6-jun.crate")
+    assert plan.target_path.stem.split("%%") == ["XfinAudio", "Build 6-jun"]
     assert plan.relative_paths == ("_Lossless/Stayin Alive.flac", "_Lossless/B.flac")
 
 
-def test_plan_copilot_variant_serato_playlist_export_avoids_existing_crate_collision(tmp_path: Path) -> None:
+def test_plan_copilot_variant_serato_playlist_export_numbers_existing_crate_collision(tmp_path: Path) -> None:
     from xfinaudio.exporting.serato_playlist_exporter import plan_copilot_variant_serato_playlist_export
 
     serato_folder = tmp_path / "dd" / "_Serato_"
     target_folder = serato_folder / "Subcrates"
     target_folder.mkdir(parents=True)
-    existing = target_folder / "XfinAudio%%Prep Copilot%%Build%%Safe%%Track · 1 · 0606-1430.crate"
+    existing = target_folder / "XfinAudio%%Build 6-jun.crate"
     existing.write_bytes(b"existing")
     recommendation = _recommendation([str(tmp_path / "dd" / "_Lossless" / "Track.flac")])
 
@@ -297,11 +355,11 @@ def test_plan_copilot_variant_serato_playlist_export_avoids_existing_crate_colli
         generated_at=datetime(2026, 6, 6, 14, 30, 0),
     )
 
-    assert plan.target_path == (target_folder / "XfinAudio%%Prep Copilot%%Build%%Safe%%Track · 1 · 0606-1430-2.crate")
+    assert plan.target_path == (target_folder / "XfinAudio%%Build 6-jun (2).crate")
     assert existing.read_bytes() == b"existing"
 
 
-def test_generated_serato_leaf_truncates_long_anchor_without_losing_count_or_stamp(tmp_path: Path) -> None:
+def test_the_anchor_title_never_lengthens_a_generated_crate_name(tmp_path: Path) -> None:
     serato_folder = tmp_path / "dd" / "_Serato_"
     (serato_folder / "Subcrates").mkdir(parents=True)
     title = "This Is An Exceptionally Long Anchor Title With Extra Words"
@@ -313,12 +371,7 @@ def test_generated_serato_leaf_truncates_long_anchor_without_losing_count_or_sta
         generated_at=datetime(2026, 8, 9, 7, 2, 8),
     )
 
-    leaf = plan.target_path.stem.rsplit("%%", 1)[1]
-    anchor, count, stamp = leaf.split(" · ")
-    assert anchor == "This Is An Exceptionally Long Anchor"
-    assert len(anchor) <= 40
-    assert count == "1"
-    assert stamp == "0809-0702"
+    assert plan.target_path.stem == "XfinAudio%%Build 9-ago"
 
 
 def test_sanitize_name_removes_path_separators_and_rejects_empty_results() -> None:

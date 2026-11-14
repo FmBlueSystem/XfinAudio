@@ -7,7 +7,7 @@ test('Serato actions accept only scoped sources and opaque destination/preview/r
 });
 test('Serato boundary rejects supplied paths, confirmation, readiness, bytes and ambiguous source',()=>{
  const valid={source:{kind:'review',reviewId:id},destinationId:id,name:'Set'};
- for(const p of [{...valid,path:'/tmp/live'},{...valid,confirmed:true},{...valid,readiness:'ready'},{...valid,bytes:'abc'},{...valid,source:{kind:'review',reviewId:id,path:'/tmp/x'}},{...valid,source:{kind:'saved',playlistId:1}},{...valid,source:{kind:'review',reviewId:id,playlistId:'1'}},{...valid,source:{kind:'path',path:'/tmp/a'}},{...valid,destinationId:'/tmp/_Serato_'},...['../Set','a/b','a\\b','A\nB','', 'x'.repeat(201)].map(name=>({...valid,name}))])assert.throws(()=>validateRequest('previewSeratoExport',p));
+ for(const p of [{...valid,path:'/tmp/live'},{...valid,confirmed:true},{...valid,readiness:'ready'},{...valid,bytes:'abc'},{...valid,source:{kind:'review',reviewId:id,path:'/tmp/x'}},{...valid,source:{kind:'saved',playlistId:1}},{...valid,source:{kind:'review',reviewId:id,playlistId:'1'}},{...valid,source:{kind:'path',path:'/tmp/a'}},{...valid,destinationId:'/tmp/_Serato_'},...['../Set','a/b','a\\b','A\nB',' ', 'x'.repeat(201)].map(name=>({...valid,name}))])assert.throws(()=>validateRequest('previewSeratoExport',p));
  for(const p of [{previewId:id,confirmed:true},{previewId:'/tmp/x'},{}])assert.throws(()=>validateRequest('commitSeratoExport',p));
  assert.throws(()=>validateRequest('chooseSeratoDestination',{root:'/tmp'}));assert.throws(()=>validateRequest('revealSeratoExport',{path:'/tmp/x'}));
 });
@@ -26,6 +26,31 @@ test('quick export rejects paths, confirmation, destinations and unknown keys ex
  const valid={source:{kind:'review',reviewId:id},name:'Set'};
  for(const extra of [{path:'/tmp/live'},{confirmed:true},{destinationId:id},{receiptId:id},{readiness:'ready'},{bytes:'abc'},{previewId:id}])assert.throws(()=>validateRequest('quickSeratoExport',{...valid,...extra}));
  for(const source of [{kind:'review',reviewId:id,path:'/tmp/x'},{kind:'saved',playlistId:1},{kind:'saved',playlistId:'../x'},{kind:'path',path:'/tmp/a'},{kind:'review'},{kind:['review']}])assert.throws(()=>validateRequest('quickSeratoExport',{...valid,source}));
- for(const name of ['','  ','.','..','../Set','a/b','a\\b','A\nB','x'.repeat(201)])assert.throws(()=>validateRequest('quickSeratoExport',{...valid,name}));
- for(const params of [{},{source:valid.source},{name:'Set'},{source:valid.source,name:'Set',seratoRoot:'/tmp'}])assert.throws(()=>validateRequest('quickSeratoExport',params));
+ for(const name of ['  ','.','..','../Set','a/b','a\\b','A\nB','x'.repeat(201)])assert.throws(()=>validateRequest('quickSeratoExport',{...valid,name}));
+ for(const params of [{},{name:'Set'},{source:valid.source,name:'Set',seratoRoot:'/tmp'}])assert.throws(()=>validateRequest('quickSeratoExport',params));
+});
+test('a generated set may leave the crate name to the core and nothing else may',()=>{
+ const review={kind:'review',reviewId:id};
+ assert.deepEqual(validateRequest('previewSeratoExport',{source:review,destinationId:id}),{source:review,destinationId:id});
+ assert.deepEqual(validateRequest('previewSeratoExport',{source:review,destinationId:id,name:''}),{source:review,destinationId:id,name:''});
+ assert.deepEqual(validateRequest('quickSeratoExport',{source:review}),{source:review});
+ assert.deepEqual(validateRequest('quickSeratoExport',{source:review,name:''}),{source:review,name:''});
+ const saved={kind:'saved',playlistId:'1'};
+ const metadata={kind:'metadata',status:'incomplete',missingField:'bpm',trackIds:['a'.repeat(64)]};
+ for(const source of [saved,metadata]){
+  assert.throws(()=>validateRequest('previewSeratoExport',{source,destinationId:id}),/Invalid crate name/);
+  assert.throws(()=>validateRequest('previewSeratoExport',{source,destinationId:id,name:''}),/Invalid crate name/);
+  assert.throws(()=>validateRequest('quickSeratoExport',{source}),/Invalid crate name/);
+  assert.throws(()=>validateRequest('quickSeratoExport',{source,name:''}),/Invalid crate name/);
+ }
+});
+test('an automatic crate name never relaxes the generated-set boundary',()=>{
+ const review={kind:'review',reviewId:id};
+ for(const extra of [{path:'/tmp/live'},{confirmed:true},{readiness:'ready'},{bytes:'abc'},{seratoRoot:'/Volumes/dd/_Serato_'}])assert.throws(()=>validateRequest('previewSeratoExport',{source:review,destinationId:id,...extra}));
+ assert.throws(()=>validateRequest('previewSeratoExport',{source:review}),/Invalid Serato destination/);
+ assert.throws(()=>validateRequest('previewSeratoExport',{source:review,destinationId:'/tmp/_Serato_'}));
+ for(const extra of [{path:'/tmp/live'},{confirmed:true},{destinationId:id},{receiptId:id}])assert.throws(()=>validateRequest('quickSeratoExport',{source:review,...extra}));
+ for(const name of ['  ','.','..','../Set','a/b','a\\b','A\nB','x'.repeat(201)])assert.throws(()=>validateRequest('previewSeratoExport',{source:review,destinationId:id,name}));
+ for(const name of ['  ','.','..','../Set','a/b','a\\b','A\nB','x'.repeat(201)])assert.throws(()=>validateRequest('quickSeratoExport',{source:review,name}));
+ for(const source of [{kind:'review',reviewId:id,path:'/tmp/x'},{kind:'path',path:'/tmp/a'},{kind:'review'}])assert.throws(()=>validateRequest('quickSeratoExport',{source}));
 });

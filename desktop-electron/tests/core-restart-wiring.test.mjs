@@ -49,3 +49,30 @@ test('the renderer reacts to a core stop by forgetting the Serato ids it was hol
   assert.match(failure.slice(0,600),/serato\.forgetCore\(\)/,'the page drops its destination so detection runs again');
   assert.match(failure.slice(0,600),/seratoQuick\.forgetCore\(\)/,'the quick notice never keeps a receipt from the dead core');
 });
+test('a restarted core is announced once it is ready so the window leaves the stopped state',async()=>{
+  const main=await read('main.ts');
+  const started=block(main,'onStarted:',700);
+  assert.match(started,/attempt>0/,'the first core is not a restart');
+  assert.match(started,/libraryHost\.initialize\(\)/,'the watcher is re-armed on the fresh core');
+  assert.match(started,/notifyCoreRestarted/,'the announcement happens once the fresh core is armed');
+  const notify=block(main,'function notifyCoreRestarted',400);
+  assert.match(notify,/window\.isDestroyed\(\)/,'a closed window is never told anything');
+  assert.match(notify,/xfin:progress/,'the recovery travels on the existing, fail-closed progress channel');
+  assert.match(notify,/phase:'restarted'/,'the renderer learns that a supervised restart succeeded');
+  assert.match(notify,/operation:'core'/,'the same core operation carries the stop and the recovery');
+});
+test('restart exhaustion keeps the existing restart message instead of a recovery signal',async()=>{
+  const main=await read('main.ts');
+  const exhausted=block(main,'onExhausted:',400);
+  assert.match(exhausted,/log\.write/,'the limit is recorded');
+  assert.match(exhausted,/phase:'error'/,'the renderer keeps the restart-the-app message');
+  assert.doesNotMatch(exhausted,/restarted/,'an exhausted supervisor never claims a healthy core');
+});
+test('the renderer leaves the stopped state only on the restart signal',async()=>{
+  const app=await readFile(new URL('../renderer/app.ts',import.meta.url),'utf8');
+  const restored=block(app,'if (isCoreRestored(event))',400);
+  assert.match(restored,/coreAvailable = true/,'a supervised restart returns the app to its normal state');
+  assert.match(restored,/restartRequired/,'a pending manual restart is never cleared by an automatic one');
+  const failure=block(app,'if (isCoreFailure(event))',200);
+  assert.doesNotMatch(failure,/coreAvailable = true/,'a stop never reports the core as available');
+});

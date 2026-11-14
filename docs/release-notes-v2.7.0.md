@@ -45,6 +45,12 @@ if a preview still carries an id the new service does not know it re-detects onc
 and retries that preview once — you are never asked to choose a folder detection
 can find, and the confirmation, backup and same-volume checks are unchanged.
 
+Crate names for generated sets are now short and automatic — the style plus the
+export date, **Harmonic Journey 14-nov**, then **(2)** and **(3)** when that crate
+already exists in `Subcrates`, so an automatic name never replaces a different
+earlier export — while a name you type on the export screen and a saved
+playlist's name are used exactly as they are.
+
 ## Opening track search
 
 The Prepare screen no longer makes you scroll a full library list to pick the
@@ -74,6 +80,14 @@ closing or required) are still never removed, and the duplicate warning in the
 readiness check uses the same improved comparison. Different songs stay
 different: the same title by another artist, a title that only differs in its
 words, and a blank-artist row with no **Artist - Title** form are not merged.
+
+## Core restart
+
+When the local service stops, the app still says so, but a supervised restart now
+brings it back on its own: once the replacement service is up and its libraries
+are ready, the screen returns to its normal state and the operations you were
+using work again, with no need to quit XfinAudio. Only when the restart attempts
+are exhausted does the app keep the existing message asking you to restart it.
 
 ## Compatibility
 

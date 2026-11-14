@@ -121,3 +121,28 @@ test('a preview whose destination id a restarted core forgot shows the not-found
  assert.equal(f.controller.preview,null);assert.equal(f.controller.error,'','the user is never asked to choose a folder detection can find');
  assert.equal(f.calls.filter(([operation])=>operation==='preview').length,1);
 });
+test('a generated set leaves the crate name to the core while a typed name is sent unchanged', async () => {
+  const f = fixture();
+  f.controller.setSource(source, '');
+  await f.controller.chooseDestination();
+  assert.equal(f.controller.canPreview, true, 'an empty name is the automatic name of a generated set');
+  await f.controller.requestPreview();
+  assert.deepEqual(f.calls.at(-1), ['preview', { source, destinationId: destination.destinationId }], 'no name travels, so the core proposes one from the style and the date');
+  f.controller.setName('Mi sesión');
+  await f.controller.requestPreview();
+  assert.deepEqual(f.calls.at(-1), ['preview', { source, destinationId: destination.destinationId, name: 'Mi sesión' }], 'a name the user types is used unchanged');
+  f.controller.setSource({ kind: 'saved', playlistId: 'playlist-1' }, '');
+  assert.equal(f.controller.canPreview, false, 'a saved playlist still needs its own name to preview');
+});
+test('the page shows the crate name the core chose for a generated set', async () => {
+  const chosen = 'XfinAudio%%Build 6-jun.crate';
+  const f = fixture({
+    previewSeratoExport: async () => preview({ filename: chosen }),
+    commitSeratoExport: async (input) => { f.calls.push(['commit', input]); return { ...receipt, filename: chosen }; },
+  });
+  f.controller.setSource(source, ''); await f.controller.chooseDestination(); await f.controller.requestPreview();
+  assert.equal(f.controller.preview.filename, 'XfinAudio%%Build 6-jun.crate');
+  assert.equal(f.controller.canCommit, true);
+  await f.controller.commit();
+  assert.equal(f.controller.receipt.filename, chosen, 'the receipt keeps the exported crate name');
+});

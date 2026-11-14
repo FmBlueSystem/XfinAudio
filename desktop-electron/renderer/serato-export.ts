@@ -17,7 +17,8 @@ export interface SeratoExportApi {
   chooseSeratoDestination(): Promise<SeratoDestination | null>;
   /** Runs the same discovery as the picker with no native dialog, so the screen needs no folder step. */
   detectSeratoDestination(): Promise<SeratoDestination | null>;
-  previewSeratoExport(input: { source: SeratoExportSource; destinationId: string; name: string }): Promise<SeratoExportPreview>;
+  /** A generated set sends no name: the core proposes «<style> <day>-<month>» itself. */
+  previewSeratoExport(input: { source: SeratoExportSource; destinationId: string; name?: string }): Promise<SeratoExportPreview>;
   commitSeratoExport(input: { previewId: string }): Promise<SeratoExportReceipt | { cancelled: true }>;
   revealSeratoExport(input: { receiptId: string }): Promise<void>;
 }
@@ -50,7 +51,11 @@ export class SeratoExportController {
   private api: SeratoExportApi;
   private host: SeratoExportHost;
   constructor(api: SeratoExportApi, host: SeratoExportHost) { this.api = api; this.host = host; }
-  get canPreview(): boolean { return !this.pending && Boolean(this.source && this.destination && validSeratoName(this.name)); }
+  get canPreview(): boolean {
+    return !this.pending && Boolean(this.source && this.destination && (this.automaticName || validSeratoName(this.name)));
+  }
+  /** A generated set has no crate name of its own; the core names it from the style and the date. */
+  get automaticName(): boolean { return this.source?.kind === 'review' && !this.name.trim(); }
   get canCommit(): boolean {
     const preview = this.preview;
     return !this.pending && Boolean(preview && preview.previewId && preview.canCommit && ['ready', 'needs_review'].includes(preview.readiness)
@@ -113,7 +118,9 @@ export class SeratoExportController {
       if (!destination) { this.detectionMissed = true; this.destinationDetected = false; this.host.changed(); return; }
       this.destination = { destinationId: destination.destinationId, label: destination.label };
       this.destinationDetected = true; this.detectionMissed = false;
-      this.status = 'Carpeta _Serato_ detectada automáticamente en el disco de música.';
+      this.status = this.automaticName
+        ? 'Carpeta _Serato_ detectada automáticamente. El nombre del crate se propone solo, con el estilo y la fecha del día.'
+        : 'Carpeta _Serato_ detectada automáticamente en el disco de música.';
       this.invalidatePreview();
     }, (error) => { if (generation === this.generation) this.fail(error); });
   }
@@ -121,7 +128,12 @@ export class SeratoExportController {
     if (!this.canPreview || !this.source || !this.destination || !this.host.canAct()) return;
     this.invalidatePreview(); this.status = '';
     const generation = this.generation;
-    const input = { source: copySource(this.source), destinationId: this.destination.destinationId, name: this.name.trim() };
+    const input: { source: SeratoExportSource; destinationId: string; name?: string } = {
+      source: copySource(this.source),
+      destinationId: this.destination.destinationId,
+    };
+    // An empty name is not sent at all: the core owns the automatic name and its collision suffix.
+    if (!this.automaticName) input.name = this.name.trim();
     await this.run('preview', 'Preparando vista previa de Serato…', () => this.api.previewSeratoExport(input), (preview, current) => {
       if (!current || generation !== this.generation) return;
       this.preview = preview; this.status = 'Vista previa preparada. Revisa las pistas y los avisos antes de exportar.'; this.host.changed();

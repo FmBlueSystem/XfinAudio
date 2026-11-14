@@ -9,7 +9,8 @@ export type SeratoQuickResult =
   | { status: 'blocked'; filename: string; blockers: string[] }
   | { status: 'needs_destination' };
 export interface SeratoQuickExportApi {
-  quickSeratoExport(input: { source: SeratoExportSource; name: string }): Promise<SeratoQuickResult>;
+  /** A generated set sends no name: the core proposes «<style> <day>-<month>» itself. */
+  quickSeratoExport(input: { source: SeratoExportSource; name?: string }): Promise<SeratoQuickResult>;
   chooseSeratoDestination(): Promise<SeratoDestination | null>;
   revealSeratoExport(input: { receiptId: string }): Promise<void>;
 }
@@ -64,7 +65,10 @@ export class SeratoQuickExportController {
     this.request = { source: copySource(source), name };
     this.clearResult();
     const request = this.request;
-    await this.run('export', 'Exportando a Serato…', () => this.api.quickSeratoExport({ source: copySource(request.source), name: request.name }), (value) => this.apply(value as SeratoQuickResult));
+    const input: { source: SeratoExportSource; name?: string } = { source: copySource(request.source) };
+    // An empty name is not sent at all: the core owns the automatic name and its collision suffix.
+    if (request.name.trim()) input.name = request.name;
+    await this.run('export', 'Exportando a Serato…', () => this.api.quickSeratoExport(input), (value) => this.apply(value as SeratoQuickResult));
   }
   /** The notice offers this after a miss; a valid choice continues to the same confirmation. */
   async chooseDestination(): Promise<void> {

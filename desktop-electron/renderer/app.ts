@@ -36,7 +36,7 @@ import { SeratoQuickExportController, createSeratoQuickExportView, quickExportAv
 import { errorCode,userErrorMessage } from './errors.js';
 import { SavedPlaylistEditor } from './editor.js';
 import { createEditorView } from './editor-view.js';
-import { buildPrepInput, canSaveReview, filterTracks, formatDuration, formatAudioFormat, formatBitrate, hasPrepMetadata, isCoreFailure, normalizePrepName, OperationGate } from './model.js';
+import { buildPrepInput, canSaveReview, filterTracks, formatDuration, formatAudioFormat, formatBitrate, hasPrepMetadata, isCoreFailure, isCoreRestored, normalizePrepName, OperationGate } from './model.js';
 import type { LibraryResult, MetadataFilter, PlaylistSummary, PrepFields, PrepStrategy, PrepVariant, PrepVariantSummary, Readiness, ReviewResult, Route as ExistingRoute, Track, XfinApi } from './model.js';
 import { renderMetadataPanel } from './metadata.js';
 import type { MetadataReport } from './metadata.js';
@@ -577,12 +577,20 @@ function continueIdleWork(kind: string): void {
 }
 function canStartLive(): boolean { return Boolean(review?.reviewId && review.variant !== 'saved' && review.readiness === 'ready' && !review.blockers.length); }
 
+/**
+ * A generated set has no crate name of its own: the core proposes «<style> <day>-<month>» with a
+ * collision suffix, so nothing the renderer invents ever reaches Serato. A saved playlist and a
+ * name the user typed keep travelling unchanged.
+ */
+function proposedCrateName(source: SeratoExportSource, name: string): string {
+  return source.kind === 'review' ? '' : name;
+}
 function openSerato(source: SeratoExportSource, name: string): void {
   if (!coreAvailable || gate.busy) return;
   if (source.kind === 'saved' && editor.dirty && editor.draft?.id === source.playlistId) {
     showStatus('Tienes un borrador sin guardar', 'Guarda o descarta los cambios del editor antes de exportar esta playlist', true); navigate('editor', false); return;
   }
-  serato.setSource(source, name); navigate('serato', false);
+  serato.setSource(source, proposedCrateName(source, name)); navigate('serato', false);
 }
 /** The short path: one click exports from wherever the user is, or keeps the page flow on an older bridge. */
 function quickExportToSerato(source: SeratoExportSource, name: string): void {
@@ -591,7 +599,7 @@ function quickExportToSerato(source: SeratoExportSource, name: string): void {
     showStatus('Tienes un borrador sin guardar', 'Guarda o descarta los cambios del editor antes de exportar esta playlist', true); navigate('editor', false); return;
   }
   if (!quickExportAvailable(api)) { openSerato(source, name); return; }
-  void seratoQuick.export(source, name);
+  void seratoQuick.export(source, proposedCrateName(source, name));
 }
 
 function showStatus(label: string, detail = '', error = false): void {
@@ -1196,6 +1204,17 @@ if (api) {
       showStatus('Servicio local desconectado', coreFailure, true);
       element('operation-progress').hidden = true;
       syncControls();
+      return;
+    }
+    if (isCoreRestored(event)) {
+      // The supervisor replaced the dead process: the app is usable again and the user needs
+      // no restart. A manual restart the app already requires stays required.
+      if (!restartRequired) {
+        coreAvailable = true; coreFailure = ''; profilesError = ''; libraryBootError = null;
+        showStatus('Servicio local disponible', 'XfinAudio volvió a conectar con tu biblioteca después del reinicio automático.');
+        element('operation-progress').hidden = true;
+        syncControls();
+      }
       return;
     }
     if (!coreAvailable) return;
