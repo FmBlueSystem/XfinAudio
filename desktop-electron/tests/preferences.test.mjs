@@ -53,3 +53,8 @@ test('metadata-only preference refresh preserves conflict and rejects malformed 
  current=snapshot({libraryLabels:['new']});await f.controller.refreshLibraryLabels();assert.equal(f.controller.canSave,false);assert.equal(f.controller.error,error);assert.equal(f.applied.length,1);
  current={...current,revision:'invalid'};await f.controller.refreshLibraryLabels();assert.deepEqual(f.controller.snapshot.libraryLabels,['new']);assert.equal(f.controller.snapshot.previewVolume,.4);assert.equal(f.controller.canSave,false);
 });
+test('revealing the log folder is a read-only support action that never changes the draft',async()=>{
+ let revealed=0;const f=fixture({revealLogs:async()=>{revealed++;return {found:true};}});await f.controller.load();f.controller.setVolume(.4);const draft=f.controller.snapshot,applied=f.applied.length;
+ await f.controller.revealLogs();assert.equal(revealed,1);assert.equal(f.controller.snapshot,draft);assert.equal(f.controller.dirty,true);assert.equal(f.applied.length,applied);assert.match(f.controller.logNotice,/abierta/);
+ const missing=fixture();assert.equal(missing.controller.canRevealLogs,false);await missing.controller.revealLogs();assert.equal(missing.controller.logNotice,'');assert.deepEqual(missing.calls,[]);
+});
