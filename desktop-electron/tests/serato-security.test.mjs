@@ -11,3 +11,8 @@ test('Serato boundary rejects supplied paths, confirmation, readiness, bytes and
  for(const p of [{previewId:id,confirmed:true},{previewId:'/tmp/x'},{}])assert.throws(()=>validateRequest('commitSeratoExport',p));
  assert.throws(()=>validateRequest('chooseSeratoDestination',{root:'/tmp'}));assert.throws(()=>validateRequest('revealSeratoExport',{path:'/tmp/x'}));
 });
+test('automatic destination detection accepts no parameters at all',()=>{
+ assert.deepEqual(validateRequest('detectSeratoDestination',{}),{});
+ assert.deepEqual(validateRequest('detectSeratoDestination',undefined),{});
+ for(const p of [{root:'/tmp'},{path:'/Volumes/dd/_Serato_'},{seratoRoot:'/Volumes/dd/_Serato_'}])assert.throws(()=>validateRequest('detectSeratoDestination',p));
+});

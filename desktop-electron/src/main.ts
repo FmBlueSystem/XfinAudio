@@ -55,7 +55,7 @@ const closeFlow=new CloseFlow(
 const serato=new SeratoHost({
   request:run,
   choose:async()=>{
-    const selected=await dialog.showOpenDialog(window!,{title:'Elige la carpeta _Serato_ que contiene Subcrates',properties:['openDirectory']});
+    const selected=await dialog.showOpenDialog(window!,{title:'Elige la carpeta _Serato_ o la carpeta que la contiene (por ejemplo, la raíz del disco o Música)',properties:['openDirectory']});
     return selected.canceled||selected.filePaths.length!==1?null:selected.filePaths[0];
   },
   confirm:async summary=>{
@@ -172,6 +172,7 @@ async function action(method:string,raw:unknown) {
     case 'advanceLive':return run('live.next',params);
     case 'clearLive':return run('live.clear',params);
     case 'chooseSeratoDestination':return serato.choose();
+    case 'detectSeratoDestination':return serato.detect();
     case 'previewSeratoExport':return serato.preview(params);
     case 'commitSeratoExport':return serato.commit(params.previewId as string);
     case 'revealSeratoExport':return serato.reveal(params.receiptId as string);

@@ -126,3 +126,13 @@ test('the shared core request only lets reviewed inline queries bypass the activ
     'run must forward only inline queries while a job is active',
   );
 });
+test('automatic destination detection keeps the exact busy refusal', () => {
+  assert.equal(reads.isAllowedWhileBusy('detectSeratoDestination'), false, 'detection reads the filesystem, so it is never a busy-time read');
+  for (const source of SOURCES) {
+    assert.throws(
+      () => reads.assertDispatchable('detectSeratoDestination', busy({[source]: true})),
+      (error) => error.message === '[busy] Another task is still running',
+      `detectSeratoDestination must keep failing while ${source} is running`,
+    );
+  }
+});

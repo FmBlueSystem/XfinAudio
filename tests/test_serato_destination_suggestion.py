@@ -1,7 +1,9 @@
-"""TDD RED: automatic Serato destination discovery (issue #366).
+"""TDD RED: automatic Serato destination discovery (issue #366, seed-flow S1).
 
 The export flow must locate a usable `_Serato_` folder without a folder picker.
 Candidates, in order: `_Serato_` under each scanned library root, then
+`_Serato_` at the volume root of each scanned library root (a library under
+`/Volumes/dd/...` lives next to `/Volumes/dd/_Serato_`), then
 `<home>/Music/_Serato_` — the latter only when it shares the library's single
 source volume, because `serato.preview` blocks cross-volume destinations.
 """
@@ -11,8 +13,10 @@ from pathlib import Path
 import pytest
 
 from tests.test_headless_backend import tagged_flac
+from xfinaudio.headless import serato_discovery
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.serato_discovery import suggest_destination
+from xfinaudio.headless.serato_safety import volume_root
 
 
 def _serato_folder(base: Path) -> Path:
@@ -111,6 +115,65 @@ def test_suggestion_signature_rejects_missing_home(tmp_path: Path) -> None:
     library.mkdir()
     with pytest.raises(TypeError):
         suggest_destination([library])  # type: ignore[call-arg]
+
+
+def test_serato_safety_maps_the_music_drive_to_its_volume_root() -> None:
+    # The S1 real case: the library lives on /Volumes/dd and Serato keeps
+    # /Volumes/dd/_Serato_ next to it. Both sides share one volume, so the
+    # suggested folder can never be blocked by the cross-volume preview rule.
+    root = Path("/Volumes/dd/_Lossless/por_genero")
+
+    assert volume_root(root) == Path("/Volumes/dd")
+    assert volume_root(Path("/Volumes/dd/_Serato_")) == volume_root(root)
+
+
+def test_suggests_serato_folder_at_the_volume_root_of_the_library(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    drive = tmp_path / "Volumes" / "dd"
+    expected = _serato_folder(drive)
+    library = drive / "_Lossless" / "por_genero"
+    library.mkdir(parents=True)
+    monkeypatch.setattr(serato_discovery, "volume_root", lambda path: drive if path == library else volume_root(path))
+
+    assert suggest_destination([library], home=tmp_path / "home") == expected.resolve()
+
+
+def test_library_serato_folder_still_wins_over_the_volume_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    drive = tmp_path / "Volumes" / "dd"
+    library = drive / "Music"
+    library.mkdir(parents=True)
+    expected = _serato_folder(library)
+    _serato_folder(drive)
+    monkeypatch.setattr(serato_discovery, "volume_root", lambda _path: drive)
+
+    assert suggest_destination([library], home=tmp_path / "home") == expected.resolve()
+
+
+def test_volume_root_candidate_wins_over_home_music(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    drive = tmp_path / "Volumes" / "dd"
+    expected = _serato_folder(drive)
+    library = drive / "Music"
+    library.mkdir(parents=True)
+    _serato_folder(tmp_path / "home" / "Music")
+    monkeypatch.setattr(serato_discovery, "volume_root", lambda _path: drive)
+
+    assert (
+        suggest_destination([library], home=tmp_path / "home", volume_of=lambda _path: "one-volume")
+        == expected.resolve()
+    )
+
+
+def test_volume_root_serato_folder_without_subcrates_is_not_suggested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    drive = tmp_path / "Volumes" / "dd"
+    library = drive / "Music"
+    library.mkdir(parents=True)
+    (drive / "_Serato_").mkdir()
+    monkeypatch.setattr(serato_discovery, "volume_root", lambda _path: drive)
+
+    assert suggest_destination([library], home=tmp_path / "home") is None
 
 
 def test_backend_suggests_serato_folder_under_scanned_root(tmp_path: Path) -> None:

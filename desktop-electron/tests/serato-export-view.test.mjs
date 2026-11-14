@@ -13,7 +13,7 @@ const all = (node) => [node, ...node.children.flatMap(all)];
 const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
 function fixture() {
   const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; const root = new Element(); const calls = []; let available = true;
-  const controller = { source: { kind: 'saved', playlistId: 'saved-1' }, name: 'Sesión', destination: { destinationId: 'destination-1', label: 'Subcrates' }, preview: null, receipt: null, pending: null, canPreview: true, canCommit: false, error: '', status: '', setName: (value) => calls.push(['name', value]), chooseDestination: async () => calls.push(['choose']), requestPreview: async () => calls.push(['preview']), commit: async () => calls.push(['commit']), reveal: async () => calls.push(['reveal']) };
+  const controller = { source: { kind: 'saved', playlistId: 'saved-1' }, name: 'Sesión', destination: { destinationId: 'destination-1', label: 'Subcrates' }, destinationDetected: false, detectionMissed: false, preview: null, receipt: null, pending: null, canPreview: true, canCommit: false, error: '', status: '', setName: (value) => calls.push(['name', value]), chooseDestination: async () => calls.push(['choose']), requestPreview: async () => calls.push(['preview']), commit: async () => calls.push(['commit']), reveal: async () => calls.push(['reveal']) };
   const render = createSeratoExportView(root, controller, { canAct: () => available }); render();
   return { root, controller, calls, render, get: (id) => all(root).find((node) => node.id === `serato-export-${id}`), block: () => { available = false; render(); }, restore: () => { globalThis.document = previous; } };
 }
@@ -50,5 +50,23 @@ test('only the next available export step is primary and rendering never starts 
     assert.deepEqual(primary(), []); assert.match(f.get('next-step').textContent, /bloqueos/i); assert.match(text(f.get('proposal')), /Archivo ausente/);
     f.controller.preview = null; f.render(); assert.deepEqual(primary(), ['serato-export-preview']);
     f.controller.pending = 'preview'; f.render(); assert.deepEqual(primary(), []); assert.equal(f.get('name'), name); assert.deepEqual(f.calls, []);
+  } finally { f.restore(); }
+});
+test('a detected destination skips the required folder step and a miss explains itself', () => {
+  const f = fixture(); const primary = () => all(f.root).filter(node => node.tagName === 'button' && /\bprimary\b/.test(node.className) && !node.hidden).map(node => node.id);
+  try {
+    f.controller.destinationDetected = true; f.render();
+    assert.match(f.get('destination').textContent, /detectad[oa] automáticamente/i, 'a detection result must say it was automatic');
+    assert.match(f.get('next-step').textContent, /2.*previa/i, 'a detected destination moves straight to the preview step');
+    assert.deepEqual(primary(), ['serato-export-preview']); assert.match(f.get('choose').textContent, /Cambiar carpeta/);
+    f.controller.destination = null; f.controller.destinationDetected = false; f.controller.detectionMissed = true; f.controller.canPreview = false; f.render();
+    const notice = f.get('not-found'); assert.ok(notice, 'a miss must render an explanatory notice');
+    assert.equal(notice.attrs.role, 'status'); assert.equal(notice.hidden, false);
+    assert.match(notice.textContent, /no se encontró la carpeta _Serato_/i); assert.match(notice.textContent, /Abre Serato una vez/);
+    assert.deepEqual(primary(), ['serato-export-choose']); assert.equal(f.get('choose').disabled, false); assert.match(f.get('next-step').textContent, /1.*destino/i);
+    assert.deepEqual(f.calls, [], 'showing the miss must not start any operation');
+    f.controller.destination = { destinationId: 'manual', label: '_Serato_' }; f.controller.detectionMissed = false; f.controller.canPreview = true; f.render();
+    assert.equal(f.get('not-found').hidden, true, 'the notice disappears once a destination exists');
+    assert.match(f.get('destination').textContent, /Destino seleccionado/);
   } finally { f.restore(); }
 });

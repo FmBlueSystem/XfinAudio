@@ -31,10 +31,38 @@ export class SeratoHost {
         if(typeof suggestion?.suggestion==='string')selected=suggestion.suggestion;
       }catch{/* Discovery is best-effort; the native picker stays the authority. */}
       if(selected===null){selected=await this.dependencies.choose();if(selected===null)return null;}
-      this.assertOpen();const root=await realpath(selected);
-      const result=await this.dependencies.request('serato.registerDestination',{seratoRoot:root});
-      this.destinations.set(result.destinationId,root);return result;
+      this.assertOpen();return this.register(selected);
     });
+  }
+  /** The same discovery the picker uses, run on its own so the screen never needs a dialog. */
+  async detect():Promise<{destinationId:string;label:string}|null> {
+    return this.exclusive(async()=>{
+      const suggestion=await this.dependencies.request('serato.suggestDestination',{});
+      if(typeof suggestion?.suggestion!=='string')return null;
+      this.assertOpen();return this.register(suggestion.suggestion);
+    });
+  }
+  /** Registering keeps the core's canonical check, so only an existing folder reaches it. */
+  private async register(selected:string):Promise<{destinationId:string;label:string}> {
+    const root=await this.resolveSelection(selected);
+    const result=await this.dependencies.request('serato.registerDestination',{seratoRoot:root});
+    this.destinations.set(result.destinationId,root);return result;
+  }
+  /**
+   * A drive root or `~/Music` is a fair choice: use the `_Serato_` folder it directly
+   * contains, and nothing else. Both folders must be real directories, so the core's
+   * canonical and no-symlink checks still see the exact folder that will be written.
+   */
+  private async resolveSelection(selected:string):Promise<string> {
+    const root=await realpath(selected);
+    if(path.basename(root)==='_Serato_')return root;
+    const inner=path.join(root,'_Serato_');
+    try{
+      const folder=await lstat(inner),
+        subcrates=await lstat(path.join(inner,'Subcrates'));
+      if(folder.isDirectory()&&!folder.isSymbolicLink()&&subcrates.isDirectory()&&!subcrates.isSymbolicLink())return inner;
+    }catch{/* Anything else keeps the existing invalid_destination refusal. */}
+    return root;
   }
   async preview(params:Record<string,unknown>):Promise<Preview> {
     return this.exclusive(async()=>{

@@ -5,7 +5,10 @@ without showing a folder picker. Candidates, in order:
 
 1. `_Serato_` directly under each scanned library root (the usual layout: the
    DJ library and Serato live on the same volume).
-2. `<home>/Music/_Serato_`, only when it shares the library's single source
+2. `_Serato_` at the volume root of each scanned library root: a library at
+   `/Volumes/dd/_Lossless/por_genero` is served by `/Volumes/dd/_Serato_`, the
+   layout users actually have and the one the folder picker hid from them.
+3. `<home>/Music/_Serato_`, only when it shares the library's single source
    volume — `serato.preview` blocks cross-volume destinations, so suggesting
    one that cannot be used would be dishonest.
 
@@ -30,6 +33,12 @@ def suggest_destination(roots: Sequence[Path], *, home: Path, volume_of: VolumeO
     """Return the canonical `_Serato_` folder to offer first, or ``None``."""
     for root in roots:
         candidate = root / "_Serato_"
+        if _usable(candidate):
+            return candidate.resolve()
+    for root in roots:
+        # `volume_root` keeps the volume mounted-source identity, so this
+        # suggestion is always on the library's own volume.
+        candidate = volume_root(root) / "_Serato_"
         if _usable(candidate):
             return candidate.resolve()
     home_candidate = home / "Music" / "_Serato_"
