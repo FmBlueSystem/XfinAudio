@@ -17,10 +17,13 @@ def main() -> None:
     args = parser.parse_args()
     if not args.data_dir.is_absolute():
         parser.error("--data-dir must be an absolute, isolated application directory")
-    # stdout carries JSONL protocol frames only: warnings go to stderr and, when
-    # the data directory allows it, to a rotating file support can read later.
+    # stdout carries JSONL protocol frames only: warnings go to stderr at once.
+    # The rotating file is added only after the backend has accepted the data
+    # directory, so a refused directory is never written to.
+    logging_setup.configure_stderr_logging()
+    backend = HeadlessBackend(args.data_dir)
     logging_setup.configure_logging(args.data_dir)
-    server = JsonlServer(HeadlessBackend(args.data_dir), sys.stdout)
+    server = JsonlServer(backend, sys.stdout)
     try:
         server.run(sys.stdin.buffer)
     except (BrokenPipeError, KeyboardInterrupt):
