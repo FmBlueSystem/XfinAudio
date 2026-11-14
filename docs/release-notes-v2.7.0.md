@@ -39,6 +39,12 @@ choice. The export screen remains one click away as **Opciones de exportación**
 for renaming the crate or changing the folder, and metadata worklist exports keep
 their current page flow.
 
+A local service restart no longer turns into a folder prompt: the app forgets the
+Serato ids the stopped core held, finds `_Serato_` again on the next export, and
+if a preview still carries an id the new service does not know it re-detects once
+and retries that preview once — you are never asked to choose a folder detection
+can find, and the confirmation, backup and same-volume checks are unchanged.
+
 ## Opening track search
 
 The Prepare screen no longer makes you scroll a full library list to pick the

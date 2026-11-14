@@ -167,7 +167,9 @@ class SeratoExporter:
         source = load_source(self.backend, params["source"])
         destination = self.destinations.get(opaque_id(params["destinationId"]))
         if destination is None:
-            raise BackendError("invalid_destination", "Select a Serato destination first")
+            # An id belongs to this process. A restart keeps no ids, so the shell must
+            # detect the folder again instead of asking the user for one.
+            raise BackendError("unknown_destination", "Select a Serato destination first")
         blockers = list(source.blockers)
         plan, source_volume = None, None
         target: tuple[FileIdentity | None, str | None] = (None, None)

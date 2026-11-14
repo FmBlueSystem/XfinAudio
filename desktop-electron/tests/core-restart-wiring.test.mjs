@@ -35,3 +35,17 @@ test('the show-logs action is allowlisted, dispatched and exposed like the backu
   assert.match(security,/revealLogs:\[\]/,'the allowlist admits the action with no parameters');
   assert.match(preload,/revealLogs:\(\)=>invoke\('revealLogs'\),/,'the renderer reaches it through the sandboxed bridge');
 });
+test('a stopped or replaced core makes main forget every Serato id it holds',async()=>{
+  const main=await read('main.ts');
+  const stopped=block(main,'function onCoreStopped');
+  assert.match(stopped,/serato\.reset\(\)/,'a stopped core voids its destination, preview and receipt ids');
+  const wire=block(main,'const wireCore=',400);
+  assert.match(wire,/core=next;/,'every restarted core is wired in one place');
+  assert.match(wire,/serato\.reset\(\)/,'a restarted core starts with no Serato ids from the previous one');
+});
+test('the renderer reacts to a core stop by forgetting the Serato ids it was holding',async()=>{
+  const app=await readFile(new URL('../renderer/app.ts',import.meta.url),'utf8');
+  const failure=app.slice(app.indexOf('if (isCoreFailure(event))'));
+  assert.match(failure.slice(0,600),/serato\.forgetCore\(\)/,'the page drops its destination so detection runs again');
+  assert.match(failure.slice(0,600),/seratoQuick\.forgetCore\(\)/,'the quick notice never keeps a receipt from the dead core');
+});

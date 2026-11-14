@@ -99,3 +99,25 @@ test('a destination the user already chose is never replaced by automatic detect
  await f.controller.chooseDestination();f.controller.setSource({kind:'saved',playlistId:'2'},'Otra');await flush();
  assert.equal(detections,0,'a manual choice must keep winning over detection');assert.deepEqual(f.controller.destination,destination);
 });
+
+test('a core stop drops the destination and preview but keeps the source and crate name',async()=>{
+ let detections=0;const f=fixture({detectSeratoDestination:async()=>{detections++;return detected;}});
+ f.controller.setSource(source,'Mi sesión');await flush();
+ assert.deepEqual(f.controller.destination,detected);await f.controller.requestPreview();assert.ok(f.controller.preview);
+ f.controller.forgetCore();
+ assert.equal(f.controller.destination,null);assert.equal(f.controller.preview,null);
+ assert.equal(f.controller.destinationDetected,false);assert.equal(f.controller.detectionMissed,false);
+ assert.deepEqual(f.controller.source,source);assert.equal(f.controller.name,'Mi sesión');
+ assert.equal(f.controller.error,'');
+ f.controller.setSource(source,'Mi sesión');await flush();
+ assert.equal(detections,2,'using the page again detects the folder again');
+ assert.deepEqual(f.controller.destination,detected);assert.equal(f.controller.canPreview,true);
+});
+
+test('a preview whose destination id a restarted core forgot shows the not-found path, not a folder refusal',async()=>{
+ const f=fixture({detectSeratoDestination:async()=>detected,previewSeratoExport:async(input)=>{f.calls.push(['preview',input]);throw new Error("Error invoking remote method 'xfin:action': [unknown_destination] Local export unavailable");}});
+ f.controller.setSource(source,'Mi sesión');await flush();await f.controller.requestPreview();
+ assert.equal(f.controller.destination,null);assert.equal(f.controller.detectionMissed,true);
+ assert.equal(f.controller.preview,null);assert.equal(f.controller.error,'','the user is never asked to choose a folder detection can find');
+ assert.equal(f.calls.filter(([operation])=>operation==='preview').length,1);
+});

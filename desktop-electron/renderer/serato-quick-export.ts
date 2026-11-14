@@ -55,6 +55,10 @@ export class SeratoQuickExportController {
     this.notice = ''; this.detail = ''; this.blockers = []; this.receipt = null;
     this.needsDestination = false; this.tone = 'quiet';
   }
+  /** A stopped core voids the ids behind a notice; the export request survives so the button still works. */
+  forgetCore(): void {
+    this.clearResult(); this.host.changed();
+  }
   async export(source: SeratoExportSource, name: string): Promise<void> {
     if (this.pending || !this.host.canAct()) return;
     this.request = { source: copySource(source), name };

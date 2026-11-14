@@ -1,5 +1,5 @@
 import type { Readiness, Track } from './model.js';
-import { userErrorMessage } from './errors.js';
+import { errorCode, userErrorMessage } from './errors.js';
 export type SeratoExportSource = { kind: 'review'; reviewId: string } | { kind: 'saved'; playlistId: string }
   | { kind: 'metadata'; status: 'complete' | 'incomplete'; missingField: 'bpm' | 'camelot_key' | 'energy_level' | null; trackIds: string[] };
 function copySource(source: SeratoExportSource): SeratoExportSource {
@@ -57,6 +57,16 @@ export class SeratoExportController {
       && preview.blockers.length === 0 && preview.trackCount > 0 && preview.tracks.length === preview.trackCount && !preview.tracks.some((track) => track.missing));
   }
   invalidatePreview(): void { this.generation++; this.preview = null; this.host.changed(); }
+  /**
+   * A stopped or restarted core forgets every id it issued, so the destination and the preview
+   * are useless. The source, the crate name and a published receipt stay: using the page again
+   * detects the folder again instead of asking the user to find it.
+   */
+  forgetCore(): void {
+    this.destination = null; this.destinationDetected = false; this.detectionMissed = false;
+    this.error = ''; this.status = '';
+    this.invalidatePreview();
+  }
   setSource(source: SeratoExportSource | null, suggestedName?: string): void {
     this.source = source ? copySource(source) : null;
     if (suggestedName !== undefined) this.name = suggestedName;
@@ -115,7 +125,14 @@ export class SeratoExportController {
     await this.run('preview', 'Preparando vista previa de Serato…', () => this.api.previewSeratoExport(input), (preview, current) => {
       if (!current || generation !== this.generation) return;
       this.preview = preview; this.status = 'Vista previa preparada. Revisa las pistas y los avisos antes de exportar.'; this.host.changed();
-    }, (error) => { if (generation === this.generation) this.fail(error); });
+    }, (error) => {
+      if (generation !== this.generation) return;
+      if (errorCode(error) !== 'unknown_destination') { this.fail(error); return; }
+      // The core forgot the id and the host's single re-detection found nothing: this is the
+      // honest not-found path, never the "choose a valid folder" refusal.
+      this.destination = null; this.destinationDetected = false; this.detectionMissed = true;
+      this.error = ''; this.status = ''; this.invalidatePreview();
+    });
   }
   async commit(): Promise<void> {
     if (!this.canCommit || !this.preview || !this.host.canAct()) return;

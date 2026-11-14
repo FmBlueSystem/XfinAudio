@@ -24,7 +24,9 @@ test('native folder authority and exact preview feed a separate confirmation bef
  }finally{await f.clean();}
 });
 test('cancelled picker and final native confirmation never write',async()=>{
- const f=await fixture({choose:async()=>null,confirm:async()=>false});try{assert.equal(await f.host.choose(),null);assert.equal(f.calls.length,1);await assert.rejects(f.host.preview({source:{kind:'review',reviewId:'r'},destinationId:'unowned',name:'Set'}));assert.equal(f.calls.length,1);}finally{await f.clean();}
+ const f=await fixture({choose:async()=>null,confirm:async()=>false});try{assert.equal(await f.host.choose(),null);assert.equal(f.calls.length,1);await assert.rejects(f.host.preview({source:{kind:'review',reviewId:'r'},destinationId:'unowned',name:'Set'}));
+  // An id the host never issued is refused, and the only follow-up is the safety-net detection (S8).
+  assert.equal(f.calls.some(c=>c[0]==='serato.preview'),false);assert.deepEqual(f.calls.map(c=>c[0]),['serato.suggestDestination','serato.suggestDestination']);}finally{await f.clean();}
  const g=await fixture({confirm:async()=>false});try{await g.host.choose();await g.host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set'});assert.deepEqual(await g.host.commit('preview'),{cancelled:true});assert.equal(g.calls.some(c=>c[0]==='serato.commit'),false);}finally{await g.clean();}
 });
 test('close during native confirmation blocks publication and duplicate clicks are rejected',async()=>{
@@ -186,5 +188,112 @@ test('the native confirmation detail carries the crate name, destination, count,
   const main=await readFile(new URL('../src/main.ts',import.meta.url),'utf8');
   assert.match(main,/const detail=confirmationDetail\(summary\)/,'main must build the dialog from the shared detail');
   assert.match(main,/\{type:'warning',title:'Confirmar exportación a Serato',message:`¿Exportar \$\{summary\.filename\}\?`,detail,buttons:\['Cancelar','Exportar a Serato'\]/,'the one native consent uses that detail');
+ }finally{await f.clean();}
+});
+
+/** A fake core whose memory survives until `restart()`: old ids become unknown, as after a core stop. */
+function restartableCore({root,calls,summary,receipt,registered='dest-2'}){
+ let restarted=false;
+ return {
+  restart(){restarted=true;},
+  request:async(method,params)=>{
+   calls.push([method,params]);
+   if(method==='serato.suggestDestination')return {suggestion:root};
+   if(method==='serato.registerDestination')return {destinationId:restarted?registered:'dest',label:'_Serato_ · dd'};
+   if(method==='serato.preview'){
+    if(restarted&&params.destinationId!=='dest-2')throw Object.assign(new Error('[unknown_destination] Select a Serato destination first'),{code:'unknown_destination'});
+    return summary;
+   }
+   if(method==='serato.confirmation'||method==='serato.commit')return method==='serato.commit'?receipt:summary;
+   throw new Error(method);
+  },
+ };
+}
+test('a core stop forgets every destination, preview and receipt id the host holds',async()=>{
+ const f=await fixture(),core=restartableCore({root:f.root,calls:f.calls,summary:f.summary,receipt:f.receipt});
+ const host=new SeratoHost({request:core.request,choose:async()=>f.root,confirm:async()=>true,reveal:()=>{},isClosing:()=>false});
+ try{
+  await host.choose();await host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set'});await host.commit('preview');
+  host.reset();f.calls.length=0;
+  await assert.rejects(host.reveal('receipt'),error=>error.code==='invalid_preview');
+  assert.deepEqual(f.calls,[],'a receipt from the previous process is never resolved against the new one');
+  assert.deepEqual(await host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set'}),f.summary);
+  assert.deepEqual(f.calls.map(c=>c[0]),['serato.suggestDestination','serato.registerDestination','serato.preview'],'a stale page destination is detected again, never refused with a folder message');
+  f.calls.length=0;
+  assert.deepEqual(await host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'}),{status:'exported',receipt:f.receipt});
+  assert.deepEqual(f.calls.map(c=>c[0]),['serato.preview','serato.confirmation','serato.commit'],'the session destination from that detection is reused');
+ }finally{await f.clean();}
+});
+test('quick export re-detects once when a restarted core forgot the session destination',async()=>{
+ const f=await fixture(),core=restartableCore({root:f.root,calls:f.calls,summary:f.summary,receipt:f.receipt});
+ const host=new SeratoHost({request:core.request,choose:async()=>f.root,confirm:async()=>true,reveal:()=>{},isClosing:()=>false});
+ try{
+  await host.choose();core.restart();f.calls.length=0;
+  assert.deepEqual(await host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'}),{status:'exported',receipt:f.receipt});
+  assert.deepEqual(f.calls.map(c=>c[0]),['serato.preview','serato.suggestDestination','serato.registerDestination','serato.preview','serato.confirmation','serato.commit']);
+  assert.equal(f.calls[0][1].destinationId,'dest');assert.equal(f.calls[3][1].destinationId,'dest-2','the retry uses the id the new core just issued');
+  assert.equal(f.calls.filter(c=>c[0]==='serato.suggestDestination').length,1,'detection runs exactly once');
+ }finally{await f.clean();}
+});
+test('a page preview heals a destination id the core no longer knows and retries it once',async()=>{
+ const f=await fixture(),core=restartableCore({root:f.root,calls:f.calls,summary:f.summary,receipt:f.receipt});
+ const host=new SeratoHost({request:core.request,choose:async()=>f.root,confirm:async()=>true,reveal:()=>{},isClosing:()=>false});
+ try{
+  await host.choose();core.restart();f.calls.length=0;
+  assert.deepEqual(await host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set'}),f.summary);
+  assert.deepEqual(f.calls.map(c=>c[0]),['serato.preview','serato.suggestDestination','serato.registerDestination','serato.preview']);
+ }finally{await f.clean();}
+});
+test('a second unknown_destination failure is surfaced instead of retried a third time',async()=>{
+ const f=await fixture(),core=restartableCore({root:f.root,calls:f.calls,summary:f.summary,receipt:f.receipt,registered:'dest'});
+ const host=new SeratoHost({request:core.request,choose:async()=>f.root,confirm:async()=>true,reveal:()=>{},isClosing:()=>false});
+ try{
+  await host.choose();core.restart();f.calls.length=0;
+  await assert.rejects(host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set'}),error=>error.code==='unknown_destination');
+  assert.equal(f.calls.filter(c=>c[0]==='serato.preview').length,2,'one retry only');
+  assert.equal(f.calls.filter(c=>c[0]==='serato.suggestDestination').length,1,'one detection only');
+ }finally{await f.clean();}
+});
+test('an invalid_destination that is not an unknown id is never retried',async()=>{
+ const f=await fixture({request:async(method,params)=>{f.calls.push([method,params]);
+  if(method==='serato.suggestDestination')return {suggestion:f.root};
+  if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_'};
+  if(method==='serato.preview')throw Object.assign(new Error('[invalid_destination] The Serato destination or crate cannot be used safely'),{code:'invalid_destination'});
+  throw new Error(method);}});
+ try{
+  await f.host.choose();f.calls.length=0;
+  await assert.rejects(f.host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set'}),error=>error.code==='invalid_destination');
+  assert.deepEqual(f.calls.map(c=>c[0]),['serato.preview'],'a refused folder is never a reason to detect another one');
+ }finally{await f.clean();}
+});
+test('a detection that finds nothing after the id is forgotten answers needs_destination, never a folder refusal',async()=>{
+ const calls=[];let dialogs=0;
+ const host=new SeratoHost({request:async(method,params)=>{calls.push([method,params]);
+  if(method==='serato.suggestDestination')return {suggestion:null};
+  if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_'};
+  if(method==='serato.preview')throw Object.assign(new Error('[unknown_destination] gone'),{code:'unknown_destination'});
+  throw new Error(method);},
+  choose:async()=>{throw new Error('picker must not open');},confirm:async()=>{dialogs++;return true;},reveal:()=>{},isClosing:()=>false});
+ // A destination an earlier core registered, with nothing to detect now.
+ host.destinations.set('dest','/tmp/_Serato_');host.lastDestination='dest';
+ assert.deepEqual(await host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'}),{status:'needs_destination'});
+ assert.deepEqual(calls.map(c=>c[0]),['serato.preview','serato.suggestDestination'],'one detection, no second preview');
+ await assert.rejects(host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set'}),error=>error.code==='unknown_destination');
+ assert.equal(calls.filter(c=>c[0]==='serato.preview').length,1,'the page path never previews against a folder nobody detected');
+ assert.equal(calls.filter(c=>c[0]==='serato.suggestDestination').length,2,'one detection per forgotten id, never a loop');
+ assert.equal(dialogs,0);
+});
+test('a commit is never retried, not even when the core forgot the preview it belongs to',async()=>{
+ const f=await fixture({request:async(method,params)=>{f.calls.push([method,params]);
+  if(method==='serato.suggestDestination')return {suggestion:f.root};
+  if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_'};
+  if(method==='serato.preview'||method==='serato.confirmation')return f.summary;
+  if(method==='serato.commit')throw Object.assign(new Error('[stale_preview] Preview the export again'),{code:'stale_preview'});
+  throw new Error(method);}});
+ try{
+  await f.host.choose();
+  await assert.rejects(f.host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'}),error=>error.code==='stale_preview');
+  assert.equal(f.calls.filter(c=>c[0]==='serato.commit').length,1,'a write attempt is never repeated');
+  assert.equal(f.calls.filter(c=>c[0]==='serato.suggestDestination').length,1,'nothing is detected again for a commit');
  }finally{await f.clean();}
 });

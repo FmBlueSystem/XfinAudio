@@ -16,6 +16,8 @@ interface Dependencies {
   isClosing:()=>boolean;
 }
 const failure=(code:string)=>Object.assign(new Error(`[${code}] Local export unavailable`),{code});
+/** Only the core's "this id is not from this process" answer earns a re-detection; every other failure is surfaced. */
+const unknownDestinationId=(error:unknown):boolean=>(error as {code?:unknown}|null)?.code==='unknown_destination';
 /** Native authority stays in main; the renderer sees only scoped opaque handles. */
 export class SeratoHost {
   private readonly destinations=new Map<string,string>();
@@ -25,6 +27,14 @@ export class SeratoHost {
   private critical:Promise<unknown>|null=null;
   busy=false;
   constructor(private readonly dependencies:Dependencies) {}
+  /**
+   * A stopped or replaced core forgets every id it issued. Nothing bound to the previous
+   * process may be reused, and an in-flight commit keeps its own captured destination, so
+   * `waitForCommit`/shutdown still drain it while these maps are already clear.
+   */
+  reset():void {
+    this.destinations.clear();this.previews.clear();this.receipts.clear();this.lastDestination=null;
+  }
   private assertOpen():void {if(this.dependencies.isClosing())throw failure('core_stopped');}
   private async exclusive<T>(task:()=>Promise<T>):Promise<T> {
     this.assertOpen();if(this.busy)throw failure('busy');this.busy=true;
@@ -76,10 +86,31 @@ export class SeratoHost {
     return root;
   }
   async preview(params:Record<string,unknown>):Promise<Preview> {
-    return this.exclusive(()=>this.previewSource(params));
+    return this.exclusive(async()=>{
+      const preview=await this.previewDetectingOnce(params);
+      // Detection found nothing after the id was forgotten: the page shows its not-found notice.
+      if(!preview)throw failure('unknown_destination');
+      return preview;
+    });
+  }
+  /**
+   * The safety net: a destination id the core does not know (a restart) is forgotten and
+   * resolved by one detection and one retry. Nothing else is retried, and a commit is
+   * never part of this path.
+   */
+  private async previewDetectingOnce(params:Record<string,unknown>):Promise<Preview|null> {
+    try{return await this.previewSource(params);}
+    catch(error){
+      if(!unknownDestinationId(error))throw error;
+      const forgotten=String(params.destinationId);
+      this.destinations.delete(forgotten);if(this.lastDestination===forgotten)this.lastDestination=null;
+      const detected=await this.detectDestination();
+      if(!detected)return null;
+      return await this.previewSource({...params,destinationId:detected.destinationId});
+    }
   }
   private async previewSource(params:Record<string,unknown>):Promise<Preview> {
-    const destination=this.destinations.get(String(params.destinationId));if(!destination)throw failure('invalid_destination');
+    const destination=this.destinations.get(String(params.destinationId));if(!destination)throw failure('unknown_destination');
     const source=params.source as {kind:string;playlistId?:string;reviewId?:string};
     const resolved=source.kind==='saved'?{kind:'saved',playlistId:Number(source.playlistId)}:source;
     const result:Preview=await this.dependencies.request('serato.preview',{...params,source:resolved});
@@ -114,7 +145,8 @@ export class SeratoHost {
         destinationId=detected.destinationId;
       }
       this.assertOpen();
-      const preview=await this.previewSource({...params,destinationId});
+      const preview=await this.previewDetectingOnce({...params,destinationId});
+      if(!preview)return {status:'needs_destination'};
       if(!preview.canCommit||preview.blockers.length)return {status:'blocked',filename:preview.filename,blockers:[...preview.blockers]};
       const committed=await this.commitPreview(preview.previewId);
       return 'cancelled' in committed?{status:'cancelled'}:{status:'exported',receipt:committed};

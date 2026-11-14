@@ -1185,7 +1185,10 @@ if (api) {
       invalidateAiSource();
       loudness.invalidateContext();
       editor.invalidatePreview();
-      serato.invalidatePreview();
+      // Every Serato id lived in the process that just stopped: drop the destination and the
+      // preview so the page detects the folder again, and forget a stale quick-export notice.
+      serato.forgetCore();
+      seratoQuick.forgetCore();
       live.invalidate({ preserveSnapshot: true });
       invalidatePrep({ preserveLive: true });
       console.error('Local core stopped', event.message);

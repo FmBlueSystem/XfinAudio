@@ -132,3 +132,15 @@ test('the notice offers the folder choice on a miss and lists the blockers on a 
     assert.equal(f.get('serato-quick-export').hidden, true, 'an empty state must not leave a stale notice');
   } finally { f.restore(); }
 });
+
+test('a core stop drops a stale notice and receipt but keeps the request for the same export',async()=>{
+ const f=fixture();await f.controller.export(source,'Mi sesión');
+ assert.deepEqual(f.controller.receipt,receipt);assert.match(f.controller.notice,/exportado a Serato/);
+ f.controller.forgetCore();
+ assert.equal(f.controller.receipt,null);assert.equal(f.controller.notice,'');assert.equal(f.controller.detail,'');
+ assert.equal(f.controller.needsDestination,false);assert.deepEqual(f.controller.blockers,[]);assert.equal(f.controller.tone,'quiet');
+ assert.deepEqual(f.controller.request,{source,name:'Mi sesión'});
+ await f.controller.export(source,'Mi sesión');
+ assert.deepEqual(f.calls.filter(([operation])=>operation==='export').length,2,'the button exports again through the fresh core');
+ assert.deepEqual(f.controller.receipt,receipt);
+});

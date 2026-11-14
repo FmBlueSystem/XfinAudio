@@ -228,6 +228,8 @@ function onCoreProgress(message:any):void {
  */
 function onCoreStopped(message:string):void {
   current=null;
+  // The dead process kept every Serato destination, preview and receipt id in memory.
+  serato.reset();
   void libraryHost.close();
   if(window&&!window.isDestroyed())window.webContents.send('xfin:progress',{jobId:'',operation:'core',phase:'error',message});
 }
@@ -243,6 +245,8 @@ async function start() {
   /** Every core the supervisor creates is wired here, so main keeps one event contract across restarts. */
   const wireCore=(next:PythonBridge):PythonBridge=>{
     core=next;
+    // A fresh core knows no id the previous one issued, so nothing may survive a restart.
+    serato.reset();
     next.on('progress',message=>onCoreProgress(message));
     next.on('stopped',message=>onCoreStopped(message));
     return next;
