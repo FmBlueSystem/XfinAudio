@@ -52,6 +52,23 @@ track pickers are unchanged in this release.
 The library search box shares the same matcher, so it now also finds tracks by
 BPM and ignores accents; it never loses a match it found before.
 
+## No repeated songs in generated sets
+
+A generated set no longer holds the same song twice under different metadata.
+The candidate pool already collapsed duplicate versions before choosing the
+running order; it now also recognises the differences DJ pools invent for one
+recording, so **YMCA**, **Y.M.C.A.**, **YMCA (Hot Tracks)** and **Y.M.C.A. (DJ
+Edit)** count as one song, as do **The Village People** and **Village People**.
+Punctuation and accents are ignored (**Y.M.C.A.** = **YMCA**, **I've** =
+**Ive**, **Brújula** = **Brujula**), one leading article is ignored on the
+artist, and a row with no artist whose title reads **Artist - Title** takes its
+artist from the title — which is how the two **The Killers - All These Things
+I've Done** rows with a blank artist are recognised. Tracks you pin (opening,
+closing or required) are still never removed, and the duplicate warning in the
+readiness check uses the same improved comparison. Different songs stay
+different: the same title by another artist, a title that only differs in its
+words, and a blank-artist row with no **Artist - Title** form are not merged.
+
 ## Compatibility
 
 - macOS only, unchanged. No Serato database V2 writes.

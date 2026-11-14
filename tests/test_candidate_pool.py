@@ -316,6 +316,33 @@ def test_dedupe_distinct_songs_outside_parens_never_collapse():
 
 
 # ---------------------------------------------------------------------------
+# S7 (odd/tasks/xfinaudio-serato-seed-ux.md): one version per song in a
+# generated set. Fixtures are the user's verbatim rows from the screenshot.
+# ---------------------------------------------------------------------------
+
+
+def _ymca_pool() -> list[TrackRecord]:
+    return [
+        _record("/ymca-1.mp3", title="YMCA", artist="The Village People", status="complete"),
+        _record("/ymca-2.mp3", title="Y.M.C.A.", artist="The Village People", status="complete"),
+        _record("/ymca-3.mp3", title="YMCA (Hot Tracks)", artist="Village People", status="complete"),
+        _record("/ymca-4.mp3", title="Y.M.C.A. (DJ Edit)", artist="Village People", status="complete"),
+    ]
+
+
+def test_dedupe_collapses_the_four_s7_ymca_rows_and_keeps_a_pinned_one():
+    pool = _ymca_pool()
+    assert len(dedupe_recommendation_duplicates(pool, controls=None)) == 1
+
+    # A track the user pins as the opening track is never removed, even when it
+    # is not the representative the sort key would pick on its own.
+    pinned_path = "/ymca-4.mp3"
+    controls = DJControls(start_path=pinned_path)
+    result = dedupe_recommendation_duplicates(pool, controls=controls)
+    assert [r.path for r in result] == [pinned_path]
+
+
+# ---------------------------------------------------------------------------
 # CRITICAL 2 correction (native 4R review): distinct fully-parenthetical
 # titles (e.g. "(Intro)"/"(Outro)") must never collapse just because both
 # normalize to an empty playlist-grouping title.
