@@ -5,11 +5,13 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import sqlite3
 from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from xfinaudio.audio.danceability import (
     CURRENT_DANCEABILITY_VERSION,
@@ -41,6 +43,10 @@ _RAW_METADATA_ALLOWLIST_SCHEMA_VERSION = 4
 # Bound placeholders per IN (...) clause. Modern SQLite allows 32766, older
 # builds only 999; 900 stays safe everywhere and keeps queries small.
 _MAX_QUERY_VARIABLES = 900
+# Pre-migration copies kept next to the database. Two recover one failed upgrade
+# without letting repeated downgrades fill the data directory; the copy of the
+# migration that just ran is never among the ones dropped.
+_SCHEMA_BACKUP_KEEP = 2
 _METADATA_REFRESH_SUFFIXES = frozenset({".mp3", ".flac", ".wav", ".aif", ".aiff", ".m4a"})
 
 
@@ -50,6 +56,58 @@ class DatabaseSchemaError(RuntimeError):
 
 class UnsupportedDatabaseVersionError(DatabaseSchemaError):
     """Raised when a database was created by a newer unsupported schema."""
+
+
+class DatabaseBackupError(DatabaseSchemaError):
+    """Raised when the pre-migration copy cannot be created or verified."""
+
+
+def _copy_database(source_path: Path, target_path: Path) -> None:
+    """Copy a live database with the SQLite backup API, never a plain file copy.
+
+    A byte copy of an open database can capture a torn page or miss the journal;
+    ``Connection.backup`` copies a consistent snapshot of the committed state.
+    """
+    with database_connection(source_path) as source:
+        target = sqlite3.connect(target_path)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+
+
+def _database_user_version(path: Path) -> int:
+    """Return the ``user_version`` of a database file the application owns."""
+    with sqlite3.connect(path) as connection:
+        return int(connection.execute("PRAGMA user_version").fetchone()[0])
+
+
+def _discard(path: Path) -> None:
+    """Best-effort removal of a scratch or expired file beside the database."""
+    with contextlib.suppress(OSError):
+        path.unlink()
+
+
+def _modified_ns(path: Path) -> int:
+    """Order backups by age; a file that vanished mid-prune sorts as oldest."""
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
+def _sync_directory(path: Path) -> None:
+    """Persist a rename; best effort, since some filesystems reject it."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
 
 
 class TrackRepository:
@@ -680,28 +738,115 @@ class TrackRepository:
 
     def _initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as connection:
-            # SQLite DDL needs an explicit transaction for an all-or-nothing migration.
-            connection.execute("BEGIN IMMEDIATE")
-            schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version > SCHEMA_VERSION:
-                raise UnsupportedDatabaseVersionError(
-                    f"Unsupported database schema version {schema_version}; "
-                    f"current application supports {SCHEMA_VERSION}"
-                )
-            if schema_version == 0 and self._tracks_table_exists(connection):
-                raise DatabaseSchemaError(
-                    "Unversioned database contains an existing tracks table; "
-                    "refusing to mark it as schema v1 without an explicit migration"
-                )
-            self._ensure_schema(connection)
-            needs_raw_metadata_trim = 0 < schema_version < _RAW_METADATA_ALLOWLIST_SCHEMA_VERSION
+        # The copy must exist before the migration writes anything, and a failure
+        # in any migration step (including the VACUUM that runs after the DDL
+        # transaction commits) has to put the previous file back.
+        backup_path = self._backup_before_migration()
+        try:
+            with self._connect() as connection:
+                # SQLite DDL needs an explicit transaction for an all-or-nothing migration.
+                connection.execute("BEGIN IMMEDIATE")
+                schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+                if schema_version > SCHEMA_VERSION:
+                    raise UnsupportedDatabaseVersionError(
+                        f"Unsupported database schema version {schema_version}; "
+                        f"current application supports {SCHEMA_VERSION}"
+                    )
+                if schema_version == 0 and self._tracks_table_exists(connection):
+                    raise DatabaseSchemaError(
+                        "Unversioned database contains an existing tracks table; "
+                        "refusing to mark it as schema v1 without an explicit migration"
+                    )
+                self._ensure_schema(connection)
+                needs_raw_metadata_trim = 0 < schema_version < _RAW_METADATA_ALLOWLIST_SCHEMA_VERSION
+                if needs_raw_metadata_trim:
+                    self._trim_legacy_raw_metadata(connection)
+                if schema_version < SCHEMA_VERSION:
+                    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             if needs_raw_metadata_trim:
-                self._trim_legacy_raw_metadata(connection)
-            if schema_version < SCHEMA_VERSION:
-                connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        if needs_raw_metadata_trim:
-            self._reclaim_free_pages()
+                self._reclaim_free_pages()
+        except DatabaseSchemaError:
+            # Refusals describe the state they found and must leave it untouched.
+            raise
+        except BaseException:
+            if backup_path is not None:
+                try:
+                    self._restore_backup(backup_path)
+                except Exception:
+                    LOGGER.exception(
+                        "Schema migration failed and %s could not be restored from %s",
+                        self.db_path,
+                        backup_path,
+                    )
+            raise
+
+    def _backup_before_migration(self) -> Path | None:
+        """Copy an older database before the migration touches it.
+
+        Returns the copy's path, or ``None`` when there is nothing to copy: a new
+        file, an empty file or a database already at ``SCHEMA_VERSION``.
+        """
+        if not self.db_path.exists():
+            return None
+        previous_version = _database_user_version(self.db_path)
+        if not 0 < previous_version < SCHEMA_VERSION:
+            return None
+        backup_path = self.db_path.with_name(f"{self.db_path.name}.schema-v{previous_version}.bak")
+        # Scratch name stays beside the database so the final rename is atomic.
+        temporary = self.db_path.with_name(f".{self.db_path.name}.{uuid4().hex}.backup")
+        try:
+            _copy_database(self.db_path, temporary)
+            copied_version = _database_user_version(temporary)
+            if copied_version != previous_version:
+                raise DatabaseBackupError(
+                    f"Copy of {self.db_path} reports schema version {copied_version}, expected {previous_version}"
+                )
+            os.replace(temporary, backup_path)
+        except DatabaseBackupError:
+            _discard(temporary)
+            raise
+        except (OSError, sqlite3.Error) as error:
+            _discard(temporary)
+            raise DatabaseBackupError(
+                f"Could not copy {self.db_path} before migrating from schema version "
+                f"{previous_version} to {SCHEMA_VERSION}: {error}"
+            ) from error
+        LOGGER.info(
+            "Backed up %s (schema v%s) to %s before migrating to v%s",
+            self.db_path,
+            previous_version,
+            backup_path,
+            SCHEMA_VERSION,
+        )
+        self._prune_schema_backups(keep=backup_path)
+        return backup_path
+
+    def _restore_backup(self, backup_path: Path) -> None:
+        """Put the pre-migration copy back, atomically for the database path."""
+        LOGGER.warning("Restoring %s from %s after a failed schema migration", self.db_path, backup_path)
+        temporary = self.db_path.with_name(f".{self.db_path.name}.{uuid4().hex}.restore")
+        _discard(temporary)
+        try:
+            _copy_database(backup_path, temporary)
+            with open(temporary, "rb") as handle:
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.db_path)
+            # A journal left by the failed migration describes discarded bytes,
+            # so replaying it against the restored file would corrupt it.
+            _discard(self.db_path.with_name(self.db_path.name + "-journal"))
+            _sync_directory(self.db_path.parent)
+        finally:
+            _discard(temporary)
+
+    def _prune_schema_backups(self, keep: Path) -> None:
+        """Drop the oldest copies, never the backup this migration just wrote."""
+        candidates = [
+            path for path in self.db_path.parent.glob(f"{self.db_path.name}.schema-v*.bak") if path.name != keep.name
+        ]
+        candidates.sort(key=_modified_ns, reverse=True)
+        for stale in candidates[_SCHEMA_BACKUP_KEEP - 1 :]:
+            LOGGER.info("Dropping old database backup %s", stale)
+            _discard(stale)
 
     @staticmethod
     def _trim_legacy_raw_metadata(connection: sqlite3.Connection) -> None:
