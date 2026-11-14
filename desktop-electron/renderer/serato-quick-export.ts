@@ -1,7 +1,8 @@
+import { parentCrateLabel } from './serato-export.js';
 import type { SeratoDestination, SeratoExportHost, SeratoExportSource } from './serato-export.js';
 
 /** The receipt main returns after a validated crate write; the renderer only handles its opaque id. */
-export interface SeratoQuickReceipt { receiptId: string; filename: string; destinationLabel: string; trackCount: number; validated: true; backupCreated: boolean; }
+export interface SeratoQuickReceipt { receiptId: string; filename: string; destinationLabel: string; trackCount: number; validated: true; backupCreated: boolean; parentsCreated: string[]; }
 /** What one quick export answered: a receipt, a block, a missing destination, or a native cancellation. */
 export type SeratoQuickResult =
   | { status: 'exported'; receipt: SeratoQuickReceipt }
@@ -25,6 +26,11 @@ function copySource(source: SeratoExportSource): SeratoExportSource {
   return source.kind === 'review' ? { kind: 'review', reviewId: source.reviewId } : { kind: 'saved', playlistId: source.playlistId };
 }
 function crateName(filename: string): string { return filename.replace(/\.crate$/i, ''); }
+/** The confirmation announces what will be created; this notice says what was, in the same short form. */
+function createdParentsLine(names: string[]): string[] {
+  const shown = names.map(parentCrateLabel); if (!shown.length) return [];
+  return [shown.length === 1 ? `Crate padre «${shown[0]}» creado` : `Crates padre creados: ${shown.map((name) => `«${name}»`).join(', ')}`];
+}
 /**
  * One click runs destination detection, preview and the native confirmation in main and
  * stays on the current screen. It never carries a path, a destination or a confirmation
@@ -91,7 +97,8 @@ export class SeratoQuickExportController {
         || typeof receipt.destinationLabel !== 'string' || typeof receipt.trackCount !== 'number' || !Number.isFinite(receipt.trackCount)) throw Object.assign(new Error('Invalid export result'), { code: 'invalid_params' });
       this.receipt = receipt; this.needsDestination = false; this.blockers = []; this.tone = 'success';
       this.notice = `Crate «${crateName(receipt.filename)}» exportado a Serato`;
-      this.detail = `${receipt.filename} · ${receipt.destinationLabel} · ${receipt.trackCount} ${receipt.trackCount === 1 ? 'pista' : 'pistas'}`;
+      const createdParents = Array.isArray(receipt.parentsCreated) ? receipt.parentsCreated.filter((name) => typeof name === 'string') : [];
+      this.detail = [`${receipt.filename} · ${receipt.destinationLabel} · ${receipt.trackCount} ${receipt.trackCount === 1 ? 'pista' : 'pistas'}`, ...createdParentsLine(createdParents)].join(' · ');
       return;
     }
     if (result.status === 'blocked') {

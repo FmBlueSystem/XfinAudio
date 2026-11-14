@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { SeratoExportController } from '../.out/renderer/serato-export.js';
+import { SeratoExportController, parentCrateLabel } from '../.out/renderer/serato-export.js';
 const source = { kind: 'review', reviewId: 'review-1' };
 const destination = { destinationId: 'destination-1', label: 'Subcrates · Disco DJ' };
 const preview = (patch = {}) => ({ previewId: 'preview-1', sourceRevision: 'revision-1', filename: 'Mi sesión.crate', destinationLabel: destination.label, trackCount: 2, readiness: 'needs_review', warnings: ['Revisa la transición'], blockers: [], canCommit: true, tracks: [{ id: 'a', title: 'A', artist: 'Artista' }, { id: 'b', title: 'B', artist: 'Artista' }], backup: { required: true }, ...patch });
@@ -13,6 +13,11 @@ function fixture(overrides = {}) {
   const controller = new SeratoExportController(api, { canAct: () => !busy, changed: () => {}, perform: async (_label, task, apply, failure) => { if (busy) return; busy = true; const started = revision; try { apply(await task(), started === revision); } catch (error) { failure(error); } finally { busy = false; } } });
   return { controller, calls, leave: () => { revision++; }, busy: () => { busy = true; }, ready: async () => { controller.setSource(source, '  Mi sesión  '); await controller.chooseDestination(); await controller.requestPreview(); } };
 }
+test('parent crate names read with Serato nesting shown as › to the user', () => {
+  assert.equal(parentCrateLabel('XfinAudio%%Metadata'), 'XfinAudio › Metadata');
+  assert.equal(parentCrateLabel('XfinAudio%%Metadata%%Pendientes'), 'XfinAudio › Metadata › Pendientes');
+  assert.equal(parentCrateLabel('XfinAudio'), 'XfinAudio');
+});
 test('preview and export are separate explicit actions with no paths, bytes or confirmation flags', async () => {
   const f = fixture(); await f.controller.requestPreview(); await f.controller.commit(); assert.deepEqual(f.calls, []); await f.ready();
   assert.deepEqual(f.calls, [['choose'], ['preview', { source, destinationId: destination.destinationId, name: 'Mi sesión' }]]); assert.equal(f.controller.canCommit, true); assert.equal(f.controller.receipt, null);

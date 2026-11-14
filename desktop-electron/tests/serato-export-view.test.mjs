@@ -52,6 +52,19 @@ test('only the next available export step is primary and rendering never starts 
     f.controller.pending = 'preview'; f.render(); assert.deepEqual(primary(), []); assert.equal(f.get('name'), name); assert.deepEqual(f.calls, []);
   } finally { f.restore(); }
 });
+test('the page preview announces the parent crates the export will create', () => {
+  const f = fixture(); try {
+    const preview = { previewId: 'p', filename: 'XfinAudio%%Build 14-nov.crate', destinationLabel: 'Subcrates · Disco DJ', trackCount: 2, readiness: 'ready', warnings: [], blockers: [], canCommit: true, backup: { required: false }, parentsToCreate: ['XfinAudio'], tracks: [{ title: 'Uno', artist: 'A' }, { title: 'Dos', artist: 'B' }] };
+    f.controller.preview = preview; f.controller.canCommit = true; f.render();
+    assert.match(text(f.get('proposal')), /Se creará el crate «XfinAudio»/, 'one missing parent is announced before exporting');
+    f.controller.preview = { ...preview, parentsToCreate: ['XfinAudio', 'XfinAudio%%Metadata'] }; f.render();
+    assert.match(text(f.get('proposal')), /Se crearán los crates «XfinAudio», «XfinAudio › Metadata»/);
+    f.controller.preview = { ...preview, parentsToCreate: [] }; f.render();
+    assert.doesNotMatch(text(f.get('proposal')), /crates? «/, 'a preview without missing parents adds no line');
+    f.controller.preview = { ...preview, parentsToCreate: undefined }; f.render();
+    assert.doesNotMatch(text(f.get('proposal')), /crates? «/, 'a preview without the field renders exactly as before');
+  } finally { f.restore(); }
+});
 test('a detected destination skips the required folder step and a miss explains itself', () => {
   const f = fixture(); const primary = () => all(f.root).filter(node => node.tagName === 'button' && /\bprimary\b/.test(node.className) && !node.hidden).map(node => node.id);
   try {

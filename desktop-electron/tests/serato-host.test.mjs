@@ -4,7 +4,7 @@ import {createRequire} from 'node:module';
 import {mkdtemp,mkdir,writeFile,symlink,realpath,rm,readFile} from 'node:fs/promises';
 import os from 'node:os';import path from 'node:path';
 const require=createRequire(import.meta.url);
-const {SeratoHost,confirmationDetail}=require('../.out/main/serato-host.js');
+const {SeratoHost,confirmationDetail,parentCratesLine}=require('../.out/main/serato-host.js');
 const deferred=()=>{let resolve;return {promise:new Promise(r=>{resolve=r;}),resolve:v=>resolve(v)};};
 async function fixture(overrides={}) {
  const temp=await realpath(await mkdtemp(path.join(os.tmpdir(),'xfin-serato-host-'))),root=path.join(temp,'_Serato_');await mkdir(path.join(root,'Subcrates'),{recursive:true});
@@ -188,6 +188,35 @@ test('the native confirmation detail carries the crate name, destination, count,
   const main=await readFile(new URL('../src/main.ts',import.meta.url),'utf8');
   assert.match(main,/const detail=confirmationDetail\(summary\)/,'main must build the dialog from the shared detail');
   assert.match(main,/\{type:'warning',title:'Confirmar exportación a Serato',message:`¿Exportar \$\{summary\.filename\}\?`,detail,buttons:\['Cancelar','Exportar a Serato'\]/,'the one native consent uses that detail');
+ }finally{await f.clean();}
+});
+
+test('the native confirmation detail names the parent crates only when one will be created',async()=>{
+ const f=await fixture();try{
+  const base={destinationPath:f.root,filename:'XfinAudio%%Build 14-nov.crate',trackCount:2,backup:{required:false},warnings:[]};
+  const flat={...base,filename:'Sesión.crate',parentsToCreate:[]};
+  assert.equal(confirmationDetail(flat),`Destino: ${path.join(f.root,'Subcrates','Sesión.crate')}\n\n2 pistas en el orden revisado\n\nSe creará un crate nuevo.`,'an export without parent crates reads exactly as before');
+  assert.match(confirmationDetail({...base,parentsToCreate:['XfinAudio']}),/\n\nSe creará el crate «XfinAudio»/,'one missing parent gets one line');
+  assert.match(confirmationDetail({...base,filename:'XfinAudio%%Metadata%%Pendientes.crate',parentsToCreate:['XfinAudio','XfinAudio%%Metadata']}),/\n\nSe crearán los crates «XfinAudio», «XfinAudio › Metadata»/,'two parents nest with › instead of %%');
+  assert.doesNotMatch(confirmationDetail(flat),/crates? «/,'no parent list means no extra line');
+ }finally{await f.clean();}
+});
+test('the page and the native dialog phrase the parent crates identically',async()=>{
+ const page=require('../.out/renderer/serato-export.js').parentCratesLine;
+ for(const names of [[],['XfinAudio'],['XfinAudio','XfinAudio%%Metadata']])assert.equal(page(names),parentCratesLine(names),'the two Spanish copies must not drift');
+});
+test('the native dialog receives the parent list the core reported, unchanged',async()=>{
+ const f=await fixture();try{
+  const summary={...f.summary,filename:'XfinAudio%%Build 14-nov.crate',parentsToCreate:['XfinAudio']};
+  f.host.dependencies.request=async(method,params)=>{f.calls.push([method,params]);
+   if(method==='serato.suggestDestination')return {suggestion:f.root};
+   if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_'};
+   if(method==='serato.preview'||method==='serato.confirmation')return summary;
+   if(method==='serato.commit')return f.receipt;throw new Error(method);};
+  await f.host.choose();await f.host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set'});await f.host.commit('preview');
+  const dialog=f.calls.find(c=>c[0]==='dialog')[1];
+  assert.deepEqual(dialog.parentsToCreate,['XfinAudio'],'the host forwards the list it was given');
+  assert.match(confirmationDetail(dialog),/Se creará el crate «XfinAudio»/);
  }finally{await f.clean();}
 });
 

@@ -379,3 +379,14 @@ def test_sanitize_name_removes_path_separators_and_rejects_empty_results() -> No
 
     with pytest.raises(ValueError, match="at least one safe character"):
         _sanitize_name(" ... ")
+
+
+def test_parent_crate_names_of_a_nested_crate_are_its_ancestors_outermost_first() -> None:
+    from xfinaudio.exporting.serato_playlist_exporter import parent_crate_names
+
+    # Serato nests crates with `%%`, so «XfinAudio%%Harmonic Journey 14-nov» lives under «XfinAudio».
+    assert parent_crate_names("XfinAudio%%Harmonic Journey 14-nov") == ("XfinAudio",)
+    assert parent_crate_names("XfinAudio%%Metadata%%Pendientes") == ("XfinAudio", "XfinAudio%%Metadata")
+    # A flat crate name needs no ancestor at all.
+    assert parent_crate_names("Sesión guardada") == ()
+    assert parent_crate_names("XfinAudio") == ()

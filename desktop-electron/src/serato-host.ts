@@ -1,12 +1,22 @@
 import path from 'node:path';
 import {lstat,realpath} from 'node:fs/promises';
-export interface Preview {previewId:string;filename:string;destinationLabel:string;trackCount:number;readiness:string;warnings:string[];blockers:string[];canCommit:boolean;backup:{required:boolean};}
-export interface Receipt {receiptId:string;filename:string;destinationLabel:string;trackCount:number;validated:true;backupCreated:boolean;}
+export interface Preview {previewId:string;filename:string;destinationLabel:string;trackCount:number;readiness:string;warnings:string[];blockers:string[];canCommit:boolean;parentsToCreate:string[];backup:{required:boolean};}
+export interface Receipt {receiptId:string;filename:string;destinationLabel:string;trackCount:number;validated:true;backupCreated:boolean;parentsCreated:string[];}
 /** What one quick export answered: a receipt, a block, a missing destination, or a native cancellation. */
 export type QuickExportResult={status:'exported';receipt:Receipt}|{status:'cancelled'}|{status:'blocked';filename:string;blockers:string[]}|{status:'needs_destination'};
+/** `%%` is how Serato nests crates; the user reads a nested ancestor as «XfinAudio › Metadata». */
+export function parentCrateLabel(name:string):string {return name.split('%%').join(' › ');}
+/** One Spanish sentence about the ancestor crates a confirmed commit will create; empty when there are none. */
+export function parentCratesLine(names:string[]):string {
+  const shown=names.map(parentCrateLabel);if(!shown.length)return '';
+  return shown.length===1?`Se creará el crate «${shown[0]}»`:`Se crearán los crates ${shown.map(name=>`«${name}»`).join(', ')}`;
+}
 /** The exact native confirmation copy, built in one place so the dialog cannot drift from the preview. */
-export function confirmationDetail(summary:{destinationPath:string;filename:string;trackCount:number;backup:{required:boolean};warnings:string[]}):string {
-  return [`Destino: ${path.join(summary.destinationPath,'Subcrates',summary.filename)}`,`${summary.trackCount} pistas en el orden revisado`,summary.backup.required?'Se reemplazará el crate existente y se conservará una copia de seguridad.':'Se creará un crate nuevo.',...summary.warnings].join('\n\n');
+export function confirmationDetail(summary:{destinationPath:string;filename:string;trackCount:number;backup:{required:boolean};warnings:string[];parentsToCreate?:string[]}):string {
+  const lines=[`Destino: ${path.join(summary.destinationPath,'Subcrates',summary.filename)}`,`${summary.trackCount} pistas en el orden revisado`,summary.backup.required?'Se reemplazará el crate existente y se conservará una copia de seguridad.':'Se creará un crate nuevo.'];
+  const parents=parentCratesLine(summary.parentsToCreate??[]);if(parents)lines.push(parents);
+  lines.push(...summary.warnings);
+  return lines.join('\n\n');
 }
 interface Dependencies {
   request:(method:string,params:Record<string,unknown>)=>Promise<any>;

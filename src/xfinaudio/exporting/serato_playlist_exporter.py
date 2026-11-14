@@ -406,6 +406,16 @@ def _sanitize_name(value: str) -> str:
     return sanitized
 
 
+def parent_crate_names(crate_name: str) -> tuple[str, ...]:
+    """Ancestors of a nested crate name, outermost first (`A%%B%%C` needs `A` and `A%%B`).
+
+    Serato nests a crate under the leading segment of a `%%` name, so every proper
+    prefix of the name is an ancestor. A flat name has no ancestor at all.
+    """
+    segments = crate_name.split("%%")
+    return tuple("%%".join(segments[:index]) for index in range(1, len(segments)))
+
+
 __all__ = [
     "SERATO_FOLDER_NAME",
     "SERATO_SUBCRATES_DIR",
@@ -417,6 +427,7 @@ __all__ = [
     "plan_metadata_missing_field_serato_export",
     "plan_metadata_status_serato_export",
     "plan_serato_playlist_export",
+    "parent_crate_names",
     "select_serato_library_for_tracks",
     "to_serato_crate_path",
 ]

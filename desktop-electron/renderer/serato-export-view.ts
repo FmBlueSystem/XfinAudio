@@ -1,6 +1,6 @@
 import type { Readiness } from './model.js';
 import type { SeratoExportController } from './serato-export.js';
-import { validSeratoName } from './serato-export.js';
+import { parentCratesLine, validSeratoName } from './serato-export.js';
 import { SERATO_NOT_FOUND_MESSAGE } from './serato-quick-export.js';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
@@ -61,6 +61,8 @@ export function createSeratoExportView(root: HTMLElement, controller: SeratoExpo
       if (preview) {
         assessment.append(make('p', `Archivo: ${preview.filename}`), make('p', `Destino: ${preview.destinationLabel}`), make('p', `${preview.trackCount} pistas`), make('span', readiness[preview.readiness], `readiness-pill ${preview.readiness}`));
         assessment.append(make('p', preview.backup.required ? 'Se requiere una copia de seguridad del crate existente antes de reemplazarlo.' : 'No se requiere copia de seguridad para este archivo nuevo.', 'field-hint'));
+        const parents = parentCratesLine(preview.parentsToCreate ?? []);
+        if (parents) assessment.append(make('p', parents, 'field-hint'));
         for (const [messages, heading, className] of [[preview.blockers, 'Bloqueos que impiden exportar', 'review-notice blocker'], [preview.warnings, 'Avisos para revisar', 'review-notice']] as const) {
           if (!messages.length) continue;
           const notice = make('section', '', className); const list = make('ul'); for (const message of messages) list.append(make('li', message)); notice.append(make('strong', heading), list); assessment.append(notice);

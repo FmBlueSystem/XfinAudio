@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from xfinaudio.exporting.serato_crate import (
@@ -6,7 +8,9 @@ from xfinaudio.exporting.serato_crate import (
     SeratoExportPlan,
     build_serato_crate_bytes,
     parse_serato_crate_bytes,
+    plan_empty_serato_parent_crate,
     plan_serato_crate_export,
+    remove_created_serato_crate,
     rollback_serato_crate_write,
     validate_serato_crate_bytes,
     validate_serato_crate_file,
@@ -171,3 +175,54 @@ def test_rollback_serato_crate_write_deletes_new_crate_when_no_backup_exists(tmp
     rollback_serato_crate_write(result)
 
     assert not plan.target_path.exists()
+
+
+def test_an_empty_parent_crate_is_a_valid_crate_without_tracks(tmp_path) -> None:
+    plan = plan_empty_serato_parent_crate(tmp_path / "Subcrates" / "XfinAudio.crate")
+
+    assert plan.target_path.name == "XfinAudio.crate"
+    assert plan.crate_name == "XfinAudio"
+    assert plan.relative_paths == ()
+    assert plan.track_count == 0
+    assert plan.crate_bytes == build_serato_crate_bytes(())
+    assert plan.backup_path == plan.target_path.with_name("XfinAudio.crate.bak")
+    report = validate_serato_crate_bytes(plan.crate_bytes, ())
+    assert report.valid is True
+    assert report.version == SERATO_CRATE_VERSION
+    assert report.paths == ()
+
+
+def test_an_empty_parent_crate_is_written_atomically_and_never_replaces_an_arrival(tmp_path) -> None:
+    target = tmp_path / "Subcrates" / "XfinAudio.crate"
+    target.parent.mkdir(parents=True)
+    plan = plan_empty_serato_parent_crate(target)
+    descriptor = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        result = write_serato_crate(plan, confirm=True, directory_fd=descriptor, expected_target_identity=None)
+        assert result.backup_path is None
+        assert result.validated is True
+        assert target.read_bytes() == build_serato_crate_bytes(())
+        assert validate_serato_crate_file(plan, directory_fd=descriptor) is True
+        # The same anchored write refuses a crate that arrived since the preview.
+        with pytest.raises(OSError, match="changed since preview"):
+            write_serato_crate(plan, confirm=True, directory_fd=descriptor, expected_target_identity=None)
+        assert target.read_bytes() == build_serato_crate_bytes(())
+    finally:
+        os.close(descriptor)
+
+
+def test_remove_created_serato_crate_removes_only_the_exact_unchanged_file(tmp_path) -> None:
+    target = tmp_path / "XfinAudio.crate"
+    target.write_bytes(build_serato_crate_bytes(()))
+    info = target.stat()
+    identity = (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+
+    remove_created_serato_crate(target, identity)
+
+    assert not target.exists()
+    target.write_bytes(build_serato_crate_bytes(()))
+    stale = identity
+    target.write_bytes(b"replaced by another writer")
+    with pytest.raises(OSError, match="changed"):
+        remove_created_serato_crate(target, stale)
+    assert target.read_bytes() == b"replaced by another writer"

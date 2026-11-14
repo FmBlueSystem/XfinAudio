@@ -156,3 +156,15 @@ test('a saved playlist keeps exporting its own name unchanged', async () => {
   const f = fixture(); await f.controller.export({ kind: 'saved', playlistId: '1' }, 'Sesión guardada');
   assert.deepEqual(f.calls, [['export', { source: { kind: 'saved', playlistId: '1' }, name: 'Sesión guardada' }]]);
 });
+
+test('a quick export mentions the parent crate briefly and says nothing extra otherwise', async () => {
+  const f = fixture({ quickSeratoExport: async () => ({ status: 'exported', receipt: { ...receipt, filename: 'XfinAudio%%Build 14-nov.crate', parentsCreated: ['XfinAudio'] } }) });
+  await f.controller.export(source, '');
+  assert.equal(f.controller.notice, 'Crate «XfinAudio%%Build 14-nov» exportado a Serato');
+  assert.equal(f.controller.detail, 'XfinAudio%%Build 14-nov.crate · _Serato_ · dd · 2 pistas · Crate padre «XfinAudio» creado');
+  const g = fixture({ quickSeratoExport: async () => ({ status: 'exported', receipt: { ...receipt, filename: 'XfinAudio%%Metadata%%Pendientes.crate', parentsCreated: ['XfinAudio', 'XfinAudio%%Metadata'] } }) });
+  await g.controller.export(source, '');
+  assert.equal(g.controller.detail, 'XfinAudio%%Metadata%%Pendientes.crate · _Serato_ · dd · 2 pistas · Crates padre creados: «XfinAudio», «XfinAudio › Metadata»');
+  const h = fixture(); await h.controller.export(source, 'Mi sesión');
+  assert.equal(h.controller.detail, 'Mi sesión.crate · _Serato_ · dd · 2 pistas', 'a receipt without created parents reads exactly as before');
+});

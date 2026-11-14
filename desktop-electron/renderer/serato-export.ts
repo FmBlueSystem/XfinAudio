@@ -10,9 +10,16 @@ export interface SeratoDestination { destinationId: string; label: string; }
 export interface SeratoExportPreview {
   previewId: string; sourceRevision: string; filename: string; destinationLabel: string; trackCount: number;
   readiness: Readiness; warnings: string[]; blockers: string[]; canCommit: boolean;
-  tracks: (Track & { missing?: boolean })[]; backup: { required: boolean };
+  tracks: (Track & { missing?: boolean })[]; parentsToCreate: string[]; backup: { required: boolean };
 }
-export interface SeratoExportReceipt { receiptId: string; filename: string; destinationLabel: string; trackCount: number; validated: true; backupCreated: boolean; }
+export interface SeratoExportReceipt { receiptId: string; filename: string; destinationLabel: string; trackCount: number; validated: true; backupCreated: boolean; parentsCreated: string[]; }
+/** `%%` is Serato's nesting separator; the user reads a nested ancestor as «XfinAudio › Metadata». */
+export function parentCrateLabel(name: string): string { return name.split('%%').join(' › '); }
+/** One Spanish sentence about the ancestor crates a confirmed commit will create; empty when there are none. */
+export function parentCratesLine(names: string[]): string {
+  const shown = names.map(parentCrateLabel); if (!shown.length) return '';
+  return shown.length === 1 ? `Se creará el crate «${shown[0]}»` : `Se crearán los crates ${shown.map((name) => `«${name}»`).join(', ')}`;
+}
 export interface SeratoExportApi {
   chooseSeratoDestination(): Promise<SeratoDestination | null>;
   /** Runs the same discovery as the picker with no native dialog, so the screen needs no folder step. */

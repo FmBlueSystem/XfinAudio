@@ -6,6 +6,7 @@ import copy
 import hashlib
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -14,12 +15,15 @@ from uuid import uuid4
 from xfinaudio.exporting.serato_crate import (
     MAX_ANCHORED_CRATE_BYTES,
     SeratoExportPlan,
+    plan_empty_serato_parent_crate,
+    remove_created_serato_crate,
     rollback_serato_crate_write,
     validate_serato_crate_bytes,
     write_serato_crate,
 )
 from xfinaudio.exporting.serato_playlist_exporter import (
     SeratoLibrary,
+    parent_crate_names,
     plan_copilot_variant_serato_playlist_export,
     plan_generated_serato_playlist_export,
     plan_metadata_missing_field_serato_export,
@@ -76,6 +80,55 @@ class Preview:
     plan: SeratoExportPlan | None
     target: tuple[FileIdentity | None, str | None]
     summary: dict[str, Any]
+    parents: tuple[Path, ...] = ()
+
+
+def _missing_parent_crates(plan: SeratoExportPlan, destination: Destination) -> tuple[Path, ...]:
+    """Ancestors the child needs that are missing now, outermost first, under the child's checks."""
+    missing: list[Path] = []
+    for name in parent_crate_names(plan.target_path.stem):
+        # An ancestor name follows exactly the rules of the child name it is derived from.
+        crate_name(name)
+        path = destination.folder / f"{name}.crate"
+        if path.parent != destination.folder:
+            raise OSError("Invalid parent containment")
+        # A symlink or any other non-regular file at an ancestor path is refused like the child.
+        if file_identity(path) is None:
+            missing.append(path)
+    return tuple(missing)
+
+
+def _create_parent_crates(
+    parents: tuple[Path, ...], descriptor: int, guard: Callable[[], None], created: list[tuple[Path, FileIdentity]]
+) -> None:
+    """Create the ancestors still missing, outermost first, never replacing one that appeared.
+
+    Each parent reuses the child's anchored writer: an arrival after the existence
+    check fails the exclusive publication instead of becoming an overwrite. Created
+    parents are recorded as they land so a later failure can remove exactly them.
+    """
+    for path in parents:
+        if file_identity(path) is not None:
+            continue  # it exists now: an existing ancestor is never modified, replaced or backed up
+        write_serato_crate(
+            plan_empty_serato_parent_crate(path),
+            confirm=True,
+            directory_fd=descriptor,
+            expected_target_identity=None,
+            guard=guard,
+        )
+        published = file_identity(path)
+        assert published is not None
+        created.append((path, published))
+
+
+def _remove_created_parent_crates(created: list[tuple[Path, FileIdentity]], descriptor: int) -> None:
+    """Remove only the ancestors this commit created, newest first, while each is unchanged."""
+    for path, identity in reversed(created):
+        try:
+            remove_created_serato_crate(path, identity, directory_fd=descriptor)
+        except OSError:
+            LOGGER.warning("Retained the parent crate this export created: %s", path, exc_info=True)
 
 
 class SeratoExporter:
@@ -174,6 +227,7 @@ class SeratoExporter:
             raise BackendError("unknown_destination", "Select a Serato destination first")
         blockers = list(source.blockers)
         plan, source_volume = None, None
+        parents: tuple[Path, ...] = ()
         target: tuple[FileIdentity | None, str | None] = (None, None)
         try:
             self._destination_current(destination)
@@ -224,6 +278,7 @@ class SeratoExporter:
                         blockers.append("A Serato track reference does not resolve to its exact scanned source")
                     target = target_state(plan.target_path)
                     plan = plan.model_copy(update={"backup_path": backup_target(plan.target_path)})
+                    parents = _missing_parent_crates(plan, destination)
             self._destination_current(destination)
         except (OSError, ValueError, RuntimeError) as error:
             raise BackendError(
@@ -243,9 +298,12 @@ class SeratoExporter:
             "blockers": blockers,
             "canCommit": not blockers and plan is not None,
             "tracks": source.tracks,
+            "parentsToCreate": [path.stem for path in parents],
             "backup": {"required": target[0] is not None},
         }
-        self._retain(self.previews, preview_id, Preview(source, destination, source_volume, plan, target, summary))
+        self._retain(
+            self.previews, preview_id, Preview(source, destination, source_volume, plan, target, summary, parents)
+        )
         return copy.deepcopy(summary)
 
     def _recheck(self, preview: Preview, *, target: bool = True) -> None:
@@ -286,23 +344,32 @@ class SeratoExporter:
             with open_directory(preview.destination.folder) as (descriptor, lineage):
                 if lineage != preview.destination.lineage:
                     raise BackendError("stale_destination", "The destination changed; preview the export again")
-                result = write_serato_crate(
-                    preview.plan,
-                    confirm=True,
-                    directory_fd=descriptor,
-                    expected_target_identity=preview.target[0],
-                    expected_target_digest=preview.target[1],
-                    guard=guard,
-                )
-                published = os.stat(preview.plan.target_path.name, dir_fd=descriptor, follow_symlinks=False)
-                identity = (published.st_dev, published.st_ino, published.st_mtime_ns, published.st_size)
+                created: list[tuple[Path, FileIdentity]] = []
                 try:
-                    guard()
-                    if validate_serato_round_trip(preview.plan, volume_root=preview.source_volume).status != "ready":
-                        raise OSError("Crate round-trip validation failed")
-                    guard()
+                    _create_parent_crates(preview.parents, descriptor, guard, created)
+                    result = write_serato_crate(
+                        preview.plan,
+                        confirm=True,
+                        directory_fd=descriptor,
+                        expected_target_identity=preview.target[0],
+                        expected_target_digest=preview.target[1],
+                        guard=guard,
+                    )
+                    published = os.stat(preview.plan.target_path.name, dir_fd=descriptor, follow_symlinks=False)
+                    identity = (published.st_dev, published.st_ino, published.st_mtime_ns, published.st_size)
+                    try:
+                        guard()
+                        round_trip = validate_serato_round_trip(preview.plan, volume_root=preview.source_volume)
+                        if round_trip.status != "ready":
+                            raise OSError("Crate round-trip validation failed")
+                        guard()
+                    except OSError:
+                        rollback_serato_crate_write(result, directory_fd=descriptor, expected_target_identity=identity)
+                        raise
                 except OSError:
-                    rollback_serato_crate_write(result, directory_fd=descriptor, expected_target_identity=identity)
+                    # A failed commit leaves the folder as it found it: the parents it
+                    # created go, and the ancestors that were already there stay.
+                    _remove_created_parent_crates(created, descriptor)
                     raise
         except OSError as error:
             LOGGER.exception("Confirmed Serato export failed")
@@ -317,6 +384,7 @@ class SeratoExporter:
             "trackCount": preview.plan.track_count,
             "validated": result.validated,
             "backupCreated": result.backup_path is not None,
+            "parentsCreated": [path.stem for path, _identity in created],
         }
         self.receipts[receipt_id] = (receipt, preview, identity)
         self.completed[preview_id] = receipt_id

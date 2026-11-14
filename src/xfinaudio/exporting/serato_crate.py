@@ -613,6 +613,23 @@ def _validate_crate_name(crate_name: str) -> str:
     return crate_name
 
 
+def plan_empty_serato_parent_crate(target_path: Path) -> SeratoExportPlan:
+    """A missing ancestor crate is created empty: the same TLV version record, no tracks."""
+    return SeratoExportPlan(
+        crate_name=target_path.stem,
+        relative_paths=(),
+        serato_root=target_path.parent.parent,
+        target_path=target_path,
+        backup_path=target_path.with_name(f"{target_path.name}.bak"),
+        crate_bytes=build_serato_crate_bytes(()),
+    )
+
+
+def remove_created_serato_crate(path: Path, identity: FileIdentity, *, directory_fd: int | None = None) -> None:
+    """Remove a crate this commit created, and only while it is still that exact file."""
+    _remove_unchanged(path, identity, directory_fd=directory_fd)
+
+
 __all__ = [
     "SERATO_CRATE_VERSION",
     "ParsedSeratoCrate",
@@ -623,7 +640,9 @@ __all__ = [
     "SeratoWriteResult",
     "build_serato_crate_bytes",
     "parse_serato_crate_bytes",
+    "plan_empty_serato_parent_crate",
     "plan_serato_crate_export",
+    "remove_created_serato_crate",
     "rollback_serato_crate_write",
     "validate_serato_crate_bytes",
     "validate_serato_crate_file",

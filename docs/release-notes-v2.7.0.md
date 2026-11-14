@@ -49,7 +49,13 @@ Crate names for generated sets are now short and automatic — the style plus th
 export date, **Harmonic Journey 14-nov**, then **(2)** and **(3)** when that crate
 already exists in `Subcrates`, so an automatic name never replaces a different
 earlier export — while a name you type on the export screen and a saved
-playlist's name are used exactly as they are.
+playlist's name are used exactly as they are. A nested crate such as
+**XfinAudio › Harmonic Journey 14-nov** also creates the parent crate it needs
+(**XfinAudio**, or **XfinAudio › Metadata** for a worklist) in the same confirmed
+export — empty and outermost first, with the same containment, symlink and
+validation rules as the child, never rewriting, replacing or backing up a parent
+that already exists, removing the parents it created if the export fails, and
+naming them in the confirmation and in the preview.
 
 ## Opening track search
 
