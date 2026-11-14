@@ -1,3 +1,13 @@
+# XfinAudio 2.7.0 Release Notes
+
+Date: 2026-11-13
+
+## Summary
+
+2.7.0 is an **unreleased beta/source candidate** built on 2.6.0. It removes two
+points where the user had to know something the app could find: the Serato
+destination folder and the opening track of a set.
+
 ## Serato export
 
 The export screen no longer starts by asking for a folder. When it opens with a
@@ -14,3 +24,29 @@ the drive root or `~/Music`: the `_Serato_` folder it directly contains is used,
 and anything else keeps the existing `invalid_destination` refusal. Detection and
 registration keep the same-volume rule, canonical folder and backup checks as
 before, and nothing is written until the final confirmation.
+
+## Opening track search
+
+The Prepare screen no longer makes you scroll a full library list to pick the
+opening track. **Pista de apertura** is now a search box: type a title, artist,
+key, genre or BPM, with or without accents, and up to ten matching tracks appear
+with their BPM and key, chosen with the arrow keys and Enter or a click. The
+chosen track stays visible with a **Quitar** action; leaving it empty still
+generates the set without an opening track. The closing, required and excluded
+track pickers are unchanged in this release.
+
+The library search box shares the same matcher, so it now also finds tracks by
+BPM and ignores accents; it never loses a match it found before.
+
+## Compatibility
+
+- macOS only, unchanged. No Serato database V2 writes.
+- The Electron shell and the headless core agree on version 2.7.0.
+
+## Known limitations
+
+- These screens have been checked by the automated suites, not yet clicked
+  through in a running app.
+- With a real core, the Electron integration test in
+  `desktop-electron/tests/serato.integration.test.mjs` fails locally on this
+  candidate and on 2.6.0 alike; it passes in CI.
