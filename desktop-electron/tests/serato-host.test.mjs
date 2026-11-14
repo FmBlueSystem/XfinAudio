@@ -62,3 +62,58 @@ test('a null suggestion still opens the picker as the honest fallback',async()=>
   assert.deepEqual(f.calls.map(c=>c[0]),['serato.suggestDestination','serato.registerDestination']);
  }finally{await f.clean();}
 });
+test('detection registers the discovered _Serato_ folder without touching the picker',async()=>{
+ const temp=await realpath(await mkdtemp(path.join(os.tmpdir(),'xfin-serato-host-'))),root=path.join(temp,'_Serato_');await mkdir(path.join(root,'Subcrates'),{recursive:true});
+ const calls=[];
+ const host=new SeratoHost({request:async(method,params)=>{calls.push([method,params]);
+  if(method==='serato.suggestDestination')return {suggestion:root};
+  if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_ · dd'};
+  throw new Error(method);},
+  choose:async()=>{throw new Error('picker must not open');},confirm:async()=>true,reveal:()=>{},isClosing:()=>false});
+ try{assert.deepEqual(await host.detect(),{destinationId:'dest',label:'_Serato_ · dd'});
+  assert.deepEqual(calls.map(c=>c[0]),['serato.suggestDestination','serato.registerDestination']);
+  assert.deepEqual(calls[1][1],{seratoRoot:root});
+ }finally{await rm(temp,{recursive:true,force:true});}
+});
+test('detection with no candidate answers null and never opens the picker',async()=>{
+ const calls=[];
+ const host=new SeratoHost({request:async(method,params)=>{calls.push([method,params]);
+  if(method==='serato.suggestDestination')return {suggestion:null};
+  throw new Error(method);},
+  choose:async()=>{throw new Error('picker must not open');},confirm:async()=>true,reveal:()=>{},isClosing:()=>false});
+ assert.equal(await host.detect(),null);
+ assert.deepEqual(calls.map(c=>c[0]),['serato.suggestDestination']);
+});
+test('detection reports a failed discovery instead of guessing a destination',async()=>{
+ const host=new SeratoHost({request:async(method)=>{if(method==='serato.suggestDestination')throw Object.assign(new Error('[core_stopped] gone'),{code:'core_stopped'});throw new Error(method);},
+  choose:async()=>{throw new Error('picker must not open');},confirm:async()=>true,reveal:()=>{},isClosing:()=>false});
+ await assert.rejects(host.detect(),error=>error.code==='core_stopped');
+});
+test('a chosen drive folder exports into the _Serato_ folder it directly contains',async()=>{
+ const temp=await realpath(await mkdtemp(path.join(os.tmpdir(),'xfin-serato-host-')));
+ const drive=path.join(temp,'dd'),inner=path.join(drive,'_Serato_');await mkdir(path.join(inner,'Subcrates'),{recursive:true});
+ await mkdir(path.join(drive,'_Lossless','por_genero'),{recursive:true});
+ const calls=[];
+ const host=new SeratoHost({request:async(method,params)=>{calls.push([method,params]);
+  if(method==='serato.suggestDestination')return {suggestion:null};
+  if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_ · dd'};
+  throw new Error(method);},
+  choose:async()=>drive,confirm:async()=>true,reveal:()=>{},isClosing:()=>false});
+ try{assert.deepEqual(await host.detect(),null);
+  assert.deepEqual(await host.choose(),{destinationId:'dest',label:'_Serato_ · dd'});
+  assert.deepEqual(calls.at(-1),['serato.registerDestination',{seratoRoot:inner}],'the inner _Serato_ folder is the destination');
+ }finally{await rm(temp,{recursive:true,force:true});}
+});
+test('a chosen folder without Subcrates keeps the existing invalid_destination refusal',async()=>{
+ const temp=await realpath(await mkdtemp(path.join(os.tmpdir(),'xfin-serato-host-')));
+ const drive=path.join(temp,'dd');await mkdir(path.join(drive,'_Serato_'),{recursive:true});
+ const calls=[];
+ const host=new SeratoHost({request:async(method,params)=>{calls.push([method,params]);
+  if(method==='serato.suggestDestination')return {suggestion:null};
+  if(method==='serato.registerDestination')throw Object.assign(new Error('[invalid_destination] Choose an existing _Serato_ folder containing Subcrates'),{code:'invalid_destination'});
+  throw new Error(method);},
+  choose:async()=>drive,confirm:async()=>true,reveal:()=>{},isClosing:()=>false});
+ try{await assert.rejects(host.choose(),error=>error.code==='invalid_destination');
+  assert.deepEqual(calls.at(-1),['serato.registerDestination',{seratoRoot:drive}],'an unusable inner folder is never invented');
+ }finally{await rm(temp,{recursive:true,force:true});}
+});

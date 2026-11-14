@@ -5,6 +5,8 @@ const source = { kind: 'review', reviewId: 'review-1' };
 const destination = { destinationId: 'destination-1', label: 'Subcrates · Disco DJ' };
 const preview = (patch = {}) => ({ previewId: 'preview-1', sourceRevision: 'revision-1', filename: 'Mi sesión.crate', destinationLabel: destination.label, trackCount: 2, readiness: 'needs_review', warnings: ['Revisa la transición'], blockers: [], canCommit: true, tracks: [{ id: 'a', title: 'A', artist: 'Artista' }, { id: 'b', title: 'B', artist: 'Artista' }], backup: { required: true }, ...patch });
 const receipt = { receiptId: 'receipt-1', filename: 'Mi sesión.crate', destinationLabel: destination.label, trackCount: 2, validated: true, backupCreated: true };
+const detected = { destinationId: 'detected-1', label: '_Serato_ · dd' };
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 function fixture(overrides = {}) {
   const calls = []; let busy = false; let revision = 0;
   const api = { chooseSeratoDestination: async () => { calls.push(['choose']); return destination; }, previewSeratoExport: async (input) => { calls.push(['preview', input]); return preview(); }, commitSeratoExport: async (input) => { calls.push(['commit', input]); return receipt; }, revealSeratoExport: async (input) => { calls.push(['reveal', input]); }, ...overrides };
@@ -61,4 +63,39 @@ test('metadata worklist source is copied exactly and cannot be changed through c
  f.controller.setSource(chosen,'Repair');ids.pop();await f.controller.chooseDestination();await f.controller.requestPreview();
  const input=f.calls.find(([op])=>op==='preview')[1];assert.deepEqual(input.source,{kind:'metadata',status:'incomplete',missingField:'bpm',trackIds:['a'.repeat(64),'b'.repeat(64)]});
  assert.equal(f.controller.canCommit,true);
+});
+
+test('a source is previewed from an automatically detected destination without any picker',async()=>{
+ let detections=0;const f=fixture({detectSeratoDestination:async()=>{detections++;return detected;}});
+ f.controller.setSource(source,'Mi sesión');await flush();
+ assert.equal(detections,1,'the export screen must detect the destination on its own');
+ assert.deepEqual(f.controller.destination,detected);assert.equal(f.controller.destinationDetected,true);assert.equal(f.controller.detectionMissed,false);
+ assert.deepEqual(f.calls.filter(([op])=>op==='choose'),[],'detection must never open the native picker');
+ assert.equal(f.controller.canPreview,true);await f.controller.requestPreview();
+ assert.equal(f.calls.at(-1)[1].destinationId,detected.destinationId);
+ assert.equal(f.controller.preview.destinationLabel,destination.label);
+});
+
+test('a detection that finds nothing says so in Spanish and waits for the manual choice',async()=>{
+ let detections=0;const f=fixture({detectSeratoDestination:async()=>{detections++;return null;}});
+ f.controller.setSource(source,'Mi sesión');await flush();
+ assert.equal(detections,1);assert.equal(f.controller.destination,null);assert.equal(f.controller.destinationDetected,false);
+ assert.equal(f.controller.detectionMissed,true,'a miss must be visible instead of silently opening the dialog');
+ assert.deepEqual(f.calls,[],'a miss must not open the native picker on its own');assert.equal(f.controller.error,'');
+ await f.controller.chooseDestination();
+ assert.deepEqual(f.calls,[['choose']],'the manual choice stays available after a miss');
+ assert.deepEqual(f.controller.destination,destination);assert.equal(f.controller.detectionMissed,false);assert.equal(f.controller.destinationDetected,false);
+});
+
+test('detection errors keep the manual path with safe Spanish guidance',async()=>{
+ const f=fixture({detectSeratoDestination:async()=>{throw new Error("Error invoking remote method 'detectSeratoDestination': [core_stopped] /Volumes/dd");}});
+ f.controller.setSource(source,'Mi sesión');await flush();
+ assert.equal(f.controller.destination,null);assert.equal(f.controller.error.includes('core_stopped'),false);assert.match(f.controller.error,/Reinicia XfinAudio/);
+ await f.controller.chooseDestination();assert.deepEqual(f.calls,[['choose']]);assert.equal(f.controller.error,'');
+});
+
+test('a destination the user already chose is never replaced by automatic detection',async()=>{
+ let detections=0;const f=fixture({detectSeratoDestination:async()=>{detections++;return detected;}});
+ await f.controller.chooseDestination();f.controller.setSource({kind:'saved',playlistId:'2'},'Otra');await flush();
+ assert.equal(detections,0,'a manual choice must keep winning over detection');assert.deepEqual(f.controller.destination,destination);
 });

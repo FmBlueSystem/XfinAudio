@@ -15,6 +15,8 @@ export interface SeratoExportPreview {
 export interface SeratoExportReceipt { receiptId: string; filename: string; destinationLabel: string; trackCount: number; validated: true; backupCreated: boolean; }
 export interface SeratoExportApi {
   chooseSeratoDestination(): Promise<SeratoDestination | null>;
+  /** Runs the same discovery as the picker with no native dialog, so the screen needs no folder step. */
+  detectSeratoDestination(): Promise<SeratoDestination | null>;
   previewSeratoExport(input: { source: SeratoExportSource; destinationId: string; name: string }): Promise<SeratoExportPreview>;
   commitSeratoExport(input: { previewId: string }): Promise<SeratoExportReceipt | { cancelled: true }>;
   revealSeratoExport(input: { receiptId: string }): Promise<void>;
@@ -34,10 +36,14 @@ export function validSeratoName(value: string): boolean {
 export class SeratoExportController {
   source: SeratoExportSource | null = null;
   destination: SeratoDestination | null = null;
+  /** The destination came from automatic detection, not from the manual picker. */
+  destinationDetected = false;
+  /** Detection ran and found nothing on the music drive; the manual choice is the way forward. */
+  detectionMissed = false;
   name = '';
   preview: SeratoExportPreview | null = null;
   receipt: SeratoExportReceipt | null = null;
-  pending: 'destination' | 'preview' | 'commit' | 'reveal' | null = null;
+  pending: 'destination' | 'detect' | 'preview' | 'commit' | 'reveal' | null = null;
   error = '';
   status = '';
   private generation = 0;
@@ -57,6 +63,11 @@ export class SeratoExportController {
     this.error = '';
     if (this.pending !== 'commit') this.status = '';
     this.invalidatePreview();
+    if (!this.source) { this.destinationDetected = false; this.detectionMissed = false; return; }
+    // A destination the user already chose keeps winning; otherwise the screen finds it alone.
+    if (this.destination) return;
+    this.detectionMissed = false;
+    void this.detectDestination();
   }
   setName(value: string): void {
     if (this.name === value) return;
@@ -76,7 +87,24 @@ export class SeratoExportController {
       if (!current || generation !== this.generation || !destination) return;
       if (destination.destinationId === this.destination?.destinationId && destination.label === this.destination.label) return;
       this.destination = { destinationId: destination.destinationId, label: destination.label };
+      this.destinationDetected = false; this.detectionMissed = false;
       this.status = ''; this.invalidatePreview();
+    }, (error) => { if (generation === this.generation) this.fail(error); });
+  }
+  /** Automatic detection is the first step whenever a source is opened; it never shows a dialog. */
+  async detectDestination(): Promise<void> {
+    // An older bridge without the action keeps the choose-first flow instead of failing the screen.
+    if (typeof this.api.detectSeratoDestination !== 'function' || this.destination) return;
+    const generation = this.generation;
+    // A search result belongs to the controller, not to a route: opening the export screen
+    // navigates right after setSource, so route currency cannot decide whether it applies.
+    await this.run('detect', 'Buscando la carpeta _Serato_ del disco de música…', () => this.api.detectSeratoDestination(), (destination) => {
+      if (generation !== this.generation || this.destination) return;
+      if (!destination) { this.detectionMissed = true; this.destinationDetected = false; this.host.changed(); return; }
+      this.destination = { destinationId: destination.destinationId, label: destination.label };
+      this.destinationDetected = true; this.detectionMissed = false;
+      this.status = 'Carpeta _Serato_ detectada automáticamente en el disco de música.';
+      this.invalidatePreview();
     }, (error) => { if (generation === this.generation) this.fail(error); });
   }
   async requestPreview(): Promise<void> {
