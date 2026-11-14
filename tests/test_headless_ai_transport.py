@@ -35,6 +35,7 @@ def credential(tmp_path: Path, content: bytes = b"NAN_API_KEY=synthetic-fixture-
 
     path = tmp_path.resolve() / "selected.env"
     path.write_bytes(content)
+    path.chmod(0o600)
     return path, bind_credential(path)
 
 
@@ -125,6 +126,7 @@ def test_binding_is_metadata_only_and_confirmed_request_uses_fixed_target(tmp_pa
 
     path = tmp_path.resolve() / "selected.env"
     path.write_bytes(b"NAN_API_KEY='synthetic-selected'\nNAN_API_BASE=https://untrusted.invalid/\n")
+    path.chmod(0o600)
 
     def forbidden(*args, **kwargs):
         raise AssertionError("Binding must not read contents")

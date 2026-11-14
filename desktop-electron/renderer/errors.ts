@@ -10,6 +10,7 @@ const messages:Record<string,string>={
   ai_disabled:'La asistencia IA está desactivada. Revisa sus ajustes.',
   ai_unconfigured:'Selecciona una fuente de credenciales desde IA opcional.',
   ai_credentials_unavailable:'La fuente de credenciales no está disponible. Revisa su selección.',
+  ai_credential_permissions:'El archivo de credenciales permite acceso a otros usuarios. Restringe sus permisos con chmod 600 y vuelve a intentarlo.',
   stale_credential:'La fuente de credenciales cambió. Actualiza los ajustes antes de continuar.',
   dirty_draft:'Hay borradores sin guardar. Revisa el editor, las preferencias, la cohesión espectral, los controles de preparación y los ajustes de sonoridad e IA. Guarda o descarta los cambios pendientes antes de analizar sonoridad. Tus borradores se conservan.',
   stale_loudness:'Las pistas o los ajustes cambiaron. Actualiza el estado de sonoridad y prepara otra vista previa.',

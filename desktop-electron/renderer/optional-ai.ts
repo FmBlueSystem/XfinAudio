@@ -97,6 +97,7 @@ const errors: Record<string, string> = {
   ai_unconfigured: 'Selecciona un archivo de credenciales mediante el diálogo del sistema. Seleccionarlo no comprueba la conexión.',
   stale_credential: 'La fuente de credenciales cambió. Actualiza los ajustes y prepara otra solicitud.',
   ai_credentials_unavailable: 'La fuente de credenciales no está disponible. Revisa su selección sin compartir claves aquí.',
+  ai_credential_permissions: 'El archivo de credenciales permite acceso a otros usuarios. Restringe sus permisos con chmod 600 y vuelve a intentarlo.',
   ai_request_failed: 'No se pudo completar la consulta al proveedor. Los datos ya enviados no se pueden recuperar.',
   stale_ai: 'El contexto o la solicitud cambió. Prepara otra vista previa y revisa de nuevo el consentimiento.',
   invalid_ai_response: 'La respuesta no cumple los límites esperados. No se ha aplicado ninguna propuesta.',

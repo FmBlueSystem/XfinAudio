@@ -44,7 +44,7 @@ test('real Qt-free core binds an AI improvement to the open draft and only playl
   const data = await realpath(await mkdtemp('/tmp/xfin-improve-'));
   const credential = path.join(data, 'selected.env');
   const requests = path.join(data, 'fake-requests.jsonl');
-  await writeFile(credential, 'NAN_API_KEY=dummy-test-only\n');
+  await writeFile(credential, 'NAN_API_KEY=dummy-test-only\n',{mode:0o600});
   const start = () => new PythonBridge(python, ['-c', script, data, music], {...process.env, PYTHONPATH: path.join(root, 'src'), NAN_API_KEY: 'inherited-dummy-must-not-be-used', XFINAUDIO_AI_ENABLED: '1', NAN_API_BASE: 'https://unapproved.invalid'});
   let core = start();
   try {

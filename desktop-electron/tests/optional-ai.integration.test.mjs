@@ -23,7 +23,7 @@ backend.optional_ai.transport=fake
 JsonlServer(backend,sys.stdout).run(sys.stdin.buffer)
 `;
 test('real Qt-free AI bridge uses only injected transport and explicit local editor review/save',{skip:!python,timeout:20000},async()=>{
- const data=await realpath(await mkdtemp('/tmp/xfin-ai-offline-')),credential=path.join(data,'selected.env'),log=path.join(data,'fake-requests.jsonl');await writeFile(credential,'NAN_API_KEY=dummy-test-only\n');
+ const data=await realpath(await mkdtemp('/tmp/xfin-ai-offline-')),credential=path.join(data,'selected.env'),log=path.join(data,'fake-requests.jsonl');await writeFile(credential,'NAN_API_KEY=dummy-test-only\n',{mode:0o600});
  const start=()=>new PythonBridge(python,['-c',script,data],{...process.env,PYTHONPATH:path.join(root,'src'),NAN_API_KEY:'inherited-dummy-must-not-be-used',XFINAUDIO_AI_ENABLED:'1',NAN_API_BASE:'https://unapproved.invalid'});let core=start();
  try{
   const initial=await core.request('ai.status');assert.equal(initial.enabled,false);assert.equal(initial.configured,false);

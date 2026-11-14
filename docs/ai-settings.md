@@ -8,7 +8,9 @@ Open the **Ajustes de IA** panel from the workflow list. Nan Builders is the sup
 
 ## Credentials stay outside Settings
 
-The app does not provide a key text field and does not write credential files. Configure `NAN_API_KEY` in the launch environment or in an operator-owned env file outside the app. Keep that file private with owner-only access; do not place it in a repository, shared folder, screenshot or support log. The app does not encrypt this file or repair its permissions. Use your trusted local credential-entry workflow; do not paste a secret into shell commands or chat.
+The app does not provide a key text field and does not write credential files. Configure `NAN_API_KEY` in the launch environment or in an operator-owned env file outside the app. Keep that file private with owner-only access; do not place it in a repository, shared folder, screenshot or support log. The app does not encrypt this file or change its permissions.
+
+The credential file must be readable only by your account: mode `0600` (`0400` also works). A file that grants any group or other permission — for example `0644` or `0640` — is refused before a single byte is read, with the error code `ai_credential_permissions`, and the request is never sent. Fix it with `chmod 600` on that file and request again; the message never contains the path or the key. Use your trusted local credential-entry workflow; do not paste a secret into shell commands or chat.
 
 An existing env file may contain a bare key or a `NAN_API_KEY` assignment. The default path is `~/.xfinaudio/apiIA.env`. **Elegir archivo de credenciales…** selects only its path; **Quitar fuente de credenciales** clears the custom path. The UI inspects presence, not the file contents. The adapter reads the credential only when an explicitly requested AI operation runs.
 
@@ -52,9 +54,15 @@ presente no demuestra que la clave funcione ni que exista una suscripción váli
    **Elegir archivo de credenciales…** selecciona otra ruta, sin importar su
    contenido.
 3. Mantén el archivo fuera de repositorios y carpetas compartidas, con acceso solo
-   para tu usuario. La app no cifra el archivo ni corrige sus permisos. No pegues
-   claves en prompts, comandos de terminal, capturas, informes o conversaciones.
-   La interfaz no tiene un campo para claves y guarda únicamente la ruta del archivo.
+   para tu usuario. El archivo debe tener modo `0600` (también vale `0400`): si
+   concede cualquier permiso a grupo u otros — por ejemplo `0644` o `0640` — la app
+   lo rechaza antes de leer un solo byte, con el código de error
+   `ai_credential_permissions`, y no llega a enviar la petición. Corrígelo con
+   `chmod 600` sobre ese archivo y vuelve a solicitarla; el mensaje nunca incluye la
+   ruta ni la clave. La app no cifra el archivo ni corrige sus permisos por su
+   cuenta. No pegues claves en prompts, comandos de terminal, capturas, informes o
+   conversaciones. La interfaz no tiene un campo para claves y guarda únicamente la
+   ruta del archivo.
 4. Activa la opción para las acciones que solicites. Si quieres comprobarla,
    **Probar conexión** envía solo el texto de prueba visible, el nombre del modelo
    y el identificador de la app, autenticados con tu credencial. Puede consumir
