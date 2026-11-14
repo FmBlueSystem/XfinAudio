@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 from pathlib import Path
 
+from xfinaudio.headless import logging_setup
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.server import JsonlServer
 
@@ -17,7 +17,9 @@ def main() -> None:
     args = parser.parse_args()
     if not args.data_dir.is_absolute():
         parser.error("--data-dir must be an absolute, isolated application directory")
-    logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
+    # stdout carries JSONL protocol frames only: warnings go to stderr and, when
+    # the data directory allows it, to a rotating file support can read later.
+    logging_setup.configure_logging(args.data_dir)
     server = JsonlServer(HeadlessBackend(args.data_dir), sys.stdout)
     try:
         server.run(sys.stdin.buffer)
