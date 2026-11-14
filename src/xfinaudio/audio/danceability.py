@@ -27,11 +27,14 @@ between the danceable and non-danceable groups.
 
 from __future__ import annotations
 
+import logging
 import warnings
 from pathlib import Path
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
+
+LOGGER = logging.getLogger(__name__)
 
 CURRENT_DANCEABILITY_VERSION = 1
 
@@ -88,7 +91,8 @@ def analyze_danceability(path: Path | str) -> DanceabilityProfile | None:
     """
     try:
         import librosa
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("Danceability analysis unavailable for %s: %s: %s", path, type(exc).__name__, exc)
         return None
 
     try:
@@ -101,7 +105,8 @@ def analyze_danceability(path: Path | str) -> DanceabilityProfile | None:
             return None
         try:
             track_duration = float(librosa.get_duration(path=audio_path))
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning("Danceability duration probe failed for %s: %s: %s", audio_path, type(exc).__name__, exc)
             track_duration = None
         offset = 0.0
         if track_duration is not None and track_duration > _ANALYSIS_WINDOW_SECONDS:
@@ -146,7 +151,8 @@ def analyze_danceability(path: Path | str) -> DanceabilityProfile | None:
             percussive_ratio=percussive_ratio,
             analysis_version=CURRENT_DANCEABILITY_VERSION,
         )
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("Danceability analysis failed for %s: %s: %s", path, type(exc).__name__, exc)
         return None
 
 

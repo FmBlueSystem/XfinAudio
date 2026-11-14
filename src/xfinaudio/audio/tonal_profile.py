@@ -19,12 +19,15 @@ rather than recomputed on every scoring call.
 
 from __future__ import annotations
 
+import logging
 import math
 import warnings
 from pathlib import Path
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
+
+LOGGER = logging.getLogger(__name__)
 
 CURRENT_TONAL_VERSION = 1
 TIV_DIMENSIONS = 6
@@ -97,7 +100,8 @@ def analyze_tonal_profile(path: Path | str) -> TonalProfile | None:
     """
     try:
         import librosa
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("Tonal analysis unavailable for %s: %s: %s", path, type(exc).__name__, exc)
         return None
 
     try:
@@ -110,7 +114,8 @@ def analyze_tonal_profile(path: Path | str) -> TonalProfile | None:
             return None
         try:
             track_duration = float(librosa.get_duration(path=audio_path))
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning("Tonal duration probe failed for %s: %s: %s", audio_path, type(exc).__name__, exc)
             track_duration = None
         offset = 0.0
         if track_duration is not None and track_duration > _ANALYSIS_WINDOW_SECONDS:
@@ -132,7 +137,8 @@ def analyze_tonal_profile(path: Path | str) -> TonalProfile | None:
                 duration=_ANALYSIS_WINDOW_SECONDS,
             )
         return _profile_from_samples(y, sr, librosa)
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("Tonal analysis failed for %s: %s: %s", path, type(exc).__name__, exc)
         return None
 
 

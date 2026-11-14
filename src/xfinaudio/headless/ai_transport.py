@@ -21,6 +21,15 @@ from xfinaudio.headless.serato_safety import open_directory, source_identity
 
 MAX_CREDENTIAL_BYTES = MAX_REQUEST_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
+
+#: Group or other permission bits. A credential file that grants any of them is
+#: readable (or writable) by another local account, so it is refused unread.
+GROUP_OTHER_ACCESS = 0o077
+PERMISSION_ERROR_CODE = "ai_credential_permissions"
+_PERMISSION_MESSAGE = (
+    "The selected credential file is readable by other users; "
+    "restrict it to your account with chmod 600 on that file and request again"
+)
 _Result = TypeVar("_Result")
 
 
@@ -70,6 +79,12 @@ def _descriptor_identity(info: os.stat_result, lineage: object) -> tuple[object,
     return lineage, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
 
 
+def _reject_group_other_access(mode: int) -> None:
+    """Refuse a descriptor other accounts may open; never echoes the path or contents."""
+    if mode & GROUP_OTHER_ACCESS:
+        raise BackendError(PERMISSION_ERROR_CODE, _PERMISSION_MESSAGE)
+
+
 def _read_key(binding: CredentialBinding) -> str:
     try:
         _current(binding)
@@ -77,6 +92,7 @@ def _read_key(binding: CredentialBinding) -> str:
             descriptor = os.open(binding.path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
             try:
                 info = os.fstat(descriptor)
+                _reject_group_other_access(info.st_mode)
                 if _descriptor_identity(info, lineage) != binding.identity:
                     raise ValueError
                 data = bytearray()

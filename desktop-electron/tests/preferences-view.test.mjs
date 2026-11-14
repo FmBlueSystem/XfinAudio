@@ -13,7 +13,7 @@ const all = (node) => [node, ...node.children.flatMap(all)];
 const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
 function fixture() {
   const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; let available = true; const calls = []; const root = new Element();
-  const controller = { snapshot: { revision: 'a'.repeat(64), previewVolume: 0.8, watchLibrary: true, recoveryWarning: true, libraryLabels: ['<img src=x> Colección'], capabilities: { loudnessWriteback: false, providers: false, language: 'es' } }, dirty: false, pending: false, canSave: false, error: '', setVolume: (value) => calls.push(['volume', value]), setWatchLibrary: (value) => calls.push(['watch', value]), save: async () => calls.push(['save']), discard: () => calls.push(['discard']), load: async () => calls.push(['load']) };
+  const controller = { snapshot: { revision: 'a'.repeat(64), previewVolume: 0.8, watchLibrary: true, recoveryWarning: true, libraryLabels: ['<img src=x> Colección'], capabilities: { loudnessWriteback: false, providers: false, language: 'es' } }, dirty: false, pending: false, canSave: false, error: '', setVolume: (value) => calls.push(['volume', value]), setWatchLibrary: (value) => calls.push(['watch', value]), save: async () => calls.push(['save']), discard: () => calls.push(['discard']), load: async () => calls.push(['load']), logNotice: '', canRevealLogs: true, revealLogs: async () => { calls.push(['logs']); } };
   const render = createPreferencesView(root, controller, { canAct: () => available }); render();
   return { root, controller, calls, render, get: (id) => all(root).find((node) => node.id === `preferences-${id}`), block: () => { available = false; render(); }, restore: () => { globalThis.document = previous; } };
 }
@@ -37,3 +37,16 @@ test('implemented loudness capability points to Sonoridad while providers and cr
   const f = fixture(); try { f.controller.snapshot.capabilities.loudnessWriteback = true; f.render(); assert.match(text(f.root), /Sonoridad/); assert.doesNotMatch(text(f.root), /etiquetas por sonoridad y los proveedores siguen en pausa/); assert.match(text(f.root), /proveedores.*pausa/); } finally { f.restore(); }
 });
 test('implemented provider capability directs explicit configuration to IA opcional',()=>{const f=fixture();try{f.controller.snapshot.capabilities.providers=true;f.render();assert.match(text(f.root),/IA opcional/);assert.doesNotMatch(text(f.root),/proveedores siguen en pausa/);}finally{f.restore();}});
+test('the support action reveals the app log folder without touching the draft', () => {
+  const f = fixture(); try {
+    assert.match(text(f.get('reveal-logs')), /Mostrar registros/);
+    assert.equal(f.get('logs-notice').attrs.role, 'status');
+    assert.equal(f.get('logs-notice').hidden, true);
+    f.get('reveal-logs').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.calls.at(-1), ['logs']);
+    assert.equal(f.controller.dirty, false);
+    f.controller.logNotice = 'Todavía no hay registros guardados.'; f.render();
+    assert.equal(f.get('logs-notice').hidden, false);
+    assert.match(text(f.get('logs-notice')), /Todavía no hay registros/);
+  } finally { f.restore(); }
+});

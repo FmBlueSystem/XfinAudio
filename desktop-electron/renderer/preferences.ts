@@ -6,6 +6,7 @@ export interface PreferencesSnapshot {
 export interface PreferencesApi {
   getPreferences(): Promise<PreferencesSnapshot>;
   savePreferences(input: { revision: string; previewVolume: number; watchLibrary: boolean }): Promise<PreferencesSnapshot>;
+  revealLogs?(): Promise<{ found: boolean }>;
 }
 export interface PreferencesHost {
   canAct(): boolean; changed(): void; dirtyChanged(dirty: boolean): void;
@@ -32,8 +33,10 @@ export class PreferencesController {
   private host: PreferencesHost;
   pending = false;
   error = '';
+  logNotice = '';
   constructor(api: PreferencesApi, host: PreferencesHost) { this.api = api; this.host = host; }
   get snapshot(): PreferencesSnapshot | null { return this.draft; }
+  get canRevealLogs(): boolean { return !this.pending && this.host.canAct() && typeof this.api.revealLogs === 'function'; }
   get dirty(): boolean { return Boolean(this.draft && this.base && (this.draft.previewVolume !== this.base.previewVolume || this.draft.watchLibrary !== this.base.watchLibrary)); }
   get canSave(): boolean { return !this.pending && !this.conflict && this.dirty && Boolean(this.draft && validVolume(this.draft.previewVolume) && typeof this.draft.watchLibrary === 'boolean'); }
   private notify(): void { this.host.dirtyChanged(this.dirty); this.host.changed(); }
@@ -94,5 +97,20 @@ export class PreferencesController {
     this.draft = copy(this.base);
     this.error = this.conflict ? 'Borrador descartado. Pulsa Actualizar para cargar las preferencias guardadas vigentes.' : '';
     this.notify();
+  }
+  /** Read-only support action: opens the fixed app log folder and never edits the draft. */
+  async revealLogs(): Promise<void> {
+    if (!this.canRevealLogs) return;
+    this.logNotice = ''; this.pending = true; this.host.changed();
+    try {
+      await this.host.perform('Mostrando registros…', () => this.api.revealLogs!(), (value) => {
+        if (!value || typeof value.found !== 'boolean') throw Object.assign(new Error('Invalid log receipt'), { code: 'logs_unavailable' });
+        this.logNotice = value.found
+          ? 'Carpeta de registros abierta. Los registros no guardan credenciales, parámetros de petición ni el contenido de tus pistas.'
+          : 'Todavía no hay registros guardados. Se crearán cuando el motor o la aplicación informen de un problema.';
+        this.host.changed();
+      }, (error) => { this.logNotice = userErrorMessage(error); this.host.changed(); });
+    } catch (error) { this.logNotice = userErrorMessage(error); }
+    finally { this.pending = false; this.notify(); }
   }
 }
