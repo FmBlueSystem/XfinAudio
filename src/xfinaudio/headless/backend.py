@@ -19,6 +19,7 @@ from xfinaudio.application.saved_playlists import SavedPlaylistService
 from xfinaudio.headless.ai_protocol import AI_FIELDS
 from xfinaudio.headless.common import BackendError, _inside, _public_track, _text
 from xfinaudio.headless.generated_review import REVIEW_FIELDS, GeneratedReview
+from xfinaudio.headless.genres import GENRE_FIELDS, GenreCatalog
 from xfinaudio.headless.legacy_import import LEGACY_FIELDS, LegacyImport, recover_legacy_import
 from xfinaudio.headless.library_browse import BROWSE_FIELDS, LibraryBrowser
 from xfinaudio.headless.live_session import LIVE_FIELDS, LiveGuidance
@@ -125,6 +126,7 @@ class HeadlessBackend:
         self._records()
         self.editor = PlaylistEditor(self)
         self.browse = LibraryBrowser(self)
+        self.genres = GenreCatalog(self)
         self.saved_browser = SavedBrowser(self)
         self.serato = SeratoExporter(self)
         self.live = LiveGuidance(self)
@@ -216,6 +218,7 @@ class HeadlessBackend:
             **AI_FIELDS,
             **PROFILE_FIELDS,
             **BROWSE_FIELDS,
+            **GENRE_FIELDS,
             **SAVED_FIELDS,
             **REVIEW_FIELDS,
             **PREP_SETTINGS_FIELDS,
@@ -242,6 +245,8 @@ class HeadlessBackend:
             return self.prep_settings.execute(method, params)
         if method in BROWSE_FIELDS:
             return self.browse.execute(method, params)
+        if method in GENRE_FIELDS:
+            return self.genres.execute(method, params)
         if method in SAVED_FIELDS:
             return self.saved_browser.execute(method, params)
         if method in PROFILE_FIELDS:
