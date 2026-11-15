@@ -329,6 +329,11 @@ def recommendation_extended(
     Eligibility is the replacement's chain: complete metadata, passing the same
     strategy filters, not excluded, never a duplicate of a listed song (the
     engine's duplicate rule) and beatmatchable into at least one allowed gap.
+    On top of the engine's key, one song joins the list once: a candidate is
+    skipped when it shares the act of a listed (or already added) track and one
+    title is a prefix of the other once bracketed text and every non-alphanumeric
+    character are gone -- see `_same_song_key`, which is what stops «Funkytown»
+    of «Funky Town (Extended Version)» and «Funky Town Vm Short Edit».
     Nothing is inserted before a protected opening track, after a protected
     closing track or inside the manual prefix. The result is rescored, and the
     engine's track-count shortfall line is restated for the new length.
@@ -372,13 +377,14 @@ def recommendation_extended(
         spectral_cohesion=spectral_cohesion,
     )
     duplicate_keys = {key for track in ordered if (key := _duplicate_key(track)) is not None}
+    same_song_keys = [key for track in ordered if (key := _same_song_key(track)) is not None]
     manual_prefix_length = _manual_prefix_length(ordered, pool.controls)
     cache: dict[tuple, TransitionScore] = {}
     added = 0
     added_outside = 0
     while len(ordered) < target_count:
         placement = _best_extension(
-            _usable(in_genre_pool, present, duplicate_keys),
+            _usable(in_genre_pool, present, duplicate_keys, same_song_keys),
             ordered,
             pool.preserved,
             manual_prefix_length,
@@ -388,7 +394,7 @@ def recommendation_extended(
         from_outside = False
         if placement is None:
             placement = _best_extension(
-                _usable(outside_pool, present, duplicate_keys),
+                _usable(outside_pool, present, duplicate_keys, same_song_keys),
                 ordered,
                 pool.preserved,
                 manual_prefix_length,
@@ -404,6 +410,9 @@ def recommendation_extended(
         key = _duplicate_key(candidate)
         if key is not None:
             duplicate_keys.add(key)
+        song = _same_song_key(candidate)
+        if song is not None:
+            same_song_keys.append(song)
         added += 1
         if from_outside:
             added_outside += 1
@@ -532,6 +541,72 @@ def _duplicate_key(track: TrackRecord) -> tuple[str, str] | None:
     return playlist_duplicate_group_key(track.title, track.artist)
 
 
+# The engine's key compares whole titles, so it cannot see that «Funkytown»,
+# «Funky Town (Extended Version)» and «Funky Town Vm Short Edit» are one song:
+# a DJ pool names the same recording differently per file. Growth therefore
+# carries a same-song rule of its own, which never touches the engine's key.
+_SAME_SONG_MIN_TITLE_PREFIX = 6
+_TITLE_BRACKETS = re.compile(r"\([^)]*\)|\[[^\]]*\]")
+
+
+def _same_song_artist(artist: str | None) -> str:
+    """An artist with case, punctuation and one leading article removed.
+
+    Deleting punctuation rather than splitting on it is what makes "B-52's" and
+    "B52s" the same act; the article is dropped because pools disagree about it
+    for one and the same artist ("The B-52's" against "B52s").
+    """
+    kept = "".join(character for character in (artist or "").casefold() if character.isalnum() or character.isspace())
+    words = " ".join(kept.split())
+    article = "the "
+    return words[len(article) :].strip() if words.startswith(article) else words
+
+
+def _same_song_title(title: str | None) -> str:
+    """A title with bracketed text and every non-alphanumeric character removed.
+
+    Spaces go too: only that makes "Funky Town" a prefix of "Funky Town Vm
+    Short Edit" once the version text is glued on.
+    """
+    kept = _TITLE_BRACKETS.sub(" ", (title or "").casefold())
+    return "".join(character for character in kept if character.isalnum())
+
+
+def _same_song_key(track: TrackRecord) -> tuple[str, str] | None:
+    """The same-song identity of *track*, or ``None`` when a field is blank.
+
+    A blank artist or title names nothing (a fully bracketed "(Intro)" title
+    normalizes to an empty string), and two such rows must never be treated as
+    one song.
+    """
+    artist = _same_song_artist(track.artist)
+    title = _same_song_title(track.title)
+    if not artist or not title:
+        return None
+    return artist, title
+
+
+def _is_same_song(candidate: TrackRecord, listed: list[tuple[str, str]]) -> bool:
+    """Whether *candidate* is a version of a song already among *listed* keys.
+
+    A version shares the act and one title opens the other -- «Funkytown» and
+    «Funky Town Vm Short Edit» -- so the shorter title must be a prefix of the
+    longer one. It has to carry at least six characters: a bare "Love" says
+    nothing about "Love Shack".
+    """
+    key = _same_song_key(candidate)
+    if key is None:
+        return False
+    artist, title = key
+    for listed_artist, listed_title in listed:
+        if listed_artist != artist:
+            continue
+        shorter, longer = (title, listed_title) if len(title) <= len(listed_title) else (listed_title, title)
+        if len(shorter) >= _SAME_SONG_MIN_TITLE_PREFIX and longer.startswith(shorter):
+            return True
+    return False
+
+
 def _beats_neighbours(candidate: TrackRecord, neighbours: tuple[TrackRecord | None, ...]) -> bool:
     """Hold a track to the same tempo gate the generation path enforces.
 
@@ -572,11 +647,14 @@ def _usable(
     candidates: list[TrackRecord],
     present: set[str],
     duplicate_keys: set[tuple[str, str]],
+    same_song_keys: list[tuple[str, str]],
 ) -> list[TrackRecord]:
     """The candidates still open for a step: absent from the list and not a duplicate.
 
     The duplicate rule is the engine's own (title and artist), so another version
     of a song already in the list never joins it, even under a different path.
+    ``same_song_keys`` adds the extension's stricter reading of one song, which
+    catches the versions the engine's whole-title key cannot pair up.
     """
     usable: list[TrackRecord] = []
     for candidate in candidates:
@@ -584,6 +662,8 @@ def _usable(
             continue
         key = _duplicate_key(candidate)
         if key is not None and key in duplicate_keys:
+            continue
+        if _is_same_song(candidate, same_song_keys):
             continue
         usable.append(candidate)
     return usable

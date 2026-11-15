@@ -34,11 +34,19 @@ def extended(backend: HeadlessBackend, result: dict, target: int) -> dict:
     return backend.execute("review.extend", {"reviewId": result["reviewId"], "targetTrackCount": target})
 
 
-def engine_track(path: str, *, bpm: float, key: str, energy: int) -> TrackRecord:
+def engine_track(
+    path: str,
+    *,
+    bpm: float,
+    key: str,
+    energy: int,
+    title: str | None = None,
+    artist: str = "Artist",
+) -> TrackRecord:
     return TrackRecord(
         path=path,
-        title=Path(path).stem,
-        artist="Artist",
+        title=title if title is not None else Path(path).stem,
+        artist=artist,
         bpm=bpm,
         camelot_key=key,
         energy_level=energy,
@@ -325,6 +333,111 @@ def test_at_most_the_150_candidates_closest_in_bpm_are_considered() -> None:
         "/middle.flac",
         "/closing.flac",
     ]
+
+
+def test_versions_of_a_song_already_in_the_list_are_not_added() -> None:
+    """S1: one song joins the list once, whatever its files are called.
+
+    «Funkytown», «Funky Town (Extended Version)» and «Funky Town Vm Short Edit»
+    are three files of one song, and the engine's duplicate key reads them as
+    three different titles, so the extension owes the list a rule of its own.
+    """
+    opening = engine_track("/opening.flac", bpm=120.0, key="8A", energy=5)
+    listed = engine_track("/listed.flac", bpm=121.0, key="9A", energy=6, title="Funkytown", artist="Lipps Inc")
+    recommendation = pinned(opening, listed)
+    extended_version = engine_track(
+        "/extended.flac", bpm=121.5, key="9A", energy=6, title="Funky Town (Extended Version)", artist="Lipps Inc"
+    )
+    short_edit = engine_track(
+        "/short.flac", bpm=121.0, key="9A", energy=6, title="Funky Town Vm Short Edit", artist="Lipps Inc"
+    )
+    other = engine_track("/other.flac", bpm=120.5, key="8A", energy=5, title="Another Song", artist="Another Artist")
+    # The engine's duplicate key alone would let both versions in.
+    versions = (listed, extended_version, short_edit)
+    assert len({playlist_duplicate_group_key(track.title, track.artist) for track in versions}) == 3
+
+    grown, outside_genre = recommendation_extended(recommendation, [extended_version, short_edit, other], 3)
+
+    paths = [track.path for track in grown.ordered_tracks]
+    assert outside_genre == 0
+    assert "/other.flac" in paths
+    assert {"/extended.flac", "/short.flac"}.isdisjoint(paths)
+    assert len(paths) == 3
+
+
+@pytest.mark.parametrize(
+    ("listed_title", "listed_artist", "version_title", "version_artist"),
+    [
+        ("She Blinded Me With Science", "Thomas Dolby", "She Blinded Me With Science Short", "Thomas Dolby"),
+        ("Love Shack Roam Back Spins By Mark", "The B-52's", "Love Shack / Roam (Back Spins by Mark)", "B52s"),
+    ],
+)
+def test_a_bracketed_or_punctuated_title_that_starts_the_same_names_the_same_song(
+    listed_title: str, listed_artist: str, version_title: str, version_artist: str
+) -> None:
+    """Bracketed text, punctuation and a leading article on the artist do not split a song."""
+    opening = engine_track("/opening.flac", bpm=120.0, key="8A", energy=5)
+    listed = engine_track("/listed.flac", bpm=121.0, key="9A", energy=6, title=listed_title, artist=listed_artist)
+    recommendation = pinned(opening, listed)
+    version = engine_track("/version.flac", bpm=121.0, key="9A", energy=6, title=version_title, artist=version_artist)
+    other = engine_track("/other.flac", bpm=120.5, key="8A", energy=5, title="Another Song", artist="Another Artist")
+    assert playlist_duplicate_group_key(listed_title, listed_artist) != playlist_duplicate_group_key(
+        version_title, version_artist
+    )
+
+    grown, _ = recommendation_extended(recommendation, [version, other], 3)
+
+    paths = [track.path for track in grown.ordered_tracks]
+    assert "/other.flac" in paths
+    assert "/version.flac" not in paths
+
+
+@pytest.mark.parametrize(
+    ("listed_title", "listed_artist", "candidate_title", "candidate_artist"),
+    [
+        # Same title prefix, another act: a cover is not a version.
+        ("Funkytown", "Lipps Inc", "Funky Town (Extended Version)", "Someone Else"),
+        # Same act, but the shared prefix is shorter than six characters.
+        ("Love", "The B-52's", "Love Shack", "The B-52's"),
+    ],
+)
+def test_a_title_prefix_from_another_artist_or_under_six_characters_is_still_added(
+    listed_title: str, listed_artist: str, candidate_title: str, candidate_artist: str
+) -> None:
+    """The same-song rule needs both the same act and at least six shared characters."""
+    opening = engine_track("/opening.flac", bpm=120.0, key="8A", energy=5)
+    listed = engine_track("/listed.flac", bpm=121.0, key="9A", energy=6, title=listed_title, artist=listed_artist)
+    recommendation = pinned(opening, listed)
+    candidate = engine_track(
+        "/candidate.flac", bpm=121.0, key="9A", energy=6, title=candidate_title, artist=candidate_artist
+    )
+
+    grown, _ = recommendation_extended(recommendation, [candidate], 3)
+
+    assert [track.path for track in grown.ordered_tracks] == ["/opening.flac", "/listed.flac", "/candidate.flac"]
+
+
+def test_a_song_added_by_the_extension_is_not_added_twice_either() -> None:
+    """The rule sees the tracks a previous step added, not only the original list."""
+    opening = engine_track("/opening.flac", bpm=120.0, key="8A", energy=5)
+    closing = engine_track("/closing.flac", bpm=121.0, key="9A", energy=6)
+    recommendation = pinned(opening, closing)
+    first = engine_track("/first.flac", bpm=121.0, key="9A", energy=6, title="Funkytown", artist="Lipps Inc")
+    version = engine_track(
+        "/version.flac", bpm=121.0, key="9A", energy=6, title="Funky Town (Extended Version)", artist="Lipps Inc"
+    )
+    # Both fillers fit far worse than either version, so the song is picked first.
+    other_a = engine_track(
+        "/other-a.flac", bpm=120.0, key="1A", energy=1, title="Another Song", artist="Another Artist"
+    )
+    other_b = engine_track("/other-b.flac", bpm=120.0, key="12B", energy=1, title="Third Song", artist="Third Artist")
+
+    grown, _ = recommendation_extended(recommendation, [first, version, other_a, other_b], 4)
+
+    paths = [track.path for track in grown.ordered_tracks]
+    assert len(paths) == 4
+    assert len([path for path in paths if path in {"/first.flac", "/version.flac"}]) == 1
+    assert len(set(paths) & {"/other-a.flac", "/other-b.flac"}) == 1
 
 
 def test_a_restart_recovers_the_grown_list(tmp_path: Path) -> None:
