@@ -1,6 +1,12 @@
 import type { PrepSettingsController } from './prep-settings.js';
+import { createGenrePickerView } from './genre-picker-view.js';
+import type { GenrePickerView } from './genre-picker-view.js';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = ''): HTMLElementTagNameMap[K] => { const node = document.createElement(tag); node.textContent = text; return node; };
 export function createPrepSettingsView(root: HTMLElement, controller: PrepSettingsController, host: { canAct(): boolean }): () => void {
+  // The genre picker sits next to the opening track, but its data path belongs to the same
+  // Prep contract, so it is mounted here and kept in step by every settings render.
+  let picker: GenrePickerView | null = null;
+  const genrePicker = (): GenrePickerView => (picker ??= createGenrePickerView({ canAct: () => host.canAct() && !controller.pending, catalog: (input) => controller.genres(input) }));
   const section = make('section'); section.className = 'prep-advanced'; section.append(make('h3', 'Controles guardados'));
   const hint = make('p', 'Guarda las pistas obligatorias, exclusiones y género para la próxima apertura. Los cambios de esta sesión no se guardan automáticamente.'); hint.className = 'field-hint';
   const status = make('p'); status.id = 'prep-settings-status'; status.setAttribute('aria-live', 'polite');
@@ -22,5 +28,6 @@ export function createPrepSettingsView(root: HTMLElement, controller: PrepSettin
     missing.hidden = label.hidden = clear.hidden = count === 0;
     missing.textContent = `${snapshot?.unavailableRequiredCount ?? 0} obligatorias y ${snapshot?.unavailableExcludedCount ?? 0} excluidas no disponibles. Se conservan guardadas; vuelve a autorizar o escanear sus carpetas para recuperarlas.`;
     clear.checked = controller.clearUnavailable; clear.disabled = blocked;
+    genrePicker().sync();
   };
 }

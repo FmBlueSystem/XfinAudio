@@ -43,7 +43,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
     chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
-    chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],selectPrepVariant:['planId','variant'],
+    chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],prepGenres:['startTrackId','genre'],selectPrepVariant:['planId','variant'],
     generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds'],
     savePlaylist:['name','reviewId'],listPlaylists:[],renamePlaylist:['playlistId','name'],duplicatePlaylist:['playlistId'],openPlaylistEditor:['playlistId'],
     previewPlaylistEdit:['editId','trackIds','request'],savePlaylistEdit:['editId','name','trackIds'],savePlaylistImprovement:['editId','name','proposalId','digest','draftIds'],discardPlaylistEdit:['editId'],setDraftDirty:['dirty'],openPlaylist:['playlistId'],cancelCurrent:[],
@@ -55,6 +55,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
   if (Object.keys(params).some(key=>!fields[method].includes(key))) throw new Error('Unexpected parameter');
   if (method === 'generatePrep' && (!Number.isInteger(params.targetTrackCount) || Number(params.targetTrackCount)<2 || Number(params.targetTrackCount)>100)) throw new Error('Choose 2–100 tracks');
   if(method === 'generatePrep') validatePrepIntent(params);
+  if(method === 'prepGenres') validateGenreRequest(params);
   if(method === 'selectPrepVariant' && (typeof params.planId !== 'string' || !uuid.test(params.planId) || typeof params.variant!=='string' || !['safe','balanced','adventurous'].includes(params.variant))) throw new Error('Invalid Prep plan or variant');
   if(method==='savePreferences'&&(typeof params.revision!=='string'||!/^[a-f0-9]{64}$/.test(params.revision)||typeof params.previewVolume!=='number'||!Number.isFinite(params.previewVolume)||params.previewVolume<0||params.previewVolume>1||typeof params.watchLibrary!=='boolean'))throw new Error('Invalid preferences');
   if(method==='saveProfileSettings'&&(typeof params.revision!=='string'||!/^[a-f0-9]{64}$/.test(params.revision)||typeof params.spectralCohesion!=='number'||!Number.isFinite(params.spectralCohesion)||params.spectralCohesion<0||params.spectralCohesion>1))throw new Error('Invalid profile preferences');
@@ -90,6 +91,13 @@ function validatePrepIntent(params:Record<string,unknown>):void {
   const protectedIds=new Set([...required,...(params.startTrackId?[String(params.startTrackId)]:[]),...(params.endTrackId?[String(params.endTrackId)]:[])]);
   if(protectedIds.size>Number(params.targetTrackCount))throw new Error('The requested count must include every required track');
   if(params.startTrackId&&params.startTrackId===params.endTrackId)throw new Error('Opening and closing tracks must differ');
+}
+
+function validateGenreRequest(params:Record<string,unknown>):void {
+  // The genre catalog is a read: only the opening-track identity and the stored genre text
+  // may cross, and both keep the exact bounds the Prep intent already enforces.
+  if('startTrackId' in params)assertTrackId(params.startTrackId);
+  if('genre' in params && (typeof params.genre!=='string'||params.genre.length>100||/[\x00-\x1f]/.test(params.genre)))throw new Error('Invalid genre');
 }
 
 function validateEditorRequest(method:string,params:Record<string,unknown>):void {
