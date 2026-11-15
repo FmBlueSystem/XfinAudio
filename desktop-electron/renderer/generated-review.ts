@@ -49,6 +49,13 @@ export class GeneratedReviewController {
     const ids = tracks.map(track => track.id); [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]];
     await this.run('Reordenando y recalculando transiciones…', review => this.api.reviewReorder({ reviewId: review.reviewId, trackIds: ids }), value => { this.preview = null; this.host.applied(value); });
   }
+  // Position is 1..N: a jump of several places is one order, never a loop of ±1 moves.
+  async moveTo(trackId: string, position: number): Promise<void> {
+    const tracks = this.snapshot?.tracks ?? []; const index = tracks.findIndex(track => track.id === trackId);
+    if (index < 0 || !Number.isInteger(position) || position < 1 || position > tracks.length || position === index + 1) return;
+    const ids = tracks.map(track => track.id); const [moved] = ids.splice(index, 1); ids.splice(position - 1, 0, moved);
+    await this.run('Moviendo la pista y recalculando transiciones…', review => this.api.reviewReorder({ reviewId: review.reviewId, trackIds: ids }), value => { this.preview = null; this.host.applied(value); });
+  }
   private async history(label: string, status: string, task: (review: ReviewResult) => Promise<DetailedReview>): Promise<void> {
     await this.run(label, task, value => { this.preview = null; this.status = status; this.host.applied(value); });
   }

@@ -12,7 +12,7 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
   const notices = make('div', '', 'review-notice'); notices.id = 'review-readiness-notices';
   const label = make('label', 'Ajustar una pista'); label.setAttribute('for', 'review-selected-track');
   const selected = make('select'); selected.id = 'review-selected-track';
-  let selectedId = ''; let selectedIndex = 0; let renderedTracks = ''; let requestedTrackId = ''; let comparisonTrackId = '';
+  let selectedId = ''; let selectedIndex = 0; let positionedIndex = -1; let renderedTracks = ''; let requestedTrackId = ''; let comparisonTrackId = '';
   const button = (caption: string, action: () => void): HTMLButtonElement => {
     const node = make('button', caption, 'button subtle'); node.type = 'button';
     node.addEventListener('click', () => { if (!node.disabled && host.canAct() && !controller.pending) action(); }); return node;
@@ -21,11 +21,15 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
   const remove = button('Retirar y completar', () => { void controller.remove(selectedId); });
   const up = button('Subir', () => { void controller.move(selectedId, -1); });
   const down = button('Bajar', () => { void controller.move(selectedId, 1); });
+  const positionLabel = make('label', 'Posición'); positionLabel.setAttribute('for', 'review-position');
+  const position = make('input'); position.type = 'number'; position.id = 'review-position'; position.min = '1'; position.step = '1';
+  const positionMove = button('Mover', () => { void controller.moveTo(selectedId, Number(position.value)); });
   const undo = button('Deshacer', () => { void controller.undo(); }); undo.id = 'review-undo';
   const redo = button('Rehacer', () => { void controller.redo(); }); redo.id = 'review-redo';
   const historyStatus = make('p', '', 'field-hint'); historyStatus.id = 'review-history-status';
   historyStatus.setAttribute('role', 'status');
-  const controls = make('div', '', 'editor-actions'); controls.append(compare, remove, up, down, undo, redo);
+  const controls = make('div', '', 'editor-actions');
+  controls.append(compare, remove, up, down, positionLabel, position, positionMove, undo, redo);
   const evidence = make('details'); evidence.id = 'review-evidence';
   const evidenceBody = make('div');
   const load = button('Cargar evidencia local', () => { void controller.load(); }); load.id = 'review-load-evidence';
@@ -35,7 +39,7 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
   const use = button('Usar este reemplazo', () => { void controller.replace(); }); use.id = 'review-use-replacement'; use.hidden = true;
   preview.append(previewBody, use);
   section.append(alert, summary, notices, label, selected, controls, historyStatus,
-    make('p', 'Comparar no modifica la selección. Usar este reemplazo aplica el reemplazo que mostró la comparación. Retirar busca un reemplazo; si no existe, acorta la selección. Subir o bajar recalcula las transiciones. Deshacer y rehacer restauran la selección anterior sin tocar el audio.', 'field-hint'), preview, evidence);
+    make('p', 'Comparar no modifica la selección. Usar este reemplazo aplica el reemplazo que mostró la comparación. Retirar busca un reemplazo; si no existe, acorta la selección. Subir o bajar recalcula las transiciones; Posición mueve la pista a esa posición en un solo paso. Deshacer y rehacer restauran la selección anterior sin tocar el audio.', 'field-hint'), preview, evidence);
   root.replaceChildren(section);
   let renderedDetails: ReviewEvidence | null | undefined; let renderedComparison: GeneratedReviewController['comparison'] | undefined;
   const render = (): void => {
@@ -59,6 +63,12 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
       move.id = `review-move-${selectedIndex}-${direction}`;
       move.disabled = compare.disabled || selectedIndex + direction < 0 || selectedIndex + direction >= tracks.length || protectedIds.has(tracks[selectedIndex + direction]?.id);
     }
+    positionMove.id = `review-position-move-${selectedIndex}`;
+    position.disabled = blocked || !tracks.length;
+    position.max = String(Math.max(1, tracks.length));
+    positionMove.disabled = compare.disabled || !tracks.length;
+    // The typed position is only seeded when the selection changes, never while it is being edited.
+    if (selectedIndex !== positionedIndex) { positionedIndex = selectedIndex; position.value = String(selectedIndex + 1); }
     alert.hidden = !controller.error; alert.textContent = controller.error;
     historyStatus.hidden = !controller.status; historyStatus.textContent = controller.status ?? '';
     undo.disabled = blocked || !controller.canUndo; redo.disabled = blocked || !controller.canRedo;
