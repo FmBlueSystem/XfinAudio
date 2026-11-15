@@ -27,7 +27,7 @@ function fixture() {
     editable: true, pending: false, error: '', comparison: null,
     snapshot: { reviewId: 'one', tracks, readiness: 'needs_review', warnings: ['Salto'], blockers: [] },
     details: { engineFacts: '<script>Local evidence</script>', readinessSummary: 'Revisión recomendada', protectedTrackIds: [], transitions: [], readinessChecks: [{ label: 'BPM', status: 'needs_review', detail: 'Revisa este salto' }] },
-    load: () => calls.push(['load']), compare: id => calls.push(['compare', id]), remove: id => calls.push(['remove', id]), move: (id, direction) => calls.push(['move', id, direction]),
+    load: () => calls.push(['load']), compare: id => calls.push(['compare', id]), remove: id => calls.push(['remove', id]), move: (id, direction) => calls.push(['move', id, direction]), undo: () => calls.push(['undo']), redo: () => calls.push(['redo']), canUndo: false, canRedo: false, status: '',
   };
   const render = createGeneratedReviewView(root, controller, { canAct: () => available }); render();
   const get = id => { const node = all(root).find(item => item.id === id); assert.ok(node, `Missing ${id}`); return node; };
@@ -89,6 +89,23 @@ test('a comparison stays associated with its selected track, including a failed 
     assert.equal(f.get('review-replacement-comparison').hidden, true);
     f.select('b'); assert.equal(f.get('review-replacement-comparison').hidden, false);
     assert.deepEqual(f.calls, [['compare', 'b'], ['compare', 'a']]);
+  } finally { f.restore(); }
+});
+test('undo and redo are offered only when possible and report the applied change', () => {
+  const f = fixture(); try {
+    f.controller.canUndo = false; f.controller.canRedo = false; f.controller.status = ''; f.render();
+    assert.equal(f.get('review-undo').disabled, true); assert.equal(f.get('review-redo').disabled, true);
+    f.get('review-undo').dispatchEvent(new Event('click')); f.get('review-redo').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.calls, []);
+    f.controller.canUndo = true; f.controller.status = 'Cambio deshecho'; f.render();
+    assert.equal(f.get('review-undo').disabled, false); assert.equal(f.get('review-redo').disabled, true);
+    assert.match(text(f.get('review-history-status')), /Cambio deshecho/);
+    f.get('review-undo').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.calls, [['undo']]);
+    f.controller.canRedo = true; f.controller.status = 'Cambio rehecho'; f.render();
+    f.get('review-redo').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.calls, [['undo'], ['redo']]);
+    f.block(); f.get('review-undo').dispatchEvent(new Event('click')); assert.deepEqual(f.calls, [['undo'], ['redo']]);
   } finally { f.restore(); }
 });
 test('known readiness states use Spanish and raw engine summary stays inside evidence', () => {

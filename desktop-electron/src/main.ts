@@ -137,6 +137,8 @@ async function action(method:string,raw:unknown) {
     case 'reviewCompare':return run('review.compare',params);
     case 'reviewRemove':return run('review.remove',params);
     case 'reviewReorder':return run('review.reorder',params);
+    case 'reviewUndo':return run('review.undo',params);
+    case 'reviewRedo':return run('review.redo',params);
     case 'prepSettings':return run('prep.settings.get');
     case 'savePrepSettings':return run('prep.settings.update',params);
     case 'queryLibrary':return offline.query(params);

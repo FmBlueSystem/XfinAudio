@@ -1,6 +1,7 @@
 /** Independent allowlist and value validation for deterministic review and Prep controls. */
 export const REVIEW_CONTROL_FIELDS: Record<string, string[]> = {
   reviewDetails: ['reviewId'], reviewCompare: ['reviewId', 'trackId'], reviewRemove: ['reviewId', 'trackId'], reviewReorder: ['reviewId', 'trackIds'],
+  reviewUndo: ['reviewId'], reviewRedo: ['reviewId'],
   prepSettings: [], savePrepSettings: ['revision', 'requiredTrackIds', 'excludedTrackIds', 'genreFocus', 'clearUnavailable'],
 };
 const id = (value: unknown): boolean => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);

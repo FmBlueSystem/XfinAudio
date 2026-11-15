@@ -21,14 +21,18 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
   const remove = button('Retirar y completar', () => { void controller.remove(selectedId); });
   const up = button('Subir', () => { void controller.move(selectedId, -1); });
   const down = button('Bajar', () => { void controller.move(selectedId, 1); });
-  const controls = make('div', '', 'editor-actions'); controls.append(compare, remove, up, down);
+  const undo = button('Deshacer', () => { void controller.undo(); }); undo.id = 'review-undo';
+  const redo = button('Rehacer', () => { void controller.redo(); }); redo.id = 'review-redo';
+  const historyStatus = make('p', '', 'field-hint'); historyStatus.id = 'review-history-status';
+  historyStatus.setAttribute('role', 'status');
+  const controls = make('div', '', 'editor-actions'); controls.append(compare, remove, up, down, undo, redo);
   const evidence = make('details'); evidence.id = 'review-evidence';
   const evidenceBody = make('div');
   const load = button('Cargar evidencia local', () => { void controller.load(); }); load.id = 'review-load-evidence';
   evidence.append(make('summary', 'Por qué esta selección'), load, evidenceBody);
   const preview = make('section', '', 'review-notice'); preview.id = 'review-replacement-comparison'; preview.setAttribute('aria-live', 'polite');
-  section.append(alert, summary, notices, label, selected, controls,
-    make('p', 'Comparar no modifica la selección. Retirar busca un reemplazo; si no existe, acorta la selección. Subir o bajar recalcula las transiciones. El audio permanece intacto.', 'field-hint'), preview, evidence);
+  section.append(alert, summary, notices, label, selected, controls, historyStatus,
+    make('p', 'Comparar no modifica la selección. Retirar busca un reemplazo; si no existe, acorta la selección. Subir o bajar recalcula las transiciones. Deshacer y rehacer restauran la selección anterior sin tocar el audio.', 'field-hint'), preview, evidence);
   root.replaceChildren(section);
   let renderedDetails: ReviewEvidence | null | undefined; let renderedComparison: GeneratedReviewController['comparison'] | undefined;
   const render = (): void => {
@@ -53,6 +57,8 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
       move.disabled = compare.disabled || selectedIndex + direction < 0 || selectedIndex + direction >= tracks.length || protectedIds.has(tracks[selectedIndex + direction]?.id);
     }
     alert.hidden = !controller.error; alert.textContent = controller.error;
+    historyStatus.hidden = !controller.status; historyStatus.textContent = controller.status ?? '';
+    undo.disabled = blocked || !controller.canUndo; redo.disabled = blocked || !controller.canRedo;
     summary.textContent = `${readiness[controller.snapshot.readiness]} · ${controller.snapshot.warnings.length} avisos · ${controller.snapshot.blockers.length} bloqueos`;
     load.hidden = Boolean(details); load.disabled = blocked;
     if (details !== renderedDetails) {
