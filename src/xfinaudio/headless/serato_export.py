@@ -32,6 +32,7 @@ from xfinaudio.exporting.serato_playlist_exporter import (
 )
 from xfinaudio.headless.common import BackendError
 from xfinaudio.headless.serato_discovery import suggest_destination
+from xfinaudio.headless.serato_process import serato_is_running
 from xfinaudio.headless.serato_safety import (
     DirectoryIdentity,
     FileIdentity,
@@ -148,6 +149,8 @@ class SeratoExporter:
         self.previews: dict[str, Preview] = {}
         self.receipts: dict[str, tuple[dict[str, Any], Preview, FileIdentity | None]] = {}
         self.completed: dict[str, str] = {}
+        # Serato rewrites its folder when it quits, deleting crates written while it ran.
+        self.serato_running: Callable[[], bool] = serato_is_running
 
     @staticmethod
     def _retain(mapping: dict, key: str, value: Any) -> None:
@@ -338,6 +341,10 @@ class SeratoExporter:
         assert preview.plan is not None
         if len(self.receipts) >= 128:
             raise BackendError("export_limit", "Restart the application before creating more exports")
+        if self.serato_running():
+            raise BackendError(
+                "serato_running", "Close Serato DJ before exporting; it rewrites its crates when it quits"
+            )
         failure_code = "export_failed"
 
         def guard() -> None:

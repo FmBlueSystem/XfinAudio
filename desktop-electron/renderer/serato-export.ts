@@ -161,7 +161,11 @@ export class SeratoExportController {
       if ('cancelled' in result) { this.status = 'Exportación cancelada antes de escribir. Puedes revisar la vista previa y volver a confirmar.'; return; }
       // Publication may already have finished; navigation or a different selection must never discard its receipt.
       this.receipt = result; this.status = `Crate exportado y validado: ${result.filename}`; this.invalidatePreview();
-    }, (error) => { this.invalidatePreview(); this.status = 'No se pudo confirmar el resultado de la exportación.'; this.fail(error); });
+    }, (error) => {
+      // Serato DJ was open and nothing was written: the same preview can be confirmed once it is closed (S13).
+      if (errorCode(error) === 'serato_running') { this.status = ''; this.fail(error); return; }
+      this.invalidatePreview(); this.status = 'No se pudo confirmar el resultado de la exportación.'; this.fail(error);
+    });
   }
   async reveal(): Promise<void> {
     if (!this.receipt?.validated) return;

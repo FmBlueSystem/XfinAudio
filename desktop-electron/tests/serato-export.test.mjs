@@ -151,3 +151,11 @@ test('the page shows the crate name the core chose for a generated set', async (
   await f.controller.commit();
   assert.equal(f.controller.receipt.filename, chosen, 'the receipt keeps the exported crate name');
 });
+test('a commit refused because Serato DJ is open keeps the preview so the user can confirm again (S13)', async () => {
+  let open = true;
+  const f = fixture({ commitSeratoExport: async (input) => { f.calls.push(['commit', input]); if (open) throw new Error("Error invoking remote method 'xfin:action': [serato_running] Close Serato DJ"); return receipt; } }); await f.ready();
+  const previous = f.controller.preview; await f.controller.commit();
+  assert.equal(f.controller.preview, previous); assert.equal(f.controller.canCommit, true); assert.equal(f.controller.receipt, null);
+  assert.match(f.controller.error, /^Cierra Serato DJ antes de exportar\./); assert.doesNotMatch(f.controller.status, /No se pudo confirmar/);
+  open = false; await f.controller.commit(); assert.deepEqual(f.controller.receipt, receipt); assert.equal(f.calls.filter(([operation]) => operation === 'commit').length, 2);
+});

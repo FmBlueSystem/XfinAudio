@@ -67,6 +67,14 @@ is still refused, as is a crate folder that is no longer a real directory and a
 destination on another volume; the bytes an export would replace stay bound to
 the crate the preview showed.
 
+Serato DJ keeps its crates in memory and rewrites its `_Serato_` folder when it
+quits, which deletes a crate another program wrote while it was open. A
+confirmed export therefore checks first whether Serato DJ Pro or Serato DJ Lite
+is running; if it is, nothing is written and the app says, in Spanish, to close
+Serato and confirm again. The preview stays valid, so confirming after closing
+Serato exports without a new preview. When the check itself cannot run, the
+export proceeds and the core logs a warning.
+
 ## Opening track search
 
 The Prepare screen no longer makes you scroll a full library list to pick the
