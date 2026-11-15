@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextlib
 import math
+import re
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from functools import cache
 
@@ -11,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.audio.loudness import is_complete_measurement
 from xfinaudio.audio.spectral_profile import ColorName, SpectralProfile
+from xfinaudio.library.duplicate_grouping import playlist_duplicate_group_key
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls, preserved_control_paths
 from xfinaudio.recommendation.energy_arc import traces_an_arc
@@ -60,6 +63,10 @@ COLOR_RGB_L1_MAX = 0.08
 COLOR_CENTROID_REL_MAX = 0.15
 COLOR_ROLLOFF_REL_MAX = 0.15
 
+# The engine's own account of a set that came out shorter than the count the DJ
+# asked for. A set that grows has to restate this line, not keep the old one.
+_SHORTFALL_WARNING = re.compile(r"^Track count shortfall: selected (\d+) of (\d+) requested tracks$")
+
 
 @dataclass(frozen=True)
 class _ColorGate:
@@ -102,6 +109,21 @@ _COLOR_GATES: dict[str, _ColorGate] = {
 # Every dispatch site -- recommendation, prefilter, application candidate planning,
 # desktop routing -- reads this instead of restating the strategy names.
 COLOR_FILTER_STRATEGIES: frozenset[str] = frozenset(_COLOR_GATES)
+
+
+@dataclass(frozen=True)
+class _EditPool:
+    """The generation-time eligibility chain an edit's candidates still pass.
+
+    A replacement and a growth read the same snapshot, so the two edits can never
+    disagree about which tracks they are allowed to introduce.
+    """
+
+    recommendation: PlaylistRecommendation
+    candidates: list[TrackRecord]
+    preserved: set[str]
+    excluded: AbstractSet[str]
+    controls: DJControls
 
 
 class ReplacementPolicy(BaseModel):
@@ -224,6 +246,188 @@ def recommendation_with_replacement(
         return recommendation
 
     playlist_paths = set(paths)
+    pool = _edit_pool(
+        recommendation,
+        candidates,
+        locked_paths=locked_paths,
+        excluded_paths=excluded_paths,
+        loudness_band=loudness_band,
+        prefer_genre=True,
+    )
+    recommendation, candidates, excluded = pool.recommendation, pool.candidates, pool.excluded
+    index = paths.index(removed_path)
+    left_neighbor = recommendation.ordered_tracks[index - 1] if index > 0 else None
+    right_neighbor = recommendation.ordered_tracks[index + 1] if index + 1 < len(paths) else None
+    eligible = [
+        candidate
+        for candidate in candidates
+        if candidate.path not in playlist_paths
+        and candidate.path not in excluded
+        and candidate.metadata_status == "complete"
+        and _beats_neighbours(candidate, (left_neighbor, right_neighbor))
+    ]
+    if not eligible:
+        return recommendation_without_paths(
+            recommendation, frozenset({removed_path}), spectral_cohesion=spectral_cohesion
+        )
+
+    scoring_config = TransitionScoringConfig(
+        weights=recommendation.strategy.weights,
+        spectral_cohesion=spectral_cohesion,
+    )
+    replacement = max(
+        eligible, key=lambda candidate: _slot_fit(candidate, left_neighbor, right_neighbor, scoring_config)
+    )
+    remaining = [item for item in recommendation.ordered_tracks if item.path != removed_path]
+    ordered_tracks = [*remaining[:index], replacement, *remaining[index:]]
+    transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config)
+    return recommendation.model_copy(
+        update={
+            "ordered_tracks": ordered_tracks,
+            "transition_scores": transition_scores,
+            "total_score": sum(score.total_score for score in transition_scores),
+        }
+    )
+
+
+def recommendation_extended(
+    recommendation: PlaylistRecommendation,
+    candidates: list[TrackRecord],
+    target_count: int,
+    *,
+    spectral_cohesion: float = 0.0,
+    in_genre_paths: frozenset[str] | None = None,
+    locked_paths: frozenset[str] = frozenset(),
+    excluded_paths: frozenset[str] = frozenset(),
+    loudness_band: LoudnessBand | None = None,
+) -> tuple[PlaylistRecommendation, int]:
+    """Grow the set toward *target_count* through the gaps where tracks mix best.
+
+    Each added track goes into the single gap -- between two neighbours, or at
+    either end -- where the sum of its transitions scores best, one track at a
+    time, so a grown set is spread through the list instead of stacked after the
+    last track. The tracks already in the list keep their relative order.
+
+    ``in_genre_paths`` names the candidates the current variant's genre filter
+    allows. Those are used first; only when they run out does the rest of the
+    library follow, and the returned count says how many added tracks came from
+    outside that filter. It is a preference because widening is the point of
+    this edit, unlike a replacement, which stays inside the set's genre.
+
+    Eligibility is the replacement's chain: complete metadata, passing the same
+    strategy filters, not excluded, never a duplicate of a listed song (the
+    engine's duplicate rule) and beatmatchable into at least one allowed gap.
+    Nothing is inserted before a protected opening track, after a protected
+    closing track or inside the manual prefix. The result is rescored, and the
+    engine's track-count shortfall line is restated for the new length.
+
+    Returns the grown recommendation and how many added tracks came from outside
+    ``in_genre_paths``. A set that cannot grow is returned unchanged with ``0``.
+    """
+    ordered = list(recommendation.ordered_tracks)
+    if target_count <= len(ordered):
+        return recommendation, 0
+
+    pool = _edit_pool(
+        recommendation,
+        candidates,
+        locked_paths=locked_paths,
+        excluded_paths=excluded_paths,
+        loudness_band=loudness_band,
+        prefer_genre=False,
+    )
+    recommendation = pool.recommendation
+    present = {track.path for track in ordered}
+    in_genre = [
+        candidate for candidate in pool.candidates if in_genre_paths is None or candidate.path in in_genre_paths
+    ]
+    outside = [
+        candidate
+        for candidate in pool.candidates
+        if in_genre_paths is not None and candidate.path not in in_genre_paths
+    ]
+    eligible = [
+        candidate
+        for candidate in [*in_genre, *outside]
+        if candidate.path not in present
+        and candidate.path not in pool.excluded
+        and candidate.metadata_status == "complete"
+    ]
+    scoring_config = TransitionScoringConfig(
+        weights=recommendation.strategy.weights,
+        spectral_cohesion=spectral_cohesion,
+    )
+    duplicate_keys = {key for track in ordered if (key := _duplicate_key(track)) is not None}
+    manual_prefix_length = _manual_prefix_length(ordered, pool.controls)
+    added = 0
+    added_outside = 0
+    for candidate in eligible:
+        if len(ordered) >= target_count:
+            break
+        key = _duplicate_key(candidate)
+        if key is not None and key in duplicate_keys:
+            continue
+        gap = _best_gap(candidate, ordered, pool.preserved, manual_prefix_length, scoring_config)
+        if gap is None:
+            continue
+        ordered.insert(gap, candidate)
+        present.add(candidate.path)
+        if key is not None:
+            duplicate_keys.add(key)
+        added += 1
+        if in_genre_paths is not None and candidate.path not in in_genre_paths:
+            added_outside += 1
+    if not added:
+        return recommendation, 0
+
+    transition_scores = _score_ordered_tracks(ordered, scoring_config)
+    grown = recommendation.model_copy(
+        update={
+            "ordered_tracks": ordered,
+            "transition_scores": transition_scores,
+            "total_score": sum(score.total_score for score in transition_scores),
+            "warnings": rewrite_shortfall_warnings(recommendation.warnings, len(ordered)),
+        }
+    )
+    return grown, added_outside
+
+
+def rewrite_shortfall_warnings(warnings: list[str], selected: int) -> list[str]:
+    """Restate the engine's track-count shortfall for a set that has just grown.
+
+    A set that reaches what the DJ asked for no longer has a shortfall to
+    report, so the line is dropped rather than left claiming the old length. A
+    set that is still short keeps its requested count and takes the new one.
+    Every other warning passes through untouched and in order.
+    """
+    rewritten: list[str] = []
+    for warning in warnings:
+        match = _SHORTFALL_WARNING.match(warning)
+        if match is None:
+            rewritten.append(warning)
+            continue
+        requested = int(match.group(2))
+        if selected < requested:
+            rewritten.append(f"Track count shortfall: selected {selected} of {requested} requested tracks")
+    return rewritten
+
+
+def _edit_pool(
+    recommendation: PlaylistRecommendation,
+    candidates: list[TrackRecord],
+    *,
+    locked_paths: frozenset[str],
+    excluded_paths: frozenset[str],
+    loudness_band: LoudnessBand | None,
+    prefer_genre: bool,
+) -> _EditPool:
+    """Apply the bounded generation-time policy to an edit's candidate pool.
+
+    ``prefer_genre`` keeps the plan's genre a hard gate, which is what a
+    replacement owes the set it stays inside. Growth turns that gate into a
+    preference instead: reaching the rest of the library once the genre filter
+    runs out is exactly what it is for.
+    """
     controls = DJControls.model_validate(recommendation.applied_controls)
     excluded = controls.excluded_paths | excluded_paths
     preserved = (preserved_control_paths(controls) | locked_paths) - excluded
@@ -254,7 +458,7 @@ def recommendation_with_replacement(
         sort_candidates=False,
     )
     if policy is not None:
-        if policy.genre is not None:
+        if policy.genre is not None and prefer_genre:
             candidates = [
                 candidate
                 for candidate in candidates
@@ -280,64 +484,92 @@ def recommendation_with_replacement(
             )
         if strategy.energy_tolerance is not None and policy.energy_anchor is not None:
             candidates, _ = _apply_energy_tolerance(candidates, strategy, policy.energy_anchor, preserved)
-    index = paths.index(removed_path)
-    left_neighbor = recommendation.ordered_tracks[index - 1] if index > 0 else None
-    right_neighbor = recommendation.ordered_tracks[index + 1] if index + 1 < len(paths) else None
-
-    def _is_mixable(candidate: TrackRecord) -> bool:
-        """Hold a replacement to the same tempo gate the generation path enforces.
-
-        Scoring alone cannot express this: the optimizer prices an unreachable
-        BPM out with UNPLAYABLE_TRANSITION_PENALTY, so a candidate that is
-        perfect harmonically could otherwise win a slot at a tempo nobody can
-        beatmatch.
-        """
-        for neighbor in (left_neighbor, right_neighbor):
-            if neighbor is None or neighbor.bpm is None or candidate.bpm is None:
-                continue
-            if bpm_difference_percent(neighbor.bpm, candidate.bpm) > MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:
-                return False
-        return True
-
-    eligible = [
-        candidate
-        for candidate in candidates
-        if candidate.path not in playlist_paths
-        and candidate.path not in excluded
-        and candidate.metadata_status == "complete"
-        and _is_mixable(candidate)
-    ]
-    if not eligible:
-        return recommendation_without_paths(
-            recommendation, frozenset({removed_path}), spectral_cohesion=spectral_cohesion
-        )
-
-    scoring_config = TransitionScoringConfig(
-        weights=recommendation.strategy.weights,
-        spectral_cohesion=spectral_cohesion,
+    return _EditPool(
+        recommendation=recommendation,
+        candidates=candidates,
+        preserved=preserved,
+        excluded=excluded,
+        controls=controls,
     )
-    left = left_neighbor
-    right = right_neighbor
 
-    def _slot_fit(candidate: TrackRecord) -> float:
-        fit = 0.0
-        if left is not None:
-            fit += score_transition(left, candidate, weights=scoring_config.weights, config=scoring_config).total_score
-        if right is not None:
-            fit += score_transition(candidate, right, weights=scoring_config.weights, config=scoring_config).total_score
-        return fit
 
-    replacement = max(eligible, key=_slot_fit)
-    remaining = [item for item in recommendation.ordered_tracks if item.path != removed_path]
-    ordered_tracks = [*remaining[:index], replacement, *remaining[index:]]
-    transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config)
-    return recommendation.model_copy(
-        update={
-            "ordered_tracks": ordered_tracks,
-            "transition_scores": transition_scores,
-            "total_score": sum(score.total_score for score in transition_scores),
-        }
-    )
+def _duplicate_key(track: TrackRecord) -> tuple[str, str] | None:
+    """Return the engine's duplicate group for a track's title and artist.
+
+    The same key `candidate_pool.dedupe_recommendation_duplicates` collapses on,
+    so an added track can never be another version of a song already in the set.
+    """
+    return playlist_duplicate_group_key(track.title, track.artist)
+
+
+def _beats_neighbours(candidate: TrackRecord, neighbours: tuple[TrackRecord | None, ...]) -> bool:
+    """Hold a track to the same tempo gate the generation path enforces.
+
+    Scoring alone cannot express this: the optimizer prices an unreachable BPM
+    out with UNPLAYABLE_TRANSITION_PENALTY, so a candidate that is perfect
+    harmonically could otherwise win a slot at a tempo nobody can beatmatch.
+    """
+    for neighbour in neighbours:
+        if neighbour is None or neighbour.bpm is None or candidate.bpm is None:
+            continue
+        if bpm_difference_percent(neighbour.bpm, candidate.bpm) > MAX_ADJACENT_BPM_DIFFERENCE_PERCENT:
+            return False
+    return True
+
+
+def _slot_fit(
+    candidate: TrackRecord,
+    left: TrackRecord | None,
+    right: TrackRecord | None,
+    scoring_config: TransitionScoringConfig,
+) -> float:
+    """Sum a candidate's transition scores against the neighbours of one slot."""
+    fit = 0.0
+    if left is not None:
+        fit += score_transition(left, candidate, weights=scoring_config.weights, config=scoring_config).total_score
+    if right is not None:
+        fit += score_transition(candidate, right, weights=scoring_config.weights, config=scoring_config).total_score
+    return fit
+
+
+def _manual_prefix_length(ordered: list[TrackRecord], controls: DJControls) -> int:
+    """How many leading tracks the DJ ordered by hand, exactly as `review.reorder` reads it."""
+    present = {track.path for track in ordered}
+    return sum(1 for path in controls.manual_order_paths if path in present)
+
+
+def _best_gap(
+    candidate: TrackRecord,
+    ordered: list[TrackRecord],
+    preserved: set[str],
+    manual_prefix_length: int,
+    scoring_config: TransitionScoringConfig,
+) -> int | None:
+    """Return the allowed gap where *candidate* mixes best, or ``None`` when it fits nowhere.
+
+    A gap is the slot before index ``gap``; ``len(ordered)`` is the end of the
+    list. Nothing goes before a protected opening track, after a protected
+    closing track or inside the manual prefix, and a candidate the DJ could not
+    beatmatch into a gap is not a candidate for it.
+    """
+    length = len(ordered)
+    best_gap: int | None = None
+    best_fit: float | None = None
+    for gap in range(length + 1):
+        if gap == 0 and ordered and ordered[0].path in preserved:
+            continue
+        if gap == length and ordered and ordered[-1].path in preserved:
+            continue
+        if 0 < gap < manual_prefix_length:
+            continue
+        left = ordered[gap - 1] if gap > 0 else None
+        right = ordered[gap] if gap < length else None
+        if not _beats_neighbours(candidate, (left, right)):
+            continue
+        fit = _slot_fit(candidate, left, right, scoring_config)
+        if best_fit is None or fit > best_fit:
+            best_gap, best_fit = gap, fit
+    return best_gap
 
 
 def recommend_playlist(
@@ -1645,7 +1877,9 @@ __all__ = [
     "normalize_requested_genre",
     "prefilter_strategy_candidates",
     "recommend_playlist",
-    "recommendation_with_replacement",
+    "recommendation_extended",
     "recommendation_reordered",
+    "recommendation_with_replacement",
     "recommendation_without_paths",
+    "rewrite_shortfall_warnings",
 ]

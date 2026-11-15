@@ -185,7 +185,21 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
             )
         required = backend.plan.intent.required_paths if backend.plan is not None else []
         protected = protected_positions(recommendation, required)
-        facts = list_facts(recommendation, readiness, protected)
+        # The generation that produced the list, exactly as the review publishes it: the
+        # assistant may restate why the list came out short and which alternatives exist.
+        stored = backend.review_actions.base
+        stored_variants, stored_warnings = stored.get("variants"), stored.get("warnings")
+        variants = stored_variants if isinstance(stored_variants, list) else []
+        warnings = stored_warnings if isinstance(stored_warnings, list) else []
+        facts = list_facts(
+            recommendation,
+            readiness,
+            protected,
+            requested=backend.plan.intent.target_track_count if backend.plan is not None else None,
+            warnings=[item for item in warnings if isinstance(item, str)],
+            current_variant=backend.review.variant_name,
+            alternatives=[item for item in variants if isinstance(item, dict)],
+        )
         conversation = backend.ai_conversation.prompt()
         data.update(
             facts=facts,
@@ -201,6 +215,10 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
         disclosure = (
             "Posiciones, títulos, artistas, géneros, BPM, tonalidad, energía y duración de la lista revisada.",
             "Transiciones con su puntuación, explicaciones y avisos, y la preparación con sus bloqueos.",
+            (
+                "Las pistas solicitadas, los avisos del motor y las otras alternativas con su cantidad y "
+                "calidad, y que la biblioteca tiene más pistas que la lista no muestra."
+            ),
             "Tu pregunta y la conversación de esta charla, que se guarda solo en memoria.",
             "No se envían rutas de archivos, identificadores de pistas, audio ni credenciales.",
         )

@@ -20,8 +20,10 @@ from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
+    recommendation_extended,
     recommendation_reordered,
     recommendation_with_replacement,
+    rewrite_shortfall_warnings,
 )
 from xfinaudio.recommendation.prep_copilot import (
     PrepCopilotPlan,
@@ -45,11 +47,14 @@ REVIEW_FIELDS = {
     "review.remove": {"reviewId", "trackId"},
     "review.replace": {"reviewId", "trackId", "replacementId"},
     "review.reorder": {"reviewId", "trackIds"},
+    "review.extend": {"reviewId", "targetTrackCount"},
     "review.undo": {"reviewId"},
     "review.redo": {"reviewId"},
 }
 # One previous state per applied edit; older states fall out of undo reach first.
 HISTORY_LIMIT = 50
+# The longest list an edit may grow a review to, matching the intent's own target cap.
+MAX_EXTENDED_TRACK_COUNT = 100
 ReviewState = tuple[PrepCopilotVariantApplicationResult, frozenset[str], dict[str, Any]]
 
 
@@ -369,6 +374,68 @@ class GeneratedReview:
             raise BackendError("stale_review", "Compare this track again and use the replacement it offered")
         return target, proposed
 
+    def _extend(self, review: PrepCopilotVariantApplicationResult, target: Any) -> dict[str, Any]:
+        """Grow the set toward a longer target through the best gaps in the list.
+
+        The growth rules live in the engine (`recommendation_extended`); this
+        only binds the review's own context to them -- the same candidate
+        snapshot, the variant's genre filter and the library changes that make
+        an edit stale -- and republishes the result like any other edit.
+        """
+        recommendation, plan = review.recommendation, self.backend.plan
+        assert plan is not None
+        current = len(recommendation.ordered_tracks)
+        if type(target) is not int or not current < target <= MAX_EXTENDED_TRACK_COUNT:
+            raise BackendError(
+                "invalid_params",
+                f"Target track count must be greater than the current list and at most {MAX_EXTENDED_TRACK_COUNT}",
+            )
+        current_sources = self._sources()
+        candidates = [
+            track for path, (track, identity) in current_sources.items() if self.sources.get(path) == (track, identity)
+        ]
+        in_genre, _ = _filter_tracks_for_variant(cast(PrepVariantName, review.variant_name), candidates, plan.intent)
+        proposed, outside_genre = recommendation_extended(
+            recommendation,
+            candidates,
+            target,
+            spectral_cohesion=self.backend.preferences.spectral_cohesion(),
+            in_genre_paths=frozenset(track.path for track in in_genre),
+            locked_paths=frozenset(plan.intent.required_paths),
+            excluded_paths=frozenset(plan.intent.excluded_paths) | self.removed,
+            loudness_band=self.backend.preferences.loudness_band(),
+        )
+        added = len(proposed.ordered_tracks) - current
+        if added <= 0:
+            raise BackendError("no_candidates", "No eligible library track is left to extend this list")
+        after = self._sources()
+        if any(after.get(track.path) != current_sources.get(track.path) for track in proposed.ordered_tracks):
+            raise BackendError("stale_review", "Extension sources changed; prepare a current review")
+        assessed = self._assess(proposed)
+        self.verify(self.review_id)
+        # A grown list is one edit: one undo step, a fresh revision, and the store rewritten.
+        self._remember(self.history)
+        self.future.clear()
+        self._publish(
+            assessed,
+            self.removed,
+            {
+                **self.base,
+                "warnings": list(
+                    dict.fromkeys(
+                        [
+                            *rewrite_shortfall_warnings(self.base["warnings"], len(proposed.ordered_tracks)),
+                            *proposed.warnings,
+                        ]
+                    )
+                ),
+            },
+        )
+        return {
+            **self.details(),
+            "extended": {"requested": target - current, "added": added, "outsideGenre": outside_genre},
+        }
+
     def execute(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if set(params) != REVIEW_FIELDS[method]:
             raise BackendError("invalid_params", "Missing or unexpected generated review fields")
@@ -379,6 +446,8 @@ class GeneratedReview:
             return self.details()
         if method in ("review.undo", "review.redo"):
             return self._travel(back=method == "review.undo")
+        if method == "review.extend":
+            return self._extend(review, params["targetTrackCount"])
         removed = None
         if method == "review.reorder":
             ids = params["trackIds"]

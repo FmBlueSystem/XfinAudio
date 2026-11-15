@@ -121,6 +121,24 @@ def test_chat_run_sends_the_system_message_and_returns_the_whole_conversation(ch
     assert str(root) not in json.dumps(transport.bodies[0])
 
 
+def test_chat_tells_the_assistant_the_requested_count_the_warnings_and_the_alternatives(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    backend.execute("prep.generate", {"targetTrackCount": 20, "name": "Lista corta"})
+    turn(facade, current_review_id(backend))
+    system = transport.bodies[0]["messages"][0]["content"]
+    assert backend.plan is not None and backend.review is not None
+    current = backend.review.variant_name
+    assert "- pistas solicitadas: 20" in system
+    assert f"- pistas en la lista: {len(backend.review.recommendation.ordered_tracks)}" in system
+    assert "- avisos del motor: Track count shortfall: selected 8 of 20 requested tracks" in system
+    assert f"- variante actual: {current}" in system
+    others = [item for item in backend.review_actions.base["variants"] if item["name"] != current]
+    assert others
+    for variant in others:
+        assert f"{variant['name']}: {variant['trackCount']} pistas, calidad {variant['qualityScore']:.2f}" in system
+    assert "la biblioteca tiene más pistas que no puedes ver" in system
+
+
 def test_chat_second_turn_carries_the_stored_conversation_and_keeps_consent(chat_setup):
     facade, transport, backend, _, _ = chat_setup
     review = current_review_id(backend)

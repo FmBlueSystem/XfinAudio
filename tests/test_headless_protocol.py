@@ -55,6 +55,7 @@ EXPECTED_REFUSED_METHODS = (
     "prep.generate",
     "prep.select",
     "profiles.complete",
+    "review.extend",
     "review.redo",
     "review.remove",
     "review.replace",

@@ -35,6 +35,14 @@ def move(position: int, to: int, reason: str = "Sube antes") -> dict:
     return {"type": "move", "position": position, "to": to, "reason": reason}
 
 
+def extend(to: int, reason: str = "La lista quedó corta") -> dict:
+    return {"type": "extend", "to": to, "reason": reason}
+
+
+def use_variant(variant: str = "adventurous", reason: str = "Más pistas") -> dict:
+    return {"type": "use_variant", "variant": variant, "reason": reason}
+
+
 def ids(result: dict) -> list[str]:
     return [track["id"] for track in result["tracks"]]
 
@@ -260,6 +268,73 @@ def test_a_replacement_the_engine_no_longer_offers_cannot_be_applied(chat_setup,
     assert ids(backend.execute("review.details", {"reviewId": backend.review_id})) == before
 
 
+def test_an_extend_turn_publishes_its_target_and_applying_it_grows_the_list(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(extend(6))
+    previous = backend.review_id
+    action = turn(facade, backend.review_id)["result"]["actions"][0]
+    assert set(action) == {"actionId", "type", "to", "reason"}
+    assert action["type"] == "extend" and action["to"] == 6
+    assert action["reason"] == "La lista quedó corta"
+    original = ids(backend.execute("review.details", {"reviewId": previous}))
+    sent = len(transport.bodies)
+    applied = call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert set(applied) == {"review", "actions", "extended"}
+    assert applied["extended"] == {"requested": 2, "added": 2, "outsideGenre": 0}
+    review = applied["review"]
+    assert set(review) == set(backend.execute("review.details", {"reviewId": review["reviewId"]}))
+    assert review["reviewId"] != previous and (review["canUndo"], review["canRedo"]) == (True, False)
+    grown = ids(review)
+    assert len(grown) == 6 and set(original) <= set(grown)
+    assert applied["actions"] == []
+    assert len(transport.bodies) == sent
+    assert ids(backend.execute("review.undo", {"reviewId": review["reviewId"]})) == original
+
+
+def test_an_extend_with_no_candidates_is_passed_through_and_the_action_stays_pending(chat_setup, monkeypatch):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(extend(6))
+    action = turn(facade, backend.review_id)["result"]["actions"][0]
+    before = ids(backend.execute("review.details", {"reviewId": backend.review_id}))
+    monkeypatch.setattr(
+        generated_review_module,
+        "recommendation_extended",
+        lambda recommendation, *args, **kwargs: (recommendation, 0),
+    )
+    with pytest.raises(BackendError) as error:
+        call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert error.value.code == "no_candidates"
+    assert ids(backend.execute("review.details", {"reviewId": backend.review_id})) == before
+    assert [item["actionId"] for item in history(facade)["actions"]] == [action["actionId"]]
+
+
+def test_a_use_variant_turn_publishes_the_variant_and_its_count_and_is_never_applied(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(use_variant())
+    action = turn(facade, backend.review_id)["result"]["actions"][0]
+    assert set(action) == {"actionId", "type", "variant", "trackCount", "reason"}
+    assert action["type"] == "use_variant" and action["variant"] == "adventurous"
+    assert backend.plan is not None
+    offered = next(item for item in backend.plan.variants if item.name == "adventurous")
+    assert action["trackCount"] == len(offered.recommendation.ordered_tracks)
+    before = ids(backend.execute("review.details", {"reviewId": backend.review_id}))
+    with pytest.raises(BackendError) as error:
+        call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert error.value.code == "stale_ai"
+    assert ids(backend.execute("review.details", {"reviewId": backend.review_id})) == before
+    assert [item["actionId"] for item in history(facade)["actions"]] == [action["actionId"]]
+
+
+def test_a_use_variant_naming_the_current_variant_is_dropped_and_counted(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    assert backend.review is not None
+    current = backend.review.variant_name
+    transport.reply = answer(use_variant(current), extend(6))
+    result = turn(facade, backend.review_id)["result"]
+    assert result["droppedActions"] == 1
+    assert [action["type"] for action in result["actions"]] == ["extend"]
+
+
 def test_apply_takes_exactly_one_action_id(chat_setup):
     facade, transport, backend, _, _ = chat_setup
     transport.reply = answer(replace_at(2))
@@ -288,4 +363,5 @@ def test_a_prepared_turn_still_runs_through_the_injected_transport(chat_setup):
     inspected = call(facade, "ai.payload", {"previewId": preview["previewId"]})
     system = json.loads(inspected["body"])["messages"][0]["content"]
     assert "JSON" in system and "N = 4" in system
+    assert "Resumen de la generación" in system
     assert transport.bodies == []
