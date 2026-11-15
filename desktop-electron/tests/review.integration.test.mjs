@@ -14,6 +14,6 @@ test('real Qt-free generated evidence/compare/edit/save and persisted Prep contr
   review=await core.request('review.undo',{reviewId:reordered});assert.notDeepEqual(review.tracks.map(track=>track.id),order);assert.notEqual(review.reviewId,reordered);assert.equal(review.canRedo,true);
   review=await core.request('review.redo',{reviewId:review.reviewId});assert.deepEqual(review.tracks.map(track=>track.id),order);assert.equal(review.canUndo,true);assert.equal(review.canRedo,false);
   const saved=await core.request('playlist.save',{name:'Edited',reviewId:review.reviewId});
-  await core.close();core=start();assert.deepEqual(await core.request('prep.settings.get'),persisted);assert.deepEqual((await core.request('playlist.open',{playlistId:saved.id})).tracks.map(track=>track.id),order);assert.deepEqual(await Promise.all(files.map(hash)),before);
+  await core.close();core=start();const restored=await core.request('prep.settings.get');const {lastForm:remembered,...controls}=restored;const {lastForm:_unset,...saved_controls}=persisted;assert.deepEqual(controls,saved_controls);assert.equal(remembered.targetTrackCount,4);assert.equal(remembered.name,'Editable');assert.deepEqual((await core.request('playlist.open',{playlistId:saved.id})).tracks.map(track=>track.id),order);assert.deepEqual(await Promise.all(files.map(hash)),before);
  }finally{await core.close();await rm(data,{recursive:true,force:true});}
 });

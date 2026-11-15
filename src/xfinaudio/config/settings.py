@@ -141,9 +141,11 @@ class PrepFormSettings(BaseModel):
 
     Stored as library paths, like ``BuildSessionSettings``, and projected to
     opaque public identities at the command boundary; a remembered track that
-    left the library therefore survives as an unavailable identity. The
-    explicit saved controls (genre, required and excluded tracks) are separate
-    and are not repeated here.
+    left the library therefore survives as an unavailable identity. It has its
+    own app-owned file under the data directory, so remembering it never
+    rewrites the settings file or moves the preferences revision. The explicit
+    saved controls (genre, required and excluded tracks) are separate and are
+    not repeated here.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -176,10 +178,6 @@ class AppSettings(BaseModel):
     loudness: LoudnessSettings = Field(default_factory=LoudnessSettings)
     window: WindowSettings = Field(default_factory=WindowSettings)
     build: BuildSessionSettings = Field(default_factory=BuildSessionSettings)
-    # Additive section: the last Prep form the core accepted. An existing
-    # version-1 payload without ``prep_form`` stays valid (the defaults hydrate),
-    # so CURRENT_SETTINGS_VERSION does not move.
-    prep_form: PrepFormSettings = Field(default_factory=PrepFormSettings)
     serato: SeratoIntegrationSettings = Field(default_factory=SeratoIntegrationSettings)
 
     @field_validator("settings_version")

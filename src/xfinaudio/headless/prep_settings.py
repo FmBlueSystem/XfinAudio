@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import json
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from pydantic import ValidationError
 
 from xfinaudio.config.settings import BuildSessionSettings, PrepFormSettings
 from xfinaudio.config.settings_repository import SettingsRepositoryError
@@ -15,10 +20,68 @@ if TYPE_CHECKING:
     from xfinaudio.headless.backend import HeadlessBackend
     from xfinaudio.recommendation.prep_copilot import DJSetIntent
 
+LOGGER = logging.getLogger(__name__)
+
 PREP_SETTINGS_FIELDS = {
     "prep.settings.get": set(),
     "prep.settings.update": {"revision", "requiredTrackIds", "excludedTrackIds", "genreFocus", "clearUnavailable"},
 }
+
+# The last accepted form is its own app-owned file: remembering it must never
+# rewrite settings.json or move the preferences revision an editor already holds.
+FORM_STORE_NAME = "prep_form.json"
+FORM_STORE_VERSION = 1
+FORM_STORE_FIELDS = ("version", "form")
+MAX_FORM_STORE_BYTES = 64 * 1024
+
+
+def form_store_path(data_dir: Path) -> Path:
+    """Return the single app-owned file that holds the last accepted Prep form."""
+    return data_dir / FORM_STORE_NAME
+
+
+def read_form(data_dir: Path) -> PrepFormSettings | None:
+    """Return the remembered form only when it matches the contract; otherwise warn and ignore it."""
+    path = form_store_path(data_dir)
+    try:
+        size = path.stat().st_size
+    except FileNotFoundError:
+        return None
+    except OSError:
+        LOGGER.warning("The remembered Prep form could not be read; it is dropped")
+        return None
+    if size > MAX_FORM_STORE_BYTES:
+        LOGGER.warning("The remembered Prep form is larger than the contract allows; it is dropped")
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError, RecursionError):
+        LOGGER.warning("The remembered Prep form is not valid JSON; it is dropped")
+        return None
+    if not isinstance(payload, dict) or set(payload) != set(FORM_STORE_FIELDS):
+        LOGGER.warning("The remembered Prep form does not match the store contract; it is dropped")
+        return None
+    if type(payload["version"]) is not int or payload["version"] != FORM_STORE_VERSION:
+        LOGGER.warning("The remembered Prep form does not match the store contract; it is dropped")
+        return None
+    try:
+        return PrepFormSettings.model_validate(payload["form"])
+    except ValidationError:
+        LOGGER.warning("The remembered Prep form does not match the Prep contract; it is dropped")
+        return None
+
+
+def write_form(data_dir: Path, form: PrepFormSettings) -> None:
+    """Atomically replace the file, so a failed write never leaves a half-record."""
+    payload = {"version": FORM_STORE_VERSION, "form": form.model_dump(mode="json")}
+    pending = data_dir / f"{FORM_STORE_NAME}.tmp"
+    try:
+        pending.write_text(json.dumps(payload, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+        pending.replace(form_store_path(data_dir))
+    except OSError:
+        with contextlib.suppress(OSError):
+            pending.unlink(missing_ok=True)
+        raise
 
 
 def _identity(path: str) -> str:
@@ -86,6 +149,7 @@ class PrepSettings:
                     self.backend.live.invalidate()
                     self.backend.invalidate_optional_ai()
                 ids = {path: identity for identity, path in paths.items()}
+                remembered = read_form(self.backend.data_dir) or PrepFormSettings()
                 return {
                     "revision": preferences.revision,
                     "requiredTrackIds": sorted(ids[path] for path in build.locked_paths if path in ids),
@@ -93,7 +157,7 @@ class PrepSettings:
                     "genreFocus": build.genre_focus or "",
                     "unavailableRequiredCount": len(build.locked_paths - ids.keys()),
                     "unavailableExcludedCount": len(build.excluded_paths - ids.keys()),
-                    "lastForm": self._remembered_form(preferences.settings.prep_form, ids),
+                    "lastForm": self._remembered_form(remembered, ids),
                 }
         except (OSError, SettingsRepositoryError) as error:
             raise BackendError(
@@ -130,13 +194,9 @@ class PrepSettings:
             start_track_path=intent.start_path,
             end_track_path=intent.end_path,
         )
-        preferences = self.backend.preferences
         try:
-            with preferences._lock():
-                preferences._load()
-                assert preferences.settings is not None
-                preferences._save(preferences.settings.model_copy(update={"prep_form": form}))
-        except (OSError, SettingsRepositoryError) as error:
+            write_form(self.backend.data_dir, form)
+        except OSError as error:
             raise BackendError(
-                "settings_unavailable", "App-owned Prep preferences are unavailable; the form was not remembered"
+                "settings_unavailable", "App-owned Prep form memory is unavailable; the form was not remembered"
             ) from error

@@ -153,36 +153,21 @@ def test_prep_form_settings_defaults_to_an_untouched_form() -> None:
     assert form.end_track_path is None
 
 
-def test_app_settings_prep_form_section_defaults_to_an_untouched_form() -> None:
-    assert AppSettings().prep_form == PrepFormSettings()
-
-
-def test_app_settings_v1_payload_without_prep_form_section_hydrates_defaults() -> None:
-    # `prep_form` is additive: version-1 payloads stay valid, so
-    # CURRENT_SETTINGS_VERSION does not move.
+def test_app_settings_payload_without_build_section_hydrates_defaults() -> None:
     restored = AppSettings.model_validate({"settings_version": 1, "audio": {"preview_volume": 0.3}})
 
-    assert restored.prep_form == PrepFormSettings()
-    assert restored.settings_version == 1
+    assert restored.build == BuildSessionSettings()
 
 
-def test_app_settings_prep_form_round_trips_through_json() -> None:
-    settings = AppSettings(
-        prep_form=PrepFormSettings(
-            target_track_count=12,
-            target_minutes=90.0,
-            strategy="warmup",
-            slot_role="peak_time",
-            name="Viernes",
-            start_track_path="/music/one.flac",
-            end_track_path="/music/two.flac",
-        )
+def test_app_settings_ignores_a_legacy_prep_form_section() -> None:
+    # The remembered form moved to its own app-owned file; an existing payload
+    # that still carries the old section stays readable and never round-trips it.
+    restored = AppSettings.model_validate(
+        {"settings_version": 1, "prep_form": {"name": "Viernes", "start_track_path": "/music/one.flac"}}
     )
 
-    restored = AppSettings.model_validate(settings.model_dump(mode="json"))
-
-    assert restored.prep_form == settings.prep_form
     assert restored.settings_version == 1
+    assert "prep_form" not in restored.model_dump()
 
 
 @pytest.mark.parametrize(

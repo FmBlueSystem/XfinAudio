@@ -11,8 +11,10 @@ import pytest
 from tests.test_headless_prep_parity import identity, seeded
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.common import BackendError
+from xfinaudio.headless.prep_settings import FORM_STORE_NAME, form_store_path
 
 BACKEND_LOGGER = "xfinaudio.headless.backend"
+FORM_LOGGER = "xfinaudio.headless.prep_settings"
 
 FORM_FIELDS = {
     "targetTrackCount",
@@ -153,6 +155,66 @@ def test_the_existing_saved_controls_response_keeps_its_shape(tmp_path: Path) ->
     assert updated["genreFocus"] == "Techno"
 
 
+def test_a_generation_leaves_the_saved_preferences_revision_current(tmp_path: Path) -> None:
+    backend, _ = seeded(tmp_path)
+    revision = backend.execute("settings.get", {})["revision"]
+    assert not (backend.data_dir / "settings.json").exists()
+    generate(backend)
+    saved = backend.execute("settings.update", {"revision": revision, "previewVolume": 0.5, "watchLibrary": False})
+    assert saved["revision"] != revision
+    assert saved["previewVolume"] == 0.5
+    assert saved["watchLibrary"] is False
+
+
+def test_a_generation_never_touches_the_saved_settings_file(tmp_path: Path) -> None:
+    backend, _ = seeded(tmp_path)
+    saved = backend.execute(
+        "settings.update",
+        {"revision": backend.execute("settings.get", {})["revision"], "previewVolume": 0.4, "watchLibrary": True},
+    )
+    settings_file = backend.data_dir / "settings.json"
+    before = settings_file.read_bytes()
+    generate(backend)
+    assert settings_file.read_bytes() == before
+    assert "prep_form" not in json.loads(before)
+    assert backend.execute("settings.get", {})["revision"] == saved["revision"]
+    assert form_store_path(backend.data_dir).name == FORM_STORE_NAME
+    assert form_store_path(backend.data_dir).is_file()
+
+
+def test_a_corrupt_stored_form_is_ignored_with_a_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    backend, _ = seeded(tmp_path)
+    generate(backend, name="Primera")
+    form_store_path(backend.data_dir).write_text("{not json", encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger=FORM_LOGGER):
+        form = last_form(backend)
+    assert set(form) == FORM_FIELDS
+    assert all(value is None for value in form.values())
+    assert [record.levelno for record in caplog.records if record.name == FORM_LOGGER] == [logging.WARNING]
+
+
+def test_an_out_of_contract_stored_form_is_ignored_with_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    backend, _ = seeded(tmp_path)
+    form_store_path(backend.data_dir).write_text(
+        json.dumps({"version": 1, "form": {"target_track_count": 1}}), encoding="utf-8"
+    )
+    with caplog.at_level(logging.WARNING, logger=FORM_LOGGER):
+        form = last_form(backend)
+    assert all(value is None for value in form.values())
+    assert [record.levelno for record in caplog.records if record.name == FORM_LOGGER] == [logging.WARNING]
+
+
+def test_a_missing_stored_form_is_ignored_without_a_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    backend, _ = seeded(tmp_path)
+    assert not form_store_path(backend.data_dir).exists()
+    with caplog.at_level(logging.WARNING, logger=FORM_LOGGER):
+        form = last_form(backend)
+    assert all(value is None for value in form.values())
+    assert [record for record in caplog.records if record.name == FORM_LOGGER] == []
+
+
 def test_a_form_that_cannot_be_remembered_keeps_the_generated_set_and_warns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -161,10 +223,10 @@ def test_a_form_that_cannot_be_remembered_keeps_the_generated_set_and_warns(
     expected.pop("planId")
     expected.pop("reviewId")
 
-    def unwritable(_settings: object) -> None:
-        raise OSError("app-owned preferences are read-only")
+    def unwritable(*_args: object) -> None:
+        raise OSError("app-owned form memory is read-only")
 
-    monkeypatch.setattr(backend.preferences, "_save", unwritable)
+    monkeypatch.setattr("xfinaudio.headless.prep_settings.write_form", unwritable)
     with caplog.at_level(logging.WARNING, logger=BACKEND_LOGGER):
         result = dict(generate(backend))
     assert result.pop("planId")

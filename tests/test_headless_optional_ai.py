@@ -66,10 +66,6 @@ def run(facade, preview, **kwargs):
 
 def test_status_and_prepare_are_default_off_metadata_only(fixture, monkeypatch):
     facade, transport, backend, _, root = fixture
-    # A successful Prep generation remembers its form in the app settings, so this guards
-    # that the default-off AI path leaves that file exactly as it found it.
-    settings_path = backend.data_dir / "settings.json"
-    before = settings_path.read_bytes() if settings_path.exists() else None
     status = call(facade, "ai.status")
     assert not status["enabled"] and not status["configured"]
     assert status["recipient"] == nan_client.DEFAULT_ENDPOINT and status["credentialLabel"] is None
@@ -80,7 +76,7 @@ def test_status_and_prepare_are_default_off_metadata_only(fixture, monkeypatch):
     with pytest.raises(BackendError) as failure:
         run(facade, preview)
     assert failure.value.code == "ai_disabled" and not transport.requests
-    assert (settings_path.read_bytes() if settings_path.exists() else None) == before
+    assert not (backend.data_dir / "settings.json").exists()
 
 
 def test_credential_selection_does_not_read_contents_or_enable_ai(fixture, monkeypatch):
