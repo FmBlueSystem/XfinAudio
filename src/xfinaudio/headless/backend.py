@@ -208,6 +208,21 @@ class HeadlessBackend:
         cancellation_token: ScanCancellationToken | None = None,
         progress: Progress | None = None,
     ) -> dict[str, Any]:
+        # The review and assistance commands read the library sources once, plus the one
+        # refresh their own final check asks for; every other command reads them as before.
+        if isinstance(method, str) and (method in REVIEW_FIELDS or method in AI_FIELDS):
+            with self.review_actions.snapshot_scope():
+                return self._execute(method, params, cancellation_token=cancellation_token, progress=progress)
+        return self._execute(method, params, cancellation_token=cancellation_token, progress=progress)
+
+    def _execute(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        cancellation_token: ScanCancellationToken | None = None,
+        progress: Progress | None = None,
+    ) -> dict[str, Any]:
         if self.legacy_import.restart_required:
             raise BackendError("legacy_restart_required", "Restart before using imported data")
         allowed = {

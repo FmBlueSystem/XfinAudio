@@ -179,6 +179,14 @@ class OptionalAI:
     def execute(
         self, method: str, params: dict[str, Any], token: ScanCancellationToken, emit: Callable[[dict[str, Any]], None]
     ) -> dict[str, Any]:
+        # One assistance command reads the library sources once, plus the one refresh its
+        # own review guards ask for, exactly like the core command that carries it.
+        with self.backend.review_actions.snapshot_scope():
+            return self._execute(method, params, token, emit)
+
+    def _execute(
+        self, method: str, params: dict[str, Any], token: ScanCancellationToken, emit: Callable[[dict[str, Any]], None]
+    ) -> dict[str, Any]:
         if method not in AI_FIELDS:
             raise BackendError("unknown_method", "Unknown optional assistance command")
         previous_results = dict(self.results) if method == "ai.prepare" else {}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -33,6 +34,8 @@ from xfinaudio.recommendation.prep_copilot import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from xfinaudio.headless.backend import HeadlessBackend
 
 LOGGER = logging.getLogger(__name__)
@@ -72,13 +75,50 @@ class GeneratedReview:
         self.future: list[ReviewState] = []
         # The replacement each comparison offered, per track, for this exact revision.
         self.offers: dict[str, str | None] = {}
+        # One core command reads the library sources at most twice: the snapshot taken at
+        # its start and the refreshed one its final check takes. Outside a command every
+        # read is fresh, so a plan binding and the scan keep their independent reads.
+        self._snapshot: SourceSnapshot | None = None
+        self._refreshed = False
+        self._scope_depth = 0
         # True only when a stored review existed but the library no longer matched it.
         self.dropped = False
 
     def _policy(self) -> tuple[object, ...]:
         return self.backend.preferences.spectral_cohesion(), self.backend.preferences.loudness_band()
 
-    def _sources(self) -> dict[str, tuple[TrackRecord, tuple[object, ...]]]:
+    @contextmanager
+    def snapshot_scope(self) -> Iterator[None]:
+        """Share one library source snapshot for the length of one core command.
+
+        Every guard the command makes reads the snapshot it already has; only the
+        command's final check refreshes it, and it does so once, so a change made during
+        the command is still noticed without re-reading the whole library for each guard.
+        """
+        self._scope_depth += 1
+        try:
+            yield
+        finally:
+            self._scope_depth -= 1
+            if not self._scope_depth:
+                self._snapshot, self._refreshed = None, False
+
+    def _sources(self, *, final: bool = False) -> SourceSnapshot:
+        """The library source snapshot, built at most twice inside one command.
+
+        ``final`` asks for the command's final check: the snapshot is refreshed once and
+        the remaining guards of the command then read the refreshed one. A command that
+        refreshes its snapshot before its own final check does not read the library again.
+        """
+        if self._snapshot is not None and self._scope_depth and (self._refreshed or not final):
+            return self._snapshot
+        result = self._build_sources()
+        if self._scope_depth:
+            self._snapshot, self._refreshed = result, self._refreshed or final
+        return result
+
+    def _build_sources(self) -> SourceSnapshot:
+        """Read the library sources exactly as they are now; callers never mutate them."""
         result = {}
         for track in self.backend._records():
             path = Path(track.path)
@@ -98,13 +138,18 @@ class GeneratedReview:
 
     def bind_plan(self, plan_id: str, binding: PlanBinding) -> None:
         """Publish only a plan whose complete candidate context is still current."""
-        if self._sources() != binding[0] or self._policy() != binding[1]:
+        if self._sources(final=True) != binding[0] or self._policy() != binding[1]:
             raise BackendError("stale_plan", "Library sources or settings changed during preparation; regenerate")
         self.plan_id, self.plan_binding = plan_id, binding
 
     def verify_plan(self, plan_id: str) -> None:
         binding = self.plan_binding
-        if self.plan_id != plan_id or binding is None or self._sources() != binding[0] or self._policy() != binding[1]:
+        if (
+            self.plan_id != plan_id
+            or binding is None
+            or self._sources(final=True) != binding[0]
+            or self._policy() != binding[1]
+        ):
             raise BackendError("stale_plan", "The generation context changed; generate a current plan")
 
     def bind(self, snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -301,7 +346,7 @@ class GeneratedReview:
         state = source[-1]
         # A refused travel must not republish anything, and it must not resurrect a
         # track whose source changed after the edit that stored this state.
-        current = self._sources()
+        current = self._sources(final=True)
         if any(
             current.get(track.path) != self.sources.get(track.path) for track in state[0].recommendation.ordered_tracks
         ):
@@ -353,9 +398,9 @@ class GeneratedReview:
             excluded_paths=frozenset(plan.intent.excluded_paths) | self.removed,
             loudness_band=self.backend.preferences.loudness_band(),
         )
-        after = self._sources()
-        if any(after.get(track.path) != current.get(track.path) for track in proposed.ordered_tracks):
-            raise BackendError("stale_review", "Replacement sources changed; prepare a current review")
+        # The command's own final check re-reads the library once for every track this
+        # proposal would put in the list, so a candidate that changed while it was being
+        # chosen is refused there with the same code as before.
         return target, proposed
 
     def _offered(
@@ -408,7 +453,7 @@ class GeneratedReview:
         added = len(proposed.ordered_tracks) - current
         if added <= 0:
             raise BackendError("no_candidates", "No eligible library track is left to extend this list")
-        after = self._sources()
+        after = self._sources(final=True)
         if any(after.get(track.path) != current_sources.get(track.path) for track in proposed.ordered_tracks):
             raise BackendError("stale_review", "Extension sources changed; prepare a current review")
         assessed = self._assess(proposed)
@@ -479,7 +524,7 @@ class GeneratedReview:
             removed, proposed = self._replacement(review, params["trackId"])
         assessed = self._assess(proposed)
         self.verify(params["reviewId"])
-        current_sources = self._sources()
+        current_sources = self._sources(final=True)
         if any(current_sources.get(track.path) != self.sources.get(track.path) for track in proposed.ordered_tracks):
             raise BackendError("stale_review", "Proposed sources changed; prepare a current review")
         if method == "review.compare":
