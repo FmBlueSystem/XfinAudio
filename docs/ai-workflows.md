@@ -65,7 +65,10 @@ collections to local search without a provider call.
   move a track); the core validates them and shows them under «Cambios
   propuestos». Nothing changes until the user presses «Aplicar» on a card; the
   change then goes through the normal review edit, can be undone with
-  «Deshacer», and never contacts the provider. The assistant cannot save or
+  «Deshacer», and never contacts the provider. The assistant is also told how
+  many tracks were requested, the engine warnings and the other alternatives
+  (track count and score), and may propose extending the list or using another
+  alternative; extending adds tracks the engine picks from the library. The assistant cannot save or
   export anything
 - **My Playlists:** local search and comparisons use saved sets and known metadata.
   Optional AI interprets semantic queries using anonymous set IDs and aggregates;
