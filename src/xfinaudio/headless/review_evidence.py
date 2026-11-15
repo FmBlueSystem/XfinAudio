@@ -50,6 +50,7 @@ def evidence(review: PrepCopilotVariantApplicationResult, plan: PrepCopilotPlan 
         )
     return {
         "transitions": transitions,
+        "transitionScores": [score.total_score for score in recommendation.transition_scores],
         "protectedTrackIds": sorted(
             identities[path]
             for path in preserved_control_paths(DJControls.model_validate(recommendation.applied_controls))

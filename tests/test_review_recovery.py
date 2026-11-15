@@ -12,6 +12,7 @@ import pytest
 from tests.test_headless_prep_parity import identity, seeded
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.common import BackendError
+from xfinaudio.headless.review_store import FIELDS, store_path
 
 
 def stored_backend(backend: HeadlessBackend) -> HeadlessBackend:
@@ -90,6 +91,20 @@ def test_an_edited_review_roundtrips_a_restart_faithfully(tmp_path: Path) -> Non
     with pytest.raises(BackendError) as error:
         restarted.execute("review.undo", {"reviewId": back["reviewId"]})
     assert error.value.code == "nothing_to_undo"
+
+
+def test_the_stored_file_keeps_its_contract_and_a_restart_answers_the_same_facts(tmp_path: Path) -> None:
+    backend, _, result = generated(tmp_path)
+    current = edited_review(backend, result)
+    before = backend.execute("review.details", {"reviewId": current["reviewId"]})
+    stored = json.loads(store_path(backend.data_dir).read_text(encoding="utf-8"))
+    # The two new payload facts are additive: the recovery contract stores exactly what it did before.
+    assert set(stored) == set(FIELDS)
+    restarted = stored_backend(backend)
+    restored = restarted.execute("review.resume", {})["review"]
+    assert restored["transitionScores"] == before["transitionScores"]
+    assert restored["readinessChecks"] == before["readinessChecks"]
+    assert len(restored["transitionScores"]) == len(restored["tracks"]) - 1
 
 
 def test_the_removed_set_survives_so_a_banned_track_is_not_backfilled(tmp_path: Path) -> None:
