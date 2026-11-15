@@ -12,7 +12,12 @@ interface Dependencies {
 const failure=(code:string)=>Object.assign(new Error(`[${code}] Optional assistance unavailable`),{code});
 /** Sensitive authority: native file selection, or persisted automatic authorization granted in Ajustes. */
 export class OptionalAiHost {
-  private previews=new Set<string>();
+  /**
+   * Owned previews, mapped to whether they continue a conversation the user already
+   * authorised. Only the preview itself can say so: the core reports `firstTurn` true
+   * while a conversation is empty.
+   */
+  private previews=new Map<string,boolean>();
   private cancelRequested=false;
   private active=false;
   busy=false;
@@ -44,12 +49,18 @@ export class OptionalAiHost {
     return this.exclusive(async()=>{
       const preview=await this.dependencies.request('ai.prepare',params);
       if(preview.recipient!==AI_RECIPIENT)throw failure('ai_request_failed');
-      this.previews.clear();this.previews.add(preview.previewId);return preview;
+      // Consent is asked once per conversation, not once per message. Only an explicit
+      // `chat` preview that reports a non-empty conversation skips the dialog; a missing
+      // or unexpected `firstTurn` keeps the dialog, so an older core never loses the ask.
+      this.previews.clear();
+      this.previews.set(preview.previewId,preview.surface==='chat'&&preview.firstTurn===false);
+      return preview;
     });
   }
   ask(previewId:string):Promise<any> {
     return this.exclusive(async()=>{
       if(!this.previews.has(previewId))throw failure('stale_ai');
+      const continuesConversation=this.previews.get(previewId)===true;
       this.asking=true;this.cancelRequested=false;
       try{
         // Persisted automatic authorization (opt-in from Ajustes) replaces the
@@ -61,7 +72,9 @@ export class OptionalAiHost {
         }
         const summary=await this.dependencies.request('ai.confirmation',{previewId});
         if(summary.recipient!==AI_RECIPIENT)throw failure('ai_request_failed');
-        const confirmed=await this.dependencies.confirm(summary);this.assertOpen();
+        // A later turn sends exactly what the first turn disclosed. The request still
+        // re-runs ai.confirmation so a stale preview or configuration is caught here.
+        const confirmed=continuesConversation||await this.dependencies.confirm(summary);this.assertOpen();
         if(!confirmed||this.cancelRequested)return {cancelled:true,result:null};
         this.previews.delete(previewId);this.active=true;
         try{return await this.dependencies.request('ai.run',{previewId,confirmed:true});}finally{this.active=false;}

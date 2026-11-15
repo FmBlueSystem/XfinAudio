@@ -61,3 +61,14 @@ test('the Electron IPC action boundary is fail-closed and three-way exhaustive',
     }, `R5: ${method} must be recognized by validateRequest`);
   }
 });
+
+// S6: the chat conversation reaches its core methods and carries no renderer data of its own.
+test('the chat conversation actions reach their exact core methods with no renderer parameters', async () => {
+  const [main, preload] = await Promise.all([read('main.ts'), read('preload.ts')]);
+  const routes = [['aiChatHistory', 'ai.chat.history'], ['aiChatReset', 'ai.chat.reset']];
+  for (const [action, coreMethod] of routes) {
+    const escaped = coreMethod.replace(/\./g, '\\.');
+    assert.match(main, new RegExp(`case '${action}':return run\\('${escaped}'(?:,\\s*\\{\\})?\\);`), `${action} must reach ${coreMethod} with no renderer parameters`);
+    assert.match(preload, new RegExp(`${action}:\\(\\)=>invoke\\('${action}'\\)`), `${action} must be bridged as a parameterless action`);
+  }
+});

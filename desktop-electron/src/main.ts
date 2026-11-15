@@ -160,6 +160,8 @@ async function action(method:string,raw:unknown) {
     case 'prepareAiRequest':return optionalAi.prepare(params);
     case 'inspectAiPayload':return run('ai.payload',params);
     case 'runAiRequest':return optionalAi.ask(params.previewId as string);
+    case 'aiChatHistory':return run('ai.chat.history');
+    case 'aiChatReset':return run('ai.chat.reset');
     case 'applyAiSuggestion':return run('ai.apply',params);
     case 'revealLoudnessBackups':return revealLoudnessBackups(dataDir,filename=>shell.showItemInFolder(filename));
     case 'revealLogs':return revealLogFolder(dataDir,filename=>shell.showItemInFolder(filename));

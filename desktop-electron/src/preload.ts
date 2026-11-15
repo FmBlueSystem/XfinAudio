@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('xfin',Object.freeze({
   getAiStatus:()=>invoke('getAiStatus'),saveAiSettings:(params:unknown)=>invoke('saveAiSettings',params),
   chooseAiCredential:(params:unknown)=>invoke('chooseAiCredential',params),clearAiCredential:(params:unknown)=>invoke('clearAiCredential',params),
   prepareAiRequest:(params:unknown)=>invoke('prepareAiRequest',params),inspectAiPayload:(params:unknown)=>invoke('inspectAiPayload',params),runAiRequest:(params:unknown)=>invoke('runAiRequest',params),applyAiSuggestion:(params:unknown)=>invoke('applyAiSuggestion',params),
+  aiChatHistory:()=>invoke('aiChatHistory'),aiChatReset:()=>invoke('aiChatReset'),
   revealLoudnessBackups:()=>invoke('revealLoudnessBackups'),
   revealLogs:()=>invoke('revealLogs'),
   getLoudnessStatus:()=>invoke('getLoudnessStatus'),saveLoudnessSettings:(params:unknown)=>invoke('saveLoudnessSettings',params),
