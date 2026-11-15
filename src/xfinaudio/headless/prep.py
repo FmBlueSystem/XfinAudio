@@ -161,3 +161,22 @@ def generate_plan(
         spectral_cohesion=spectral_cohesion,
         checkpoint=checkpoint,
     )
+
+
+# The engine checkpoints before building each of the three variants and once more to close
+# the plan, so its 0–3 of 3 progress is named here rather than in the renderer.
+PREP_GENERATE_STAGES: tuple[str, ...] = (
+    "Preparando alternativa segura",
+    "Preparando alternativa equilibrada",
+    "Preparando alternativa aventurera",
+)
+PREP_GENERATE_FINAL_STAGE = "Finalizando la preparación"
+
+
+def prep_generate_stage(processed_count: object) -> str | None:
+    """Spanish name of the stage the engine is on, for its 0–3 of 3 progress."""
+    if type(processed_count) is not int or not 0 <= processed_count <= len(PREP_GENERATE_STAGES):
+        return None
+    if processed_count < len(PREP_GENERATE_STAGES):
+        return PREP_GENERATE_STAGES[processed_count]
+    return PREP_GENERATE_FINAL_STAGE
