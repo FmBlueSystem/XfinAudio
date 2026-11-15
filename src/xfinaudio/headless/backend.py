@@ -17,6 +17,7 @@ from xfinaudio.application.prep_copilot import (
     build_prep_copilot_variant_application,
 )
 from xfinaudio.application.saved_playlists import SavedPlaylistService
+from xfinaudio.headless.ai_conversation import ConversationStore
 from xfinaudio.headless.ai_protocol import AI_FIELDS
 from xfinaudio.headless.common import BackendError, _inside, _public_track, _text
 from xfinaudio.headless.generated_review import REVIEW_FIELDS, GeneratedReview
@@ -139,6 +140,9 @@ class HeadlessBackend:
         self.prep_settings = PrepSettings(self)
         self.legacy_import = LegacyImport(self)
         self._optional_ai: OptionalAI | None = None
+        # One conversation about the list, in memory only: it dies with this process and
+        # is never written to the app-owned directory.
+        self.ai_conversation = ConversationStore()
         # The list in progress belongs to the previous process; rebind it from the
         # app-owned file before any command can observe an empty review.
         self.review_actions.restore()
@@ -171,6 +175,8 @@ class HeadlessBackend:
         self.review = None
         self.review_id = None
         self.review_blocked = True
+        # A conversation is about the list in progress, so a discarded list ends it.
+        self.ai_conversation.reset()
         # A discarded review must not come back after the next start.
         self.review_actions.clear_stored()
 
@@ -242,6 +248,9 @@ class HeadlessBackend:
             self.invalidate_review()
         elif method == "prep.select":
             self._clear_review()
+        elif method in ("playlist.open", "playlist.edit.open"):
+            # Opening another saved list leaves the generated list the conversation is about.
+            self.ai_conversation.reset()
         if not isinstance(params, dict) or set(params) - allowed[method]:
             raise BackendError("invalid_params", "Unexpected command parameters")
         if method in LEGACY_FIELDS:

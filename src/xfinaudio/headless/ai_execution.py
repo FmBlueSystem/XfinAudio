@@ -8,6 +8,7 @@ from xfinaudio.ai import nan_client
 from xfinaudio.ai.connection_test import PROBE_MESSAGE
 from xfinaudio.ai.grounded_evidence import explain_grounded_evidence
 from xfinaudio.ai.intent_copilot import extract_intent
+from xfinaudio.ai.list_chat import chat_with_list
 from xfinaudio.ai.saved_assists import interpret_saved_request
 from xfinaudio.ai.set_narrator import narrate_set
 from xfinaudio.ai.structured_assists import (
@@ -94,6 +95,17 @@ def execute_context(context: AssistContext, transport: nan_client.Transport) -> 
         proposal = {"action": interpreted.action, "playlistIds": [str(item.id) for item in selected]}
         kind = "saved_selection"
         text = "La comparación o selección se calculará localmente al aplicar."
+    elif surface == "chat":
+        # One system message with the current list, the stored conversation and this
+        # turn's question. The reply is prose; a chat turn applies nothing locally.
+        text = chat_with_list(
+            data["facts"],
+            context.request,
+            data["conversation"],
+            transport=transport,
+            timeout=AI_REQUEST_TIMEOUT_SECONDS[surface],
+        )
+        kind = "chat"
     elif surface == "review":
         text = narrate_set(
             data["recommendation"], data["readiness"], transport=transport, timeout=AI_REQUEST_TIMEOUT_SECONDS[surface]

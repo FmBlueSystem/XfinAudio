@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from xfinaudio.ai.connection_test import PROBE_MESSAGE
+from xfinaudio.ai.list_chat import MAX_CHAT_TRACKS, list_facts, protected_positions
 from xfinaudio.ai.privacy import redact_paths
 from xfinaudio.ai.saved_assists import anonymize_saved_request, build_saved_descriptors
 from xfinaudio.application.playlist_improvement import (
@@ -26,8 +27,8 @@ from xfinaudio.recommendation.scoring import bpm_difference_percent, effective_e
 if TYPE_CHECKING:
     from xfinaudio.headless.backend import HeadlessBackend
 
-SURFACES = frozenset({"library", "prep", "review", "saved", "editor", "metadata", "live", "connection"})
-FREE_TEXT = frozenset({"library", "prep", "saved", "editor"})
+SURFACES = frozenset({"library", "prep", "review", "chat", "saved", "editor", "metadata", "live", "connection"})
+FREE_TEXT = frozenset({"library", "prep", "saved", "editor", "chat"})
 
 # A distinct, explicit improvement selector for the editor surface. The legacy
 # ``{editId}`` selector keeps the four-operation behavior and its disclosure; the
@@ -120,6 +121,7 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
         raise BackendError("invalid_params", "This explanation uses only its disclosed fixed request")
     expected = {
         "review": {"reviewId"},
+        "chat": {"reviewId"},
         "editor": {"editId"},
         "live": {"sessionId", "revision"},
         "saved": {"playlistIds"},
@@ -167,6 +169,35 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
             "Títulos y artistas de la selección en su orden revisado.",
             "BPM, tonalidad, energía, transiciones y datos locales de calidad y preparación.",
             "No se envían rutas ni archivos de audio.",
+        )
+    elif surface == "chat":
+        # The conversation reads the same current review the commentary does, rebuilt
+        # on every turn, so an edit between turns is what the assistant reads next.
+        source = load_source(backend, {"kind": "review", "reviewId": selector["reviewId"]})
+        if backend.review is None:
+            raise BackendError("ai_context_unavailable", "Prepare a current review first")
+        recommendation = backend.review.recommendation.model_copy(deep=True)
+        readiness = backend.review.readiness_report.model_copy(deep=True)
+        if len(recommendation.ordered_tracks) > MAX_CHAT_TRACKS:
+            raise BackendError(
+                "invalid_params",
+                f"This list has more than {MAX_CHAT_TRACKS} tracks; nothing was prepared for the conversation",
+            )
+        required = backend.plan.intent.required_paths if backend.plan is not None else []
+        facts = list_facts(recommendation, readiness, protected_positions(recommendation, required))
+        conversation = backend.ai_conversation.prompt()
+        data.update(
+            facts=facts,
+            listFingerprint=_fingerprint(facts),
+            conversation=conversation,
+            firstTurn=backend.ai_conversation.first_turn,
+        )
+        revision_data.extend([source.revision, conversation])
+        disclosure = (
+            "Posiciones, títulos, artistas, géneros, BPM, tonalidad, energía y duración de la lista revisada.",
+            "Transiciones con su puntuación, explicaciones y avisos, y la preparación con sus bloqueos.",
+            "Tu pregunta y la conversación de esta charla, que se guarda solo en memoria.",
+            "No se envían rutas de archivos, identificadores de pistas, audio ni credenciales.",
         )
     elif surface == "editor":
         session = backend.editor._current(selector["editId"])
