@@ -112,9 +112,9 @@ test('automatic authorization keeps its meaning for chat, first turn included',a
  assert.deepEqual(f.calls.find(([method])=>method==='ai.run'),['ai.run',{previewId:id,confirmed:true}]);
 });
 
-// Cross-boundary: the Electron host against the real Python core. It cannot pass until the
-// core implements the chat surface, `firstTurn`, `ai.chat.history` and `ai.chat.reset`.
-const chatScript=`import io,json,sys,urllib.request
+// Cross-boundary: the Electron host against the real Python core, which implements the chat
+// surface, `firstTurn`, `ai.chat.history` and `ai.chat.reset` (S5) behind the bridge (S6).
+const chatScript=`import io,json,re,sys,urllib.request
 from pathlib import Path
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.server import JsonlServer
@@ -130,7 +130,12 @@ def fake(request,*,timeout):
     assert request.full_url==nan_client.DEFAULT_ENDPOINT
     assert request.get_header('Authorization')=='Bearer dummy-test-only'
     body=request.data.decode()
-    assert str(root) not in body and 'Electron test' not in body
+    # S3: one system message carries the list itself (the fixture tracks are titled
+    # 'Electron test N', so their titles are the evidence the list was read) plus the
+    # transitions, and never a local file path or a track identity (a sha256 hex id).
+    assert str(root) not in body and 'fixtures/music' not in body
+    assert 'Electron test 1' in body and 'Transiciones' in body
+    assert not re.search(r'[0-9a-f]{64}',body)
     with (root/'fake-requests.jsonl').open('a') as log: log.write(json.dumps({'recipient':request.full_url,'body':body})+'\\n')
     return io.BytesIO(json.dumps({'choices':[{'message':{'content':'Quita la tercera pista: su energia rompe la curva.'}}]}).encode())
 backend.optional_ai.transport=fake
