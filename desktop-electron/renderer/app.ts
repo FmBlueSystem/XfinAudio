@@ -48,6 +48,7 @@ import { renderMetadataPanel } from './metadata.js';
 import type { MetadataReport } from './metadata.js';
 import { createPlayer } from './player.js';
 import { createTrackSearchView } from './track-search-view.js';
+import { createTrackPicker } from './track-picker-view.js';
 
 type Route = ExistingRoute | 'preferences' | 'loudness' | 'ai';
 type AppApi = XfinApi & LegacyImportApi & GeneratedReviewApi & PrepSettingsApi & OfflineBrowseApi & ProfilesApi & ProfileSettingsApi & PreferencesApi & LoudnessApi & OptionalAiApi & Partial<ListChatApi> & { getLibraryStatus(): Promise<LibraryStatus>; rescanLibrary(): Promise<LibraryResult>; onLibraryStatus(callback: (status: LibraryStatus) => void): () => void; };
@@ -114,6 +115,15 @@ let rememberedStrategy: string | null = null;
 const trackSearch = createTrackSearchView({
   changed: () => { prepFormEdited = true; renderPrepSummaries(); element('prep-validation').hidden = true; syncAiContext(); },
 });
+// Closing, required and excluded tracks are chosen with the same searchable picker as the
+// opening track. Each picker writes only into its existing select, so the generate request,
+// the saved controls and the remembered form keep reading the very same values.
+const pickerChanged = (settings: boolean): void => { prepFormEdited = true; if (settings) prepSettings?.edited(); renderPrepSummaries(); element('prep-validation').hidden = true; syncAiContext(); };
+const endPicker = createTrackPicker({ id: 'end', kind: 'end', multiple: false, changed: () => pickerChanged(false) });
+const requiredPicker = createTrackPicker({ id: 'required', kind: 'required', multiple: true, changed: () => pickerChanged(true) });
+const excludedPicker = createTrackPicker({ id: 'excluded', kind: 'excluded', multiple: true, changed: () => pickerChanged(true) });
+const trackPickers = [endPicker, requiredPicker, excludedPicker];
+const syncTrackPickers = (): void => { for (const picker of trackPickers) picker.sync(); };
 // An improvement preview can only be persisted through the dedicated proposal-bound
 // route. Without that bridge the editor improvement surface is disabled rather than
 // producing a bound draft that could not be saved safely.
@@ -399,10 +409,16 @@ listChat = listChatApi ? new ListChatController(listChatApi, {
 if (listChat) renderListChat = createListChatView(element('list-chat-container'), listChat, { idPrefix: 'list-chat' });
 else element('list-chat-container').hidden = true;
 function invalidateAiSource(): void { aiContextKey = ''; deferredAiApply = null; ai?.invalidate(); }
+/** Selected values of a carrier select: what it reports selected and what its options mark. */
+function selectedPrepValues(id: string): string[] {
+  const select = element<HTMLSelectElement>(`prep-${id}`);
+  const values = Array.from(select.selectedOptions ?? [], (item) => item.value).filter(Boolean);
+  for (const item of Array.from(select.options ?? [])) if (item.selected && item.value && !values.includes(item.value)) values.push(item.value);
+  return values;
+}
 function prepFields(): PrepFields {
   const value = (id: string): string => element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value;
-  const selected = (id: string): string[] => Array.from(element<HTMLSelectElement>(`prep-${id}`).selectedOptions ?? [], (option) => option.value);
-  return { name: value('name'), count: value('count'), strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selected('required'), excluded: selected('excluded') };
+  return { name: value('name'), count: value('count'), strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selectedPrepValues('required'), excluded: selectedPrepValues('excluded') };
 }
 function renderPrepSummaries(): void {
   const fields=prepFields();const summaries=prepSummaries(fields, prepSettingsDirty);
@@ -426,7 +442,7 @@ function restorePrepForm(form: PrepFormSnapshot): void {
   scalar('count', form.targetTrackCount === null ? null : String(form.targetTrackCount));
   scalar('minutes', form.targetMinutes === null ? null : String(form.targetMinutes));
   scalar('role', form.slotRole);
-  if (form.endTrackId !== null) { const end = element<HTMLSelectElement>('prep-end'); keepMissingChoice(end, form.endTrackId); end.value = form.endTrackId; }
+  if (form.endTrackId !== null) endPicker.setSelected([form.endTrackId]);
   if (form.startTrackId !== null) trackSearch.setSelected(form.startTrackId);
   rememberedStrategy = form.strategy;
   applyRememberedStrategy();
@@ -444,10 +460,15 @@ function renderSettingsSummaries(): void {
   element('settings-cohesion-summary').textContent=profileSettings.snapshot ? `${Math.round(profileSettings.snapshot.spectralCohesion*100)} %${profileSettingsDirty?' · cambios sin guardar':''}` : 'Peso de la cohesión al seleccionar pistas';
   element('settings-ai-summary').textContent=aiDirty ? 'Cambios de IA sin guardar' : 'Proveedor, credenciales y prueba sintética';
 }
+// Every picker keeps the value in a hidden carrier, so its search box is the visible control.
+const pickerControls: Record<string,string> = { 'prep-start': 'prep-start-search', 'prep-end': 'prep-end-search', 'prep-required': 'prep-required-search', 'prep-excluded': 'prep-excluded-search' };
+function visiblePrepControl(input: HTMLElement): HTMLElement {
+  for (const [carrier, search] of Object.entries(pickerControls)) if (input === element(carrier)) return element(search);
+  return input;
+}
 function showPrepValidation(input: HTMLElement, message: string): void {
   const notice=element('prep-validation'); notice.textContent=message; notice.hidden=false;
-  // The opaque id lives in a hidden input; the actionable control is the visible combobox.
-  revealControl(input === element('prep-start') ? element('prep-start-search') : input); showStatus('Revisa la configuración de la sesión', message, true);
+  revealControl(visiblePrepControl(input)); showStatus('Revisa la configuración de la sesión', message, true);
 }
 function syncAiContext(): void {
   if (!ai) return;
@@ -535,6 +556,7 @@ function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => v
       for (const key of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end'] as const) element<HTMLInputElement | HTMLSelectElement>(`prep-${key}`).value = fields[key];
       trackSearch.setSelected(fields.start);
       for (const key of ['required', 'excluded'] as const) for (const option of element<HTMLSelectElement>(`prep-${key}`).options) option.selected = fields[key].includes(option.value);
+      syncTrackPickers();
       renderStrategyHint(); syncAiContext();
     };
   }
@@ -589,7 +611,7 @@ if(prepSettingsAvailable()){
   prepSettings=new PrepSettingsController(api,{
     canAct:()=>coreAvailable&&!gate.busy,
     read:()=>{const fields=prepFields();return {requiredTrackIds:fields.required,excludedTrackIds:fields.excluded,genreFocus:fields.genre};},
-    restore:value=>{ensureTrackChoices();for(const [key,ids] of [['required',value.requiredTrackIds],['excluded',value.excludedTrackIds]] as const)for(const option of element<HTMLSelectElement>(`prep-${key}`).options??[])option.selected=ids.includes(option.value);element<HTMLInputElement>('prep-genre').value=value.genreFocus;invalidatePrep();},
+    restore:value=>{ensureTrackChoices();for(const [key,ids] of [['required',value.requiredTrackIds],['excluded',value.excludedTrackIds]] as const)for(const option of element<HTMLSelectElement>(`prep-${key}`).options??[])option.selected=ids.includes(option.value);syncTrackPickers();element<HTMLInputElement>('prep-genre').value=value.genreFocus;invalidatePrep();},
     remembered:form=>restorePrepForm(form),
     changed:()=>{prepSettingsDirty=prepSettings?.dirty??false;renderPrepSettings();syncDraftDirty();},saved:()=>{invalidateAiSource();invalidatePrep();},
     perform:(label,task,apply,failure)=>perform('prep-settings',label,task,value=>{apply(value);showStatus('Ajustes de preparación guardados', 'Se aplican a la próxima generación de listas.');},false,failure),
@@ -946,6 +968,7 @@ function applyLibrary(result: LibraryResult): void {
   const controlsDirty=prepSettings?.dirty??false;prepSettings?.libraryChanged();if(prepSettings&&!controlsDirty)prepSettingsBootstrapPending=true;
   library = result.tracks;
   trackSearch.setLibrary(library);
+  for (const picker of trackPickers) picker.setLibrary(library);
   libraryRevision++; visibleRevision++;
   offline?.invalidateLibrary();offline?.invalidateSaved();
   aiLibraryFilter = null; aiFilterRevision++;
@@ -960,7 +983,7 @@ function option(value: string, label: string): HTMLOptionElement {
 function renderTrackChoices(): void {
   for (const id of ['end', 'required', 'excluded']) {
     const select = element<HTMLSelectElement>(`prep-${id}`);
-    const selected=new Set(Array.from(select.selectedOptions??[],item=>item.value));const scalar=id==='end';if(scalar&&select.value)selected.add(select.value);
+    const selected=new Set(selectedPrepValues(id));const scalar=id==='end';if(scalar&&select.value)selected.add(select.value);
     select.replaceChildren();
     if(scalar)select.append(option('', 'Sin preferencia'));
     for(const track of library){const item=option(track.id,`${track.title||'Sin título'} · ${track.artist||'Artista desconocido'}`);item.selected=selected.has(track.id);select.append(item);}
@@ -975,6 +998,7 @@ function renderTrackChoices(): void {
 /** Full Prep option lists are built lazily; a large library must not pay for them at boot. */
 function ensureTrackChoices(): void {
   trackSearch.sync();
+  syncTrackPickers();
   if (renderedTrackChoicesRevision === libraryRevision) return;
   renderTrackChoices();
   renderedTrackChoicesRevision = libraryRevision;
@@ -1334,14 +1358,13 @@ element('prep-form').addEventListener('submit', (event) => {
   ensureTrackChoices();
   const name = normalizePrepName(element<HTMLInputElement>('prep-name').value);
   const value = (id: string) => element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value;
-  const selected = (id: string) => Array.from(element<HTMLSelectElement>(`prep-${id}`).selectedOptions ?? [], (option) => option.value);
   let input;
   try {
-    input = buildPrepInput({ count: value('count'), name, strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selected('required'), excluded: selected('excluded') }, library, strategies);
+    input = buildPrepInput({ count: value('count'), name, strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selectedPrepValues('required'), excluded: selectedPrepValues('excluded') }, library, strategies);
   } catch (error) {
     const message=error instanceof Error ? error.message : String(error);
     let field=prepErrorField(message,prepFields());
-    if(message.includes('biblioteca actual')) {const ids=new Set(library.map(track=>track.id));field=['start','end','required','excluded'].map(key=>[`prep-${key}`,['required','excluded'].includes(key)?selected(key):[value(key)]] as const).find(([,values])=>values.some(id=>id&&!ids.has(id)))?.[0]??field;}
+    if(message.includes('biblioteca actual')) {const ids=new Set(library.map(track=>track.id));field=['start','end','required','excluded'].map(key=>[`prep-${key}`,['required','excluded'].includes(key)?selectedPrepValues(key):[value(key)]] as const).find(([,values])=>values.some(id=>id&&!ids.has(id)))?.[0]??field;}
     showPrepValidation(element(field), message); return;
   }
   element('prep-validation').hidden=true;

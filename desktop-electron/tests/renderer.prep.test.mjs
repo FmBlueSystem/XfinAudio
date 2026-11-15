@@ -122,7 +122,7 @@ test('navigation and core disconnect suppress late variant navigation and mutati
 });
 test('Prep controls and variant comparison have Spanish accessible labels and an expandable advanced panel', async () => {
   const html = await readFile(new URL('../renderer/index.html', import.meta.url), 'utf8');
-  for (const name of ['strategy', 'minutes', 'role', 'end', 'required', 'excluded']) { assert.match(html, new RegExp(`id="prep-${name}"`)); assert.match(html, new RegExp(`for="prep-${name}"`)); }
+  for (const name of ['strategy', 'minutes', 'role']) { assert.match(html, new RegExp(`id="prep-${name}"`)); assert.match(html, new RegExp(`for="prep-${name}"`)); }
   // The free-text genre input became a list picker: the visible field is #prep-genre-search and
   // #prep-genre keeps carrying the value as genreFocus.
   assert.match(html, /id="prep-genre" type="hidden"/);
@@ -140,6 +140,22 @@ test('Prep controls and variant comparison have Spanish accessible labels and an
   assert.match(html, /id="prep-start-clear"[^>]*>Quitar</);
   assert.match(html, /id="prep-start" type="hidden"/);
   assert.doesNotMatch(html, /<select id="prep-start"/);
+  // The closing, required and excluded picks use the same searchable picker: the visible label
+  // names the search box while the existing select stays in the page as the hidden carrier.
+  for (const name of ['end', 'required', 'excluded']) {
+    assert.match(html, new RegExp(`<label for="prep-${name}-search">`));
+    assert.match(html, new RegExp(`id="prep-${name}-search"[^>]*role="combobox"`));
+    assert.match(html, new RegExp(`id="prep-${name}-search"[^>]*aria-expanded="false"`));
+    assert.match(html, new RegExp(`id="prep-${name}-search"[^>]*aria-controls="prep-${name}-results"`));
+    assert.match(html, new RegExp(`id="prep-${name}-results"[^>]*role="listbox"[^>]*hidden`));
+    assert.match(html, new RegExp(`id="prep-${name}-status"[^>]*aria-live="polite"`));
+    assert.match(html, new RegExp(`id="prep-${name}-chips"[^>]*class="track-chips"`));
+    assert.match(html, new RegExp(`<select id="prep-${name}"[^>]*hidden`), 'the select stays mounted as the value carrier');
+    assert.match(html, new RegExp(`id="prep-${name}"[^>]*(multiple )?hidden`));
+  }
+  assert.match(html, /<select id="prep-end" hidden[^>]*><option value="">Sin preferencia<\/option><\/select>/);
+  assert.match(html, /<select id="prep-required" multiple hidden/);
+  assert.match(html, /<select id="prep-excluded" multiple hidden/);
   assert.match(html, /<details[^>]*id="prep-advanced"/); assert.match(html, /id="prep-variants"/); assert.match(html, /no.*(?:inventa|fabrican|generan)/i);
 });
 
@@ -194,8 +210,8 @@ test('current review enters Serato with its exact review identity and new genera
 for(const scope of ['required','excluded','both'])test(`101 distinct ${scope} controls reveal the offending list before any generate call`,async()=>{
  const many=Array.from({length:101},(_,index)=>({...tracks[0],id:index.toString(16).padStart(64,'0')}));const f=await fixture({listLibrary:async()=>({tracks:many,count:many.length})});try{
   f.get('prep-count').value='100';const group=f.get('prep-track-options');group.tagName='DETAILS';group.open=false;
-  for(const field of ['required','excluded']){const input=f.get('prep-'+field);input.parentElement=group;input.selectedOptions=scope===field||scope==='both'?many.map(track=>({value:track.id})):[];}
-  await f.submit();assert.equal(f.generated.length,0);assert.equal(document.activeElement,f.get(scope==='excluded'?'prep-excluded':'prep-required'));assert.equal(group.open,true);assert.match(f.get('prep-validation').textContent,/100 pistas distintas/);
+  for(const field of ['required','excluded']){const input=f.get('prep-'+field);input.selectedOptions=scope===field||scope==='both'?many.map(track=>({value:track.id})):[];f.get('prep-'+field+'-search').parentElement=group;}
+  await f.submit();assert.equal(f.generated.length,0);assert.equal(document.activeElement,f.get(scope==='excluded'?'prep-excluded-search':'prep-required-search'),'the visible search box of the offending picker takes the focus');assert.equal(group.open,true);assert.match(f.get('prep-validation').textContent,/100 pistas distintas/);
  }finally{f.restore();}
 });
 test('a large library keeps the opening search usable without building one option per track',async()=>{
@@ -322,6 +338,9 @@ test('a remembered track that left the library stays visible as unavailable and 
     assert.equal(missing.disabled, true);
     assert.equal(missing.selected, true);
     assert.match(missing.textContent, /No disponible/);
+    assert.equal(f.get('prep-end-chips').children.length, 1);
+    assert.equal(f.get('prep-end-chips').children[0].attrs['data-state'], 'unavailable');
+    assert.match(text(f.get('prep-end-chips')), /No disponible: eeeeeeee/);
     await f.submit();
     assert.equal(f.generated.length, 0, 'an unavailable remembered track is never silently dropped');
     assert.match(f.get('prep-validation').textContent, /biblioteca actual/);
@@ -342,5 +361,83 @@ test('a form value the user already changed is not replaced by the remembered fo
     await settle(20);
     assert.equal(f.get('prep-count').value, '25');
     assert.equal(f.get('prep-name').value, 'Viernes');
+  } finally { f.restore(); }
+});
+test('the closing track is chosen with a search picker that keeps #prep-end as the value carrier', async () => {
+  const f = await fixture();
+  try {
+    const search = f.get('prep-end-search'); const list = f.get('prep-end-results'); const chips = f.get('prep-end-chips');
+    assert.equal(list.hidden, true); assert.equal(text(chips), 'Sin preferencia');
+    search.value = 'ARTIST'; search.dispatchEvent(new Event('input'));
+    assert.equal(list.hidden, false); assert.equal(search.attrs['aria-expanded'], 'true');
+    assert.equal(list.children.length, 3, 'matching tracks appear while typing');
+    assert.match(text(list.children[0]), /a Artist 120 BPM · 8A/);
+    assert.equal(search.attrs['aria-activedescendant'], 'prep-end-option-0');
+    assert.equal(list.children[0].attrs['aria-selected'], 'true');
+    assert.equal(f.get('prep-end-status').textContent, '3 coincidencias. Usa las flechas para moverte y Enter para elegir.');
+    keydown(search, 'ArrowDown');
+    assert.equal(search.attrs['aria-activedescendant'], 'prep-end-option-1');
+    keydown(search, 'Enter');
+    assert.equal(f.get('prep-end').value, tracks[1].id, 'the hidden select holds the chosen id');
+    assert.equal(list.hidden, true); assert.equal(search.value, ''); assert.equal(search.attrs['aria-expanded'], 'false');
+    assert.equal(chips.children.length, 1);
+    assert.match(text(chips), /b · Artist 121 BPM · 8A Quitar/);
+    assert.equal(f.get('prep-end-status').textContent, 'Pista de cierre: b · Artist.');
+    await f.submit();
+    assert.equal(f.generated[0].endTrackId, tracks[1].id);
+  } finally { f.restore(); }
+});
+test('the closing picker holds one track and Quitar clears it without leaving a value', async () => {
+  const f = await fixture();
+  try {
+    const search = f.get('prep-end-search'); const chips = f.get('prep-end-chips');
+    const pick = (query) => { search.value = query; search.dispatchEvent(new Event('input')); return f.get('prep-end-results').children[0]; };
+    pick('b').dispatchEvent(new Event('click'));
+    assert.equal(f.get('prep-end').value, tracks[1].id);
+    pick('c').dispatchEvent(new Event('click'));
+    assert.equal(f.get('prep-end').value, tracks[2].id, 'a second choice replaces the first');
+    assert.equal(chips.children.length, 1, 'the closing picker never holds two tracks');
+    assert.match(text(chips), /c · Artist/);
+    const remove = descendants(chips.children[0]).find((node) => node.textContent === 'Quitar');
+    assert.ok(remove, 'each chosen track is removed with «Quitar»');
+    remove.dispatchEvent(new Event('click'));
+    assert.equal(f.get('prep-end').value, '', 'Quitar leaves no closing track in the carrier');
+    assert.equal(text(chips), 'Sin preferencia');
+    assert.equal(f.get('prep-end-status').textContent, 'Sin preferencia de cierre.');
+    await f.submit();
+    assert.equal('endTrackId' in f.generated[0], false);
+  } finally { f.restore(); }
+});
+test('required and excluded pickers hold several tracks and reach the request in the chosen order', async () => {
+  const f = await fixture();
+  try {
+    const pick = (id, query) => { const search = f.get(`prep-${id}-search`); search.value = query; search.dispatchEvent(new Event('input')); f.get(`prep-${id}-results`).children[0].dispatchEvent(new Event('click')); };
+    pick('required', 'c'); pick('required', 'a');
+    assert.equal(f.get('prep-required-chips').children.length, 2);
+    assert.match(text(f.get('prep-required-chips').children[0]), /c · Artist 122 BPM · 8A Quitar/);
+    assert.equal(f.get('prep-required-status').textContent, 'Pista obligatoria: a · Artist.');
+    pick('excluded', 'b');
+    assert.equal(f.get('prep-excluded-status').textContent, 'Pista excluida: b · Artist.');
+    assert.match(text(f.get('prep-excluded-chips')), /b · Artist/);
+    const remove = descendants(f.get('prep-required-chips').children[0]).find((node) => node.textContent === 'Quitar');
+    remove.dispatchEvent(new Event('click'));
+    assert.equal(f.get('prep-required-chips').children.length, 1);
+    assert.equal(f.get('prep-required-status').textContent, 'Quitada: c · Artist.');
+    await f.submit();
+    assert.deepEqual(f.generated[0].requiredTrackIds, [tracks[0].id]);
+    assert.deepEqual(f.generated[0].excludedTrackIds, [tracks[1].id]);
+  } finally { f.restore(); }
+});
+test('saved required, excluded and closing choices still ride the same selects and now show as chips', async () => {
+  const f = await fixture({ prepSettings: async () => prepSettings({ requiredTrackIds: [tracks[0].id], excludedTrackIds: [tracks[1].id], lastForm: lastForm({ endTrackId: tracks[2].id }) }), savePrepSettings: async (input) => prepSettings({ ...input, revision: 'b'.repeat(64) }) });
+  try {
+    await settle();
+    assert.match(text(f.get('prep-required-chips')), /a · Artist/);
+    assert.match(text(f.get('prep-excluded-chips')), /b · Artist/);
+    assert.match(text(f.get('prep-end-chips')), /c · Artist/);
+    await f.submit();
+    assert.deepEqual(f.generated[0].requiredTrackIds, [tracks[0].id]);
+    assert.deepEqual(f.generated[0].excludedTrackIds, [tracks[1].id]);
+    assert.equal(f.generated[0].endTrackId, tracks[2].id);
   } finally { f.restore(); }
 });
