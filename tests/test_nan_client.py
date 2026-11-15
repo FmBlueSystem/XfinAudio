@@ -210,6 +210,75 @@ def test_chat_sends_the_system_message_before_the_user_message(ai_env: None) -> 
     ]
 
 
+def test_chat_without_messages_keeps_the_request_body_byte_identical(ai_env: None) -> None:
+    # Pins today's serialization exactly: adding the optional ``messages``
+    # keyword must not change the bytes of a single-message request.
+    transport = FakeTransport(completion_body("ok"))
+
+    chat("hi", transport=transport)
+
+    assert transport.request.data == (
+        b'{"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": "hi"}]}'
+    )
+
+    with_system = FakeTransport(completion_body("ok"))
+
+    chat("hi", system="S", transport=with_system)
+
+    assert with_system.request.data == (
+        b'{"model": "deepseek-v4-flash", "messages": [{"role": "system", "content": "S"}, '
+        b'{"role": "user", "content": "hi"}]}'
+    )
+
+
+CONVERSATION = [
+    {"role": "system", "content": "Eres un asistente de listas."},
+    {"role": "user", "content": "¿Qué pista quitarías?"},
+    {"role": "assistant", "content": "Quitaría la 4."},
+    {"role": "user", "content": "¿Por qué?"},
+]
+
+
+def test_chat_sends_exactly_the_given_conversation_in_order(ai_env: None) -> None:
+    transport = FakeTransport(completion_body("ok"))
+
+    chat("unused request text", system="unused system", messages=tuple(CONVERSATION), transport=transport)
+
+    assert payload_of(transport)["messages"] == CONVERSATION
+
+
+@pytest.mark.parametrize(
+    "messages",
+    [
+        pytest.param([], id="empty-list"),
+        pytest.param([{"role": "tool", "content": "hi"}], id="role-outside-the-three"),
+        pytest.param([{"role": "USER", "content": "hi"}], id="role-wrong-case"),
+        pytest.param([{"role": "", "content": "hi"}], id="role-empty"),
+        pytest.param([{"role": None, "content": "hi"}], id="role-not-a-string"),
+        pytest.param([{"role": "user", "content": ""}], id="content-empty"),
+        pytest.param([{"role": "user", "content": "   "}], id="content-blank"),
+        pytest.param([{"role": "user", "content": None}], id="content-not-a-string"),
+        pytest.param([{"role": "user"}], id="missing-content"),
+        pytest.param([{"content": "hi"}], id="missing-role"),
+        pytest.param([{"role": "user", "content": "hi", "name": "x"}], id="unexpected-key"),
+        pytest.param(["hi"], id="entry-is-not-a-mapping"),
+        pytest.param("hi", id="not-a-sequence-of-messages"),
+        pytest.param(
+            [{"role": "user", "content": "hi"}, {"role": "assistant", "content": ""}], id="later-message-invalid"
+        ),
+    ],
+)
+def test_chat_rejects_invalid_messages_before_any_network_call(ai_env: None, messages: Any) -> None:
+    transport = FakeTransport(completion_body("unused"))
+
+    with pytest.raises(ValueError) as excinfo:
+        chat("hi", messages=messages, transport=transport)
+
+    assert excinfo.type is ValueError
+    assert "message" in str(excinfo.value).lower()
+    assert transport.requests == [], "an invalid conversation must fail before any transport call"
+
+
 def test_chat_sends_the_bearer_authorization_header(ai_env: None) -> None:
     transport = FakeTransport(completion_body("ok"))
 

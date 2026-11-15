@@ -18,7 +18,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -139,9 +139,14 @@ def load_api_key_from_env_file(path: Path) -> str:
     return api_key
 
 
+#: The only roles a conversation may carry (OpenAI-compatible chat roles).
+CHAT_ROLES = frozenset({"system", "user", "assistant"})
+
+
 def chat(
     message: str,
     *,
+    messages: Sequence[Mapping[str, str]] | None = None,
     system: str | None = None,
     model: str | None = None,
     timeout: float = 30.0,
@@ -156,7 +161,16 @@ def chat(
     request itself) rather than a silent empty answer. The API key value is
     never included in the raised errors. ``enabled`` is an explicit per-call
     opt-in for a user-triggered connection probe; it never changes runtime state.
+
+    ``messages`` carries a whole conversation as ``{"role", "content"}``
+    mappings with roles ``system``, ``user`` or ``assistant``. When given, the
+    request body carries exactly those messages in that order and ``message``
+    and ``system`` are unused; when omitted, the body is built from ``message``
+    and ``system`` exactly as before. An invalid conversation raises
+    ``ValueError`` before any network call.
     """
+    conversation = _validated_messages(messages) if messages is not None else None
+
     if not (is_ai_enabled() if enabled is None or _REQUEST_CONTEXT.get() is not None else enabled):
         raise NanConfigError(
             f"AI is disabled: set {ENABLED_ENV}=1 in the environment before starting XfinAudio "
@@ -164,7 +178,7 @@ def chat(
         )
 
     api_key = _resolve_api_key(env_file)
-    request = _build_request(message, system=system, model=model, api_key=api_key)
+    request = _build_request(message, messages=conversation, system=system, model=model, api_key=api_key)
     send = transport or _urlopen
     try:
         with send(request, timeout=timeout) as response:
@@ -205,13 +219,54 @@ def _resolve_env_file_path(env_file: Path | None = None) -> Path:
     return default_env_file_path()
 
 
-def _build_request(message: str, *, system: str | None, model: str | None, api_key: str) -> urllib.request.Request:
-    messages: list[dict[str, str]] = []
-    if system is not None:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": message})
+def _validated_messages(messages: Sequence[Mapping[str, str]]) -> list[dict[str, str]]:
+    """Return a copy of ``messages``, rejecting anything the provider would refuse.
 
-    body = json.dumps({"model": _resolve_model(model), "messages": messages}).encode("utf-8")
+    Called before the request is built so an invalid conversation can never
+    reach the transport, the credential file, or the network.
+    """
+    if isinstance(messages, (str, bytes)):
+        raise ValueError("messages must be a sequence of {'role', 'content'} messages, not a string.")
+    try:
+        entries = list(messages)
+    except TypeError:
+        raise ValueError("messages must be a sequence of {'role', 'content'} messages.") from None
+    if not entries:
+        raise ValueError("messages must contain at least one message.")
+
+    validated: list[dict[str, str]] = []
+    for index, entry in enumerate(entries, start=1):
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"message {index} must be a mapping with 'role' and 'content'.")
+        if set(entry) != {"role", "content"}:
+            raise ValueError(f"message {index} must have exactly the keys 'role' and 'content'.")
+        role = entry["role"]
+        content = entry["content"]
+        if not isinstance(role, str) or role not in CHAT_ROLES:
+            raise ValueError(f"message {index} has an invalid role; use one of {sorted(CHAT_ROLES)}.")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError(f"message {index} has empty content.")
+        validated.append({"role": role, "content": content})
+    return validated
+
+
+def _build_request(
+    message: str,
+    *,
+    messages: Sequence[dict[str, str]] | None,
+    system: str | None,
+    model: str | None,
+    api_key: str,
+) -> urllib.request.Request:
+    request_messages: list[dict[str, str]] = []
+    if messages is not None:
+        request_messages.extend(messages)
+    else:
+        if system is not None:
+            request_messages.append({"role": "system", "content": system})
+        request_messages.append({"role": "user", "content": message})
+
+    body = json.dumps({"model": _resolve_model(model), "messages": request_messages}).encode("utf-8")
     request = urllib.request.Request(_resolve_endpoint(), data=body, method="POST")
     request.add_header("Content-Type", "application/json")
     request.add_header("User-Agent", USER_AGENT)
