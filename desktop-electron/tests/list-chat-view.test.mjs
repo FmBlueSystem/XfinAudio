@@ -240,3 +240,23 @@ test('the whole panel disables when the app cannot act, and the reply is never i
     assert.ok(!all(f.root).some((node) => node.tagName === 'img'));
   } finally { f.restore(); }
 });
+const extendCard = { actionId: uuid, type: 'extend', to: 20, reason: 'La lista se quedó en cuatro pistas' };
+const variantCard = { actionId: uuid2, type: 'use_variant', variant: 'adventurous', trackCount: 20, reason: 'La exploratoria entra sin perder el orden' };
+test('the two new proposal shapes are drawn as their own cards with «Aplicar»', async () => {
+  const f = await fixture({}, ['Pregunta previa', 'Respuesta previa'], [extendCard, variantCard]);
+  try {
+    assert.equal(f.get('proposed').hidden, false);
+    const cards = f.get('proposed-actions').children;
+    assert.equal(cards.length, 2);
+    assert.equal(cards[0].children[0].textContent, 'Ampliar la lista a 20 pistas');
+    assert.equal(cards[0].children[1].textContent, 'La lista se quedó en cuatro pistas');
+    assert.equal(cards[1].children[0].textContent, 'Usar la alternativa exploratoria (20 pistas)');
+    assert.equal(cards[1].children[1].textContent, 'La exploratoria entra sin perder el orden');
+    const buttons = all(f.get('proposed-actions')).filter((node) => node.tagName === 'button');
+    assert.deepEqual(buttons.map((node) => node.textContent), ['Aplicar', 'Aplicar']);
+    assert.equal(buttons[0].id, 'list-chat-apply-0');
+    assert.equal(buttons[1].id, 'list-chat-apply-1');
+    assert.equal(buttons[1].disabled, false);
+    assert.equal(f.get('apply-1').attrs['aria-label'], 'Aplicar: Usar la alternativa exploratoria (20 pistas)');
+  } finally { f.restore(); }
+});

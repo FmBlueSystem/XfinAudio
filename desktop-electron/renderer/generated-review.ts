@@ -1,4 +1,5 @@
 import type { Readiness, ReviewResult, Track } from './model.js';
+import type { ExtendedList } from './short-list-notice.js';
 import { errorCode, userErrorMessage } from './errors.js';
 export interface ReviewCheck { label: string; status: Readiness; detail: string; }
 export interface ReviewTransition { index: number; leftTrackId: string; rightTrackId: string; totalScore: number; compatibilityScore: number | null; mixabilityScore: number | null; components: Record<string, number>; explanations: string[]; warnings: string[]; }
@@ -6,11 +7,15 @@ export interface ReviewEvidence { transitions: ReviewTransition[]; readinessChec
 export interface ReviewHistory { canUndo: boolean; canRedo: boolean; }
 export interface DetailedReview extends ReviewResult, ReviewEvidence, Partial<ReviewHistory> {}
 export interface ReviewComparison { reviewId: string; available: boolean; replacement: Track | null; original: ReviewEvidence & { qualityScore: number }; proposed: ReviewEvidence & { qualityScore: number }; message: string; }
+/** S1's extend answer: the usual review payload plus the counts of what it added. */
+export type ExtendedReviewResult = DetailedReview & { extended?: ExtendedList };
 export interface GeneratedReviewApi {
   reviewDetails(input: { reviewId: string }): Promise<DetailedReview>;
   reviewCompare(input: { reviewId: string; trackId: string }): Promise<ReviewComparison>;
   reviewRemove(input: { reviewId: string; trackId: string }): Promise<DetailedReview>;
   reviewReplace?(input: { reviewId: string; trackId: string; replacementId: string }): Promise<DetailedReview>;
+  /** Optional until the host ships S2; the short-list notice is only offered when it exists. */
+  reviewExtend?(input: { reviewId: string; targetTrackCount: number }): Promise<ExtendedReviewResult>;
   reviewReorder(input: { reviewId: string; trackIds: string[] }): Promise<DetailedReview>;
   // Optional so a renderer built against older bridge types still compiles; undo needs both.
   reviewUndo?(input: { reviewId: string }): Promise<DetailedReview>;

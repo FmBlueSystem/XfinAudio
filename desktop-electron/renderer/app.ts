@@ -1,6 +1,8 @@
 import {prepSummaries,localizeReviewNotice,prepErrorField,revealControl,workflowStep,ToolOrigins} from './workflow.js';
 import {localizeStrategy} from './strategy-labels.js';
 import {pendingReviewChecks,transitionQuality,transitionScoresOf} from './review-facts.js';
+import { SHORT_LIST_NO_CANDIDATES, SHORT_LIST_WITHOUT_GENRE, alternativeLabel, extendLabel, extendedLine, isShortListWarning, largerAlternative, shortListGenre, shortListOf, shortListTitle } from './short-list-notice.js';
+import type { ShortListFact } from './short-list-notice.js';
 import {LegacyImportController} from './legacy-import.js';
 import type {LegacyImportApi} from './legacy-import.js';
 import {createLegacyImportView} from './legacy-import-view.js';
@@ -192,6 +194,10 @@ let review: ReviewResult | null = null;
 let strategies: PrepStrategy[] = [];
 let catalogLoaded = false;
 let prepPlan: { id: string; variants: PrepVariantSummary[] } | null = null;
+/** The genre the current generation used: the prep genre field at that moment, empty if none. */
+let generationGenre = '';
+/** The line the last extension of the review in hand answered; empty until one runs. */
+let shortListResult = '';
 const variantNames: Record<PrepVariant, string> = { safe: 'Segura', balanced: 'Equilibrada', adventurous: 'Aventurera' };
 const readinessNames: Record<Readiness, string> = { ready: 'Lista para revisar', needs_review: 'Revisión recomendada', blocked: 'Necesita atención' };
 let playlists: PlaylistSummary[] = [];
@@ -383,6 +389,8 @@ function applyReview(value: DetailedReview): void {
   // the screen reads this one, so it must already be the review the edit minted.
   review = value;
   if (previous !== value.reviewId) {
+    // A review nobody has extended yet has no extension line to show.
+    shortListResult = '';
     if (serato.source?.kind === 'review') serato.setSource(null);
     live.invalidate(); invalidateAiSource();
   }
@@ -403,6 +411,8 @@ listChat = listChatApi ? new ListChatController(listChatApi, {
   canAct: () => coreAvailable && !gate.busy,
   changed: () => renderListChat(),
   applied: (value) => applyReview(value),
+  // S6: a proposed alternative is chosen by this screen, never applied in the core.
+  chooseVariant: (variant) => chooseAlternative(variant),
   perform: (label, task, apply, failure) => perform('ai-chat', label, task, (value, current) => {
     apply(value, current);
     if (!listChat?.error) showStatus('Asistente de lista', listChat?.notice || 'El asistente solo lee la lista: no cambia pistas, orden ni metadatos.');
@@ -1048,9 +1058,103 @@ function invalidatePrep(options: { preserveLive?: boolean } = {}): void {
   prepPlan = null;
   review = null;
   recoveredReview = null;
+  generationGenre = '';
+  shortListResult = '';
   discardGuard.reset(null);
   renderVariants();
   renderReview();
+}
+/**
+ * The one alternative choice of the screen: the comparison cards and the short-list notice both
+ * come here, so the discard question and the plan check are never written twice.
+ */
+async function chooseAlternative(name: PrepVariant, from = ''): Promise<boolean> {
+  const plan = prepPlan;
+  // A card drawn for an older plan changes nothing: the author of the click says which plan it
+  // spoke about, and the assistant passes none because it always speaks about the current one.
+  if (!plan || (from !== '' && from !== plan.id)) return false;
+  if (!plan.variants.some((item) => item.name === name)) return false;
+  if (discardGuard.edited(review) && !(await discardPrompt.ask())) return false;
+  if (gate.busy || !coreAvailable || prepPlan !== plan) return false;
+  if (serato.source?.kind === 'review') serato.setSource(null);
+  live.invalidate();
+  review = null;
+  discardGuard.reset(null);
+  shortListResult = '';
+  renderReview();
+  await perform('select', 'Abriendo la alternativa para revisión…', () => api.selectPrepVariant({ planId: plan.id, variant: name }), (result, currentRoute) => {
+    if (prepPlan !== plan) return;
+    review = result;
+    discardGuard.reset(result.reviewId);
+    renderVariants();
+    renderReview();
+    showStatus('Alternativa preparada para revisar', 'Comprueba las pistas, los avisos y el estado antes de guardar');
+    if (currentRoute) navigate('review', false);
+  }, true);
+  return review !== null;
+}
+/**
+ * S3's notice: a list that came out shorter than requested says so with the fixes it has.
+ * The copy is fixed in `short-list-notice.ts`; here the screen only runs those fixes.
+ */
+function renderShortListNotice(notices: HTMLElement, shortList: ShortListFact): void {
+  const section = make('section', '', 'review-notice review-short-list');
+  section.id = 'review-short-list';
+  section.append(make('strong', shortListTitle(shortList)));
+  if (generationGenre) section.append(make('p', shortListGenre(generationGenre)));
+  const actions = make('div', '', 'editor-actions');
+  const extend = make('button', extendLabel(shortList.requested), 'button primary');
+  extend.type = 'button'; extend.id = 'short-list-extend'; extend.dataset.mutation = '';
+  extend.disabled = gate.busy || !coreAvailable;
+  extend.addEventListener('click', () => { if (!extend.disabled) void extendShortList(shortList.requested); });
+  actions.append(extend);
+  // Another alternative with more tracks than this list is one click away, through the same
+  // choice the comparison panel offers; K is the largest of them.
+  const planId = prepPlan?.id ?? '';
+  const alternative = largerAlternative(prepPlan?.variants, review?.variant ?? '', review?.tracks.length ?? 0);
+  if (alternative) {
+    const pick = make('button', alternativeLabel(alternative.trackCount), 'button subtle');
+    pick.type = 'button'; pick.id = 'short-list-alternative'; pick.dataset.mutation = '';
+    pick.disabled = gate.busy || !coreAvailable;
+    pick.addEventListener('click', () => { if (!pick.disabled) void chooseAlternative(alternative.variant, planId); });
+    actions.append(pick);
+  }
+  if (generationGenre) {
+    const withoutGenre = make('button', SHORT_LIST_WITHOUT_GENRE, 'button subtle');
+    withoutGenre.type = 'button'; withoutGenre.id = 'short-list-without-genre'; withoutGenre.dataset.mutation = '';
+    withoutGenre.disabled = gate.busy || !coreAvailable;
+    withoutGenre.addEventListener('click', () => { if (!withoutGenre.disabled) generateWithoutGenre(); });
+    actions.append(withoutGenre);
+  }
+  section.append(actions);
+  notices.append(section);
+}
+/** S2's action, applied like any other review edit: the list it answers replaces the one on screen. */
+async function extendShortList(target: number): Promise<void> {
+  const current = review; const extend = api?.reviewExtend;
+  if (!current?.reviewId || typeof extend !== 'function' || gate.busy || !coreAvailable) return;
+  const reviewId = current.reviewId;
+  shortListResult = ''; renderReview();
+  await perform('review-extend', 'Ampliando la lista…', () => extend({ reviewId, targetTrackCount: target }), (value) => {
+    applyReview(value);
+    shortListResult = value.extended ? extendedLine(value.extended) : '';
+    renderReview();
+    showStatus('Lista ampliada', value.extended ? `${value.extended.added} pistas nuevas` : '');
+  }, false, (error) => {
+    // Nothing left to add is an answer the notice shows, not a failed operation.
+    if (errorCode(error) === 'no_candidates') { shortListResult = SHORT_LIST_NO_CANDIDATES; renderReview(); }
+  });
+}
+/** «Generar sin género» clears the prep genre and generates again through the same form submit. */
+function generateWithoutGenre(): void {
+  if (gate.busy || !coreAvailable) return;
+  const genre = element<HTMLInputElement>('prep-genre');
+  genre.value = '';
+  // The picker mirrors this hidden carrier through the listeners the form already has, so its
+  // label, the draft flag and the summaries follow without a second copy of that logic.
+  genre.dispatchEvent(new Event('input'));
+  genre.dispatchEvent(new Event('change'));
+  element('prep-form').dispatchEvent(new Event('submit', { cancelable: true }));
 }
 function renderVariants(): void {
   const container = element('prep-variants');
@@ -1070,25 +1174,7 @@ function renderVariants(): void {
     button.type = 'button'; button.dataset.mutation = ''; button.dataset.variant = variant.name;
     button.setAttribute('aria-label', `Revisar alternativa ${variantNames[variant.name].toLocaleLowerCase('es')}`);
     button.setAttribute('aria-pressed', String(review?.variant === variant.name));
-    button.addEventListener('click', () => {
-      unlessEditsWouldBeLost(() => {
-        if (gate.busy || !coreAvailable || prepPlan !== plan) return;
-        if (serato.source?.kind === 'review') serato.setSource(null);
-        live.invalidate();
-        review = null;
-        discardGuard.reset(null);
-        renderReview();
-        void perform('select', 'Abriendo la alternativa para revisión…', () => api.selectPrepVariant({ planId: plan.id, variant: variant.name }), (result, currentRoute) => {
-          if (prepPlan !== plan) return;
-          review = result;
-          discardGuard.reset(result.reviewId);
-          renderVariants();
-          renderReview();
-          showStatus('Alternativa preparada para revisar', 'Comprueba las pistas, los avisos y el estado antes de guardar');
-          if (currentRoute) navigate('review', false);
-        }, true);
-      });
-    });
+    button.addEventListener('click', () => { void chooseAlternative(variant.name, plan.id); });
     card.append(button);
     container.append(card);
   }
@@ -1106,14 +1192,27 @@ function renderReview(): void {
   readiness.className = `readiness-pill ${review.readiness}`;
   const notices = element('review-alerts');
   notices.replaceChildren();
+  // S3: the notice fixes the short list through the S2 action. Without that contract the review
+  // keeps the translated warning it always showed instead of a button that cannot work.
+  const shortList = typeof api?.reviewExtend === 'function' ? shortListOf(review.warnings) : null;
   for (const [messages, category] of [[review.blockers, 'blocker'], [review.warnings, 'warning']] as const) {
-    if (!messages.length) continue;
+    // The notice carries the shortfall, so its generic translated line is not shown twice.
+    const lines = category === 'warning' && shortList ? messages.filter((message) => !isShortListWarning(message)) : messages;
+    if (!lines.length) continue;
     const notice = make('section', '', `review-notice ${category}`);
     notice.append(make('strong', category === 'blocker' ? 'Antes de guardar' : 'Ten en cuenta'));
     const list = make('ul');
-    for (const message of messages) list.append(make('li', localizeReviewNotice(message)));
+    for (const message of lines) list.append(make('li', localizeReviewNotice(message)));
     notice.append(list);
     notices.append(notice);
+  }
+  if (shortList) renderShortListNotice(notices, shortList);
+  // The answer of the last extension stays visible even when the list is no longer short.
+  if (shortListResult) {
+    const result = make('p', shortListResult, 'review-notice');
+    result.id = 'review-short-list-result';
+    result.setAttribute('role', 'status');
+    notices.append(result);
   }
   // One line per readiness check that is not ready, each with the fix the user can apply.
   const pending = pendingReviewChecks(review);
@@ -1412,6 +1511,9 @@ element('prep-form').addEventListener('submit', (event) => {
     void perform('prep', 'Preparando alternativas para tu sesión…', () => api.generatePrep(input), (result, currentRoute) => {
       review = result;
       discardGuard.reset(result.reviewId);
+      // The genre the notice names is the one this generation ran with, not the field later.
+      generationGenre = typeof input.genreFocus === 'string' ? input.genreFocus.trim() : '';
+      shortListResult = '';
       prepPlan = result.planId && result.variants ? { id: result.planId, variants: result.variants } : null;
       renderVariants();
       renderReview();

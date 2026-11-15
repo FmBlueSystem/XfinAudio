@@ -301,3 +301,117 @@ test('a payload without transition scores or checks renders the review exactly a
   assert.match(f.get('start-live-hint').textContent,/avisos de revisión para abrir la guía/);
  }finally{f.restore();}
 });
+const shortfall = 'Track count shortfall: selected 4 of 20 requested tracks';
+const shortReview = (patch = {}) => detailed({ warnings: [shortfall], readiness: 'needs_review', ...patch });
+const planVariants = () => [['safe', 4], ['balanced', 4], ['adventurous', 20]].map(([name, trackCount]) => ({ name, description: `Motor ${name}`, trackCount, warnings: [], blockers: [], readiness: 'ready', qualityScore: .8 }));
+test('a short list says so with its fixes and extends it in place through the S2 action', async () => {
+  const f = await fixture({
+    generatePrep: async (input) => { f.calls.push(['generate', input]); return shortReview(); },
+    reviewExtend: async (input) => { f.calls.push(['reviewExtend', input]); return detailed({ reviewId: 'extended', tracks: [...tracks, thirdTrack], warnings: [], extended: { requested: 16, added: 15, outsideGenre: 3 } }); },
+  });
+  try {
+    await f.navigate('prep');
+    f.get('prep-genre').value = 'Synth Pop & New Wave';
+    f.get('prep-genre').dispatchEvent(new Event('input'));
+    await f.generate();
+    const alerts = text(f.get('review-alerts'));
+    assert.match(alerts, /Salieron 4 de 20 pistas\./);
+    assert.match(alerts, /El género «Synth Pop & New Wave» y las reglas de mezcla dejaron pocas candidatas\./);
+    assert.doesNotMatch(alerts, /Se seleccionaron 4 de las 20 pistas solicitadas/, 'the generic translated line is not shown twice');
+    assert.equal(f.get('short-list-extend').textContent, 'Ampliar a 20 pistas');
+    assert.equal(f.get('short-list-without-genre').textContent, 'Generar sin género');
+    f.click('short-list-extend'); await settle();
+    assert.deepEqual(f.calls.find(([kind]) => kind === 'reviewExtend')[1], { reviewId: 'review', targetTrackCount: 20 });
+    assert.match(f.get('review-track-count').textContent, /3 pistas/);
+    assert.equal(f.get('review-short-list-result').textContent, 'Se agregaron 15 pistas. 3 son de otros géneros.');
+  } finally { f.restore(); }
+});
+test('a short list without a genre keeps the second line out and says how many tracks were added', async () => {
+  // No genre was used: the app's saved Prep controls are empty too, so the second line stays out.
+  const f = await fixture({
+    prepSettings: async () => prepSettings({ genreFocus: '' }),
+    generatePrep: async () => shortReview(),
+    reviewExtend: async () => detailed({ reviewId: 'extended', tracks: [...tracks, thirdTrack], warnings: [shortfall], extended: { requested: 16, added: 1, outsideGenre: 0 } }),
+  });
+  try {
+    await f.generate();
+    assert.doesNotMatch(text(f.get('review-alerts')), /El género/);
+    assert.equal(f.nodes().some((node) => node.id === 'short-list-without-genre'), false, 'nothing to clear: no genre was used');
+    f.click('short-list-extend'); await settle();
+    assert.equal(f.get('review-short-list-result').textContent, 'Se agregaron 1 pistas.');
+    assert.match(text(f.get('review-alerts')), /Salieron 4 de 20 pistas\./, 'the list is still short, so the notice stays');
+  } finally { f.restore(); }
+});
+test('an extension with nothing left to add says the exact line and changes nothing', async () => {
+  const f = await fixture({
+    generatePrep: async () => shortReview(),
+    reviewExtend: async () => { throw Object.assign(new Error('nothing'), { code: 'no_candidates' }); },
+  });
+  try {
+    await f.generate();
+    f.click('short-list-extend'); await settle();
+    assert.equal(f.get('review-short-list-result').textContent, 'No hay más pistas que mezclen con esta lista.');
+    assert.equal(f.get('review-track-count').textContent, '2 pistas · 4:00');
+    assert.equal(f.get('short-list-extend').disabled, false, 'the offer stays for a retry');
+  } finally { f.restore(); }
+});
+test('a short list offers the longer alternative and choosing it opens that variant', async () => {
+  const f = await fixture({
+    generatePrep: async () => shortReview({ planId: 'plan', variants: planVariants() }),
+    reviewExtend: async (input) => { f.calls.push(['reviewExtend', input]); return detailed({ reviewId: 'extended', tracks: [...tracks, thirdTrack] }); },
+  });
+  try {
+    await f.generate();
+    assert.equal(f.get('short-list-alternative').textContent, 'Usar la alternativa de 20 pistas');
+    f.click('short-list-alternative'); await settle();
+    assert.deepEqual(f.calls.find(([kind]) => kind === 'select')[1], { planId: 'plan', variant: 'adventurous' });
+    assert.equal(f.get('review-variant').textContent, 'SELECCIÓN AVENTURERA');
+  } finally { f.restore(); }
+});
+test('the alternative of a short list still asks before discarding the edits', async () => {
+  const f = await fixture({
+    generatePrep: async () => shortReview({ planId: 'plan', variants: planVariants() }),
+    reviewExtend: async () => detailed({ reviewId: 'extended' }),
+    reviewRemove: async (input) => { f.calls.push(['reviewRemove', input]); return detailed({ reviewId: 'edited', tracks: [tracks[1]], warnings: [shortfall], planId: 'plan', variants: planVariants() }); },
+  });
+  try {
+    await f.generate();
+    selectReviewTrack(f, 1); f.click('review-remove-1'); await settle();
+    f.click('short-list-alternative'); await settle();
+    assert.equal(f.get('discard-guard').open, true);
+    assert.equal(f.get('discard-guard-message').textContent, discardQuestion);
+    assert.equal(f.calls.some(([kind]) => kind === 'select'), false, 'no alternative is opened while the question is open');
+    f.click('discard-guard-cancel'); await settle();
+    assert.equal(f.calls.some(([kind]) => kind === 'select'), false);
+    assert.equal(f.get('review-track-count').textContent, '1 pistas · 2:00');
+    f.click('short-list-alternative'); await settle();
+    f.click('discard-guard-confirm'); await settle();
+    assert.deepEqual(f.calls.find(([kind]) => kind === 'select')[1], { planId: 'plan', variant: 'adventurous' });
+  } finally { f.restore(); }
+});
+test('a short list generated with a genre can generate again without it', async () => {
+  const f = await fixture({
+    generatePrep: async (input) => { f.calls.push(['generate', input]); return shortReview(); },
+    reviewExtend: async (input) => { f.calls.push(['reviewExtend', input]); return detailed({ reviewId: 'extended' }); },
+  });
+  try {
+    await f.navigate('prep');
+    f.get('prep-genre').value = 'House';
+    f.get('prep-genre').dispatchEvent(new Event('input'));
+    await f.generate();
+    assert.equal(f.calls.filter(([kind]) => kind === 'generate')[0][1].genreFocus, 'House');
+    f.click('short-list-without-genre'); await settle();
+    assert.equal(f.get('prep-genre').value, '');
+    const generated = f.calls.filter(([kind]) => kind === 'generate');
+    assert.equal(generated.length, 2);
+    assert.equal(generated[1][1].genreFocus, undefined);
+  } finally { f.restore(); }
+});
+test('a bridge without the extension action keeps the translated line and offers no notice', async () => {
+  const f = await fixture({ generatePrep: async () => shortReview() });
+  try {
+    await f.generate();
+    assert.match(text(f.get('review-alerts')), /Se seleccionaron 4 de las 20 pistas solicitadas/);
+    assert.equal(f.nodes().some((node) => node.id === 'short-list-extend'), false);
+  } finally { f.restore(); }
+});
