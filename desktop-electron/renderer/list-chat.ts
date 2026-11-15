@@ -1,5 +1,8 @@
 import { AI_RECIPIENT, aiErrorMessage } from './optional-ai.js';
 import { errorCode } from './errors.js';
+import { SHORT_LIST_NO_CANDIDATES, alternativeCardText, extendedLine } from './short-list-notice.js';
+import type { ExtendedList } from './short-list-notice.js';
+import type { PrepVariant } from './model.js';
 import type { AiChatAction, AiChatHistory, AiChatMessage, AiChatReplacement, AiContext, AiPayload, AiPreview, AiResult, AiSurface, OptionalAiHost } from './optional-ai.js';
 import type { DetailedReview } from './generated-review.js';
 export type { AiChatAction, AiChatHistory, AiChatMessage } from './optional-ai.js';
@@ -28,11 +31,17 @@ export const LIST_CHAT_APPLYING = 'Aplicando el cambio propuesto…';
 export const LIST_CHAT_APPLIED = 'Cambio aplicado. Puedes deshacerlo con Deshacer.';
 /** The line that explains the proposals the core refused to turn into an action. */
 export const listChatDropped = (count: number): string => `Se descartaron ${count} cambios que no se pueden aplicar.`;
-/** The one line each card shows for its action: a replacement or a move, in the panel's Spanish. */
+/** Said after a proposed alternative replaced the review: the core reset the conversation with it. */
+export const LIST_CHAT_VARIANT_CHANGED = 'Se cambió la alternativa. La conversación empieza de nuevo.';
+export const LIST_CHAT_VARIANT_UNAVAILABLE = 'Actualiza la aplicación para cambiar de alternativa desde el asistente.';
+/** The one line each card shows for its action, in the panel's Spanish. */
 export function listChatActionText(action: AiChatAction): string {
-  return action.type === 'replace'
-    ? `Reemplazar ${action.position}. ${action.title} por ${action.replacement?.title ?? ''}`
-    : `Mover ${action.position}. ${action.title} a la posición ${action.to ?? 0}`;
+  switch (action.type) {
+    case 'replace': return `Reemplazar ${action.position}. ${action.title} por ${action.replacement.title}`;
+    case 'move': return `Mover ${action.position}. ${action.title} a la posición ${action.to}`;
+    case 'extend': return `Ampliar la lista a ${action.to} pistas`;
+    default: return alternativeCardText(action.variant, action.trackCount);
+  }
 }
 export interface ListChatApi {
   aiChatHistory(): Promise<AiChatHistory>;
@@ -40,10 +49,14 @@ export interface ListChatApi {
   prepareAiRequest(input: { surface: AiSurface; request: string; context: AiContext }): Promise<AiPreview>;
   runAiRequest(input: { previewId: string }): Promise<{ cancelled: boolean; result: AiResult | null }>;
   inspectAiPayload(input: { previewId: string }): Promise<AiPayload>;
-  aiChatApply(input: { actionId: string }): Promise<{ review: DetailedReview; actions: AiChatAction[] }>;
+  aiChatApply(input: { actionId: string }): Promise<{ review: DetailedReview; actions: AiChatAction[]; extended?: ExtendedList }>;
 }
 /** The panel hands the review the edit minted back to the screen, exactly like a manual edit does. */
-export type ListChatHost = Pick<OptionalAiHost, 'canAct' | 'changed' | 'perform'> & { applied?(value: DetailedReview): void };
+export type ListChatHost = Pick<OptionalAiHost, 'canAct' | 'changed' | 'perform'> & {
+  applied?(value: DetailedReview): void;
+  /** Choosing an alternative belongs to the screen: it replaces the review, the plan and this conversation. */
+  chooseVariant?(variant: PrepVariant): Promise<boolean>;
+};
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= max;
@@ -79,24 +92,38 @@ function replacementCopy(value: unknown): AiChatReplacement {
   return { title: value.title, artist: value.artist, bpm: value.bpm as number | null, key: value.key as string | null };
 }
 /**
- * One proposal, exactly one of S1's two shapes. The key set is checked whole so nothing the panel
- * never renders — a path, a track id — can ride along, and a position stays inside 1..N and its
- * bounds; the core already refused every other item before this answer existed.
+ * One proposal, exactly one of S1's four shapes. The key set is checked whole so nothing the
+ * panel never renders — a path, a track id — can ride along, and a position stays inside 1..N
+ * and its bounds; the core already refused every other item before this answer existed.
+ * `extend` and `use_variant` carry no position or track: they speak about the whole list.
  */
 function actionCopy(value: unknown): AiChatAction {
-  if (!isRecord(value) || !uuid(value.actionId)) invalid();
-  if (!text(value.title, 300) || !text(value.artist, 300) || !text(value.reason, 200)) invalid();
-  if (!Number.isInteger(value.position) || (value.position as number) < 1 || (value.position as number) > CHAT_POSITION_LIMIT) invalid();
-  const position = value.position as number;
-  const base = { actionId: value.actionId, position, title: value.title, artist: value.artist, reason: value.reason };
-  if (value.type === 'replace') {
-    if (Object.keys(value).sort().join(',') !== 'actionId,artist,position,reason,replacement,title,type') invalid();
-    return { ...base, type: 'replace', replacement: replacementCopy(value.replacement) };
-  }
-  if (value.type === 'move') {
-    if (Object.keys(value).sort().join(',') !== 'actionId,artist,position,reason,title,to,type') invalid();
+  if (!isRecord(value) || !uuid(value.actionId) || !text(value.reason, 200)) invalid();
+  const actionId = value.actionId; const reason = value.reason; const keys = Object.keys(value).sort().join(',');
+  if (value.type === 'replace' || value.type === 'move') {
+    if (!text(value.title, 300) || !text(value.artist, 300)) invalid();
+    if (!Number.isInteger(value.position) || (value.position as number) < 1 || (value.position as number) > CHAT_POSITION_LIMIT) invalid();
+    const position = value.position as number;
+    const base = { actionId, position, title: value.title, artist: value.artist, reason };
+    if (value.type === 'replace') {
+      if (keys !== 'actionId,artist,position,reason,replacement,title,type') invalid();
+      return { ...base, type: 'replace', replacement: replacementCopy(value.replacement) };
+    }
+    if (keys !== 'actionId,artist,position,reason,title,to,type') invalid();
     if (!Number.isInteger(value.to) || (value.to as number) < 1 || (value.to as number) > CHAT_POSITION_LIMIT || value.to === position) invalid();
     return { ...base, type: 'move', to: value.to as number };
+  }
+  // S4 accepts at most one of each per reply; the count is bounded like a requested list.
+  if (value.type === 'extend') {
+    if (keys !== 'actionId,reason,to,type') invalid();
+    if (!Number.isInteger(value.to) || (value.to as number) < 2 || (value.to as number) > 100) invalid();
+    return { actionId, type: 'extend', to: value.to as number, reason };
+  }
+  if (value.type === 'use_variant') {
+    if (keys !== 'actionId,reason,trackCount,type,variant') invalid();
+    if (!['safe', 'balanced', 'adventurous'].includes(value.variant as string)) invalid();
+    if (!Number.isInteger(value.trackCount) || (value.trackCount as number) < 1 || (value.trackCount as number) > 100) invalid();
+    return { actionId, type: 'use_variant', variant: value.variant as PrepVariant, trackCount: value.trackCount as number, reason };
   }
   return invalid();
 }
@@ -105,6 +132,14 @@ function actionsCopy(value: unknown): AiChatAction[] {
   const actions = value.map(actionCopy);
   if (new Set(actions.map((action) => action.actionId)).size !== actions.length) invalid();
   return actions;
+}
+/** The `extended` field S1 adds to an answer that grew the list: three exact counts, nothing else. */
+function extendedCopy(value: unknown): ExtendedList {
+  if (!isRecord(value) || Object.keys(value).sort().join(',') !== 'added,outsideGenre,requested') invalid();
+  for (const key of ['requested', 'added', 'outsideGenre'] as const) {
+    if (!Number.isInteger(value[key]) || (value[key] as number) < 0) invalid();
+  }
+  return value as unknown as ExtendedList;
 }
 /** The review an applied action minted: the same payload a manual edit answers, which the screen sets as its own. */
 function reviewCopy(value: unknown): DetailedReview {
@@ -181,10 +216,13 @@ export class ListChatController {
     this.host.changed();
   }
   private fail(error: unknown): void {
+    const code = errorCode(error);
+    // A list with nothing left to add is an answer, not a failure: S3 says the same line here.
+    if (code === 'no_candidates') { this.error = ''; this.notice = SHORT_LIST_NO_CANDIDATES; this.host.changed(); return; }
     this.error = aiErrorMessage(error);
     // The core no longer holds these proposals (or the list they belong to), so a retry can only
     // fail again: the cards go instead of staying as a promise the app cannot keep.
-    if (errorCode(error) === 'stale_ai') { this.actions = []; this.droppedActions = 0; }
+    if (code === 'stale_ai') { this.actions = []; this.droppedActions = 0; }
     this.host.changed();
   }
   private async perform<T>(kind: NonNullable<ListChatController['pending']>, label: string, task: () => Promise<T>, apply: (value: T) => void): Promise<void> {
@@ -234,17 +272,41 @@ export class ListChatController {
    * Applies one proposal through the core, which does it as a normal edit: the review it mints is
    * handed to the screen, the cards are redrawn from its answer and the panel says it can be undone.
    * The new reviewId is adopted before the hand-off so this conversation is not mistaken for another.
+   * An extension reports its own counts instead of the generic line, and a proposed alternative is
+   * the screen's choice, never an apply in the core.
    */
   async apply(actionId: string): Promise<void> {
-    if (!this.applyEnabled || !this.actions.some((action) => action.actionId === actionId)) return;
+    if (!this.applyEnabled) return;
+    const action = this.actions.find((item) => item.actionId === actionId);
+    if (!action) return;
+    if (action.type === 'use_variant') { await this.applyVariant(action.variant); return; }
+    const extend = action.type === 'extend';
     await this.perform('apply', LIST_CHAT_APPLYING, () => this.api.aiChatApply({ actionId }), (value) => {
       const review = reviewCopy(value?.review);
       const actions = actionsCopy(value?.actions);
+      const extended = extend && value && Object.hasOwn(value, 'extended') ? extendedCopy(value.extended) : null;
       this.actions = actions; this.droppedActions = 0;
-      this.notice = LIST_CHAT_APPLIED; this.error = '';
+      this.notice = extended ? extendedLine(extended) : LIST_CHAT_APPLIED; this.error = '';
       this.review = review.reviewId;
       this.host.applied?.(review);
     });
+  }
+  /**
+   * A proposed alternative is chosen by the screen, which owns the plan, the discard question and
+   * the new conversation: the core reports it as `stale_ai` because it is no longer its decision.
+   * The note is set after that reset so it is not mistaken for the conversation it replaced.
+   */
+  private async applyVariant(variant: PrepVariant): Promise<void> {
+    if (this.pending || !this.host.canAct()) return;
+    const choose = this.host.chooseVariant;
+    if (!choose) { this.error = LIST_CHAT_VARIANT_UNAVAILABLE; this.host.changed(); return; }
+    this.pending = 'apply'; this.error = ''; this.notice = ''; this.host.changed();
+    let chosen = false;
+    try { chosen = await choose(variant); }
+    catch (error) { this.error = aiErrorMessage(error); }
+    finally { this.pending = null; }
+    if (chosen) { this.notice = LIST_CHAT_VARIANT_CHANGED; this.actions = []; this.droppedActions = 0; }
+    this.host.changed();
   }
   /** Starts a new conversation: the core forgets the stored one and the panel empties. */
   async newConversation(): Promise<void> {

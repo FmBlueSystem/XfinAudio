@@ -1,4 +1,5 @@
 import { errorCode, userErrorMessage } from './errors.js';
+import type { PrepVariant } from './model.js';
 export const AI_RECIPIENT = 'https://api.nan.builders/v1/chat/completions';
 export const AI_CONNECTION_REQUEST = 'Reply with OK. XfinAudio connection test.';
 export type AiSurface = 'library' | 'prep' | 'review' | 'saved' | 'editor' | 'metadata' | 'live' | 'connection' | 'chat';
@@ -11,11 +12,16 @@ export interface AiPayload { previewId: string; surface: AiSurface; recipient: t
 export interface AiChatMessage { role: 'user' | 'assistant'; text: string; }
 /** The engine candidate a `replace` proposal would put in the track's place; never a path or an id. */
 export interface AiChatReplacement { title: string; artist: string; bpm: number | null; key: string | null; }
-/** One change the last reply proposes; the core validates it and keeps it bound to the current list. */
-export interface AiChatAction {
-  actionId: string; type: 'replace' | 'move'; position: number; title: string; artist: string; reason: string;
-  to?: number; replacement?: AiChatReplacement;
-}
+/**
+ * One change the last reply proposes; the core validates it and keeps it bound to the current
+ * list. `replace` and `move` edit one position; `extend` grows the list to `to` tracks and
+ * `use_variant` chooses another alternative of the same plan, which the renderer owns.
+ */
+export type AiChatAction =
+  | { actionId: string; type: 'replace'; position: number; title: string; artist: string; reason: string; replacement: AiChatReplacement }
+  | { actionId: string; type: 'move'; position: number; title: string; artist: string; reason: string; to: number }
+  | { actionId: string; type: 'extend'; to: number; reason: string }
+  | { actionId: string; type: 'use_variant'; variant: PrepVariant; trackCount: number; reason: string };
 /** The whole stored conversation, oldest first, plus the changes still pending: the answer of ai.chat.history and ai.chat.reset. */
 export interface AiChatHistory { conversation: AiChatMessage[]; actions: AiChatAction[]; }
 export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection' | 'chat'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; conversation?: AiChatMessage[]; listChanged?: boolean; actions?: AiChatAction[]; droppedActions?: number; }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ListChatController, CHAT_SURFACE, LIST_CHAT_PENDING } from '../.out/renderer/list-chat.js';
+import { ListChatController, CHAT_SURFACE, LIST_CHAT_PENDING, listChatActionText } from '../.out/renderer/list-chat.js';
 const uuid = '12345678-1234-4123-8123-123456789012';
 const uuid2 = '87654321-4321-4321-8321-210987654321';
 const question = '¿Qué pista quitarías y por qué?';
@@ -11,8 +11,10 @@ const chatResult = (patch = {}) => ({ resultId: uuid, surface: CHAT_SURFACE, kin
 const retained = { previewId: uuid, surface: CHAT_SURFACE, recipient: 'https://api.nan.builders/v1/chat/completions', request: question, body: '{"model":"deepseek","messages":[]}', bytes: 31, truncated: false };
 const moveAction = (patch = {}) => ({ actionId: uuid2, type: 'move', position: 3, to: 1, title: 'Tercera', artist: 'DJ Tres', reason: 'Sube la energía del inicio', ...patch });
 const replaceAction = (patch = {}) => ({ actionId: uuid, type: 'replace', position: 2, title: 'Segunda', artist: 'DJ Dos', reason: 'Choca de tonalidad con la tercera', replacement: { title: 'Reemplazo', artist: 'DJ Cuatro', bpm: 124, key: '9A' }, ...patch });
+const extendAction = (patch = {}) => ({ actionId: uuid, type: 'extend', to: 20, reason: 'La lista se quedó en cuatro pistas', ...patch });
+const variantAction = (patch = {}) => ({ actionId: uuid2, type: 'use_variant', variant: 'adventurous', trackCount: 20, reason: 'La exploratoria entra sin perder el orden', ...patch });
 const appliedReview = { reviewId: uuid2, tracks: [{ id: 'a'.repeat(64), title: 'Reemplazo', artist: 'DJ Cuatro', bpm: 124, key: '9A', energy: 6, duration: 200 }], warnings: [], blockers: [], name: 'Sesión', variant: 'balanced', readiness: 'ready' };
-function fixture(overrides = {}) {
+function fixture(overrides = {}, hostOverrides = {}) {
   const calls = []; const applied = []; let allowed = true; let renders = 0;
   const base = {
     aiChatHistory: async () => { calls.push(['history']); return { conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [] }; },
@@ -23,7 +25,7 @@ function fixture(overrides = {}) {
     aiChatApply: async (input) => { calls.push(['apply', input]); throw new Error('unreachable'); },
   };
   const api = { ...base, ...overrides };
-  const controller = new ListChatController(api, { canAct: () => allowed, changed: () => { renders++; }, applied: (value) => { applied.push(value); }, perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } } });
+  const controller = new ListChatController(api, { canAct: () => allowed, changed: () => { renders++; }, applied: (value) => { applied.push(value); }, perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } }, ...hostOverrides });
   controller.setReview(uuid);
   return { controller, calls, applied, renders: () => renders, block: () => { allowed = false; } };
 }
@@ -278,4 +280,138 @@ test('the pending copy names the read while a turn runs', () => {
   assert.equal(LIST_CHAT_PENDING, 'El asistente está leyendo la lista…');
   assert.equal(f.controller.canSend, false);
   assert.equal(f.controller.requestEditable, false);
+});
+test('S6 copy: an extend card names its target and a variant card names the alternative and its count', () => {
+  assert.equal(listChatActionText(extendAction()), 'Ampliar la lista a 20 pistas');
+  assert.equal(listChatActionText(variantAction()), 'Usar la alternativa exploratoria (20 pistas)');
+  assert.equal(listChatActionText(variantAction({ variant: 'safe', trackCount: 4 })), 'Usar la alternativa segura (4 pistas)');
+  assert.equal(listChatActionText(variantAction({ variant: 'balanced', trackCount: 17 })), 'Usar la alternativa equilibrada (17 pistas)');
+  assert.equal(listChatActionText(moveAction()), 'Mover 3. Tercera a la posición 1', 'the two older shapes keep their text');
+  assert.equal(listChatActionText(replaceAction()), 'Reemplazar 2. Segunda por Reemplazo');
+});
+test('the two new proposal shapes are accepted from history and from a reply', async () => {
+  const stored = fixture({ aiChatHistory: async () => { stored.calls.push(['history']); return { conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [extendAction(), variantAction()] }; } });
+  await stored.controller.load();
+  assert.deepEqual(stored.controller.actions, [extendAction(), variantAction()]);
+  const replied = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [extendAction(), variantAction()] }) }) });
+  replied.controller.setRequest(question);
+  await replied.controller.send();
+  assert.deepEqual(replied.controller.actions, [extendAction(), variantAction()]);
+  assert.equal(replied.controller.error, '');
+});
+test('an extend or use_variant card that is not exactly its shape is refused as an invalid AI response', async () => {
+  const malformed = [
+    chatResult({ actions: [extendAction({ title: 'Segunda' })] }),
+    chatResult({ actions: [extendAction({ position: 2 })] }),
+    chatResult({ actions: [extendAction({ to: 101 })] }),
+    chatResult({ actions: [extendAction({ to: 1 })] }),
+    chatResult({ actions: [extendAction({ to: 1.5 })] }),
+    chatResult({ actions: [extendAction({ to: '20' })] }),
+    chatResult({ actions: [extendAction({ type: 'extend ' })] }),
+    chatResult({ actions: [variantAction({ variant: 'balanced ' })] }),
+    chatResult({ actions: [variantAction({ variant: 'saved' })] }),
+    chatResult({ actions: [variantAction({ trackCount: 0 })] }),
+    chatResult({ actions: [variantAction({ trackCount: 2.5 })] }),
+    chatResult({ actions: [variantAction({ trackCount: '20' })] }),
+    chatResult({ actions: [variantAction({ to: 20 })] }),
+    chatResult({ actions: [variantAction({ reason: 'x'.repeat(201) })] }),
+  ];
+  for (const result of malformed) {
+    const f = fixture({ runAiRequest: async () => ({ cancelled: false, result }) });
+    await f.controller.load();
+    f.controller.setRequest(question);
+    await f.controller.send();
+    assert.equal(f.controller.error, 'La respuesta no cumple los límites esperados. No se ha aplicado ninguna propuesta.', JSON.stringify(result.actions[0]).slice(0, 90));
+    assert.deepEqual(f.controller.actions, []);
+  }
+});
+test('applying an extend card sends its action, adopts the review and shows the S3 result line', async () => {
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [extendAction()] }),
+    aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: [], extended: { requested: 16, added: 16, outsideGenre: 6 } }; },
+  });
+  await f.controller.load();
+  await f.controller.apply(uuid);
+  assert.deepEqual(f.calls.at(-1), ['apply', { actionId: uuid }]);
+  assert.equal(f.applied.length, 1);
+  assert.equal(f.controller.reviewId, appliedReview.reviewId);
+  assert.equal(f.controller.notice, 'Se agregaron 16 pistas. 6 son de otros géneros.');
+  assert.equal(f.controller.error, '');
+  assert.deepEqual(f.controller.actions, []);
+});
+test('an extension that stayed inside the genre says only how many tracks it added', async () => {
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [extendAction()] }),
+    aiChatApply: async () => ({ review: appliedReview, actions: [], extended: { requested: 16, added: 4, outsideGenre: 0 } }),
+  });
+  await f.controller.load();
+  await f.controller.apply(uuid);
+  assert.equal(f.controller.notice, 'Se agregaron 4 pistas.');
+});
+test('an extension the core cannot complete shows the S3 line and keeps its card', async () => {
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [extendAction()] }),
+    aiChatApply: async () => { throw Object.assign(new Error('nothing'), { code: 'no_candidates' }); },
+  });
+  await f.controller.load();
+  await f.controller.apply(uuid);
+  assert.equal(f.controller.notice, 'No hay más pistas que mezclen con esta lista.');
+  assert.equal(f.controller.error, '');
+  assert.deepEqual(f.controller.actions, [extendAction()]);
+  assert.equal(f.applied.length, 0);
+});
+test('a malformed extended answer is refused and leaves the cards and the review alone', async () => {
+  for (const extended of [{ requested: 16, added: 'x', outsideGenre: 0 }, { requested: 16, added: 4 }, { added: 4, outsideGenre: 0 }, { requested: 16, added: -1, outsideGenre: 0 }, null]) {
+    const f = fixture({
+      aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [extendAction()] }),
+      aiChatApply: async () => ({ review: appliedReview, actions: [], extended }),
+    });
+    await f.controller.load();
+    await f.controller.apply(uuid);
+    assert.equal(f.controller.error, 'La respuesta no cumple los límites esperados. No se ha aplicado ninguna propuesta.', JSON.stringify(extended));
+    assert.deepEqual(f.controller.actions, [extendAction()]);
+    assert.equal(f.applied.length, 0);
+    assert.equal(f.controller.reviewId, uuid);
+  }
+});
+test('«Aplicar» on a use_variant card chooses that alternative and announces the new conversation', async () => {
+  const chosen = [];
+  const f = fixture(
+    { aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [variantAction()] }) },
+    { chooseVariant: async (variant) => { chosen.push(variant); f.controller.setReview(uuid2); return true; } },
+  );
+  await f.controller.load();
+  await f.controller.apply(uuid2);
+  assert.deepEqual(chosen, ['adventurous']);
+  assert.equal(f.calls.some(([kind]) => kind === 'apply'), false, 'choosing an alternative never applies it in the core');
+  assert.equal(f.controller.notice, 'Se cambió la alternativa. La conversación empieza de nuevo.');
+  assert.equal(f.controller.error, '');
+  assert.deepEqual(f.controller.messages, [], 'the new alternative starts a new conversation');
+  assert.deepEqual(f.controller.actions, []);
+  assert.equal(f.controller.reviewId, uuid2);
+  assert.equal(f.controller.pending, null);
+});
+test('a declined discard question leaves the cards, the conversation and the review as they were', async () => {
+  const chosen = [];
+  const f = fixture(
+    { aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [variantAction()] }) },
+    { chooseVariant: async (variant) => { chosen.push(variant); return false; } },
+  );
+  await f.controller.load();
+  await f.controller.apply(uuid2);
+  assert.deepEqual(chosen, ['adventurous']);
+  assert.equal(f.controller.notice, '');
+  assert.equal(f.controller.error, '');
+  assert.deepEqual(f.controller.actions, [variantAction()]);
+  assert.deepEqual(f.controller.messages.map((item) => item.text), ['Pregunta previa', 'Respuesta previa']);
+  assert.equal(f.controller.reviewId, uuid);
+  assert.equal(f.controller.pending, null);
+});
+test('a use_variant card without the screen hook says the app must be updated and applies nothing', async () => {
+  const f = fixture({ aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [variantAction()] }) });
+  await f.controller.load();
+  await f.controller.apply(uuid2);
+  assert.equal(f.controller.error, 'Actualiza la aplicación para cambiar de alternativa desde el asistente.');
+  assert.equal(f.calls.some(([kind]) => kind === 'apply'), false);
+  assert.deepEqual(f.controller.actions, [variantAction()]);
 });

@@ -543,3 +543,36 @@ test('a stale assistant action shows the existing Spanish error and removes the 
     assert.ok(!text(f.get('review-table')).includes('Cambio aplicado'));
   } finally { f.restore(); }
 });
+const chatExtend = { actionId: '44444444-4444-4444-8444-444444444444', type: 'extend', to: 20, reason: 'Faltaron pistas para la sesión' };
+const chatVariant = { actionId: '55555555-5555-4555-8555-555555555555', type: 'use_variant', variant: 'adventurous', trackCount: 20, reason: 'La exploratoria entra sin perder el orden' };
+const chatPlan = () => [['safe', 4], ['balanced', 4], ['adventurous', 20]].map(([name, trackCount]) => ({ name, description: `Motor ${name}`, trackCount, warnings: [], blockers: [], readiness: 'ready', qualityScore: .8 }));
+test('the assistant extend card grows the list and shows the added count', async () => {
+  const f = await fixture({ aiChatApply: async (input) => { f.calls.push(['aiChatApply', input]); return { review: appliedChatReview, actions: [], extended: { requested: 18, added: 18, outsideGenre: 0 } }; } });
+  try {
+    await f.generate();
+    f.chatActions([chatExtend]);
+    await f.openAi();
+    assert.equal(f.get('list-chat-proposed-actions').children[0].children[0].textContent, 'Ampliar la lista a 20 pistas');
+    f.click('list-chat-apply-0'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiChatApply')[1], { actionId: chatExtend.actionId });
+    assert.ok(text(f.get('review-table')).includes('Cambio aplicado'));
+    assert.equal(f.get('list-chat-notice').textContent, 'Se agregaron 18 pistas.');
+  } finally { f.restore(); }
+});
+test('choosing the proposed alternative opens that variant and starts a new conversation', async () => {
+  const f = await fixture({
+    generatePrep: async (input) => { f.calls.push(['generate', input]); return { reviewId: aiUuid, planId: 'plan', variants: chatPlan(), name: 'Set', variant: 'balanced', readiness: 'ready', tracks, warnings: [], blockers: [] }; },
+    selectPrepVariant: async (input) => { f.calls.push(['select', input]); return { reviewId: '66666666-6666-4666-8666-666666666666', name: 'Set', variant: input.variant, readiness: 'ready', tracks: [...tracks, tracks[0]], warnings: [], blockers: [] }; },
+  });
+  try {
+    await f.generate();
+    f.chatActions([chatVariant]);
+    await f.openAi();
+    assert.equal(f.get('list-chat-proposed-actions').children[0].children[0].textContent, 'Usar la alternativa exploratoria (20 pistas)');
+    f.click('list-chat-apply-0'); await settle();
+    assert.deepEqual(f.calls.find(([kind]) => kind === 'select')[1], { planId: 'plan', variant: 'adventurous' });
+    assert.equal(f.get('review-variant').textContent, 'SELECCIÓN AVENTURERA');
+    assert.equal(f.get('list-chat-notice').textContent, 'Se cambió la alternativa. La conversación empieza de nuevo.');
+    assert.equal(f.get('list-chat-conversation').children.length, 0);
+  } finally { f.restore(); }
+});
