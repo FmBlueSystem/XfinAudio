@@ -101,7 +101,7 @@ def read_review(data_dir: Path) -> dict[str, Any] | None:
         return None
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeError):
+    except (OSError, ValueError, UnicodeError, RecursionError):
         LOGGER.warning("The stored list in progress is not valid JSON; it is dropped")
         return None
     if not _valid(payload):
