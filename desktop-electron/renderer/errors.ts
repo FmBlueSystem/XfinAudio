@@ -51,6 +51,7 @@ const messages:Record<string,string>={
   invalid_track:'No se puede abrir esta pista. Comprueba que el archivo siga disponible.',
   insufficient_tracks:'Necesitas al menos dos pistas válidas para preparar una selección.',
   blocked_review:'La selección tiene bloqueos pendientes. Revisa los avisos antes de guardar.',
+  nothing_to_undo:'No hay cambios para deshacer.',
 };
 export function errorCode(error:unknown):string|null {
   const direct=typeof error==='object'&&error!==null?(error as {code?:unknown}).code:undefined;

@@ -33,6 +33,7 @@ REVIEW_FIELDS = {
     "review.details": {"reviewId"},
     "review.compare": {"reviewId", "trackId"},
     "review.remove": {"reviewId", "trackId"},
+    "review.replace": {"reviewId", "trackId", "replacementId"},
     "review.reorder": {"reviewId", "trackIds"},
     "review.undo": {"reviewId"},
     "review.redo": {"reviewId"},
@@ -54,6 +55,8 @@ class GeneratedReview:
         self.plan_binding: PlanBinding | None = None
         self.history: list[ReviewState] = []
         self.future: list[ReviewState] = []
+        # The replacement each comparison offered, per track, for this exact revision.
+        self.offers: dict[str, str | None] = {}
 
     def _policy(self) -> tuple[object, ...]:
         return self.backend.preferences.spectral_cohesion(), self.backend.preferences.loudness_band()
@@ -103,6 +106,7 @@ class GeneratedReview:
         self.removed = frozenset()
         self.history.clear()
         self.future.clear()
+        self.offers.clear()
         return self.details()
 
     def verify(self, review_id: Any) -> PrepCopilotVariantApplicationResult:
@@ -156,6 +160,8 @@ class GeneratedReview:
         self.backend.review_blocked = (
             review.readiness_report.status == "blocked" or not review.recommendation.ordered_tracks
         )
+        # A new revision invalidates every comparison made against the previous one.
+        self.offers.clear()
         self.backend.live.invalidate()
         self.backend.invalidate_optional_ai()
 
@@ -225,6 +231,22 @@ class GeneratedReview:
             raise BackendError("stale_review", "Replacement sources changed; prepare a current review")
         return target, proposed
 
+    def _offered(
+        self, review: PrepCopilotVariantApplicationResult, track_id: Any, replacement_id: Any
+    ) -> tuple[str, PlaylistRecommendation]:
+        """Apply exactly the replacement the last comparison of this track offered."""
+        target, proposed = self._replacement(review, track_id)
+        current_paths = {track.path for track in review.recommendation.ordered_tracks}
+        replacement = next((track for track in proposed.ordered_tracks if track.path not in current_paths), None)
+        if (
+            self.offers.get(track_id) is None
+            or replacement is None
+            or replacement.path != self.offers.get(track_id)
+            or _public_track(replacement)["id"] != replacement_id
+        ):
+            raise BackendError("stale_review", "Compare this track again and use the replacement it offered")
+        return target, proposed
+
     def execute(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if set(params) != REVIEW_FIELDS[method]:
             raise BackendError("invalid_params", "Missing or unexpected generated review fields")
@@ -258,6 +280,8 @@ class GeneratedReview:
             proposed = recommendation_reordered(
                 review.recommendation, paths, spectral_cohesion=self.backend.preferences.spectral_cohesion()
             )
+        elif method == "review.replace":
+            removed, proposed = self._offered(review, params["trackId"], params["replacementId"])
         else:
             removed, proposed = self._replacement(review, params["trackId"])
         assessed = self._assess(proposed)
@@ -268,6 +292,7 @@ class GeneratedReview:
         if method == "review.compare":
             current_paths = {track.path for track in review.recommendation.ordered_tracks}
             replacement = next((track for track in proposed.ordered_tracks if track.path not in current_paths), None)
+            self.offers[params["trackId"]] = replacement.path if replacement else None
             return {
                 "reviewId": self.review_id,
                 "replacement": _public_track(replacement) if replacement else None,

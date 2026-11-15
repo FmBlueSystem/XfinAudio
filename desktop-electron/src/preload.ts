@@ -5,7 +5,7 @@ import {contextBridge,ipcRenderer} from 'electron';
 const invoke = (method:string,params?:unknown)=>ipcRenderer.invoke('xfin:action',method,params);
 contextBridge.exposeInMainWorld('xfin',Object.freeze({
   previewLegacyImport:()=>invoke('previewLegacyImport'),applyLegacyImport:(params:unknown)=>invoke('applyLegacyImport',params),discardLegacyImport:(params:unknown)=>invoke('discardLegacyImport',params),
-  reviewDetails:(params:unknown)=>invoke('reviewDetails',params),reviewCompare:(params:unknown)=>invoke('reviewCompare',params),reviewRemove:(params:unknown)=>invoke('reviewRemove',params),reviewReorder:(params:unknown)=>invoke('reviewReorder',params),reviewUndo:(params:unknown)=>invoke('reviewUndo',params),reviewRedo:(params:unknown)=>invoke('reviewRedo',params),
+  reviewDetails:(params:unknown)=>invoke('reviewDetails',params),reviewCompare:(params:unknown)=>invoke('reviewCompare',params),reviewRemove:(params:unknown)=>invoke('reviewRemove',params),reviewReplace:(params:unknown)=>invoke('reviewReplace',params),reviewReorder:(params:unknown)=>invoke('reviewReorder',params),reviewUndo:(params:unknown)=>invoke('reviewUndo',params),reviewRedo:(params:unknown)=>invoke('reviewRedo',params),
   prepSettings:()=>invoke('prepSettings'),savePrepSettings:(params:unknown)=>invoke('savePrepSettings',params),
   queryLibrary:(params:unknown)=>invoke('queryLibrary',params),searchPlaylists:(params:unknown)=>invoke('searchPlaylists',params),comparePlaylists:(params:unknown)=>invoke('comparePlaylists',params),
   deletePlaylist:(params:unknown)=>invoke('deletePlaylist',params),listDeletedPlaylists:()=>invoke('listDeletedPlaylists'),restorePlaylist:(params:unknown)=>invoke('restorePlaylist',params),

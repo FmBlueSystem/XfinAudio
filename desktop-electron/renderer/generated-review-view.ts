@@ -31,8 +31,11 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
   const load = button('Cargar evidencia local', () => { void controller.load(); }); load.id = 'review-load-evidence';
   evidence.append(make('summary', 'Por qué esta selección'), load, evidenceBody);
   const preview = make('section', '', 'review-notice'); preview.id = 'review-replacement-comparison'; preview.setAttribute('aria-live', 'polite');
+  const previewBody = make('div');
+  const use = button('Usar este reemplazo', () => { void controller.replace(); }); use.id = 'review-use-replacement'; use.hidden = true;
+  preview.append(previewBody, use);
   section.append(alert, summary, notices, label, selected, controls, historyStatus,
-    make('p', 'Comparar no modifica la selección. Retirar busca un reemplazo; si no existe, acorta la selección. Subir o bajar recalcula las transiciones. Deshacer y rehacer restauran la selección anterior sin tocar el audio.', 'field-hint'), preview, evidence);
+    make('p', 'Comparar no modifica la selección. Usar este reemplazo aplica el reemplazo que mostró la comparación. Retirar busca un reemplazo; si no existe, acorta la selección. Subir o bajar recalcula las transiciones. Deshacer y rehacer restauran la selección anterior sin tocar el audio.', 'field-hint'), preview, evidence);
   root.replaceChildren(section);
   let renderedDetails: ReviewEvidence | null | undefined; let renderedComparison: GeneratedReviewController['comparison'] | undefined;
   const render = (): void => {
@@ -76,12 +79,14 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
     }
     const comparison = controller.comparison;
     if (comparison !== renderedComparison) {
-      renderedComparison = comparison; comparisonTrackId = requestedTrackId; preview.replaceChildren();
+      renderedComparison = comparison; comparisonTrackId = requestedTrackId; previewBody.replaceChildren();
       if (comparison) {
-        preview.append(make('h4', comparison.replacement ? `Reemplazo propuesto: ${comparison.replacement.title} · ${comparison.replacement.artist}` : 'Sin reemplazo elegible'), make('p', comparison.message));
-        for (const [caption, value] of [['Original', comparison.original], ['Propuesto', comparison.proposed]] as const) preview.append(make('h4', `${caption} · puntuación ${score(value.qualityScore)}`), make('p', value.readinessSummary), checks(value));
+        previewBody.append(make('h4', comparison.replacement ? `Reemplazo propuesto: ${comparison.replacement.title} · ${comparison.replacement.artist}` : 'Sin reemplazo elegible'), make('p', comparison.message));
+        for (const [caption, value] of [['Original', comparison.original], ['Propuesto', comparison.proposed]] as const) previewBody.append(make('h4', `${caption} · puntuación ${score(value.qualityScore)}`), make('p', value.readinessSummary), checks(value));
       }
     }
+    const comparable = Boolean(comparison?.replacement) && comparisonTrackId === selectedId;
+    use.hidden = !comparable; use.disabled = blocked || !comparable;
     preview.hidden = !comparison || comparisonTrackId !== selectedId;
   };
   selected.addEventListener('change', () => { selectedId = selected.value; render(); });

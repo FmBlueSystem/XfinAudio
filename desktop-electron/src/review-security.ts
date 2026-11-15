@@ -1,6 +1,6 @@
 /** Independent allowlist and value validation for deterministic review and Prep controls. */
 export const REVIEW_CONTROL_FIELDS: Record<string, string[]> = {
-  reviewDetails: ['reviewId'], reviewCompare: ['reviewId', 'trackId'], reviewRemove: ['reviewId', 'trackId'], reviewReorder: ['reviewId', 'trackIds'],
+  reviewDetails: ['reviewId'], reviewCompare: ['reviewId', 'trackId'], reviewRemove: ['reviewId', 'trackId'], reviewReplace: ['reviewId', 'trackId', 'replacementId'], reviewReorder: ['reviewId', 'trackIds'],
   reviewUndo: ['reviewId'], reviewRedo: ['reviewId'],
   prepSettings: [], savePrepSettings: ['revision', 'requiredTrackIds', 'excludedTrackIds', 'genreFocus', 'clearUnavailable'],
 };
@@ -12,7 +12,8 @@ export function validateReviewControlRequest(method: string, params: Record<stri
   if (Object.keys(params).length !== fields.length || Object.keys(params).some(key => !fields.includes(key))) throw new Error('Missing or unexpected review control fields');
   if (method.startsWith('review')) {
     if (typeof params.reviewId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(params.reviewId)) throw new Error('Invalid review identity');
-    if (['reviewCompare', 'reviewRemove'].includes(method) && !id(params.trackId)) throw new Error('Invalid track identity');
+    if (['reviewCompare', 'reviewRemove', 'reviewReplace'].includes(method) && !id(params.trackId)) throw new Error('Invalid track identity');
+    if (method === 'reviewReplace' && !id(params.replacementId)) throw new Error('Invalid replacement identity');
     if (method === 'reviewReorder' && !ids(params.trackIds)) throw new Error('Invalid review order');
   }
   if (method === 'savePrepSettings') {

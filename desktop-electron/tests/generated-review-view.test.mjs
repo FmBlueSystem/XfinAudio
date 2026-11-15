@@ -27,7 +27,7 @@ function fixture() {
     editable: true, pending: false, error: '', comparison: null,
     snapshot: { reviewId: 'one', tracks, readiness: 'needs_review', warnings: ['Salto'], blockers: [] },
     details: { engineFacts: '<script>Local evidence</script>', readinessSummary: 'Revisión recomendada', protectedTrackIds: [], transitions: [], readinessChecks: [{ label: 'BPM', status: 'needs_review', detail: 'Revisa este salto' }] },
-    load: () => calls.push(['load']), compare: id => calls.push(['compare', id]), remove: id => calls.push(['remove', id]), move: (id, direction) => calls.push(['move', id, direction]), undo: () => calls.push(['undo']), redo: () => calls.push(['redo']), canUndo: false, canRedo: false, status: '',
+    load: () => calls.push(['load']), compare: id => calls.push(['compare', id]), remove: id => calls.push(['remove', id]), move: (id, direction) => calls.push(['move', id, direction]), replace: () => calls.push(['replace']), undo: () => calls.push(['undo']), redo: () => calls.push(['redo']), canUndo: false, canRedo: false, status: '',
   };
   const render = createGeneratedReviewView(root, controller, { canAct: () => available }); render();
   const get = id => { const node = all(root).find(item => item.id === id); assert.ok(node, `Missing ${id}`); return node; };
@@ -106,6 +106,27 @@ test('undo and redo are offered only when possible and report the applied change
     f.get('review-redo').dispatchEvent(new Event('click'));
     assert.deepEqual(f.calls, [['undo'], ['redo']]);
     f.block(); f.get('review-undo').dispatchEvent(new Event('click')); assert.deepEqual(f.calls, [['undo'], ['redo']]);
+  } finally { f.restore(); }
+});
+test('the compared replacement is applied only from its visible preview', () => {
+  const f = fixture(); try {
+    assert.equal(f.get('review-use-replacement').hidden, true);
+    f.get('review-use-replacement').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.calls, []);
+    f.select('b'); f.get('review-compare-1').dispatchEvent(new Event('click'));
+    const value = { ...f.controller.details, qualityScore: .8 };
+    f.controller.comparison = { replacement: tracks[2], message: 'Preview only', original: value, proposed: value };
+    f.render();
+    const use = f.get('review-use-replacement');
+    assert.equal(use.hidden, false); assert.equal(use.disabled, false);
+    assert.match(text(use), /Usar este reemplazo/); assert.match(text(f.get('review-replacement-comparison')), /Preview only/);
+    use.dispatchEvent(new Event('click')); assert.deepEqual(f.calls, [['compare', 'b'], ['replace']]);
+    f.select('a'); assert.equal(f.get('review-use-replacement').hidden, true);
+    f.select('b'); assert.equal(f.get('review-use-replacement').hidden, false);
+    f.controller.comparison = { replacement: null, message: 'Sin reemplazo elegible', original: value, proposed: value }; f.render();
+    assert.equal(f.get('review-use-replacement').hidden, true);
+    f.controller.comparison = { replacement: tracks[2], message: 'Preview only', original: value, proposed: value }; f.block();
+    assert.equal(f.get('review-use-replacement').disabled, true);
   } finally { f.restore(); }
 });
 test('known readiness states use Spanish and raw engine summary stays inside evidence', () => {
