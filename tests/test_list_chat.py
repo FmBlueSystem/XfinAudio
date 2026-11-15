@@ -202,6 +202,41 @@ def test_list_facts_never_carry_a_path_even_from_a_title_or_a_warning(setup):
     assert facts.count("[pista 1]") >= 2
 
 
+def test_list_facts_report_the_requested_count_the_warnings_the_alternatives_and_the_hidden_library(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(
+        recommendation,
+        readiness,
+        {"opening": [], "closing": [], "required": []},
+        requested=20,
+        warnings=["Track count shortfall: selected 4 of 20 requested tracks"],
+        current_variant="balanced",
+        alternatives=[
+            {"name": "safe", "trackCount": 4, "qualityScore": 0.88},
+            {"name": "balanced", "trackCount": 4, "qualityScore": 0.88},
+            {"name": "adventurous", "trackCount": 20, "qualityScore": 0.77},
+        ],
+    )
+    assert "Resumen de la generación" in facts
+    assert "- pistas solicitadas: 20" in facts
+    assert f"- pistas en la lista: {len(recommendation.ordered_tracks)}" in facts
+    assert "- avisos del motor: Track count shortfall: selected 4 of 20 requested tracks" in facts
+    assert "- variante actual: balanced" in facts
+    assert "- otras alternativas: safe: 4 pistas, calidad 0.88; adventurous: 20 pistas, calidad 0.77" in facts
+    assert "balanced: 4 pistas" not in facts
+    assert "la biblioteca tiene más pistas que no puedes ver" in facts
+
+
+def test_list_facts_state_the_generation_summary_even_when_it_is_not_given(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    assert "- pistas solicitadas: sin dato" in facts
+    assert "- avisos del motor: ninguno" in facts
+    assert "- otras alternativas: ninguna" in facts
+
+
 def test_chat_with_list_sends_instructions_the_stored_conversation_and_the_new_message(setup):
     backend, _, _ = setup
     recommendation, readiness = review_of(backend)
@@ -276,6 +311,10 @@ def test_chat_instructions_ask_for_one_json_object_with_the_two_action_shapes(se
     assert '"type": "replace"' in system and '"type": "move"' in system
     assert "entre 0 y 5" in system
     assert "200" in system and "N = 4" in system
+    assert '"type": "extend"' in system and '"type": "use_variant"' in system
+    assert "mayor que el largo actual" in system and "100" in system
+    assert '"variant": "adventurous"' in system
+    assert "un solo extend y un solo use_variant" in system
 
 
 def test_the_answer_is_read_as_a_json_object_with_its_valid_actions(setup):
@@ -392,6 +431,61 @@ def test_every_dropped_action_reports_its_raw_value_and_the_reason():
     assert list_chat.parse_answer(six, 8).dropped_items == (
         list_chat.DroppedAction({"type": "replace", "position": 6, "reason": "motivo"}, "over the change limit"),
     )
+
+
+def test_the_answer_is_read_with_the_extend_and_use_variant_shapes():
+    answer = list_chat.parse_answer(
+        structured(
+            {"type": "extend", "to": 20, "reason": "Quedó corta"},
+            {"type": "use_variant", "variant": "adventurous", "reason": "Más pistas"},
+        ),
+        8,
+    )
+    assert answer.actions == (
+        list_chat.ProposedAction("extend", None, 20, "Quedó corta"),
+        list_chat.ProposedAction("use_variant", None, None, "Más pistas", "adventurous"),
+    )
+    assert answer.dropped == 0
+    assert [action.public() for action in answer.actions] == [
+        {"type": "extend", "to": 20, "reason": "Quedó corta"},
+        {"type": "use_variant", "variant": "adventurous", "reason": "Más pistas"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "item,reason",
+    [
+        ({"type": "extend", "to": 8, "reason": "motivo"}, "target outside the list"),
+        ({"type": "extend", "to": 101, "reason": "motivo"}, "target outside the list"),
+        ({"type": "extend", "to": "9", "reason": "motivo"}, "target outside the list"),
+        ({"type": "extend", "to": True, "reason": "motivo"}, "target outside the list"),
+        ({"type": "extend", "to": 9}, "unexpected fields"),
+        ({"type": "extend", "to": 9, "reason": "motivo", "position": 1}, "unexpected fields"),
+        ({"type": "extend", "to": 9, "reason": "x" * 201}, "missing or oversized reason"),
+        ({"type": "use_variant", "variant": "wild", "reason": "motivo"}, "unsupported variant"),
+        ({"type": "use_variant", "variant": 7, "reason": "motivo"}, "unsupported variant"),
+        ({"type": "use_variant", "variant": "safe", "to": 6, "reason": "motivo"}, "unexpected fields"),
+        ({"type": "use_variant", "variant": "safe", "reason": 7}, "missing or oversized reason"),
+        ({"type": "use_variant", "variant": "safe", "reason": "x" * 201}, "missing or oversized reason"),
+    ],
+)
+def test_an_extend_or_a_use_variant_that_cannot_apply_is_dropped_with_its_reason(item, reason):
+    answer = list_chat.parse_answer(structured(item), 8)
+    assert answer.actions == () and answer.dropped == 1
+    assert answer.dropped_items == (list_chat.DroppedAction(item, reason),)
+
+
+def test_only_one_extend_and_one_use_variant_are_kept_per_reply():
+    raw = structured(
+        {"type": "extend", "to": 10, "reason": "motivo"},
+        {"type": "use_variant", "variant": "safe", "reason": "motivo"},
+        {"type": "extend", "to": 12, "reason": "motivo"},
+        {"type": "use_variant", "variant": "adventurous", "reason": "motivo"},
+    )
+    answer = list_chat.parse_answer(raw, 8)
+    assert [action.type for action in answer.actions] == ["extend", "use_variant"]
+    assert answer.dropped == 2
+    assert [item.reason for item in answer.dropped_items] == ["repeated change type", "repeated change type"]
 
 
 def test_a_repeated_position_and_actions_beyond_five_are_dropped_and_counted():

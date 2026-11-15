@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from xfinaudio.ai.list_chat import MAX_ACTIONS
+from xfinaudio.ai.list_chat import ACTION_TYPES, MAX_ACTIONS, VARIANTS
 from xfinaudio.ai.nan_client import DEFAULT_ENDPOINT, Transport, request_context
 from xfinaudio.config.settings import AiSettings
 from xfinaudio.headless.ai_actions import apply_action, propose_actions, public_actions
@@ -118,15 +118,23 @@ def _parsed_chat_answer(answer: dict[str, Any]) -> bool:
     if len(actions) > MAX_ACTIONS:
         return False
     for item in actions:
-        if not isinstance(item, dict) or item.get("type") not in ("replace", "move"):
+        if not isinstance(item, dict) or item.get("type") not in ACTION_TYPES:
             return False
-        expected = {"type", "position", "reason"} if item["type"] == "replace" else {"type", "position", "to", "reason"}
-        if (
-            set(item) != expected
-            or type(item["position"]) is not int
-            or not isinstance(item["reason"], str)
-            or ("to" in item and type(item["to"]) is not int)
-        ):
+        if not isinstance(item["reason"], str):
+            return False
+        kind = item["type"]
+        if kind in ("replace", "move"):
+            expected = {"type", "position", "reason"} if kind == "replace" else {"type", "position", "to", "reason"}
+            if (
+                set(item) != expected
+                or type(item["position"]) is not int
+                or ("to" in item and type(item["to"]) is not int)
+            ):
+                return False
+        elif kind == "extend":
+            if set(item) != {"type", "to", "reason"} or type(item["to"]) is not int:
+                return False
+        elif set(item) != {"type", "variant", "reason"} or item["variant"] not in VARIANTS:
             return False
     return True
 

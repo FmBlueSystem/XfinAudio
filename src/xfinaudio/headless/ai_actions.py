@@ -29,16 +29,19 @@ _STALE = "Apply a change that is still pending and still possible"
 _NO_LIST = "no current list"
 _TRACK_LEFT = "track left the list"
 _NO_REPLACEMENT = "no replacement offered"
+_SAME_VARIANT = "the list already uses that alternative"
+_NO_VARIANT = "no such alternative in the plan"
 
 
 def propose_actions(
     backend: HeadlessBackend, review_id: str, items: Sequence[Mapping[str, Any]]
 ) -> tuple[tuple[ChatAction, ...], tuple[tuple[Mapping[str, Any], str], ...]]:
-    """Bind this turn's validated proposals to the tracks they named.
+    """Bind this turn's validated proposals to what they named.
 
-    ``items`` is the parsed answer's own shape (``type``, ``position``, ``reason``
-    and, for a move, ``to``). A proposal whose track is no longer in the list, or
-    whose ``replace`` has no replacement the engine still offers, is dropped and
+    ``items`` is the parsed answer's own shape (``type``, ``reason`` and, depending on
+    the type, ``position``, ``to`` or ``variant``). A proposal whose track is no
+    longer in the list, whose ``replace`` has no replacement the engine still offers
+    or whose ``use_variant`` names the alternative already in use is dropped and
     counted instead of failing the turn; it is returned with the reason it was
     dropped for the opt-in chat log.
     """
@@ -49,12 +52,27 @@ def propose_actions(
     accepted: list[ChatAction] = []
     dropped: list[tuple[Mapping[str, Any], str]] = []
     for item in items:
-        position, reason = item["position"], item["reason"]
+        kind, reason = item["type"], item["reason"]
+        if kind == "extend":
+            accepted.append(ChatAction(str(uuid4()), "extend", None, item["to"], reason))
+            continue
+        if kind == "use_variant":
+            track_count, refusal = _offered_variant(backend, review.variant_name, item["variant"])
+            if track_count is None:
+                dropped.append((item, refusal))
+                continue
+            accepted.append(
+                ChatAction(
+                    str(uuid4()), "use_variant", None, None, reason, variant=item["variant"], track_count=track_count
+                )
+            )
+            continue
+        position = item["position"]
         if not 1 <= position <= len(tracks):
             dropped.append((item, _TRACK_LEFT))
             continue
         track_id = _public_track(tracks[position - 1])["id"]
-        if item["type"] == "move":
+        if kind == "move":
             accepted.append(ChatAction(str(uuid4()), "move", track_id, item["to"], reason))
             continue
         replacement = _offered_replacement(backend, review_id, track_id)
@@ -79,7 +97,25 @@ def public_actions(backend: HeadlessBackend, actions: Iterable[ChatAction]) -> l
     library = {_public_track(record)["id"]: _public_track(record) for record in backend._records()}
     published: list[dict[str, Any]] = []
     for action in actions:
-        position = positions.get(action.track_id)
+        if action.type == "extend":
+            if action.to is None:
+                continue
+            published.append({"actionId": action.id, "type": "extend", "to": action.to, "reason": action.reason})
+            continue
+        if action.type == "use_variant":
+            if action.variant is None or action.track_count is None:
+                continue
+            published.append(
+                {
+                    "actionId": action.id,
+                    "type": "use_variant",
+                    "variant": action.variant,
+                    "trackCount": action.track_count,
+                    "reason": action.reason,
+                }
+            )
+            continue
+        position = positions.get(action.track_id or "")
         if position is None:
             continue
         track = tracks[position - 1]
@@ -111,46 +147,87 @@ def apply_action(backend: HeadlessBackend, action_id: str) -> dict[str, Any]:
     a track that left the list, a track that became protected, a replacement the
     engine no longer offers -- is ``stale_ai`` and leaves both the review and the
     pending changes untouched. A ``to`` position is applied as written at this click.
+
+    An ``extend`` grows the list through the same ``review.extend`` edit the DJ's own
+    button uses and adds its ``extended`` report to the answer; a ``no_candidates``
+    refusal is passed through unchanged and the change stays pending. A
+    ``use_variant`` is never applied here: choosing an alternative belongs to the
+    renderer, so it is ``stale_ai`` and stays pending too.
     """
     store = backend.ai_conversation
     action = store.action(action_id)
     if action is None:
         raise BackendError("stale_ai", _STALE)
+    extended: dict[str, Any] | None = None
     try:
-        details = backend.review_actions.details()
-        current = [track["id"] for track in details["tracks"]]
-        if action.track_id not in current:
+        if action.type == "use_variant":
             raise BackendError("stale_ai", _STALE)
-        if action.type == "move":
-            if action.to is None or not 1 <= action.to <= len(current):
+        details = backend.review_actions.details()
+        if action.type == "extend":
+            if action.to is None:
                 raise BackendError("stale_ai", _STALE)
-            order = [track_id for track_id in current if track_id != action.track_id]
-            order.insert(action.to - 1, action.track_id)
-            review = backend.review_actions.execute(
-                "review.reorder", {"reviewId": details["reviewId"], "trackIds": order}
+            grown = backend.review_actions.execute(
+                "review.extend", {"reviewId": details["reviewId"], "targetTrackCount": action.to}
             )
+            extended = grown.pop("extended", None)
+            review = grown
         else:
-            comparison = backend.review_actions.execute(
-                "review.compare", {"reviewId": details["reviewId"], "trackId": action.track_id}
-            )
-            replacement = comparison["replacement"]
-            if not comparison["available"] or not isinstance(replacement, dict):
+            current = [track["id"] for track in details["tracks"]]
+            track_id = action.track_id
+            if track_id is None or track_id not in current:
                 raise BackendError("stale_ai", _STALE)
-            if replacement["id"] != action.replacement_id:
-                raise BackendError("stale_ai", _STALE)
-            review = backend.review_actions.execute(
-                "review.replace",
-                {
-                    "reviewId": comparison["reviewId"],
-                    "trackId": action.track_id,
-                    "replacementId": replacement["id"],
-                },
-            )
+            if action.type == "move":
+                if action.to is None or not 1 <= action.to <= len(current):
+                    raise BackendError("stale_ai", _STALE)
+                destination = action.to
+                order = [item for item in current if item != track_id]
+                order.insert(destination - 1, track_id)
+                review = backend.review_actions.execute(
+                    "review.reorder", {"reviewId": details["reviewId"], "trackIds": order}
+                )
+            else:
+                comparison = backend.review_actions.execute(
+                    "review.compare", {"reviewId": details["reviewId"], "trackId": track_id}
+                )
+                replacement = comparison["replacement"]
+                if not comparison["available"] or not isinstance(replacement, dict):
+                    raise BackendError("stale_ai", _STALE)
+                if replacement["id"] != action.replacement_id:
+                    raise BackendError("stale_ai", _STALE)
+                review = backend.review_actions.execute(
+                    "review.replace",
+                    {
+                        "reviewId": comparison["reviewId"],
+                        "trackId": track_id,
+                        "replacementId": replacement["id"],
+                    },
+                )
     except BackendError as error:
-        if error.code == "stale_ai":
+        if error.code in ("stale_ai", "no_candidates"):
             raise
         raise BackendError("stale_ai", _STALE) from None
-    return {"review": review, "actions": public_actions(backend, store.applied(action.id))}
+    answer: dict[str, Any] = {"review": review, "actions": public_actions(backend, store.applied(action.id))}
+    if extended is not None:
+        answer["extended"] = extended
+    return answer
+
+
+def _offered_variant(backend: HeadlessBackend, current: str, named: Any) -> tuple[int | None, str]:
+    """The length of the alternative a ``use_variant`` names, or why it cannot be bound.
+
+    The alternative already in use is not an alternative to offer, and a name the plan
+    does not carry cannot be applied at all.
+    """
+    plan = backend.plan
+    if plan is None or not isinstance(named, str):
+        return None, _NO_VARIANT
+    for variant in plan.variants:
+        if variant.name != named:
+            continue
+        if named == current:
+            return None, _SAME_VARIANT
+        return len(variant.recommendation.ordered_tracks), ""
+    return None, _NO_VARIANT
 
 
 def _offered_replacement(backend: HeadlessBackend, review_id: str, track_id: str) -> dict[str, Any] | None:

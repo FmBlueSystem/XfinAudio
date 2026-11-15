@@ -30,20 +30,25 @@ class Message:
 
 @dataclass(frozen=True)
 class ChatAction:
-    """One validated change the assistant proposed, bound to the track it named.
+    """One validated change the assistant proposed, bound to what it named.
 
     ``type`` is ``replace`` (take that track out and put the engine's replacement in
-    its place) or ``move``. ``track_id`` and ``replacement_id`` are internal public
-    track identities and are never published: the answer carries titles, positions
-    and reasons only.
+    its place), ``move``, ``extend`` (grow the list to ``to`` tracks) or
+    ``use_variant`` (switch to the plan alternative ``variant``, whose length was
+    ``track_count`` when it was proposed). ``track_id`` and ``replacement_id`` are
+    internal public track identities and are never published: the answer carries
+    titles, positions and reasons only. A list-level change names no track, so its
+    ``track_id`` stays empty.
     """
 
     id: str
     type: str
-    track_id: str
+    track_id: str | None
     to: int | None
     reason: str
     replacement_id: str | None = None
+    variant: str | None = None
+    track_count: int | None = None
 
 
 class ConversationStore:

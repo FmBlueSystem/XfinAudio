@@ -126,6 +126,20 @@ def test_a_failed_apply_logs_the_action_identity_and_the_error_code(chat_setup, 
     assert entry["errorCode"] == "stale_ai"
 
 
+def test_apply_logs_an_extend_and_the_list_it_grew(chat_setup, monkeypatch):
+    facade, transport, backend, _, _ = chat_setup
+    enable(monkeypatch)
+    transport.reply = answer({"type": "extend", "to": 6, "reason": "La lista quedó corta"})
+    action = turn(facade, backend.review_id)["result"]["actions"][0]
+    applied = call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    entry = log_entries(backend)[-1]
+    assert entry["event"] == "apply"
+    assert entry["action"] == action
+    assert entry["order"] == [
+        {"position": index, "title": track["title"]} for index, track in enumerate(applied["review"]["tracks"], start=1)
+    ]
+
+
 def test_the_log_file_is_private_and_rotates_when_it_passes_two_megabytes(tmp_path, monkeypatch):
     enable(monkeypatch)
     log = ChatLog(tmp_path / "data")
