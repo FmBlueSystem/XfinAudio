@@ -474,13 +474,21 @@ test('the editor CTA re-renders with a save-or-discard hint when the AI draft be
   } finally { f.restore(); }
 });
 
-test('the review screen adds «Asistente de lista» with history on open, a chat turn, a reset and the untouched review commentary', async () => {
+test('the review screen offers the bot button, and the floating «Asistente de lista» keeps the whole chat with history on open, a turn, a reset and the untouched review commentary', async () => {
   const f = await fixture();
   try {
     await f.generate();
-    assert.equal(f.get('list-chat-container').hidden, false);
+    assert.equal(f.get('bot-window-root').hidden, false);
+    assert.equal(f.get('bot-window').hidden, true);
+    assert.equal(f.get('bot-window-toggle').attrs['aria-label'], 'Abrir asistente de lista');
+    assert.ok(!all(f.get('ai-panel')).some((node) => node.id === 'list-chat-container'), 'the list chat left the AI panel');
     assert.equal(f.calls.some(([kind]) => kind === 'aiChatHistory'), false);
+    // Opening the existing AI panel no longer loads the list conversation.
     await f.openAi();
+    assert.equal(f.calls.some(([kind]) => kind === 'aiChatHistory'), false);
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('bot-window').hidden, false);
+    assert.equal(f.get('bot-window-heading').textContent, 'Asistente de lista');
     assert.equal(f.calls.filter(([kind]) => kind === 'aiChatHistory').length, 1);
     assert.match(text(f.get('list-chat-empty')), /Pregunta cómo mejorar esta lista/);
     const draft = f.get('list-chat-request');
@@ -492,6 +500,12 @@ test('the review screen adds «Asistente de lista» with history on open, a chat
     assert.match(text(f.get('list-chat-conversation')), /Pista sugerida: la segunda\./);
     assert.equal(f.get('list-chat-request').value, '');
     assert.equal(f.get('list-chat-pending').hidden, true);
+    // Minimizar hides the window and keeps the conversation; the button reopens it.
+    f.click('bot-window-minimize'); await settle();
+    assert.equal(f.get('bot-window').hidden, true);
+    assert.match(text(f.get('list-chat-conversation')), /Pista sugerida: la segunda\./);
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('bot-window').hidden, false);
     f.click('list-chat-reset'); await settle();
     assert.equal(f.calls.some(([kind]) => kind === 'aiChatReset'), true);
     assert.equal(f.get('list-chat-conversation').children.length, 0);
@@ -500,7 +514,26 @@ test('the review screen adds «Asistente de lista» with history on open, a chat
     f.click('optional-ai-prepare'); await settle();
     assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], { surface: 'review', request: '', context: { reviewId: aiUuid } });
     await f.navigate('library');
-    assert.equal(f.get('list-chat-container').hidden, true);
+    assert.equal(f.get('bot-window-root').hidden, true);
+    assert.equal(f.get('bot-window').hidden, true);
+  } finally { f.restore(); }
+});
+test('the bot badge counts the proposed changes and clears once they are applied, and Escape minimizes the window', async () => {
+  const f = await fixture({ aiChatApply: async (input) => { f.calls.push(['aiChatApply', input]); return { review: appliedChatReview, actions: [] }; } });
+  try {
+    await f.generate();
+    f.chatActions([chatMove]);
+    assert.equal(f.get('bot-window-badge').hidden, true, 'nothing pending before the window reads the conversation');
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('bot-window-badge').hidden, false);
+    assert.equal(f.get('bot-window-badge').textContent, '1');
+    f.click('list-chat-apply-0'); await settle();
+    assert.equal(f.get('bot-window-badge').hidden, true);
+    assert.equal(f.get('bot-window').hidden, false);
+    window.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Escape' }));
+    await settle();
+    assert.equal(f.get('bot-window').hidden, true);
+    assert.equal(f.get('list-chat-empty').hidden, false, 'the chat stays mounted while minimised');
   } finally { f.restore(); }
 });
 const chatMove = { actionId: '33333333-3333-4333-8333-333333333333', type: 'move', position: 1, to: 2, title: 'a', artist: 'DJ', reason: 'Sube la energía del inicio' };
@@ -510,7 +543,7 @@ test('the review assistant shows the pending actions from history and one click 
   try {
     await f.generate();
     f.chatActions([chatMove]);
-    await f.openAi();
+    f.click('bot-window-toggle'); await settle();
     assert.equal(f.get('list-chat-proposed').hidden, false);
     assert.match(text(f.get('list-chat-proposed')), /Cambios propuestos/);
     assert.equal(f.get('list-chat-proposed-actions').children[0].children[0].textContent, 'Mover 1. a a la posición 2');
@@ -534,7 +567,7 @@ test('a stale assistant action shows the existing Spanish error and removes the 
   try {
     await f.generate();
     f.chatActions([chatMove]);
-    await f.openAi();
+    f.click('bot-window-toggle'); await settle();
     assert.equal(f.get('list-chat-proposed').hidden, false);
     f.click('list-chat-apply-0'); await settle();
     assert.equal(f.get('list-chat-error').hidden, false);
@@ -551,7 +584,7 @@ test('the assistant extend card grows the list and shows the added count', async
   try {
     await f.generate();
     f.chatActions([chatExtend]);
-    await f.openAi();
+    f.click('bot-window-toggle'); await settle();
     assert.equal(f.get('list-chat-proposed-actions').children[0].children[0].textContent, 'Ampliar la lista a 20 pistas');
     f.click('list-chat-apply-0'); await settle();
     assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiChatApply')[1], { actionId: chatExtend.actionId });
@@ -567,7 +600,7 @@ test('choosing the proposed alternative opens that variant and starts a new conv
   try {
     await f.generate();
     f.chatActions([chatVariant]);
-    await f.openAi();
+    f.click('bot-window-toggle'); await settle();
     assert.equal(f.get('list-chat-proposed-actions').children[0].children[0].textContent, 'Usar la alternativa exploratoria (20 pistas)');
     f.click('list-chat-apply-0'); await settle();
     assert.deepEqual(f.calls.find(([kind]) => kind === 'select')[1], { planId: 'plan', variant: 'adventurous' });
