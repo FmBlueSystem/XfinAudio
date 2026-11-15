@@ -1,6 +1,8 @@
 import { AI_RECIPIENT, aiErrorMessage } from './optional-ai.js';
-import type { AiChatHistory, AiChatMessage, AiContext, AiPayload, AiPreview, AiResult, AiSurface, OptionalAiHost } from './optional-ai.js';
-export type { AiChatHistory, AiChatMessage } from './optional-ai.js';
+import { errorCode } from './errors.js';
+import type { AiChatAction, AiChatHistory, AiChatMessage, AiChatReplacement, AiContext, AiPayload, AiPreview, AiResult, AiSurface, OptionalAiHost } from './optional-ai.js';
+import type { DetailedReview } from './generated-review.js';
+export type { AiChatAction, AiChatHistory, AiChatMessage } from './optional-ai.js';
 /** The conversation surface: one chat per generated review, read-only for the list. */
 export const CHAT_SURFACE: AiSurface = 'chat';
 /** S2's request window for one turn. */
@@ -11,18 +13,37 @@ export const CHAT_REPLY_LIMIT = 4000;
 export const CHAT_MESSAGE_LIMIT = 200;
 const CHAT_PAYLOAD_BODY_LIMIT = 64 * 1024;
 const CHAT_PAYLOAD_BYTES_LIMIT = 1024 * 1024;
+/** S1 accepts at most five proposals per reply, so the panel never renders more. */
+const CHAT_ACTION_LIMIT = 5;
+/** Rejected items are counted, not listed: the reply's own length bounds how many there can be. */
+const CHAT_DROPPED_LIMIT = 200;
+/** A position is 1..N of the list itself; the panel only bounds the payload, the core owns N. */
+const CHAT_POSITION_LIMIT = 10000;
 export const LIST_CHAT_PENDING = 'El asistente está leyendo la lista…';
 export const LIST_CHAT_READ_AGAIN = 'El asistente volvió a leer la lista.';
 export const LIST_CHAT_CANCELLED = 'Envío cancelado: la pregunta sigue en el campo para reintentarla.';
 export const LIST_CHAT_TOO_LONG = 'La petición admite como máximo 2000 caracteres.';
+export const LIST_CHAT_PROPOSED = 'Cambios propuestos';
+export const LIST_CHAT_APPLYING = 'Aplicando el cambio propuesto…';
+export const LIST_CHAT_APPLIED = 'Cambio aplicado. Puedes deshacerlo con Deshacer.';
+/** The line that explains the proposals the core refused to turn into an action. */
+export const listChatDropped = (count: number): string => `Se descartaron ${count} cambios que no se pueden aplicar.`;
+/** The one line each card shows for its action: a replacement or a move, in the panel's Spanish. */
+export function listChatActionText(action: AiChatAction): string {
+  return action.type === 'replace'
+    ? `Reemplazar ${action.position}. ${action.title} por ${action.replacement?.title ?? ''}`
+    : `Mover ${action.position}. ${action.title} a la posición ${action.to ?? 0}`;
+}
 export interface ListChatApi {
   aiChatHistory(): Promise<AiChatHistory>;
   aiChatReset(): Promise<AiChatHistory>;
   prepareAiRequest(input: { surface: AiSurface; request: string; context: AiContext }): Promise<AiPreview>;
   runAiRequest(input: { previewId: string }): Promise<{ cancelled: boolean; result: AiResult | null }>;
   inspectAiPayload(input: { previewId: string }): Promise<AiPayload>;
+  aiChatApply(input: { actionId: string }): Promise<{ review: DetailedReview; actions: AiChatAction[] }>;
 }
-export type ListChatHost = Pick<OptionalAiHost, 'canAct' | 'changed' | 'perform'>;
+/** The panel hands the review the edit minted back to the screen, exactly like a manual edit does. */
+export type ListChatHost = Pick<OptionalAiHost, 'canAct' | 'changed' | 'perform'> & { applied?(value: DetailedReview): void };
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= max;
@@ -49,20 +70,76 @@ function previewCopy(value: unknown): AiPreview {
   if (Object.hasOwn(value, 'firstTurn') && typeof value.firstTurn !== 'boolean') invalid();
   return { previewId: value.previewId, surface: CHAT_SURFACE, recipient: AI_RECIPIENT, disclosure: [...value.disclosure], requestPreview: value.requestPreview, ...(typeof value.firstTurn === 'boolean' ? { firstTurn: value.firstTurn } : {}) };
 }
+/** The candidate of a replace: public track metadata only, never a path or a track id. */
+function replacementCopy(value: unknown): AiChatReplacement {
+  if (!isRecord(value) || Object.keys(value).sort().join(',') !== 'artist,bpm,key,title') invalid();
+  if (!text(value.title, 300) || !text(value.artist, 300)) invalid();
+  if (value.bpm !== null && (typeof value.bpm !== 'number' || !Number.isFinite(value.bpm) || value.bpm <= 0 || value.bpm > 400)) invalid();
+  if (value.key !== null && !text(value.key, 40)) invalid();
+  return { title: value.title, artist: value.artist, bpm: value.bpm as number | null, key: value.key as string | null };
+}
 /**
- * One conversation with the assistant about the generated review (S7). It only reads: every
- * turn prepares the `chat` selector for the current review, sends the typed question and stores
- * the conversation the core returns. The native dialog and its first-turn consent belong to the
- * host, so this controller never ticks a per-send consent, and a failed or cancelled turn keeps
- * the question in the box.
+ * One proposal, exactly one of S1's two shapes. The key set is checked whole so nothing the panel
+ * never renders — a path, a track id — can ride along, and a position stays inside 1..N and its
+ * bounds; the core already refused every other item before this answer existed.
+ */
+function actionCopy(value: unknown): AiChatAction {
+  if (!isRecord(value) || !uuid(value.actionId)) invalid();
+  if (!text(value.title, 300) || !text(value.artist, 300) || !text(value.reason, 200)) invalid();
+  if (!Number.isInteger(value.position) || (value.position as number) < 1 || (value.position as number) > CHAT_POSITION_LIMIT) invalid();
+  const position = value.position as number;
+  const base = { actionId: value.actionId, position, title: value.title, artist: value.artist, reason: value.reason };
+  if (value.type === 'replace') {
+    if (Object.keys(value).sort().join(',') !== 'actionId,artist,position,reason,replacement,title,type') invalid();
+    return { ...base, type: 'replace', replacement: replacementCopy(value.replacement) };
+  }
+  if (value.type === 'move') {
+    if (Object.keys(value).sort().join(',') !== 'actionId,artist,position,reason,title,to,type') invalid();
+    if (!Number.isInteger(value.to) || (value.to as number) < 1 || (value.to as number) > CHAT_POSITION_LIMIT || value.to === position) invalid();
+    return { ...base, type: 'move', to: value.to as number };
+  }
+  return invalid();
+}
+function actionsCopy(value: unknown): AiChatAction[] {
+  if (!Array.isArray(value) || value.length > CHAT_ACTION_LIMIT) invalid();
+  const actions = value.map(actionCopy);
+  if (new Set(actions.map((action) => action.actionId)).size !== actions.length) invalid();
+  return actions;
+}
+/** The review an applied action minted: the same payload a manual edit answers, which the screen sets as its own. */
+function reviewCopy(value: unknown): DetailedReview {
+  if (!isRecord(value) || !uuid(value.reviewId)) invalid();
+  if (!Array.isArray(value.tracks) || value.tracks.length > 500) invalid();
+  if (typeof value.name !== 'string' || value.name.length > 200 || !['safe', 'balanced', 'adventurous', 'saved'].includes(value.variant as string)) invalid();
+  if (!['ready', 'needs_review', 'blocked'].includes(value.readiness as string)) invalid();
+  for (const key of ['warnings', 'blockers'] as const) {
+    const lines = value[key];
+    if (!Array.isArray(lines) || lines.length > 200 || !lines.every((line) => text(line, 400))) invalid();
+  }
+  for (const track of value.tracks) {
+    if (!isRecord(track) || !text(track.id, 200) || !text(track.title, 400) || (track.artist !== '' && !text(track.artist, 400))) invalid();
+  }
+  return value as unknown as DetailedReview;
+}
+/**
+ * One conversation with the assistant about the generated review (S7). The list is never changed
+ * by asking: every turn prepares the `chat` selector for the current review, sends the typed
+ * question and stores the conversation and the proposals the core returns. A proposal is applied
+ * only when the user clicks its «Aplicar» card (S5): that click is the consent, the native dialog
+ * and its first-turn permission belong to the host, and a failed or cancelled turn keeps the
+ * question in the box.
  */
 export class ListChatController {
   private api: ListChatApi; private host: ListChatHost; private review = ''; private generation = 0;
   messages: AiChatMessage[] = []; request = ''; error = ''; notice = ''; loaded = false;
   preview: AiPreview | null = null; payload: AiPayload | null = null;
+  /** The changes the last reply still proposes; applying one hands the minted review to the screen. */
+  actions: AiChatAction[] = [];
+  /** How many items of the last reply the core refused to turn into an action. */
+  droppedActions = 0;
   /** Index of the reply the assistant announced it had re-read the list for; null when none. */
   readAgain: number | null = null;
-  pending: 'load' | 'send' | 'reset' | 'inspect' | null = null;
+  pending: 'load' | 'send' | 'reset' | 'inspect' | 'apply' | null = null;
   constructor(api: ListChatApi, host: ListChatHost) { this.api = api; this.host = host; }
   get reviewId(): string { return this.review; }
   get pendingText(): string {
@@ -71,6 +148,7 @@ export class ListChatController {
       case 'load': return 'Cargando la conversación…';
       case 'reset': return 'Empezando una conversación nueva…';
       case 'inspect': return 'Recuperando el envío exacto…';
+      case 'apply': return LIST_CHAT_APPLYING;
       default: return '';
     }
   }
@@ -78,6 +156,8 @@ export class ListChatController {
     return !this.pending && this.host.canAct() && this.review !== '' && this.request.trim().length > 0 && this.request.length <= CHAT_REQUEST_LIMIT;
   }
   get canReset(): boolean { return !this.pending && this.host.canAct() && this.review !== ''; }
+  /** Every card shares the panel's state: nothing is applied while anything is running. */
+  get applyEnabled(): boolean { return !this.pending && this.host.canAct() && this.review !== ''; }
   get requestEditable(): boolean { return !this.pending && this.host.canAct() && this.review !== ''; }
   /**
    * Publishes the review the conversation belongs to. Another review is another conversation
@@ -89,6 +169,7 @@ export class ListChatController {
     if (next === this.review) return;
     this.generation++;
     this.review = next; this.messages = []; this.preview = null; this.payload = null; this.readAgain = null;
+    this.actions = []; this.droppedActions = 0;
     this.error = ''; this.notice = ''; this.loaded = false;
     this.host.changed();
   }
@@ -99,7 +180,13 @@ export class ListChatController {
     this.notice = '';
     this.host.changed();
   }
-  private fail(error: unknown): void { this.error = aiErrorMessage(error); this.host.changed(); }
+  private fail(error: unknown): void {
+    this.error = aiErrorMessage(error);
+    // The core no longer holds these proposals (or the list they belong to), so a retry can only
+    // fail again: the cards go instead of staying as a promise the app cannot keep.
+    if (errorCode(error) === 'stale_ai') { this.actions = []; this.droppedActions = 0; }
+    this.host.changed();
+  }
   private async perform<T>(kind: NonNullable<ListChatController['pending']>, label: string, task: () => Promise<T>, apply: (value: T) => void): Promise<void> {
     if (this.pending || !this.host.canAct()) return;
     const generation = this.generation; this.pending = kind; this.error = ''; this.notice = ''; this.host.changed();
@@ -112,7 +199,9 @@ export class ListChatController {
   async load(): Promise<void> {
     if (this.pending || !this.host.canAct() || !this.review || this.loaded) return;
     await this.perform('load', 'Cargando la conversación…', () => this.api.aiChatHistory(), (value) => {
-      this.messages = conversationCopy(value?.conversation); this.loaded = true;
+      this.messages = conversationCopy(value?.conversation);
+      this.actions = actionsCopy(value?.actions); this.droppedActions = 0;
+      this.loaded = true;
     });
   }
   /** One turn: prepare the exact `chat` selector, then run the prepared preview. */
@@ -133,15 +222,37 @@ export class ListChatController {
     if (!result || !uuid(result.resultId) || result.surface !== CHAT_SURFACE || result.kind !== 'chat') invalid();
     if (!text(result.title, 200) || !text(result.text, CHAT_REPLY_LIMIT) || result.proposal !== null || result.canApply !== false || typeof result.listChanged !== 'boolean') invalid();
     const messages = conversationCopy(result.conversation);
-    this.messages = messages; this.request = ''; this.notice = '';
+    const actions = actionsCopy(result.actions);
+    const droppedActions = result.droppedActions;
+    if (!Number.isInteger(droppedActions) || (droppedActions as number) < 0 || (droppedActions as number) > CHAT_DROPPED_LIMIT) invalid();
+    this.messages = messages; this.actions = actions; this.droppedActions = droppedActions as number;
+    this.request = ''; this.notice = '';
     const last = messages.at(-1);
     this.readAgain = result.listChanged && last?.role === 'assistant' ? messages.length - 1 : null;
+  }
+  /**
+   * Applies one proposal through the core, which does it as a normal edit: the review it mints is
+   * handed to the screen, the cards are redrawn from its answer and the panel says it can be undone.
+   * The new reviewId is adopted before the hand-off so this conversation is not mistaken for another.
+   */
+  async apply(actionId: string): Promise<void> {
+    if (!this.applyEnabled || !this.actions.some((action) => action.actionId === actionId)) return;
+    await this.perform('apply', LIST_CHAT_APPLYING, () => this.api.aiChatApply({ actionId }), (value) => {
+      const review = reviewCopy(value?.review);
+      const actions = actionsCopy(value?.actions);
+      this.actions = actions; this.droppedActions = 0;
+      this.notice = LIST_CHAT_APPLIED; this.error = '';
+      this.review = review.reviewId;
+      this.host.applied?.(review);
+    });
   }
   /** Starts a new conversation: the core forgets the stored one and the panel empties. */
   async newConversation(): Promise<void> {
     if (!this.canReset) return;
     await this.perform('reset', 'Empezando una conversación nueva…', () => this.api.aiChatReset(), (value) => {
-      this.messages = conversationCopy(value?.conversation); this.loaded = true;
+      this.messages = conversationCopy(value?.conversation);
+      this.actions = actionsCopy(value?.actions); this.droppedActions = 0;
+      this.loaded = true;
       this.request = ''; this.readAgain = null; this.preview = null; this.payload = null; this.error = ''; this.notice = '';
     });
   }

@@ -26,13 +26,16 @@ async function fixture(overrides = {}) {
   // The list assistant keeps one conversation in the core: the bridge exposes the two
   // no-param methods the chat panel calls, and a chat turn returns the stored list.
   let chatConversation = [];
+  // The pending proposals the fake core holds for this conversation.
+  let chatActions = [];
   const api = {
-    aiChatHistory: async () => { calls.push(['aiChatHistory']); return { conversation: chatConversation.map((item) => ({ ...item })) }; },
-    aiChatReset: async () => { calls.push(['aiChatReset']); chatConversation = []; return { conversation: [] }; },
+    aiChatHistory: async () => { calls.push(['aiChatHistory']); return { conversation: chatConversation.map((item) => ({ ...item })), actions: chatActions.map((item) => ({ ...item })) }; },
+    aiChatReset: async () => { calls.push(['aiChatReset']); chatConversation = []; chatActions = []; return { conversation: [], actions: [] }; },
+    aiChatApply: async (input) => { calls.push(['aiChatApply', input]); throw new Error('unreachable'); },
     getAiStatus: async () => { calls.push(['aiStatus']); return aiStatus; }, saveAiSettings: async (input) => { calls.push(['aiSave',input]); return {...aiStatus,...input}; }, chooseAiCredential: async () => aiStatus, clearAiCredential: async () => ({...aiStatus,configured:false,credentialLabel:null}),
     prepareAiRequest: async (input) => { calls.push(['aiPrepare',input]); aiSurface=input.surface; return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,disclosure:['Datos autorizados'],requestPreview:input.request,firstTurn:chatConversation.length===0}; },
     inspectAiPayload: async (input) => { calls.push(['aiPayload',input]); return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,request:'',body:'{"model":"deepseek","messages":[]}',bytes:31,truncated:false}; },
-    runAiRequest: async (input) => { calls.push(['aiRun',input]); if (aiSurface === 'chat') { chatConversation = [...chatConversation, { role: 'user', text: 'Pregunta de la lista' }, { role: 'assistant', text: 'Pista sugerida: la segunda.' }]; return {cancelled:false,result:{resultId:aiUuid,surface:'chat',kind:'chat',title:'Asistente de lista',text:'Pista sugerida: la segunda.',proposal:null,canApply:false,conversation:chatConversation.map((item)=>({...item})),listChanged:true}}; } return {cancelled:false,result:{resultId:aiUuid,surface:aiSurface,kind:aiKinds[aiSurface],title:'Propuesta IA',text:'Revisión local',proposal:{summary:'sugerencia'},canApply:true}}; },
+    runAiRequest: async (input) => { calls.push(['aiRun',input]); if (aiSurface === 'chat') { chatConversation = [...chatConversation, { role: 'user', text: 'Pregunta de la lista' }, { role: 'assistant', text: 'Pista sugerida: la segunda.' }]; return {cancelled:false,result:{resultId:aiUuid,surface:'chat',kind:'chat',title:'Asistente de lista',text:'Pista sugerida: la segunda.',proposal:null,canApply:false,conversation:chatConversation.map((item)=>({...item})),listChanged:true,actions:chatActions.map((item)=>({...item})),droppedActions:0}}; } return {cancelled:false,result:{resultId:aiUuid,surface:aiSurface,kind:aiKinds[aiSurface],title:'Propuesta IA',text:'Revisión local',proposal:{summary:'sugerencia'},canApply:true}}; },
     applyAiSuggestion: async (input) => { calls.push(['aiApply',input]); return {surface:aiSurface,data:aiSurface==='library'?{filters:{genres:['house']},trackIds:[tracks[0].id]}:aiSurface==='prep'?{targetTrackCount:2,name:'Sesión propuesta',targetMinutes:30}:aiSurface==='editor'?{request:'acorta a 2 temas'}:{action:'compare',playlistIds:['1'],comparison:'Comparación local <img src=x>',names:['Set']}}; },
     getLoudnessStatus: async () => { calls.push(['loudness']); return loudness(); },
     saveLoudnessSettings: async (input) => { calls.push(['saveLoudness', input]); return loudness({ ...input, revision: 'b'.repeat(64) }); },
@@ -54,7 +57,7 @@ async function fixture(overrides = {}) {
   globalThis.window = Object.assign(new EventTarget(), { xfin: api }); get('metadata-filter').value = 'all'; get('prep-count').value = '2';
   await import(`../.out/renderer/app.js?optionalAiApp=${++sequence}`); await settle();
   const click = (id) => get(id).dispatchEvent(new Event('click')); const navigate = async (route) => { routes.find((button) => button.dataset.route === route).dispatchEvent(new Event('click')); await settle(); };
-  return { get, calls, nodes, click, navigate, openAi: async () => { get('ai-panel').open = true; get('ai-panel').dispatchEvent(new Event('toggle')); await settle(); }, progress: (event) => progress(event), event: (value) => { assert.equal(typeof onStatus, 'function'); onStatus(value); }, offline: () => progress({ operation: 'core', phase: 'error', message: '/private/core' }), statusUnsubscribed: () => statusUnsubscribed, generate: async () => { get('prep-form').dispatchEvent(new Event('submit', { cancelable: true })); await settle(); }, restore: () => { window.dispatchEvent(new Event('beforeunload')); globalThis.document = previousDocument; globalThis.window = previousWindow; } };
+  return { get, calls, nodes, click, chatActions: (value) => { chatActions = value; }, navigate, openAi: async () => { get('ai-panel').open = true; get('ai-panel').dispatchEvent(new Event('toggle')); await settle(); }, progress: (event) => progress(event), event: (value) => { assert.equal(typeof onStatus, 'function'); onStatus(value); }, offline: () => progress({ operation: 'core', phase: 'error', message: '/private/core' }), statusUnsubscribed: () => statusUnsubscribed, generate: async () => { get('prep-form').dispatchEvent(new Event('submit', { cancelable: true })); await settle(); }, restore: () => { window.dispatchEvent(new Event('beforeunload')); globalThis.document = previousDocument; globalThis.window = previousWindow; } };
 }
 async function aiReady(f, route = 'library', request = 'Busca house') { await f.navigate(route); await f.openAi(); f.get('optional-ai-request').value = request; f.get('optional-ai-request').dispatchEvent(new Event('input')); f.click('optional-ai-prepare'); await settle(); f.get('optional-ai-consent').checked = true; f.get('optional-ai-consent').dispatchEvent(new Event('change')); }
 async function aiResult(f, route = 'library') { await aiReady(f, route); f.click('optional-ai-ask'); await settle(); }
@@ -498,5 +501,45 @@ test('the review screen adds «Asistente de lista» with history on open, a chat
     assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], { surface: 'review', request: '', context: { reviewId: aiUuid } });
     await f.navigate('library');
     assert.equal(f.get('list-chat-container').hidden, true);
+  } finally { f.restore(); }
+});
+const chatMove = { actionId: '33333333-3333-4333-8333-333333333333', type: 'move', position: 1, to: 2, title: 'a', artist: 'DJ', reason: 'Sube la energía del inicio' };
+const appliedChatReview = { reviewId: '22222222-2222-4222-8222-222222222222', tracks: [{ ...tracks[0], title: 'Cambio aplicado' }, tracks[1]], warnings: [], blockers: [], name: 'Set', variant: 'balanced', readiness: 'ready' };
+test('the review assistant shows the pending actions from history and one click applies a change on screen', async () => {
+  const f = await fixture({ aiChatApply: async (input) => { f.calls.push(['aiChatApply', input]); return { review: appliedChatReview, actions: [] }; } });
+  try {
+    await f.generate();
+    f.chatActions([chatMove]);
+    await f.openAi();
+    assert.equal(f.get('list-chat-proposed').hidden, false);
+    assert.match(text(f.get('list-chat-proposed')), /Cambios propuestos/);
+    assert.equal(f.get('list-chat-proposed-actions').children[0].children[0].textContent, 'Mover 1. a a la posición 2');
+    const draft = f.get('list-chat-request');
+    draft.value = '¿Qué pistas cambio?';
+    draft.dispatchEvent(new Event('input'));
+    f.click('list-chat-send'); await settle();
+    assert.ok(text(f.get('list-chat-conversation')).includes('Pista sugerida: la segunda.'));
+    f.click('list-chat-apply-0'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiChatApply')[1], { actionId: chatMove.actionId });
+    assert.ok(text(f.get('review-table')).includes('Cambio aplicado'));
+    assert.equal(f.get('list-chat-notice').textContent, 'Cambio aplicado. Puedes deshacerlo con Deshacer.');
+    assert.equal(f.get('list-chat-proposed').hidden, true);
+    // The edit minted a new review, but this conversation and its cards keep their place.
+    assert.ok(text(f.get('list-chat-conversation')).includes('Pista sugerida: la segunda.'));
+    assert.equal(f.get('list-chat-pending').hidden, true);
+  } finally { f.restore(); }
+});
+test('a stale assistant action shows the existing Spanish error and removes the cards', async () => {
+  const f = await fixture({ aiChatApply: async () => { throw Object.assign(new Error('gone'), { code: 'stale_ai' }); } });
+  try {
+    await f.generate();
+    f.chatActions([chatMove]);
+    await f.openAi();
+    assert.equal(f.get('list-chat-proposed').hidden, false);
+    f.click('list-chat-apply-0'); await settle();
+    assert.equal(f.get('list-chat-error').hidden, false);
+    assert.equal(f.get('list-chat-error').textContent, 'El contexto o la solicitud cambió. Prepara otra vista previa y revisa de nuevo el consentimiento.');
+    assert.equal(f.get('list-chat-proposed').hidden, true);
+    assert.ok(!text(f.get('review-table')).includes('Cambio aplicado'));
   } finally { f.restore(); }
 });

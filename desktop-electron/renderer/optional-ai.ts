@@ -9,9 +9,16 @@ export interface AiPreview { previewId: string; surface: AiSurface; recipient: t
 export interface AiPayload { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; request: string; body: string; bytes: number; truncated: boolean; }
 /** One stored turn of the review conversation; the core keeps it in memory and never writes it. */
 export interface AiChatMessage { role: 'user' | 'assistant'; text: string; }
-/** The whole stored conversation, oldest first: the answer of ai.chat.history and ai.chat.reset. */
-export interface AiChatHistory { conversation: AiChatMessage[]; }
-export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection' | 'chat'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; conversation?: AiChatMessage[]; listChanged?: boolean; }
+/** The engine candidate a `replace` proposal would put in the track's place; never a path or an id. */
+export interface AiChatReplacement { title: string; artist: string; bpm: number | null; key: string | null; }
+/** One change the last reply proposes; the core validates it and keeps it bound to the current list. */
+export interface AiChatAction {
+  actionId: string; type: 'replace' | 'move'; position: number; title: string; artist: string; reason: string;
+  to?: number; replacement?: AiChatReplacement;
+}
+/** The whole stored conversation, oldest first, plus the changes still pending: the answer of ai.chat.history and ai.chat.reset. */
+export interface AiChatHistory { conversation: AiChatMessage[]; actions: AiChatAction[]; }
+export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection' | 'chat'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; conversation?: AiChatMessage[]; listChanged?: boolean; actions?: AiChatAction[]; droppedActions?: number; }
 export interface OptionalAiApi {
   getAiStatus(): Promise<AiStatus>;
   saveAiSettings(input: { revision: string; enabled: boolean; autoAuthorize: boolean }): Promise<AiStatus>;
