@@ -63,6 +63,7 @@
             </div>
             <details id="prep-duration" class="task-disclosure"><summary>Duración objetivo <span id="prep-sizing-summary" class="disclosure-summary"></span></summary><label for="prep-minutes">Minutos (opcional)</label><input id="prep-minutes" type="number" min="0.01" max="600" step="any" aria-describedby="minutes-hint" data-prep-control><p id="minutes-hint" class="field-hint">Hasta 600 minutos y el máximo de pistas indicado arriba. El motor planifica segmentos de 120 segundos; no suma la duración íntegra de los archivos. En blanco solo se usa la cantidad.</p></details>
             <p id="prep-availability" class="field-hint"></p>
+            <div id="prep-left-out" class="prep-left-out" hidden></div>
             <button id="generate-prep" type="submit" class="button primary full-width" data-mutation>Generar lista <span aria-hidden="true">→</span></button>
             <p id="prep-validation" class="review-notice blocker" role="alert" hidden></p>
             <details id="prep-advanced" class="prep-advanced">

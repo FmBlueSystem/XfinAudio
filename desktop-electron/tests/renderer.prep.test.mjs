@@ -344,3 +344,35 @@ test('a form value the user already changed is not replaced by the remembered fo
     assert.equal(f.get('prep-name').value, 'Viernes');
   } finally { f.restore(); }
 });
+test('prep warns above Generate how many library tracks stay out and why', async () => {
+  const incomplete = { id: 'd'.repeat(64), title: 'd', artist: 'Artist', bpm: null, key: '8A', energy: 5, duration: 180, status: 'incomplete', missingFields: ['bpm'] };
+  const f = await fixture({ listLibrary: async () => ({ tracks: [...tracks, incomplete], count: 4 }) });
+  try {
+    const html = await readFile(new URL('../renderer/index.html', import.meta.url), 'utf8');
+    assert.ok(html.indexOf('id="prep-left-out"') < html.indexOf('id="generate-prep"'), 'the notice sits above the generate button');
+    // The notice builds its own children, so read them from the container.
+    const notice = f.get('prep-left-out');
+    assert.equal(notice.hidden, false);
+    assert.equal(notice.children[0].textContent, '1 de 4 pistas no entran en la lista porque les falta BPM.');
+    assert.equal(notice.children[1].textContent, 'Completar metadatos');
+    assert.equal(notice.children[1].hidden, false);
+    assert.equal(f.get('generate-prep').disabled, false);
+  } finally { f.restore(); }
+});
+test('prep blocks generating with fewer than two complete tracks and says what is missing', async () => {
+  const only = [tracks[0], { ...tracks[1], bpm: null, key: null, energy: null, status: 'incomplete', missingFields: ['bpm', 'camelot_key', 'energy_level'] }];
+  const f = await fixture({ listLibrary: async () => ({ tracks: only, count: 2 }) });
+  try {
+    assert.equal(f.get('prep-left-out').hidden, false);
+    assert.equal(f.get('prep-left-out').children[0].textContent, 'Necesitas al menos dos pistas con BPM, key y energía para generar una lista.');
+    assert.equal(f.get('generate-prep').disabled, true);
+  } finally { f.restore(); }
+});
+test('prep hides the left-out notice when every library track is complete', async () => {
+  const f = await fixture();
+  try {
+    assert.equal(f.get('prep-left-out').hidden, true);
+    assert.equal(f.get('prep-left-out').children[0].textContent, '');
+    assert.equal(f.get('generate-prep').disabled, false);
+  } finally { f.restore(); }
+});

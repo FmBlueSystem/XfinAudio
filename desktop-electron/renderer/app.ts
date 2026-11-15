@@ -30,6 +30,7 @@ import type { LoudnessApi } from './loudness.js';
 import { createLoudnessView } from './loudness-view.js';
 import type { PreferencesApi } from './preferences.js';
 import { createPreferencesView } from './preferences-view.js';
+import { createLeftOutNotice } from './left-out-notice.js';
 import { createLibraryStatusView } from './library-status.js';
 import type { LibraryStatus } from './library-status.js';
 import { createOperationStatus } from './operation-status.js';
@@ -575,6 +576,7 @@ function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => v
   return invalid();
 }
 const renderLibraryStatus = createLibraryStatusView(element('library-status-container'), { canAct: () => coreAvailable && !gate.busy && Boolean(api?.rescanLibrary), rescan: () => scan(true) });
+const renderLeftOutNotice = createLeftOutNotice(element('prep-left-out'), { canAct: () => coreAvailable && !gate.busy, openMetadata: () => navigate('metadata') });
 if(['reviewDetails','reviewCompare','reviewRemove','reviewReorder'].every(key=>typeof api?.[key as keyof AppApi]==='function')){
   const generatedReview=new GeneratedReviewController(api,{
     current:()=>review,canAct:()=>coreAvailable&&!gate.busy,changed:()=>renderGeneratedReview(),
@@ -783,7 +785,8 @@ function syncControls(): void {
   document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-prep-control]').forEach((control) => { control.disabled = gate.busy || !coreAvailable; });
   element<HTMLSelectElement>('prep-strategy').disabled = gate.busy || !coreAvailable || !catalogLoaded;
   element<HTMLButtonElement>('export-library-worklist').disabled=gate.busy||!coreAvailable||!libraryWorklist||libraryStatus?.changeState==='changed';
-  element<HTMLButtonElement>('generate-prep').disabled = gate.busy || !coreAvailable || library.length < 2;
+  // Tracks the pool will skip are named before generating; two complete tracks are the hard floor.
+  element<HTMLButtonElement>('generate-prep').disabled = gate.busy || !coreAvailable || !renderLeftOutNotice(library).canGenerate;
   const liveButton = element<HTMLButtonElement>('start-live');
   liveButton.disabled = gate.busy || !coreAvailable || !canStartLive();
   const liveHint = element<HTMLElement>('start-live-hint');
