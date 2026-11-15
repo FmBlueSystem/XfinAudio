@@ -38,7 +38,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     ...OFFLINE_FIELDS,...REVIEW_CONTROL_FIELDS,
     previewLegacyImport:[],applyLegacyImport:['previewId'],discardLegacyImport:['previewId'],
     getProfileStatus:[],completeProfiles:[],getProfileSettings:[],saveProfileSettings:['revision','spectralCohesion'],
-    getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],
+    getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],aiChatHistory:[],aiChatReset:[],
     getLoudnessStatus:[],revealLoudnessBackups:[],revealLogs:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
@@ -176,11 +176,13 @@ function validateAiRequest(method:string,params:Record<string,unknown>):void {
   if(method==='applyAiSuggestion'&&(typeof params.resultId!=='string'||!uuid.test(params.resultId)))throw new Error('Invalid AI result');
   if(method!=='prepareAiRequest')return;
   const {surface,request,context}=params;
-  if(typeof surface!=='string'||!['library','prep','review','saved','editor','metadata','live','connection'].includes(surface)||typeof request!=='string'||request.length>2000||request.includes('\0')||!context||typeof context!=='object'||Array.isArray(context))throw new Error('Invalid AI request');
+  if(typeof surface!=='string'||!['library','prep','review','chat','saved','editor','metadata','live','connection'].includes(surface)||typeof request!=='string'||request.length>2000||request.includes('\0')||!context||typeof context!=='object'||Array.isArray(context))throw new Error('Invalid AI request');
   const item=context as Record<string,unknown>,keys=Object.keys(item).sort().join(',');
   const token=(value:unknown)=>typeof value==='string'&&uuid.test(value);
   if(['library','prep','metadata','connection'].includes(surface)&&keys)throw new Error('Unexpected AI context');
-  if(surface==='review'&&(keys!=='reviewId'||!token(item.reviewId)))throw new Error('Invalid review context');
+  // A chat turn selects the current generated review exactly as its commentary does, and
+  // differs only in carrying the user's message instead of the fixed empty request.
+  if(['review','chat'].includes(surface)&&(keys!=='reviewId'||!token(item.reviewId)))throw new Error('Invalid review context');
   if(surface==='editor') {
     const improvement=keys==='draftIds,editId,includeReplacements';
     if(keys!=='editId'&&!improvement)throw new Error('Invalid editor context');
@@ -194,5 +196,5 @@ function validateAiRequest(method:string,params:Record<string,unknown>):void {
   }
   if(surface==='live'&&(keys!=='revision,sessionId'||!token(item.sessionId)||!Number.isInteger(item.revision)||Number(item.revision)<0||Number(item.revision)>500))throw new Error('Invalid Live context');
   if(surface==='saved'&&keys){const ids=item.playlistIds;if(keys!=='playlistIds'||!Array.isArray(ids)||ids.length<1||ids.length>200||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!/^[1-9]\d{0,14}$/.test(id)))throw new Error('Invalid saved-set scope');}
-  if(['library','prep','editor','saved'].includes(surface)?!request.trim():request!==(surface==='connection'?'Reply with OK. XfinAudio connection test.':''))throw new Error('Invalid request text for this surface');
+  if(['library','prep','editor','saved','chat'].includes(surface)?!request.trim():request!==(surface==='connection'?'Reply with OK. XfinAudio connection test.':''))throw new Error('Invalid request text for this surface');
 }
