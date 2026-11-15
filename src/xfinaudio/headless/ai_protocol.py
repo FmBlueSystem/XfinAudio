@@ -4,7 +4,17 @@ from types import MappingProxyType
 
 # Trusted per-surface budgets match the original interpreter/narrator policies.
 AI_REQUEST_TIMEOUT_SECONDS = MappingProxyType(
-    {"library": 30, "prep": 60, "review": 120, "saved": 30, "editor": 30, "metadata": 30, "live": 30, "connection": 10}
+    {
+        "library": 30,
+        "prep": 60,
+        "review": 120,
+        "chat": 120,
+        "saved": 30,
+        "editor": 30,
+        "metadata": 30,
+        "live": 30,
+        "connection": 10,
+    }
 )
 
 AI_FIELDS = {
@@ -16,4 +26,6 @@ AI_FIELDS = {
     "ai.payload": {"previewId"},
     "ai.run": {"previewId", "confirmed"},
     "ai.apply": {"resultId"},
+    "ai.chat.history": set(),
+    "ai.chat.reset": set(),
 }

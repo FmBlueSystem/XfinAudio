@@ -173,6 +173,8 @@ class OptionalAI:
                 return self._public_preview(pending)
             if method == "ai.payload":
                 return self.inspect_payload(params)
+            if method in ("ai.chat.history", "ai.chat.reset"):
+                return self._conversation(method)
             if method == "ai.run":
                 return self._run(params, token, emit)
             result_id = _identity(params["resultId"])
@@ -247,13 +249,22 @@ class OptionalAI:
 
     @staticmethod
     def _public_preview(pending: _Pending) -> dict[str, Any]:
-        return {
+        preview = {
             "previewId": pending.id,
             "surface": pending.context.surface,
             "recipient": DEFAULT_ENDPOINT,
             "disclosure": list(pending.disclosure),
             "requestPreview": pending.context.request,
         }
+        # Consent for a conversation is asked once: only the first turn is a first turn.
+        if pending.context.surface == "chat":
+            preview["firstTurn"] = bool(pending.context.data["firstTurn"])
+        return preview
+
+    def _conversation(self, method: str) -> dict[str, Any]:
+        """Return or clear the single in-memory conversation; nothing is read or written."""
+        store = self.backend.ai_conversation
+        return {"conversation": store.reset() if method == "ai.chat.reset" else store.snapshot()}
 
     def _pending(self, preview_id: Any) -> _Pending:
         if self.preview is None or self.preview.id != _identity(preview_id):
@@ -328,8 +339,20 @@ class OptionalAI:
         self._fresh(pending.reference)
         if token.is_cancelled:
             return cancelled
+        # A successful chat turn is the only writer of the in-memory conversation; a
+        # failed, refused or cancelled turn never reaches this point.
+        memory: dict[str, Any] = {}
+        if pending.context.surface == "chat":
+            store = self.backend.ai_conversation
+            changed = store.list_changed(pending.context.data["listFingerprint"])
+            memory = {
+                "conversation": store.record(
+                    pending.context.data["listFingerprint"], pending.context.request, answer["text"]
+                ),
+                "listChanged": changed,
+            }
         result_id = str(uuid4())
         self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(answer))
         while len(self.results) > 16:
             self.results.pop(next(iter(self.results)))
-        return {"cancelled": False, "result": {"resultId": result_id, **copy.deepcopy(answer)}}
+        return {"cancelled": False, "result": {"resultId": result_id, **copy.deepcopy(answer), **memory}}
