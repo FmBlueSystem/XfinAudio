@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import stat
 from collections.abc import Callable
 from pathlib import Path
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
     from xfinaudio.headless.optional_ai import OptionalAI
 
 Progress = Callable[[dict[str, Any]], None]
+LOGGER = logging.getLogger(__name__)
 MIME_TYPES = {
     ".flac": "audio/flac",
     ".mp3": "audio/mpeg",
@@ -451,7 +453,15 @@ class HeadlessBackend:
         plan_id = str(uuid4())
         self.review_actions.bind_plan(plan_id, generation_binding)
         self.plan, self.plan_id = plan, plan_id
-        return self._select({"planId": self.plan_id, "variant": "balanced"}, token)
+        result = self._select({"planId": self.plan_id, "variant": "balanced"}, token)
+        # The form the core accepted is remembered only after the generation fully
+        # succeeded, so a refused or cancelled attempt never replaces it. A refused
+        # write must not discard a set that was generated, so it only warns.
+        try:
+            self.prep_settings.remember(intent)
+        except BackendError as error:
+            LOGGER.warning("Prep set generated but the form was not remembered (%s)", error)
+        return result
 
     def _select(self, params: dict[str, Any], token: ScanCancellationToken) -> dict[str, Any]:
         plan_id, variant_name = params.get("planId"), params.get("variant")

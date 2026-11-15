@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PrepSettingsController } from '../.out/renderer/prep-settings.js';
-const snapshot=(patch={})=>({revision:'a'.repeat(64),requiredTrackIds:['b'.repeat(64)],excludedTrackIds:[],genreFocus:'House',unavailableRequiredCount:0,unavailableExcludedCount:0,...patch});
-function fixture(overrides={}){let values={requiredTrackIds:[],excludedTrackIds:[],genreFocus:''};let editable=true;const calls=[];const api={prepSettings:async()=>{calls.push(['get']);return snapshot();},savePrepSettings:async(input)=>{calls.push(['save',input]);return snapshot({...input,revision:'c'.repeat(64)});},...overrides};const controller=new PrepSettingsController(api,{canAct:()=>editable,read:()=>values,restore:v=>{values={...v};},changed:()=>{},saved:()=>{},perform:async(_label,task,apply,fail)=>{try{apply(await task());}catch(e){fail(e);}}});return {controller,calls,get values(){return values;},edit:patch=>{values={...values,...patch};controller.edited();},block:()=>{editable=false;}};}
+const lastForm=(patch={})=>({targetTrackCount:12,targetMinutes:90,strategy:'warmup',slotRole:'peak_time',name:'Viernes',startTrackId:'b'.repeat(64),endTrackId:null,...patch});
+const snapshot=(patch={})=>({revision:'a'.repeat(64),requiredTrackIds:['b'.repeat(64)],excludedTrackIds:[],genreFocus:'House',unavailableRequiredCount:0,unavailableExcludedCount:0,lastForm:lastForm(),...patch});
+function fixture(overrides={}){let values={requiredTrackIds:[],excludedTrackIds:[],genreFocus:''};let editable=true;const calls=[];const forms=[];const api={prepSettings:async()=>{calls.push(['get']);return snapshot();},savePrepSettings:async(input)=>{calls.push(['save',input]);return snapshot({...input,revision:'c'.repeat(64)});},...overrides};const controller=new PrepSettingsController(api,{canAct:()=>editable,read:()=>values,restore:v=>{values={...v};},changed:()=>{},saved:()=>{},remembered:form=>{forms.push(form);},perform:async(_label,task,apply,fail)=>{try{apply(await task());}catch(e){fail(e);}}});return {controller,calls,forms,get values(){return values;},edit:patch=>{values={...values,...patch};controller.edited();},block:()=>{editable=false;}};}
 test('load restores original build controls; editing never persists until explicit save',async()=>{const f=fixture();await f.controller.load();assert.equal(f.values.genreFocus,'House');f.edit({genreFocus:'Techno'});assert.equal(f.controller.dirty,true);assert.deepEqual(f.calls,[['get']]);await f.controller.save();assert.equal(f.controller.dirty,false);assert.deepEqual(f.calls[1][1],{revision:'a'.repeat(64),requiredTrackIds:['b'.repeat(64)],excludedTrackIds:[],genreFocus:'Techno',clearUnavailable:false});});
 test('dirty refresh does not overwrite edits; discard restores saved values',async()=>{const f=fixture();await f.controller.load();f.edit({genreFocus:'Techno'});await f.controller.load();assert.equal(f.values.genreFocus,'Techno');assert.equal(f.calls.length,1);f.controller.discard();assert.equal(f.values.genreFocus,'House');assert.equal(f.controller.dirty,false);});
 test('unavailable controls are truthful and explicit clearing is separate from ordinary save',async()=>{const f=fixture({prepSettings:async()=>snapshot({unavailableRequiredCount:2})});await f.controller.load();assert.equal(f.controller.snapshot.unavailableRequiredCount,2);f.controller.setClearUnavailable(true);await f.controller.save();assert.equal(f.calls[0][1].clearUnavailable,true);});
@@ -26,3 +27,28 @@ test('pending load cannot overwrite edits made before completion',async()=>{let 
 test('library refresh invalidates clean persisted snapshot but retains explicit dirty edits',async()=>{const f=fixture();await f.controller.load();f.controller.libraryChanged();assert.equal(f.controller.snapshot,null);assert.equal(f.controller.dirty,false);await f.controller.load();f.edit({genreFocus:'Explicit'});f.controller.libraryChanged();assert.notEqual(f.controller.snapshot,null);assert.equal(f.values.genreFocus,'Explicit');assert.equal(f.controller.dirty,true);});
 test('older library response cannot restore settings into new source context',async()=>{let finish;const f=fixture({prepSettings:()=>new Promise(resolve=>{finish=resolve;})});const pending=f.controller.load();f.controller.libraryChanged();finish(snapshot());await pending;assert.equal(f.controller.snapshot,null);assert.equal(f.values.genreFocus,'');});
 test('user can explicitly discard edits before any saved snapshot loads then restore persisted controls',async()=>{const f=fixture();f.edit({genreFocus:'Before load'});await f.controller.load();assert.equal(f.controller.snapshot,null);assert.equal(f.values.genreFocus,'Before load');f.controller.discard();assert.equal(f.controller.dirty,false);assert.equal(f.values.genreFocus,'');await f.controller.load();assert.equal(f.values.genreFocus,'House');});
+test('load forwards the remembered form to the host and never replays it from discard or save',async()=>{
+ const f=fixture();
+ await f.controller.load();
+ assert.deepEqual(f.calls,[['get']]);
+ assert.equal(f.forms.length,1,'the form the core accepted last time reaches the host');
+ assert.deepEqual(f.forms[0],lastForm());
+ assert.deepEqual(f.forms[0],f.controller.snapshot.lastForm);
+ f.edit({genreFocus:'Techno'});
+ f.controller.discard();
+ await f.controller.save();
+ assert.equal(f.forms.length,1,'only a load shows the remembered form again');
+});
+test('a payload without the additive remembered form still loads and leaves the form untouched',async()=>{
+ const f=fixture({prepSettings:async()=>{const value=snapshot();delete value.lastForm;return value;}});
+ await f.controller.load();
+ assert.deepEqual(f.forms,[{targetTrackCount:null,targetMinutes:null,strategy:null,slotRole:null,name:null,startTrackId:null,endTrackId:null}]);
+});
+test('a malformed remembered form fails the load closed instead of restoring invented values',async()=>{
+ for(const form of ['Viernes',{...lastForm(),targetTrackCount:1},{...lastForm(),slotRole:'afterhours'},{...lastForm(),startTrackId:'/tmp/music.flac'},{...lastForm(),targetMinutes:601}]){
+  const f=fixture({prepSettings:async()=>snapshot({lastForm:form})});
+  await f.controller.load();
+  assert.equal(f.controller.snapshot,null);
+  assert.deepEqual(f.forms,[]);
+ }
+});

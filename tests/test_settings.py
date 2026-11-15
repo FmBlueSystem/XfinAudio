@@ -11,6 +11,7 @@ from xfinaudio.config.settings import (
     ExportSettings,
     LibrarySettings,
     LoudnessSettings,
+    PrepFormSettings,
     ScoringSettings,
     SeratoIntegrationSettings,
     WindowSettings,
@@ -138,6 +139,67 @@ def test_app_settings_defaults_to_enabled_loudness_analysis_policy() -> None:
     assert settings.loudness.enabled is True
     assert settings.loudness.target_lufs == pytest.approx(-10.0)
     assert settings.loudness.tolerance_lu == pytest.approx(2.0)
+
+
+def test_prep_form_settings_defaults_to_an_untouched_form() -> None:
+    form = PrepFormSettings()
+
+    assert form.target_track_count is None
+    assert form.target_minutes is None
+    assert form.strategy is None
+    assert form.slot_role is None
+    assert form.name is None
+    assert form.start_track_path is None
+    assert form.end_track_path is None
+
+
+def test_app_settings_prep_form_section_defaults_to_an_untouched_form() -> None:
+    assert AppSettings().prep_form == PrepFormSettings()
+
+
+def test_app_settings_v1_payload_without_prep_form_section_hydrates_defaults() -> None:
+    # `prep_form` is additive: version-1 payloads stay valid, so
+    # CURRENT_SETTINGS_VERSION does not move.
+    restored = AppSettings.model_validate({"settings_version": 1, "audio": {"preview_volume": 0.3}})
+
+    assert restored.prep_form == PrepFormSettings()
+    assert restored.settings_version == 1
+
+
+def test_app_settings_prep_form_round_trips_through_json() -> None:
+    settings = AppSettings(
+        prep_form=PrepFormSettings(
+            target_track_count=12,
+            target_minutes=90.0,
+            strategy="warmup",
+            slot_role="peak_time",
+            name="Viernes",
+            start_track_path="/music/one.flac",
+            end_track_path="/music/two.flac",
+        )
+    )
+
+    restored = AppSettings.model_validate(settings.model_dump(mode="json"))
+
+    assert restored.prep_form == settings.prep_form
+    assert restored.settings_version == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("target_track_count", 1, "greater than or equal to 2"),
+        ("target_track_count", 101, "less than or equal to 100"),
+        ("target_minutes", 0, "greater than 0"),
+        ("target_minutes", 601, "less than or equal to 600"),
+        ("slot_role", "unknown", "Input should be 'warmup', 'peak_time' or 'chill'"),
+        ("strategy", "x" * 51, "at most 50 characters"),
+        ("name", "x" * 201, "at most 200 characters"),
+    ],
+)
+def test_prep_form_settings_rejects_values_outside_the_prep_contract(field: str, value: object, message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        PrepFormSettings.model_validate({field: value})
 
 
 def test_serato_integration_settings_defaults_to_disabled_without_a_directory() -> None:
