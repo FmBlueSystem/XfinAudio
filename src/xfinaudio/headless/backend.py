@@ -180,13 +180,14 @@ class HeadlessBackend:
         # A discarded review must not come back after the next start.
         self.review_actions.clear_stored()
 
-    def _records(self) -> list[TrackRecord]:
+    def _records(self, *, checked: frozenset[str] | None = None) -> list[TrackRecord]:
+        """The library records; only the ``checked`` tracks have their disk identity read."""
         records = [
             record
             for record in self.repository.list_display_tracks()
             if any(Path(record.path).is_relative_to(root) for root in self.roots)
         ]
-        records = current_records(self.repository, records, self.roots)
+        records = current_records(self.repository, records, self.roots, checked=checked)
         # Publish a new snapshot; never mutate the mapping read by concurrent previews.
         self._track_paths = {str(_public_track(record)["id"]): record.path for record in records}
         return records
@@ -209,7 +210,8 @@ class HeadlessBackend:
         progress: Progress | None = None,
     ) -> dict[str, Any]:
         # The review and assistance commands read the library sources once, plus the one
-        # refresh their own final check asks for; every other command reads them as before.
+        # refresh their own final check asks for, and only for the tracks they act on;
+        # every other command reads them as before.
         if isinstance(method, str) and (method in REVIEW_FIELDS or method in AI_FIELDS):
             with self.review_actions.snapshot_scope():
                 return self._execute(method, params, cancellation_token=cancellation_token, progress=progress)

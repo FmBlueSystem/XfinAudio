@@ -79,6 +79,9 @@ class GeneratedReview:
         # its start and the refreshed one its final check takes. Outside a command every
         # read is fresh, so a plan binding and the scan keep their independent reads.
         self._snapshot: SourceSnapshot | None = None
+        # The paths whose identity that snapshot already read; ``None`` means the whole
+        # library, and each further guard fills in only the tracks it needs.
+        self._fresh: set[str] | None = None
         self._refreshed = False
         self._scope_depth = 0
         # True only when a stored review existed but the library no longer matched it.
@@ -92,8 +95,9 @@ class GeneratedReview:
         """Share one library source snapshot for the length of one core command.
 
         Every guard the command makes reads the snapshot it already has; only the
-        command's final check refreshes it, and it does so once, so a change made during
-        the command is still noticed without re-reading the whole library for each guard.
+        command's final check reads the identities it already read once more, so a change
+        made during the command is still noticed without re-reading the whole library for
+        each guard.
         """
         self._scope_depth += 1
         try:
@@ -101,30 +105,66 @@ class GeneratedReview:
         finally:
             self._scope_depth -= 1
             if not self._scope_depth:
-                self._snapshot, self._refreshed = None, False
+                self._snapshot, self._fresh, self._refreshed = None, None, False
 
-    def _sources(self, *, final: bool = False) -> SourceSnapshot:
+    def _sources(self, checked: frozenset[str] | None = None, *, final: bool = False) -> SourceSnapshot:
         """The library source snapshot, built at most twice inside one command.
 
-        ``final`` asks for the command's final check: the snapshot is refreshed once and
-        the remaining guards of the command then read the refreshed one. A command that
-        refreshes its snapshot before its own final check does not read the library again.
-        """
-        if self._snapshot is not None and self._scope_depth and (self._refreshed or not final):
-            return self._snapshot
-        result = self._build_sources()
-        if self._scope_depth:
-            self._snapshot, self._refreshed = result, self._refreshed or final
-        return result
+        ``checked`` names the tracks whose on-disk identity the caller acts on: only those
+        are read from disk, and every other library track contributes its stored record
+        without touching it. ``None`` checks the whole library, as a plan binding does.
+        ``final`` asks for the command's final check: the identities already read are
+        read once more, so a change made during the command is still noticed.
 
-    def _build_sources(self) -> SourceSnapshot:
-        """Read the library sources exactly as they are now; callers never mutate them."""
+        One command keeps one snapshot and fills it path by path, so a guard that needs a
+        track the command has not read yet reads that track instead of the whole library.
+        """
+        wanted = None if checked is None else frozenset(checked)
+        if not self._scope_depth:
+            return self._build_sources(wanted)
+        if self._snapshot is None:
+            self._snapshot = self._build_sources(wanted)
+            self._fresh, self._refreshed = (None if wanted is None else set(wanted)), final
+            return self._snapshot
+        requested = frozenset(self._snapshot) if wanted is None else wanted
+        refresh = final and not self._refreshed
+        if self._fresh is None:
+            read = requested if refresh else frozenset()
+        else:
+            read = (requested - self._fresh) | (self._fresh if refresh else frozenset())
+        if read:
+            current = self._build_sources(read)
+            for path in read:
+                if path in current:
+                    self._snapshot[path] = current[path]
+                else:
+                    # A moved, deleted or unreadable source is absent, never trusted.
+                    self._snapshot.pop(path, None)
+            if self._fresh is not None:
+                self._fresh |= read
+        self._refreshed = self._refreshed or final
+        return self._snapshot
+
+    def _build_sources(self, checked: frozenset[str] | None) -> SourceSnapshot:
+        """Read the library sources exactly as they are now, for the ``checked`` paths.
+
+        Only the ``checked`` paths are read from disk; every other library track
+        contributes its stored record and the identity the generation recorded, so a
+        review command never re-checks a track it does not act on. The result belongs to
+        the caller: one command copies the entries it asked for into its own snapshot.
+        """
         result = {}
-        for track in self.backend._records():
+        for track in self.backend._records(checked=checked):
             path = Path(track.path)
             try:
-                if any(_inside(path, root) for root in self.backend.roots):
-                    result[track.path] = track, source_identity(path)
+                if not any(_inside(path, root) for root in self.backend.roots):
+                    continue
+                if checked is not None and track.path not in checked:
+                    stored = self.sources.get(track.path)
+                    if stored is not None:
+                        result[track.path] = track, stored[1]
+                    continue
+                result[track.path] = track, source_identity(path)
             except (OSError, RuntimeError):
                 pass
         return result
@@ -172,12 +212,17 @@ class GeneratedReview:
         self._persist()
         return self.details()
 
+    @staticmethod
+    def _paths(review: PrepCopilotVariantApplicationResult) -> frozenset[str]:
+        """The tracks this review's list holds: the ones every edit acts on."""
+        return frozenset(track.path for track in review.recommendation.ordered_tracks)
+
     def verify(self, review_id: Any) -> PrepCopilotVariantApplicationResult:
         opaque_id(review_id)
         review = self.backend.review
         if review is None or review_id != self.backend.review_id or review_id != self.review_id:
             raise BackendError("stale_review", "Open a current generated review before continuing")
-        current = self._sources()
+        current = self._sources(self._paths(review))
         if self._policy() != self.policy or any(
             current.get(track.path) != self.sources.get(track.path) or current.get(track.path, (None,))[0] != track
             for track in review.recommendation.ordered_tracks
@@ -346,7 +391,8 @@ class GeneratedReview:
         state = source[-1]
         # A refused travel must not republish anything, and it must not resurrect a
         # track whose source changed after the edit that stored this state.
-        current = self._sources(final=True)
+        state_paths = self._paths(state[0])
+        current = self._sources(state_paths, final=True)
         if any(
             current.get(track.path) != self.sources.get(track.path) for track in state[0].recommendation.ordered_tracks
         ):
@@ -384,7 +430,7 @@ class GeneratedReview:
         controls = DJControls.model_validate(recommendation.applied_controls)
         if target in preserved_control_paths(controls) | set(plan.intent.required_paths):
             raise BackendError("protected_track", "This track is protected by the set controls")
-        current = self._sources()
+        current = self._sources(frozenset())
         candidates = [
             track for path, (track, identity) in current.items() if self.sources.get(path) == (track, identity)
         ]
@@ -398,7 +444,7 @@ class GeneratedReview:
             excluded_paths=frozenset(plan.intent.excluded_paths) | self.removed,
             loudness_band=self.backend.preferences.loudness_band(),
         )
-        # The command's own final check re-reads the library once for every track this
+        # The command's own final check re-reads the disk identity of every track this
         # proposal would put in the list, so a candidate that changed while it was being
         # chosen is refused there with the same code as before.
         return target, proposed
@@ -435,7 +481,7 @@ class GeneratedReview:
                 "invalid_params",
                 f"Target track count must be greater than the current list and at most {MAX_EXTENDED_TRACK_COUNT}",
             )
-        current_sources = self._sources()
+        current_sources = self._sources(frozenset())
         candidates = [
             track for path, (track, identity) in current_sources.items() if self.sources.get(path) == (track, identity)
         ]
@@ -453,8 +499,8 @@ class GeneratedReview:
         added = len(proposed.ordered_tracks) - current
         if added <= 0:
             raise BackendError("no_candidates", "No eligible library track is left to extend this list")
-        after = self._sources(final=True)
-        if any(after.get(track.path) != current_sources.get(track.path) for track in proposed.ordered_tracks):
+        after = self._sources(frozenset(track.path for track in proposed.ordered_tracks), final=True)
+        if any(after.get(track.path) != self.sources.get(track.path) for track in proposed.ordered_tracks):
             raise BackendError("stale_review", "Extension sources changed; prepare a current review")
         assessed = self._assess(proposed)
         self.verify(self.review_id)
@@ -524,7 +570,7 @@ class GeneratedReview:
             removed, proposed = self._replacement(review, params["trackId"])
         assessed = self._assess(proposed)
         self.verify(params["reviewId"])
-        current_sources = self._sources(final=True)
+        current_sources = self._sources(frozenset(track.path for track in proposed.ordered_tracks), final=True)
         if any(current_sources.get(track.path) != self.sources.get(track.path) for track in proposed.ordered_tracks):
             raise BackendError("stale_review", "Proposed sources changed; prepare a current review")
         if method == "review.compare":

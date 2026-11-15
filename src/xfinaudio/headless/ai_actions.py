@@ -87,14 +87,15 @@ def public_actions(backend: HeadlessBackend, actions: Iterable[ChatAction]) -> l
     """The pending changes as the DJ sees them, at their current positions.
 
     A change whose track left the list, or whose replacement is no longer in the
-    library, is not offered: it cannot be applied any more.
+    library, is not offered: it cannot be applied any more. Only the stored library
+    records are consulted here, so publishing never re-reads the library from disk.
     """
     review = backend.review
     if review is None:
         return []
     tracks = [_public_track(track) for track in review.recommendation.ordered_tracks]
     positions = {track["id"]: index for index, track in enumerate(tracks, start=1)}
-    library = {_public_track(record)["id"]: _public_track(record) for record in backend._records()}
+    library = {_public_track(record)["id"]: _public_track(record) for record in backend._records(checked=frozenset())}
     published: list[dict[str, Any]] = []
     for action in actions:
         if action.type == "extend":
