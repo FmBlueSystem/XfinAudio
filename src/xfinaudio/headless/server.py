@@ -155,9 +155,7 @@ class JsonlServer:
         def progress(data: dict[str, Any]) -> None:
             with self._lock:
                 if self._active is not None and self._active[0] == request_id and not token.is_cancelled:
-                    self._send(
-                        {"event": "progress", "jobId": request_id, "data": self._named_progress(method, data)}
-                    )
+                    self._send({"event": "progress", "jobId": request_id, "data": self._named_progress(method, data)})
 
         response = self._execute(request_id, method, params, token, progress)
         with self._lock:
