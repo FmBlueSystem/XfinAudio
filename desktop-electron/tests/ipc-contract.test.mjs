@@ -5,6 +5,7 @@ import {readFile} from 'node:fs/promises';
 
 const require = createRequire(import.meta.url);
 const {validateRequest} = require('../.out/main/security.js');
+const reads = require('../.out/main/ipc-reads.js');
 
 const read = (file) => readFile(new URL(`../src/${file}`, import.meta.url), 'utf8');
 
@@ -63,6 +64,28 @@ test('the Electron IPC action boundary is fail-closed and three-way exhaustive',
 });
 
 // S6: the chat conversation reaches its core methods and carries no renderer data of its own.
+// S4: applying a proposed change is a mutation like reviewReplace — one uuid, no dialog,
+// and the whole host is refused while any exclusive task holds it.
+const EXCLUSIVE_SOURCES = ['legacy', 'offline', 'profiles', 'serato', 'optionalAi', 'loudness', 'library', 'dialog', 'job'];
+const busyWith = (source) => Object.fromEntries(EXCLUSIVE_SOURCES.map((name) => [name, name === source]));
+test('an applied proposed change reaches ai.chat.apply as one exclusive mutation', async () => {
+  const [main, preload] = await Promise.all([read('main.ts'), read('preload.ts')]);
+  const actionId = '11111111-1111-4111-8111-111111111111';
+
+  // R4: the click itself is the consent, so the case body is exactly the mutation dispatch.
+  assert.match(main, /case 'aiChatApply':return run\('ai\.chat\.apply',params\);/, 'aiChatApply must reach ai.chat.apply and do nothing else, with no dialog');
+  assert.match(preload, /aiChatApply:\(params:unknown\)=>invoke\('aiChatApply',params\)/, 'aiChatApply must be bridged with its params');
+
+  assert.deepEqual(validateRequest('aiChatApply', {actionId}), {actionId});
+  for (const rejected of [{}, {actionId: '../private'}, {actionId: 'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE'}, {actionId: 42}, {actionId: actionId.slice(1)}]) assert.throws(() => validateRequest('aiChatApply', rejected), 'aiChatApply must accept exactly one uuid');
+  for (const rejected of [{actionId, position: 1}, {actionId, type: 'move'}, {actionId, reviewId: actionId}, {actionId, confirmed: true}]) assert.throws(() => validateRequest('aiChatApply', rejected), 'aiChatApply must reject any second parameter');
+
+  assert.equal(reads.isAllowedWhileBusy('aiChatApply'), false, 'applying a change is never a busy-time read');
+  for (const source of EXCLUSIVE_SOURCES) {
+    assert.throws(() => reads.assertDispatchable('aiChatApply', busyWith(source)), (error) => error.message === '[busy] Another task is still running', `aiChatApply must keep the exact busy refusal while ${source} runs`);
+  }
+});
+
 test('the chat conversation actions reach their exact core methods with no renderer parameters', async () => {
   const [main, preload] = await Promise.all([read('main.ts'), read('preload.ts')]);
   const routes = [['aiChatHistory', 'ai.chat.history'], ['aiChatReset', 'ai.chat.reset']];

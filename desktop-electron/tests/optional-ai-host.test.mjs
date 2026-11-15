@@ -72,6 +72,12 @@ test('conversation history and reset cross the bridge as parameterless actions',
   for(const rejected of [{reviewId:id},{conversation:[]},{previewId:id},[],null,'x'])assert.throws(()=>validateRequest(method,rejected));
  }
 });
+// S4: applying a proposed change carries its opaque action id and nothing the renderer could
+// invent (no position, no type, no confirmation flag); the click is the whole consent.
+test('applying a proposed change crosses the bridge as exactly one opaque action id',()=>{
+ assert.deepEqual(validateRequest('aiChatApply',{actionId:id}),{actionId:id});
+ for(const rejected of [undefined,{},{actionId:'../private'},{actionId:'not-a-uuid'},{actionId:'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE'},{actionId:42},{actionId:id.slice(1)},[],null,'x',{actionId:id,position:1},{actionId:id,to:2},{actionId:id,type:'replace'},{actionId:id,reviewId:id},{actionId:id,confirmed:true},])assert.throws(()=>validateRequest('aiChatApply',rejected));
+});
 test('the native dialog is shown on the first chat turn and skipped on later turns of that conversation',async()=>{
  const f=fixture();
  await f.host.prepare({surface:'chat',request:'¿Qué transiciones son las más débiles?',context:{reviewId:id}});
