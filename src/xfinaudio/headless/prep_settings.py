@@ -2,21 +2,28 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from xfinaudio.config.settings import BuildSessionSettings
+from xfinaudio.config.settings import BuildSessionSettings, PrepFormSettings
 from xfinaudio.config.settings_repository import SettingsRepositoryError
 from xfinaudio.headless.common import BackendError, _inside, _public_track
 
 if TYPE_CHECKING:
     from xfinaudio.headless.backend import HeadlessBackend
+    from xfinaudio.recommendation.prep_copilot import DJSetIntent
 
 PREP_SETTINGS_FIELDS = {
     "prep.settings.get": set(),
     "prep.settings.update": {"revision", "requiredTrackIds", "excludedTrackIds", "genreFocus", "clearUnavailable"},
 }
+
+
+def _identity(path: str) -> str:
+    """The opaque public identity of a path, also after the track left the library."""
+    return hashlib.sha256(path.encode("utf-8")).hexdigest()
 
 
 class PrepSettings:
@@ -86,8 +93,50 @@ class PrepSettings:
                     "genreFocus": build.genre_focus or "",
                     "unavailableRequiredCount": len(build.locked_paths - ids.keys()),
                     "unavailableExcludedCount": len(build.excluded_paths - ids.keys()),
+                    "lastForm": self._remembered_form(preferences.settings.prep_form, ids),
                 }
         except (OSError, SettingsRepositoryError) as error:
             raise BackendError(
                 "settings_unavailable", "App-owned Prep preferences are unavailable; no settings were applied"
+            ) from error
+
+    @staticmethod
+    def _remembered_form(form: PrepFormSettings, ids: dict[str, str]) -> dict[str, Any]:
+        """Project the stored form to the public shape, keeping missing tracks identifiable."""
+
+        def remembered(path: str | None) -> str | None:
+            if path is None:
+                return None
+            return ids.get(path) or _identity(path)
+
+        return {
+            "targetTrackCount": form.target_track_count,
+            "targetMinutes": form.target_minutes,
+            "strategy": form.strategy,
+            "slotRole": form.slot_role,
+            "name": form.name,
+            "startTrackId": remembered(form.start_track_path),
+            "endTrackId": remembered(form.end_track_path),
+        }
+
+    def remember(self, intent: DJSetIntent) -> None:
+        """Store the form a successful generation received, for the next app start."""
+        form = PrepFormSettings(
+            target_track_count=intent.target_track_count,
+            target_minutes=intent.target_minutes,
+            strategy=intent.strategy,
+            slot_role=intent.slot_role,
+            name=intent.name,
+            start_track_path=intent.start_path,
+            end_track_path=intent.end_path,
+        )
+        preferences = self.backend.preferences
+        try:
+            with preferences._lock():
+                preferences._load()
+                assert preferences.settings is not None
+                preferences._save(preferences.settings.model_copy(update={"prep_form": form}))
+        except (OSError, SettingsRepositoryError) as error:
+            raise BackendError(
+                "settings_unavailable", "App-owned Prep preferences are unavailable; the form was not remembered"
             ) from error

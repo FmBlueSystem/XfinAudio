@@ -451,7 +451,11 @@ class HeadlessBackend:
         plan_id = str(uuid4())
         self.review_actions.bind_plan(plan_id, generation_binding)
         self.plan, self.plan_id = plan, plan_id
-        return self._select({"planId": self.plan_id, "variant": "balanced"}, token)
+        result = self._select({"planId": self.plan_id, "variant": "balanced"}, token)
+        # The form the core accepted is remembered only after the generation fully
+        # succeeded, so a refused or cancelled attempt never replaces it.
+        self.prep_settings.remember(intent)
+        return result
 
     def _select(self, params: dict[str, Any], token: ScanCancellationToken) -> dict[str, Any]:
         plan_id, variant_name = params.get("planId"), params.get("variant")

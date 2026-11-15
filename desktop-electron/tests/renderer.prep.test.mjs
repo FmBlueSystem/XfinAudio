@@ -35,6 +35,7 @@ test('all real variants require a current, nonempty, unblocked, unsaved review b
 
 class Element extends EventTarget {
   textContent = ''; value = ''; disabled = false; hidden = false; dataset = {}; children = []; attrs = {}; classes = new Set(); selectedOptions = [];
+  get options() { return this.children; }
   classList = { toggle: (name, enabled) => { if (enabled) this.classes.add(name); else this.classes.delete(name); }, contains: (name) => this.classes.has(name) };
   setAttribute(name, value) { this.attrs[name] = value; }
   removeAttribute(name) { delete this.attrs[name]; }
@@ -43,7 +44,10 @@ class Element extends EventTarget {
   closest() { return null; }
   focus() { document.activeElement=this; }
 }
+const lastForm = (patch = {}) => ({ targetTrackCount: null, targetMinutes: null, strategy: null, slotRole: null, name: null, startTrackId: null, endTrackId: null, ...patch });
+const prepSettings = (patch = {}) => ({ revision: 'a'.repeat(64), requiredTrackIds: [], excludedTrackIds: [], genreFocus: '', unavailableRequiredCount: 0, unavailableExcludedCount: 0, lastForm: lastForm(), ...patch });
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+const settle = async (count = 8) => { for (let index = 0; index < count; index++) await tick(); };
 const descendants = (element) => [element, ...element.children.flatMap(descendants)];
 const text = (node) => [node.textContent, ...node.children.map(text)].join(' ').replace(/\s+/g, ' ').trim();
 const keydown = (node, key) => { const event = new Event('keydown', { cancelable: true }); event.key = key; node.dispatchEvent(event); return event; };
@@ -273,5 +277,58 @@ test('the opening and closing tracks still cannot be the same track', async () =
     await f.submit();
     assert.equal(f.generated.length, 0);
     assert.match(f.get('prep-validation').textContent, /La apertura y el cierre deben ser pistas distintas/);
+  } finally { f.restore(); }
+});
+test('the last generated form is shown again on the next start and reaches the next request', async () => {
+  const remembered = lastForm({ targetTrackCount: 12, targetMinutes: 90, strategy: 'color', slotRole: 'warmup', name: 'Viernes', startTrackId: tracks[0].id, endTrackId: tracks[1].id });
+  const f = await fixture({ prepSettings: async () => prepSettings({ lastForm: remembered }), savePrepSettings: async (input) => prepSettings({ ...input, revision: 'b'.repeat(64) }) });
+  try {
+    await settle();
+    assert.equal(f.get('prep-name').value, 'Viernes');
+    assert.equal(f.get('prep-count').value, '12');
+    assert.equal(f.get('prep-minutes').value, '90');
+    assert.equal(f.get('prep-role').value, 'warmup');
+    assert.equal(f.get('prep-strategy').value, 'color');
+    assert.equal(f.get('prep-start').value, tracks[0].id);
+    assert.equal(f.get('prep-start-selected-label').textContent, 'a · Artist');
+    assert.equal(f.get('prep-end').value, tracks[1].id);
+    await f.submit();
+    assert.deepEqual(f.generated[0], { targetTrackCount: 12, name: 'Viernes', strategy: 'color', targetMinutes: 90, slotRole: 'warmup', startTrackId: tracks[0].id, endTrackId: tracks[1].id });
+  } finally { f.restore(); }
+});
+test('a remembered track that left the library stays visible as unavailable and blocks generation', async () => {
+  const goneStart = 'f'.repeat(64), goneEnd = 'e'.repeat(64);
+  const f = await fixture({ prepSettings: async () => prepSettings({ lastForm: lastForm({ startTrackId: goneStart, endTrackId: goneEnd }) }), savePrepSettings: async (input) => prepSettings({ ...input, revision: 'b'.repeat(64) }) });
+  try {
+    await settle();
+    assert.equal(f.get('prep-start').value, goneStart);
+    assert.equal(f.get('prep-start-selected-label').textContent, 'No disponible: ffffffff');
+    assert.equal(f.get('prep-start-selection').attrs['data-state'], 'unavailable');
+    assert.equal(f.get('prep-end').value, goneEnd);
+    const missing = f.get('prep-end').children.find((option) => option.value === goneEnd);
+    assert.ok(missing, 'the closing select keeps the remembered identity instead of dropping it');
+    assert.equal(missing.disabled, true);
+    assert.equal(missing.selected, true);
+    assert.match(missing.textContent, /No disponible/);
+    await f.submit();
+    assert.equal(f.generated.length, 0, 'an unavailable remembered track is never silently dropped');
+    assert.match(f.get('prep-validation').textContent, /biblioteca actual/);
+  } finally { f.restore(); }
+});
+test('a form value the user already changed is not replaced by the remembered form after a library refresh', async () => {
+  const f = await fixture({
+    prepSettings: async () => prepSettings({ lastForm: lastForm({ targetTrackCount: 12, name: 'Viernes' }) }),
+    savePrepSettings: async (input) => prepSettings({ ...input, revision: 'b'.repeat(64) }),
+    rescanLibrary: async () => ({ tracks, count: tracks.length }),
+  });
+  try {
+    await settle();
+    assert.equal(f.get('prep-count').value, '12');
+    f.get('prep-count').value = '25';
+    f.get('prep-count').dispatchEvent(new Event('input'));
+    f.get('library-status-rescan').dispatchEvent(new Event('click'));
+    await settle(20);
+    assert.equal(f.get('prep-count').value, '25');
+    assert.equal(f.get('prep-name').value, 'Viernes');
   } finally { f.restore(); }
 });

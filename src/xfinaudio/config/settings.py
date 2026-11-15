@@ -136,6 +136,27 @@ class BuildSessionSettings(BaseModel):
     genre_focus: str | None = None
 
 
+class PrepFormSettings(BaseModel):
+    """Last Prep form the core accepted, shown again on the next start.
+
+    Stored as library paths, like ``BuildSessionSettings``, and projected to
+    opaque public identities at the command boundary; a remembered track that
+    left the library therefore survives as an unavailable identity. The
+    explicit saved controls (genre, required and excluded tracks) are separate
+    and are not repeated here.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    target_track_count: int | None = Field(default=None, ge=2, le=100)
+    target_minutes: float | None = Field(default=None, gt=0, le=600)
+    strategy: str | None = Field(default=None, max_length=50)
+    slot_role: Literal["warmup", "peak_time", "chill"] | None = None
+    name: str | None = Field(default=None, max_length=200)
+    start_track_path: str | None = None
+    end_track_path: str | None = None
+
+
 class AppSettings(BaseModel):
     """Versioned root settings model for XfinAudio."""
 
@@ -155,6 +176,10 @@ class AppSettings(BaseModel):
     loudness: LoudnessSettings = Field(default_factory=LoudnessSettings)
     window: WindowSettings = Field(default_factory=WindowSettings)
     build: BuildSessionSettings = Field(default_factory=BuildSessionSettings)
+    # Additive section: the last Prep form the core accepted. An existing
+    # version-1 payload without ``prep_form`` stays valid (the defaults hydrate),
+    # so CURRENT_SETTINGS_VERSION does not move.
+    prep_form: PrepFormSettings = Field(default_factory=PrepFormSettings)
     serato: SeratoIntegrationSettings = Field(default_factory=SeratoIntegrationSettings)
 
     @field_validator("settings_version")
@@ -176,6 +201,7 @@ __all__ = [
     "LibrarySettings",
     "LoudnessSettings",
     "OptimizerSettings",
+    "PrepFormSettings",
     "ScanSettings",
     "ScoringSettings",
     "SeratoIntegrationSettings",

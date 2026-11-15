@@ -6,7 +6,7 @@ import {GeneratedReviewController} from './generated-review.js';
 import type {GeneratedReviewApi} from './generated-review.js';
 import {createGeneratedReviewView} from './generated-review-view.js';
 import {PrepSettingsController} from './prep-settings.js';
-import type {PrepSettingsApi} from './prep-settings.js';
+import type {PrepFormSnapshot, PrepSettingsApi} from './prep-settings.js';
 import {createPrepSettingsView} from './prep-settings-view.js';
 import {OfflineBrowseView,LIBRARY_COLUMNS} from './offline-browse.js';
 import type {OfflineBrowseApi} from './offline-browse.js';
@@ -80,10 +80,14 @@ if (typeof document.addEventListener === 'function') document.addEventListener('
   // A click that started nothing must never mark an unrelated control during the next job.
   void Promise.resolve().then(() => { if (!gate.busy) operationTrigger = null; });
 }, true);
+// The core remembers the last form it generated with, but a form the user already
+// changed always wins over that memory.
+let prepFormEdited = false;
+let rememberedStrategy: string | null = null;
 // The opening track is chosen with a searchable combobox. The picker keeps the selected
 // opaque id in #prep-start, so PrepFields, its validations and startTrackId are unchanged.
 const trackSearch = createTrackSearchView({
-  changed: () => { renderPrepSummaries(); element('prep-validation').hidden = true; syncAiContext(); },
+  changed: () => { prepFormEdited = true; renderPrepSummaries(); element('prep-validation').hidden = true; syncAiContext(); },
 });
 // An improvement preview can only be persisted through the dedicated proposal-bound
 // route. Without that bridge the editor improvement surface is disabled rather than
@@ -335,6 +339,32 @@ function renderPrepSummaries(): void {
   element('prep-tracks-summary').textContent=summaries.tracks;
   element('prep-saved-summary').textContent=summaries.saved;
 }
+/** A remembered choice that left the library stays visible and selected as unavailable. */
+function keepMissingChoice(select: HTMLSelectElement, id: string): void {
+  if (Array.from(select.options ?? []).some((item) => item.value === id)) return;
+  const missing = option(id, `No disponible: ${id.slice(0, 8)}`);
+  missing.disabled = true; missing.selected = true; select.append(missing);
+}
+/** Show the form the core accepted in the last generation, unless the user changed it. */
+function restorePrepForm(form: PrepFormSnapshot): void {
+  if (prepFormEdited) return;
+  const scalar = (id: string, value: string | null): void => { if (value !== null) element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value = value; };
+  scalar('name', form.name);
+  scalar('count', form.targetTrackCount === null ? null : String(form.targetTrackCount));
+  scalar('minutes', form.targetMinutes === null ? null : String(form.targetMinutes));
+  scalar('role', form.slotRole);
+  if (form.endTrackId !== null) { const end = element<HTMLSelectElement>('prep-end'); keepMissingChoice(end, form.endTrackId); end.value = form.endTrackId; }
+  if (form.startTrackId !== null) trackSearch.setSelected(form.startTrackId);
+  rememberedStrategy = form.strategy;
+  applyRememberedStrategy();
+  renderPrepSummaries(); syncAiContext();
+}
+/** The catalog owns the strategy options, so a remembered strategy waits for it. */
+function applyRememberedStrategy(): void {
+  if (rememberedStrategy === null || !catalogLoaded) return;
+  element<HTMLSelectElement>('prep-strategy').value = rememberedStrategy;
+  renderStrategyHint();
+}
 function renderSettingsSummaries(): void {
   const settings=preferences.snapshot;
   element('settings-playback-summary').textContent=settings ? `${Math.round(settings.previewVolume*100)} % · vigilancia ${settings.watchLibrary?'activada':'desactivada'}${preferencesDirty?' · cambios sin guardar':''}` : 'Volumen inicial y cambios de biblioteca';
@@ -473,6 +503,7 @@ if(prepSettingsAvailable()){
     canAct:()=>coreAvailable&&!gate.busy,
     read:()=>{const fields=prepFields();return {requiredTrackIds:fields.required,excludedTrackIds:fields.excluded,genreFocus:fields.genre};},
     restore:value=>{ensureTrackChoices();for(const [key,ids] of [['required',value.requiredTrackIds],['excluded',value.excludedTrackIds]] as const)for(const option of element<HTMLSelectElement>(`prep-${key}`).options??[])option.selected=ids.includes(option.value);element<HTMLInputElement>('prep-genre').value=value.genreFocus;invalidatePrep();},
+    remembered:form=>restorePrepForm(form),
     changed:()=>{prepSettingsDirty=prepSettings?.dirty??false;renderPrepSettings();syncDraftDirty();},saved:()=>{invalidateAiSource();invalidatePrep();},
     perform:(label,task,apply,failure)=>perform('prep-settings',label,task,value=>{apply(value);showStatus('Ajustes de preparación guardados', 'Se aplican a la próxima generación de listas.');},false,failure),
   });
@@ -827,8 +858,12 @@ function renderTrackChoices(): void {
     select.replaceChildren();
     if(scalar)select.append(option('', 'Sin preferencia'));
     for(const track of library){const item=option(track.id,`${track.title||'Sin título'} · ${track.artist||'Artista desconocido'}`);item.selected=selected.has(track.id);select.append(item);}
-    if(!scalar&&prepSettingsDirty)for(const value of selected)if(!library.some(track=>track.id===value)){const missing=option(value,`No disponible: ${value.slice(0,8)}`);missing.disabled=true;missing.selected=true;select.append(missing);}
-    if(scalar)select.value=library.some(track=>selected.has(track.id))?[...selected][0]:'';
+    const missing=[...selected].filter(value=>!library.some(track=>track.id===value));
+    // The closing select keeps a remembered track that left the library, like the
+    // locked lists keep their missing choices while their explicit controls are dirty.
+    if(scalar)for(const value of missing)keepMissingChoice(select,value);
+    else if(prepSettingsDirty)for(const value of missing)keepMissingChoice(select,value);
+    if(scalar)select.value=[...selected].find(value=>library.some(track=>track.id===value))??[...selected][0]??'';
   }
 }
 /** Full Prep option lists are built lazily; a large library must not pay for them at boot. */
@@ -860,6 +895,7 @@ async function loadCatalog(): Promise<void> {
       element('catalog-retry').hidden = false;
     }
   }
+  applyRememberedStrategy();
   syncControls();
 }
 function invalidatePrep(options: { preserveLive?: boolean } = {}): void {
@@ -1149,7 +1185,7 @@ element('library-search').addEventListener('input', renderLibrary);
 element('library-show-more').addEventListener('click', () => { libraryVisibleLimit += LIBRARY_WINDOW; renderLibrary(); });
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
 element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
-for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
+for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{prepFormEdited=true;if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
 for (const id of ['name','count','strategy','minutes','role','genre','end','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
   event.preventDefault(); const input=element<HTMLInputElement>(`prep-${id}`);
   showPrepValidation(input, input.validationMessage || 'Revisa este valor antes de generar.');
