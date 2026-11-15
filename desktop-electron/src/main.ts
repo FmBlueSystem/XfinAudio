@@ -197,6 +197,7 @@ async function action(method:string,raw:unknown) {
     case 'listLibrary': {const result=await core.request('library.list');return {...result,count:result.tracks.length};}
     case 'getMetadataReport':return run('metadata.report');
     case 'getPrepCatalog':return core.request('prep.catalog');
+    case 'prepGenres':return core.request('prep.genres',params);
     case 'selectPrepVariant':return run('prep.select',params);
     case 'generatePrep':return run('prep.generate',params);
     case 'savePlaylist':return summaries([await run('playlist.save',params)])[0];
@@ -219,7 +220,7 @@ function onCoreProgress(message:any):void {
     for(const trackId of data.trackIds)if(typeof trackId==='string'&&/^[a-f0-9]{64}$/.test(trackId))void core.request('track.resolve',{trackId}).then(track=>libraryHost.suppressPaths([track.path],5000)).catch(error=>console.error('Owned-write observation suppression unavailable',error));
     return;
   }
-  window?.webContents.send('xfin:progress',{jobId:message.jobId,operation:job.method,phase:data.phase,current:data.processedCount,total:data.totalCount,message:data.fileName??data.message??data.phase});
+  window?.webContents.send('xfin:progress',{jobId:message.jobId,operation:job.method,phase:data.phase,current:data.processedCount,total:data.totalCount,stage:typeof data.stage==='string'?data.stage:undefined,message:data.fileName??data.message??data.phase});
 }
 /**
  * A stopped core can neither finish the running job nor keep watching the library.

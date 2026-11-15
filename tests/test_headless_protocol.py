@@ -28,6 +28,7 @@ EXPECTED_INLINE_METHODS = frozenset(
         "playlist.open",
         "playlist.search",
         "prep.catalog",
+        "prep.genres",
         "prep.settings.get",
         "profiles.settings.get",
         "profiles.status",

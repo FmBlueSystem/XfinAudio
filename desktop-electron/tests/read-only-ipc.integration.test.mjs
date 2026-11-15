@@ -24,6 +24,7 @@ const readCases = [
   ['settings.get', {}],
   ['prep.settings.get', {}],
   ['prep.catalog', {}],
+  ['prep.genres', {}],
   ['profiles.status', {}],
   ['profiles.settings.get', {}],
   ['loudness.status', {}],

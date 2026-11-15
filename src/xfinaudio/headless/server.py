@@ -11,6 +11,7 @@ from uuid import UUID
 
 from xfinaudio.headless.backend import BackendError, HeadlessBackend
 from xfinaudio.headless.cancellation import JobCancellationToken
+from xfinaudio.headless.prep import prep_generate_stage
 from xfinaudio.library.scan_service import ScanCancellationToken
 
 LOGGER = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ INLINE_METHODS = frozenset(
     {
         "track.resolve",
         "prep.catalog",
+        "prep.genres",
         "library.list",
         "library.query",
         "playlist.list",
@@ -141,11 +143,19 @@ class JsonlServer:
             token.cancel()
         self._send({"id": request_id, "ok": True, "result": {"cancelled": token is not None}})
 
+    @staticmethod
+    def _named_progress(method: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Add the engine's Spanish stage name when the request is a named-stage job."""
+        if method != "prep.generate" or data.get("phase") != "prep":
+            return data
+        named = prep_generate_stage(data.get("processedCount"))
+        return data if named is None else {**data, "stage": named}
+
     def _work(self, request_id: str, method: str, params: dict[str, Any], token: ScanCancellationToken) -> None:
         def progress(data: dict[str, Any]) -> None:
             with self._lock:
                 if self._active is not None and self._active[0] == request_id and not token.is_cancelled:
-                    self._send({"event": "progress", "jobId": request_id, "data": data})
+                    self._send({"event": "progress", "jobId": request_id, "data": self._named_progress(method, data)})
 
         response = self._execute(request_id, method, params, token, progress)
         with self._lock:

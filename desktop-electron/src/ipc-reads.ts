@@ -14,7 +14,7 @@ export const BUSY_MESSAGE='[busy] Another task is still running';
 export const READ_ONLY_CORE:Readonly<Record<string,string>>={
   listLibrary:'library.list',listPlaylists:'playlist.list',openPlaylist:'playlist.open',
   getMetadataReport:'metadata.report',getPreferences:'settings.get',prepSettings:'prep.settings.get',
-  getPrepCatalog:'prep.catalog',getProfileStatus:'profiles.status',getProfileSettings:'profiles.settings.get',
+  getPrepCatalog:'prep.catalog',prepGenres:'prep.genres',getProfileStatus:'profiles.status',getProfileSettings:'profiles.settings.get',
   getLoudnessStatus:'loudness.status',getAiStatus:'ai.status',getLiveStatus:'live.status',
   queryLibrary:'library.query',searchPlaylists:'playlist.search',comparePlaylists:'playlist.compare',
   listDeletedPlaylists:'playlist.deleted.list',

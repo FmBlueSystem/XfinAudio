@@ -1,7 +1,9 @@
+import type { GenreCatalog, GenreRequest } from './genre-picker.js';
+import { validateGenreCatalog } from './genre-picker.js';
 import { errorCode, userErrorMessage } from './errors.js';
 export interface PrepSelections { requiredTrackIds: string[]; excludedTrackIds: string[]; genreFocus: string; }
 export interface PrepSettingsSnapshot extends PrepSelections { revision: string; unavailableRequiredCount: number; unavailableExcludedCount: number; }
-export interface PrepSettingsApi { prepSettings(): Promise<PrepSettingsSnapshot>; savePrepSettings(input: PrepSelections & { revision: string; clearUnavailable: boolean }): Promise<PrepSettingsSnapshot>; }
+export interface PrepSettingsApi { prepSettings(): Promise<PrepSettingsSnapshot>; savePrepSettings(input: PrepSelections & { revision: string; clearUnavailable: boolean }): Promise<PrepSettingsSnapshot>; prepGenres?(input: GenreRequest): Promise<unknown>; }
 interface Host { canAct(): boolean; read(): PrepSelections; restore(value: PrepSelections): void; changed(): void; saved(): void; perform<T>(label: string, task: () => Promise<T>, apply: (value: T) => void, failure: (error: unknown) => void): Promise<void>; }
 const copy = (value: PrepSelections): PrepSelections => ({ requiredTrackIds: [...value.requiredTrackIds], excludedTrackIds: [...value.excludedTrackIds], genreFocus: value.genreFocus });
 const key = (value: PrepSelections): string => JSON.stringify({ ...copy(value), requiredTrackIds: [...value.requiredTrackIds].sort(), excludedTrackIds: [...value.excludedTrackIds].sort() });
@@ -42,5 +44,10 @@ export class PrepSettingsController {
   }
   async load(): Promise<void> { await this.run(false); }
   async save(): Promise<void> { await this.run(true); }
+  /** The read-only genre catalog. It is not persisted state, so it never touches the snapshot. */
+  async genres(input: GenreRequest): Promise<GenreCatalog> {
+    if (typeof this.api.prepGenres !== 'function') throw Object.assign(new Error('Genre catalog unavailable'), { code: 'genres_unavailable' });
+    return validateGenreCatalog(await this.api.prepGenres(input));
+  }
   discard(): void { if (this.pending || !this.host.canAct()) return; this.host.restore(this.snapshot ? copy(this.snapshot) : { requiredTrackIds: [], excludedTrackIds: [], genreFocus: '' }); this.clearUnavailable = false; this.editedBeforeLoad = false; this.editVersion++; this.error = this.conflict ? 'Actualiza para cargar los controles guardados vigentes.' : ''; this.host.changed(); }
 }

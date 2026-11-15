@@ -27,6 +27,7 @@ import type { PreferencesApi } from './preferences.js';
 import { createPreferencesView } from './preferences-view.js';
 import { createLibraryStatusView } from './library-status.js';
 import type { LibraryStatus } from './library-status.js';
+import { createOperationStatus } from './operation-status.js';
 import { LiveController } from './live.js';
 import { createLiveView } from './live-view.js';
 import { SeratoExportController } from './serato-export.js';
@@ -59,6 +60,26 @@ const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
   return node;
 };
 const gate = new OperationGate();
+// One global status region: it owns whether the app is working, where it is inside the work,
+// and how the last operation ended.
+const operationStatus = createOperationStatus(element('operation-status'));
+let operationTrigger: HTMLElement | null = null;
+let operationFinishing = false;
+// Chained work is one job with numbered steps: a scan that hands over to automatic profile
+// completion shows «Paso 1 de 2» and then «Paso 2 de 2». The kind keeps each step honest, so
+// an unrelated read in between never borrows the chain's numbering.
+let jobSteps: { index: number; total: number; kind: string } | null = null;
+const stepsOf = (kind: string): { index: number; total: number } | null => jobSteps && jobSteps.kind === kind ? { index: jobSteps.index, total: jobSteps.total } : null;
+const NOT_A_JOB = ['[data-route]', '.nav-item', '[data-track-id]', '[data-library-sort]', '#tool-back', '#cancel-operation', '#context-ai', '#context-status-open'];
+// Chromium focuses a clicked button, but Enter inside a form does not, so the app remembers the
+// control that started the work and marks exactly that one as working.
+if (typeof document.addEventListener === 'function') document.addEventListener('click', (event) => {
+  const target = event.target as HTMLElement | null;
+  const button = target && typeof target.closest === 'function' ? target.closest('button') : null;
+  operationTrigger = button && !(button as HTMLButtonElement).disabled && typeof button.matches === 'function' && !NOT_A_JOB.some((selector) => (button as HTMLElement).matches(selector)) ? button : null;
+  // A click that started nothing must never mark an unrelated control during the next job.
+  void Promise.resolve().then(() => { if (!gate.busy) operationTrigger = null; });
+}, true);
 // The opening track is chosen with a searchable combobox. The picker keeps the selected
 // opaque id in #prep-start, so PrepFields, its validations and startTrackId are unchanged.
 const trackSearch = createTrackSearchView({
@@ -276,7 +297,7 @@ const loudness = new LoudnessController(api, {
       apply(result, current);
       if (isRun && loudness.result) {
         const receipt = loudness.result;
-        showStatus(receipt.warning ? 'Sonoridad finalizada con aviso' : receipt.cancelled ? 'Sonoridad cancelada' : 'Sonoridad finalizada', `${receipt.changedCount} escrituras completadas · ${receipt.unchangedCount} sin cambios · ${receipt.failureCount} fallidas · ${receipt.backupCount} copias. Las escrituras ya completadas se conservan con sus copias de seguridad.${receipt.warning ? ` ${receipt.warning}` : ''}`, Boolean(receipt.warning));
+        showStatus(receipt.warning ? 'Sonoridad finalizada con aviso' : receipt.cancelled ? 'Sonoridad cancelada' : 'Sonoridad finalizada', `${receipt.changedCount} escrituras completadas · ${receipt.unchangedCount} sin cambios · ${receipt.failureCount} fallidas · ${receipt.backupCount} copias. Las escrituras ya completadas se conservan con sus copias de seguridad.${receipt.warning ? ` ${receipt.warning}` : ''}`, Boolean(receipt.warning), receipt.cancelled && !receipt.warning ? 'cancelled' : 'done');
       } else showStatus(label.startsWith('Guardando') ? 'Ajustes de sonoridad guardados' : 'Sonoridad actualizada');
     }, isRun, failure);
   },
@@ -460,7 +481,7 @@ if(prepSettingsAvailable()){
 const legacyCanAct=():boolean=>coreAvailable&&!gate.busy&&!editorDirty&&!preferencesDirty&&!profileSettingsDirty&&!prepSettingsDirty&&!loudnessDirty&&!aiDirty;
 if(['previewLegacyImport','applyLegacyImport','discardLegacyImport'].every(key=>typeof api?.[key as keyof AppApi]==='function')){
   const legacyImport=new LegacyImportController(api,{canAct:legacyCanAct,changed:()=>renderLegacyImport(),applied:()=>freezeAfterLegacy(),
-    perform:async(label,task,apply,failure)=>{const committing=label.startsWith('Importando');if(committing)player.stopIfMissing(new Set());await perform(committing?'legacy-import':'legacy-preview',label,task,value=>{apply(value);if(!restartRequired)showStatus(value.cancelled?'Importación cancelada':'Vista previa de datos actualizada','No se importa nada hasta la confirmación del sistema');},false,failure);},
+    perform:async(label,task,apply,failure)=>{const committing=label.startsWith('Importando');if(committing)player.stopIfMissing(new Set());await perform(committing?'legacy-import':'legacy-preview',label,task,value=>{apply(value);if(!restartRequired)showStatus(value.cancelled?'Importación cancelada':'Vista previa de datos actualizada','No se importa nada hasta la confirmación del sistema', false, value.cancelled ? 'cancelled' : 'done');},false,failure);},
   });
   renderLegacyImport=createLegacyImportView(element('legacy-import-container'),legacyImport,{canAct:legacyCanAct,draftBlockers,canResolveDrafts:()=>coreAvailable&&!gate.busy});renderLegacyImport();
 }
@@ -483,7 +504,7 @@ function draftBlockers(): DraftBlocker[] {
     [editorDirty, 'editor', 'Editor de playlist', 'editor', 'editor-name'],
     [preferencesDirty, 'preferences', 'Preferencias', 'preferences', 'preferences-volume'],
     [profileSettingsDirty, 'profile', 'Cohesión espectral', 'preferences', 'profile-settings-cohesion'],
-    [prepSettingsDirty, 'prep', 'Controles de preparación', 'prep', 'prep-genre'],
+    [prepSettingsDirty, 'prep', 'Controles de preparación', 'prep', 'prep-genre-search'],
     [loudnessDirty, 'loudness', 'Ajustes de sonoridad', 'loudness', 'loudness-target'],
     [aiDirty, 'ai', 'Ajustes de IA', 'ai', 'optional-ai-enabled'],
   ];
@@ -540,7 +561,7 @@ function bootstrapLibrary(): Promise<void> {
   return perform('library', 'Cargando biblioteca…', () => api.listLibrary(), (result) => {
     libraryBootError = null;
     applyLibrary(result);
-    element('operation-status').hidden = true;
+    operationStatus.hide();
     renderLibraryRecovery();
   }, false, (error) => {
     libraryBootError = userErrorMessage(error);
@@ -602,17 +623,21 @@ function quickExportToSerato(source: SeratoExportSource, name: string): void {
   void seratoQuick.export(source, proposedCrateName(source, name));
 }
 
-function showStatus(label: string, detail = '', error = false): void {
+function showStatus(label: string, detail = '', error = false, tone: 'done' | 'notice' | 'cancelled' = 'done'): void {
   if(restartRequired){label='Reinicio necesario';detail=coreFailure;error=true;}
   else if (!coreAvailable) {
     label = 'Servicio local desconectado';
     detail = coreFailure || 'Reinicia XfinAudio para volver a conectar con tu biblioteca';
     error = true;
   }
-  element('operation-status').hidden = false;
-  element('operation-status').classList.toggle('is-error', error);
-  element('operation-label').textContent = label;
-  element('operation-detail').textContent = detail;
+  if (error) { operationStatus.fail(label, detail); return; }
+  // Cancellation is terminal even while the gate still drains the operation.
+  if (tone === 'cancelled') { operationStatus.cancelled(label, detail); return; }
+  // A message published while the job still owns the gate renames it; only the operation that
+  // actually finished publishes a result, so nothing claims success before the work ends.
+  if (operationStatus.phase === 'running' && !operationFinishing) { operationStatus.describe(label, detail); return; }
+  if (tone === 'notice') operationStatus.notice(label, detail);
+  else operationStatus.done(label, detail);
 }
 function canSave(): boolean {
   return canSaveReview(review);
@@ -638,9 +663,9 @@ function syncControls(): void {
   }
   element<HTMLButtonElement>('export-review').disabled = gate.busy || !coreAvailable || !review || !(review.reviewId || review.savedPlaylistId);
   element<HTMLButtonElement>('save-playlist').disabled = gate.busy || !coreAvailable || !canSave();
-  element<HTMLButtonElement>('cancel-operation').hidden = !gate.busy || !cancellable || !coreAvailable;
-  element<HTMLButtonElement>('cancel-operation').disabled = gate.cancelled;
-  element('cancel-operation').textContent = gate.cancelled ? 'Cancelando…' : 'Cancelar';
+  operationStatus.cancel.hidden = !gate.busy || !cancellable || !coreAvailable;
+  operationStatus.cancel.disabled = gate.cancelled;
+  operationStatus.cancel.textContent = gate.cancelled ? 'Cancelando…' : 'Cancelar';
   renderEditor();
   renderSerato();
   renderSeratoQuick();
@@ -993,10 +1018,8 @@ async function perform<T>(kind: string, label: string, task: () => Promise<T>, a
   activeKind = kind;
   activeJobId = '';
   cancellable = canCancel;
-  showStatus(label);
-  const progress = element<HTMLProgressElement>('operation-progress');
-  progress.hidden = !canCancel;
-  progress.removeAttribute('value');
+  operationStatus.start(label, operationTrigger, stepsOf(kind));
+  operationTrigger = null;
   syncControls();
   try {
     const result = await task();
@@ -1006,10 +1029,15 @@ async function perform<T>(kind: string, label: string, task: () => Promise<T>, a
     const terminalLoudness = kind === 'loudness' && activeKind === 'loudness' && gate.busy;
     if ((gate.isCurrent(token) || terminalLoudness || terminalProfiles || terminalLegacy) && (coreAvailable || kind === 'serato' || kind === 'serato-quick' || terminalLoudness || terminalLegacy)) {
       if (sourceGeneration !== libraryGeneration && ['prep', 'select', 'open', 'metadata','profiles'].includes(kind)) showStatus('La biblioteca cambió', 'Vuelve a escanear antes de preparar una nueva selección');
-      else apply(result, token.routeRevision === routeRevision);
+      else {
+        // The operation ended: its own result replaces the running line instead of renaming it.
+        operationFinishing = true;
+        try { apply(result, token.routeRevision === routeRevision); } finally { operationFinishing = false; }
+      }
     }
   } catch (error) {
     const code=errorCode(error);if(code==='legacy_restart_required'||code==='legacy_recovery_required')freezeAfterLegacy(code);
+    if (kind === 'scan' || kind === 'profiles') jobSteps = null;
     if (!gate.cancelled || kind === 'loudness' || kind === 'profiles') {
       failure?.(error);
       console.error('Local operation failed', error);
@@ -1017,18 +1045,20 @@ async function perform<T>(kind: string, label: string, task: () => Promise<T>, a
     }
   } finally {
     if (gate.cancelled) {
+      if (kind === 'scan' || kind === 'profiles') jobSteps = null;
       if (kind === 'scan') {
         try { applyLibrary(await api.listLibrary()); }
         catch { showStatus('Escaneo cancelado', 'No se pudo actualizar la biblioteca; vuelve a elegir la carpeta para sincronizarla', true); }
       }
-      if (kind !== 'loudness' && kind !== 'profiles' && !element('operation-status').classList.contains('is-error')) showStatus('Operación cancelada', kind === 'ai' ? 'Los datos ya enviados no se pueden recuperar.' : kind === 'scan' ? 'Se conservan las pistas leídas hasta la cancelación' : 'Puedes volver a intentarlo cuando quieras');
+      if (kind !== 'loudness' && kind !== 'profiles' && operationStatus.phase === 'running') showStatus('Operación cancelada', kind === 'ai' ? 'Los datos ya enviados no se pueden recuperar.' : kind === 'scan' ? 'Se conservan las pistas leídas hasta la cancelación' : 'Puedes volver a intentarlo cuando quieras', false, 'cancelled');
     }
     gate.finish(token);
     const localApply = deferredAiApply; deferredAiApply = null;
     if (kind === 'ai-apply' && coreAvailable && localApply) localApply();
     activeKind = '';
     activeJobId = '';
-    progress.hidden = true;
+    // A job that ended without publishing a result stops claiming to be working.
+    operationStatus.stop();
     syncControls();
     if (kind === 'library') libraryBootstrapped = true;
     continueIdleWork(kind);
@@ -1060,12 +1090,16 @@ async function completeProfiles():Promise<void>{
   if(editor.dirty){showStatus('Tienes un borrador sin guardar','Guarda o descarta los cambios del editor antes de completar perfiles',true);navigate('editor',false);return;}
   editor.resetAfterScan();libraryGeneration++;invalidateAiSource();metadataReport=null;loudness.invalidateContext();serato.invalidatePreview();invalidatePrep();
   profilesError='';const ids=new Set(library.map(track=>track.id));
-  await perform('profiles','Completando perfiles locales…',()=>api.completeProfiles(),result=>{
-    const summary=profileStatus(result.status);
-    if(typeof result.cancelled!=='boolean'||!Array.isArray(result.tracks)||result.tracks.length!==ids.size||new Set(result.tracks.map(track=>track.id)).size!==ids.size||result.tracks.some(track=>!ids.has(track.id))||summary.totalTracks!==ids.size||result.completeCount!==result.tracks.filter(hasPrepMetadata).length||result.incompleteCount!==result.tracks.length-result.completeCount)throw Object.assign(new Error('Invalid profile result'),{code:'profiles_unavailable'});
-    profilesSnapshot=summary;applyLibrary({tracks:result.tracks,count:result.tracks.length});
-    showStatus(result.cancelled?'Perfiles cancelados':summary.state==='complete'?'Perfiles completados':'Perfiles pendientes',`${summary.readyCount} de ${summary.totalTracks} pistas completas; los metadatos siguen disponibles`);
-  },true,error=>{profilesError=userErrorMessage(error);renderProfiles();});
+  // Profile completion that follows a scan is the second numbered step of the same job.
+  if (jobSteps) jobSteps = { index: 2, total: 2, kind: 'profiles' };
+  try {
+    await perform('profiles','Completando perfiles locales…',()=>api.completeProfiles(),result=>{
+      const summary=profileStatus(result.status);
+      if(typeof result.cancelled!=='boolean'||!Array.isArray(result.tracks)||result.tracks.length!==ids.size||new Set(result.tracks.map(track=>track.id)).size!==ids.size||result.tracks.some(track=>!ids.has(track.id))||summary.totalTracks!==ids.size||result.completeCount!==result.tracks.filter(hasPrepMetadata).length||result.incompleteCount!==result.tracks.length-result.completeCount)throw Object.assign(new Error('Invalid profile result'),{code:'profiles_unavailable'});
+      profilesSnapshot=summary;applyLibrary({tracks:result.tracks,count:result.tracks.length});
+      showStatus(result.cancelled?'Perfiles cancelados':summary.state==='complete'?'Perfiles completados':'Perfiles pendientes',`${summary.readyCount} de ${summary.totalTracks} pistas completas; los metadatos siguen disponibles`, false, result.cancelled ? 'cancelled' : 'done');
+    },true,error=>{profilesError=userErrorMessage(error);renderProfiles();});
+  } finally { jobSteps = null; }
 }
 function scan(registered = false): void {
   if (gate.busy || !coreAvailable || (registered && (!api.rescanLibrary || !libraryStatus?.rootCount))) return;
@@ -1077,12 +1111,16 @@ function scan(registered = false): void {
   loudness.invalidateContext();
   serato.invalidatePreview();
   invalidatePrep();
+  // The chain is announced from the first step, so the scan a user starts reads as one job.
+  jobSteps = profilesAvailable() ? { index: 1, total: 2, kind: 'scan' } : null;
   void perform('scan', registered ? 'Volviendo a escanear bibliotecas…' : 'Elige tu carpeta de música', () => registered ? api.rescanLibrary() : api.chooseLibrary(), (result) => {
-    if (!result) { showStatus('Selección de carpeta cancelada'); return; }
+    if (!result) { jobSteps = null; showStatus('Selección de carpeta cancelada', '', false, 'cancelled'); return; }
     preferenceLabelsPending=true;
     applyLibrary(result);
     if(!result.cancelled&&profilesAvailable()){profilesStale=libraryStatus?.changeState==='changed';profileAutoPending=libraryGeneration;}
-    showStatus(result.cancelled?'Escaneo cancelado':'Biblioteca actualizada', `${library.length} pistas disponibles`);
+    // Only a scan that really hands over to automatic profile completion has a second step.
+    jobSteps = !result.cancelled && profilesAvailable() && !profilesStale ? { index: 1, total: 2, kind: 'scan' } : null;
+    showStatus(result.cancelled?'Escaneo cancelado':'Biblioteca actualizada', `${library.length} pistas disponibles`, false, result.cancelled ? 'cancelled' : 'done');
   }, true);
 }
 element('resume-last-export').addEventListener('click', () => {
@@ -1139,6 +1177,8 @@ element('prep-form').addEventListener('submit', (event) => {
   }
   element('prep-validation').hidden=true;
   invalidatePrep();
+  // Enter inside the form starts the same operation as the button, so mark that button.
+  operationTrigger = element('generate-prep');
   void perform('prep', 'Preparando alternativas para tu sesión…', () => api.generatePrep(input), (result, currentRoute) => {
     review = result;
     prepPlan = result.planId && result.variants ? { id: result.planId, variants: result.variants } : null;
@@ -1179,9 +1219,36 @@ element('cancel-operation').addEventListener('click', () => {
   gate.requestCancel();
   if (activeKind !== 'ai') invalidatePrep();
   syncControls();
-  element('operation-detail').textContent = activeKind === 'ai' ? 'Solicitud cancelada. Los datos ya enviados no se pueden recuperar.' : activeKind === 'loudness' ? 'Cancelando lo pendiente. Las etiquetas ya escritas se conservan con sus copias; espera a que termine cualquier escritura en curso…' : 'Esperando a que termine la operación en curso…';
+  operationStatus.describe(null, activeKind === 'ai' ? 'Solicitud cancelada. Los datos ya enviados no se pueden recuperar.' : activeKind === 'loudness' ? 'Cancelando lo pendiente. Las etiquetas ya escritas se conservan con sus copias; espera a que termine cualquier escritura en curso…' : 'Esperando a que termine la operación en curso…');
   void api.cancelCurrent().catch(() => showStatus('No se pudo solicitar la cancelación', 'Espera a que termine la operación antes de intentarlo de nuevo', true));
 });
+/** The core method a host names when it announces the job it just started. */
+const startedKinds: Record<string, string> = {
+  'library.scan': 'scan', 'library.rescan': 'scan', 'prep.generate': 'prep', 'prep.select': 'select',
+  'playlist.save': 'save', 'playlist.open': 'open', 'metadata.report': 'metadata', 'profiles.complete': 'profiles',
+  'loudness.run': 'loudness', 'ai.run': 'ai',
+};
+/**
+ * Render one progress event: the operation keeps its name, the stage line says which step of
+ * the job it is and how far it goes, and the bar is determinate only when the core reports
+ * counts. Nothing here invents a stage or a count that the core did not send.
+ */
+function renderOperationProgress(event: { stage?: string; current?: number; total?: number; message?: string }): void {
+  const kind = activeKind;
+  const profileStage = profileStageNames[event.stage ?? ''] ?? 'perfiles locales';
+  const label = kind === 'profiles' ? `Completando ${profileStage}…`
+    : kind === 'scan' ? 'Leyendo metadatos…'
+    : kind === 'loudness' ? 'Analizando sonoridad y escribiendo etiquetas…'
+    : kind === 'ai' ? 'Consultando asistencia IA…'
+    : kind === 'prep' ? event.stage ?? 'Preparando selección…'
+    : 'Preparando selección…';
+  const stageLabel = kind === 'profiles' ? `Completando ${profileStage}` : kind === 'scan' ? 'Escaneando la biblioteca' : kind === 'prep' ? event.stage : undefined;
+  // The engine reports «0–3 de 3» checkpoints, so the current step is the next one it builds.
+  const steps = stepsOf(kind) ?? (kind === 'prep' && event.total ? { index: Math.min(event.total, (event.current ?? 0) + 1), total: event.total } : null);
+  operationStatus.describe(label, kind === 'profiles' ? 'Análisis local de solo lectura' : event.message ?? '');
+  operationStatus.stage({ ...steps, label: stageLabel, current: event.current, totalCount: event.total });
+  operationStatus.progress(event.current ?? null, event.total);
+}
 if (api) {
   if (api.onLibraryStatus) {
     const unsubscribeStatus = api.onLibraryStatus(acceptLibraryStatus);
@@ -1190,6 +1257,7 @@ if (api) {
   const unsubscribe = api.onProgress((event) => {
     if (isCoreFailure(event)) {
       coreAvailable = false;profileAutoPending=null;profilesError=userErrorMessage({code:'profiles_unavailable'});
+      jobSteps = null;
       invalidateAiSource();
       loudness.invalidateContext();
       editor.invalidatePreview();
@@ -1202,7 +1270,6 @@ if (api) {
       console.error('Local core stopped', event.message);
       coreFailure = userErrorMessage({ code: 'core_stopped' });
       showStatus('Servicio local desconectado', coreFailure, true);
-      element('operation-progress').hidden = true;
       syncControls();
       return;
     }
@@ -1211,25 +1278,25 @@ if (api) {
       // no restart. A manual restart the app already requires stays required.
       if (!restartRequired) {
         coreAvailable = true; coreFailure = ''; profilesError = ''; libraryBootError = null;
-        showStatus('Servicio local disponible', 'XfinAudio volvió a conectar con tu biblioteca después del reinicio automático.');
-        element('operation-progress').hidden = true;
+        showStatus('Servicio local disponible', 'XfinAudio volvió a conectar con tu biblioteca después del reinicio automático.', false, 'notice');
         syncControls();
       }
       return;
     }
     if (!coreAvailable) return;
+    if (event.phase === 'started') {
+      // The host announces the job the moment it starts. The running state already exists, so
+      // this only adopts the job identity and keeps the bar honest until counts arrive.
+      if (!gate.busy || gate.cancelled || activeJobId || startedKinds[event.operation] !== activeKind) return;
+      activeJobId = event.jobId;
+      operationStatus.progress(null);
+      return;
+    }
     if (!gate.busy || gate.cancelled || !cancellable) return;
     if (event.phase !== activeKind && event.operation !== activeKind) return;
     if (activeJobId && event.jobId !== activeJobId) return;
     activeJobId = event.jobId;
-    const progress = element<HTMLProgressElement>('operation-progress');
-    progress.hidden = false;
-    if (event.total && event.total > 0 && event.current !== undefined) {
-      progress.max = event.total;
-      progress.value = Math.min(event.total, Math.max(0, event.current));
-    } else progress.removeAttribute('value');
-    element('operation-label').textContent = activeKind==='profiles'?`Completando ${profileStageNames[event.stage??'']??'perfiles locales'}…`:activeKind === 'scan' ? 'Leyendo metadatos…' : activeKind === 'loudness' ? 'Analizando sonoridad y escribiendo etiquetas…' : activeKind === 'ai' ? 'Consultando asistencia IA…' : 'Preparando selección…';
-    element('operation-detail').textContent = [event.current !== undefined ? `${event.current}${event.total ? ` / ${event.total}` : ''}` : '', activeKind==='profiles'?'Análisis local de solo lectura':event.message ?? ''].filter(Boolean).join(' · ');
+    renderOperationProgress(event);
   });
   window.addEventListener('beforeunload', unsubscribe, { once: true });
   void loadCatalog();
