@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {mkdtemp,realpath,mkdir,writeFile,rm,symlink} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';
+import test from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {mkdtemp,realpath,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';
 const require=createRequire(import.meta.url),{OptionalAiHost}=require('../.out/main/optional-ai-host.js'),{validateRequest}=require('../.out/main/security.js'),{PythonBridge}=require('../.out/main/bridge.js');
 const id='11111111-1111-4111-8111-111111111111',rev='a'.repeat(64),recipient='https://api.nan.builders/v1/chat/completions',deferred=()=>{let resolve;return {promise:new Promise(r=>resolve=r),resolve:v=>resolve(v)}},python=process.env.XFIN_PYTHON,coreRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 function fixture(){const calls=[];let choose=async()=>null,confirm=async()=>true,closing=false,endpoint=recipient,auto=false,firstTurn=true,prepared='editor';const host=new OptionalAiHost({request:async(method,params)=>{calls.push([method,params]);if(method==='ai.prepare'){prepared=String(params.surface);return {previewId:id,surface:prepared,firstTurn,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};}if(method==='ai.confirmation')return {previewId:id,surface:prepared,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};if(method==='ai.run')return {cancelled:false,result:{resultId:id}};return {revision:rev};},choose:()=>choose(),confirm:summary=>{calls.push(['dialog',summary]);return confirm();},cancel:async()=>{calls.push(['cancel']);return {cancelled:true};},autoAuthorize:async()=>auto,isClosing:()=>closing});return {host,calls,setChoose:v=>choose=v,setConfirm:v=>confirm=v,setAuto:v=>auto=v,setFirstTurn:v=>firstTurn=v,close:()=>closing=true,badEndpoint:()=>endpoint='https://elsewhere.example'};}
@@ -119,8 +119,11 @@ test('automatic authorization keeps its meaning for chat, first turn included',a
 });
 
 // Cross-boundary: the Electron host against the real Python core, which implements the chat
-// surface, `firstTurn`, `ai.chat.history` and `ai.chat.reset` (S5) behind the bridge (S6).
-const chatScript=`import io,json,re,sys,urllib.request
+// surface, `firstTurn`, the proposed changes (`ai.chat.history`, `ai.chat.apply`) and
+// `ai.chat.reset` behind the bridge.
+const reply='Mueve la pista 1 a la posición 2: la curva de energía sube parejo.',
+ reason='La energía sube parejo si la 1 va después de la 2.',
+ chatScript=`import io,json,re,sys,urllib.request
 from pathlib import Path
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.server import JsonlServer
@@ -142,22 +145,29 @@ def fake(request,*,timeout):
     assert str(root) not in body and 'fixtures/music' not in body
     assert 'Electron test 1' in body and 'Transiciones' in body
     assert not re.search(r'[0-9a-f]{64}',body)
+    # S1: the chat instructions ask for the JSON object carrying the documented changes.
+    system=json.loads(body)['messages'][0]
+    assert system['role']=='system'
+    assert 'JSON' in system['content'] and '"reply"' in system['content'] and '"actions"' in system['content'] and '"to"' in system['content']
     with (root/'fake-requests.jsonl').open('a') as log: log.write(json.dumps({'recipient':request.full_url,'body':body})+'\\n')
-    return io.BytesIO(json.dumps({'choices':[{'message':{'content':'Quita la tercera pista: su energia rompe la curva.'}}]}).encode())
+    answer=json.dumps({'reply':"""${reply}""",'actions':[{'type':'move','position':1,'to':2,'reason':"""${reason}"""}]})
+    return io.BytesIO(json.dumps({'choices':[{'message':{'content':answer}}]}).encode())
 backend.optional_ai.transport=fake
 JsonlServer(backend,sys.stdout).run(sys.stdin.buffer)
 `;
-test('the chat surface and its conversation actions agree with the Python core',{skip:!python,timeout:30000},async()=>{
- const data=await realpath(await mkdtemp('/tmp/xfin-chat-host-')),credential=path.join(data,'selected.env');
+test('the chat surface and its proposed changes agree with the Python core',{skip:!python,timeout:60000},async()=>{
+ const data=await realpath(await mkdtemp(path.join(os.tmpdir(),'xfin-chat-host-'))),credential=path.join(data,'selected.env'),requests=async()=>(await readFile(path.join(data,'fake-requests.jsonl'),'utf8')).trim().split('\n').length;
  await writeFile(credential,'NAN_API_KEY=dummy-test-only\n',{mode:0o600});
  const core=new PythonBridge(python,['-c',chatScript,data],{...process.env,PYTHONPATH:path.join(coreRoot,'src'),PYTHONDONTWRITEBYTECODE:'1',XFINAUDIO_AI_ENABLED:'1',NAN_API_BASE:'https://unapproved.invalid',NAN_API_KEY:'inherited-dummy-must-not-be-used'});
  const dialogs=[];
  const host=new OptionalAiHost({request:(method,params)=>core.request(method,params??{}),choose:async()=>null,confirm:async summary=>{dialogs.push(summary);return true;},cancel:()=>Promise.resolve({cancelled:false}),autoAuthorize:async()=>false,isClosing:()=>false});
  try{
   const initial=await core.request('ai.status');
-  assert.deepEqual(await core.request('ai.chat.history'),{conversation:[]},'a fresh core keeps an empty conversation');
+  assert.deepEqual(await core.request('ai.chat.history'),{conversation:[],actions:[]},'a fresh core keeps an empty conversation and no changes');
   await core.request('library.scan',{root:path.join(coreRoot,'desktop-electron/tests/fixtures/music')});
-  const review=await core.request('prep.generate',{targetTrackCount:4,name:'Chat host fixture'});
+  const review=await core.request('prep.generate',{targetTrackCount:4,name:'Chat host fixture'}),
+   order=review.tracks.map(track=>track.id);
+  assert.equal(order.length,4,'the fixture list has four tracks');
   const enabled=await core.request('ai.settings.update',{revision:initial.revision,enabled:true});
   await core.request('ai.credential.set',{revision:enabled.revision,path:credential});
   const first=await host.prepare({surface:'chat',request:'¿Qué transiciones son las más débiles?',context:{reviewId:review.reviewId}});
@@ -169,18 +179,61 @@ test('the chat surface and its conversation actions agree with the Python core',
   assert.equal(turn.result.proposal,null);
   assert.equal(turn.result.canApply,false);
   assert.equal(turn.result.listChanged,false);
+  assert.equal(turn.result.text,reply,'the reply is what the DJ reads');
   assert.ok(turn.result.text.length>=1&&turn.result.text.length<=4000,'the reply is 1 to 4000 characters');
   assert.deepEqual(turn.result.conversation.map(message=>message.role),['user','assistant']);
   assert.equal(turn.result.conversation[0].text,'¿Qué transiciones son las más débiles?');
+  assert.equal(turn.result.conversation[1].text,reply,'only the reply text is stored');
   assert.equal(dialogs.length,1,'the first turn of a conversation is consented in the native dialog');
-  const second=await host.prepare({surface:'chat',request:'¿Qué pista quitarías y por qué?',context:{reviewId:review.reviewId}});
+  // S2: one proposed change, named by position, title and artist, never by path or identity.
+  assert.equal(turn.result.droppedActions,0,'the fake answer proposes one change that can apply');
+  assert.equal(turn.result.actions.length,1);
+  const [action]=turn.result.actions;
+  assert.match(action.actionId,/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,'the proposed change carries an opaque identity');
+  assert.deepEqual(Object.keys(action).sort(),['actionId','artist','position','reason','title','to','type'],'a move publishes exactly its documented fields');
+  assert.equal(action.type,'move');
+  assert.equal(action.position,1);
+  assert.equal(action.to,2);
+  assert.equal(action.title,'Electron test 1');
+  assert.equal(action.artist,'XfinAudio Test');
+  assert.equal(action.reason,reason);
+  assert.equal(/[0-9a-f]{64}/.test(JSON.stringify([action,turn.result.conversation,await core.request('ai.chat.history')])),false,'neither the answer nor the history publishes a track identity');
+  assert.equal(JSON.stringify(turn.result).includes('fixtures'),false,'no local path crosses the boundary');
+  const pending=await core.request('ai.chat.history');
+  assert.deepEqual(pending.actions,[action],'the pending change is reported at its current position');
+  assert.equal(pending.conversation.length,2,'the conversation keeps the turn');
+  // S4 then S3: the bridge validates one opaque identity and the core applies it as an edit.
+  const params=validateRequest('aiChatApply',{actionId:action.actionId});
+  assert.deepEqual(params,{actionId:action.actionId});
+  const applied=await core.request('ai.chat.apply',params);
+  assert.notEqual(applied.review.reviewId,review.reviewId,'applying mints a new review identity');
+  assert.deepEqual(applied.review.tracks.map(track=>track.id),[order[1],order[0],order[2],order[3]],'the applied move puts the first track in the second position');
+  assert.equal(applied.review.canUndo,true,'the applied change is undoable like any manual edit');
+  assert.deepEqual(applied.actions,[],'the applied change is no longer pending');
+  assert.equal((await requests()),1,'applying never calls the provider');
+  const afterApply=await core.request('ai.chat.history');
+  assert.deepEqual(afterApply.actions,[],'the history no longer offers the applied change');
+  assert.equal(afterApply.conversation.length,2,'applying keeps the conversation');
+  const undone=await core.request('review.undo',{reviewId:applied.review.reviewId});
+  assert.deepEqual(undone.tracks.map(track=>track.id),order,'undo restores the review order');
+  assert.notEqual(undone.reviewId,applied.review.reviewId,'undo mints its own review identity');
+  await assert.rejects(core.request('ai.chat.apply',params),error=>error.code==='stale_ai','an already applied identity is stale');
+  const untouched=await core.request('review.details',{reviewId:undone.reviewId});
+  assert.deepEqual(untouched.tracks.map(track=>track.id),order,'a stale apply changes nothing');
+  const second=await host.prepare({surface:'chat',request:'¿Qué pista quitarías y por qué?',context:{reviewId:undone.reviewId}});
   assert.equal(second.firstTurn,false,'the stored conversation is no longer empty');
   const next=await host.ask(second.previewId);
   assert.equal(next.result.kind,'chat');
-  assert.equal(next.result.listChanged,false);
+  assert.equal(next.result.listChanged,false,'the list is the one the last turn read');
+  assert.equal(next.result.droppedActions,0);
+  assert.equal(next.result.actions.length,1,'a new successful turn replaces the pending changes');
+  assert.equal(next.result.actions[0].type,'move');
+  assert.equal(next.result.actions[0].actionId!==action.actionId,true,'replaced changes get a fresh identity');
   assert.equal(dialogs.length,1,'a later turn of the same conversation reuses the first consent');
+  assert.equal(await requests(),2,'only the two turns reached the provider');
   assert.deepEqual((await core.request('ai.chat.history')).conversation.map(message=>message.role),['user','assistant','user','assistant']);
   assert.deepEqual(await core.request('ai.chat.reset'),{conversation:[]});
-  assert.equal((await host.prepare({surface:'chat',request:'Otra vez',context:{reviewId:review.reviewId}})).firstTurn,true,'reset starts a new conversation');
+  assert.deepEqual(await core.request('ai.chat.history'),{conversation:[],actions:[]},'reset clears the conversation and its changes');
+  assert.equal((await host.prepare({surface:'chat',request:'Otra vez',context:{reviewId:untouched.reviewId}})).firstTurn,true,'reset starts a new conversation');
  }finally{await core.close();await rm(data,{recursive:true,force:true});}
 });
