@@ -55,7 +55,10 @@ EXPECTED_REFUSED_METHODS = (
     "prep.generate",
     "prep.select",
     "profiles.complete",
+    "review.redo",
     "review.remove",
+    "review.replace",
+    "review.undo",
     "serato.commit",
     "settings.update",
 )

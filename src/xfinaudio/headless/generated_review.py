@@ -33,8 +33,14 @@ REVIEW_FIELDS = {
     "review.details": {"reviewId"},
     "review.compare": {"reviewId", "trackId"},
     "review.remove": {"reviewId", "trackId"},
+    "review.replace": {"reviewId", "trackId", "replacementId"},
     "review.reorder": {"reviewId", "trackIds"},
+    "review.undo": {"reviewId"},
+    "review.redo": {"reviewId"},
 }
+# One previous state per applied edit; older states fall out of undo reach first.
+HISTORY_LIMIT = 50
+ReviewState = tuple[PrepCopilotVariantApplicationResult, frozenset[str], dict[str, Any]]
 
 
 class GeneratedReview:
@@ -47,6 +53,10 @@ class GeneratedReview:
         self.removed: frozenset[str] = frozenset()
         self.plan_id: str | None = None
         self.plan_binding: PlanBinding | None = None
+        self.history: list[ReviewState] = []
+        self.future: list[ReviewState] = []
+        # The replacement each comparison offered, per track, for this exact revision.
+        self.offers: dict[str, str | None] = {}
 
     def _policy(self) -> tuple[object, ...]:
         return self.backend.preferences.spectral_cohesion(), self.backend.preferences.loudness_band()
@@ -94,6 +104,9 @@ class GeneratedReview:
         assert self.plan_binding is not None
         self.sources, self.policy = dict(self.plan_binding[0]), self.plan_binding[1]
         self.removed = frozenset()
+        self.history.clear()
+        self.future.clear()
+        self.offers.clear()
         return self.details()
 
     def verify(self, review_id: Any) -> PrepCopilotVariantApplicationResult:
@@ -111,7 +124,65 @@ class GeneratedReview:
 
     def details(self) -> dict[str, Any]:
         review = self.verify(self.review_id)
-        return {**self.base, **evidence(review, self.backend.plan)}
+        return {
+            **self.base,
+            **evidence(review, self.backend.plan),
+            "canUndo": bool(self.history),
+            "canRedo": bool(self.future),
+        }
+
+    def _state(self) -> ReviewState:
+        review = self.backend.review
+        assert review is not None
+        return review, self.removed, dict(self.base)
+
+    def _remember(self, states: list[ReviewState]) -> None:
+        states.append(self._state())
+        while len(states) > HISTORY_LIMIT:
+            del states[0]
+
+    def _publish(
+        self, review: PrepCopilotVariantApplicationResult, removed: frozenset[str], base: dict[str, Any]
+    ) -> None:
+        """Republish one applied state under a fresh revision, exactly like an edit."""
+        self.backend.review = review
+        self.backend.review_id = str(uuid4())
+        self.review_id = self.backend.review_id
+        self.removed = removed
+        self.base = {
+            **base,
+            "reviewId": self.review_id,
+            "tracks": [_public_track(track) for track in review.recommendation.ordered_tracks],
+            "qualityScore": review.quality_report.average_transition_score,
+            "readiness": review.readiness_report.status,
+            "blockers": [check.label for check in review.readiness_report.checks if check.status == "blocked"],
+        }
+        self.backend.review_blocked = (
+            review.readiness_report.status == "blocked" or not review.recommendation.ordered_tracks
+        )
+        # A new revision invalidates every comparison made against the previous one.
+        self.offers.clear()
+        self.backend.live.invalidate()
+        self.backend.invalidate_optional_ai()
+
+    def _travel(self, *, back: bool) -> dict[str, Any]:
+        source, target = (self.history, self.future) if back else (self.future, self.history)
+        if not source:
+            raise BackendError(
+                "nothing_to_undo", "Nothing to undo in this review" if back else "Nothing to redo in this review"
+            )
+        state = source[-1]
+        # A refused travel must not republish anything, and it must not resurrect a
+        # track whose source changed after the edit that stored this state.
+        current = self._sources()
+        if any(
+            current.get(track.path) != self.sources.get(track.path) for track in state[0].recommendation.ordered_tracks
+        ):
+            raise BackendError("stale_review", "Restored sources changed; prepare a current review")
+        source.pop()
+        self._remember(target)
+        self._publish(*state)
+        return self.details()
 
     def _assess(self, recommendation: PlaylistRecommendation) -> PrepCopilotVariantApplicationResult:
         current, plan = self.backend.review, self.backend.plan
@@ -160,12 +231,30 @@ class GeneratedReview:
             raise BackendError("stale_review", "Replacement sources changed; prepare a current review")
         return target, proposed
 
+    def _offered(
+        self, review: PrepCopilotVariantApplicationResult, track_id: Any, replacement_id: Any
+    ) -> tuple[str, PlaylistRecommendation]:
+        """Apply exactly the replacement the last comparison of this track offered."""
+        target, proposed = self._replacement(review, track_id)
+        current_paths = {track.path for track in review.recommendation.ordered_tracks}
+        replacement = next((track for track in proposed.ordered_tracks if track.path not in current_paths), None)
+        if (
+            self.offers.get(track_id) is None
+            or replacement is None
+            or replacement.path != self.offers.get(track_id)
+            or _public_track(replacement)["id"] != replacement_id
+        ):
+            raise BackendError("stale_review", "Compare this track again and use the replacement it offered")
+        return target, proposed
+
     def execute(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if set(params) != REVIEW_FIELDS[method]:
             raise BackendError("invalid_params", "Missing or unexpected generated review fields")
         review = self.verify(params["reviewId"])
         if method == "review.details":
             return self.details()
+        if method in ("review.undo", "review.redo"):
+            return self._travel(back=method == "review.undo")
         removed = None
         if method == "review.reorder":
             ids = params["trackIds"]
@@ -191,6 +280,8 @@ class GeneratedReview:
             proposed = recommendation_reordered(
                 review.recommendation, paths, spectral_cohesion=self.backend.preferences.spectral_cohesion()
             )
+        elif method == "review.replace":
+            removed, proposed = self._offered(review, params["trackId"], params["replacementId"])
         else:
             removed, proposed = self._replacement(review, params["trackId"])
         assessed = self._assess(proposed)
@@ -201,6 +292,7 @@ class GeneratedReview:
         if method == "review.compare":
             current_paths = {track.path for track in review.recommendation.ordered_tracks}
             replacement = next((track for track in proposed.ordered_tracks if track.path not in current_paths), None)
+            self.offers[params["trackId"]] = replacement.path if replacement else None
             return {
                 "reviewId": self.review_id,
                 "replacement": _public_track(replacement) if replacement else None,
@@ -214,20 +306,15 @@ class GeneratedReview:
                 if replacement
                 else "No eligible replacement passed the current constraints. Removing will shorten the set.",
             }
-        self.backend.review, self.backend.review_id = assessed, str(uuid4())
-        self.review_id = self.backend.review_id
-        if removed is not None:
-            self.removed = self.removed | {removed}
-        self.backend.review_blocked = assessed.readiness_report.status == "blocked" or not proposed.ordered_tracks
-        self.backend.live.invalidate()
-        self.backend.invalidate_optional_ai()
-        self.base = {
-            **self.base,
-            "reviewId": self.review_id,
-            "tracks": [_public_track(track) for track in proposed.ordered_tracks],
-            "qualityScore": assessed.quality_report.average_transition_score,
-            "readiness": assessed.readiness_report.status,
-            "blockers": [check.label for check in assessed.readiness_report.checks if check.status == "blocked"],
-            "warnings": list(dict.fromkeys([*self.base["warnings"], *proposed.warnings])),
-        }
+        # Only an applied edit becomes history; a refused or stale one leaves the stacks untouched.
+        self._remember(self.history)
+        self.future.clear()
+        self._publish(
+            assessed,
+            self.removed | {removed} if removed is not None else self.removed,
+            {
+                **self.base,
+                "warnings": list(dict.fromkeys([*self.base["warnings"], *proposed.warnings])),
+            },
+        )
         return self.details()

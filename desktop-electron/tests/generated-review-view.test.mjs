@@ -27,7 +27,7 @@ function fixture() {
     editable: true, pending: false, error: '', comparison: null,
     snapshot: { reviewId: 'one', tracks, readiness: 'needs_review', warnings: ['Salto'], blockers: [] },
     details: { engineFacts: '<script>Local evidence</script>', readinessSummary: 'Revisión recomendada', protectedTrackIds: [], transitions: [], readinessChecks: [{ label: 'BPM', status: 'needs_review', detail: 'Revisa este salto' }] },
-    load: () => calls.push(['load']), compare: id => calls.push(['compare', id]), remove: id => calls.push(['remove', id]), move: (id, direction) => calls.push(['move', id, direction]),
+    load: () => calls.push(['load']), compare: id => calls.push(['compare', id]), remove: id => calls.push(['remove', id]), move: (id, direction) => calls.push(['move', id, direction]), moveTo: (id, position) => calls.push(['moveTo', id, position]), replace: () => calls.push(['replace']), undo: () => calls.push(['undo']), redo: () => calls.push(['redo']), canUndo: false, canRedo: false, status: '',
   };
   const render = createGeneratedReviewView(root, controller, { canAct: () => available }); render();
   const get = id => { const node = all(root).find(item => item.id === id); assert.ok(node, `Missing ${id}`); return node; };
@@ -89,6 +89,65 @@ test('a comparison stays associated with its selected track, including a failed 
     assert.equal(f.get('review-replacement-comparison').hidden, true);
     f.select('b'); assert.equal(f.get('review-replacement-comparison').hidden, false);
     assert.deepEqual(f.calls, [['compare', 'b'], ['compare', 'a']]);
+  } finally { f.restore(); }
+});
+test('undo and redo are offered only when possible and report the applied change', () => {
+  const f = fixture(); try {
+    f.controller.canUndo = false; f.controller.canRedo = false; f.controller.status = ''; f.render();
+    assert.equal(f.get('review-undo').disabled, true); assert.equal(f.get('review-redo').disabled, true);
+    f.get('review-undo').dispatchEvent(new Event('click')); f.get('review-redo').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.calls, []);
+    f.controller.canUndo = true; f.controller.status = 'Cambio deshecho'; f.render();
+    assert.equal(f.get('review-undo').disabled, false); assert.equal(f.get('review-redo').disabled, true);
+    assert.match(text(f.get('review-history-status')), /Cambio deshecho/);
+    f.get('review-undo').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.calls, [['undo']]);
+    f.controller.canRedo = true; f.controller.status = 'Cambio rehecho'; f.render();
+    f.get('review-redo').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.calls, [['undo'], ['redo']]);
+    f.block(); f.get('review-undo').dispatchEvent(new Event('click')); assert.deepEqual(f.calls, [['undo'], ['redo']]);
+  } finally { f.restore(); }
+});
+test('the compared replacement is applied only from its visible preview', () => {
+  const f = fixture(); try {
+    assert.equal(f.get('review-use-replacement').hidden, true);
+    f.get('review-use-replacement').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.calls, []);
+    f.select('b'); f.get('review-compare-1').dispatchEvent(new Event('click'));
+    const value = { ...f.controller.details, qualityScore: .8 };
+    f.controller.comparison = { replacement: tracks[2], message: 'Preview only', original: value, proposed: value };
+    f.render();
+    const use = f.get('review-use-replacement');
+    assert.equal(use.hidden, false); assert.equal(use.disabled, false);
+    assert.match(text(use), /Usar este reemplazo/); assert.match(text(f.get('review-replacement-comparison')), /Preview only/);
+    use.dispatchEvent(new Event('click')); assert.deepEqual(f.calls, [['compare', 'b'], ['replace']]);
+    f.select('a'); assert.equal(f.get('review-use-replacement').hidden, true);
+    f.select('b'); assert.equal(f.get('review-use-replacement').hidden, false);
+    f.controller.comparison = { replacement: null, message: 'Sin reemplazo elegible', original: value, proposed: value }; f.render();
+    assert.equal(f.get('review-use-replacement').hidden, true);
+    f.controller.comparison = { replacement: tracks[2], message: 'Preview only', original: value, proposed: value }; f.block();
+    assert.equal(f.get('review-use-replacement').disabled, true);
+  } finally { f.restore(); }
+});
+test('a track moves to a typed position with one guarded control', () => {
+  const f = fixture(); try {
+    const position = f.get('review-position');
+    assert.equal(position.tagName, 'input'); assert.equal(position.type, 'number'); assert.equal(position.min, '1'); assert.equal(position.max, '3');
+    assert.equal(all(f.root).filter(node => node.tagName === 'input' && node.type === 'number').length, 1);
+    assert.ok(all(f.root).some(node => node.tagName === 'label' && node.attrs.for === 'review-position' && /Posición/.test(node.textContent)));
+    assert.match(text(f.get('review-position-move-0')), /Mover/);
+    assert.equal(position.value, '1');
+    f.select('c'); assert.equal(position.value, '3');
+    position.value = '1'; f.get('review-position-move-2').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.calls, [['moveTo', 'c', 1]]);
+    position.value = '2'; f.controller.pending = true; f.render();
+    assert.equal(position.value, '2'); assert.equal(f.get('review-position-move-2').disabled, true);
+    f.controller.pending = false; f.render(); assert.equal(f.get('review-position-move-2').disabled, false);
+    f.controller.details.protectedTrackIds = ['c']; f.render(); assert.equal(f.get('review-position-move-2').disabled, true);
+    f.get('review-position-move-2').dispatchEvent(new Event('click')); assert.deepEqual(f.calls, [['moveTo', 'c', 1]]);
+    f.controller.details.protectedTrackIds = []; f.block();
+    assert.equal(f.get('review-position-move-2').disabled, true); assert.equal(f.get('review-position').disabled, true);
+    f.get('review-position-move-2').dispatchEvent(new Event('click')); assert.deepEqual(f.calls, [['moveTo', 'c', 1]]);
   } finally { f.restore(); }
 });
 test('known readiness states use Spanish and raw engine summary stays inside evidence', () => {
