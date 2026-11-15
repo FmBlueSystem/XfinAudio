@@ -75,7 +75,7 @@ test('catalog loads independently of initial library and exposes prerequisite te
     assert.equal(f.get('prep-strategy').disabled, false);
     assert.equal(f.get('prep-strategy').children.length, 3);
     f.get('prep-strategy').value = 'color'; f.get('prep-strategy').dispatchEvent(new Event('change'));
-    assert.match(f.get('strategy-hint').textContent, /metadatos.*vibe|vibe.*metadatos/i);
+    assert.match(f.get('strategy-hint').textContent, /metadatos de ambiente/);
     assert.equal(f.get('audio-player').children.length, 0);
   } finally { f.restore(); }
 });
@@ -143,6 +143,18 @@ test('Prep controls and variant comparison have Spanish accessible labels and an
   assert.match(html, /<details[^>]*id="prep-advanced"/); assert.match(html, /id="prep-variants"/); assert.match(html, /no.*(?:inventa|fabrican|generan)/i);
 });
 
+test('a catalog strategy with a known stable name shows its Spanish name and description, and keeps its name as the submitted value', async () => {
+  const known = [{ name: 'chill', displayName: 'Chill', description: 'Prefer lower energy and lower BPM selections.', requiresVibeMetadata: false }];
+  const f = await fixture({ getPrepCatalog: async () => ({ strategies: known }) });
+  try {
+    const option = f.get('prep-strategy').children[1];
+    assert.equal(option.textContent, 'Relax'); assert.equal(option.value, 'chill');
+    assert.match(f.get('strategy-hint').textContent, /predeterminada/i);
+    f.get('prep-strategy').value = 'chill'; f.get('prep-strategy').dispatchEvent(new Event('change'));
+    assert.equal(f.get('strategy-hint').textContent, 'Prefiere pistas de energía y BPM más bajos.');
+    await f.submit(); assert.equal(f.generated[0].strategy, 'chill');
+  } finally { f.restore(); }
+});
 test('catalog failure remains local, retries successfully, and cannot hide a core disconnect', async () => {
   let calls = 0; let resolveCatalog; const f = await fixture({ getPrepCatalog: () => ++calls === 1 ? Promise.reject(new Error('Unavailable')) : new Promise((resolve) => { resolveCatalog = resolve; }) });
   try {

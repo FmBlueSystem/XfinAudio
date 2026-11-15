@@ -150,6 +150,19 @@ test('a track moves to a typed position with one guarded control', () => {
     f.get('review-position-move-2').dispatchEvent(new Event('click')); assert.deepEqual(f.calls, [['moveTo', 'c', 1]]);
   } finally { f.restore(); }
 });
+test('transition evidence and readiness text of the review pass through the review-notice localization', () => {
+  const f = fixture(); try {
+    f.controller.details = { ...f.controller.details, readinessSummary: 'Blocked — 2 blocker(s), 1 review item(s); required tracks missing',
+      readinessChecks: [{ label: 'Pistas obligatorias', status: 'blocked', detail: '3 required track(s) could not pass playlist gates' }],
+      transitions: [{ index: '1→2', totalScore: .5, compatibilityScore: .5, mixabilityScore: .5, components: { harmonic: .9 }, explanations: ['Harmonic compatibility score is 0.87', 'BPM difference is 1.25%', 'Energy level difference is -1'], warnings: ['invalid Camelot key', 'Edge spectral similarity (out→in) is 0.62'] }] };
+    f.render();
+    const evidence = text(f.get('review-evidence'));
+    assert.match(evidence, /Bloqueada — 2 bloqueo\(s\), 1 aviso\(s\); faltan pistas obligatorias/);
+    assert.match(evidence, /3 pista\(s\) obligatoria\(s\) no pudieron pasar los filtros de la lista/);
+    assert.match(evidence, /Compatibilidad armónica: 0.87; Diferencia de BPM: 1.25%; Diferencia de nivel de energía: -1; Tonalidad Camelot inválida; Similitud espectral de los extremos \(salida→entrada\): 0.62/);
+    assert.doesNotMatch(evidence, /Harmonic compatibility|BPM difference|Camelot key|blocker\(s\)|readinessChecks/);
+  } finally { f.restore(); }
+});
 test('known readiness states use Spanish and raw engine summary stays inside evidence', () => {
   const f = fixture(); try {
     f.controller.details = { ...f.controller.details, readinessSummary: 'Raw engine summary', readinessChecks: [

@@ -1,9 +1,10 @@
 import type { GeneratedReviewController, ReviewEvidence } from './generated-review.js';
+import { localizeReviewNotice } from './workflow.js';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', cls = ''): HTMLElementTagNameMap[K] => { const node = document.createElement(tag); node.textContent = text; node.className = cls; return node; };
 const score = (value: number | null): string => value === null ? 'Sin dato' : value.toLocaleString('es', { maximumFractionDigits: 3 });
 const readiness = { ready: 'Lista para revisar', needs_review: 'Revisión recomendada', blocked: 'Necesita atención' };
 function checks(value: ReviewEvidence): HTMLElement {
-  const list = make('ul'); for (const check of value.readinessChecks) list.append(make('li', `${check.label} · ${readiness[check.status]}: ${check.detail}`)); return list;
+  const list = make('ul'); for (const check of value.readinessChecks) list.append(make('li', `${check.label} · ${readiness[check.status]}: ${localizeReviewNotice(check.detail)}`)); return list;
 }
 export function createGeneratedReviewView(root: HTMLElement, controller: GeneratedReviewController, host: { canAct(): boolean }): () => void {
   const section = make('section', '', 'surface prep-form'); section.id = 'generated-review-controls';
@@ -79,11 +80,11 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
       const actionable = details?.readinessChecks.filter(check => check.status !== 'ready') ?? []; notices.hidden = !actionable.length;
       if (details) {
         if (actionable.length) notices.append(checks({ ...details, readinessChecks: actionable }));
-        const facts = make('pre', details.engineFacts, 'review-engine-facts'); facts.id = 'review-engine-facts'; evidenceBody.append(make('p', details.readinessSummary), facts, make('h4', 'Comprobaciones de preparación'), checks(details));
+        const facts = make('pre', details.engineFacts, 'review-engine-facts'); facts.id = 'review-engine-facts'; evidenceBody.append(make('p', localizeReviewNotice(details.readinessSummary)), facts, make('h4', 'Comprobaciones de preparación'), checks(details));
         const table = make('table'); table.id = 'review-transition-evidence'; const head = make('tr');
         for (const name of ['Transición', 'Total', 'Compatibilidad', 'Mezclabilidad', 'Componentes', 'Explicaciones y avisos']) head.append(make('th', name));
         const thead = make('thead'); thead.append(head); table.append(thead); const body = make('tbody');
-        for (const item of details.transitions) { const row = make('tr'); for (const value of [String(item.index), score(item.totalScore), score(item.compatibilityScore), score(item.mixabilityScore), Object.entries(item.components).map(([key, value]) => `${key}: ${score(value)}`).join(' · '), [...item.explanations, ...item.warnings].join('; ')]) row.append(make('td', value)); body.append(row); }
+        for (const item of details.transitions) { const row = make('tr'); for (const value of [String(item.index), score(item.totalScore), score(item.compatibilityScore), score(item.mixabilityScore), Object.entries(item.components).map(([key, value]) => `${key}: ${score(value)}`).join(' · '), [...item.explanations, ...item.warnings].map(localizeReviewNotice).join('; ')]) row.append(make('td', value)); body.append(row); }
         table.append(body); const scroll = make('div', '', 'table-scroll'); scroll.append(table); evidenceBody.append(scroll);
       }
     }

@@ -1,4 +1,5 @@
 import {prepSummaries,localizeReviewNotice,prepErrorField,revealControl,workflowStep,ToolOrigins} from './workflow.js';
+import {localizeStrategy} from './strategy-labels.js';
 import {LegacyImportController} from './legacy-import.js';
 import type {LegacyImportApi} from './legacy-import.js';
 import {createLegacyImportView} from './legacy-import-view.js';
@@ -980,7 +981,7 @@ function ensureTrackChoices(): void {
 }
 function renderStrategyHint(): void {
   const strategy = strategies.find((item) => item.name === element<HTMLSelectElement>('prep-strategy').value);
-  element('strategy-hint').textContent = strategy ? `${strategy.description}${strategy.requiresVibeMetadata ? ' Requiere metadatos vibe existentes; los datos ausentes no se inventan.' : ''}` : 'Sin preferencia: se conserva la estrategia predeterminada del motor.';
+  element('strategy-hint').textContent = strategy ? `${localizeStrategy(strategy).description}${strategy.requiresVibeMetadata ? ' Requiere metadatos de ambiente existentes; los datos ausentes no se inventan.' : ''}` : 'Sin preferencia: se conserva la estrategia predeterminada del motor.';
 }
 async function loadCatalog(): Promise<void> {
   element('catalog-retry').hidden = true;
@@ -992,7 +993,7 @@ async function loadCatalog(): Promise<void> {
     if (!coreAvailable) return;
     strategies = result.strategies;
     catalogLoaded = true;
-    element<HTMLSelectElement>('prep-strategy').replaceChildren(option('', 'Predeterminada del motor'), ...strategies.map((strategy) => option(strategy.name, strategy.displayName)));
+    element<HTMLSelectElement>('prep-strategy').replaceChildren(option('', 'Predeterminada del motor'), ...strategies.map((strategy) => option(strategy.name, localizeStrategy(strategy).label)));
     renderStrategyHint();
   } catch {
     if (coreAvailable) {
@@ -1024,7 +1025,7 @@ function renderVariants(): void {
     const readiness = make('span', readinessNames[variant.readiness], `readiness-pill ${variant.readiness}`);
     const descriptions:Record<PrepVariant,string>={safe:'Prioriza la cercanía al género solicitado y los límites de preparación.',balanced:'Equilibra la intención de la sesión con conexiones entre géneros etiquetados.',adventurous:'Explora conexiones más amplias conservando las comprobaciones de preparación.'};
     card.append(make('h3', variantNames[variant.name]), make('p', descriptions[variant.name]), readiness);
-    const original=make('details');original.append(make('summary','Descripción original del motor'),make('p',variant.description));card.append(original);
+    const original=make('details');original.append(make('summary','Descripción del motor'),make('p',localizeReviewNotice(variant.description)));card.append(original);
     card.append(make('p', `${variant.trackCount} pistas · ${variant.warnings.length} avisos · ${variant.blockers.length} bloqueos`));
     card.append(make('p', `Puntuación del motor: ${Number.isFinite(variant.qualityScore) ? variant.qualityScore.toLocaleString('es', { maximumFractionDigits: 2 }) : '—'}`, 'field-hint'));
     const button = make('button', review?.variant === variant.name ? 'Volver a revisar' : 'Revisar alternativa', 'button subtle full-width');
