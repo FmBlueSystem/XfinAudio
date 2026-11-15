@@ -1,5 +1,6 @@
 import {prepSummaries,localizeReviewNotice,prepErrorField,revealControl,workflowStep,ToolOrigins} from './workflow.js';
 import {localizeStrategy} from './strategy-labels.js';
+import {pendingReviewChecks,transitionQuality,transitionScoresOf} from './review-facts.js';
 import {LegacyImportController} from './legacy-import.js';
 import type {LegacyImportApi} from './legacy-import.js';
 import {createLegacyImportView} from './legacy-import-view.js';
@@ -813,11 +814,14 @@ function syncControls(): void {
   liveButton.disabled = gate.busy || !coreAvailable || !canStartLive();
   const liveHint = element<HTMLElement>('start-live-hint');
   if (liveHint) {
+    const pendingChecks = review ? pendingReviewChecks(review) : [];
     liveHint.hidden = !liveButton.disabled;
     liveHint.textContent = !coreAvailable ? 'El motor local no está conectado.'
       : gate.busy ? 'Espera a que termine la operación actual.'
       : !review || !review.reviewId || review.variant === 'saved' ? 'Abre la guía desde una revisión activa.'
       : review.readiness === 'blocked' || review.blockers.length > 0 ? 'Resuelve los bloqueos de la selección.'
+      // The gate itself is unchanged; only the hint names what is still pending.
+      : pendingChecks.length ? `Resuelve estos avisos para abrir la guía: ${pendingChecks.map(check => check.label).join(', ')}.`
       : 'Resuelve los avisos de revisión para abrir la guía.';
   }
   element<HTMLButtonElement>('export-review').disabled = gate.busy || !coreAvailable || !review || !(review.reviewId || review.savedPlaylistId);
@@ -886,13 +890,15 @@ function explainDeferredRead(next: Route): void {
   const label = element('operation-label').textContent.trim() || 'Operación en curso';
   showStatus(label, `La pantalla «${titles[next]}» se actualizará cuando termine la operación en curso. Los datos ya cargados siguen disponibles; los controles que modifican datos permanecen desactivados mientras tanto.`);
 }
-function renderTable(target: string, tracks: Track[]): void {
+/** `transitions` is the per-transition score of a review; without it (a core that sends none) the table is unchanged. */
+function renderTable(target: string, tracks: Track[], transitions: number[] | null = null): void {
   const isLibrary=target==='library-table';
   const table = make('table','',isLibrary?'library-grid':'');
   table.setAttribute('aria-label', target === 'library-table' ? 'Pistas de la biblioteca' : 'Pistas de la selección');
   const head = make('thead');
   const headers = make('tr');
-  const columns:readonly (readonly string[])[]=isLibrary?[['','#'],...LIBRARY_COLUMNS,['','ESCUCHAR']]:['#','PISTA / ARTISTA','BPM','TONALIDAD','ENERGÍA','DURACIÓN','ESCUCHAR'].map(title=>['',title]);
+  const reviewTitles=['#','PISTA / ARTISTA','BPM','TONALIDAD','ENERGÍA','DURACIÓN',...(transitions?['MEZCLA']:[]),'ESCUCHAR'];
+  const columns:readonly (readonly string[])[]=isLibrary?[['','#'],...LIBRARY_COLUMNS,['','ESCUCHAR']]:reviewTitles.map(title=>['',title]);
   for(const [field,title] of columns){
     const th=make('th');th.scope='col';
     if(field){
@@ -921,6 +927,11 @@ function renderTable(target: string, tracks: Track[]): void {
     energy.append(make('span', track.energy === null ? '—' : String(track.energy), 'energy-value'));
     row.append(energy, make('td', formatDuration(track.duration), 'numeric muted'));
     if(isLibrary)row.append(make('td',formatAudioFormat(track)),make('td',formatBitrate(track),'numeric'));
+    if(transitions){
+      const next = index < tracks.length - 1 ? transitions[index] : undefined;
+      const quality = typeof next === 'number' ? transitionQuality(next) : null;
+      row.append(make('td', quality?.text ?? '—', quality ? `transition-quality ${quality.tone}` : 'transition-quality muted'));
+    }
     const action = make('td');
     const button = make('button', player.isPlaying(track.id) ? 'Ⅱ' : '▶', 'track-play');
     button.type = 'button';
@@ -1104,7 +1115,29 @@ function renderReview(): void {
     notice.append(list);
     notices.append(notice);
   }
-  renderTable('review-table', review.tracks);
+  // One line per readiness check that is not ready, each with the fix the user can apply.
+  const pending = pendingReviewChecks(review);
+  if (pending.length) {
+    const section = make('section', '', 'review-notice review-fixes');
+    section.id = 'review-fixes';
+    section.append(make('strong', 'Qué revisar'));
+    const list = make('ul');
+    for (const check of pending) {
+      const item = make('li');
+      item.append(make('span', localizeReviewNotice(check.detail)));
+      if (check.fix) item.append(make('p', check.fix, 'field-hint'));
+      if (check.action === 'metadata') {
+        const open = make('button', 'Completar metadatos', 'button subtle');
+        open.type = 'button'; open.id = 'review-fixes-metadata';
+        open.addEventListener('click', () => { if (coreAvailable && !gate.busy) navigate('metadata', false); });
+        item.append(open);
+      }
+      list.append(item);
+    }
+    section.append(list);
+    notices.append(section);
+  }
+  renderTable('review-table', review.tracks, transitionScoresOf(review));
   element<HTMLInputElement>('save-name').value = review.name || 'Mi sesión';
   element('save-form').hidden = review.variant === 'saved' || review.canSave === false;
   element('save-hint').textContent = review.blockers.length ? 'Resuelve los bloqueos antes de guardar esta selección' : 'Escucha y revisa los avisos; después guarda tu selección';
