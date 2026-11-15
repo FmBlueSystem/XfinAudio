@@ -1,3 +1,4 @@
+import { errorCode, userErrorMessage } from './errors.js';
 import { parentCrateLabel } from './serato-export.js';
 import type { SeratoDestination, SeratoExportHost, SeratoExportSource } from './serato-export.js';
 
@@ -54,9 +55,14 @@ export class SeratoQuickExportController {
     try {
       // The result belongs to the controller, not to a route: the user stays where they were,
       // and a receipt must survive any navigation that happened while the dialog was open.
-      await this.host.perform(label, task, (value) => { apply(value); this.host.changed(); }, () => { this.clearResult(); this.host.changed(); });
+      await this.host.perform(label, task, (value) => { apply(value); this.host.changed(); }, (error) => { this.clearResult(); this.explainRefusal(error); this.host.changed(); });
     } catch { this.clearResult(); }
     finally { this.pending = null; this.host.changed(); }
+  }
+  /** Serato DJ open: nothing was written, and the notice next to the button says why (S13). */
+  private explainRefusal(error: unknown): void {
+    if (errorCode(error) !== 'serato_running') return;
+    this.notice = 'Serato DJ está abierto'; this.detail = userErrorMessage(error); this.tone = 'blocked';
   }
   private clearResult(): void {
     this.notice = ''; this.detail = ''; this.blockers = []; this.receipt = null;

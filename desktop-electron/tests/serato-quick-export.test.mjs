@@ -168,3 +168,13 @@ test('a quick export mentions the parent crate briefly and says nothing extra ot
   const h = fixture(); await h.controller.export(source, 'Mi sesión');
   assert.equal(h.controller.detail, 'Mi sesión.crate · _Serato_ · dd · 2 pistas', 'a receipt without created parents reads exactly as before');
 });
+test('an export refused because Serato DJ is open says so next to the button and nothing was written (S13)', async () => {
+  let open = true;
+  const f = fixture({ quickSeratoExport: async (input) => { f.calls.push(['export', input]); if (open) throw new Error("Error invoking remote method 'xfin:action': [serato_running] Close Serato DJ"); return exported; } });
+  await f.controller.export(source, 'Mi sesión');
+  assert.equal(f.controller.notice, 'Serato DJ está abierto');
+  assert.equal(f.controller.detail, 'Cierra Serato DJ antes de exportar. Si Serato está abierto, al cerrarse borra los crates nuevos. Ciérralo y vuelve a confirmar.');
+  assert.equal(f.controller.tone, 'blocked'); assert.equal(f.controller.receipt, null);
+  open = false; await f.controller.export(source, 'Mi sesión');
+  assert.equal(f.controller.tone, 'success'); assert.deepEqual(f.controller.receipt, receipt);
+});
