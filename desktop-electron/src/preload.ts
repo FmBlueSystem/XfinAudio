@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('xfin',Object.freeze({
   commitSeratoExport:(params:unknown)=>invoke('commitSeratoExport',params),revealSeratoExport:(params:unknown)=>invoke('revealSeratoExport',params),
   chooseLibrary:()=>invoke('chooseLibrary'),listLibrary:()=>invoke('listLibrary'),
   getMetadataReport:()=>invoke('getMetadataReport'),
+  prepGenres:(params:unknown)=>invoke('prepGenres',params),
   getPrepCatalog:()=>invoke('getPrepCatalog'),selectPrepVariant:(params:unknown)=>invoke('selectPrepVariant',params),
   generatePrep:(params:unknown)=>invoke('generatePrep',params),savePlaylist:(params:unknown)=>invoke('savePlaylist',params),
   renamePlaylist:(params:unknown)=>invoke('renamePlaylist',params),duplicatePlaylist:(params:unknown)=>invoke('duplicatePlaylist',params),

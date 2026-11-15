@@ -6,6 +6,21 @@ function fixture(overrides={}){let values={requiredTrackIds:[],excludedTrackIds:
 test('load restores original build controls; editing never persists until explicit save',async()=>{const f=fixture();await f.controller.load();assert.equal(f.values.genreFocus,'House');f.edit({genreFocus:'Techno'});assert.equal(f.controller.dirty,true);assert.deepEqual(f.calls,[['get']]);await f.controller.save();assert.equal(f.controller.dirty,false);assert.deepEqual(f.calls[1][1],{revision:'a'.repeat(64),requiredTrackIds:['b'.repeat(64)],excludedTrackIds:[],genreFocus:'Techno',clearUnavailable:false});});
 test('dirty refresh does not overwrite edits; discard restores saved values',async()=>{const f=fixture();await f.controller.load();f.edit({genreFocus:'Techno'});await f.controller.load();assert.equal(f.values.genreFocus,'Techno');assert.equal(f.calls.length,1);f.controller.discard();assert.equal(f.values.genreFocus,'House');assert.equal(f.controller.dirty,false);});
 test('unavailable controls are truthful and explicit clearing is separate from ordinary save',async()=>{const f=fixture({prepSettings:async()=>snapshot({unavailableRequiredCount:2})});await f.controller.load();assert.equal(f.controller.snapshot.unavailableRequiredCount,2);f.controller.setClearUnavailable(true);await f.controller.save();assert.equal(f.calls[0][1].clearUnavailable,true);});
+test('the genre catalog is a read that never touches the saved preferences snapshot',async()=>{
+ const requested=[];const catalog={groups:[{kind:'library',genres:[{name:'Deep House',count:124}]}],totalGenres:1,seedTitle:null,genreAvailable:true};
+ const f=fixture({prepGenres:async input=>{requested.push(input);return catalog;}});
+ await f.controller.load();
+ assert.deepEqual(await f.controller.genres({startTrackId:'b'.repeat(64),genre:'Deep House'}),catalog);
+ assert.deepEqual(requested,[{startTrackId:'b'.repeat(64),genre:'Deep House'}]);
+ assert.equal(f.controller.dirty,false,'a read-only catalog never makes the Prep controls dirty');
+ assert.deepEqual(f.calls,[['get']]);
+});
+test('a missing or malformed genre catalog fails closed with a coded error',async()=>{
+ const missing=fixture();
+ await assert.rejects(missing.controller.genres({}),error=>error.code==='genres_unavailable');
+ const malformed=fixture({prepGenres:async()=>({groups:[{kind:'invented',genres:[]}],totalGenres:1,seedTitle:null,genreAvailable:true})});
+ await assert.rejects(malformed.controller.genres({}),error=>error.code==='genres_unavailable');
+});
 test('stale save preserves draft and blocks repeated save until reload',async()=>{const f=fixture({savePrepSettings:async()=>{throw Object.assign(new Error('/secret'),{code:'stale_settings'});}});await f.controller.load();f.edit({genreFocus:'Techno'});await f.controller.save();assert.equal(f.values.genreFocus,'Techno');assert.equal(f.controller.canSave,false);assert.doesNotMatch(f.controller.error,/secret/);f.controller.discard();await f.controller.load();assert.equal(f.values.genreFocus,'House');});
 test('pending load cannot overwrite edits made before completion',async()=>{let finish;const f=fixture({prepSettings:()=>new Promise(resolve=>{finish=resolve;})});const pending=f.controller.load();f.edit({genreFocus:'New draft'});finish(snapshot());await pending;assert.equal(f.values.genreFocus,'New draft');assert.equal(f.controller.dirty,true);});
 test('library refresh invalidates clean persisted snapshot but retains explicit dirty edits',async()=>{const f=fixture();await f.controller.load();f.controller.libraryChanged();assert.equal(f.controller.snapshot,null);assert.equal(f.controller.dirty,false);await f.controller.load();f.edit({genreFocus:'Explicit'});f.controller.libraryChanged();assert.notEqual(f.controller.snapshot,null);assert.equal(f.values.genreFocus,'Explicit');assert.equal(f.controller.dirty,true);});

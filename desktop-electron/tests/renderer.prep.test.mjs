@@ -118,7 +118,15 @@ test('navigation and core disconnect suppress late variant navigation and mutati
 });
 test('Prep controls and variant comparison have Spanish accessible labels and an expandable advanced panel', async () => {
   const html = await readFile(new URL('../renderer/index.html', import.meta.url), 'utf8');
-  for (const name of ['strategy', 'minutes', 'role', 'genre', 'end', 'required', 'excluded']) { assert.match(html, new RegExp(`id="prep-${name}"`)); assert.match(html, new RegExp(`for="prep-${name}"`)); }
+  for (const name of ['strategy', 'minutes', 'role', 'end', 'required', 'excluded']) { assert.match(html, new RegExp(`id="prep-${name}"`)); assert.match(html, new RegExp(`for="prep-${name}"`)); }
+  // The free-text genre input became a list picker: the visible field is #prep-genre-search and
+  // #prep-genre keeps carrying the value as genreFocus.
+  assert.match(html, /id="prep-genre" type="hidden"/);
+  assert.match(html, /<label for="prep-genre-search">Género preferido/);
+  assert.match(html, /id="prep-genre-search"[^>]*role="combobox"/);
+  assert.match(html, /id="prep-genre-search"[^>]*aria-controls="prep-genre-results"/);
+  assert.match(html, /id="prep-genre-results"[^>]*role="listbox"/);
+  assert.match(html, /id="prep-genre-clear"[^>]*>Quitar</);
   assert.match(html, /for="prep-start-search"/);
   assert.match(html, /id="prep-start-search"[^>]*role="combobox"/);
   assert.match(html, /id="prep-start-search"[^>]*aria-expanded="false"/);
