@@ -34,6 +34,8 @@ async function fixture(overrides = {}) {
     generatePrep: async (input) => {calls.push(['generate',input]);return detailed();},
     prepSettings: async()=>{calls.push(['prepSettings']);return prepSettings();},savePrepSettings:async(input)=>{calls.push(['savePrepSettings',input]);return prepSettings({...input,revision:'b'.repeat(64)});},
     reviewDetails:async(input)=>{calls.push(['reviewDetails',input]);return detailed();},reviewCompare:async(input)=>{calls.push(['reviewCompare',input]);return {reviewId:input.reviewId,available:true,replacement:tracks[1],original:detailed(),proposed:detailed(),message:'Preview only'};},reviewRemove:async(input)=>{calls.push(['reviewRemove',input]);return detailed({reviewId:'edited',tracks:[tracks[1]]});},reviewReorder:async(input)=>{calls.push(['reviewReorder',input]);return detailed({reviewId:'edited',tracks:[...tracks].reverse()});},
+    selectPrepVariant: async (input) => { calls.push(['select', input]); return detailed({ reviewId: `variant-${input.variant}`, variant: input.variant }); },
+    openPlaylist: async (input) => { calls.push(['open', input]); return detailed({ reviewId: 'opened', variant: 'saved', name: 'Set' }); },
     openLive: async () => ({ sessionId: 'live', revision: 0, sourceReviewId: 'review', state: 'active', current: tracks[0], history: [], candidates: [{ track: tracks[1], score: 1, alerts: [] }], elapsedSeconds: 0 }),
     chooseSeratoDestination: async () => ({ destinationId: 'dest', label: '_Serato_' }), previewSeratoExport: async () => ({ previewId: 'preview', sourceRevision: 'r', filename: 'Set.crate', destinationLabel: '_Serato_', trackCount: 2, readiness: 'ready', warnings: [], blockers: [], canCommit: true, tracks, backup: { required: false } }), ...overrides,
   };
@@ -177,5 +179,82 @@ test('a name typed on the Serato page is used unchanged',async()=>{
   f.click('serato-export-preview');await settle();
   assert.deepEqual(previews,[{source:{kind:'review',reviewId:'review'},destinationId:'dest',name:'Viernes 14-nov'}]);
   assert.match(text(f.get('serato-export-proposal')),/Viernes 14-nov\.crate/);
+ }finally{f.restore();}
+});
+const discardQuestion='Vas a descartar los cambios de esta lista. ¿Continuar?';
+const variantButton=(f,name)=>f.nodes().find(node=>node.tagName==='button'&&node.dataset.variant===name);
+const openPlaylistButton=(f)=>f.nodes().find(node=>node.tagName==='button'&&node.textContent==='Abrir playlist →');
+const editReview=async(f)=>{selectReviewTrack(f,1);f.click('review-remove-1');await settle();assert.equal(f.get('review-track-count').textContent,'1 pistas · 2:00');};
+const plan=()=>({planId:'plan',variants:['safe','balanced','adventurous'].map((name)=>({name,description:`Motor ${name}`,trackCount:2,warnings:[],blockers:[],readiness:'ready',qualityScore:.8}))});
+test('an edited review asks before generating again and «Seguir editando» changes nothing',async()=>{
+ const f=await fixture();
+ try{
+  await f.generate();
+  assert.equal(f.get('discard-guard').open,false,'a fresh review needs no question');
+  await editReview(f);
+  const route=document.title;const calls=f.calls.length;
+  await f.generate();
+  assert.equal(f.calls.filter(([kind])=>kind==='generate').length,1,'nothing is generated while the question is open');
+  const dialog=f.get('discard-guard');
+  assert.equal(dialog.open,true);
+  assert.equal(f.get('discard-guard-message').textContent,discardQuestion);
+  assert.equal(f.get('discard-guard-confirm').textContent,'Descartar cambios');
+  assert.equal(f.get('discard-guard-cancel').textContent,'Seguir editando');
+  f.click('discard-guard-cancel');await settle();
+  assert.equal(dialog.open,false);
+  assert.equal(f.calls.length,calls,'«Seguir editando» calls nothing');
+  assert.equal(document.title,route,'the route is unchanged');
+  assert.equal(f.get('review-track-count').textContent,'1 pistas · 2:00','the edited review is untouched');
+  await f.generate();
+  assert.equal(dialog.open,true);
+  assert.equal(f.calls.filter(([kind])=>kind==='generate').length,1);
+  f.click('discard-guard-confirm');await settle();
+  assert.equal(dialog.open,false);
+  assert.equal(f.calls.filter(([kind])=>kind==='generate').length,2,'«Descartar cambios» generates');
+  await f.generate();
+  assert.equal(dialog.open,false,'the generated review is the new baseline');
+  assert.equal(f.calls.filter(([kind])=>kind==='generate').length,3);
+ }finally{f.restore();}
+});
+test('an edited review asks before another variant and «Seguir editando» keeps it',async()=>{
+ const f=await fixture({generatePrep:async(input)=>{f.calls.push(['generate',input]);return detailed(plan());}});
+ try{
+  await f.generate();
+  await editReview(f);
+  variantButton(f,'safe').dispatchEvent(new Event('click'));await settle();
+  assert.equal(f.get('discard-guard').open,true);
+  assert.equal(f.get('discard-guard-message').textContent,discardQuestion);
+  assert.equal(f.calls.some(([kind])=>kind==='select'),false,'no variant is opened while the question is open');
+  f.click('discard-guard-cancel');await settle();
+  assert.equal(f.calls.some(([kind])=>kind==='select'),false);
+  assert.equal(f.get('review-track-count').textContent,'1 pistas · 2:00');
+  variantButton(f,'safe').dispatchEvent(new Event('click'));await settle();
+  f.click('discard-guard-confirm');await settle();
+  assert.deepEqual(f.calls.find(([kind])=>kind==='select')[1],{planId:'plan',variant:'safe'});
+  assert.equal(f.get('review-variant').textContent,'SELECCIÓN SEGURA');
+  variantButton(f,'adventurous').dispatchEvent(new Event('click'));await settle();
+  assert.equal(f.get('discard-guard').open,false,'the chosen variant is the new baseline');
+ }finally{f.restore();}
+});
+test('an edited review asks before opening a saved playlist and discards only when confirmed',async()=>{
+ const f=await fixture();
+ try{
+  await f.generate();
+  await editReview(f);
+  await f.navigate('playlists');
+  const route=document.title;
+  openPlaylistButton(f).dispatchEvent(new Event('click'));await settle();
+  assert.equal(f.get('discard-guard').open,true);
+  assert.equal(f.get('discard-guard-message').textContent,discardQuestion);
+  assert.equal(f.calls.some(([kind])=>kind==='open'),false,'no playlist is opened while the question is open');
+  f.click('discard-guard-cancel');await settle();
+  assert.equal(f.calls.some(([kind])=>kind==='open'),false);
+  assert.equal(document.title,route,'the route stays on the saved playlists');
+  assert.equal(f.get('review-track-count').textContent,'1 pistas · 2:00');
+  openPlaylistButton(f).dispatchEvent(new Event('click'));await settle();
+  f.click('discard-guard-confirm');await settle();
+  assert.deepEqual(f.calls.find(([kind])=>kind==='open')[1],{playlistId:'1'});
+  assert.equal(document.title,'XfinAudio · Revisar y exportar');
+  assert.equal(f.get('review-track-count').textContent,'2 pistas · 4:00','the opened playlist replaces the edited review');
  }finally{f.restore();}
 });

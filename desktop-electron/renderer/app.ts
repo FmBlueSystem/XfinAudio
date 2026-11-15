@@ -15,6 +15,7 @@ import type {ProfilesApi,ProfileStatus} from './profiles.js';
 import {ProfileSettingsController,createProfileSettingsView} from './profile-settings.js';
 import { draftMessage } from './draft-notice.js';
 import type { DraftBlocker } from './draft-notice.js';
+import { createDiscardGuard, createDiscardPrompt } from './discard-guard.js';
 import type {ProfileSettingsApi} from './profile-settings.js';
 import { OptionalAiController } from './optional-ai.js';
 import type { OptionalAiApi, AiSurface, AiContext } from './optional-ai.js';
@@ -63,6 +64,16 @@ const gate = new OperationGate();
 // One global status region: it owns whether the app is working, where it is inside the work,
 // and how the last operation ended.
 const operationStatus = createOperationStatus(element('operation-status'));
+// The generated review counts as edited once its reviewId differs from the one it had when it
+// was generated, chosen as a variant or opened: the three actions that replace it ask first.
+const discardGuard = createDiscardGuard();
+const discardPrompt = createDiscardPrompt(element('main-content'), { canAct: () => coreAvailable && !gate.busy });
+// Only an edited review turns an action into a question; without edits the action runs
+// synchronously, exactly as it did before the guard existed.
+const unlessEditsWouldBeLost = (action: () => void): void => {
+  if (!discardGuard.edited(review)) { action(); return; }
+  void discardPrompt.ask().then((discard) => { if (discard) action(); });
+};
 let operationTrigger: HTMLElement | null = null;
 let operationFinishing = false;
 // Chained work is one job with numbered steps: a scan that hands over to automatic profile
@@ -463,7 +474,9 @@ const renderLibraryStatus = createLibraryStatusView(element('library-status-cont
 if(['reviewDetails','reviewCompare','reviewRemove','reviewReorder'].every(key=>typeof api?.[key as keyof AppApi]==='function')){
   const generatedReview=new GeneratedReviewController(api,{
     current:()=>review,canAct:()=>coreAvailable&&!gate.busy,changed:()=>renderGeneratedReview(),
-    applied:value=>{if(review?.reviewId!==value.reviewId){if(serato.source?.kind==='review')serato.setSource(null);live.invalidate();invalidateAiSource();prepPlan=null;}review=value;renderVariants();renderReview();},
+    // An edit mints a new reviewId and retires the Live/Serato context, but the plan stays: the
+    // alternative cards describe the plan, and choosing one discards the edits after S4 asks.
+    applied:value=>{if(review?.reviewId!==value.reviewId){if(serato.source?.kind==='review')serato.setSource(null);live.invalidate();invalidateAiSource();}review=value;renderVariants();renderReview();},
     perform:(label,task,apply,failure)=>perform('review-edit',label,task,value=>{apply(value);showStatus('Revisión local actualizada');},false,failure),
   });
   renderGeneratedReview=createGeneratedReviewView(element('generated-review-container'),generatedReview,{canAct:()=>coreAvailable&&!gate.busy});
@@ -867,6 +880,7 @@ function invalidatePrep(options: { preserveLive?: boolean } = {}): void {
   if (serato.source?.kind === 'review') serato.setSource(null);
   prepPlan = null;
   review = null;
+  discardGuard.reset(null);
   renderVariants();
   renderReview();
 }
@@ -889,19 +903,23 @@ function renderVariants(): void {
     button.setAttribute('aria-label', `Revisar alternativa ${variantNames[variant.name].toLocaleLowerCase('es')}`);
     button.setAttribute('aria-pressed', String(review?.variant === variant.name));
     button.addEventListener('click', () => {
-      if (gate.busy || !coreAvailable || prepPlan !== plan) return;
-      if (serato.source?.kind === 'review') serato.setSource(null);
-      live.invalidate();
-      review = null;
-      renderReview();
-      void perform('select', 'Abriendo la alternativa para revisión…', () => api.selectPrepVariant({ planId: plan.id, variant: variant.name }), (result, currentRoute) => {
-        if (prepPlan !== plan) return;
-        review = result;
-        renderVariants();
+      unlessEditsWouldBeLost(() => {
+        if (gate.busy || !coreAvailable || prepPlan !== plan) return;
+        if (serato.source?.kind === 'review') serato.setSource(null);
+        live.invalidate();
+        review = null;
+        discardGuard.reset(null);
         renderReview();
-        showStatus('Alternativa preparada para revisar', 'Comprueba las pistas, los avisos y el estado antes de guardar');
-        if (currentRoute) navigate('review', false);
-      }, true);
+        void perform('select', 'Abriendo la alternativa para revisión…', () => api.selectPrepVariant({ planId: plan.id, variant: variant.name }), (result, currentRoute) => {
+          if (prepPlan !== plan) return;
+          review = result;
+          discardGuard.reset(result.reviewId);
+          renderVariants();
+          renderReview();
+          showStatus('Alternativa preparada para revisar', 'Comprueba las pistas, los avisos y el estado antes de guardar');
+          if (currentRoute) navigate('review', false);
+        }, true);
+      });
     });
     card.append(button);
     container.append(card);
@@ -996,14 +1014,18 @@ function renderPlaylists(): void {
     const button = make('button', 'Abrir playlist →', 'button subtle');
     button.dataset.mutation = '';
     button.addEventListener('click', () => {
-      if (gate.busy || !coreAvailable) return;
-      invalidatePrep();
-      void perform('open', 'Abriendo playlist…', () => api.openPlaylist({ playlistId: playlist.id }), (result, currentRoute) => {
-      review = result;
-      renderReview();
-      showStatus('Playlist abierta', result.name);
-      if (currentRoute) navigate('review', false);
-    }); });
+      unlessEditsWouldBeLost(() => {
+        if (gate.busy || !coreAvailable) return;
+        invalidatePrep();
+        void perform('open', 'Abriendo playlist…', () => api.openPlaylist({ playlistId: playlist.id }), (result, currentRoute) => {
+          review = result;
+          discardGuard.reset(result.reviewId);
+          renderReview();
+          showStatus('Playlist abierta', result.name);
+          if (currentRoute) navigate('review', false);
+        });
+      });
+    });
     card.append(button);
     renderPlaylistActions(card, playlist);offline?.addPlaylistActions(card,playlist);
     container.append(card);
@@ -1176,17 +1198,21 @@ element('prep-form').addEventListener('submit', (event) => {
     showPrepValidation(element(field), message); return;
   }
   element('prep-validation').hidden=true;
-  invalidatePrep();
-  // Enter inside the form starts the same operation as the button, so mark that button.
-  operationTrigger = element('generate-prep');
-  void perform('prep', 'Preparando alternativas para tu sesión…', () => api.generatePrep(input), (result, currentRoute) => {
-    review = result;
-    prepPlan = result.planId && result.variants ? { id: result.planId, variants: result.variants } : null;
-    renderVariants();
-    renderReview();
-    showStatus('Selección preparada', 'Compara las alternativas y revisa las pistas antes de guardar');
-    if (currentRoute) navigate('review', false);
-  }, true);
+  unlessEditsWouldBeLost(() => {
+    if (gate.busy || !coreAvailable) return;
+    invalidatePrep();
+    // Enter inside the form starts the same operation as the button, so mark that button.
+    operationTrigger = element('generate-prep');
+    void perform('prep', 'Preparando alternativas para tu sesión…', () => api.generatePrep(input), (result, currentRoute) => {
+      review = result;
+      discardGuard.reset(result.reviewId);
+      prepPlan = result.planId && result.variants ? { id: result.planId, variants: result.variants } : null;
+      renderVariants();
+      renderReview();
+      showStatus('Selección preparada', 'Compara las alternativas y revisa las pistas antes de guardar');
+      if (currentRoute) navigate('review', false);
+    }, true);
+  });
 });
 element('start-live').addEventListener('click', () => {
   if (!coreAvailable || gate.busy || !canStartLive() || !review) return;
