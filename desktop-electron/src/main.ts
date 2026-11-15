@@ -140,6 +140,7 @@ async function action(method:string,raw:unknown) {
     case 'reviewReorder':return run('review.reorder',params);
     case 'reviewUndo':return run('review.undo',params);
     case 'reviewRedo':return run('review.redo',params);
+    case 'reviewResume':return run('review.resume',params);
     case 'prepSettings':return run('prep.settings.get');
     case 'savePrepSettings':return run('prep.settings.update',params);
     case 'queryLibrary':return offline.query(params);

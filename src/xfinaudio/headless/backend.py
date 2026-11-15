@@ -139,6 +139,9 @@ class HeadlessBackend:
         self.prep_settings = PrepSettings(self)
         self.legacy_import = LegacyImport(self)
         self._optional_ai: OptionalAI | None = None
+        # The list in progress belongs to the previous process; rebind it from the
+        # app-owned file before any command can observe an empty review.
+        self.review_actions.restore()
 
     @property
     def optional_ai(self) -> OptionalAI:
@@ -168,6 +171,8 @@ class HeadlessBackend:
         self.review = None
         self.review_id = None
         self.review_blocked = True
+        # A discarded review must not come back after the next start.
+        self.review_actions.clear_stored()
 
     def _records(self) -> list[TrackRecord]:
         records = [

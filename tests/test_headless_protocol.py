@@ -58,6 +58,7 @@ EXPECTED_REFUSED_METHODS = (
     "review.redo",
     "review.remove",
     "review.replace",
+    "review.resume",
     "review.undo",
     "serato.commit",
     "settings.update",

@@ -61,6 +61,16 @@ const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
   return node;
 };
 const gate = new OperationGate();
+// The session bar offers the list the core kept in progress after every change. The
+// control is created here so the recovered list needs no new page markup, and it holds
+// only the opaque payload the review page always renders.
+const resumeReview = document.createElement('button');
+resumeReview.id = 'resume-review';
+resumeReview.type = 'button';
+resumeReview.className = 'text-button';
+resumeReview.hidden = true;
+resumeReview.textContent = 'Continuar con la lista en curso';
+element('session-resume').append(resumeReview);
 // One global status region: it owns whether the app is working, where it is inside the work,
 // and how the last operation ended.
 const operationStatus = createOperationStatus(element('operation-status'));
@@ -139,6 +149,11 @@ const profilesAvailable=():boolean=>typeof api?.getProfileStatus==='function'&&t
 const profileSettingsAvailable=():boolean=>typeof api?.getProfileSettings==='function'&&typeof api?.saveProfileSettings==='function';
 let libraryBootstrapped = false;
 let libraryBootError: string | null = null;
+// The core stores the generated review it had after every change and rebinds it at
+// start; this start-screen offer is the only way back to it, and it holds the same
+// opaque payload the review page always renders — never a path.
+let recoveredReview: ReviewResult | null = null;
+let reviewResumePending = typeof api?.reviewResume === 'function';
 let preferencesBootstrapPending = typeof api?.getPreferences === 'function' && typeof api?.savePreferences === 'function';
 let statusBootstrapPending = Boolean(api?.getLibraryStatus);
 let editorDirty = false;
@@ -598,6 +613,19 @@ function acceptLibraryStatus(status: LibraryStatus): void {
   renderLibraryStatus(libraryStatus);
   renderContextStatus(); refreshPreferenceLabelsIfNeeded();
 }
+/**
+ * Ask the core once whether it recovered the list in progress. A dropped list is
+ * reported with the exact notice; a plain absence says nothing at all.
+ */
+function loadReviewResume(): Promise<void> {
+  reviewResumePending = false;
+  if (!api?.reviewResume) return Promise.resolve();
+  return perform('review-recovery', 'Comprobando la lista en curso…', () => api.reviewResume(), (result) => {
+    recoveredReview = result.available ? result.review : null;
+    if (result.dropped) showStatus('La lista en curso ya no se puede recuperar porque la biblioteca cambió', 'La biblioteca cambió desde que se guardó la lista; prepara una selección nueva.', false, 'notice');
+    else operationStatus.hide();
+  }, false, () => { recoveredReview = null; });
+}
 function loadLibraryStatus(): Promise<void> {
   return perform('library-status', 'Consultando estado de la biblioteca…', () => api.getLibraryStatus(), acceptLibraryStatus);
 }
@@ -626,6 +654,7 @@ function refreshPreferenceLabelsIfNeeded(): boolean {
 function continueIdleWork(kind: string): void {
   if (!coreAvailable || gate.busy) return;
   if (refreshPreferenceLabelsIfNeeded()) return;
+  if (libraryBootstrapped && reviewResumePending) { reviewResumePending = false; void loadReviewResume(); return; }
   if(profileAutoPending!==null){const generation=profileAutoPending;profileAutoPending=null;if(generation===libraryGeneration&&!profilesStale){void completeProfiles();return;}}
   if (libraryBootstrapped && preferencesBootstrapPending) { preferencesBootstrapPending = false; void preferences.load(); return; }
   if (libraryBootstrapped && statusBootstrapPending) { statusBootstrapPending = false; void loadLibraryStatus(); return; }
@@ -724,7 +753,9 @@ function syncControls(): void {
   element('resume-last-export').hidden = !serato.receipt;
   element('resume-editor').hidden = !editor.draft;
   element('resume-editor').textContent = coreAvailable ? 'Continuar edición' : 'Ver borrador';
-  element('session-resume').hidden = !serato.receipt && !editor.draft;
+  const offerList = recoveredReview !== null && review === null;
+  resumeReview.hidden = !offerList;
+  element('session-resume').hidden = !serato.receipt && !editor.draft && !offerList;
   element('prep-availability').textContent = library.length ? `${library.length} pistas en la biblioteca · ${library.filter(hasPrepMetadata).length} con metadatos completos` : 'Añade una carpeta de música para empezar';
 }
 function navigate(next: Route, load = true, rememberOrigin = true, preservePreviews = false): void {
@@ -916,6 +947,7 @@ function invalidatePrep(options: { preserveLive?: boolean } = {}): void {
   if (serato.source?.kind === 'review') serato.setSource(null);
   prepPlan = null;
   review = null;
+  recoveredReview = null;
   discardGuard.reset(null);
   renderVariants();
   renderReview();
@@ -1189,6 +1221,23 @@ element('resume-editor').addEventListener('click', () => {
   if(!editor.draft)return;
   navigate('editor',false,true,true);const draft=element('editor-container');draft.tabIndex=-1;revealControl(draft);draft.scrollIntoView?.({block:'start'});
 });
+resumeReview.addEventListener('click', () => openRecoveredReview());
+function openRecoveredReview(): void {
+  if (!recoveredReview || gate.busy || !coreAvailable) return;
+  const recovered = recoveredReview;
+  recoveredReview = null;
+  review = recovered;
+  discardGuard.reset(recovered.reviewId);
+  prepPlan = recovered.planId && recovered.variants ? { id: recovered.planId, variants: recovered.variants } : null;
+  renderVariants();
+  renderReview();
+  showStatus('Lista en curso abierta', 'Revisa las pistas y el orden antes de guardar o exportar');
+  navigate('review', false);
+  const content = element('review-content');
+  content.tabIndex = -1;
+  revealControl(content);
+  content.scrollIntoView?.({ block: 'start' });
+}
 element('context-ai').addEventListener('click', () => { const panel=element<HTMLDetailsElement>('ai-panel'); if(panel.hidden)return;panel.open=true;loadAiIfOpen();const content=element('optional-ai-container');content.tabIndex=-1;revealControl(content);content.scrollIntoView?.({block:'start',behavior:'auto'}); });
 element('context-status-open').addEventListener('click', () => {navigate('library',false);element<HTMLDetailsElement>('library-tools').open=true;revealControl(element('choose-library'));});
 element('tool-back').addEventListener('click', () => {
@@ -1341,6 +1390,8 @@ if (api) {
       if (!restartRequired) {
         coreAvailable = true; coreFailure = ''; profilesError = ''; libraryBootError = null;
         showStatus('Servicio local disponible', 'XfinAudio volvió a conectar con tu biblioteca después del reinicio automático.', false, 'notice');
+        reviewResumePending = typeof api?.reviewResume === 'function';
+        if (reviewResumePending && !gate.busy) void loadReviewResume();
         syncControls();
       }
       return;

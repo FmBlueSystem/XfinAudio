@@ -45,6 +45,8 @@ export interface ReviewResult {
   canSave?: boolean;
 }
 export interface PlaylistSummary { id: string; name: string; trackCount: number; createdAt: string; }
+/** The list the core kept in progress; `dropped` says the library no longer matches it. */
+export interface ReviewResume { available: boolean; review: ReviewResult | null; dropped: boolean; }
 export interface ProgressEvent {
   jobId: string;
   operation: string;
@@ -61,6 +63,7 @@ export interface XfinApi extends EditorApi, SeratoExportApi, SeratoQuickExportAp
   getPrepCatalog(): Promise<{ strategies: PrepStrategy[] }>;
   generatePrep(input: PrepInput): Promise<ReviewResult>;
   selectPrepVariant(input: { planId: string; variant: PrepVariant }): Promise<ReviewResult>;
+  reviewResume(): Promise<ReviewResume>;
   savePlaylist(input: { name: string; reviewId: string }): Promise<PlaylistSummary>;
   listPlaylists(): Promise<PlaylistSummary[]>;
   openPlaylist(input: { playlistId: string }): Promise<ReviewResult>;
