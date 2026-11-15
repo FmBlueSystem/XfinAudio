@@ -27,6 +27,7 @@ INLINE_METHODS = frozenset(
     {
         "track.resolve",
         "prep.catalog",
+        "prep.genres",
         "library.list",
         "library.query",
         "playlist.list",

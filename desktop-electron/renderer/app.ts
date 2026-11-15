@@ -504,7 +504,7 @@ function draftBlockers(): DraftBlocker[] {
     [editorDirty, 'editor', 'Editor de playlist', 'editor', 'editor-name'],
     [preferencesDirty, 'preferences', 'Preferencias', 'preferences', 'preferences-volume'],
     [profileSettingsDirty, 'profile', 'Cohesión espectral', 'preferences', 'profile-settings-cohesion'],
-    [prepSettingsDirty, 'prep', 'Controles de preparación', 'prep', 'prep-genre'],
+    [prepSettingsDirty, 'prep', 'Controles de preparación', 'prep', 'prep-genre-search'],
     [loudnessDirty, 'loudness', 'Ajustes de sonoridad', 'loudness', 'loudness-target'],
     [aiDirty, 'ai', 'Ajustes de IA', 'ai', 'optional-ai-enabled'],
   ];

@@ -172,6 +172,7 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 .track-results { position: absolute; z-index: 5; left: 0; right: 0; margin: 4px 0 0; padding: 4px; list-style: none; max-height: 280px; overflow-y: auto; background: #14161a; border: 1px solid #373b42; border-radius: 5px; }
 .track-result { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 7px 9px; border-radius: 4px; cursor: pointer; font-size: 11px; }
 .track-result[aria-selected="true"] { background: #262b33; }
+.genre-group-heading { padding: 8px 9px 3px; color: #7d8794; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
 .track-result-title { color: #e7e9ec; overflow-wrap: anywhere; }
 .track-result-artist { color: #b9bec6; font-size: 10px; overflow-wrap: anywhere; }
 .track-result-meta { grid-row: 1 / span 2; grid-column: 2; align-self: center; color: #7d8794; font-size: 10px; white-space: nowrap; }

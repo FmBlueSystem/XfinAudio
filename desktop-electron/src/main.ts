@@ -197,6 +197,7 @@ async function action(method:string,raw:unknown) {
     case 'listLibrary': {const result=await core.request('library.list');return {...result,count:result.tracks.length};}
     case 'getMetadataReport':return run('metadata.report');
     case 'getPrepCatalog':return core.request('prep.catalog');
+    case 'prepGenres':return core.request('prep.genres',params);
     case 'selectPrepVariant':return run('prep.select',params);
     case 'generatePrep':return run('prep.generate',params);
     case 'savePlaylist':return summaries([await run('playlist.save',params)])[0];
