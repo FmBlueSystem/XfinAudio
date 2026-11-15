@@ -60,8 +60,13 @@ collections to local search without a provider call.
   from the same evidence, rebuilt on every turn, so an edit between two turns is
   what the assistant reads next. The conversation lives in memory only and is
   never written to disk; it survives list edits and ends with a new conversation,
-  a settings or credential change, a discarded list, or a core restart. Chat text
-  is advice: it cannot remove, move, replace or save anything
+  a settings or credential change, a discarded list, or a core restart. A reply
+  may propose up to five changes (replace a track with the engine's candidate, or
+  move a track); the core validates them and shows them under «Cambios
+  propuestos». Nothing changes until the user presses «Aplicar» on a card; the
+  change then goes through the normal review edit, can be undone with
+  «Deshacer», and never contacts the provider. The assistant cannot save or
+  export anything
 - **My Playlists:** local search and comparisons use saved sets and known metadata.
   Optional AI interprets semantic queries using anonymous set IDs and aggregates;
   the displayed comparison is still computed locally from the selected known sets
