@@ -263,6 +263,13 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 .list-chat-read-again { margin: 0 0 8px; }
 .list-chat textarea { width: 100%; background: #14161a; color: #e7e9ec; border: 1px solid #373b42; border-radius: 5px; padding: 12px; font: inherit; }
 .list-chat > label { display: block; margin: 14px 0 6px; font-size: 12px; }
+/* The proposals of the last reply: one card each, applied only by an explicit click. */
+#list-chat-proposed { margin: 0 0 14px; }
+#list-chat-proposed-heading { margin: 0 0 8px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: #b6bec8; }
+.list-chat-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.list-chat-action { border: 1px solid #33373e; border-left: 3px solid #4b8bbf; border-radius: 6px; padding: 10px 14px; background: #1a1d21; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.list-chat-action-title { margin: 0; }
+#list-chat-dropped { margin: 8px 0 0; }
 
 .session-resume { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin: 24px 12px 0; }
 

@@ -3,7 +3,7 @@ import {LegacyImportController} from './legacy-import.js';
 import type {LegacyImportApi} from './legacy-import.js';
 import {createLegacyImportView} from './legacy-import-view.js';
 import {GeneratedReviewController} from './generated-review.js';
-import type {GeneratedReviewApi} from './generated-review.js';
+import type {DetailedReview, GeneratedReviewApi} from './generated-review.js';
 import {createGeneratedReviewView} from './generated-review-view.js';
 import {PrepSettingsController} from './prep-settings.js';
 import type {PrepFormSnapshot, PrepSettingsApi} from './prep-settings.js';
@@ -357,20 +357,39 @@ ai = new OptionalAiController(api, {
 renderAi = createOptionalAiView(element('optional-ai-container'), ai, { canAct: () => coreAvailable && !gate.busy && aiAvailable(), busy: () => coreAvailable && gate.busy, openSettings: () => {navigate('ai');revealControl(element('optional-ai-enabled'));} });
 renderAi();
 // The list assistant is a second panel over the review screen: it reads the same generated
-// list, keeps its own conversation and never changes the selection. Its two bridge methods
-// are optional until the host ships them, so the panel stays hidden instead of half-working.
+// list, keeps its own conversation and never changes the selection on its own. Its bridge
+// methods are optional until the host ships them, so the panel stays hidden instead of half-working.
+/**
+ * The one place a review the core just returned replaces the one on screen: the same hand-off
+ * whether a manual edit or an applied assistant proposal produced it. The list assistant adopts
+ * the minted reviewId first, so this never turns its own conversation into another one.
+ */
+function applyReview(value: DetailedReview): void {
+  const previous = review?.reviewId;
+  // The review is published before anything reacts to the change: every listener that re-syncs
+  // the screen reads this one, so it must already be the review the edit minted.
+  review = value;
+  if (previous !== value.reviewId) {
+    if (serato.source?.kind === 'review') serato.setSource(null);
+    live.invalidate(); invalidateAiSource();
+  }
+  renderVariants(); renderReview();
+}
 const listChatApi: ListChatApi | null = (() => {
   const history = api?.aiChatHistory; const reset = api?.aiChatReset;
   const prepare = api?.prepareAiRequest; const run = api?.runAiRequest; const inspect = api?.inspectAiPayload;
-  if (typeof history !== 'function' || typeof reset !== 'function' || typeof prepare !== 'function' || typeof run !== 'function' || typeof inspect !== 'function') return null;
+  const apply = api?.aiChatApply;
+  if (typeof history !== 'function' || typeof reset !== 'function' || typeof prepare !== 'function' || typeof run !== 'function' || typeof inspect !== 'function' || typeof apply !== 'function') return null;
   return {
     aiChatHistory: () => history(), aiChatReset: () => reset(),
     prepareAiRequest: (input) => prepare(input), runAiRequest: (input) => run(input), inspectAiPayload: (input) => inspect(input),
+    aiChatApply: (input) => apply(input),
   };
 })();
 listChat = listChatApi ? new ListChatController(listChatApi, {
   canAct: () => coreAvailable && !gate.busy,
   changed: () => renderListChat(),
+  applied: (value) => applyReview(value),
   perform: (label, task, apply, failure) => perform('ai-chat', label, task, (value, current) => {
     apply(value, current);
     if (!listChat?.error) showStatus('Asistente de lista', listChat?.notice || 'El asistente solo lee la lista: no cambia pistas, orden ni metadatos.');
@@ -560,7 +579,7 @@ if(['reviewDetails','reviewCompare','reviewRemove','reviewReorder'].every(key=>t
     current:()=>review,canAct:()=>coreAvailable&&!gate.busy,changed:()=>renderGeneratedReview(),
     // An edit mints a new reviewId and retires the Live/Serato context, but the plan stays: the
     // alternative cards describe the plan, and choosing one discards the edits after S4 asks.
-    applied:value=>{if(review?.reviewId!==value.reviewId){if(serato.source?.kind==='review')serato.setSource(null);live.invalidate();invalidateAiSource();}review=value;renderVariants();renderReview();},
+    applied:value=>applyReview(value),
     perform:(label,task,apply,failure)=>perform('review-edit',label,task,value=>{apply(value);showStatus('Revisión local actualizada');},false,failure),
   });
   renderGeneratedReview=createGeneratedReviewView(element('generated-review-container'),generatedReview,{canAct:()=>coreAvailable&&!gate.busy});

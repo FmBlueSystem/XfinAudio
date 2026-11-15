@@ -1,5 +1,5 @@
 import { AI_RECIPIENT } from './optional-ai.js';
-import { LIST_CHAT_READ_AGAIN } from './list-chat.js';
+import { LIST_CHAT_PROPOSED, LIST_CHAT_READ_AGAIN, listChatActionText, listChatDropped } from './list-chat.js';
 import type { ListChatController } from './list-chat.js';
 /** S7's exact copy: the empty state and the three questions that only fill the box. */
 export const LIST_CHAT_EMPTY = 'Pregunta cómo mejorar esta lista. El asistente lee las pistas, las transiciones y los avisos.';
@@ -11,8 +11,9 @@ const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
 const roleName: Record<'user' | 'assistant', string> = { user: 'Tú', assistant: 'Asistente' };
 /**
  * The «Asistente de lista» panel for the review screen: the stored conversation oldest first,
- * one question box, «Enviar» and «Nueva conversación», plus the disclosure of the last prepared
- * turn and its read-only exact-body viewer. Every value is set as text, never as markup.
+ * one question box, «Enviar» and «Nueva conversación», the changes the last reply proposes,
+ * plus the disclosure of the last prepared turn and its read-only exact-body viewer. Every
+ * value is set as text, never as markup.
  */
 export function createListChatView(root: HTMLElement, controller: ListChatController, options: { idPrefix?: string } = {}): () => void {
   const prefix = options.idPrefix ?? 'list-chat';
@@ -29,6 +30,13 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
   };
   LIST_CHAT_EXAMPLES.forEach((example, index) => examples.append(action(`example-${index}`, example, () => controller.setRequest(example))));
   const conversation = identify(make('ol', '', 'list-chat-conversation'), 'conversation');
+  // The changes the last reply proposes live under it: one card each, and the count of the
+  // items the core dropped because they could never be applied.
+  const proposed = identify(make('section'), 'proposed');
+  const proposedHeading = identify(make('h4', LIST_CHAT_PROPOSED), 'proposed-heading');
+  const proposedCards = identify(make('ul', '', 'list-chat-actions'), 'proposed-actions');
+  const dropped = identify(make('p', '', 'review-notice'), 'dropped');
+  proposed.append(proposedHeading, proposedCards, dropped);
   const requestField = identify(make('div'), 'request-field');
   const requestLabel = make('label', 'Pregunta sobre esta lista'); requestLabel.setAttribute('for', `${prefix}-request`);
   const request = identify(make('textarea'), 'request'); request.maxLength = 2000; request.rows = 3; request.setAttribute('aria-describedby', `${prefix}-disclosure`);
@@ -52,7 +60,7 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
   payload.append(payloadSummary, payloadBody, payloadHint);
   payload.addEventListener('toggle', () => { if (payload.open) void controller.inspectPayload(); });
   prepared.append(previewRecipient, previewLines, payload);
-  section.append(heading, error, notice, empty, examples, conversation, requestField, actions, pending, disclosure, prepared);
+  section.append(heading, error, notice, empty, examples, conversation, proposed, requestField, actions, pending, disclosure, prepared);
   root.replaceChildren(section);
   const render = (): void => {
     error.hidden = !controller.error; error.textContent = controller.error;
@@ -71,6 +79,18 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
     request.disabled = !controller.requestEditable;
     if (request.value !== controller.request) request.value = controller.request;
     send.disabled = !controller.canSend; reset.disabled = !controller.canReset;
+    proposed.hidden = controller.actions.length === 0 && controller.droppedActions === 0;
+    proposedCards.replaceChildren(...controller.actions.map((item, index) => {
+      const card = make('li', '', 'list-chat-action');
+      card.append(make('p', listChatActionText(item), 'list-chat-action-title'), make('p', item.reason, 'field-hint'));
+      const apply = identify(make('button', 'Aplicar', 'button primary'), `apply-${index}`); apply.type = 'button';
+      apply.disabled = !controller.applyEnabled;
+      apply.setAttribute('aria-label', `Aplicar: ${listChatActionText(item)}`);
+      apply.addEventListener('click', () => { if (!apply.disabled) void controller.apply(item.actionId); });
+      card.append(apply); return card;
+    }));
+    dropped.hidden = controller.droppedActions <= 0;
+    dropped.textContent = controller.droppedActions > 0 ? listChatDropped(controller.droppedActions) : '';
     pending.hidden = !busy; pending.textContent = controller.pendingText;
     prepared.hidden = !controller.preview;
     previewLines.replaceChildren();
