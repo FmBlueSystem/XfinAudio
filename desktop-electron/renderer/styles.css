@@ -118,6 +118,9 @@ h3 { font-weight: 550; font-size: 18px; letter-spacing: -.35px; }
 .review-summary h3 { margin: 9px 0; font-size: 22px; }.review-summary p { color: #909aa7; font-size: 11px; margin: 0; }
 .readiness-pill { color: #b7d7ca; background: #2a4238; padding: 8px 12px; border-radius: 5px; font-size: 10px; }
 .readiness-pill.needs_review { background: #473e2c; color: #d9c59b; }.readiness-pill.blocked { background: #492e32; color: #e3a8b0; }
+/* Transition quality per row: green, amber and red, never colour alone — the label carries it. */
+.transition-quality { white-space: nowrap; }.transition-quality.good { color: #b7d7ca; }.transition-quality.fair { color: #d9c59b; }.transition-quality.weak { color: #e3a8b0; }
+.review-fixes li { margin-top: 6px; }.review-fixes .field-hint { margin: 4px 0; }
 .review-notice { border: 1px solid #594b31; background: #29251e; border-radius: 6px; padding: 14px 18px; margin-bottom: 16px; color: #cbbc9f; font-size: 11px; line-height: 1.7; }
 .review-notice ul { margin: 8px 0 0; padding-left: 19px; }.review-notice.blocker { border-color: #633b42; background: #2c1f24; color: #d4a0a8; }
 /* S4: the discard question is modal, so the review behind it stays exactly as it was. */

@@ -258,3 +258,46 @@ test('an edited review asks before opening a saved playlist and discards only wh
   assert.equal(f.get('review-track-count').textContent,'2 pistas · 4:00','the opened playlist replaces the edited review');
  }finally{f.restore();}
 });
+const third={...tracks[1],id:'c'.repeat(64),title:'c'};
+const thirdTrack=third;
+test('the review table labels every transition and «Qué revisar» gives each pending check its fix',async()=>{
+ const f=await fixture({generatePrep:async()=>detailed({tracks:[...tracks,thirdTrack],transitionScores:[.8,.42],readinessChecks:[
+  {label:'Metadatos requeridos',status:'blocked',detail:'1 pista(s) necesita(n) metadatos de BPM, tonalidad o energía'},
+  {label:'Continuidad de BPM',status:'needs_review',detail:'Salto máximo entre BPM vecinos: 7.50%'},
+  {label:'Pistas repetidas',status:'ready',detail:'Sin pistas repetidas detectadas'}]})});
+ try{
+  await f.generate();
+  const table=text(f.get('review-table'));
+  assert.match(table,/MEZCLA/,'the review table gains the Mezcla column');
+  assert.match(table,/Buena · 80 %/);
+  assert.match(table,/Débil · 42 %/);
+  assert.equal((table.match(/—/g)||[]).length,1,'only the last track has no transition into a next one');
+  const fixes=text(f.get('review-fixes'));
+  assert.match(fixes,/Qué revisar/);
+  assert.match(fixes,/1 pista\(s\) necesita\(n\) metadatos de BPM, tonalidad o energía/);
+  assert.match(fixes,/Completar metadatos/);
+  assert.match(fixes,/Mira la columna Mezcla: reemplaza o mueve una pista de las transiciones débiles\./);
+  assert.doesNotMatch(fixes,/Sin pistas repetidas detectadas/,'a ready check is not a pending fix');
+  f.click('review-fixes-metadata');await settle();
+  assert.equal(document.title,'XfinAudio · Metadatos','the metadata fix opens the metadata route');
+ }finally{f.restore();}
+});
+test('the disabled Live hint names the pending checks instead of the generic text',async()=>{
+ const f=await fixture({generatePrep:async()=>detailed({readiness:'needs_review',transitionScores:[.8],readinessChecks:[{label:'Continuidad de BPM',status:'needs_review',detail:'Salto 7.50%'},{label:'Avisos de transición',status:'needs_review',detail:'1 aviso'}]})});
+ try{
+  await f.generate();
+  assert.equal(f.get('start-live').disabled,true);
+  assert.match(f.get('start-live-hint').textContent,/Continuidad de BPM, Avisos de transición/);
+  assert.doesNotMatch(f.get('start-live-hint').textContent,/avisos de revisión para abrir la guía/);
+ }finally{f.restore();}
+});
+test('a payload without transition scores or checks renders the review exactly as before',async()=>{
+ const f=await fixture({generatePrep:async()=>{const value=detailed({readiness:'needs_review'});delete value.transitionScores;delete value.readinessChecks;return value;}});
+ try{
+  await f.generate();
+  assert.doesNotMatch(text(f.get('review-table')),/MEZCLA/,'no column for an older core');
+  assert.doesNotMatch(text(f.get('review-alerts')),/Qué revisar/,'no fixes section for an older core');
+  assert.equal(f.get('start-live').disabled,true);
+  assert.match(f.get('start-live-hint').textContent,/avisos de revisión para abrir la guía/);
+ }finally{f.restore();}
+});
