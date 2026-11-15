@@ -28,4 +28,5 @@ AI_FIELDS = {
     "ai.apply": {"resultId"},
     "ai.chat.history": set(),
     "ai.chat.reset": set(),
+    "ai.chat.apply": {"actionId"},
 }

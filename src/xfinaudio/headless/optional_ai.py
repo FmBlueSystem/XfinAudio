@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
+from xfinaudio.ai.list_chat import MAX_ACTIONS
 from xfinaudio.ai.nan_client import DEFAULT_ENDPOINT, Transport, request_context
 from xfinaudio.config.settings import AiSettings
+from xfinaudio.headless.ai_actions import apply_action, propose_actions, public_actions
 from xfinaudio.headless.ai_context import AssistContext, build_context
 from xfinaudio.headless.ai_execution import apply_context, execute_context
 from xfinaudio.headless.ai_protocol import AI_FIELDS
@@ -99,6 +101,27 @@ def _serialized_body(context: AssistContext) -> bytes:
     return captured[0]
 
 
+def _parsed_chat_answer(answer: dict[str, Any]) -> bool:
+    """The chat answer may also carry the proposals the parser kept, and nothing else."""
+    actions = answer["actions"]
+    if not isinstance(actions, list) or type(answer["droppedActions"]) is not int or answer["droppedActions"] < 0:
+        return False
+    if len(actions) > MAX_ACTIONS:
+        return False
+    for item in actions:
+        if not isinstance(item, dict) or item.get("type") not in ("replace", "move"):
+            return False
+        expected = {"type", "position", "reason"} if item["type"] == "replace" else {"type", "position", "to", "reason"}
+        if (
+            set(item) != expected
+            or type(item["position"]) is not int
+            or not isinstance(item["reason"], str)
+            or ("to" in item and type(item["to"]) is not int)
+        ):
+            return False
+    return True
+
+
 def _identity(value: Any) -> str:
     try:
         if not isinstance(value, str) or str(UUID(value)) != value:
@@ -177,6 +200,11 @@ class OptionalAI:
                 return self.inspect_payload(params)
             if method in ("ai.chat.history", "ai.chat.reset"):
                 return self._conversation(method)
+            if method == "ai.chat.apply":
+                action_id = params["actionId"]
+                if not isinstance(action_id, str) or not 0 < len(action_id) <= 64:
+                    raise BackendError("invalid_params", "Apply a change by its identity")
+                return apply_action(self.backend, action_id)
             if method == "ai.run":
                 return self._run(params, token, emit)
             result_id = _identity(params["resultId"])
@@ -274,9 +302,11 @@ class OptionalAI:
             self.backend.ai_conversation.reset()
 
     def _conversation(self, method: str) -> dict[str, Any]:
-        """Return or clear the single in-memory conversation; nothing is read or written."""
+        """Return or clear the single in-memory conversation and its pending changes."""
         store = self.backend.ai_conversation
-        return {"conversation": store.reset() if method == "ai.chat.reset" else store.snapshot()}
+        if method == "ai.chat.reset":
+            return {"conversation": store.reset()}
+        return {"conversation": store.snapshot(), "actions": public_actions(self.backend, store.actions())}
 
     def _pending(self, preview_id: Any) -> _Pending:
         if self.preview is None or self.preview.id != _identity(preview_id):
@@ -308,6 +338,8 @@ class OptionalAI:
         try:
             answer = execute_context(context, transport)
             expected = {"surface", "kind", "title", "text", "proposal", "canApply"}
+            if context.surface == "chat":
+                expected |= {"actions", "droppedActions"}
             if (
                 not isinstance(answer, dict)
                 or set(answer) != expected
@@ -318,6 +350,8 @@ class OptionalAI:
                 or answer["canApply"] != (answer["proposal"] is not None)
                 or len(json.dumps(answer, allow_nan=False).encode("utf-8")) > 64 * 1024
             ):
+                raise ValueError
+            if context.surface == "chat" and not _parsed_chat_answer(answer):
                 raise ValueError
             return answer
         except (ValueError, TypeError, KeyError):
@@ -348,23 +382,27 @@ class OptionalAI:
             return cancelled
         if pending.epoch != self._epoch:
             self._stale()
-        self._fresh(pending.reference)
+        context = self._fresh(pending.reference)
         if token.is_cancelled:
             return cancelled
-        # A successful chat turn is the only writer of the in-memory conversation; a
-        # failed, refused or cancelled turn never reaches this point.
+        # A successful chat turn is the only writer of the in-memory conversation and of
+        # the changes the assistant proposed; a failed, refused or cancelled turn never
+        # reaches this point.
+        published = {key: value for key, value in answer.items() if key not in ("actions", "droppedActions")}
         memory: dict[str, Any] = {}
-        if pending.context.surface == "chat":
+        if context.surface == "chat":
             store = self.backend.ai_conversation
-            changed = store.list_changed(pending.context.data["listFingerprint"])
+            changed = store.list_changed(context.data["listFingerprint"])
+            actions, dropped = propose_actions(self.backend, context.selector["reviewId"], answer["actions"])
+            store.record_actions(actions)
             memory = {
-                "conversation": store.record(
-                    pending.context.data["listFingerprint"], pending.context.request, answer["text"]
-                ),
+                "conversation": store.record(context.data["listFingerprint"], context.request, answer["text"]),
                 "listChanged": changed,
+                "actions": public_actions(self.backend, actions),
+                "droppedActions": answer["droppedActions"] + dropped,
             }
         result_id = str(uuid4())
-        self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(answer))
+        self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(published))
         while len(self.results) > 16:
             self.results.pop(next(iter(self.results)))
-        return {"cancelled": False, "result": {"resultId": result_id, **copy.deepcopy(answer), **memory}}
+        return {"cancelled": False, "result": {"resultId": result_id, **copy.deepcopy(published), **memory}}

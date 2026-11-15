@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from xfinaudio.ai.connection_test import PROBE_MESSAGE
-from xfinaudio.ai.list_chat import MAX_CHAT_TRACKS, list_facts, protected_positions
+from xfinaudio.ai.list_chat import MAX_CHAT_TRACKS, list_facts, protected_numbers, protected_positions
 from xfinaudio.ai.privacy import redact_paths
 from xfinaudio.ai.saved_assists import anonymize_saved_request, build_saved_descriptors
 from xfinaudio.application.playlist_improvement import (
@@ -184,13 +184,18 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
                 f"This list has more than {MAX_CHAT_TRACKS} tracks; nothing was prepared for the conversation",
             )
         required = backend.plan.intent.required_paths if backend.plan is not None else []
-        facts = list_facts(recommendation, readiness, protected_positions(recommendation, required))
+        protected = protected_positions(recommendation, required)
+        facts = list_facts(recommendation, readiness, protected)
         conversation = backend.ai_conversation.prompt()
         data.update(
             facts=facts,
             listFingerprint=_fingerprint(facts),
             conversation=conversation,
             firstTurn=backend.ai_conversation.first_turn,
+            # The parser needs the list length and the protected positions to drop
+            # a proposal that could not apply, without ever sending either to the model.
+            trackCount=len(recommendation.ordered_tracks),
+            protectedPositions=protected_numbers(protected),
         )
         revision_data.extend([source.revision, conversation])
         disclosure = (

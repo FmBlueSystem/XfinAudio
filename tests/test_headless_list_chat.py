@@ -99,9 +99,12 @@ def test_chat_run_sends_the_system_message_and_returns_the_whole_conversation(ch
         "canApply",
         "conversation",
         "listChanged",
+        "actions",
+        "droppedActions",
     }
     assert result["surface"] == "chat" and result["kind"] == "chat"
     assert result["text"] == REPLY and result["proposal"] is None and result["canApply"] is False
+    assert result["actions"] == [] and result["droppedActions"] == 0
     assert result["conversation"] == [
         {"role": "user", "text": QUESTION},
         {"role": "assistant", "text": REPLY},
@@ -190,7 +193,7 @@ def test_a_failed_turn_appends_nothing_to_the_conversation(chat_setup, failure, 
         with pytest.raises(BackendError) as error:
             call(facade, "ai.run", params)
         assert error.value.code == code
-    assert history(facade) == {"conversation": []}
+    assert history(facade) == {"conversation": [], "actions": []}
     assert prepare(facade, review)["firstTurn"] is True
 
 
@@ -198,10 +201,11 @@ def test_chat_history_and_reset_are_exact_and_read_only(chat_setup):
     facade, transport, backend, _, _ = chat_setup
     turn(facade, current_review_id(backend))
     assert history(facade) == {
-        "conversation": [{"role": "user", "text": QUESTION}, {"role": "assistant", "text": REPLY}]
+        "conversation": [{"role": "user", "text": QUESTION}, {"role": "assistant", "text": REPLY}],
+        "actions": [],
     }
     assert call(facade, "ai.chat.reset") == {"conversation": []}
-    assert history(facade) == {"conversation": []}
+    assert history(facade) == {"conversation": [], "actions": []}
     assert len(transport.bodies) == 1
     for method, params in [
         ("ai.chat.history", {"conversation": []}),
@@ -242,7 +246,7 @@ def test_anything_that_discards_the_review_clears_the_conversation(chat_setup, d
         backend.execute("playlist.open", {"playlistId": playlist_id})
     else:
         backend.execute("playlist.edit.open", {"playlistId": playlist_id})
-    assert history(facade) == {"conversation": []}
+    assert history(facade) == {"conversation": [], "actions": []}
 
 
 def test_a_change_of_the_ai_settings_clears_the_conversation_and_asks_consent_again(chat_setup):
@@ -255,7 +259,7 @@ def test_a_change_of_the_ai_settings_clears_the_conversation_and_asks_consent_ag
         facade, "ai.settings.update", {"revision": status["revision"], "enabled": True, "autoAuthorize": True}
     )
     assert updated["autoAuthorize"] is True and updated["revision"] != status["revision"]
-    assert history(facade) == {"conversation": []}
+    assert history(facade) == {"conversation": [], "actions": []}
     assert prepare(facade, review)["firstTurn"] is True
     assert len(transport.bodies) == 1
 
@@ -271,7 +275,7 @@ def test_a_change_of_the_ai_credential_clears_the_conversation_and_asks_consent_
     status = call(facade, "ai.status")
     selected = call(facade, "ai.credential.set", {"revision": status["revision"], "path": str(other)})
     assert selected["revision"] != status["revision"] and selected["configured"] is True
-    assert history(facade) == {"conversation": []}
+    assert history(facade) == {"conversation": [], "actions": []}
     assert prepare(facade, review)["firstTurn"] is True
     assert len(transport.bodies) == 1
 
@@ -283,7 +287,10 @@ def test_the_conversation_is_never_written_to_disk_and_a_restart_forgets_it(chat
     facade, _, backend, _, _ = chat_setup
     turn(facade, current_review_id(backend))
     restarted = HeadlessBackend(backend.data_dir)
-    assert call(OptionalAI(restarted, transport=ChatTransport()), "ai.chat.history") == {"conversation": []}
+    assert call(OptionalAI(restarted, transport=ChatTransport()), "ai.chat.history") == {
+        "conversation": [],
+        "actions": [],
+    }
     for path in backend.data_dir.rglob("*"):
         if path.is_file():
             assert QUESTION.encode() not in path.read_bytes()
@@ -331,4 +338,4 @@ def test_the_review_commentary_surface_keeps_its_previous_shape(chat_setup):
     assert set(result) == {"resultId", "surface", "kind", "title", "text", "proposal", "canApply"}
     assert result["surface"] == "review" and result["kind"] == "commentary" and result["canApply"] is False
     assert [message["role"] for message in transport.bodies[0]["messages"]] == ["system", "user"]
-    assert call(facade, "ai.chat.history") == {"conversation": []}
+    assert call(facade, "ai.chat.history") == {"conversation": [], "actions": []}
