@@ -8,7 +8,12 @@ if TYPE_CHECKING:
     from xfinaudio.recommendation.camelot import CamelotKey, parse_camelot_key, score_camelot_transition
     from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls
     from xfinaudio.recommendation.optimizer import SequenceRecommendation, recommend_sequence
-    from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
+    from xfinaudio.recommendation.playlist_service import (
+        PlaylistRecommendation,
+        recommend_playlist,
+        recommendation_extended,
+        rewrite_shortfall_warnings,
+    )
     from xfinaudio.recommendation.prep_copilot import (
         DJSetIntent,
         PrepCopilotPlan,
@@ -62,6 +67,11 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "normalized_bpm_pair": ("xfinaudio.recommendation.scoring", "normalized_bpm_pair"),
     "parse_camelot_key": ("xfinaudio.recommendation.camelot", "parse_camelot_key"),
     "recommend_playlist": ("xfinaudio.recommendation.playlist_service", "recommend_playlist"),
+    "recommendation_extended": ("xfinaudio.recommendation.playlist_service", "recommendation_extended"),
+    "rewrite_shortfall_warnings": (
+        "xfinaudio.recommendation.playlist_service",
+        "rewrite_shortfall_warnings",
+    ),
     "recommend_sequence": ("xfinaudio.recommendation.optimizer", "recommend_sequence"),
     "score_camelot_transition": ("xfinaudio.recommendation.camelot", "score_camelot_transition"),
     "score_transition": ("xfinaudio.recommendation.scoring", "score_transition"),
@@ -95,6 +105,8 @@ __all__ = [
     "parse_camelot_key",
     "recommend_playlist",
     "recommend_sequence",
+    "recommendation_extended",
+    "rewrite_shortfall_warnings",
     "score_camelot_transition",
     "score_transition",
 ]
