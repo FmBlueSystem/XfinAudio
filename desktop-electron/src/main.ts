@@ -162,6 +162,7 @@ async function action(method:string,raw:unknown) {
     case 'runAiRequest':return optionalAi.ask(params.previewId as string);
     case 'aiChatHistory':return run('ai.chat.history');
     case 'aiChatReset':return run('ai.chat.reset');
+    case 'aiChatApply':return run('ai.chat.apply',params);
     case 'applyAiSuggestion':return run('ai.apply',params);
     case 'revealLoudnessBackups':return revealLoudnessBackups(dataDir,filename=>shell.showItemInFolder(filename));
     case 'revealLogs':return revealLogFolder(dataDir,filename=>shell.showItemInFolder(filename));

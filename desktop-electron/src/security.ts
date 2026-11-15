@@ -38,7 +38,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     ...OFFLINE_FIELDS,...REVIEW_CONTROL_FIELDS,
     previewLegacyImport:[],applyLegacyImport:['previewId'],discardLegacyImport:['previewId'],
     getProfileStatus:[],completeProfiles:[],getProfileSettings:[],saveProfileSettings:['revision','spectralCohesion'],
-    getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],aiChatHistory:[],aiChatReset:[],
+    getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],aiChatHistory:[],aiChatReset:[],aiChatApply:['actionId'],
     getLoudnessStatus:[],revealLoudnessBackups:[],revealLogs:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
@@ -174,6 +174,9 @@ function validateAiRequest(method:string,params:Record<string,unknown>):void {
   if(method==='saveAiSettings'&&'autoAuthorize' in params&&typeof params.autoAuthorize!=='boolean')throw new Error('Invalid optional AI setting');
   if(['runAiRequest','inspectAiPayload'].includes(method)&&(typeof params.previewId!=='string'||!uuid.test(params.previewId)))throw new Error('Invalid AI preview');
   if(method==='applyAiSuggestion'&&(typeof params.resultId!=='string'||!uuid.test(params.resultId)))throw new Error('Invalid AI result');
+  // A proposed change is applied by its opaque action id alone; the core owns the position,
+  // the type and the replacement, so the renderer can neither supply nor widen them.
+  if(method==='aiChatApply'&&(typeof params.actionId!=='string'||!uuid.test(params.actionId)))throw new Error('Invalid AI action');
   if(method!=='prepareAiRequest')return;
   const {surface,request,context}=params;
   if(typeof surface!=='string'||!['library','prep','review','chat','saved','editor','metadata','live','connection'].includes(surface)||typeof request!=='string'||request.length>2000||request.includes('\0')||!context||typeof context!=='object'||Array.isArray(context))throw new Error('Invalid AI request');
