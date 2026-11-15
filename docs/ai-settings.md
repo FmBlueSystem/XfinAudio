@@ -24,9 +24,11 @@ The panel displays the effective initial enable/file overrides. **Guardar ajuste
 
 The panel also offers **No volver a preguntar en cada consulta** — persisted automatic authorization, off by default. With it on, an already prepared query is sent without the per-send native confirmation dialog; turn it off in the panel to restore the dialog. Preparing a query still shows its disclosure first, and every other explicit action (connection test, credential changes, save/export) keeps its own confirmation. The native confirm dialog itself offers the same checkbox; ticking it and confirming persists the preference best-effort.
 
+A list conversation asks its own consent once, independently of that setting: the native dialog appears on the first turn of a conversation and later turns of the same conversation are sent without it, because each turn discloses the same class of data. The conversation is kept in memory only. Saving different AI settings or choosing a different credential file starts a new conversation, so consent is asked again; the same applies to **Nueva conversación**, to discarding the generated list and to restarting the app.
+
 ## What is sent
 
-Requested AI actions may send request text and track/set metadata such as titles, artists, genres, BPM, key, energy and transition/readiness summaries. They never send audio files. Dedicated local path fields are omitted; known and recognizable paths, including relative audio-file paths, are redacted from text. Arbitrary free text cannot be guaranteed free of private information, so avoid private details in prompts. The UI shows this disclosure before opt-in. The exact scope varies by action; see [the per-action data table](ai-workflows.md#data-sent-by-each-action). The optional panels start unconsented; changing the recipient resets that consent.
+Requested AI actions may send request text and track/set metadata such as titles, artists, genres, BPM, key, energy and transition/readiness summaries. They never send audio files. The list chat additionally sends your question and the previous turns of that conversation; the conversation is kept in memory only and is never written to disk. Dedicated local path fields are omitted; known and recognizable paths, including relative audio-file paths, are redacted from text. Arbitrary free text cannot be guaranteed free of private information, so avoid private details in prompts. The UI shows this disclosure before opt-in. The exact scope varies by action; see [the per-action data table](ai-workflows.md#data-sent-by-each-action). The optional panels start unconsented; changing the recipient resets that consent.
 
 **Probar conexión** sends only `Reply with OK. XfinAudio connection test.`, plus the selected model name and app identifier, authenticated with the configured credential. No library content is sent. This may consume provider quota. Testing uses the staged configuration and does not save it or enable other AI actions.
 
@@ -72,7 +74,12 @@ presente no demuestra que la clave funcione ni que exista una suscripción váli
    asistencia, lee su contexto y destinatario antes de consentir y solicitar la
    llamada. No se envían archivos de audio. Los paneles requieren renovar el
    consentimiento si cambia el destinatario; habilitar IA en los ajustes no aplica
-   filtros ni guarda playlists.
+   filtros ni guarda playlists. El Asistente de lista pide su propio consentimiento
+   una vez: el diálogo aparece en el primer turno y no se repite en los siguientes
+   de la misma conversación, que se guarda solo en memoria. Guardar otros ajustes de
+   IA o elegir otro archivo de credenciales inicia una conversación nueva y vuelve a
+   pedir consentimiento; también «Nueva conversación», descartar la lista generada
+   o reiniciar la app.
 
 Opcional: la casilla **No volver a preguntar en cada consulta** guarda la
 autorización automática (desactivada por defecto). Activada, una consulta ya
@@ -81,7 +88,9 @@ el panel para recuperarlo. Preparar la consulta sigue mostrando su aviso de dato
 y las demás acciones explícitas (prueba de conexión, cambios de credencial,
 guardar/exportar) conservan sus confirmaciones. El diálogo nativo de confirmación
 ofrece la misma casilla; márcala y confirma para persistir la preferencia de
-forma best-effort.
+forma best-effort. La conversación de la lista no depende de esta casilla: pide
+consentimiento en su primer turno y lo omite en los siguientes de esa conversación,
+porque cada turno envía la misma clase de datos.
 
 La clave del entorno tiene prioridad sobre la del archivo. `XFINAUDIO_AI_ENABLED`
 y `XFINAUDIO_AI_ENV_FILE` pueden establecer preferencias al iniciar;

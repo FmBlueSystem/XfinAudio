@@ -18,6 +18,13 @@ A request already sent may finish after cancellation. Cancellation prevents its
 result from being applied; it cannot recall a request received by the provider.
 A changed library, request, set or relevant constraint invalidates stale results.
 
+A list conversation asks consent once: the native dialog appears on the first turn
+of a conversation and later turns of the same conversation are sent without it,
+because every turn discloses the same class of data. The **No volver a preguntar en
+cada consulta** setting keeps its meaning. A new conversation — **Nueva
+conversación**, a change of the AI settings or of the credential file, or anything
+that discards the generated list — asks consent again.
+
 ## Data sent by each action
 
 | Action | Disclosed provider context |
@@ -25,6 +32,7 @@ A changed library, request, set or relevant constraint invalidates stale results
 | Library | request text and sanitized genre vocabulary; no track list |
 | Create | request and genres; titles only when explicitly selected for that request |
 | Review | ordered track titles, artists, BPM, key and energy, computed transitions, warnings and readiness summaries |
+| List chat | ordered titles, artists, genres, BPM, key, energy and duration per track; every transition with its score, explanations and warnings; readiness status with blockers; protected opening/closing/required positions; the question and the previous turns of the conversation; no file paths or track ids |
 | Editor | request text only; no saved playlist or track list |
 | My Playlists | request with known saved names replaced by temporary IDs, plus anonymous aggregate descriptors; no persistent IDs |
 | Metadata | aggregate track/missing-field counts and count of locked tracks with gaps |
@@ -48,6 +56,12 @@ collections to local search without a provider call.
 - **Review:** engine facts, risks and replacement previews work locally. Optional
   narration receives computed evidence. Treat its text as commentary to verify
   against the visible facts; it cannot apply a replacement or change the set
+- **List chat:** «Asistente de lista» answers questions about the generated list
+  from the same evidence, rebuilt on every turn, so an edit between two turns is
+  what the assistant reads next. The conversation lives in memory only and is
+  never written to disk; it survives list edits and ends with a new conversation,
+  a settings or credential change, a discarded list, or a core restart. Chat text
+  is advice: it cannot remove, move, replace or save anything
 - **My Playlists:** local search and comparisons use saved sets and known metadata.
   Optional AI interprets semantic queries using anonymous set IDs and aggregates;
   the displayed comparison is still computed locally from the selected known sets
@@ -77,6 +91,9 @@ another audio-write path or disable that separately documented behavior.
   aplica al borrador y guarda solo si quieres conservar el cambio
 - Mis playlists: describe el set que buscas o compara dos sets guardados. Si faltan
   duraciones o energía, la comparación lo indica en lugar de rellenar los datos
+- Asistente de lista: «¿Qué transiciones son las más débiles?» o «¿Qué pista
+  quitarías y por qué?». Responde en español leyendo la lista, sus transiciones y
+  sus avisos; pregúntale otra cosa para seguir la misma conversación
 
 ## Privacidad y control en español
 
@@ -89,10 +106,22 @@ puntuaciones y hechos ya calculados.
 
 Crear comparte petición y géneros, con títulos solo si lo eliges para esa petición.
 Revisar puede compartir títulos, artistas, BPM, tonalidad, energía y resúmenes de
-transiciones/validación del set. No asumas que todas las pantallas son anónimas:
+transiciones/validación del set. El Asistente de lista envía además géneros,
+duración, cada transición con su puntuación y avisos, el estado de preparación con
+sus bloqueos, las posiciones protegidas (apertura, cierre, obligatorias), tu
+pregunta y los turnos anteriores de la conversación. Esa conversación se guarda
+solo en memoria: no se escribe en disco, sobrevive a las ediciones de la lista y
+termina con «Nueva conversación», con un cambio de los ajustes o de la credencial,
+con la lista descartada o al cerrar la app. No asumas que todas las pantallas son anónimas:
 revisa su aviso antes de enviar. Nunca se envía audio. Se ocultan rutas conocidas
 o reconocibles, pero el texto libre puede contener información privada que no se
 pueda detectar; no la incluyas.
+
+El consentimiento de la conversación se pide una vez: el diálogo nativo aparece en
+el primer turno y no se repite en los siguientes de la misma conversación, porque
+cada turno envía la misma clase de datos. La opción **No volver a preguntar en cada
+consulta** conserva su significado. Una conversación nueva vuelve a pedir
+consentimiento.
 
 El motor local sigue decidiendo el orden, las restricciones y la disponibilidad.
 En Editor, aplicar una propuesta cambia el borrador; guardar es otra acción.

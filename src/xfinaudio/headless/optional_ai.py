@@ -141,8 +141,9 @@ class OptionalAI:
             if method == "ai.status":
                 return {**self.backend.preferences.get_ai(), "recipient": DEFAULT_ENDPOINT}
             if method == "ai.settings.update":
+                previous_revision = self.backend.preferences.revision
                 result = self.backend.preferences.update_ai(params)
-                self.invalidate()
+                self._configuration_changed(previous_revision)
                 return {**result, "recipient": DEFAULT_ENDPOINT}
             if method == "ai.credential.set":
                 path = params["path"]
@@ -150,8 +151,9 @@ class OptionalAI:
                     if not isinstance(path, str) or not path or len(path) > 4096 or "\x00" in path:
                         raise BackendError("invalid_params", "Choose a bounded credential file path")
                     path = bind_credential(Path(path)).path
+                previous_revision = self.backend.preferences.revision
                 result = self.backend.preferences.set_ai_credential({"revision": params["revision"], "path": path})
-                self.invalidate()
+                self._configuration_changed(previous_revision)
                 return {**result, "recipient": DEFAULT_ENDPOINT}
             if method == "ai.prepare":
                 preview = self._prepare(params)
@@ -260,6 +262,16 @@ class OptionalAI:
         if pending.context.surface == "chat":
             preview["firstTurn"] = bool(pending.context.data["firstTurn"])
         return preview
+
+    def _configuration_changed(self, previous_revision: str) -> None:
+        """End pending consent and, on a real configuration change, the conversation.
+
+        Consent is asked once per conversation, so a changed provider configuration
+        (settings or credential) starts a new conversation and discloses it again.
+        """
+        self.invalidate()
+        if self.backend.preferences.revision != previous_revision:
+            self.backend.ai_conversation.reset()
 
     def _conversation(self, method: str) -> dict[str, Any]:
         """Return or clear the single in-memory conversation; nothing is read or written."""

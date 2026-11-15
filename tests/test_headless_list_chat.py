@@ -245,6 +245,37 @@ def test_anything_that_discards_the_review_clears_the_conversation(chat_setup, d
     assert history(facade) == {"conversation": []}
 
 
+def test_a_change_of_the_ai_settings_clears_the_conversation_and_asks_consent_again(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    review = current_review_id(backend)
+    turn(facade, review)
+    assert history(facade)["conversation"]
+    status = call(facade, "ai.status")
+    updated = call(
+        facade, "ai.settings.update", {"revision": status["revision"], "enabled": True, "autoAuthorize": True}
+    )
+    assert updated["autoAuthorize"] is True and updated["revision"] != status["revision"]
+    assert history(facade) == {"conversation": []}
+    assert prepare(facade, review)["firstTurn"] is True
+    assert len(transport.bodies) == 1
+
+
+def test_a_change_of_the_ai_credential_clears_the_conversation_and_asks_consent_again(chat_setup):
+    facade, transport, backend, _, root = chat_setup
+    review = current_review_id(backend)
+    turn(facade, review)
+    assert history(facade)["conversation"]
+    other = root.resolve().parent / "dummy-other.env"
+    other.write_bytes(b"NAN_API_KEY=synthetic-test-only\n")
+    other.chmod(0o600)
+    status = call(facade, "ai.status")
+    selected = call(facade, "ai.credential.set", {"revision": status["revision"], "path": str(other)})
+    assert selected["revision"] != status["revision"] and selected["configured"] is True
+    assert history(facade) == {"conversation": []}
+    assert prepare(facade, review)["firstTurn"] is True
+    assert len(transport.bodies) == 1
+
+
 def test_the_conversation_is_never_written_to_disk_and_a_restart_forgets_it(chat_setup):
     from xfinaudio.headless.backend import HeadlessBackend
     from xfinaudio.headless.optional_ai import OptionalAI
