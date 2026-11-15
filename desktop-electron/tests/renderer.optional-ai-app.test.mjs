@@ -22,12 +22,17 @@ async function fixture(overrides = {}) {
   const previousDocument = globalThis.document; const previousWindow = globalThis.window; const elements = new Map(); const calls = []; let onStatus; let progress; let statusUnsubscribed = false;
   const nodes = () => [...elements.values()].flatMap(all); const get = (id) => { const dynamic = nodes().find((node) => node.id === id); if (dynamic) return dynamic; if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); };
   const routes = ['library', 'preferences', 'loudness', 'ai', 'prep', 'metadata', 'playlists', 'editor', 'review', 'live', 'serato'].map((route) => { const button = new Element('button'); button.dataset.route = route; return button; });
-  let aiSurface = 'library'; const aiKinds = { library:'filters', prep:'intent', editor:'editor_request', saved:'saved_selection', review:'commentary', metadata:'commentary', live:'commentary', connection:'connection' };
+  let aiSurface = 'library'; const aiKinds = { library:'filters', prep:'intent', editor:'editor_request', saved:'saved_selection', review:'commentary', metadata:'commentary', live:'commentary', connection:'connection', chat:'chat' };
+  // The list assistant keeps one conversation in the core: the bridge exposes the two
+  // no-param methods the chat panel calls, and a chat turn returns the stored list.
+  let chatConversation = [];
   const api = {
+    aiChatHistory: async () => { calls.push(['aiChatHistory']); return { conversation: chatConversation.map((item) => ({ ...item })) }; },
+    aiChatReset: async () => { calls.push(['aiChatReset']); chatConversation = []; return { conversation: [] }; },
     getAiStatus: async () => { calls.push(['aiStatus']); return aiStatus; }, saveAiSettings: async (input) => { calls.push(['aiSave',input]); return {...aiStatus,...input}; }, chooseAiCredential: async () => aiStatus, clearAiCredential: async () => ({...aiStatus,configured:false,credentialLabel:null}),
-    prepareAiRequest: async (input) => { calls.push(['aiPrepare',input]); aiSurface=input.surface; return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,disclosure:['Datos autorizados'],requestPreview:input.request}; },
+    prepareAiRequest: async (input) => { calls.push(['aiPrepare',input]); aiSurface=input.surface; return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,disclosure:['Datos autorizados'],requestPreview:input.request,firstTurn:chatConversation.length===0}; },
     inspectAiPayload: async (input) => { calls.push(['aiPayload',input]); return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,request:'',body:'{"model":"deepseek","messages":[]}',bytes:31,truncated:false}; },
-    runAiRequest: async (input) => { calls.push(['aiRun',input]); return {cancelled:false,result:{resultId:aiUuid,surface:aiSurface,kind:aiKinds[aiSurface],title:'Propuesta IA',text:'Revisión local',proposal:{summary:'sugerencia'},canApply:true}}; },
+    runAiRequest: async (input) => { calls.push(['aiRun',input]); if (aiSurface === 'chat') { chatConversation = [...chatConversation, { role: 'user', text: 'Pregunta de la lista' }, { role: 'assistant', text: 'Pista sugerida: la segunda.' }]; return {cancelled:false,result:{resultId:aiUuid,surface:'chat',kind:'chat',title:'Asistente de lista',text:'Pista sugerida: la segunda.',proposal:null,canApply:false,conversation:chatConversation.map((item)=>({...item})),listChanged:true}}; } return {cancelled:false,result:{resultId:aiUuid,surface:aiSurface,kind:aiKinds[aiSurface],title:'Propuesta IA',text:'Revisión local',proposal:{summary:'sugerencia'},canApply:true}}; },
     applyAiSuggestion: async (input) => { calls.push(['aiApply',input]); return {surface:aiSurface,data:aiSurface==='library'?{filters:{genres:['house']},trackIds:[tracks[0].id]}:aiSurface==='prep'?{targetTrackCount:2,name:'Sesión propuesta',targetMinutes:30}:aiSurface==='editor'?{request:'acorta a 2 temas'}:{action:'compare',playlistIds:['1'],comparison:'Comparación local <img src=x>',names:['Set']}}; },
     getLoudnessStatus: async () => { calls.push(['loudness']); return loudness(); },
     saveLoudnessSettings: async (input) => { calls.push(['saveLoudness', input]); return loudness({ ...input, revision: 'b'.repeat(64) }); },
@@ -463,5 +468,35 @@ test('the editor CTA re-renders with a save-or-discard hint when the AI draft be
     await settle();
     assert.equal(f.get('editor-improve').disabled, true);
     assert.match(f.get('editor-improve-hint').textContent, /cambios de IA/);
+  } finally { f.restore(); }
+});
+
+test('the review screen adds «Asistente de lista» with history on open, a chat turn, a reset and the untouched review commentary', async () => {
+  const f = await fixture();
+  try {
+    await f.generate();
+    assert.equal(f.get('list-chat-container').hidden, false);
+    assert.equal(f.calls.some(([kind]) => kind === 'aiChatHistory'), false);
+    await f.openAi();
+    assert.equal(f.calls.filter(([kind]) => kind === 'aiChatHistory').length, 1);
+    assert.match(text(f.get('list-chat-empty')), /Pregunta cómo mejorar esta lista/);
+    const draft = f.get('list-chat-request');
+    draft.value = '¿Qué transiciones son las más débiles?';
+    draft.dispatchEvent(new Event('input'));
+    f.click('list-chat-send'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], { surface: 'chat', request: '¿Qué transiciones son las más débiles?', context: { reviewId: aiUuid } });
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiRun')[1], { previewId: aiUuid });
+    assert.match(text(f.get('list-chat-conversation')), /Pista sugerida: la segunda\./);
+    assert.equal(f.get('list-chat-request').value, '');
+    assert.equal(f.get('list-chat-pending').hidden, true);
+    f.click('list-chat-reset'); await settle();
+    assert.equal(f.calls.some(([kind]) => kind === 'aiChatReset'), true);
+    assert.equal(f.get('list-chat-conversation').children.length, 0);
+    assert.equal(f.get('list-chat-empty').hidden, false);
+    // The existing review commentary keeps working beside the chat.
+    f.click('optional-ai-prepare'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], { surface: 'review', request: '', context: { reviewId: aiUuid } });
+    await f.navigate('library');
+    assert.equal(f.get('list-chat-container').hidden, true);
   } finally { f.restore(); }
 });

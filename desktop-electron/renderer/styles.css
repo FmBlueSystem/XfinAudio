@@ -252,6 +252,17 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 #optional-ai-settings-link { margin: 12px 0; }
 #optional-ai-config { margin: 14px 0; }
 #optional-ai-container textarea { width: 100%; background: #14161a; color: #e7e9ec; border: 1px solid #373b42; border-radius: 5px; padding: 12px; font: inherit; }
+/* The list assistant: a conversation over the generated list, never a control over it. */
+#list-chat-container { margin-bottom: 18px; }
+.list-chat { padding: 0; }
+.list-chat-conversation { list-style: none; margin: 14px 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.list-chat-turn { border: 1px solid #33373e; border-radius: 6px; padding: 10px 14px; background: #1a1d21; }
+.list-chat-turn.list-chat-user { border-color: #3b4650; }
+.list-chat-role { margin: 0 0 4px; color: #b6bec8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.list-chat-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.list-chat-read-again { margin: 0 0 8px; }
+.list-chat textarea { width: 100%; background: #14161a; color: #e7e9ec; border: 1px solid #373b42; border-radius: 5px; padding: 12px; font: inherit; }
+.list-chat > label { display: block; margin: 14px 0 6px; font-size: 12px; }
 
 .session-resume { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin: 24px 12px 0; }
 
