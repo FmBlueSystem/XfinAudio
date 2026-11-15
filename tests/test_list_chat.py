@@ -31,11 +31,25 @@ def review_of(backend):
     return backend.review.recommendation, backend.review.readiness_report
 
 
-def chat(facts: str, request: str = "¿Qué pista quitarías?", conversation=()):
+def chat(
+    facts: str,
+    request: str = "¿Qué pista quitarías?",
+    conversation=(),
+    *,
+    track_count: int = 4,
+    protected: tuple[int, ...] = (),
+):
     transport = ChatTransport()
     with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
-        reply = list_chat.chat_with_list(facts, request, list(conversation), transport=transport)
-    return reply, transport
+        answer = list_chat.chat_with_list(
+            facts,
+            request,
+            list(conversation),
+            track_count=track_count,
+            protected=protected,
+            transport=transport,
+        )
+    return answer, transport
 
 
 def synthetic_recommendation(backend) -> PlaylistRecommendation:
@@ -200,7 +214,8 @@ def test_chat_with_list_sends_instructions_the_stored_conversation_and_the_new_m
             {"role": "assistant", "text": "La transición 2."},
         ],
     )
-    assert reply == "Sugerencia sintética sobre la lista."
+    assert reply.reply == "Sugerencia sintética sobre la lista."
+    assert reply.actions == () and reply.dropped == 0
     messages = transport.bodies[0]["messages"]
     assert [message["role"] for message in messages] == ["system", "user", "assistant", "user"]
     assert messages[-1]["content"] == "¿Cómo mejoro la curva de energía?"
@@ -232,7 +247,7 @@ def test_chat_rejects_an_empty_or_oversized_reply(setup, reply):
         request_context(enabled=True, key_provider=lambda: "dummy-test-only"),
         pytest.raises(ValueError),
     ):
-        list_chat.chat_with_list(facts, "Pregunta", [], transport=transport)
+        list_chat.chat_with_list(facts, "Pregunta", [], track_count=4, transport=transport)
     assert len(transport.bodies) == 1
 
 
@@ -242,4 +257,126 @@ def test_chat_accepts_a_reply_at_the_limit(setup):
     facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
     transport = ChatTransport("x" * list_chat.MAX_REPLY_CHARS)
     with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
-        assert list_chat.chat_with_list(facts, "Pregunta", [], transport=transport) == "x" * list_chat.MAX_REPLY_CHARS
+        answer = list_chat.chat_with_list(facts, "Pregunta", [], track_count=4, transport=transport)
+    assert answer == list_chat.ChatAnswer("x" * list_chat.MAX_REPLY_CHARS, (), 0)
+
+
+def structured(*items: dict, reply: str = "Propongo dos cambios.") -> str:
+    return json.dumps({"reply": reply, "actions": list(items)})
+
+
+def test_chat_instructions_ask_for_one_json_object_with_the_two_action_shapes(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    _, transport = chat(facts)
+    system = transport.bodies[0]["messages"][0]["content"]
+    assert "JSON" in system
+    assert '"reply"' in system and '"actions"' in system
+    assert '"type": "replace"' in system and '"type": "move"' in system
+    assert "entre 0 y 5" in system
+    assert "200" in system and "N = 4" in system
+
+
+def test_the_answer_is_read_as_a_json_object_with_its_valid_actions(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    transport = ChatTransport(
+        structured(
+            {"type": "replace", "position": 3, "reason": "Baja energía"},
+            {"type": "move", "position": 4, "to": 2, "reason": "Sube antes"},
+        )
+    )
+    with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
+        answer = list_chat.chat_with_list(facts, "Pregunta", [], track_count=4, transport=transport)
+    assert answer.reply == "Propongo dos cambios."
+    assert answer.actions == (
+        list_chat.ProposedAction("replace", 3, None, "Baja energía"),
+        list_chat.ProposedAction("move", 4, 2, "Sube antes"),
+    )
+    assert answer.dropped == 0
+    assert [action.public() for action in answer.actions] == [
+        {"type": "replace", "position": 3, "reason": "Baja energía"},
+        {"type": "move", "position": 4, "to": 2, "reason": "Sube antes"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Quitaría la pista 3 y movería la 4 al cierre.",
+        'Claro: {"reply": "Listo.", "actions": []}',
+        '["no", "es", "un", "objeto"]',
+        json.dumps({"actions": [{"type": "replace", "position": 1, "reason": "motivo"}]}),
+        json.dumps({"reply": 7, "actions": []}),
+    ],
+)
+def test_an_answer_that_is_not_the_structured_object_is_used_whole_as_the_reply(raw):
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.actions == () and answer.dropped == 0
+    assert answer.reply == raw
+
+
+def test_a_fenced_json_object_is_read_as_the_structured_answer():
+    fence = "`" * 3
+    raw = fence + "json\n" + structured({"type": "move", "position": 1, "to": 2, "reason": "motivo"}) + "\n" + fence
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.reply == "Propongo dos cambios."
+    assert answer.actions == (list_chat.ProposedAction("move", 1, 2, "motivo"),)
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        "no es un objeto",
+        {"type": "remove", "position": 1, "reason": "motivo"},
+        {"type": "replace", "position": 1, "reason": "motivo", "to": 2},
+        {"type": "move", "position": 1, "reason": "motivo"},
+        {"type": "move", "position": 1, "to": 2, "reason": "motivo", "path": "/private"},
+        {"type": "replace", "position": 0, "reason": "motivo"},
+        {"type": "replace", "position": 5, "reason": "motivo"},
+        {"type": "replace", "position": "1", "reason": "motivo"},
+        {"type": "replace", "position": True, "reason": "motivo"},
+        {"type": "move", "position": 1, "to": 1, "reason": "motivo"},
+        {"type": "move", "position": 1, "to": 0, "reason": "motivo"},
+        {"type": "move", "position": 1, "to": 5, "reason": "motivo"},
+        {"type": "move", "position": 1, "to": "2", "reason": "motivo"},
+        {"type": "replace", "position": 1, "reason": "x" * 201},
+        {"type": "replace", "position": 1, "reason": 7},
+        {"type": "replace", "position": 3, "reason": "protegida"},
+    ],
+)
+def test_an_action_that_cannot_apply_is_dropped_and_counted(item):
+    answer = list_chat.parse_answer(structured(item), 4, (3,))
+    assert answer.reply == "Propongo dos cambios."
+    assert answer.actions == ()
+    assert answer.dropped == 1
+
+
+def test_a_repeated_position_and_actions_beyond_five_are_dropped_and_counted():
+    repeated = structured(
+        {"type": "replace", "position": 2, "reason": "motivo"},
+        {"type": "move", "position": 2, "to": 1, "reason": "motivo"},
+    )
+    answer = list_chat.parse_answer(repeated, 8)
+    assert answer.actions == (list_chat.ProposedAction("replace", 2, None, "motivo"),)
+    assert answer.dropped == 1
+    six = structured(*({"type": "replace", "position": index, "reason": "motivo"} for index in range(1, 7)))
+    answer = list_chat.parse_answer(six, 8)
+    assert [action.position for action in answer.actions] == [1, 2, 3, 4, 5]
+    assert answer.dropped == 1
+
+
+@pytest.mark.parametrize("reply", ["", "   ", "x" * (list_chat.MAX_REPLY_CHARS + 1)])
+def test_the_reply_rule_still_applies_to_a_structured_reply(setup, reply):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    transport = ChatTransport(structured(reply=reply))
+    with (
+        request_context(enabled=True, key_provider=lambda: "dummy-test-only"),
+        pytest.raises(ValueError),
+    ):
+        list_chat.chat_with_list(facts, "Pregunta", [], track_count=4, transport=transport)
+    assert len(transport.bodies) == 1

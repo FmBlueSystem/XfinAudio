@@ -34,6 +34,7 @@ def execute_context(context: AssistContext, transport: nan_client.Transport) -> 
     proposal = None
     text = ""
     kind = "commentary"
+    extra: dict[str, Any] = {}
     if surface == "library":
         query = interpret_library_query(context.request, data["genres"], transport=transport)
         proposal = query.model_dump(mode="json")
@@ -97,15 +98,23 @@ def execute_context(context: AssistContext, transport: nan_client.Transport) -> 
         text = "La comparación o selección se calculará localmente al aplicar."
     elif surface == "chat":
         # One system message with the current list, the stored conversation and this
-        # turn's question. The reply is prose; a chat turn applies nothing locally.
-        text = chat_with_list(
+        # turn's question. The reply is prose; the changes it proposes are validated
+        # here and applied only when the DJ asks for one.
+        answer = chat_with_list(
             data["facts"],
             context.request,
             data["conversation"],
+            track_count=data["trackCount"],
+            protected=data["protectedPositions"],
             transport=transport,
             timeout=AI_REQUEST_TIMEOUT_SECONDS[surface],
         )
+        text = answer.reply
         kind = "chat"
+        extra = {
+            "actions": [action.public() for action in answer.actions],
+            "droppedActions": answer.dropped,
+        }
     elif surface == "review":
         text = narrate_set(
             data["recommendation"], data["readiness"], transport=transport, timeout=AI_REQUEST_TIMEOUT_SECONDS[surface]
@@ -127,6 +136,7 @@ def execute_context(context: AssistContext, transport: nan_client.Transport) -> 
         "text": text,
         "proposal": proposal,
         "canApply": proposal is not None,
+        **extra,
     }
 
 
