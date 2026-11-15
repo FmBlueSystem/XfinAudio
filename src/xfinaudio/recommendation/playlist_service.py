@@ -67,6 +67,12 @@ COLOR_ROLLOFF_REL_MAX = 0.15
 # asked for. A set that grows has to restate this line, not keep the old one.
 _SHORTFALL_WARNING = re.compile(r"^Track count shortfall: selected (\d+) of (\d+) requested tracks$")
 
+# One growth step prices every allowed (candidate, gap) pair, so an unbounded
+# pool makes a step cost more than the whole set is worth. The stage therefore
+# keeps the candidates nearest in tempo to the list: spread through a real
+# library, the remote tempos are the pairs the beatmatch gate would reject next.
+_EXTEND_BPM_NEIGHBOUR_LIMIT = 150
+
 
 @dataclass(frozen=True)
 class _ColorGate:
@@ -301,12 +307,18 @@ def recommendation_extended(
     excluded_paths: frozenset[str] = frozenset(),
     loudness_band: LoudnessBand | None = None,
 ) -> tuple[PlaylistRecommendation, int]:
-    """Grow the set toward *target_count* through the gaps where tracks mix best.
+    """Grow the set toward *target_count* through the best candidate and gap pairs.
 
-    Each added track goes into the single gap -- between two neighbours, or at
-    either end -- where the sum of its transitions scores best, one track at a
-    time, so a grown set is spread through the list instead of stacked after the
-    last track. The tracks already in the list keep their relative order.
+    One track is added at a time. Every allowed pair of candidate and gap --
+    between two neighbours, or at either end -- is priced, and the step takes the
+    pair whose weakest new transition is the highest; ties go to the pair that
+    moves the sum of transition scores furthest in the list's favour (the new
+    transitions minus the one the pair breaks). Choosing the gap of the first
+    candidate in pool order instead is what let a weak track in after a good
+    opening: it summed well there and ruined the transition it sat on. Only the
+    candidates nearest in tempo to the list are priced at each stage, so a large
+    library costs a bounded step. The tracks already in the list keep their
+    relative order.
 
     ``in_genre_paths`` names the candidates the current variant's genre filter
     allows. Those are used first; only when they run out does the rest of the
@@ -338,18 +350,20 @@ def recommendation_extended(
     )
     recommendation = pool.recommendation
     present = {track.path for track in ordered}
-    in_genre = [
-        candidate for candidate in pool.candidates if in_genre_paths is None or candidate.path in in_genre_paths
-    ]
-    outside = [
+    in_genre_pool = [
         candidate
         for candidate in pool.candidates
-        if in_genre_paths is not None and candidate.path not in in_genre_paths
+        if (in_genre_paths is None or candidate.path in in_genre_paths)
+        and candidate.path not in present
+        and candidate.path not in pool.excluded
+        and candidate.metadata_status == "complete"
     ]
-    eligible = [
+    outside_pool = [
         candidate
-        for candidate in [*in_genre, *outside]
-        if candidate.path not in present
+        for candidate in pool.candidates
+        if in_genre_paths is not None
+        and candidate.path not in in_genre_paths
+        and candidate.path not in present
         and candidate.path not in pool.excluded
         and candidate.metadata_status == "complete"
     ]
@@ -359,23 +373,39 @@ def recommendation_extended(
     )
     duplicate_keys = {key for track in ordered if (key := _duplicate_key(track)) is not None}
     manual_prefix_length = _manual_prefix_length(ordered, pool.controls)
+    cache: dict[tuple, TransitionScore] = {}
     added = 0
     added_outside = 0
-    for candidate in eligible:
-        if len(ordered) >= target_count:
+    while len(ordered) < target_count:
+        placement = _best_extension(
+            _usable(in_genre_pool, present, duplicate_keys),
+            ordered,
+            pool.preserved,
+            manual_prefix_length,
+            scoring_config,
+            cache,
+        )
+        from_outside = False
+        if placement is None:
+            placement = _best_extension(
+                _usable(outside_pool, present, duplicate_keys),
+                ordered,
+                pool.preserved,
+                manual_prefix_length,
+                scoring_config,
+                cache,
+            )
+            from_outside = placement is not None
+        if placement is None:
             break
-        key = _duplicate_key(candidate)
-        if key is not None and key in duplicate_keys:
-            continue
-        gap = _best_gap(candidate, ordered, pool.preserved, manual_prefix_length, scoring_config)
-        if gap is None:
-            continue
+        candidate, gap = placement
         ordered.insert(gap, candidate)
         present.add(candidate.path)
+        key = _duplicate_key(candidate)
         if key is not None:
             duplicate_keys.add(key)
         added += 1
-        if in_genre_paths is not None and candidate.path not in in_genre_paths:
+        if from_outside:
             added_outside += 1
     if not added:
         return recommendation, 0
@@ -538,23 +568,64 @@ def _manual_prefix_length(ordered: list[TrackRecord], controls: DJControls) -> i
     return sum(1 for path in controls.manual_order_paths if path in present)
 
 
-def _best_gap(
-    candidate: TrackRecord,
+def _usable(
+    candidates: list[TrackRecord],
+    present: set[str],
+    duplicate_keys: set[tuple[str, str]],
+) -> list[TrackRecord]:
+    """The candidates still open for a step: absent from the list and not a duplicate.
+
+    The duplicate rule is the engine's own (title and artist), so another version
+    of a song already in the list never joins it, even under a different path.
+    """
+    usable: list[TrackRecord] = []
+    for candidate in candidates:
+        if candidate.path in present:
+            continue
+        key = _duplicate_key(candidate)
+        if key is not None and key in duplicate_keys:
+            continue
+        usable.append(candidate)
+    return usable
+
+
+def _closest_in_bpm(
+    candidates: list[TrackRecord],
+    ordered: list[TrackRecord],
+    limit: int,
+) -> list[TrackRecord]:
+    """Return at most *limit* candidates, those nearest in tempo to the listed tracks.
+
+    Distance is taken to the nearest listed tempo and the candidates' own order
+    breaks ties, so the shortlist is stable for a given library. A candidate
+    without a tempo sorts last instead of being dropped here: the beatmatch gate,
+    not this bound, decides whether it can be mixed in.
+    """
+    tempos = [track.bpm for track in ordered if track.bpm is not None]
+    if len(candidates) <= limit or not tempos:
+        return list(candidates)
+
+    def distance(candidate: TrackRecord) -> float:
+        if candidate.bpm is None:
+            return math.inf
+        return min(abs(candidate.bpm - tempo) for tempo in tempos)
+
+    return sorted(candidates, key=distance)[:limit]
+
+
+def _allowed_gaps(
     ordered: list[TrackRecord],
     preserved: set[str],
     manual_prefix_length: int,
-    scoring_config: TransitionScoringConfig,
-) -> int | None:
-    """Return the allowed gap where *candidate* mixes best, or ``None`` when it fits nowhere.
+) -> list[tuple[int, TrackRecord | None, TrackRecord | None]]:
+    """Every gap a new track may fill, as ``(gap, left, right)``.
 
     A gap is the slot before index ``gap``; ``len(ordered)`` is the end of the
-    list. Nothing goes before a protected opening track, after a protected
-    closing track or inside the manual prefix, and a candidate the DJ could not
-    beatmatch into a gap is not a candidate for it.
+    list, where the right neighbour is ``None``. Nothing goes before a protected
+    opening track, after a protected closing track or inside the manual prefix.
     """
     length = len(ordered)
-    best_gap: int | None = None
-    best_fit: float | None = None
+    gaps: list[tuple[int, TrackRecord | None, TrackRecord | None]] = []
     for gap in range(length + 1):
         if gap == 0 and ordered and ordered[0].path in preserved:
             continue
@@ -562,14 +633,65 @@ def _best_gap(
             continue
         if 0 < gap < manual_prefix_length:
             continue
-        left = ordered[gap - 1] if gap > 0 else None
-        right = ordered[gap] if gap < length else None
-        if not _beats_neighbours(candidate, (left, right)):
-            continue
-        fit = _slot_fit(candidate, left, right, scoring_config)
-        if best_fit is None or fit > best_fit:
-            best_gap, best_fit = gap, fit
-    return best_gap
+        gaps.append((gap, ordered[gap - 1] if gap > 0 else None, ordered[gap] if gap < length else None))
+    return gaps
+
+
+def _transition_score(
+    left: TrackRecord,
+    right: TrackRecord,
+    scoring_config: TransitionScoringConfig,
+    cache: dict[tuple, TransitionScore],
+) -> float:
+    """Price one adjacency the way the rest of this edit prices it, memoized per call."""
+    return score_transition(
+        left,
+        right,
+        weights=scoring_config.weights,
+        config=scoring_config,
+        cache=cache,
+    ).total_score
+
+
+def _best_extension(
+    candidates: list[TrackRecord],
+    ordered: list[TrackRecord],
+    preserved: set[str],
+    manual_prefix_length: int,
+    scoring_config: TransitionScoringConfig,
+    cache: dict[tuple, TransitionScore],
+) -> tuple[TrackRecord, int] | None:
+    """Return the candidate and gap whose weakest new transition is the best.
+
+    Every allowed pair is priced, not the best gap of the first candidate in the
+    pool: a candidate can sum well into a gap while ruining the transition it
+    sits on, and a pair that keeps both of its own transitions strong is the
+    better edit. Ties go to the pair that moves the list's transition sum the
+    most in its favour -- the new transitions minus the one it breaks. ``None``
+    when no candidate fits any allowed gap.
+    """
+    gaps = _allowed_gaps(ordered, preserved, manual_prefix_length)
+    broken = {
+        gap: _transition_score(left, right, scoring_config, cache)
+        for gap, left, right in gaps
+        if left is not None and right is not None
+    }
+    best: tuple[tuple[float, float], TrackRecord, int] | None = None
+    for candidate in _closest_in_bpm(candidates, ordered, _EXTEND_BPM_NEIGHBOUR_LIMIT):
+        for gap, left, right in gaps:
+            if not _beats_neighbours(candidate, (left, right)):
+                continue
+            new: list[float] = []
+            if left is not None:
+                new.append(_transition_score(left, candidate, scoring_config, cache))
+            if right is not None:
+                new.append(_transition_score(candidate, right, scoring_config, cache))
+            key = (min(new), sum(new) - broken.get(gap, 0.0))
+            if best is None or key > best[0]:
+                best = (key, candidate, gap)
+    if best is None:
+        return None
+    return best[1], best[2]
 
 
 def recommend_playlist(

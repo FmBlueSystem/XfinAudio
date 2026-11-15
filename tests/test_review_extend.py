@@ -11,6 +11,14 @@ from tests.test_headless_prep_parity import identity, seeded
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.common import BackendError
 from xfinaudio.library.duplicate_grouping import playlist_duplicate_group_key
+from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.playlist_service import (
+    PlaylistRecommendation,
+    recommend_playlist,
+    recommendation_extended,
+    recommendation_reordered,
+)
+from xfinaudio.recommendation.scoring import TransitionScoringConfig, score_transition
 
 
 def generated(tmp_path: Path, count: int = 10) -> tuple[HeadlessBackend, list, dict]:
@@ -24,6 +32,32 @@ def ids(result: dict) -> list[str]:
 
 def extended(backend: HeadlessBackend, result: dict, target: int) -> dict:
     return backend.execute("review.extend", {"reviewId": result["reviewId"], "targetTrackCount": target})
+
+
+def engine_track(path: str, *, bpm: float, key: str, energy: int) -> TrackRecord:
+    return TrackRecord(
+        path=path,
+        title=Path(path).stem,
+        artist="Artist",
+        bpm=bpm,
+        camelot_key=key,
+        energy_level=energy,
+        genre="House",
+        tags=["Peak"],
+        metadata_status="complete",
+        duration=240,
+    )
+
+
+def pinned(*tracks: TrackRecord) -> PlaylistRecommendation:
+    """A generated list pinned to *tracks*' order, so its scores describe that order."""
+    return recommendation_reordered(recommend_playlist(list(tracks), "build"), [track.path for track in tracks])
+
+
+def scored(recommendation: PlaylistRecommendation, left: TrackRecord, right: TrackRecord) -> float:
+    """The transition score the engine would price for *left* into *right*."""
+    config = TransitionScoringConfig(weights=recommendation.strategy.weights)
+    return score_transition(left, right, weights=config.weights, config=config).total_score
 
 
 def stored_backend(backend: HeadlessBackend) -> HeadlessBackend:
@@ -202,6 +236,95 @@ def test_the_shortfall_warning_follows_the_new_length(tmp_path: Path) -> None:
     assert to_eight["extended"] == {"requested": 1, "added": 1, "outsideGenre": 1}
     assert not any("Track count shortfall" in warning for warning in to_eight["warnings"])
     assert not any("Track count shortfall" in warning for warning in backend.review.recommendation.warnings)
+
+
+def test_a_good_opening_transition_is_kept_because_the_best_pair_wins() -> None:
+    """Taking the pool in order broke a good transition for a worse one.
+
+    The first candidate mixes well with the opening but badly with the track
+    after it, so the pair it would form between them is the set's weakest while
+    its summed score there is the highest it can reach. The second candidate
+    fits the end of the list far better than anything the first can offer, so
+    the best pair is the tail one and the opening transition must survive.
+    """
+    opening = engine_track("/opening.flac", bpm=120.0, key="8A", energy=5)
+    middle = engine_track("/middle.flac", bpm=121.0, key="9A", energy=6)
+    closing = engine_track("/closing.flac", bpm=122.0, key="10A", energy=7)
+    recommendation = pinned(opening, middle, closing)
+    good = recommendation.transition_scores[0].total_score
+    assert good > 0.85
+    opener = engine_track("/opener.flac", bpm=118.0, key="7B", energy=5)
+    tail = engine_track("/tail.flac", bpm=121.0, key="10A", energy=7)
+
+    grown, outside_genre = recommendation_extended(recommendation, [opener, tail], 4)
+
+    paths = [track.path for track in grown.ordered_tracks]
+    assert paths == ["/opening.flac", "/middle.flac", "/closing.flac", "/tail.flac"]
+    assert outside_genre == 0
+    # The opening transition is untouched: neither replaced nor reordered.
+    assert grown.transition_scores[0].total_score == good
+    assert (grown.transition_scores[0].left_path, grown.transition_scores[0].right_path) == (
+        "/opening.flac",
+        "/middle.flac",
+    )
+    # And the chosen pair is the best one the pool offers, by weakest new transition.
+    pairs = {
+        ("opener", "start"): scored(recommendation, opener, opening),
+        ("opener", "opening-middle"): min(
+            scored(recommendation, opening, opener), scored(recommendation, opener, middle)
+        ),
+        ("tail", "middle-closing"): min(scored(recommendation, middle, tail), scored(recommendation, tail, closing)),
+        ("tail", "end"): scored(recommendation, closing, tail),
+    }
+    assert pairs[("tail", "end")] == max(pairs.values())
+    # Priced into the opening gap, the first candidate would replace that good
+    # transition with a weaker pair of its own.
+    assert pairs[("opener", "opening-middle")] < good
+
+
+def test_a_tie_on_the_weakest_new_transition_goes_to_the_better_score_sum() -> None:
+    """Two pairs tie on their weakest new transition, so the sum has to decide."""
+    opening = engine_track("/opening.flac", bpm=120.0, key="8A", energy=5)
+    middle = engine_track("/middle.flac", bpm=121.0, key="9A", energy=6)
+    closing = engine_track("/closing.flac", bpm=118.0, key="1A", energy=4)
+    recommendation = pinned(opening, middle, closing)
+    # Both pairs bottom out at the same score: `spread` between the middle and
+    # the closing, `tail` after the closing. `spread` adds two transitions and
+    # breaks a weak one, so it moves the sum further in the list's favour.
+    spread = engine_track("/spread.flac", bpm=121.0, key="11A", energy=4)
+    tail = engine_track("/tail.flac", bpm=118.0, key="3A", energy=6)
+    assert scored(recommendation, middle, spread) == scored(recommendation, closing, tail)
+
+    grown, _ = recommendation_extended(recommendation, [tail, spread], 4)
+
+    assert [track.path for track in grown.ordered_tracks] == [
+        "/opening.flac",
+        "/middle.flac",
+        "/spread.flac",
+        "/closing.flac",
+    ]
+
+
+def test_at_most_the_150_candidates_closest_in_bpm_are_considered() -> None:
+    """The stage is bounded by tempo distance, so a crowded library stays cheap."""
+    opening = engine_track("/opening.flac", bpm=120.0, key="8A", energy=5)
+    middle = engine_track("/middle.flac", bpm=121.0, key="9A", energy=6)
+    closing = engine_track("/closing.flac", bpm=122.0, key="10A", energy=7)
+    recommendation = pinned(opening, middle, closing)
+    # A near-perfect match whose tempo is the farthest from the list: it would
+    # win the first step outright, but it is the 151st nearest tempo, so the
+    # bounded stage never prices it.
+    crowd = [engine_track(f"/crowd{index}.flac", bpm=121.0, key="7B", energy=1) for index in range(150)]
+    distant = engine_track("/distant.flac", bpm=123.5, key="8A", energy=5)
+
+    grown, _ = recommendation_extended(recommendation, [distant, *crowd], 4)
+
+    assert [track.path for track in grown.ordered_tracks] == [
+        "/crowd0.flac",
+        "/opening.flac",
+        "/middle.flac",
+        "/closing.flac",
+    ]
 
 
 def test_a_restart_recovers_the_grown_list(tmp_path: Path) -> None:
