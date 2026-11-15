@@ -1,13 +1,17 @@
 import { errorCode, userErrorMessage } from './errors.js';
 export const AI_RECIPIENT = 'https://api.nan.builders/v1/chat/completions';
 export const AI_CONNECTION_REQUEST = 'Reply with OK. XfinAudio connection test.';
-export type AiSurface = 'library' | 'prep' | 'review' | 'saved' | 'editor' | 'metadata' | 'live' | 'connection';
+export type AiSurface = 'library' | 'prep' | 'review' | 'saved' | 'editor' | 'metadata' | 'live' | 'connection' | 'chat';
 export type AiContext = Record<string, string | number | boolean | string[]>;
 export interface AiStatus { revision: string; enabled: boolean; autoAuthorize: boolean; provider: 'nan'; credentialLabel: string | null; configured: boolean; recipient: typeof AI_RECIPIENT; }
-export interface AiPreview { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; disclosure: string[]; requestPreview: string; }
+export interface AiPreview { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; disclosure: string[]; requestPreview: string; firstTurn?: boolean; }
 /** The exact retained provider body for one current preview: read-only, never sent by inspecting it. */
 export interface AiPayload { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; request: string; body: string; bytes: number; truncated: boolean; }
-export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; }
+/** One stored turn of the review conversation; the core keeps it in memory and never writes it. */
+export interface AiChatMessage { role: 'user' | 'assistant'; text: string; }
+/** The whole stored conversation, oldest first: the answer of ai.chat.history and ai.chat.reset. */
+export interface AiChatHistory { conversation: AiChatMessage[]; }
+export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection' | 'chat'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; conversation?: AiChatMessage[]; listChanged?: boolean; }
 export interface OptionalAiApi {
   getAiStatus(): Promise<AiStatus>;
   saveAiSettings(input: { revision: string; enabled: boolean; autoAuthorize: boolean }): Promise<AiStatus>;
@@ -23,7 +27,7 @@ export interface OptionalAiHost {
   /** Only ask is cancellable; call cancelPending before the global cancel API, invalidate on disconnect. */
   perform<T>(label: string, task: () => Promise<T>, apply: (value: T, currentRoute: boolean) => void, failure: (error: unknown) => void): Promise<void>;
 }
-const kinds: Record<AiSurface, AiResult['kind']> = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection' };
+const kinds: Record<AiSurface, AiResult['kind']> = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection', chat: 'chat' };
 const editable = new Set<AiSurface>(['library', 'prep', 'editor', 'saved']);
 const JSON_LIMIT = 32000;
 // The retained body is the provider's real request, bounded by the core's outbound 64 KiB cap.
@@ -74,6 +78,8 @@ function contextCopy(surface: AiSurface, context: AiContext): AiContext {
   const keys = Object.keys(context).sort().join(',');
   if (['library', 'prep', 'metadata', 'connection'].includes(surface)) { if (keys) bad(); return {}; }
   if (surface === 'review') { if (keys !== 'reviewId' || !uuid(context.reviewId)) bad(); return { reviewId: context.reviewId }; }
+  // The chat selector is exactly the current generated review, the same authority the review commentary reads.
+  if (surface === 'chat') { if (keys !== 'reviewId' || !uuid(context.reviewId)) bad(); return { reviewId: context.reviewId }; }
   if (surface === 'editor') {
     if (keys === 'editId') { if (!uuid(context.editId)) bad(); return { editId: context.editId }; }
     // Exact improvement selector only: a partial shape is refused rather than guessed.
@@ -105,6 +111,8 @@ const errors: Record<string, string> = {
   ai_context_too_large: 'El contexto supera el límite de esta consulta. Reduce la selección antes de continuar.',
   invalid_improvement: 'La propuesta de la IA no coincide con la playlist actual (pistas fuera de alcance, duplicadas o desactualizadas). Revisa el borrador y prepara la solicitud de nuevo.',
 };
+/** The Spanish copy for a failed AI operation: the AI codes first, then the shared catalogue. */
+export function aiErrorMessage(error: unknown): string { return errors[errorCode(error) ?? ''] ?? userErrorMessage(error); }
 export class OptionalAiController {
   private api: OptionalAiApi; private host: OptionalAiHost; private base: AiStatus | null = null; private draft: AiStatus | null = null;
   private context: AiContext | null = null; private identity = ''; private localRevision: string | number = ''; private generation = 0; private conflict = false; private appliedId = '';
@@ -212,7 +220,7 @@ export class OptionalAiController {
   private fail(error: unknown): void {
     const code = errorCode(error);
     if (code === 'stale_settings') { this.conflict = true; this.reset(); this.error = 'Los ajustes cambiaron. Tu borrador se conserva; descarta los cambios y actualiza antes de guardar.'; }
-    else { this.error = errors[code ?? ''] ?? userErrorMessage(error); if (['stale_ai', 'stale_credential', 'ai_disabled', 'ai_unconfigured'].includes(code ?? '')) this.reset(); }
+    else { this.error = aiErrorMessage(error); if (['stale_ai', 'stale_credential', 'ai_disabled', 'ai_unconfigured'].includes(code ?? '')) this.reset(); }
     this.notify();
   }
   private async perform<T>(kind: NonNullable<OptionalAiController['pending']>, label: string, task: () => Promise<T>, apply: (value: T) => void): Promise<void> {

@@ -3,7 +3,7 @@ import type { AiSurface, OptionalAiController } from './optional-ai.js';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
 };
-const surfaceNames: Record<AiSurface, string> = { library: 'Biblioteca', prep: 'Preparación', review: 'Revisión', saved: 'Playlists guardadas', editor: 'Editor', metadata: 'Metadatos', live: 'Live', connection: 'Prueba de conexión' };
+const surfaceNames: Record<AiSurface, string> = { library: 'Biblioteca', prep: 'Preparación', review: 'Revisión', saved: 'Playlists guardadas', editor: 'Editor', metadata: 'Metadatos', live: 'Live', connection: 'Prueba de conexión', chat: 'Asistente de lista' };
 const surfaceDisclosure: Record<AiSurface, string> = {
   library: 'Se comparte la petición y el vocabulario de géneros para proponer filtros locales.',
   prep: 'Se comparte la petición y el vocabulario de géneros y estrategias. La selección y el orden se deciden con los motores locales.',
@@ -13,6 +13,7 @@ const surfaceDisclosure: Record<AiSurface, string> = {
   metadata: 'La explicación usa hechos y carencias de metadatos calculados localmente. No modifica etiquetas.',
   live: 'La explicación usa opciones y puntuaciones ya calculadas localmente. No cambia el orden, las marcas ni la reproducción.',
   connection: 'Prueba sintética sin datos de la biblioteca. Es una consulta explícita al proveedor y puede consumir cuota.',
+  chat: 'La conversación comparte títulos, artistas y metadatos de la lista, sus transiciones, la preparación y los avisos. Nunca rutas de archivo ni identificadores de pista; la lista solo se lee.',
 };
 // The improvement selector is a different authority than the legacy editor request: it
 // shares real titles, artists, and bounded metadata, and optionally a replacement pool.

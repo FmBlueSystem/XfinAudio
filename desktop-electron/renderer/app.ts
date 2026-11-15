@@ -20,6 +20,9 @@ import type {ProfileSettingsApi} from './profile-settings.js';
 import { OptionalAiController } from './optional-ai.js';
 import type { OptionalAiApi, AiSurface, AiContext } from './optional-ai.js';
 import { createOptionalAiView } from './optional-ai-view.js';
+import { ListChatController } from './list-chat.js';
+import type { ListChatApi } from './list-chat.js';
+import { createListChatView } from './list-chat-view.js';
 import { PreferencesController } from './preferences.js';
 import { LoudnessController } from './loudness.js';
 import type { LoudnessApi } from './loudness.js';
@@ -46,7 +49,7 @@ import { createPlayer } from './player.js';
 import { createTrackSearchView } from './track-search-view.js';
 
 type Route = ExistingRoute | 'preferences' | 'loudness' | 'ai';
-type AppApi = XfinApi & LegacyImportApi & GeneratedReviewApi & PrepSettingsApi & OfflineBrowseApi & ProfilesApi & ProfileSettingsApi & PreferencesApi & LoudnessApi & OptionalAiApi & { getLibraryStatus(): Promise<LibraryStatus>; rescanLibrary(): Promise<LibraryResult>; onLibraryStatus(callback: (status: LibraryStatus) => void): () => void; };
+type AppApi = XfinApi & LegacyImportApi & GeneratedReviewApi & PrepSettingsApi & OfflineBrowseApi & ProfilesApi & ProfileSettingsApi & PreferencesApi & LoudnessApi & OptionalAiApi & Partial<ListChatApi> & { getLibraryStatus(): Promise<LibraryStatus>; rescanLibrary(): Promise<LibraryResult>; onLibraryStatus(callback: (status: LibraryStatus) => void): () => void; };
 declare global { interface Window { xfin: AppApi; } }
 const api = window.xfin;
 let coreAvailable = Boolean(api);
@@ -163,6 +166,8 @@ let loudnessDirty = false;
 let aiDirty = false;
 let ai: OptionalAiController | undefined;
 let renderAi = (): void => {};
+let listChat: ListChatController | undefined;
+let renderListChat = (): void => {};
 let aiContextKey = '';
 let deferredAiApply: (() => void) | null = null;
 let aiLibraryFilter: Set<string> | null = null;
@@ -351,6 +356,28 @@ ai = new OptionalAiController(api, {
 });
 renderAi = createOptionalAiView(element('optional-ai-container'), ai, { canAct: () => coreAvailable && !gate.busy && aiAvailable(), busy: () => coreAvailable && gate.busy, openSettings: () => {navigate('ai');revealControl(element('optional-ai-enabled'));} });
 renderAi();
+// The list assistant is a second panel over the review screen: it reads the same generated
+// list, keeps its own conversation and never changes the selection. Its two bridge methods
+// are optional until the host ships them, so the panel stays hidden instead of half-working.
+const listChatApi: ListChatApi | null = (() => {
+  const history = api?.aiChatHistory; const reset = api?.aiChatReset;
+  const prepare = api?.prepareAiRequest; const run = api?.runAiRequest; const inspect = api?.inspectAiPayload;
+  if (typeof history !== 'function' || typeof reset !== 'function' || typeof prepare !== 'function' || typeof run !== 'function' || typeof inspect !== 'function') return null;
+  return {
+    aiChatHistory: () => history(), aiChatReset: () => reset(),
+    prepareAiRequest: (input) => prepare(input), runAiRequest: (input) => run(input), inspectAiPayload: (input) => inspect(input),
+  };
+})();
+listChat = listChatApi ? new ListChatController(listChatApi, {
+  canAct: () => coreAvailable && !gate.busy,
+  changed: () => renderListChat(),
+  perform: (label, task, apply, failure) => perform('ai-chat', label, task, (value, current) => {
+    apply(value, current);
+    if (!listChat?.error) showStatus('Asistente de lista', listChat?.notice || 'El asistente solo lee la lista: no cambia pistas, orden ni metadatos.');
+  }, false, failure),
+}) : undefined;
+if (listChat) renderListChat = createListChatView(element('list-chat-container'), listChat, { idPrefix: 'list-chat' });
+else element('list-chat-container').hidden = true;
 function invalidateAiSource(): void { aiContextKey = ''; deferredAiApply = null; ai?.invalidate(); }
 function prepFields(): PrepFields {
   const value = (id: string): string => element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value;
@@ -431,6 +458,12 @@ function syncAiContext(): void {
     revision = [libraryGeneration, playlists.map((item) => [item.id, item.name, item.trackCount, item.createdAt]), [...aiSavedScope]];
   } else if (route === 'ai') { surface = 'connection'; revision = 'synthetic'; }
   panel.hidden = !aiAvailable() || !surface;
+  // The chat belongs to the review screen only: it reads this generated list and speaks about it.
+  const chatPanel = element('list-chat-container');
+  const chatReview = Boolean(listChat) && route === 'review' && Boolean(review?.reviewId);
+  chatPanel.hidden = !chatReview;
+  listChat?.setReview(chatReview ? review?.reviewId ?? null : null);
+  if (chatReview) { renderListChat(); loadChatIfOpen(); }
   element('context-ai').hidden = panel.hidden || route === 'ai';
   element('ai-panel-summary').textContent = route === 'ai' ? 'Configuración y prueba de IA' : `Ayuda IA · ${titles[route]}${aiDirty ? ' · ajustes sin guardar' : ''}`;
   if (!coreAvailable) return;
@@ -446,6 +479,12 @@ function syncAiContext(): void {
 function loadAiIfOpen(): boolean {
   if (!ai || !coreAvailable || gate.busy || !aiAvailable() || ai.snapshot || ai.pending || ai.dirty || element('ai-panel').hidden || !element<HTMLDetailsElement>('ai-panel').open) return false;
   void ai.load(); return true;
+}
+/** The chat panel reads the stored conversation the first time it is opened on the review screen. */
+function loadChatIfOpen(): boolean {
+  if (!listChat || !coreAvailable || gate.busy || !listChat.reviewId || listChat.pending || listChat.loaded) return false;
+  if (element('ai-panel').hidden || !element<HTMLDetailsElement>('ai-panel').open) return false;
+  void listChat.load(); return true;
 }
 function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => void {
   const invalid = (): never => { throw Object.assign(new Error('Invalid local suggestion'), { code: 'invalid_ai_response' }); };
@@ -666,6 +705,8 @@ function continueIdleWork(kind: string): void {
   if (route === 'preferences' && kind !== 'preferences' && !preferences.snapshot && !preferences.pending && preferencesAvailable()) { void preferences.load(); return; }
   if (route === 'loudness' && kind !== 'loudness-settings' && kind !== 'loudness' && !loudness.statusFresh && !loudness.dirty && !loudness.pending && loudnessAvailable()) { void loudness.load(); return; }
   if (kind !== 'ai-settings' && kind !== 'ai' && kind !== 'ai-apply' && loadAiIfOpen()) return;
+  // A chat load that lost the gate to another read starts as soon as the app is idle again.
+  if (loadChatIfOpen()) return;
   if (kind.startsWith('ai')||kind==='offline') return;
   if (route === 'playlists' && kind !== 'playlists') void loadPlaylists();
 }
@@ -791,6 +832,7 @@ function navigate(next: Route, load = true, rememberOrigin = true, preservePrevi
   if (next === 'metadata' && load && !metadataReport && readyToRead()) void loadMetadata();
   if (next === 'playlists' && load && readyToRead()) void loadPlaylists();
   if (load) loadAiIfOpen();
+  if (load) loadChatIfOpen();
   if (deferredReads.length) explainDeferredRead(deferredReads[0]);
 }
 /** An exclusive task owns the core, so a read-only screen cannot refresh yet. Keep naming
@@ -1238,7 +1280,7 @@ function openRecoveredReview(): void {
   revealControl(content);
   content.scrollIntoView?.({ block: 'start' });
 }
-element('context-ai').addEventListener('click', () => { const panel=element<HTMLDetailsElement>('ai-panel'); if(panel.hidden)return;panel.open=true;loadAiIfOpen();const content=element('optional-ai-container');content.tabIndex=-1;revealControl(content);content.scrollIntoView?.({block:'start',behavior:'auto'}); });
+element('context-ai').addEventListener('click', () => { const panel=element<HTMLDetailsElement>('ai-panel'); if(panel.hidden)return;panel.open=true;loadAiIfOpen();loadChatIfOpen();const content=element('optional-ai-container');content.tabIndex=-1;revealControl(content);content.scrollIntoView?.({block:'start',behavior:'auto'}); });
 element('context-status-open').addEventListener('click', () => {navigate('library',false);element<HTMLDetailsElement>('library-tools').open=true;revealControl(element('choose-library'));});
 element('tool-back').addEventListener('click', () => {
   const trigger=toolTriggers.get(route); navigate(toolOrigins.back(route) as Route, false, false);
@@ -1255,7 +1297,7 @@ element('library-retry').addEventListener('click', retryLibraryBootstrap);
 element('library-search').addEventListener('input', renderLibrary);
 element('library-show-more').addEventListener('click', () => { libraryVisibleLimit += LIBRARY_WINDOW; renderLibrary(); });
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
-element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
+element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); loadChatIfOpen(); });
 for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{prepFormEdited=true;if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
 for (const id of ['name','count','strategy','minutes','role','genre','end','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
   event.preventDefault(); const input=element<HTMLInputElement>(`prep-${id}`);
