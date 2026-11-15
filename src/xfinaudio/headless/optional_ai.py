@@ -23,6 +23,7 @@ from xfinaudio.headless.ai_transport import (
     bind_credential,
     provider_request,
 )
+from xfinaudio.headless.chat_log import ChatLog, chat_log_enabled
 from xfinaudio.headless.common import BackendError
 from xfinaudio.library.scan_service import ScanCancellationToken
 
@@ -106,6 +107,14 @@ def _parsed_chat_answer(answer: dict[str, Any]) -> bool:
     actions = answer["actions"]
     if not isinstance(actions, list) or type(answer["droppedActions"]) is not int or answer["droppedActions"] < 0:
         return False
+    if not isinstance(answer["rawText"], str):
+        return False
+    dropped = answer["droppedItems"]
+    if not isinstance(dropped, list) or answer["droppedActions"] < len(dropped):
+        return False
+    for item in dropped:
+        if not isinstance(item, dict) or set(item) != {"raw", "reason"} or not isinstance(item["reason"], str):
+            return False
     if len(actions) > MAX_ACTIONS:
         return False
     for item in actions:
@@ -131,12 +140,27 @@ def _identity(value: Any) -> str:
         raise BackendError("invalid_params", "Invalid assistance identity") from None
 
 
+def _published(answer: dict[str, Any]) -> dict[str, Any]:
+    """The part of one answer the DJ receives; the log diagnostics stay out of the ceiling."""
+    return {key: value for key, value in answer.items() if key not in _DIAGNOSTIC_FIELDS}
+
+
+#: The fields one chat turn carries for the opt-in log only; never published to the DJ.
+_DIAGNOSTIC_FIELDS = ("actions", "droppedActions", "droppedItems", "rawText")
+
+
 class OptionalAI:
     def __init__(self, backend: HeadlessBackend, transport: Transport | None = None) -> None:
         self.backend, self.transport = backend, transport
         self.preview: _Pending | None = None
         self.results: dict[str, _Completed] = {}
+        # Off unless the DJ started the core with XFINAUDIO_CHAT_LOG=1.
+        self.chat_log = ChatLog(backend.data_dir)
         self._epoch = 0
+
+    def _log(self, event: str, **fields: Any) -> None:
+        """Write one diagnostic line when the DJ opted in; a failure never fails the turn."""
+        self.chat_log.write(event, **fields)
 
     def invalidate(self) -> None:
         """Discard pending consent and cached proposals after explicit context changes."""
@@ -204,7 +228,22 @@ class OptionalAI:
                 action_id = params["actionId"]
                 if not isinstance(action_id, str) or not 0 < len(action_id) <= 64:
                     raise BackendError("invalid_params", "Apply a change by its identity")
-                return apply_action(self.backend, action_id)
+                shown = self._shown_action(action_id) if chat_log_enabled() else None
+                try:
+                    result = apply_action(self.backend, action_id)
+                except BackendError as error:
+                    self._log("apply_failed", actionId=action_id, errorCode=error.code)
+                    raise
+                if chat_log_enabled():
+                    self._log(
+                        "apply",
+                        action=shown,
+                        order=[
+                            {"position": position, "title": track["title"]}
+                            for position, track in enumerate(result["review"]["tracks"], start=1)
+                        ],
+                    )
+                return result
             if method == "ai.run":
                 return self._run(params, token, emit)
             result_id = _identity(params["resultId"])
@@ -305,8 +344,17 @@ class OptionalAI:
         """Return or clear the single in-memory conversation and its pending changes."""
         store = self.backend.ai_conversation
         if method == "ai.chat.reset":
-            return {"conversation": store.reset()}
+            snapshot = store.reset()
+            self._log("reset")
+            return {"conversation": snapshot}
         return {"conversation": store.snapshot(), "actions": public_actions(self.backend, store.actions())}
+
+    def _shown_action(self, action_id: str) -> dict[str, Any] | None:
+        """The pending change exactly as the DJ sees it now, for the diagnostic log."""
+        action = self.backend.ai_conversation.action(action_id)
+        if action is None:
+            return None
+        return next((item for item in public_actions(self.backend, (action,)) if item["actionId"] == action.id), None)
 
     def _pending(self, preview_id: Any) -> _Pending:
         if self.preview is None or self.preview.id != _identity(preview_id):
@@ -339,7 +387,7 @@ class OptionalAI:
             answer = execute_context(context, transport)
             expected = {"surface", "kind", "title", "text", "proposal", "canApply"}
             if context.surface == "chat":
-                expected |= {"actions", "droppedActions"}
+                expected |= {"actions", "droppedActions", "droppedItems", "rawText"}
             if (
                 not isinstance(answer, dict)
                 or set(answer) != expected
@@ -348,7 +396,8 @@ class OptionalAI:
                 or type(answer["canApply"]) is not bool
                 or not (answer["proposal"] is None or isinstance(answer["proposal"], dict))
                 or answer["canApply"] != (answer["proposal"] is not None)
-                or len(json.dumps(answer, allow_nan=False).encode("utf-8")) > 64 * 1024
+                # The diagnostics of the opt-in log are not part of what this ceiling bounds.
+                or len(json.dumps(_published(answer), allow_nan=False).encode("utf-8")) > 64 * 1024
             ):
                 raise ValueError
             if context.surface == "chat" and not _parsed_chat_answer(answer):
@@ -371,13 +420,17 @@ class OptionalAI:
         emit({"phase": "ai", "processedCount": 0, "totalCount": 1})
         if token.is_cancelled:
             return cancelled
-        answer = provider_request(
-            pending.reference.settings,
-            pending.reference.binding,
-            lambda send: self._answer(pending.context, send),
-            transport=self.transport,
-            surface=pending.context.surface,
-        )
+        try:
+            answer = provider_request(
+                pending.reference.settings,
+                pending.reference.binding,
+                lambda send: self._answer(pending.context, send),
+                transport=self.transport,
+                surface=pending.context.surface,
+            )
+        except BackendError as error:
+            self._log("turn_failed", message=pending.context.request, errorCode=error.code)
+            raise
         if token.is_cancelled:
             return cancelled
         if pending.epoch != self._epoch:
@@ -388,19 +441,34 @@ class OptionalAI:
         # A successful chat turn is the only writer of the in-memory conversation and of
         # the changes the assistant proposed; a failed, refused or cancelled turn never
         # reaches this point.
-        published = {key: value for key, value in answer.items() if key not in ("actions", "droppedActions")}
+        published = _published(answer)
         memory: dict[str, Any] = {}
         if context.surface == "chat":
             store = self.backend.ai_conversation
             changed = store.list_changed(context.data["listFingerprint"])
-            actions, dropped = propose_actions(self.backend, context.selector["reviewId"], answer["actions"])
+            actions, dropped_items = propose_actions(self.backend, context.selector["reviewId"], answer["actions"])
             store.record_actions(actions)
+            shown = public_actions(self.backend, actions)
             memory = {
                 "conversation": store.record(context.data["listFingerprint"], context.request, answer["text"]),
                 "listChanged": changed,
-                "actions": public_actions(self.backend, actions),
-                "droppedActions": answer["droppedActions"] + dropped,
+                "actions": shown,
+                "droppedActions": answer["droppedActions"] + len(dropped_items),
             }
+            self._log(
+                "turn",
+                message=context.request,
+                rawText=answer["rawText"],
+                reply=answer["text"],
+                actions=shown,
+                droppedActions=memory["droppedActions"],
+                droppedItems=[
+                    *answer["droppedItems"],
+                    *({"raw": item, "reason": reason} for item, reason in dropped_items),
+                ],
+                listChanged=changed,
+                trackCount=context.data["trackCount"],
+            )
         result_id = str(uuid4())
         self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(published))
         while len(self.results) > 16:

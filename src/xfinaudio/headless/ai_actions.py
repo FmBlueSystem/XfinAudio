@@ -25,28 +25,33 @@ if TYPE_CHECKING:
     from xfinaudio.headless.backend import HeadlessBackend
 
 _STALE = "Apply a change that is still pending and still possible"
+#: Why a proposal could not be bound to the list; the opt-in chat log repeats it verbatim.
+_NO_LIST = "no current list"
+_TRACK_LEFT = "track left the list"
+_NO_REPLACEMENT = "no replacement offered"
 
 
 def propose_actions(
     backend: HeadlessBackend, review_id: str, items: Sequence[Mapping[str, Any]]
-) -> tuple[tuple[ChatAction, ...], int]:
+) -> tuple[tuple[ChatAction, ...], tuple[tuple[Mapping[str, Any], str], ...]]:
     """Bind this turn's validated proposals to the tracks they named.
 
     ``items`` is the parsed answer's own shape (``type``, ``position``, ``reason``
     and, for a move, ``to``). A proposal whose track is no longer in the list, or
     whose ``replace`` has no replacement the engine still offers, is dropped and
-    counted instead of failing the turn.
+    counted instead of failing the turn; it is returned with the reason it was
+    dropped for the opt-in chat log.
     """
     review = backend.review
     if review is None:
-        return (), len(items)
+        return (), tuple((item, _NO_LIST) for item in items)
     tracks = list(review.recommendation.ordered_tracks)
     accepted: list[ChatAction] = []
-    dropped = 0
+    dropped: list[tuple[Mapping[str, Any], str]] = []
     for item in items:
         position, reason = item["position"], item["reason"]
         if not 1 <= position <= len(tracks):
-            dropped += 1
+            dropped.append((item, _TRACK_LEFT))
             continue
         track_id = _public_track(tracks[position - 1])["id"]
         if item["type"] == "move":
@@ -54,10 +59,10 @@ def propose_actions(
             continue
         replacement = _offered_replacement(backend, review_id, track_id)
         if replacement is None:
-            dropped += 1
+            dropped.append((item, _NO_REPLACEMENT))
             continue
         accepted.append(ChatAction(str(uuid4()), "replace", track_id, None, reason, replacement["id"]))
-    return tuple(accepted), dropped
+    return tuple(accepted), tuple(dropped)
 
 
 def public_actions(backend: HeadlessBackend, actions: Iterable[ChatAction]) -> list[dict[str, Any]]:

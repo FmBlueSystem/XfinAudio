@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from xfinaudio.ai.nan_client import ENABLED_ENV, NanConfigError, Transport, chat, is_ai_enabled
@@ -38,6 +38,15 @@ DEFAULT_CHAT_TIMEOUT_SECONDS = 120.0
 MAX_ACTIONS = 5
 #: The longest reason one proposal may carry; a longer one is dropped.
 MAX_REASON_CHARS = 200
+#: Why a proposed change was refused; the opt-in chat log repeats each reason verbatim.
+_UNSUPPORTED = "unsupported change"
+_UNEXPECTED_FIELDS = "unexpected fields"
+_POSITION_OUTSIDE = "position outside the list"
+_BAD_REASON = "missing or oversized reason"
+_PROTECTED = "protected position"
+_REPEATED = "repeated position"
+_TARGET_OUTSIDE = "target outside the list"
+_OVER_LIMIT = "over the change limit"
 
 
 @dataclass(frozen=True)
@@ -57,41 +66,63 @@ class ProposedAction:
 
 
 @dataclass(frozen=True)
+class DroppedAction:
+    """One proposed change the core refused: the raw value and why it was dropped.
+
+    ``raw`` is exactly what the provider wrote, kept for the opt-in diagnostic log and
+    never published to the DJ.
+    """
+
+    raw: Any
+    reason: str
+
+    def public(self) -> dict[str, Any]:
+        return {"raw": self.raw, "reason": self.reason}
+
+
+@dataclass(frozen=True)
 class ChatAnswer:
-    """The reply the DJ reads and the changes it proposed; ``dropped`` counts the rest."""
+    """The reply the DJ reads, its changes, and the diagnostics of what was dropped."""
 
     reply: str
     actions: tuple[ProposedAction, ...] = ()
     dropped: int = 0
+    # Diagnostics for the opt-in log: never published, so never part of the answer identity.
+    dropped_items: tuple[DroppedAction, ...] = field(default=(), compare=False, repr=False)
+    raw: str = field(default="", compare=False, repr=False)
 
 
 def parse_answer(raw: str, track_count: int, protected: Sequence[int] = ()) -> ChatAnswer:
     """Read one answer into the reply the DJ reads and the changes that can apply.
 
     Tolerant by design: an answer that is not the structured object is the whole
-    reply with no changes, and a change that cannot apply is dropped and counted.
+    reply with no changes, and a change that cannot apply is dropped and counted,
+    keeping its raw value and the reason it was dropped for the opt-in chat log.
     Neither ever fails the turn; only the reply itself keeps its 1 to 4000
     character rule, which the caller enforces.
     """
     body = _json_object(raw)
     reply = body.get("reply") if body is not None else None
     if not isinstance(reply, str):
-        return ChatAnswer(raw, (), 0)
+        return ChatAnswer(raw, (), 0, (), raw)
     items = body.get("actions") if body is not None else None
     if not isinstance(items, list):
-        return ChatAnswer(reply, (), 0)
+        return ChatAnswer(reply, (), 0, (), raw)
     refused = set(protected)
     accepted: list[ProposedAction] = []
     used: set[int] = set()
-    dropped = 0
+    dropped: list[DroppedAction] = []
     for item in items:
         action = _action(item, track_count, refused, used)
-        if action is None or len(accepted) >= MAX_ACTIONS:
-            dropped += 1
+        if isinstance(action, DroppedAction):
+            dropped.append(action)
+            continue
+        if len(accepted) >= MAX_ACTIONS:
+            dropped.append(DroppedAction(item, _OVER_LIMIT))
             continue
         used.add(action.position)
         accepted.append(action)
-    return ChatAnswer(reply, tuple(accepted), dropped)
+    return ChatAnswer(reply, tuple(accepted), len(dropped), tuple(dropped), raw)
 
 
 def _json_object(raw: str) -> dict[str, Any] | None:
@@ -108,24 +139,26 @@ def _json_object(raw: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _action(item: Any, track_count: int, protected: set[int], used: set[int]) -> ProposedAction | None:
-    """Accept exactly one of the two documented shapes, or nothing at all."""
+def _action(item: Any, track_count: int, protected: set[int], used: set[int]) -> ProposedAction | DroppedAction:
+    """Accept exactly one of the two documented shapes, or say why the item was dropped."""
     if not isinstance(item, dict) or item.get("type") not in ("replace", "move"):
-        return None
+        return DroppedAction(item, _UNSUPPORTED)
     kind = item["type"]
     expected = {"type", "position", "reason"} if kind == "replace" else {"type", "position", "to", "reason"}
     if set(item) != expected:
-        return None
+        return DroppedAction(item, _UNEXPECTED_FIELDS)
     position, reason, target = item["position"], item["reason"], item.get("to")
     if type(position) is not int or not 1 <= position <= track_count:
-        return None
+        return DroppedAction(item, _POSITION_OUTSIDE)
     if not isinstance(reason, str) or len(reason) > MAX_REASON_CHARS:
-        return None
-    if position in protected or position in used:
-        return None
+        return DroppedAction(item, _BAD_REASON)
+    if position in protected:
+        return DroppedAction(item, _PROTECTED)
+    if position in used:
+        return DroppedAction(item, _REPEATED)
     if kind == "move":
         if type(target) is not int or not 1 <= target <= track_count or target == position:
-            return None
+            return DroppedAction(item, _TARGET_OUTSIDE)
         return ProposedAction("move", position, target, reason)
     return ProposedAction("replace", position, None, reason)
 
@@ -315,6 +348,7 @@ __all__ = [
     "MAX_REASON_CHARS",
     "MAX_REPLY_CHARS",
     "ChatAnswer",
+    "DroppedAction",
     "ProposedAction",
     "chat_with_list",
     "list_facts",

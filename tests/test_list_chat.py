@@ -354,6 +354,46 @@ def test_an_action_that_cannot_apply_is_dropped_and_counted(item):
     assert answer.dropped == 1
 
 
+def test_every_dropped_action_reports_its_raw_value_and_the_reason():
+    raw_items = [
+        "no es un objeto",
+        {"type": "remove", "position": 1, "reason": "motivo"},
+        {"type": "replace", "position": 1, "reason": "motivo", "to": 2},
+        {"type": "replace", "position": 9, "reason": "motivo"},
+        {"type": "replace", "position": 1, "reason": "x" * 201},
+        {"type": "replace", "position": 3, "reason": "protegida"},
+        {"type": "move", "position": 2, "to": 2, "reason": "motivo"},
+    ]
+    raw = structured(*raw_items)
+    answer = list_chat.parse_answer(raw, 4, (3,))
+    assert answer.actions == () and answer.dropped == len(raw_items)
+    assert answer.dropped_items == (
+        list_chat.DroppedAction("no es un objeto", "unsupported change"),
+        list_chat.DroppedAction(raw_items[1], "unsupported change"),
+        list_chat.DroppedAction(raw_items[2], "unexpected fields"),
+        list_chat.DroppedAction(raw_items[3], "position outside the list"),
+        list_chat.DroppedAction(raw_items[4], "missing or oversized reason"),
+        list_chat.DroppedAction(raw_items[5], "protected position"),
+        list_chat.DroppedAction(raw_items[6], "target outside the list"),
+    )
+    assert [item.public() for item in answer.dropped_items][3] == {
+        "raw": raw_items[3],
+        "reason": "position outside the list",
+    }
+    assert answer.raw == raw
+    repeated = structured(
+        {"type": "replace", "position": 2, "reason": "motivo"},
+        {"type": "move", "position": 2, "to": 1, "reason": "motivo"},
+    )
+    assert list_chat.parse_answer(repeated, 8).dropped_items == (
+        list_chat.DroppedAction({"type": "move", "position": 2, "to": 1, "reason": "motivo"}, "repeated position"),
+    )
+    six = structured(*({"type": "replace", "position": index, "reason": "motivo"} for index in range(1, 7)))
+    assert list_chat.parse_answer(six, 8).dropped_items == (
+        list_chat.DroppedAction({"type": "replace", "position": 6, "reason": "motivo"}, "over the change limit"),
+    )
+
+
 def test_a_repeated_position_and_actions_beyond_five_are_dropped_and_counted():
     repeated = structured(
         {"type": "replace", "position": 2, "reason": "motivo"},

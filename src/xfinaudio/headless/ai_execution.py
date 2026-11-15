@@ -114,6 +114,9 @@ def execute_context(context: AssistContext, transport: nan_client.Transport) -> 
         extra = {
             "actions": [action.public() for action in answer.actions],
             "droppedActions": answer.dropped,
+            # Diagnostics for the opt-in chat log: never part of what the DJ receives.
+            "droppedItems": [item.public() for item in answer.dropped_items],
+            "rawText": answer.raw,
         }
     elif surface == "review":
         text = narrate_set(
