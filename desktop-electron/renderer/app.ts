@@ -32,14 +32,16 @@ import { createLiveView } from './live-view.js';
 import { SeratoExportController } from './serato-export.js';
 import type { SeratoExportSource } from './serato-export.js';
 import { createSeratoExportView } from './serato-export-view.js';
+import { SeratoQuickExportController, createSeratoQuickExportView, quickExportAvailable } from './serato-quick-export.js';
 import { errorCode,userErrorMessage } from './errors.js';
 import { SavedPlaylistEditor } from './editor.js';
 import { createEditorView } from './editor-view.js';
-import { buildPrepInput, canSaveReview, filterTracks, formatDuration, formatAudioFormat, formatBitrate, hasPrepMetadata, isCoreFailure, normalizePrepName, OperationGate } from './model.js';
+import { buildPrepInput, canSaveReview, filterTracks, formatDuration, formatAudioFormat, formatBitrate, hasPrepMetadata, isCoreFailure, isCoreRestored, normalizePrepName, OperationGate } from './model.js';
 import type { LibraryResult, MetadataFilter, PlaylistSummary, PrepFields, PrepStrategy, PrepVariant, PrepVariantSummary, Readiness, ReviewResult, Route as ExistingRoute, Track, XfinApi } from './model.js';
 import { renderMetadataPanel } from './metadata.js';
 import type { MetadataReport } from './metadata.js';
 import { createPlayer } from './player.js';
+import { createTrackSearchView } from './track-search-view.js';
 
 type Route = ExistingRoute | 'preferences' | 'loudness' | 'ai';
 type AppApi = XfinApi & LegacyImportApi & GeneratedReviewApi & PrepSettingsApi & OfflineBrowseApi & ProfilesApi & ProfileSettingsApi & PreferencesApi & LoudnessApi & OptionalAiApi & { getLibraryStatus(): Promise<LibraryStatus>; rescanLibrary(): Promise<LibraryResult>; onLibraryStatus(callback: (status: LibraryStatus) => void): () => void; };
@@ -57,6 +59,11 @@ const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
   return node;
 };
 const gate = new OperationGate();
+// The opening track is chosen with a searchable combobox. The picker keeps the selected
+// opaque id in #prep-start, so PrepFields, its validations and startTrackId are unchanged.
+const trackSearch = createTrackSearchView({
+  changed: () => { renderPrepSummaries(); element('prep-validation').hidden = true; syncAiContext(); },
+});
 // An improvement preview can only be persisted through the dedicated proposal-bound
 // route. Without that bridge the editor improvement surface is disabled rather than
 // producing a bound draft that could not be saved safely.
@@ -195,6 +202,22 @@ serato = new SeratoExportController(api, {
 });
 renderSerato = createSeratoExportView(element('serato-container'), serato, { canAct: () => coreAvailable && !gate.busy && !(editor.dirty && serato.source?.kind === 'saved' && serato.source.playlistId === editor.draft?.id) });
 renderSerato();
+let renderSeratoQuick = (): void => {};
+const seratoQuickCanAct = (): boolean => coreAvailable && !gate.busy;
+const seratoQuick = new SeratoQuickExportController(api, {
+  canAct: seratoQuickCanAct,
+  changed: () => renderSeratoQuick(),
+  // The result must survive a navigation; the quick notice keeps its own receipt.
+  perform: (label, task, apply, failure) => perform('serato-quick', label, task, (value, current) => {
+    apply(value, current);
+    // A success is reported in the quick notice; the bar keeps a short completion so it
+    // never keeps saying the export is still running.
+    if (seratoQuick.tone === 'success') showStatus('Exportación a Serato completada', seratoQuick.receipt?.filename ?? '');
+    else showStatus(seratoQuick.notice, seratoQuick.detail, seratoQuick.tone === 'blocked');
+  }, false, failure),
+});
+renderSeratoQuick = createSeratoQuickExportView(element('serato-quick-export-container'), seratoQuick, { canAct: seratoQuickCanAct }, (source, name) => openSerato(source, name));
+renderSeratoQuick();
 live = new LiveController(api, {
   canAct: () => coreAvailable && !gate.busy,
   changed: () => { renderLive(); syncAiContext(); },
@@ -299,7 +322,8 @@ function renderSettingsSummaries(): void {
 }
 function showPrepValidation(input: HTMLElement, message: string): void {
   const notice=element('prep-validation'); notice.textContent=message; notice.hidden=false;
-  revealControl(input); showStatus('Revisa la configuración de la sesión', message, true);
+  // The opaque id lives in a hidden input; the actionable control is the visible combobox.
+  revealControl(input === element('prep-start') ? element('prep-start-search') : input); showStatus('Revisa la configuración de la sesión', message, true);
 }
 function syncAiContext(): void {
   if (!ai) return;
@@ -372,7 +396,8 @@ function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => v
     }
     buildPrepInput(fields, library, strategies);
     return () => {
-      for (const key of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'start', 'end'] as const) element<HTMLInputElement | HTMLSelectElement>(`prep-${key}`).value = fields[key];
+      for (const key of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end'] as const) element<HTMLInputElement | HTMLSelectElement>(`prep-${key}`).value = fields[key];
+      trackSearch.setSelected(fields.start);
       for (const key of ['required', 'excluded'] as const) for (const option of element<HTMLSelectElement>(`prep-${key}`).options) option.selected = fields[key].includes(option.value);
       renderStrategyHint(); syncAiContext();
     };
@@ -552,12 +577,29 @@ function continueIdleWork(kind: string): void {
 }
 function canStartLive(): boolean { return Boolean(review?.reviewId && review.variant !== 'saved' && review.readiness === 'ready' && !review.blockers.length); }
 
+/**
+ * A generated set has no crate name of its own: the core proposes «<style> <day>-<month>» with a
+ * collision suffix, so nothing the renderer invents ever reaches Serato. A saved playlist and a
+ * name the user typed keep travelling unchanged.
+ */
+function proposedCrateName(source: SeratoExportSource, name: string): string {
+  return source.kind === 'review' ? '' : name;
+}
 function openSerato(source: SeratoExportSource, name: string): void {
   if (!coreAvailable || gate.busy) return;
   if (source.kind === 'saved' && editor.dirty && editor.draft?.id === source.playlistId) {
     showStatus('Tienes un borrador sin guardar', 'Guarda o descarta los cambios del editor antes de exportar esta playlist', true); navigate('editor', false); return;
   }
-  serato.setSource(source, name); navigate('serato', false);
+  serato.setSource(source, proposedCrateName(source, name)); navigate('serato', false);
+}
+/** The short path: one click exports from wherever the user is, or keeps the page flow on an older bridge. */
+function quickExportToSerato(source: SeratoExportSource, name: string): void {
+  if (!coreAvailable || gate.busy) return;
+  if (source.kind === 'saved' && editor.dirty && editor.draft?.id === source.playlistId) {
+    showStatus('Tienes un borrador sin guardar', 'Guarda o descarta los cambios del editor antes de exportar esta playlist', true); navigate('editor', false); return;
+  }
+  if (!quickExportAvailable(api)) { openSerato(source, name); return; }
+  void seratoQuick.export(source, proposedCrateName(source, name));
 }
 
 function showStatus(label: string, detail = '', error = false): void {
@@ -601,6 +643,7 @@ function syncControls(): void {
   element('cancel-operation').textContent = gate.cancelled ? 'Cancelando…' : 'Cancelar';
   renderEditor();
   renderSerato();
+  renderSeratoQuick();
   renderLive();
   renderPreferences();
   renderProfileSettings();renderProfiles();renderGeneratedReview();renderPrepSettings();renderLegacyImport();offline?.sync();
@@ -740,6 +783,7 @@ function renderLibrary(): void {
 function applyLibrary(result: LibraryResult): void {
   const controlsDirty=prepSettings?.dirty??false;prepSettings?.libraryChanged();if(prepSettings&&!controlsDirty)prepSettingsBootstrapPending=true;
   library = result.tracks;
+  trackSearch.setLibrary(library);
   libraryRevision++; visibleRevision++;
   offline?.invalidateLibrary();offline?.invalidateSaved();
   aiLibraryFilter = null; aiFilterRevision++;
@@ -752,9 +796,9 @@ function option(value: string, label: string): HTMLOptionElement {
   const node = make('option', label); node.value = value; return node;
 }
 function renderTrackChoices(): void {
-  for (const id of ['start', 'end', 'required', 'excluded']) {
+  for (const id of ['end', 'required', 'excluded']) {
     const select = element<HTMLSelectElement>(`prep-${id}`);
-    const selected=new Set(Array.from(select.selectedOptions??[],item=>item.value));const scalar=id==='start'||id==='end';if(scalar&&select.value)selected.add(select.value);
+    const selected=new Set(Array.from(select.selectedOptions??[],item=>item.value));const scalar=id==='end';if(scalar&&select.value)selected.add(select.value);
     select.replaceChildren();
     if(scalar)select.append(option('', 'Sin preferencia'));
     for(const track of library){const item=option(track.id,`${track.title||'Sin título'} · ${track.artist||'Artista desconocido'}`);item.selected=selected.has(track.id);select.append(item);}
@@ -764,6 +808,7 @@ function renderTrackChoices(): void {
 }
 /** Full Prep option lists are built lazily; a large library must not pay for them at boot. */
 function ensureTrackChoices(): void {
+  trackSearch.sync();
   if (renderedTrackChoicesRevision === libraryRevision) return;
   renderTrackChoices();
   renderedTrackChoicesRevision = libraryRevision;
@@ -885,7 +930,7 @@ function renderPlaylistActions(card: HTMLElement, playlist: PlaylistSummary): vo
     });
   });
   for (const [caption, action] of [
-    ['Exportar a Serato', () => { openSerato({ kind: 'saved', playlistId: playlist.id }, playlist.name); }],
+    ['Exportar a Serato', () => { quickExportToSerato({ kind: 'saved', playlistId: playlist.id }, playlist.name); }],
     ['Editar', () => { void editor.open(playlist.id); }],
     ['Renombrar', () => {
       if (editor.draft?.id === playlist.id) { void editor.open(playlist.id).then(() => element<HTMLInputElement>('editor-name').focus()); return; }
@@ -959,7 +1004,7 @@ async function perform<T>(kind: string, label: string, task: () => Promise<T>, a
     const terminalLegacy=kind==='legacy-import'&&activeKind==='legacy-import'&&gate.busy;
     const terminalProfiles=kind==='profiles'&&activeKind==='profiles'&&gate.busy;
     const terminalLoudness = kind === 'loudness' && activeKind === 'loudness' && gate.busy;
-    if ((gate.isCurrent(token) || terminalLoudness || terminalProfiles || terminalLegacy) && (coreAvailable || kind === 'serato' || terminalLoudness || terminalLegacy)) {
+    if ((gate.isCurrent(token) || terminalLoudness || terminalProfiles || terminalLegacy) && (coreAvailable || kind === 'serato' || kind === 'serato-quick' || terminalLoudness || terminalLegacy)) {
       if (sourceGeneration !== libraryGeneration && ['prep', 'select', 'open', 'metadata','profiles'].includes(kind)) showStatus('La biblioteca cambió', 'Vuelve a escanear antes de preparar una nueva selección');
       else apply(result, token.routeRevision === routeRevision);
     }
@@ -1066,8 +1111,8 @@ element('library-search').addEventListener('input', renderLibrary);
 element('library-show-more').addEventListener('click', () => { libraryVisibleLimit += LIBRARY_WINDOW; renderLibrary(); });
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
 element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
-for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'start', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
-for (const id of ['name','count','strategy','minutes','role','genre','start','end','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
+for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
+for (const id of ['name','count','strategy','minutes','role','genre','end','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
   event.preventDefault(); const input=element<HTMLInputElement>(`prep-${id}`);
   showPrepValidation(input, input.validationMessage || 'Revisa este valor antes de generar.');
 });
@@ -1109,8 +1154,8 @@ element('start-live').addEventListener('click', () => {
 });
 element('export-review').addEventListener('click', () => {
   if (!review) return;
-  if (review.savedPlaylistId) openSerato({ kind: 'saved', playlistId: review.savedPlaylistId }, review.name);
-  else if (review.reviewId) openSerato({ kind: 'review', reviewId: review.reviewId }, review.name);
+  if (review.savedPlaylistId) quickExportToSerato({ kind: 'saved', playlistId: review.savedPlaylistId }, review.name);
+  else if (review.reviewId) quickExportToSerato({ kind: 'review', reviewId: review.reviewId }, review.name);
 });
 element('save-form').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -1148,7 +1193,10 @@ if (api) {
       invalidateAiSource();
       loudness.invalidateContext();
       editor.invalidatePreview();
-      serato.invalidatePreview();
+      // Every Serato id lived in the process that just stopped: drop the destination and the
+      // preview so the page detects the folder again, and forget a stale quick-export notice.
+      serato.forgetCore();
+      seratoQuick.forgetCore();
       live.invalidate({ preserveSnapshot: true });
       invalidatePrep({ preserveLive: true });
       console.error('Local core stopped', event.message);
@@ -1156,6 +1204,17 @@ if (api) {
       showStatus('Servicio local desconectado', coreFailure, true);
       element('operation-progress').hidden = true;
       syncControls();
+      return;
+    }
+    if (isCoreRestored(event)) {
+      // The supervisor replaced the dead process: the app is usable again and the user needs
+      // no restart. A manual restart the app already requires stays required.
+      if (!restartRequired) {
+        coreAvailable = true; coreFailure = ''; profilesError = ''; libraryBootError = null;
+        showStatus('Servicio local disponible', 'XfinAudio volvió a conectar con tu biblioteca después del reinicio automático.');
+        element('operation-progress').hidden = true;
+        syncControls();
+      }
       return;
     }
     if (!coreAvailable) return;

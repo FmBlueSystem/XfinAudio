@@ -49,3 +49,133 @@ test('actual app local Prep edits survive navigation, flag close protection and 
 test('clean persisted Prep choices survive rescan and automatic profile completion without writes or dirty flags',async()=>{let reads=0;const f=await fixture({prepSettings:async()=>{reads++;return prepSettings({requiredTrackIds:[tracks[0].id],excludedTrackIds:[tracks[1].id],genreFocus:'Deep House'});}});try{await f.navigate('prep');assert.equal(reads,1);assert.equal(f.get('prep-required').selectedOptions[0].value,tracks[0].id);f.click('library-status-rescan');await settle();await settle();assert.ok(f.calls.some(([kind])=>kind==='completeProfiles'));assert.ok(reads>=2);assert.equal(f.get('prep-required').selectedOptions[0].value,tracks[0].id);assert.equal(f.get('prep-excluded').selectedOptions[0].value,tracks[1].id);assert.equal(f.get('prep-genre').value,'Deep House');assert.equal(f.calls.some(([kind])=>kind==='savePrepSettings'),false);assert.equal(f.calls.filter(([kind])=>kind==='dirty').at(-1)[1],false);}finally{f.restore();}});
 test('dirty missing Prep choices remain explicit until discard and authoritative restore',async()=>{let gone=false;const remaining=[tracks[1]];const f=await fixture({prepSettings:async()=>prepSettings(gone?{requiredTrackIds:[],genreFocus:'House',unavailableRequiredCount:1}:{requiredTrackIds:[tracks[0].id]}),rescanLibrary:async()=>{gone=true;return {tracks:remaining,count:1};},completeProfiles:async()=>completion({tracks:remaining,completeCount:1,incompleteCount:0,status:profileStatus({state:'complete',totalTracks:1,readyCount:1,spectralReadyCount:1,danceabilityReadyCount:1,edgeReadyCount:1,pendingCount:0})})});try{await f.navigate('prep');f.get('prep-genre').value='Unsaved Garage';f.get('prep-genre').dispatchEvent(new Event('input'));f.click('library-status-rescan');await settle();await settle();assert.equal(f.get('prep-genre').value,'Unsaved Garage');const missing=f.get('prep-required').selectedOptions[0];assert.equal(missing.value,tracks[0].id);assert.equal(missing.disabled,true);assert.match(missing.textContent,/No disponible/);assert.equal(f.calls.some(([kind])=>kind==='savePrepSettings'),false);assert.equal(f.calls.filter(([kind])=>kind==='dirty').at(-1)[1],true);f.click('prep-settings-discard');await settle();f.click('prep-settings-load');await settle();assert.equal(f.get('prep-required').selectedOptions.length,0);assert.equal(f.get('prep-genre').value,'House');assert.match(f.get('prep-settings-unavailable').textContent,/1 obligatorias/);assert.equal(f.calls.filter(([kind])=>kind==='dirty').at(-1)[1],false);}finally{f.restore();}});
 test('same-ID evidence load preserves Live and Serato preview; explicit review mutation invalidates both',async()=>{const f=await fixture({generatePrep:async()=>{const value=detailed();delete value.transitions;delete value.readinessChecks;delete value.engineFacts;return value;}});try{await f.generate();f.click('start-live');await settle();assert.equal(f.get('live-content').hidden,false);f.click('export-review');await settle();f.click('serato-export-choose');await settle();f.click('serato-export-preview');await settle();assert.equal(f.get('serato-export-proposal').hidden,false);f.click('review-load-evidence');await settle();assert.equal(f.get('live-content').hidden,false);assert.equal(f.get('live-unavailable').hidden,true);assert.equal(f.get('serato-export-proposal').hidden,false);selectReviewTrack(f,1);f.click('review-remove-1');await settle();assert.equal(f.get('live-content').hidden,true);assert.equal(f.get('serato-export-proposal').hidden,true);}finally{f.restore();}});
+const quickReceipt=(patch={})=>({receiptId:'receipt',filename:'Set.crate',destinationLabel:'_Serato_ · dd',trackCount:2,validated:true,backupCreated:false,...patch});
+test('the review button exports to Serato in two actions, stays on the review screen and reveals the crate',async()=>{
+ const sent=[],revealed=[];
+ const f=await fixture({quickSeratoExport:async(input)=>{sent.push(input);return {status:'exported',receipt:quickReceipt()};},revealSeratoExport:async(input)=>{revealed.push(input);}});
+ try{
+  await f.generate();
+  assert.equal(document.title,'XfinAudio · Revisar y exportar');
+  f.click('export-review');await settle();
+  assert.deepEqual(sent,[{source:{kind:'review',reviewId:'review'}}],'one click sends only the scoped source: the core names the crate');
+  assert.equal(sent[0].source.destinationId,undefined);assert.equal(sent[0].confirmed,undefined);
+  assert.equal(document.title,'XfinAudio · Revisar y exportar','the export must not leave the review screen');
+  assert.equal(f.get('serato-quick-export').hidden,false);
+  assert.equal(f.get('serato-quick-export-notice').textContent,'Crate «Set» exportado a Serato');
+  assert.equal(f.get('serato-quick-export-reveal').hidden,false);
+  f.click('serato-quick-export-reveal');await settle();
+  assert.deepEqual(revealed,[{receiptId:'receipt'}]);
+ }finally{f.restore();}
+});
+test('a saved playlist card exports in place and keeps the Serato page as the advanced option',async()=>{
+ const sent=[];const receipt=quickReceipt();
+ const f=await fixture({quickSeratoExport:async(input)=>{sent.push(input);return {status:'exported',receipt};}});
+ try{
+  await f.navigate('playlists');await settle();
+  const card=f.nodes().find(node=>node.tagName==='button'&&node.textContent==='Exportar a Serato');
+  assert.ok(card,'the saved playlist card offers the export');
+  card.dispatchEvent(new Event('click'));await settle();
+  assert.deepEqual(sent,[{source:{kind:'saved',playlistId:'1'},name:'Set'}]);
+  assert.equal(document.title,'XfinAudio · Playlists guardadas','the card export must stay on the saved playlists screen');
+  assert.equal(f.get('serato-quick-export-notice').textContent,'Crate «Set» exportado a Serato');
+  f.click('serato-quick-export-advanced');await settle();
+  assert.equal(document.title,'XfinAudio · Exportar a Serato','the advanced option opens the existing export page');
+  assert.match(f.get('serato-export-source').textContent,/playlist guardada/i);
+ }finally{f.restore();}
+});
+test('a blocked quick export shows the blockers, and a missing destination continues after the folder choice',async()=>{
+ const sent=[];let step=0;
+ const f=await fixture({quickSeratoExport:async(input)=>{sent.push(input);step+=1;
+  if(step===1)return {status:'blocked',filename:'Set.crate',blockers:['Review sources or settings changed; generate a new review']};
+  if(step===2)return {status:'needs_destination'};
+  return {status:'exported',receipt:quickReceipt()};},
+  chooseSeratoDestination:async()=>({destinationId:'dest',label:'_Serato_ · dd'})});
+ try{
+  await f.generate();
+  f.click('export-review');await settle();
+  assert.equal(f.get('serato-quick-export-notice').textContent,'No se exportó nada: la selección no está lista');
+  assert.deepEqual(f.get('serato-quick-export-blockers').children.map(node=>node.textContent),['Review sources or settings changed; generate a new review']);
+  assert.equal(f.get('serato-quick-export-reveal').hidden,true);
+  assert.equal(document.title,'XfinAudio · Revisar y exportar');
+  f.click('export-review');await settle();
+  assert.equal(f.get('serato-quick-export-notice').textContent,'No se encontró la carpeta _Serato_ de destino');
+  assert.equal(f.get('serato-quick-export-choose').hidden,false);
+  f.click('serato-quick-export-choose');await settle();
+  assert.equal(sent.length,3,'the folder choice continues to the same confirmation');
+  assert.equal(f.get('serato-quick-export-notice').textContent,'Crate «Set» exportado a Serato');
+  assert.equal(document.title,'XfinAudio · Revisar y exportar');
+ }finally{f.restore();}
+});
+test('a validated receipt survives the local core stopping while the native dialog is open',async()=>{
+ let finish;
+ const f=await fixture({quickSeratoExport:()=>new Promise((resolve)=>{finish=resolve;})});
+ try{
+  await f.generate();f.click('export-review');await settle();
+  f.offline();await settle();
+  finish({status:'exported',receipt:quickReceipt()});await settle();await settle();
+  assert.equal(f.get('serato-quick-export-notice').textContent,'Crate «Set» exportado a Serato','a completed write must keep its receipt');
+  assert.equal(f.get('serato-quick-export-reveal').hidden,false);
+ }finally{f.restore();}
+});
+test('cancelling the native dialog leaves a quiet note and no receipt to reveal',async()=>{
+ const f=await fixture({quickSeratoExport:async()=>({status:'cancelled'})});
+ try{
+  await f.generate();f.click('export-review');await settle();
+  assert.equal(f.get('serato-quick-export-notice').textContent,'Exportación cancelada');
+  assert.equal(f.get('serato-quick-export-reveal').hidden,true);
+  assert.equal(f.get('serato-quick-export-choose').hidden,true);
+ }finally{f.restore();}
+});
+test('a supervised restart returns the app to its normal state and an exhausted one keeps the restart message',async()=>{
+ const f=await fixture();
+ try{
+  await f.navigate('prep');
+  assert.equal(f.get('generate-prep').disabled,false);
+  f.offline();await settle();
+  assert.equal(f.get('generate-prep').disabled,true,'a stopped core gates every action');
+  assert.equal(f.get('operation-label').textContent,'Servicio local desconectado');
+  f.progress({operation:'core',phase:'restarted',message:'El servicio local volvió a estar disponible.'});await settle();
+  assert.equal(f.get('generate-prep').disabled,false,'a restarted core makes the app usable again without a manual restart');
+  assert.equal(f.get('operation-label').textContent,'Servicio local disponible');
+  assert.doesNotMatch(text(f.get('operation-status')),/Reinicia XfinAudio/);
+  f.offline();await settle();
+  assert.equal(f.get('generate-prep').disabled,true);
+  assert.equal(f.get('operation-label').textContent,'Servicio local desconectado','restarts that run out keep the existing restart message');
+ }finally{f.restore();}
+});
+test('a generated set exports and previews with the crate name the core proposes',async()=>{
+ const sent=[];const previews=[];
+ const receipt=quickReceipt({filename:'XfinAudio%%Build 6-jun.crate'});
+ const f=await fixture({
+  quickSeratoExport:async(input)=>{sent.push(input);return {status:'exported',receipt};},
+  previewSeratoExport:async(input)=>{previews.push(input);return {previewId:'preview',sourceRevision:'r',filename:'XfinAudio%%Build 6-jun.crate',destinationLabel:'_Serato_ · dd',trackCount:2,readiness:'ready',warnings:[],blockers:[],canCommit:true,tracks,backup:{required:false}};},
+ });
+ try{
+  await f.generate();
+  f.click('export-review');await settle();
+  assert.deepEqual(sent,[{source:{kind:'review',reviewId:'review'}}],'a generated set sends no crate name');
+  assert.equal(f.get('serato-quick-export-notice').textContent,'Crate «XfinAudio%%Build 6-jun» exportado a Serato');
+  assert.match(f.get('serato-quick-export-detail').textContent,/XfinAudio%%Build 6-jun\.crate/);
+  f.click('serato-quick-export-advanced');await settle();
+  assert.equal(document.title,'XfinAudio · Exportar a Serato');
+  assert.equal(f.get('serato-export-name').value,'','the page starts from the automatic name, not from the set name');
+  f.click('serato-export-choose');await settle();
+  f.click('serato-export-preview');await settle();
+  assert.deepEqual(previews,[{source:{kind:'review',reviewId:'review'},destinationId:'dest'}],'the page also sends no name');
+  assert.match(text(f.get('serato-export-proposal')),/Archivo: XfinAudio%%Build 6-jun\.crate/,'the preview shows the crate name the core chose');
+ }finally{f.restore();}
+});
+test('a name typed on the Serato page is used unchanged',async()=>{
+ const previews=[];
+ const f=await fixture({previewSeratoExport:async(input)=>{previews.push(input);return {previewId:'preview',sourceRevision:'r',filename:'Viernes 14-nov.crate',destinationLabel:'_Serato_ · dd',trackCount:2,readiness:'ready',warnings:[],blockers:[],canCommit:true,tracks,backup:{required:false}};}});
+ try{
+  await f.generate();
+  f.click('export-review');await settle();
+  f.click('serato-quick-export-advanced');await settle();
+  f.get('serato-export-name').value='Viernes 14-nov';f.get('serato-export-name').dispatchEvent(new Event('input'));
+  f.click('serato-export-choose');await settle();
+  f.click('serato-export-preview');await settle();
+  assert.deepEqual(previews,[{source:{kind:'review',reviewId:'review'},destinationId:'dest',name:'Viernes 14-nov'}]);
+  assert.match(text(f.get('serato-export-proposal')),/Viernes 14-nov\.crate/);
+ }finally{f.restore();}
+});

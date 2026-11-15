@@ -1,5 +1,6 @@
 import type { LiveApi } from './live.js';
 import type { SeratoExportApi } from './serato-export.js';
+import type { SeratoQuickExportApi } from './serato-quick-export.js';
 import type { EditorApi } from './editor.js';
 import type { MetadataReport } from './metadata.js';
 export interface Track {
@@ -53,7 +54,7 @@ export interface ProgressEvent {
   message?: string;
   stage?: string; readyCount?: number; failedCount?: number;
 }
-export interface XfinApi extends EditorApi, SeratoExportApi, LiveApi {
+export interface XfinApi extends EditorApi, SeratoExportApi, SeratoQuickExportApi, LiveApi {
   chooseLibrary(): Promise<LibraryResult | null>;
   listLibrary(): Promise<LibraryResult>;
   getMetadataReport(): Promise<MetadataReport>;
@@ -76,6 +77,10 @@ export function normalizePrepName(value: string): string { return value.trim() |
 export function isCoreFailure(event: Pick<ProgressEvent, 'operation' | 'phase'>): boolean {
   return event.operation === 'core' && event.phase === 'error';
 }
+/** A supervised restart brought a fresh core up: the app is usable again with no user action. */
+export function isCoreRestored(event: Pick<ProgressEvent, 'operation' | 'phase'>): boolean {
+  return event.operation === 'core' && event.phase === 'restarted';
+}
 
 export function canSaveReview(review: ReviewResult | null): boolean {
   return review !== null && ['safe', 'balanced', 'adventurous'].includes(review.variant) && review.canSave !== false
@@ -86,12 +91,20 @@ export function hasPrepMetadata(track: Track): boolean {
   return Number.isFinite(track.bpm) && (track.bpm ?? 0) > 0 && Boolean(track.key)
     && Number.isFinite(track.energy);
 }
+/** Accent- and case-insensitive projection shared by the library search and the opening-track search. */
+export function normalizeSearchText(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
+}
+export function trackSearchText(track: Track): string {
+  const bpm = typeof track.bpm === 'number' && Number.isFinite(track.bpm) && track.bpm > 0 ? ` ${track.bpm}` : '';
+  return `${track.title} ${track.artist} ${track.key ?? ''} ${track.genre ?? ''}${bpm}`;
+}
+export function matchesSearch(track: Track, query: string): boolean {
+  const search = normalizeSearchText(query.trim());
+  return !search || normalizeSearchText(trackSearchText(track)).includes(search);
+}
 export function filterTracks(tracks: Track[], query: string, metadata: MetadataFilter): Track[] {
-  const search = query.trim().toLocaleLowerCase();
-  return tracks.filter((track) => {
-    const match = `${track.title} ${track.artist} ${track.key ?? ''} ${track.genre ?? ''}`.toLocaleLowerCase().includes(search);
-    return match && (metadata === 'all' || hasPrepMetadata(track) === (metadata === 'ready'));
-  });
+  return tracks.filter((track) => matchesSearch(track, query) && (metadata === 'all' || hasPrepMetadata(track) === (metadata === 'ready')));
 }
 export function formatDuration(value: number | null): string {
   if (value === null || !Number.isFinite(value) || value < 0) return '—';

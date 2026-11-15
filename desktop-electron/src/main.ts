@@ -11,7 +11,7 @@ import {APP_URL,CSP,assetPath,isTrustedSender,validateRequest} from './security'
 import {audioResponse} from './audio';
 import {configureStorage} from './storage';
 import {CloseFlow} from './close-flow';
-import {SeratoHost} from './serato-host';
+import {SeratoHost,confirmationDetail} from './serato-host';
 import {revealLoudnessBackups} from './loudness-backups';
 import {OptionalAiHost} from './optional-ai-host';
 import {assertDispatchable,INLINE_CORE_METHODS} from './ipc-reads';
@@ -55,11 +55,11 @@ const closeFlow=new CloseFlow(
 const serato=new SeratoHost({
   request:run,
   choose:async()=>{
-    const selected=await dialog.showOpenDialog(window!,{title:'Elige la carpeta _Serato_ que contiene Subcrates',properties:['openDirectory']});
+    const selected=await dialog.showOpenDialog(window!,{title:'Elige la carpeta _Serato_ o la carpeta que la contiene (por ejemplo, la raíz del disco o Música)',properties:['openDirectory']});
     return selected.canceled||selected.filePaths.length!==1?null:selected.filePaths[0];
   },
   confirm:async summary=>{
-    const detail=[`Destino: ${path.join(summary.destinationPath,'Subcrates',summary.filename)}`,`${summary.trackCount} pistas en el orden revisado`,summary.backup.required?'Se reemplazará el crate existente y se conservará una copia de seguridad.':'Se creará un crate nuevo.',...summary.warnings].join('\n\n');
+    const detail=confirmationDetail(summary);
     const result=await dialog.showMessageBox(window!,{type:'warning',title:'Confirmar exportación a Serato',message:`¿Exportar ${summary.filename}?`,detail,buttons:['Cancelar','Exportar a Serato'],defaultId:0,cancelId:0,noLink:true});
     return result.response===1;
   },
@@ -172,7 +172,9 @@ async function action(method:string,raw:unknown) {
     case 'advanceLive':return run('live.next',params);
     case 'clearLive':return run('live.clear',params);
     case 'chooseSeratoDestination':return serato.choose();
+    case 'detectSeratoDestination':return serato.detect();
     case 'previewSeratoExport':return serato.preview(params);
+    case 'quickSeratoExport':return serato.quickExport(params);
     case 'commitSeratoExport':return serato.commit(params.previewId as string);
     case 'revealSeratoExport':return serato.reveal(params.receiptId as string);
     case 'setDraftDirty':draftDirty=params.dirty as boolean;return {dirty:draftDirty};
@@ -226,8 +228,17 @@ function onCoreProgress(message:any):void {
  */
 function onCoreStopped(message:string):void {
   current=null;
+  // The dead process kept every Serato destination, preview and receipt id in memory.
+  serato.reset();
   void libraryHost.close();
   if(window&&!window.isDestroyed())window.webContents.send('xfin:progress',{jobId:'',operation:'core',phase:'error',message});
+}
+/**
+ * The window was told the core stopped, so a supervised restart must tell it the core is
+ * back; otherwise the app keeps asking for a restart that already happened.
+ */
+function notifyCoreRestarted():void {
+  if(window&&!window.isDestroyed())window.webContents.send('xfin:progress',{jobId:'',operation:'core',phase:'restarted',message:'El servicio local volvió a estar disponible.'});
 }
 async function start() {
   const repoRoot=path.resolve(__dirname,'../../..');
@@ -241,6 +252,8 @@ async function start() {
   /** Every core the supervisor creates is wired here, so main keeps one event contract across restarts. */
   const wireCore=(next:PythonBridge):PythonBridge=>{
     core=next;
+    // A fresh core knows no id the previous one issued, so nothing may survive a restart.
+    serato.reset();
     next.on('progress',message=>onCoreProgress(message));
     next.on('stopped',message=>onCoreStopped(message));
     return next;
@@ -251,11 +264,15 @@ async function start() {
       log.write(attempt===0?'core started':`core restarted (attempt ${attempt})`);
       // The watcher and the window were bound to the previous process; a fresh
       // core must reload its roots before anything else waits on it.
-      if(attempt>0)void libraryHost.initialize();
+      if(attempt>0)void libraryHost.initialize().then(notifyCoreRestarted,notifyCoreRestarted);
     },
     onStopped:message=>log.write(`core stopped: ${message}`),
     onRestart:(attempt,delayMs)=>log.write(`core restart ${attempt} scheduled in ${delayMs} ms`),
-    onExhausted:restarts=>log.write(`core restart limit reached after ${restarts} restarts; the app keeps its restart message`),
+    onExhausted:restarts=>{
+      log.write(`core restart limit reached after ${restarts} restarts; the app keeps its restart message`);
+      // The retry budget is spent: the existing restart-the-app message stands.
+      if(window&&!window.isDestroyed())window.webContents.send('xfin:progress',{jobId:'',operation:'core',phase:'error',message:'El servicio local se detuvo y no se pudo reiniciar.'});
+    },
   });
   supervisor.start();
   const isolated=session.fromPartition('xfin-offline');

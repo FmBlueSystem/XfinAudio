@@ -12,6 +12,7 @@ blank/None values force a singleton).
 from __future__ import annotations
 
 import re
+import unicodedata
 
 # Trailing " - <CamelotKey> - Energy <N>" suffix, e.g. " - 12A - Energy 7".
 # Camelot key anchored to the real shape: 1-12 followed by A or B (real-case text).
@@ -43,6 +44,12 @@ _TRAILING_VERSION_MARKER = re.compile(
 # cut at an ordinary word. Verified against the 4,290 distinct artists in the
 # reference library: all 39 "f." matches were real featurings, no middle initials.
 _FEATURED_CREDIT = re.compile(r"\s+(?:feat(?:uring)?\.?|ft\.?|f\.)\s+.*$", re.IGNORECASE)
+
+# One leading article, stripped from the artist only. DJ pools disagree about it
+# for the same act: the live-observed S7 set held "The Village People" and
+# "Village People". Only one article is stripped, and never down to nothing, so
+# an act literally named "The The" keeps a usable key (§S7).
+_LEADING_ARTICLES = ("the ", "el ", "la ", "los ", "las ")
 
 
 def _strip_generated_suffixes(text: str) -> str:
@@ -167,23 +174,97 @@ def playlist_duplicate_group_key(title: str | None, artist: str | None) -> tuple
     Stricter than `duplicate_group_key`: uses
     `normalize_title_for_playlist_grouping` (parenthetical descriptor content
     removed entirely) rather than the conservative
-    `normalize_title_for_grouping`. None/blank title or artist is never
-    grouped. No placeholder special-case — the recommendation pool has no
-    display-layer dash-placeholder concept.
+    `normalize_title_for_grouping`. A None/blank title is never grouped, and a
+    blank artist is only grouped when the title names it (below). No
+    placeholder special-case — the recommendation pool has no display-layer
+    dash-placeholder concept.
+
+    On top of that playlist-only normalization, the compared strings ignore
+    the differences DJ-pool metadata invents for one recording (§S7 of
+    `odd/tasks/xfinaudio-serato-seed-ux.md`): accents ("Brújula" =
+    "Brujula"), punctuation ("Y.M.C.A." = "YMCA", "I've" = "Ive") and one
+    leading article on the artist ("The Village People" = "Village People").
+    A blank artist is taken from an `Artist - Title` title when the title has
+    that form, so two blank-artist rows of the same song still group. Words
+    are never dropped, so different songs stay distinct. The Library screen's
+    conservative `duplicate_group_key` is untouched.
     """
-    if title is None or artist is None:
+    if title is None:
         return None
     title_stripped = title.strip()
-    artist_stripped = artist.strip()
-    if not title_stripped or not artist_stripped:
+    if not title_stripped:
         return None
-    normalized_title = normalize_title_for_playlist_grouping(title)
-    if not normalized_title:
+    artist_source = (artist or "").strip()
+    if not artist_source:
+        derived = _split_artist_from_title(title_stripped)
+        if derived is None:
+            # A blank-artist title without the "Artist - Title" form cannot
+            # name its artist: never collapse such rows onto a bogus group.
+            return None
+        artist_source, title_stripped = derived
+    normalized_title = _normalize_title_for_playlist_key(title_stripped)
+    normalized_artist = _normalize_artist_for_playlist_key(artist_source)
+    if not normalized_title or not normalized_artist:
         # Fully-parenthetical titles (e.g. "(Intro)", "(Outro)") normalize to
         # an empty string once descriptor content is stripped — never collapse
         # distinct titles onto a shared "(artist, '')" key.
         return None
-    return (normalize_artist_for_playlist_grouping(artist), normalized_title)
+    return (normalized_artist, normalized_title)
+
+
+def _split_artist_from_title(title: str) -> tuple[str, str] | None:
+    """Split `"Artist - Title"` on the first `" - "`; None when it is not that form.
+
+    Both sides must be non-empty after stripping. Only used for a *blank*
+    artist: a real artist field always wins over the title text.
+    """
+    artist_part, separator, title_part = title.partition(" - ")
+    if not separator:
+        return None
+    artist_part = artist_part.strip()
+    title_part = title_part.strip()
+    if not artist_part or not title_part:
+        return None
+    return artist_part, title_part
+
+
+def _fold_accents(text: str) -> str:
+    """Decompose and drop combining marks, so "Brújula" reads as "Brujula"."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(character for character in decomposed if not unicodedata.combining(character))
+
+
+def _drop_punctuation(text: str) -> str:
+    """Drop every character that is not a letter or digit, collapsing spaces.
+
+    Punctuation is *deleted*, not turned into a separator: that is what makes
+    "Y.M.C.A." and "YMCA" agree, and "I've" agree with "Ive". Whitespace is
+    kept and collapsed so ordinary word boundaries survive — "Song A" still
+    differs from "Songa".
+    """
+    kept = "".join(character if character.isalnum() or character.isspace() else "" for character in text)
+    return re.sub(r"\s+", " ", kept).strip()
+
+
+def _strip_one_leading_article(text: str) -> str:
+    """Strip a single leading article, never emptying the text."""
+    for article in _LEADING_ARTICLES:
+        if text.startswith(article):
+            remainder = text[len(article) :].strip()
+            if remainder:
+                return remainder
+    return text
+
+
+def _normalize_title_for_playlist_key(title: str) -> str:
+    """Playlist-key title: the existing strict normalizer plus S7 folding."""
+    return _drop_punctuation(_fold_accents(normalize_title_for_playlist_grouping(title)))
+
+
+def _normalize_artist_for_playlist_key(artist: str) -> str:
+    """Playlist-key artist: feat credit dropped, S7 folding, one leading article."""
+    folded = _drop_punctuation(_fold_accents(normalize_artist_for_playlist_grouping(artist)))
+    return _strip_one_leading_article(folded)
 
 
 def duplicate_representative_sort_key(

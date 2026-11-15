@@ -37,6 +37,8 @@ const messages:Record<string,string>={
   stale_export:'La selección o la carpeta cambiaron. Prepara una nueva vista previa antes de exportar.',
   blocked_export:'La selección tiene problemas que impiden exportarla. Revisa los avisos y corrige los datos indicados.',
   invalid_destination:'Selecciona una carpeta _Serato_ válida que contenga Subcrates.',
+  unknown_destination:'El servicio local se reinició y olvidó la carpeta _Serato_ elegida. XfinAudio volverá a buscarla; si no aparece, abre Serato una vez con ese disco conectado.',
+  serato_running:'Cierra Serato DJ antes de exportar. Si Serato está abierto, al cerrarse borra los crates nuevos. Ciérralo y vuelve a confirmar.',
   invalid_export_name:'Revisa el nombre del crate: usa un nombre corto, sin barras ni caracteres de control.',
   invalid_params:'Revisa los datos de la operación y sus límites antes de intentarlo de nuevo.',
   invalid_edit:'No se puede aplicar esta propuesta. Revisa los metadatos de las pistas y los límites del borrador.',

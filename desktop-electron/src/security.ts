@@ -42,7 +42,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     getLoudnessStatus:[],revealLoudnessBackups:[],revealLogs:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
-    chooseSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
+    chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
     chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],selectPrepVariant:['planId','variant'],
     generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds'],
     savePlaylist:['name','reviewId'],listPlaylists:[],renamePlaylist:['playlistId','name'],duplicatePlaylist:['playlistId'],openPlaylistEditor:['playlistId'],
@@ -66,7 +66,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
   validateEditorRequest(method,params);
   validateSeratoRequest(method,params);
   validateLiveRequest(method,params);
-  if ('name' in params && (typeof params.name !== 'string' || !params.name.trim() || params.name.length>200 || /[\x00-\x1f]/.test(params.name))) throw new Error('Invalid name');
+  if ('name' in params && method!=='previewSeratoExport' && method!=='quickSeratoExport' && (typeof params.name !== 'string' || !params.name.trim() || params.name.length>200 || /[\x00-\x1f]/.test(params.name))) throw new Error('Invalid name');
   if (method === 'savePlaylist' && (typeof params.name !== 'string' || typeof params.reviewId !== 'string' || !uuid.test(params.reviewId))) throw new Error('Invalid review');
   if (['openPlaylist','openPlaylistEditor','renamePlaylist','duplicatePlaylist'].includes(method) && (typeof params.playlistId !== 'string' || !/^[1-9]\d{0,14}$/.test(params.playlistId))) throw new Error('Invalid playlist');
   return params;
@@ -114,8 +114,10 @@ function validateSeratoRequest(method:string,params:Record<string,unknown>):void
   const validToken=(value:unknown)=>typeof value==='string'&&uuid.test(value);
   if(method==='commitSeratoExport'&&!validToken(params.previewId))throw new Error('Invalid export preview');
   if(method==='revealSeratoExport'&&!validToken(params.receiptId))throw new Error('Invalid export receipt');
-  if(method!=='previewSeratoExport')return;
-  if(!validToken(params.destinationId))throw new Error('Invalid Serato destination');
+  // One preview contract serves both entry points: the quick action carries the same source and
+  // crate name, and main picks the destination, so a path or a confirmation flag can never pass.
+  if(method!=='previewSeratoExport'&&method!=='quickSeratoExport')return;
+  if(method==='previewSeratoExport'&&!validToken(params.destinationId))throw new Error('Invalid Serato destination');
   const source=params.source;
   if(!source||typeof source!=='object'||Array.isArray(source))throw new Error('Invalid export source');
   const item=source as Record<string,unknown>;
@@ -126,6 +128,12 @@ function validateSeratoRequest(method:string,params:Record<string,unknown>):void
     item.trackIds.forEach(assertTrackId);
   }else if(item.kind==='review'?!validToken(item.reviewId):typeof item.playlistId!=='string'||!/^[1-9]\d{0,14}$/.test(item.playlistId))throw new Error('Invalid export source');
   const name=params.name;
+  // A generated set carries no crate name: the core proposes one from the strategy and the date.
+  // Every other source keeps requiring exactly the same valid name as before.
+  if(name===undefined||name===''){
+    if(item.kind==='review')return;
+    throw new Error('Invalid crate name');
+  }
   if(typeof name!=='string'||!name.trim()||['.','..'].includes(name.trim())||name.length>200||/[\/\\:\p{C}]/u.test(name)||Buffer.byteLength(name.trim()+'.crate','utf8')>240)throw new Error('Invalid crate name');
 }
 

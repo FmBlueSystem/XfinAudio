@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 SERATO_FOLDER_NAME = "_Serato_"
 SERATO_SUBCRATES_DIR = "Subcrates"
 GENERATED_CRATE_ROOT = "XfinAudio"
+# The short automatic name spells the month in Spanish, as the app's other dates do.
+_SPANISH_MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 _UNSAFE_NAME_CHARS = re.compile(r"[/:\\]+")
 _WHITESPACE = re.compile(r"\s+")
 
@@ -145,7 +148,7 @@ def plan_generated_serato_playlist_export(
     )
     crate_name = _generated_crate_name(recommendation, generated_at=generated_at)
     target_folder = folder / SERATO_SUBCRATES_DIR
-    target_path = _unique_crate_path(target_folder, crate_name)
+    target_path = _unique_generated_crate_path(target_folder, crate_name)
     return SeratoExportPlan(
         crate_name=target_path.stem,
         relative_paths=relative_paths,
@@ -179,9 +182,12 @@ def plan_copilot_variant_serato_playlist_export(
     relative_paths = tuple(
         _to_serato_crate_path_for_library(Path(track.path), library) for track in recommendation.ordered_tracks
     )
-    crate_name = _copilot_variant_crate_name(variant_name, recommendation, generated_at=generated_at)
+    # The chosen format is style plus date. A variant is one more set of the same
+    # style exported today, so it takes the same short name and the numbered suffix
+    # keeps it apart; `variant_name` stays in the signature for its existing callers.
+    crate_name = _generated_crate_name(recommendation, generated_at=generated_at)
     target_folder = folder / SERATO_SUBCRATES_DIR
-    target_path = _unique_crate_path(target_folder, crate_name)
+    target_path = _unique_generated_crate_path(target_folder, crate_name)
     return SeratoExportPlan(
         crate_name=target_path.stem,
         relative_paths=relative_paths,
@@ -311,40 +317,16 @@ def _validate_crate_name(crate_name: str) -> str:
     return crate_name
 
 
-def _strategy_group_folder_name(recommendation: PlaylistRecommendation) -> str:
-    return _sanitize_name(f"{GENERATED_CRATE_ROOT}%%{recommendation.strategy.display_name}")
-
-
 def _generated_crate_name(
     recommendation: PlaylistRecommendation,
     *,
     generated_at: datetime | None = None,
 ) -> str:
-    strategy_group = _strategy_group_folder_name(recommendation)
-    leaf_name = _crate_leaf_name(
-        anchor=_anchor_name(recommendation),
-        count=len(recommendation.ordered_tracks),
-        generated_at=generated_at,
-    )
-    return f"{strategy_group}%%{leaf_name}"
-
-
-def _copilot_variant_crate_name(
-    variant_name: str,
-    recommendation: PlaylistRecommendation,
-    *,
-    generated_at: datetime | None = None,
-) -> str:
-    display_variant = _sanitize_name(variant_name.replace("_", " ").title())
-    group = _sanitize_name(
-        f"{GENERATED_CRATE_ROOT}%%Prep Copilot%%{recommendation.strategy.display_name}%%{display_variant}"
-    )
-    leaf_name = _crate_leaf_name(
-        anchor=_anchor_name(recommendation),
-        count=len(recommendation.ordered_tracks),
-        generated_at=generated_at,
-    )
-    return f"{group}%%{leaf_name}"
+    """Return «XfinAudio%%<strategy> <day>-<month>»: style plus a short local date."""
+    generated_at = generated_at or datetime.now()
+    strategy = _sanitize_name(recommendation.strategy.display_name)
+    short_date = f"{generated_at.day}-{_SPANISH_MONTHS[generated_at.month - 1]}"
+    return _sanitize_name(f"{GENERATED_CRATE_ROOT}%%{strategy} {short_date}")
 
 
 def _metadata_status_crate_name(
@@ -355,7 +337,7 @@ def _metadata_status_crate_name(
 ) -> str:
     display_status = status.capitalize()
     group = _sanitize_name(f"{GENERATED_CRATE_ROOT}%%Metadata%%{display_status}")
-    leaf_name = _crate_leaf_name(anchor=None, count=count, generated_at=generated_at)
+    leaf_name = _crate_leaf_name(count=count, generated_at=generated_at)
     return f"{group}%%{leaf_name}"
 
 
@@ -367,33 +349,20 @@ def _metadata_missing_field_crate_name(
 ) -> str:
     display_field = _metadata_field_display_name(missing_field)
     group = _sanitize_name(f"{GENERATED_CRATE_ROOT}%%Metadata%%Missing {display_field}")
-    leaf_name = _crate_leaf_name(anchor=None, count=count, generated_at=generated_at)
+    leaf_name = _crate_leaf_name(count=count, generated_at=generated_at)
     return f"{group}%%{leaf_name}"
 
 
 def _crate_leaf_name(
     *,
-    anchor: str | None,
     count: int,
     generated_at: datetime | None,
 ) -> str:
+    """Worklist leaf: the count and a compact stamp under the status or field folder."""
     generated_at = generated_at or datetime.now()
     stamp = generated_at.strftime("%m%d-%H%M")
     track_word = "track" if count == 1 else "tracks"
-
-    # Lead with the anchor because it distinguishes generated crates in narrow
-    # panels; never repeat strategy, variant, status, or field already in folders.
-    if anchor is None:
-        distinctive_part = f"{count} {track_word}"
-    else:
-        safe_anchor = _sanitize_name(anchor)
-        if len(safe_anchor) > 40:
-            shortened = safe_anchor[:40]
-            nearby_boundary = shortened.rfind(" ")
-            safe_anchor = shortened[:nearby_boundary] if nearby_boundary >= 30 else shortened
-        distinctive_part = f"{safe_anchor} · {count}"
-
-    return _sanitize_name(f"{distinctive_part} · {stamp}")
+    return _sanitize_name(f"{count} {track_word} · {stamp}")
 
 
 def _metadata_field_display_name(field_name: str) -> str:
@@ -405,25 +374,27 @@ def _metadata_field_display_name(field_name: str) -> str:
     return labels.get(field_name, field_name.replace("_", " ").title())
 
 
-def _anchor_name(recommendation: PlaylistRecommendation) -> str:
-    if not recommendation.ordered_tracks:
-        return "empty"
-    anchor = recommendation.ordered_tracks[0]
-    title = anchor.title or Path(anchor.path).stem
-    return title or "untitled"
-
-
 def _unique_crate_path(target_folder: Path, crate_name: str) -> Path:
+    """Worklist crates keep their `-2` suffix so existing worklist names do not change."""
+    return _first_free_crate_path(target_folder, crate_name, numbered=lambda attempt: f"{crate_name}-{attempt}")
+
+
+def _unique_generated_crate_path(target_folder: Path, crate_name: str) -> Path:
+    """An automatic name never replaces an earlier export: it takes " (2)", " (3)"..."""
+    return _first_free_crate_path(target_folder, crate_name, numbered=lambda attempt: f"{crate_name} ({attempt})")
+
+
+def _first_free_crate_path(target_folder: Path, crate_name: str, *, numbered: Callable[[int], str]) -> Path:
     target_path = target_folder / f"{crate_name}.crate"
     if not target_path.exists():
         return target_path
 
-    suffix = 2
+    attempt = 2
     while True:
-        candidate = target_folder / f"{crate_name}-{suffix}.crate"
+        candidate = target_folder / f"{numbered(attempt)}.crate"
         if not candidate.exists():
             return candidate
-        suffix += 1
+        attempt += 1
 
 
 def _sanitize_name(value: str) -> str:
@@ -433,6 +404,16 @@ def _sanitize_name(value: str) -> str:
     if not sanitized or sanitized in {".", ".."}:
         raise ValueError("generated crate name must contain at least one safe character")
     return sanitized
+
+
+def parent_crate_names(crate_name: str) -> tuple[str, ...]:
+    """Ancestors of a nested crate name, outermost first (`A%%B%%C` needs `A` and `A%%B`).
+
+    Serato nests a crate under the leading segment of a `%%` name, so every proper
+    prefix of the name is an ancestor. A flat name has no ancestor at all.
+    """
+    segments = crate_name.split("%%")
+    return tuple("%%".join(segments[:index]) for index in range(1, len(segments)))
 
 
 __all__ = [
@@ -446,6 +427,7 @@ __all__ = [
     "plan_metadata_missing_field_serato_export",
     "plan_metadata_status_serato_export",
     "plan_serato_playlist_export",
+    "parent_crate_names",
     "select_serato_library_for_tracks",
     "to_serato_crate_path",
 ]

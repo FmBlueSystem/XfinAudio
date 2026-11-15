@@ -1,5 +1,5 @@
 import type { Readiness, Track } from './model.js';
-import { userErrorMessage } from './errors.js';
+import { errorCode, userErrorMessage } from './errors.js';
 export type SeratoExportSource = { kind: 'review'; reviewId: string } | { kind: 'saved'; playlistId: string }
   | { kind: 'metadata'; status: 'complete' | 'incomplete'; missingField: 'bpm' | 'camelot_key' | 'energy_level' | null; trackIds: string[] };
 function copySource(source: SeratoExportSource): SeratoExportSource {
@@ -10,12 +10,22 @@ export interface SeratoDestination { destinationId: string; label: string; }
 export interface SeratoExportPreview {
   previewId: string; sourceRevision: string; filename: string; destinationLabel: string; trackCount: number;
   readiness: Readiness; warnings: string[]; blockers: string[]; canCommit: boolean;
-  tracks: (Track & { missing?: boolean })[]; backup: { required: boolean };
+  tracks: (Track & { missing?: boolean })[]; parentsToCreate: string[]; backup: { required: boolean };
 }
-export interface SeratoExportReceipt { receiptId: string; filename: string; destinationLabel: string; trackCount: number; validated: true; backupCreated: boolean; }
+export interface SeratoExportReceipt { receiptId: string; filename: string; destinationLabel: string; trackCount: number; validated: true; backupCreated: boolean; parentsCreated: string[]; }
+/** `%%` is Serato's nesting separator; the user reads a nested ancestor as «XfinAudio › Metadata». */
+export function parentCrateLabel(name: string): string { return name.split('%%').join(' › '); }
+/** One Spanish sentence about the ancestor crates a confirmed commit will create; empty when there are none. */
+export function parentCratesLine(names: string[]): string {
+  const shown = names.map(parentCrateLabel); if (!shown.length) return '';
+  return shown.length === 1 ? `Se creará el crate «${shown[0]}»` : `Se crearán los crates ${shown.map((name) => `«${name}»`).join(', ')}`;
+}
 export interface SeratoExportApi {
   chooseSeratoDestination(): Promise<SeratoDestination | null>;
-  previewSeratoExport(input: { source: SeratoExportSource; destinationId: string; name: string }): Promise<SeratoExportPreview>;
+  /** Runs the same discovery as the picker with no native dialog, so the screen needs no folder step. */
+  detectSeratoDestination(): Promise<SeratoDestination | null>;
+  /** A generated set sends no name: the core proposes «<style> <day>-<month>» itself. */
+  previewSeratoExport(input: { source: SeratoExportSource; destinationId: string; name?: string }): Promise<SeratoExportPreview>;
   commitSeratoExport(input: { previewId: string }): Promise<SeratoExportReceipt | { cancelled: true }>;
   revealSeratoExport(input: { receiptId: string }): Promise<void>;
 }
@@ -34,29 +44,52 @@ export function validSeratoName(value: string): boolean {
 export class SeratoExportController {
   source: SeratoExportSource | null = null;
   destination: SeratoDestination | null = null;
+  /** The destination came from automatic detection, not from the manual picker. */
+  destinationDetected = false;
+  /** Detection ran and found nothing on the music drive; the manual choice is the way forward. */
+  detectionMissed = false;
   name = '';
   preview: SeratoExportPreview | null = null;
   receipt: SeratoExportReceipt | null = null;
-  pending: 'destination' | 'preview' | 'commit' | 'reveal' | null = null;
+  pending: 'destination' | 'detect' | 'preview' | 'commit' | 'reveal' | null = null;
   error = '';
   status = '';
   private generation = 0;
   private api: SeratoExportApi;
   private host: SeratoExportHost;
   constructor(api: SeratoExportApi, host: SeratoExportHost) { this.api = api; this.host = host; }
-  get canPreview(): boolean { return !this.pending && Boolean(this.source && this.destination && validSeratoName(this.name)); }
+  get canPreview(): boolean {
+    return !this.pending && Boolean(this.source && this.destination && (this.automaticName || validSeratoName(this.name)));
+  }
+  /** A generated set has no crate name of its own; the core names it from the style and the date. */
+  get automaticName(): boolean { return this.source?.kind === 'review' && !this.name.trim(); }
   get canCommit(): boolean {
     const preview = this.preview;
     return !this.pending && Boolean(preview && preview.previewId && preview.canCommit && ['ready', 'needs_review'].includes(preview.readiness)
       && preview.blockers.length === 0 && preview.trackCount > 0 && preview.tracks.length === preview.trackCount && !preview.tracks.some((track) => track.missing));
   }
   invalidatePreview(): void { this.generation++; this.preview = null; this.host.changed(); }
+  /**
+   * A stopped or restarted core forgets every id it issued, so the destination and the preview
+   * are useless. The source, the crate name and a published receipt stay: using the page again
+   * detects the folder again instead of asking the user to find it.
+   */
+  forgetCore(): void {
+    this.destination = null; this.destinationDetected = false; this.detectionMissed = false;
+    this.error = ''; this.status = '';
+    this.invalidatePreview();
+  }
   setSource(source: SeratoExportSource | null, suggestedName?: string): void {
     this.source = source ? copySource(source) : null;
     if (suggestedName !== undefined) this.name = suggestedName;
     this.error = '';
     if (this.pending !== 'commit') this.status = '';
     this.invalidatePreview();
+    if (!this.source) { this.destinationDetected = false; this.detectionMissed = false; return; }
+    // A destination the user already chose keeps winning; otherwise the screen finds it alone.
+    if (this.destination) return;
+    this.detectionMissed = false;
+    void this.detectDestination();
   }
   setName(value: string): void {
     if (this.name === value) return;
@@ -76,18 +109,49 @@ export class SeratoExportController {
       if (!current || generation !== this.generation || !destination) return;
       if (destination.destinationId === this.destination?.destinationId && destination.label === this.destination.label) return;
       this.destination = { destinationId: destination.destinationId, label: destination.label };
+      this.destinationDetected = false; this.detectionMissed = false;
       this.status = ''; this.invalidatePreview();
+    }, (error) => { if (generation === this.generation) this.fail(error); });
+  }
+  /** Automatic detection is the first step whenever a source is opened; it never shows a dialog. */
+  async detectDestination(): Promise<void> {
+    // An older bridge without the action keeps the choose-first flow instead of failing the screen.
+    if (typeof this.api.detectSeratoDestination !== 'function' || this.destination) return;
+    const generation = this.generation;
+    // A search result belongs to the controller, not to a route: opening the export screen
+    // navigates right after setSource, so route currency cannot decide whether it applies.
+    await this.run('detect', 'Buscando la carpeta _Serato_ del disco de música…', () => this.api.detectSeratoDestination(), (destination) => {
+      if (generation !== this.generation || this.destination) return;
+      if (!destination) { this.detectionMissed = true; this.destinationDetected = false; this.host.changed(); return; }
+      this.destination = { destinationId: destination.destinationId, label: destination.label };
+      this.destinationDetected = true; this.detectionMissed = false;
+      this.status = this.automaticName
+        ? 'Carpeta _Serato_ detectada automáticamente. El nombre del crate se propone solo, con el estilo y la fecha del día.'
+        : 'Carpeta _Serato_ detectada automáticamente en el disco de música.';
+      this.invalidatePreview();
     }, (error) => { if (generation === this.generation) this.fail(error); });
   }
   async requestPreview(): Promise<void> {
     if (!this.canPreview || !this.source || !this.destination || !this.host.canAct()) return;
     this.invalidatePreview(); this.status = '';
     const generation = this.generation;
-    const input = { source: copySource(this.source), destinationId: this.destination.destinationId, name: this.name.trim() };
+    const input: { source: SeratoExportSource; destinationId: string; name?: string } = {
+      source: copySource(this.source),
+      destinationId: this.destination.destinationId,
+    };
+    // An empty name is not sent at all: the core owns the automatic name and its collision suffix.
+    if (!this.automaticName) input.name = this.name.trim();
     await this.run('preview', 'Preparando vista previa de Serato…', () => this.api.previewSeratoExport(input), (preview, current) => {
       if (!current || generation !== this.generation) return;
       this.preview = preview; this.status = 'Vista previa preparada. Revisa las pistas y los avisos antes de exportar.'; this.host.changed();
-    }, (error) => { if (generation === this.generation) this.fail(error); });
+    }, (error) => {
+      if (generation !== this.generation) return;
+      if (errorCode(error) !== 'unknown_destination') { this.fail(error); return; }
+      // The core forgot the id and the host's single re-detection found nothing: this is the
+      // honest not-found path, never the "choose a valid folder" refusal.
+      this.destination = null; this.destinationDetected = false; this.detectionMissed = true;
+      this.error = ''; this.status = ''; this.invalidatePreview();
+    });
   }
   async commit(): Promise<void> {
     if (!this.canCommit || !this.preview || !this.host.canAct()) return;
@@ -97,7 +161,11 @@ export class SeratoExportController {
       if ('cancelled' in result) { this.status = 'Exportación cancelada antes de escribir. Puedes revisar la vista previa y volver a confirmar.'; return; }
       // Publication may already have finished; navigation or a different selection must never discard its receipt.
       this.receipt = result; this.status = `Crate exportado y validado: ${result.filename}`; this.invalidatePreview();
-    }, (error) => { this.invalidatePreview(); this.status = 'No se pudo confirmar el resultado de la exportación.'; this.fail(error); });
+    }, (error) => {
+      // Serato DJ was open and nothing was written: the same preview can be confirmed once it is closed (S13).
+      if (errorCode(error) === 'serato_running') { this.status = ''; this.fail(error); return; }
+      this.invalidatePreview(); this.status = 'No se pudo confirmar el resultado de la exportación.'; this.fail(error);
+    });
   }
   async reveal(): Promise<void> {
     if (!this.receipt?.validated) return;

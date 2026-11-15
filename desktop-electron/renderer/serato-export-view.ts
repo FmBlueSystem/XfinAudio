@@ -1,6 +1,7 @@
 import type { Readiness } from './model.js';
 import type { SeratoExportController } from './serato-export.js';
-import { validSeratoName } from './serato-export.js';
+import { parentCratesLine, validSeratoName } from './serato-export.js';
+import { SERATO_NOT_FOUND_MESSAGE } from './serato-quick-export.js';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
 };
@@ -21,11 +22,12 @@ export function createSeratoExportView(root: HTMLElement, controller: SeratoExpo
   name.addEventListener('input', () => controller.setName(name.value));
   const hint = identify(make('p', 'Usa un nombre breve, sin barras, dos puntos ni caracteres de control. Los nombres con muchos caracteres acentuados pueden necesitar acortarse.', 'field-hint'), 'name-hint');
   const destination = identify(make('p', '', 'field-hint'), 'destination'); destination.setAttribute('aria-live', 'polite');
+  const notFound = identify(make('p', SERATO_NOT_FOUND_MESSAGE, 'review-notice'), 'not-found'); notFound.setAttribute('role', 'status'); notFound.setAttribute('aria-live', 'polite'); notFound.hidden = true;
   const choose = button('choose', 'Elegir carpeta _Serato_', () => { void controller.chooseDestination(); });
   const previewButton = button('preview', 'Ver vista previa', () => { void controller.requestPreview(); });
   const actions = make('div', '', 'editor-actions'); actions.append(choose, previewButton);
-  setup.append(identify(make('h3', 'Exportar crate a Serato'), 'heading'), nextStep, source, nameLabel, name, hint, destination, actions,
-    make('p', 'Elige la carpeta _Serato_ que contiene Subcrates. El crate se exportará directamente al destino elegido. La vista previa no escribe archivos ni modifica audio o database V2.', 'field-hint'));
+  setup.append(identify(make('h3', 'Exportar crate a Serato'), 'heading'), nextStep, source, nameLabel, name, hint, destination, notFound, actions,
+    make('p', 'Puedes elegir la carpeta _Serato_ que contiene Subcrates o la carpeta que la contiene (por ejemplo, la raíz del disco o Música). El crate se exportará directamente al destino elegido. La vista previa no escribe archivos ni modifica audio o database V2.', 'field-hint'));
   const error = identify(make('p', '', 'review-notice blocker'), 'error'); error.setAttribute('role', 'alert');
   const status = identify(make('p', '', 'field-hint'), 'status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const pending = identify(make('p', 'La exportación está en curso. Una vez iniciada la escritura no se puede cancelar; espera a que finalice y consulta el resultado.', 'review-notice'), 'pending'); pending.setAttribute('role', 'status');
@@ -44,7 +46,8 @@ export function createSeratoExportView(root: HTMLElement, controller: SeratoExpo
     source.textContent = controller.source?.kind === 'review' ? 'Origen: selección revisada actual' : controller.source?.kind === 'saved' ? 'Origen: playlist guardada completa. Los cambios sin guardar del editor no se incluyen.' : controller.source?.kind === 'metadata' ? 'Origen: lista de trabajo de metadatos para reparación. No certifica una selección lista para DJ.' : 'Elige una selección revisada, una lista de metadatos o una playlist guardada para exportar.';
     if (name.value !== controller.name) name.value = controller.name;
     name.disabled = blocked || !controller.source; name.setAttribute('aria-invalid', String(Boolean(controller.name) && !validSeratoName(controller.name)));
-    destination.textContent = controller.destination ? `Destino seleccionado: ${controller.destination.label}` : 'Todavía no has elegido una carpeta de destino.';
+    destination.textContent = controller.destination ? `${controller.destinationDetected ? 'Destino detectado automáticamente' : 'Destino seleccionado'}: ${controller.destination.label}` : 'Todavía no has elegido una carpeta de destino.';
+    notFound.hidden = !controller.detectionMissed || Boolean(controller.destination);
     choose.disabled = blocked; previewButton.disabled = blocked || !controller.canPreview; commit.disabled = blocked || !controller.canCommit;
     choose.textContent = controller.destination ? 'Cambiar carpeta _Serato_' : 'Elegir carpeta _Serato_';
     const next = !controller.source ? null : !controller.destination ? choose : controller.preview ? controller.canCommit ? commit : null : previewButton;
@@ -58,6 +61,8 @@ export function createSeratoExportView(root: HTMLElement, controller: SeratoExpo
       if (preview) {
         assessment.append(make('p', `Archivo: ${preview.filename}`), make('p', `Destino: ${preview.destinationLabel}`), make('p', `${preview.trackCount} pistas`), make('span', readiness[preview.readiness], `readiness-pill ${preview.readiness}`));
         assessment.append(make('p', preview.backup.required ? 'Se requiere una copia de seguridad del crate existente antes de reemplazarlo.' : 'No se requiere copia de seguridad para este archivo nuevo.', 'field-hint'));
+        const parents = parentCratesLine(preview.parentsToCreate ?? []);
+        if (parents) assessment.append(make('p', parents, 'field-hint'));
         for (const [messages, heading, className] of [[preview.blockers, 'Bloqueos que impiden exportar', 'review-notice blocker'], [preview.warnings, 'Avisos para revisar', 'review-notice']] as const) {
           if (!messages.length) continue;
           const notice = make('section', '', className); const list = make('ul'); for (const message of messages) list.append(make('li', message)); notice.append(make('strong', heading), list); assessment.append(notice);
