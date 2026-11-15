@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,8 @@ import pytest
 from tests.test_headless_prep_parity import identity, seeded
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.common import BackendError
+
+BACKEND_LOGGER = "xfinaudio.headless.backend"
 
 FORM_FIELDS = {
     "targetTrackCount",
@@ -148,3 +151,25 @@ def test_the_existing_saved_controls_response_keeps_its_shape(tmp_path: Path) ->
     assert updated["requiredTrackIds"] == [identity(records[0])]
     assert updated["excludedTrackIds"] == [identity(records[1])]
     assert updated["genreFocus"] == "Techno"
+
+
+def test_a_form_that_cannot_be_remembered_keeps_the_generated_set_and_warns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    backend, _ = seeded(tmp_path)
+    expected = dict(generate(backend))
+    expected.pop("planId")
+    expected.pop("reviewId")
+
+    def unwritable(_settings: object) -> None:
+        raise OSError("app-owned preferences are read-only")
+
+    monkeypatch.setattr(backend.preferences, "_save", unwritable)
+    with caplog.at_level(logging.WARNING, logger=BACKEND_LOGGER):
+        result = dict(generate(backend))
+    assert result.pop("planId")
+    assert result.pop("reviewId")
+    assert result == expected
+    warnings = [record for record in caplog.records if record.name == BACKEND_LOGGER]
+    assert [record.levelno for record in warnings] == [logging.WARNING]
+    assert "not remembered" in warnings[0].getMessage()
