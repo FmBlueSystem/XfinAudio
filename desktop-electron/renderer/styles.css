@@ -297,6 +297,9 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 .list-chat-action { border: 1px solid #33373e; border-left: 3px solid #4b8bbf; border-radius: 6px; padding: 10px 14px; background: #1a1d21; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .list-chat-action-title { margin: 0; }
 #list-chat-dropped { margin: 8px 0 0; }
+/* S15: what the last period change replaced, and the tracks that stayed out of the period. */
+#list-chat-period { margin: 0 0 14px; }
+.list-chat-period-kept { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; color: #c3c7ce; font-size: 11px; }
 
 .session-resume { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin: 24px 12px 0; }
 

@@ -195,7 +195,7 @@ test('a proposed action that is not exactly one of the two shapes is refused as 
     chatResult({ actions: [{ ...moveAction(), type: 'remove' }] }),
     chatResult({ actions: [{ ...moveAction(), actionId: 'not-a-uuid' }] }),
     chatResult({ actions: [moveAction(), moveAction()] }),
-    chatResult({ actions: [moveAction(), replaceAction(), moveAction(), replaceAction(), moveAction(), replaceAction(), moveAction(), replaceAction(), moveAction()] }),
+    chatResult({ actions: manyOf(21, (index) => moveAction({ actionId: idOf(index), position: index, to: index + 1 })) }),
     chatResult({ droppedActions: -1 }),
     chatResult({ droppedActions: 1.5 }),
     chatResult({ actions: undefined }),
@@ -425,6 +425,9 @@ test('a use_variant card without the screen hook says the app must be updated an
 });
 // S5's five new shapes, exactly as the core shows them to the panel.
 const actionUuid = (n) => `${String(n).repeat(8)}-1111-4111-8111-111111111111`;
+/** A distinct action id per index, so a reply can carry the twenty changes S14 allows. */
+const idOf = (n) => `${String(n).padStart(8, '0')}-1111-4111-8111-111111111111`;
+const manyOf = (count, make) => Array.from({ length: count }, (_, index) => make(index + 1));
 const removeAction = (patch = {}) => ({ actionId: actionUuid(1), type: 'remove', position: 2, title: 'Segunda', artist: 'DJ Dos', reason: 'Choca de tonalidad con la tercera', ...patch });
 const addAction = (patch = {}) => ({ actionId: actionUuid(2), type: 'add', position: 3, track: { title: 'Nueva', artist: 'DJ Cinco', bpm: 126, key: '10A' }, reason: 'Sube la energía del cierre', ...patch });
 const replaceWithAction = (patch = {}) => ({ actionId: actionUuid(3), type: 'replace_with', position: 2, title: 'Segunda', artist: 'DJ Dos', track: { title: 'Otra', artist: 'DJ Seis', bpm: 124, key: '9A' }, reason: 'Encaja mejor con la tercera', ...patch });
@@ -468,7 +471,7 @@ test('a new card that is not exactly its shape is refused as an invalid AI respo
     chatResult({ actions: [{ ...reorderAction(), order: [2, 1] }] }),
     chatResult({ actions: [{ ...undoAction(), position: 2 }] }),
     chatResult({ actions: [{ ...undoAction(), type: 'undo ' }] }),
-    chatResult({ actions: [removeAction(), undoAction(), addAction(), reorderAction(), removeAction(), undoAction(), addAction(), reorderAction(), undoAction()] }),
+    chatResult({ actions: manyOf(21, (index) => undoAction({ actionId: idOf(index) })) }),
   ];
   for (const result of malformed) {
     const f = fixture({ runAiRequest: async () => ({ cancelled: false, result }) });
@@ -584,4 +587,130 @@ test('S9: the batch undo disappears after use and undoes one step per applied ch
   assert.equal(f.controller.error, '');
   await f.controller.undoBatch();
   assert.equal(undos.length, 2, 'a second click changes nothing');
+});
+// --- S15: fit the list to a period, card and report ---
+const periodAction = (patch = {}) => ({ actionId: idOf(8), type: 'period', yearMin: 1980, yearMax: 1999, outside: 7, reason: 'El DJ pidió solo los 80 y los 90', ...patch });
+const periodAnswer = (patch = {}) => ({ yearMin: 1980, yearMax: 1999, replaced: 3, kept: [{ position: 1, title: 'Apertura', year: 1975, reason: 'protected' }, { position: 6, title: 'Rareza', year: null, reason: 'no_candidate' }], ...patch });
+test('S15 copy: the period card names the range and the unprotected tracks outside it', () => {
+  assert.equal(listChatActionText(periodAction()), 'Ajustar la lista a 1980–1999 (7 pistas fuera de época)');
+  assert.equal(listChatActionText(periodAction({ yearMin: 1990, yearMax: 1999, outside: 1 })), 'Ajustar la lista a 1990–1999 (1 pistas fuera de época)');
+});
+test('S15: the period shape is accepted from history and from a reply, and a reply may now carry twenty changes', async () => {
+  const stored = fixture({ aiChatHistory: async () => { stored.calls.push(['history']); return { conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [periodAction()] }; } });
+  await stored.controller.load();
+  assert.deepEqual(stored.controller.actions, [periodAction()]);
+  assert.equal(stored.controller.error, '');
+  const twenty = manyOf(19, (index) => removeAction({ actionId: idOf(index + 9), position: index + 1 }));
+  const replied = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [...twenty, periodAction({ actionId: idOf(40) })] }) }) });
+  replied.controller.setAutoApply(false);
+  replied.controller.setRequest(question);
+  await replied.controller.send();
+  assert.equal(replied.controller.error, '');
+  assert.equal(replied.controller.actions.length, 20);
+  assert.deepEqual(replied.controller.actions.at(-1), periodAction({ actionId: idOf(40) }));
+});
+test('a period card that is not exactly its shape is refused as an invalid AI response', async () => {
+  const malformed = [
+    periodAction({ path: '/Users/dj/track.mp3' }),
+    periodAction({ position: 2 }),
+    periodAction({ type: 'period ' }),
+    periodAction({ yearMin: 1899 }),
+    periodAction({ yearMax: 2101 }),
+    periodAction({ yearMin: 2000, yearMax: 1990 }),
+    periodAction({ yearMin: 1980.5 }),
+    periodAction({ yearMax: '1999' }),
+    periodAction({ outside: -1 }),
+    periodAction({ outside: 1.5 }),
+    periodAction({ outside: 101 }),
+    periodAction({ outside: undefined }),
+  ];
+  for (const action of malformed) {
+    const f = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [action] }) }) });
+    await f.controller.load();
+    f.controller.setRequest(question);
+    await f.controller.send();
+    assert.equal(f.controller.error, 'La respuesta no cumple los límites esperados. No se ha aplicado ninguna propuesta.', JSON.stringify(action).slice(0, 90));
+    assert.deepEqual(f.controller.actions, []);
+    assert.equal(f.controller.period, null);
+  }
+});
+test('S15: applying the period card adopts the review and reports what was replaced and what stayed out', async () => {
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [periodAction()] }),
+    aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: [], period: periodAnswer() }; },
+  });
+  await f.controller.load();
+  await f.controller.apply(periodAction().actionId);
+  assert.deepEqual(f.calls.at(-1), ['apply', { actionId: periodAction().actionId }]);
+  assert.equal(f.applied.length, 1);
+  assert.equal(f.controller.reviewId, appliedReview.reviewId);
+  assert.equal(f.controller.error, '');
+  assert.deepEqual(f.controller.actions, []);
+  assert.deepEqual(f.controller.period, {
+    notice: 'Se reemplazaron 3 pistas.',
+    kept: ['1. Apertura (1975) — protegida', '6. Rareza (sin año) — no hay otra de esa época que mezcle'],
+  });
+});
+test('S15: a period that replaced every track keeps the report to its one line', async () => {
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [periodAction()] }),
+    aiChatApply: async () => ({ review: appliedReview, actions: [], period: periodAnswer({ replaced: 20, kept: [] }) }),
+  });
+  await f.controller.load();
+  await f.controller.apply(periodAction().actionId);
+  assert.equal(f.controller.notice, 'Se reemplazaron 20 pistas.');
+  assert.deepEqual(f.controller.period, { notice: 'Se reemplazaron 20 pistas.', kept: [] });
+});
+test('S15: a malformed period answer is refused and leaves the card and the review alone', async () => {
+  const kept = { position: 1, title: 'Apertura', year: 1975, reason: 'protected' };
+  const malformed = [
+    { yearMin: 1980, yearMax: 1999, replaced: 3 },
+    { yearMin: 1980, yearMax: 1999, replaced: 3, kept: [], extra: 1 },
+    { yearMin: 1980, yearMax: 1999, replaced: -1, kept: [] },
+    { yearMin: 1980, yearMax: 1999, replaced: 3, kept: [{ ...kept, year: '1975' }] },
+    { yearMin: 1980, yearMax: 1999, replaced: 3, kept: [{ ...kept, reason: 'other' }] },
+    { yearMin: 1980, yearMax: 1999, replaced: 3, kept: [{ ...kept, title: '' }] },
+    { yearMin: 1980, yearMax: 1999, replaced: 3, kept: [{ ...kept, position: 0 }] },
+    { yearMin: 1980, yearMax: 1999, replaced: 3, kept: [{ ...kept, path: '/tmp/a.mp3' }] },
+    null,
+  ];
+  for (const period of malformed) {
+    const f = fixture({
+      aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [periodAction()] }),
+      aiChatApply: async () => ({ review: appliedReview, actions: [], period }),
+    });
+    await f.controller.load();
+    await f.controller.apply(periodAction().actionId);
+    assert.equal(f.controller.error, 'La respuesta no cumple los límites esperados. No se ha aplicado ninguna propuesta.', JSON.stringify(period).slice(0, 90));
+    assert.deepEqual(f.controller.actions, [periodAction()]);
+    assert.equal(f.applied.length, 0);
+    assert.equal(f.controller.reviewId, uuid);
+    assert.equal(f.controller.period, null);
+  }
+});
+test('S15: a period change is applied automatically like the others and its report survives the batch', async () => {
+  const f = fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [periodAction(), removeAction()] }) }),
+    aiChatApply: async (input) => {
+      f.calls.push(['apply', input]);
+      return { review: appliedReview, actions: [], ...(input.actionId === periodAction().actionId ? { period: periodAnswer({ replaced: 4, kept: [{ position: 1, title: 'Apertura', year: 1975, reason: 'protected' }] }) } : {}) };
+    },
+  });
+  f.controller.setRequest(question);
+  await f.controller.send();
+  assert.deepEqual(f.calls.filter(([kind]) => kind === 'apply').map(([, input]) => input.actionId), [periodAction().actionId, removeAction().actionId]);
+  assert.equal(f.controller.notice, 'Se aplicaron 2 cambios.');
+  assert.equal(f.controller.canUndoBatch, true);
+  assert.deepEqual(f.controller.period, { notice: 'Se reemplazaron 4 pistas.', kept: ['1. Apertura (1975) — protegida'] });
+});
+test('S15: a new conversation or another review retires the period report', async () => {
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [periodAction()] }),
+    aiChatApply: async () => ({ review: appliedReview, actions: [], period: periodAnswer() }),
+  });
+  await f.controller.load();
+  await f.controller.apply(periodAction().actionId);
+  assert.ok(f.controller.period);
+  await f.controller.newConversation();
+  assert.equal(f.controller.period, null);
 });

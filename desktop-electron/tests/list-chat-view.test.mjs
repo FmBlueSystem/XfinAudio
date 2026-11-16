@@ -449,3 +449,66 @@ test('S9: a batch undo without the undo bridge says the app must be updated and 
     assert.equal(f.calls.filter(([kind]) => kind === 'apply').length, 2);
   } finally { f.restore(); }
 });
+// --- S15: fit the list to a period, card and report ---
+const periodCard = { actionId: cardUuid(8), type: 'period', yearMin: 1980, yearMax: 1999, outside: 7, reason: 'El DJ pidió solo los 80 y los 90' };
+const periodAnswer = (patch = {}) => ({ yearMin: 1980, yearMax: 1999, replaced: 3, kept: [{ position: 1, title: 'Apertura', year: 1975, reason: 'protected' }, { position: 6, title: 'Rareza', year: null, reason: 'no_candidate' }], ...patch });
+const periodCardText = 'Ajustar la lista a 1980–1999 (7 pistas fuera de época)';
+test('S15: the period card shows its exact sentence, the reason and one «Aplicar»', async () => {
+  const f = await fixture({}, ['Pregunta previa', 'Respuesta previa'], [periodCard]);
+  try {
+    assert.equal(f.get('proposed').hidden, false);
+    const cards = f.get('proposed-actions').children;
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].children[0].textContent, periodCardText);
+    assert.equal(cards[0].children[1].textContent, periodCard.reason);
+    assert.equal(f.get('apply-0').textContent, 'Aplicar');
+    assert.equal(f.get('apply-0').attrs['aria-label'], `Aplicar: ${periodCardText}`);
+    assert.equal(f.get('apply-0').disabled, false);
+    assert.equal(f.get('period').hidden, true);
+  } finally { f.restore(); }
+});
+test('S15: applying the period card says what was replaced and lists the tracks that stayed out', async () => {
+  const f = await fixture({ aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: [], period: periodAnswer() }; } }, ['Pregunta previa', 'Respuesta previa'], [periodCard]);
+  try {
+    f.get('apply-0').dispatchEvent(new Event('click')); await tick();
+    assert.deepEqual(f.calls.at(-1), ['apply', { actionId: periodCard.actionId }]);
+    assert.equal(f.get('period').hidden, false);
+    assert.equal(f.get('period-notice').textContent, 'Se reemplazaron 3 pistas.');
+    assert.equal(f.get('period-kept-heading').hidden, false);
+    assert.equal(f.get('period-kept-heading').textContent, 'Quedan 2 fuera de época:');
+    assert.deepEqual(f.get('period-kept').children.map((node) => node.textContent), ['1. Apertura (1975) — protegida', '6. Rareza (sin año) — no hay otra de esa época que mezcle']);
+    assert.equal(f.get('notice').hidden, true, 'the replaced line is said once');
+    assert.equal(f.get('proposed').hidden, true);
+  } finally { f.restore(); }
+});
+test('S15: a period that kept nothing shows only the replaced line', async () => {
+  const f = await fixture({ aiChatApply: async () => ({ review: appliedReview, actions: [], period: periodAnswer({ replaced: 20, kept: [] }) }) }, ['Pregunta previa', 'Respuesta previa'], [periodCard]);
+  try {
+    f.get('apply-0').dispatchEvent(new Event('click')); await tick();
+    assert.equal(f.get('period').hidden, false);
+    assert.equal(f.get('period-notice').textContent, 'Se reemplazaron 20 pistas.');
+    assert.equal(f.get('period-kept-heading').hidden, true);
+    assert.equal(f.get('period-kept').children.length, 0);
+  } finally { f.restore(); }
+});
+test('S15: the report also shows after an automatic batch', async () => {
+  const f = await fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [periodCard, removeCard] }) }),
+    aiChatApply: async (input) => {
+      f.calls.push(['apply', input]);
+      return { review: appliedReview, actions: [], ...(input.actionId === periodCard.actionId ? { period: periodAnswer({ replaced: 4, kept: [{ position: 1, title: 'Apertura', year: 1975, reason: 'protected' }] }) } : {}) };
+    },
+  }, ['Pregunta previa', 'Respuesta previa'], []);
+  try {
+    await sendReply(f);
+    assert.equal(f.get('auto-applied').hidden, false);
+    assert.equal(f.get('auto-notice').textContent, 'Se aplicaron 2 cambios.');
+    assert.deepEqual(f.get('auto-list').children.map((node) => node.textContent), [periodCardText, 'Quitar 2. Segunda']);
+    assert.equal(f.get('period').hidden, false);
+    assert.equal(f.get('period-notice').textContent, 'Se reemplazaron 4 pistas.');
+    assert.equal(f.get('period-kept-heading').textContent, 'Quedan 1 fuera de época:');
+    assert.deepEqual(f.get('period-kept').children.map((node) => node.textContent), ['1. Apertura (1975) — protegida']);
+    assert.equal(f.get('error').hidden, true);
+    assert.equal(f.get('undo-batch').hidden, false);
+  } finally { f.restore(); }
+});
