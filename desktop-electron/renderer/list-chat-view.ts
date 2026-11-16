@@ -1,5 +1,5 @@
 import { AI_RECIPIENT } from './optional-ai.js';
-import { LIST_CHAT_PROPOSED, LIST_CHAT_READ_AGAIN, listChatActionText, listChatDropped } from './list-chat.js';
+import { LIST_CHAT_AUTO, LIST_CHAT_PROPOSED, LIST_CHAT_READ_AGAIN, LIST_CHAT_UNDO_BATCH, listChatActionText, listChatDropped } from './list-chat.js';
 import type { ListChatController } from './list-chat.js';
 /** S7's exact copy: the empty state and the three questions that only fill the box. */
 export const LIST_CHAT_EMPTY = 'Pregunta cómo mejorar esta lista. El asistente lee las pistas, las transiciones y los avisos.';
@@ -24,6 +24,19 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
   const heading = identify(make('h3', 'Asistente de lista'), 'heading');
   const error = identify(make('p', '', 'review-notice blocker'), 'error'); error.setAttribute('role', 'alert');
   const notice = identify(make('p', '', 'review-notice'), 'notice'); notice.setAttribute('role', 'status');
+  // S9: the window applies every reply at once unless the DJ turns this switch off.
+  const auto = identify(make('div', '', 'editor-actions list-chat-auto'), 'auto');
+  const autoLabel = make('label', LIST_CHAT_AUTO); autoLabel.setAttribute('for', `${prefix}-auto-toggle`);
+  const autoToggle = identify(make('input'), 'auto-toggle'); autoToggle.type = 'checkbox';
+  autoToggle.addEventListener('change', () => controller.setAutoApply(autoToggle.checked));
+  auto.append(autoLabel, autoToggle);
+  // What the last automatic batch applied, in the same sentences as its cards, and one undo for it.
+  const autoApplied = identify(make('section', '', 'list-chat-applied'), 'auto-applied');
+  const autoNotice = identify(make('p', '', 'review-notice'), 'auto-notice'); autoNotice.setAttribute('role', 'status');
+  const autoList = identify(make('ul', '', 'list-chat-applied-list'), 'auto-list');
+  const undoBatch = identify(make('button', LIST_CHAT_UNDO_BATCH, 'button subtle'), 'undo-batch'); undoBatch.type = 'button';
+  undoBatch.addEventListener('click', () => { if (!undoBatch.disabled) void controller.undoBatch(); });
+  autoApplied.append(autoNotice, autoList, undoBatch);
   const empty = identify(make('p', LIST_CHAT_EMPTY, 'field-hint'), 'empty');
   const examples = identify(make('div', '', 'editor-actions'), 'examples');
   const action = (id: string, caption: string, callback: () => void, primary = false): HTMLButtonElement => {
@@ -64,11 +77,20 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
   payload.append(payloadSummary, payloadBody, payloadHint);
   payload.addEventListener('toggle', () => { if (payload.open) void controller.inspectPayload(); });
   prepared.append(previewRecipient, previewLines, payload);
-  section.append(heading, error, notice, empty, examples, conversation, proposed, requestField, actions, pending, disclosure, prepared);
+  section.append(heading, error, notice, auto, autoApplied, empty, examples, conversation, proposed, requestField, actions, pending, disclosure, prepared);
   root.replaceChildren(section);
   const render = (): void => {
     error.hidden = !controller.error; error.textContent = controller.error;
-    notice.hidden = !controller.notice; notice.textContent = controller.notice;
+    // After a batch the summary is the batch region's own line, so the panel never says it twice.
+    notice.hidden = !controller.notice || controller.notice === controller.autoBatch?.notice;
+    notice.textContent = controller.notice;
+    autoToggle.checked = controller.autoApply;
+    autoApplied.hidden = !controller.autoBatch;
+    autoNotice.textContent = controller.autoBatch?.notice ?? '';
+    autoList.replaceChildren(...(controller.autoBatch?.texts ?? []).map((line) => make('li', line)));
+    // The undo belongs to that one batch: without one it is gone, not merely disabled.
+    undoBatch.hidden = !controller.autoBatch;
+    undoBatch.disabled = !controller.canUndoBatch;
     const busy = controller.pending !== null;
     const streaming = controller.pending === 'send';
     empty.hidden = controller.messages.length > 0 || streaming;

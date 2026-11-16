@@ -44,7 +44,7 @@ async function fixture(overrides = {}, stored = ['¿Qué pista quitarías?', 'La
   const controller = new ListChatController(api, { canAct: () => online, changed: () => render(), applied: (value) => { applied.push(value); }, perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } } });
   render = createListChatView(root, controller, { idPrefix: 'list-chat' });
   controller.setReview(uuid); await controller.load(); render();
-  return { root, controller, calls, applied, render, get: (id) => all(root).find((node) => node.id === `list-chat-${id}`) ?? all(root).find((node) => node.id === `list-chat`), offline: () => { online = false; render(); }, restore: () => { globalThis.document = previous; } };
+  return { root, controller, calls, applied, render, get: (id) => all(root).find((node) => node.id === `list-chat-${id}`) ?? all(root).find((node) => node.id === `list-chat`), offline: () => { online = false; render(); }, setAuto: (value) => { const toggle = all(root).find((node) => node.id === 'list-chat-auto-toggle'); toggle.checked = value; toggle.dispatchEvent(new Event('change')); render(); }, restore: () => { globalThis.document = previous; } };
 }
 test('the panel names itself, explains the empty state with the three example questions and the exact controls', async () => {
   const f = await fixture({}, []);
@@ -210,6 +210,7 @@ test('the cards are disabled while anything runs and when the app cannot act', a
   let finish;
   const f = await fixture({ runAiRequest: () => new Promise((resolve) => { finish = resolve; }) }, ['Pregunta previa', 'Respuesta previa'], [replaceAction()]);
   try {
+    f.setAuto(false);
     f.get('request').value = question; f.get('request').dispatchEvent(new Event('input'));
     f.get('send').dispatchEvent(new Event('click'));
     assert.equal(f.get('apply-0').disabled, true);
@@ -304,5 +305,147 @@ test('S2: «Aplicar todo» is not offered for a single change', async () => {
   try {
     assert.equal(f.get('proposed').hidden, false);
     assert.equal(f.get('apply-all').hidden, true);
+  } finally { f.restore(); }
+});
+// --- S9: automatic apply with one batch undo ---
+const autoSentence = 'Aplicar los cambios automáticamente';
+const undoBatchSentence = 'Deshacer estos cambios';
+const sendReply = async (f) => {
+  f.get('request').value = question; f.get('request').dispatchEvent(new Event('input'));
+  f.get('send').dispatchEvent(new Event('click')); await tick();
+};
+test('S9: the window offers «Aplicar los cambios automáticamente», on by default and kept across conversations', async () => {
+  const f = await fixture();
+  try {
+    assert.equal(f.get('auto-toggle').checked, true);
+    assert.equal(f.controller.autoApply, true);
+    const label = all(f.get('auto')).find((node) => node.tagName === 'label');
+    assert.equal(label.textContent, autoSentence);
+    assert.equal(label.attrs.for, 'list-chat-auto-toggle');
+    assert.equal(f.get('auto-applied').hidden, true);
+    assert.equal(f.get('undo-batch').textContent, undoBatchSentence);
+    f.setAuto(false);
+    assert.equal(f.controller.autoApply, false);
+    assert.equal(f.get('auto-toggle').checked, false);
+    await f.controller.newConversation(); f.render();
+    assert.equal(f.get('auto-toggle').checked, false, 'the choice is kept while the app is open');
+    f.setAuto(true);
+    assert.equal(f.controller.autoApply, true);
+    assert.equal(f.calls.some(([kind]) => kind === 'apply'), false);
+  } finally { f.restore(); }
+});
+test('S9: with the switch on a reply with three changes applies them at once, without cards, and offers the batch undo', async () => {
+  const seen = [];
+  const f = await fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeCard, reorderCard, undoCard] }) }),
+    aiChatApply: async (input) => { seen.push(input.actionId); f.calls.push(['apply', input]); return { review: appliedReview, actions: [] }; },
+  }, ['Pregunta previa', 'Respuesta previa'], []);
+  try {
+    await sendReply(f);
+    assert.deepEqual(seen, [removeCard.actionId, reorderCard.actionId, undoCard.actionId], 'the shown order is kept');
+    assert.equal(f.applied.length, 3, 'every change is handed to the screen as a normal edit');
+    assert.equal(f.get('auto-applied').hidden, false);
+    assert.equal(f.get('auto-notice').textContent, 'Se aplicaron 3 cambios.');
+    assert.deepEqual(f.get('auto-list').children.map((node) => node.textContent), ['Quitar 2. Segunda', 'Reordenar la lista (3 pistas cambian de lugar)', 'Deshacer el último cambio']);
+    assert.equal(f.get('undo-batch').hidden, false);
+    assert.equal(f.get('undo-batch').disabled, false);
+    assert.equal(f.get('proposed').hidden, true, 'no card is left to approve');
+    assert.equal(f.get('error').hidden, true);
+  } finally { f.restore(); }
+});
+test('S9: the batch stops at the first failure, reports how many of how many and leaves the rest as cards', async () => {
+  const seen = [];
+  const f = await fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeCard, reorderCard, undoCard] }) }),
+    aiChatApply: async (input) => {
+      seen.push(input.actionId);
+      if (input.actionId === reorderCard.actionId) throw Object.assign(new Error('bad'), { code: 'invalid_params' });
+      return { review: appliedReview, actions: [reorderCard, undoCard] };
+    },
+  }, ['Pregunta previa', 'Respuesta previa'], []);
+  try {
+    await sendReply(f);
+    assert.deepEqual(seen, [removeCard.actionId, reorderCard.actionId], 'the batch stops at the first failure');
+    assert.equal(f.get('auto-notice').textContent, 'Se aplicaron 1 de 3 cambios.');
+    assert.deepEqual(f.get('auto-list').children.map((node) => node.textContent), ['Quitar 2. Segunda']);
+    assert.equal(f.get('error').textContent, 'Revisa los datos de la operación y sus límites antes de intentarlo de nuevo.');
+    assert.deepEqual(f.get('proposed-actions').children.map((card) => card.children[0].textContent), ['Reordenar la lista (3 pistas cambian de lugar)', 'Deshacer el último cambio']);
+    assert.equal(f.get('apply-0').textContent, 'Aplicar');
+    assert.equal(f.get('undo-batch').hidden, false, 'the steps that were applied can still be undone');
+  } finally { f.restore(); }
+});
+test('S9: a use_variant is never applied automatically and stays as a card with «Aplicar»', async () => {
+  const seen = [];
+  const f = await fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [variantCard, removeCard] }) }),
+    aiChatApply: async (input) => { seen.push(input.actionId); return { review: appliedReview, actions: [variantCard] }; },
+  }, ['Pregunta previa', 'Respuesta previa'], []);
+  try {
+    await sendReply(f);
+    assert.deepEqual(seen, [removeCard.actionId], 'the alternative is never applied by the batch');
+    assert.equal(f.calls.some(([kind]) => kind === 'select'), false);
+    assert.equal(f.get('proposed').hidden, false);
+    assert.deepEqual(f.get('proposed-actions').children.map((card) => card.children[0].textContent), ['Usar la alternativa exploratoria (20 pistas)']);
+    assert.equal(f.get('apply-0').textContent, 'Aplicar');
+    assert.equal(f.get('auto-notice').textContent, 'Se aplicaron 1 cambios.');
+  } finally { f.restore(); }
+});
+test('S9: «Deshacer estos cambios» undoes exactly the applied steps and then disappears', async () => {
+  const undos = [];
+  const f = await fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeCard, reorderCard] }) }),
+    aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: input.actionId === removeCard.actionId ? [reorderCard] : [] }; },
+    reviewUndo: async (input) => { undos.push({ ...input }); return { ...appliedReview, reviewId: undos.length === 1 ? uuid : uuid2 }; },
+  }, ['Pregunta previa', 'Respuesta previa'], []);
+  try {
+    await sendReply(f);
+    assert.equal(f.get('auto-notice').textContent, 'Se aplicaron 2 cambios.');
+    f.get('undo-batch').dispatchEvent(new Event('click')); await tick();
+    assert.deepEqual(undos, [{ reviewId: uuid2 }, { reviewId: uuid }], 'one undo per applied step, each on the review it minted');
+    assert.equal(f.applied.length, 4, 'each undo is handed to the screen as a normal edit');
+    assert.equal(f.get('auto-applied').hidden, true);
+    assert.equal(f.get('undo-batch').hidden, true);
+    assert.equal(f.get('error').hidden, true);
+  } finally { f.restore(); }
+});
+test('S9: the batch undo is retired by any other edit of the list', async () => {
+  const f = await fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeCard, reorderCard] }) }),
+    aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: input.actionId === removeCard.actionId ? [reorderCard] : [] }; },
+    reviewUndo: async () => appliedReview,
+  }, ['Pregunta previa', 'Respuesta previa'], []);
+  try {
+    await sendReply(f);
+    assert.equal(f.get('undo-batch').hidden, false);
+    f.controller.reviewReplaced(); f.render();
+    assert.equal(f.get('auto-applied').hidden, true);
+    assert.equal(f.get('undo-batch').hidden, true);
+    f.get('undo-batch').dispatchEvent(new Event('click')); await tick();
+    assert.equal(f.calls.some(([kind]) => kind === 'undo'), false);
+  } finally { f.restore(); }
+});
+test('S9: with the switch off a reply keeps its cards, «Aplicar» and «Aplicar todo» as before', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeCard, reorderCard] }) }) }, ['Pregunta previa', 'Respuesta previa'], []);
+  try {
+    f.setAuto(false);
+    await sendReply(f);
+    assert.equal(f.calls.some(([kind]) => kind === 'apply'), false, 'nothing is applied without the switch');
+    assert.equal(f.get('auto-applied').hidden, true);
+    assert.equal(f.get('proposed').hidden, false);
+    assert.equal(f.get('proposed-actions').children.length, 2);
+    assert.equal(f.get('apply-all').hidden, false);
+    assert.equal(f.get('apply-0').disabled, false);
+  } finally { f.restore(); }
+});
+test('S9: a batch undo without the undo bridge says the app must be updated and changes nothing', async () => {
+  const f = await fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeCard, reorderCard] }) }),
+    aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: input.actionId === removeCard.actionId ? [reorderCard] : [] }; },
+  }, ['Pregunta previa', 'Respuesta previa'], []);
+  try {
+    await sendReply(f);
+    f.get('undo-batch').dispatchEvent(new Event('click')); await tick();
+    assert.equal(f.get('error').textContent, 'Actualiza la aplicación para deshacer cambios.');
+    assert.equal(f.calls.filter(([kind]) => kind === 'apply').length, 2);
   } finally { f.restore(); }
 });

@@ -29,6 +29,14 @@ export const LIST_CHAT_TOO_LONG = 'La petición admite como máximo 2000 caracte
 export const LIST_CHAT_PROPOSED = 'Cambios propuestos';
 export const LIST_CHAT_APPLYING = 'Aplicando el cambio propuesto…';
 export const LIST_CHAT_APPLIED = 'Cambio aplicado. Puedes deshacerlo con Deshacer.';
+/** S9: the switch that applies a whole reply at once, and the batch undo it offers afterwards. */
+export const LIST_CHAT_AUTO = 'Aplicar los cambios automáticamente';
+export const LIST_CHAT_UNDO_BATCH = 'Deshacer estos cambios';
+export const LIST_CHAT_UNDOING = 'Deshaciendo estos cambios…';
+/** Said when the host cannot undo at all; the same line the review panel uses. */
+export const LIST_CHAT_UNDO_UNAVAILABLE = 'Actualiza la aplicación para deshacer cambios.';
+/** S9: the whole reply went through. The partial form is S2's `listChatAppliedAll`. */
+export const listChatAutoApplied = (applied: number): string => `Se aplicaron ${applied} cambios.`;
 /** The line that explains the proposals the core refused to turn into an action. */
 export const listChatDropped = (count: number): string => `Se descartaron ${count} cambios que no se pueden aplicar.`;
 /** S2: the batch result, whether every shown change was applied or the batch stopped early. */
@@ -57,6 +65,8 @@ export interface ListChatApi {
   runAiRequest(input: { previewId: string }): Promise<{ cancelled: boolean; result: AiResult | null }>;
   inspectAiPayload(input: { previewId: string }): Promise<AiPayload>;
   aiChatApply(input: { actionId: string }): Promise<{ review: DetailedReview; actions: AiChatAction[]; extended?: ExtendedList }>;
+  /** Optional until the host ships it: S9's batch undo is only offered when the core can undo. */
+  reviewUndo?(input: { reviewId: string }): Promise<DetailedReview>;
 }
 /** The panel hands the review the edit minted back to the screen, exactly like a manual edit does. */
 export type ListChatHost = Pick<OptionalAiHost, 'canAct' | 'changed' | 'perform'> & {
@@ -197,9 +207,9 @@ function reviewCopy(value: unknown): DetailedReview {
  * One conversation with the assistant about the generated review (S7). The list is never changed
  * by asking: every turn prepares the `chat` selector for the current review, sends the typed
  * question and stores the conversation and the proposals the core returns. A proposal is applied
- * only when the user clicks its «Aplicar» card (S5): that click is the consent, the native dialog
- * and its first-turn permission belong to the host, and a failed or cancelled turn keeps the
- * question in the box.
+ * when the user clicks its «Aplicar» card (S5), or — while S9's switch is on — as the reply
+ * arrives; either way the core applies it, the native dialog and its first-turn permission belong
+ * to the host, and a failed or cancelled turn keeps the question in the box.
  */
 export class ListChatController {
   private api: ListChatApi; private host: ListChatHost; private review = ''; private generation = 0;
@@ -211,7 +221,18 @@ export class ListChatController {
   droppedActions = 0;
   /** Index of the reply the assistant announced it had re-read the list for; null when none. */
   readAgain: number | null = null;
-  pending: 'load' | 'send' | 'reset' | 'inspect' | 'apply' | null = null;
+  pending: 'load' | 'send' | 'reset' | 'inspect' | 'apply' | 'undo' | null = null;
+  /**
+   * S9: with this on a reply's changes are applied as they arrive, exactly like «Aplicar todo».
+   * It is on by default and lives as long as the app is open, not as long as one conversation.
+   */
+  autoApply = true;
+  /** S9: what the last automatic batch applied and how many steps undo it; null hides the undo. */
+  autoBatch: { count: number; notice: string; texts: string[] } | null = null;
+  /** True while the chat itself applies a batch or undoes one, so its own edits never retire it. */
+  private inBatch = false;
+  /** True while the chat hands a review it minted to the screen: that is not another edit. */
+  private selfEdit = false;
   constructor(api: ListChatApi, host: ListChatHost) { this.api = api; this.host = host; }
   get reviewId(): string { return this.review; }
   get pendingText(): string {
@@ -221,6 +242,7 @@ export class ListChatController {
       case 'reset': return 'Empezando una conversación nueva…';
       case 'inspect': return 'Recuperando el envío exacto…';
       case 'apply': return LIST_CHAT_APPLYING;
+      case 'undo': return LIST_CHAT_UNDOING;
       default: return '';
     }
   }
@@ -232,6 +254,8 @@ export class ListChatController {
   get applyEnabled(): boolean { return !this.pending && this.host.canAct() && this.review !== ''; }
   /** S2: a batch only exists with two or more proposed changes. */
   get canApplyAll(): boolean { return this.applyEnabled && this.actions.length >= 2; }
+  /** S9: the batch undo is offered while its steps are the last thing that changed the list. */
+  get canUndoBatch(): boolean { return !this.pending && this.host.canAct() && this.review !== '' && this.autoBatch !== null; }
   get requestEditable(): boolean { return !this.pending && this.host.canAct() && this.review !== ''; }
   /**
    * Publishes the review the conversation belongs to. Another review is another conversation
@@ -243,8 +267,23 @@ export class ListChatController {
     if (next === this.review) return;
     this.generation++;
     this.review = next; this.messages = []; this.preview = null; this.payload = null; this.readAgain = null;
-    this.actions = []; this.droppedActions = 0;
+    this.actions = []; this.droppedActions = 0; this.autoBatch = null;
     this.error = ''; this.notice = ''; this.loaded = false;
+    this.host.changed();
+  }
+  /** S9: the switch itself, kept as long as the app is open and across conversations. */
+  setAutoApply(value: boolean): void {
+    if (typeof value !== 'boolean' || value === this.autoApply) return;
+    this.autoApply = value;
+    this.host.changed();
+  }
+  /**
+   * S9: the list was edited outside this batch — a manual edit or the review's own undo — so the
+   * batch no longer reverts only its own steps and its undo goes away.
+   */
+  reviewReplaced(): void {
+    if (this.selfEdit || !this.autoBatch) return;
+    this.autoBatch = null;
     this.host.changed();
   }
   setRequest(value: string): void {
@@ -289,6 +328,7 @@ export class ListChatController {
       const preview = previewCopy(await this.api.prepareAiRequest({ surface: CHAT_SURFACE, request: message, context: { reviewId } }));
       return { preview, answer: await this.api.runAiRequest({ previewId: preview.previewId }) };
     }, (value) => this.accept(value.preview, value.answer));
+    await this.autoApplyReply();
   }
   private accept(preview: AiPreview, answer: { cancelled: boolean; result: AiResult | null } | null): void {
     if (!answer || typeof answer.cancelled !== 'boolean') invalid();
@@ -349,11 +389,69 @@ export class ListChatController {
       const extended = extend && value && Object.hasOwn(value, 'extended') ? extendedCopy(value.extended) : null;
       this.actions = actions; this.droppedActions = 0;
       this.notice = extended ? extendedLine(extended) : LIST_CHAT_APPLIED; this.error = '';
-      this.review = review.reviewId;
-      this.host.applied?.(review);
+      // A single click is another way of editing the list, so it retires an earlier batch undo.
+      if (!this.inBatch) this.autoBatch = null;
+      this.handOff(review);
       applied = true;
     });
     return applied;
+  }
+  /**
+   * S9: a reply's changes are applied at once, in order, exactly as «Aplicar todo» does: the batch
+   * stops at the first failure and everything that was applied is listed with one undo for the
+   * whole batch. A proposed alternative is the screen's own choice, so it is never applied here;
+   * it stays as a card with «Aplicar».
+   */
+  private async autoApplyReply(): Promise<void> {
+    if (!this.autoApply || !this.applyEnabled) return;
+    const batch = this.actions.filter((action) => action.type !== 'use_variant');
+    if (batch.length === 0) return;
+    let applied = 0; const texts: string[] = [];
+    this.inBatch = true;
+    try {
+      for (const action of batch) {
+        if (!(await this.applyAction(action))) break;
+        applied++; texts.push(listChatActionText(action));
+      }
+    } finally { this.inBatch = false; }
+    // Nothing went through: the error and the untouched cards already tell the whole story.
+    if (applied === 0) return;
+    const notice = applied === batch.length ? listChatAutoApplied(applied) : listChatAppliedAll(applied, batch.length);
+    this.autoBatch = { count: applied, notice, texts };
+    this.notice = notice;
+    this.host.changed();
+  }
+  /**
+   * S9: reverts the last automatic batch by undoing its own steps, newest first, one review at a
+   * time. The button belongs to that batch, so it goes before the first step and a failed step
+   * leaves the list, the error and the rest of the conversation exactly as they were.
+   */
+  async undoBatch(): Promise<void> {
+    const batch = this.autoBatch;
+    if (!batch || !this.canUndoBatch) return;
+    const undo = this.api.reviewUndo;
+    if (!undo) { this.error = LIST_CHAT_UNDO_UNAVAILABLE; this.host.changed(); return; }
+    this.autoBatch = null;
+    this.inBatch = true;
+    try {
+      for (let step = 0; step < batch.count; step++) {
+        const reviewId = this.review;
+        let undone = false;
+        await this.perform('undo', LIST_CHAT_UNDOING, () => undo({ reviewId }), (value) => {
+          this.handOff(reviewCopy(value));
+          this.notice = ''; this.error = '';
+          undone = true;
+        });
+        if (!undone) break;
+      }
+    } finally { this.inBatch = false; }
+    this.host.changed();
+  }
+  /** Hands a minted review to the screen without letting that hand-off retire this chat's batch. */
+  private handOff(review: DetailedReview): void {
+    this.review = review.reviewId;
+    this.selfEdit = true;
+    try { this.host.applied?.(review); } finally { this.selfEdit = false; }
   }
   /**
    * A proposed alternative is chosen by the screen, which owns the plan, the discard question and

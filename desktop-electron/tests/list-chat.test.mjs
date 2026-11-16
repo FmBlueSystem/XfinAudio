@@ -117,6 +117,7 @@ test('a cancelled turn appends nothing and keeps the question for a retry', asyn
 });
 test('a new conversation calls aiChatReset and empties the transcript and its proposed changes', async () => {
   const f = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [moveAction()] }) }) });
+  f.controller.setAutoApply(false);
   f.controller.setRequest(question);
   await f.controller.send();
   assert.deepEqual(f.controller.actions, [moveAction()]);
@@ -177,6 +178,7 @@ test('opening the panel shows the pending actions the core still holds', async (
 });
 test('a turn keeps the proposed actions and counts the ones the core dropped', async () => {
   const f = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [replaceAction(), moveAction()], droppedActions: 2 }) }) });
+  f.controller.setAutoApply(false);
   f.controller.setRequest(question);
   await f.controller.send();
   assert.deepEqual(f.controller.actions, [replaceAction(), moveAction()]);
@@ -216,6 +218,7 @@ test('Aplicar sends the action id, shows the returned review and keeps the remai
     runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [replaceAction(), moveAction()] }) }),
     aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: [remaining] }; },
   });
+  f.controller.setAutoApply(false);
   f.controller.setRequest(question);
   await f.controller.send();
   await f.controller.apply(uuid);
@@ -238,6 +241,7 @@ test('a stale proposal shows the existing Spanish error text and removes the car
     runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [moveAction()], droppedActions: 1 }) }),
     aiChatApply: async (input) => { f.calls.push(['apply', input]); throw Object.assign(new Error('gone'), { code: 'stale_ai' }); },
   });
+  f.controller.setAutoApply(false);
   f.controller.setRequest(question);
   await f.controller.send();
   await f.controller.apply(uuid2);
@@ -252,6 +256,7 @@ test('an apply that failed for another reason keeps the cards for a retry', asyn
     runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [moveAction()] }) }),
     aiChatApply: async () => { throw Object.assign(new Error('bad'), { code: 'invalid_params' }); },
   });
+  f.controller.setAutoApply(false);
   f.controller.setRequest(question);
   await f.controller.send();
   await f.controller.apply(uuid2);
@@ -261,12 +266,14 @@ test('an apply that failed for another reason keeps the cards for a retry', asyn
 });
 test('an apply is refused while anything runs or when the action is unknown', async () => {
   const blocked = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [moveAction()] }) }) });
+  blocked.controller.setAutoApply(false);
   blocked.controller.setRequest(question);
   await blocked.controller.send();
   blocked.block();
   assert.equal(blocked.controller.applyEnabled, false);
   await blocked.controller.apply(uuid2);
   const unknown = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [moveAction()] }) }) });
+  unknown.controller.setAutoApply(false);
   unknown.controller.setRequest(question);
   await unknown.controller.send();
   await unknown.controller.apply(uuid);
@@ -294,6 +301,7 @@ test('the two new proposal shapes are accepted from history and from a reply', a
   await stored.controller.load();
   assert.deepEqual(stored.controller.actions, [extendAction(), variantAction()]);
   const replied = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [extendAction(), variantAction()] }) }) });
+  replied.controller.setAutoApply(false);
   replied.controller.setRequest(question);
   await replied.controller.send();
   assert.deepEqual(replied.controller.actions, [extendAction(), variantAction()]);
@@ -436,6 +444,7 @@ test('the five new proposal shapes are accepted from history and from a reply', 
   assert.deepEqual(stored.controller.actions, [removeAction(), replaceWithAction()]);
   assert.equal(stored.controller.error, '');
   const replied = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeAction(), addAction(), replaceWithAction(), reorderAction(), undoAction()] }) }) });
+  replied.controller.setAutoApply(false);
   replied.controller.setRequest(question);
   await replied.controller.send();
   assert.deepEqual(replied.controller.actions, [removeAction(), addAction(), replaceWithAction(), reorderAction(), undoAction()]);
@@ -530,4 +539,49 @@ test('S2: «Aplicar todo» is refused while the app cannot act', async () => {
   assert.equal(f.controller.canApplyAll, false);
   await f.controller.applyAll();
   assert.equal(f.calls.some(([kind]) => kind === 'apply'), false);
+});
+// --- S9: automatic apply with one batch undo ---
+test('S9: automatic apply is on by default and switching it off keeps the reply as cards', async () => {
+  const f = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeAction(), addAction()] }) }) });
+  assert.equal(f.controller.autoApply, true, 'the switch is on by default');
+  f.controller.setAutoApply(false);
+  f.controller.setRequest(question);
+  await f.controller.send();
+  assert.deepEqual(f.controller.actions, [removeAction(), addAction()]);
+  assert.equal(f.calls.some(([kind]) => kind === 'apply'), false);
+  assert.equal(f.controller.canApplyAll, true);
+});
+test('S9: a batch survives its own hand-offs to the screen and any other edit retires its undo', async () => {
+  const seen = []; const applied = []; const ref = {};
+  const f = fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeAction(), addAction()] }) }),
+    aiChatApply: async (input) => { seen.push(input.actionId); f.calls.push(['apply', input]); return { review: appliedReview, actions: input.actionId === removeAction().actionId ? [addAction()] : [] }; },
+    reviewUndo: async () => appliedReview,
+  }, { applied: (value) => { applied.push(value.reviewId); ref.controller.reviewReplaced(); } });
+  ref.controller = f.controller;
+  f.controller.setRequest(question);
+  await f.controller.send();
+  assert.deepEqual(seen, [removeAction().actionId, addAction().actionId]);
+  assert.equal(applied.length, 2);
+  assert.equal(f.controller.canUndoBatch, true, 'the batch hands its own reviews to the screen without retiring itself');
+  assert.equal(f.controller.notice, 'Se aplicaron 2 cambios.');
+  ref.controller.reviewReplaced();
+  assert.equal(f.controller.canUndoBatch, false, 'a manual edit of the list retires the batch undo');
+});
+test('S9: the batch undo disappears after use and undoes one step per applied change', async () => {
+  const undos = [];
+  const f = fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeAction(), addAction()] }) }),
+    aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: input.actionId === removeAction().actionId ? [addAction()] : [] }; },
+    reviewUndo: async (input) => { undos.push({ ...input }); return { ...appliedReview, reviewId: undos.length === 1 ? uuid : uuid2 }; },
+  });
+  f.controller.setRequest(question);
+  await f.controller.send();
+  assert.equal(f.controller.notice, 'Se aplicaron 2 cambios.');
+  await f.controller.undoBatch();
+  assert.deepEqual(undos, [{ reviewId: uuid2 }, { reviewId: uuid }], 'one undo per step, each on the review the previous one minted');
+  assert.equal(f.controller.canUndoBatch, false);
+  assert.equal(f.controller.error, '');
+  await f.controller.undoBatch();
+  assert.equal(undos.length, 2, 'a second click changes nothing');
 });

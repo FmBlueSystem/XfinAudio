@@ -397,17 +397,21 @@ function applyReview(value: DetailedReview): void {
     if (serato.source?.kind === 'review') serato.setSource(null);
     live.invalidate(); invalidateAiSource();
   }
+  // S9: any edit that is not the assistant's own batch retires its «Deshacer estos cambios».
+  listChat?.reviewReplaced();
   renderVariants(); renderReview();
 }
 const listChatApi: ListChatApi | null = (() => {
   const history = api?.aiChatHistory; const reset = api?.aiChatReset;
   const prepare = api?.prepareAiRequest; const run = api?.runAiRequest; const inspect = api?.inspectAiPayload;
-  const apply = api?.aiChatApply;
+  const apply = api?.aiChatApply; const undo = api?.reviewUndo;
   if (typeof history !== 'function' || typeof reset !== 'function' || typeof prepare !== 'function' || typeof run !== 'function' || typeof inspect !== 'function' || typeof apply !== 'function') return null;
   return {
     aiChatHistory: () => history(), aiChatReset: () => reset(),
     prepareAiRequest: (input) => prepare(input), runAiRequest: (input) => run(input), inspectAiPayload: (input) => inspect(input),
     aiChatApply: (input) => apply(input),
+    // S9's batch undo goes through the same core command; an older host simply keeps it off.
+    ...(typeof undo === 'function' ? { reviewUndo: (input: { reviewId: string }) => undo(input) } : {}),
   };
 })();
 listChat = listChatApi ? new ListChatController(listChatApi, {

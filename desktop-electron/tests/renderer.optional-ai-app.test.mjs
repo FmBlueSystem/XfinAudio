@@ -544,6 +544,9 @@ test('the review assistant shows the pending actions from history and one click 
     await f.generate();
     f.chatActions([chatMove]);
     f.click('bot-window-toggle'); await settle();
+    // S9 is off for this turn: the cards stay and one click applies one change.
+    f.get('list-chat-auto-toggle').checked = false;
+    f.get('list-chat-auto-toggle').dispatchEvent(new Event('change'));
     assert.equal(f.get('list-chat-proposed').hidden, false);
     assert.match(text(f.get('list-chat-proposed')), /Cambios propuestos/);
     assert.equal(f.get('list-chat-proposed-actions').children[0].children[0].textContent, 'Mover 1. a a la posición 2');
@@ -607,5 +610,42 @@ test('choosing the proposed alternative opens that variant and starts a new conv
     assert.equal(f.get('review-variant').textContent, 'SELECCIÓN AVENTURERA');
     assert.equal(f.get('list-chat-notice').textContent, 'Se cambió la alternativa. La conversación empieza de nuevo.');
     assert.equal(f.get('list-chat-conversation').children.length, 0);
+  } finally { f.restore(); }
+});
+// --- S9: automatic apply with one batch undo ---
+const chatRemove = { actionId: '77777777-7777-4777-8777-777777777777', type: 'remove', position: 1, title: 'a', artist: 'DJ', reason: 'Choca de tonalidad con la segunda' };
+const chatReorder = { actionId: '88888888-8888-4888-8888-888888888888', type: 'reorder', moved: 2, reason: 'La curva de energía sube antes' };
+const manualReview = { ...appliedChatReview, reviewId: '99999999-9999-4999-8999-999999999999' };
+test('the review assistant applies a whole reply at once with the switch on and one manual edit retires the batch undo', async () => {
+  const applied = [];
+  const f = await fixture({
+    reviewDetails: async () => ({ ...appliedChatReview, transitions: [], readinessChecks: [], readinessSummary: '', engineFacts: '' }),
+    reviewCompare: async () => ({ reviewId: aiUuid, available: false, replacement: null, original: {}, proposed: {}, message: '' }),
+    reviewRemove: async (input) => { f.calls.push(['reviewRemove', input]); return manualReview; },
+    reviewReorder: async (input) => { f.calls.push(['reviewReorder', input]); return manualReview; },
+    reviewUndo: async (input) => { f.calls.push(['reviewUndo', input]); return manualReview; },
+    aiChatApply: async (input) => { applied.push(input.actionId); return { review: appliedChatReview, actions: input.actionId === chatRemove.actionId ? [chatReorder] : [] }; },
+  });
+  try {
+    await f.generate();
+    f.chatActions([chatRemove, chatReorder]);
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('list-chat-auto-toggle').checked, true, 'the switch is on by default');
+    const draft = f.get('list-chat-request');
+    draft.value = 'Quita la primera y reordena'; draft.dispatchEvent(new Event('input'));
+    f.click('list-chat-send'); await settle();
+    assert.deepEqual(applied, [chatRemove.actionId, chatReorder.actionId], 'the whole reply is applied in order');
+    assert.equal(f.get('list-chat-auto-applied').hidden, false);
+    assert.equal(f.get('list-chat-auto-notice').textContent, 'Se aplicaron 2 cambios.');
+    assert.deepEqual(f.get('list-chat-auto-list').children.map((node) => node.textContent), ['Quitar 1. a', 'Reordenar la lista (2 pistas cambian de lugar)']);
+    assert.equal(f.get('list-chat-undo-batch').textContent, 'Deshacer estos cambios');
+    assert.equal(f.get('list-chat-undo-batch').hidden, false);
+    assert.equal(f.get('list-chat-proposed').hidden, true, 'no card was left to approve');
+    assert.ok(text(f.get('review-table')).includes('Cambio aplicado'));
+    // A manual edit of the same list retires the batch undo.
+    f.click('review-remove-0'); await settle();
+    assert.ok(f.calls.some(([kind]) => kind === 'reviewRemove'));
+    assert.equal(f.get('list-chat-undo-batch').hidden, true);
+    assert.equal(f.get('list-chat-auto-applied').hidden, true);
   } finally { f.restore(); }
 });
