@@ -300,7 +300,8 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
   assert.deepEqual(results.map(result=>result.title),['Electron test 5','Electron test 6','Electron test 7','Electron test 8'],'the whole eligible library, closest BPM first');
   assert.deepEqual(results.map(result=>result.reference),['L1','L2','L3','L4'],'each result gets a conversation reference');
   for(const result of results){
-   assert.deepEqual(Object.keys(result).filter(key=>key!=='año').sort(),['artist','bpm','duration','energy','genre','key','reference','title'],'a result carries no path and no track identity; the release year is the only optional field');
+   assert.deepEqual(Object.keys(result).filter(key=>key!=='year').sort(),['artist','bpm','duration','energy','genre','key','reference','title'],'a result carries no path and no track identity; the release year is the only extra field');
+   assert.equal(result.year,null,'S12: the fixture library knows no release year, so the result carries none');
    assert.equal(/[0-9a-f]{64}/.test(JSON.stringify(result)),false);
   }
   const [removeCard,addCard,swapCard,orderCard]=published;
@@ -368,6 +369,21 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
   assert.equal(undoPanel.droppedActions,0);
   assert.deepEqual(undoPanel.actions.map(listChatActionText),['Deshacer el último cambio'],'the undo card renders its S6 sentence');
   assert.equal(await requests(),5,'the undo turn is exactly one provider request');
+  // S11: the turn after the applied batch is told, in Spanish, that the list it reads is the
+  // current list with every applied change in it, names the changes applied since the previous
+  // answer by position and title, and still offers the tracks the earlier search found under
+  // the same references; never a local path and never a track identity.
+  const stateBodies=(await readFile(path.join(data,'fake-requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(JSON.parse(line).body));
+  const state=stateBodies.at(-1).messages[0].content;
+  assert.equal(stateBodies.length,5,'every provider request was logged once');
+  assert.match(state,/La lista de arriba es la lista actual, tal como está ahora y con todos los cambios ya aplicados/,'the assistant is told the list it reads is the current one');
+  for(const line of ['Agregar en la posición 5: «Electron test 6» — XfinAudio Test','Quitar la posición 3: «Electron test 3» — XfinAudio Test','Reemplazar la posición 2: «Electron test 1» — XfinAudio Test por «Electron test 5» — XfinAudio Test'])assert.ok(state.includes(line),`the applied change is named by position and title: ${line}`);
+  const found=state.slice(state.indexOf('Pistas que ya encontraste'));
+  // S11: a found track that is now in the list is offered as a list track, not as a found one.
+  for(const reference of ['L3','L4'])assert.ok(found.includes(`- ${reference} | `),`the tracks the earlier search found stay offered under their reference: ${reference}`);
+  for(const reference of ['L1','L2'])assert.equal(found.includes(`- ${reference} | `),false,`the found track now in the list is no longer offered as a find: ${reference}`);
+  assert.equal(/[0-9a-f]{64}/.test(state),false,'the state statement carries no track identity');
+  assert.equal(state.includes(path.join(coreRoot,'desktop-electron/tests/fixtures/music')),false,'the state statement carries no local path');
   const reverted=await applyOnce(undoCard);
   assert.deepEqual(reverted.review.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 4','Electron test 6'],'the applied undo reverts the last applied change');
   assert.deepEqual(reverted.actions,[],'no change stays pending after the undo');
