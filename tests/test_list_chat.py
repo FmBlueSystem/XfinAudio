@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 
 import pytest
 
@@ -833,3 +834,92 @@ def test_chat_sends_the_search_results_as_one_more_message_without_paths(setup):
     assert str(root) not in messages[-1]["content"]
     for track in backend._records(checked=frozenset()):
         assert track.path not in messages[-1]["content"]
+
+
+#: A reference as the provider writes it in the prose: never shown to the DJ.
+_REFERENCE_TOKEN = re.compile(r"(?<!\w)L[1-9][0-9]*(?!\w)")
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        (
+            "por L26 «Don't Ask Me Why (Live at Madison Square Garden)» de Billy Joel",
+            "por «Don't Ask Me Why (Live at Madison Square Garden)» de Billy Joel",
+        ),
+        (
+            "L24 «I Want Your Sex» de George Michael también está en 6B",
+            "«I Want Your Sex» de George Michael también está en 6B",
+        ),
+        ("pasa a L39 99 Red Balloons de Nena, 1983", "pasa a 99 Red Balloons de Nena, 1983"),
+        ("«Vogue (Sharp Remix)» de Madonna (L3)", "«Vogue (Sharp Remix)» de Madonna"),
+    ],
+    ids=["billy-joel", "george-michael", "nena", "madonna"],
+)
+def test_a_reply_never_shows_the_internal_search_reference(reply, expected):
+    answer = list_chat.parse_answer(json.dumps({"reply": reply, "actions": []}), 4)
+    assert answer.reply == expected
+    assert _REFERENCE_TOKEN.search(answer.reply) is None
+    assert "  " not in answer.reply and "()" not in answer.reply and "[]" not in answer.reply
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "La pista 2 va antes de «L.A. Woman» de The Doors",
+        "El LP completo se queda como está",
+        "Pon «La Vida Es Un Carnaval» primero y luego el resto",
+    ],
+    ids=["la-and-l-a", "lp", "la-vida"],
+)
+def test_a_word_that_merely_starts_with_l_is_left_untouched(reply):
+    answer = list_chat.parse_answer(json.dumps({"reply": reply, "actions": []}), 4)
+    assert answer.reply == reply
+
+
+def test_a_reply_with_two_references_on_the_same_line_is_cleaned_once():
+    raw = json.dumps(
+        {
+            "reply": "Pongo «Vogue» de Madonna (L3) y luego «Nena» (L39) al cierre.",
+            "actions": [
+                {"type": "add", "ref": "L3", "position": 2, "reason": "Encaja"},
+                {"type": "replace_with", "position": 4, "ref": "L39", "reason": "Más energía"},
+            ],
+        }
+    )
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.reply == "Pongo «Vogue» de Madonna y luego «Nena» al cierre."
+    assert answer.actions == (
+        list_chat.ProposedAction("add", 2, None, "Encaja", ref="L3"),
+        list_chat.ProposedAction("replace_with", 4, None, "Más energía", ref="L39"),
+    )
+    assert answer.dropped == 0
+
+
+def test_chat_shows_the_reply_without_the_reference_and_keeps_the_action_reference(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    transport = ChatTransport(
+        structured(
+            {"type": "add", "ref": "L3", "position": 2, "reason": "Encaja"},
+            reply="Agrego «Vogue (Sharp Remix)» de Madonna (L3).",
+        )
+    )
+    with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
+        answer = list_chat.chat_with_list(facts, "Pregunta", [], track_count=4, transport=transport)
+    assert answer.reply == "Agrego «Vogue (Sharp Remix)» de Madonna."
+    assert answer.actions == (list_chat.ProposedAction("add", 2, None, "Encaja", ref="L3"),)
+
+
+def test_the_chat_instructions_forbid_the_references_and_name_the_alternatives_in_spanish(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    _, transport = chat(facts)
+    system = transport.bodies[0]["messages"][0]["content"]
+    assert "título y su artista" in system
+    assert "nunca por su referencia" in system
+    for wording in ("«segura»", "«equilibrada»", "«exploratoria»"):
+        assert wording in system
+    assert "en variant sigue escribiendo safe, balanced o adventurous" in system
