@@ -197,3 +197,17 @@ def test_a_turn_with_a_search_logs_each_search_and_how_many_results_it_had(chat_
     ]
     text = log_path(backend).read_text(encoding="utf-8")
     assert "L1" not in text and ".flac" not in text
+
+
+def test_a_turn_logs_each_ignored_search_with_its_reason(chat_setup, monkeypatch):
+    facade, transport, backend, _, _ = chat_setup
+    enable(monkeypatch)
+    empty = {"query": "", "genre": "", "bpmMin": 0, "bpmMax": 0, "key": ""}
+    transport.reply = json.dumps({"reply": "Nada que buscar.", "actions": [], "searches": [empty]})
+    turn(facade, backend.review_id)
+    entries = log_entries(backend)
+    assert [entry["event"] for entry in entries] == ["turn"]
+    # An ignored search never costs the DJ a second provider request.
+    assert len(transport.bodies) == 1
+    assert entries[0]["searches"] == []
+    assert entries[0]["ignoredSearches"] == [{"raw": empty, "reason": "no query or filter"}]

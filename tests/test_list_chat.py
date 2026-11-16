@@ -342,6 +342,8 @@ def test_the_chat_instructions_say_it_only_proposes_and_searches_before_answerin
     system = transport.bodies[0]["messages"][0]["content"]
     assert "nunca cambias la lista" in system
     assert "«Aplicar»" in system
+    assert "Un undo va solo" in system
+    assert "propón el resto en el mensaje siguiente" in system
     for wording in ("«propongo»", "«hecho»", "«quité»", "«deshice»"):
         assert wording in system
     assert "reply corto" in system
@@ -623,19 +625,16 @@ def test_the_answer_is_read_with_the_reorder_and_undo_shapes():
     answer = list_chat.parse_answer(
         structured(
             {"type": "reorder", "order": [2, 1, 3, 4], "reason": "Sube la 2"},
-            {"type": "undo", "reason": "Mejor no"},
+            {"type": "filter", "reason": "Solo una forma no basta"},
         ),
         4,
     )
-    assert answer.actions == (
-        list_chat.ProposedAction("reorder", None, None, "Sube la 2", order=(2, 1, 3, 4)),
-        list_chat.ProposedAction("undo", None, None, "Mejor no"),
-    )
-    assert [action.public() for action in answer.actions] == [
-        {"type": "reorder", "order": [2, 1, 3, 4], "reason": "Sube la 2"},
-        {"type": "undo", "reason": "Mejor no"},
-    ]
-    assert answer.dropped == 0
+    assert answer.actions == (list_chat.ProposedAction("reorder", None, None, "Sube la 2", order=(2, 1, 3, 4)),)
+    assert answer.dropped == 1
+    undone = list_chat.parse_answer(structured({"type": "undo", "reason": "Mejor no"}), 4)
+    assert undone.actions == (list_chat.ProposedAction("undo", None, None, "Mejor no"),)
+    assert [action.public() for action in undone.actions] == [{"type": "undo", "reason": "Mejor no"}]
+    assert undone.dropped == 0
 
 
 @pytest.mark.parametrize(
@@ -670,17 +669,37 @@ def test_a_new_change_that_cannot_apply_is_dropped_with_its_reason(item, reason)
     assert answer.dropped_items == (list_chat.DroppedAction(item, reason),)
 
 
-def test_only_one_reorder_and_one_undo_are_kept_per_reply():
+def test_only_one_reorder_is_kept_per_reply():
     raw = structured(
         {"type": "reorder", "order": [2, 1, 3, 4], "reason": "motivo"},
-        {"type": "undo", "reason": "motivo"},
         {"type": "reorder", "order": [4, 3, 2, 1], "reason": "motivo"},
+    )
+    answer = list_chat.parse_answer(raw, 4)
+    assert [action.type for action in answer.actions] == ["reorder"]
+    assert answer.dropped == 1
+    assert [item.reason for item in answer.dropped_items] == ["repeated change type"]
+
+
+def test_only_one_undo_is_kept_per_reply():
+    raw = structured(
+        {"type": "undo", "reason": "motivo"},
         {"type": "undo", "reason": "motivo"},
     )
     answer = list_chat.parse_answer(raw, 4)
-    assert [action.type for action in answer.actions] == ["reorder", "undo"]
+    assert [action.type for action in answer.actions] == ["undo"]
+    assert answer.dropped == 1
+    assert [item.reason for item in answer.dropped_items] == ["repeated change type"]
+
+
+def test_an_undo_with_another_change_keeps_only_the_undo():
+    removed = {"type": "remove", "position": 2, "reason": "Sobra"}
+    undo = {"type": "undo", "reason": "Mejor no cambiar nada"}
+    reordered = {"type": "reorder", "order": [2, 1, 3, 4], "reason": "motivo"}
+    answer = list_chat.parse_answer(structured(removed, undo, reordered), 4)
+    assert answer.actions == (list_chat.ProposedAction("undo", None, None, "Mejor no cambiar nada"),)
     assert answer.dropped == 2
-    assert [item.reason for item in answer.dropped_items] == ["repeated change type", "repeated change type"]
+    assert [item.raw for item in answer.dropped_items] == [removed, reordered]
+    assert [item.reason for item in answer.dropped_items] == ["undo must be applied alone"] * 2
 
 
 def test_the_answer_is_read_with_up_to_two_searches():
@@ -711,7 +730,6 @@ def test_the_answer_is_read_with_up_to_two_searches():
     "item",
     [
         "no es un objeto",
-        {"genre": "House"},
         {"query": 7},
         {"query": "", "path": "/private/tmp/one.flac"},
         {"query": "", "bpmMin": "120"},
@@ -721,11 +739,69 @@ def test_the_answer_is_read_with_up_to_two_searches():
         {"query": "x" * 201},
     ],
 )
-def test_an_invalid_search_is_dropped_without_counting_a_change(item):
+def test_an_invalid_search_is_ignored_without_counting_a_change(item):
     raw = json.dumps({"reply": "Busco.", "actions": [], "searches": [item]})
     answer = list_chat.parse_answer(raw, 4)
     assert answer.searches == ()
     assert answer.dropped == 0
+    assert answer.ignored_searches == (list_chat.DroppedSearch(item, "unsupported search"),)
+
+
+#: The two searches the real provider wrote: every field, most of them unused.
+REAL_SEARCHES = (
+    {"query": "Madonna", "genre": "", "bpmMin": 127, "bpmMax": 133, "key": ""},
+    {"query": "Whitney Houston", "genre": "", "bpmMin": 0, "bpmMax": 0, "key": ""},
+)
+
+
+@pytest.mark.parametrize(
+    ("item", "expected"),
+    [
+        (REAL_SEARCHES[0], list_chat.SearchQuery(query="Madonna", bpm_min=127, bpm_max=133)),
+        (REAL_SEARCHES[1], list_chat.SearchQuery(query="Whitney Houston")),
+    ],
+    ids=["madonna", "whitney"],
+)
+def test_a_real_search_object_with_empty_and_zero_fields_is_still_a_search(item, expected):
+    raw = json.dumps({"reply": "Busco.", "actions": [], "searches": [item]})
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.searches == (expected,)
+    assert answer.ignored_searches == () and answer.dropped == 0
+
+
+def test_a_search_reads_an_integer_and_a_decimal_bpm_the_same():
+    def searches(low, high):
+        raw = json.dumps({"reply": "Busco.", "actions": [], "searches": [{"query": "", "bpmMin": low, "bpmMax": high}]})
+        return list_chat.parse_answer(raw, 4).searches
+
+    assert searches(120, 124) == (list_chat.SearchQuery(query="", bpm_min=120.0, bpm_max=124.0),)
+    assert searches(120.5, 124.5) == (list_chat.SearchQuery(query="", bpm_min=120.5, bpm_max=124.5),)
+    assert searches(120, 124)[0].public() == {"query": "", "bpmMin": 120.0, "bpmMax": 124.0}
+
+
+@pytest.mark.parametrize(
+    ("item", "reason"),
+    [
+        ({"query": "", "genre": "", "bpmMin": 0, "bpmMax": 0, "key": ""}, "no query or filter"),
+        ({"query": None, "genre": None, "bpmMin": None, "bpmMax": None, "key": None}, "no query or filter"),
+        ({}, "no query or filter"),
+        ({"query": "", "bpmMin": 0}, "no query or filter"),
+    ],
+    ids=["empty-strings", "nulls", "no-fields", "zero-bpm"],
+)
+def test_a_search_that_asks_for_nothing_is_ignored_with_its_reason(item, reason):
+    raw = json.dumps({"reply": "Busco.", "actions": [], "searches": [item]})
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.searches == () and answer.dropped == 0
+    assert answer.ignored_searches == (list_chat.DroppedSearch(item, reason),)
+
+
+def test_a_third_search_is_ignored_with_its_reason():
+    third = {"query": "una tercera búsqueda"}
+    raw = json.dumps({"reply": "Busco.", "actions": [], "searches": [{"query": "house"}, {"query": "pop"}, third]})
+    answer = list_chat.parse_answer(raw, 4)
+    assert [query.query for query in answer.searches] == ["house", "pop"]
+    assert answer.ignored_searches == (list_chat.DroppedSearch(third, "over the search limit"),)
 
 
 def test_chat_sends_the_search_results_as_one_more_message_without_paths(setup):

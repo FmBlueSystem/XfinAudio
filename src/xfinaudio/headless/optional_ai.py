@@ -117,6 +117,8 @@ def _parsed_chat_answer(answer: dict[str, Any]) -> bool:
             return False
     if not _parsed_searches(answer["searches"]):
         return False
+    if not _parsed_ignored_searches(answer["ignoredSearches"]):
+        return False
     if len(actions) > MAX_ACTIONS:
         return False
     for item in actions:
@@ -181,6 +183,16 @@ def _parsed_searches(searches: Any) -> bool:
     return True
 
 
+def _parsed_ignored_searches(searches: Any) -> bool:
+    """The searches the parser ignored, each with the reason the opt-in log repeats."""
+    if not isinstance(searches, list):
+        return False
+    for item in searches:
+        if not isinstance(item, dict) or set(item) != {"raw", "reason"} or not isinstance(item["reason"], str):
+            return False
+    return True
+
+
 def _identity(value: Any) -> str:
     try:
         if not isinstance(value, str) or str(UUID(value)) != value:
@@ -196,7 +208,7 @@ def _published(answer: dict[str, Any]) -> dict[str, Any]:
 
 
 #: The fields one chat turn carries for the opt-in log only; never published to the DJ.
-_DIAGNOSTIC_FIELDS = ("actions", "droppedActions", "droppedItems", "rawText", "searches")
+_DIAGNOSTIC_FIELDS = ("actions", "droppedActions", "droppedItems", "rawText", "searches", "ignoredSearches")
 
 
 class OptionalAI:
@@ -445,7 +457,7 @@ class OptionalAI:
             answer = execute_context(context, transport, backend)
             expected = {"surface", "kind", "title", "text", "proposal", "canApply"}
             if context.surface == "chat":
-                expected |= {"actions", "droppedActions", "droppedItems", "rawText", "searches"}
+                expected |= {"actions", "droppedActions", "droppedItems", "rawText", "searches", "ignoredSearches"}
             if (
                 not isinstance(answer, dict)
                 or set(answer) != expected
@@ -527,6 +539,7 @@ class OptionalAI:
                 listChanged=changed,
                 trackCount=context.data["trackCount"],
                 searches=answer["searches"],
+                ignoredSearches=answer["ignoredSearches"],
             )
         result_id = str(uuid4())
         self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(published))

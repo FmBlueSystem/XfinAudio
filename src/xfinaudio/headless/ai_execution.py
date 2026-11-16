@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from xfinaudio.ai import nan_client
@@ -120,6 +121,7 @@ def execute_context(
             "droppedItems": [item.public() for item in answer.dropped_items],
             "rawText": answer.raw,
             "searches": list(searches),
+            "ignoredSearches": [item.public() for item in answer.ignored_searches],
         }
     elif surface == "review":
         text = narrate_set(
@@ -189,7 +191,11 @@ def _chat_turn(
                 continue
             shown.add(track_id)
             results.append(public_result(store.reference(track_id), record))
-    return send(results), tuple(match.public() for match in matches)
+    final = send(results)
+    if answer.ignored_searches:
+        # The first answer's ignored searches are logged too: the second one only answers.
+        final = replace(final, ignored_searches=(*final.ignored_searches, *answer.ignored_searches))
+    return final, tuple(match.public() for match in matches)
 
 
 def apply_context(backend: HeadlessBackend, context: AssistContext, answer: dict[str, Any]) -> dict[str, Any]:

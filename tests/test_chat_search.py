@@ -15,9 +15,16 @@ from mutagen.flac import FLAC
 
 from tests.test_headless_ai_context import FIXTURES
 from tests.test_headless_ai_context import setup as setup
+from tests.test_headless_list_chat import ChatTransport, call, turn
+from xfinaudio.ai import nan_client
 from xfinaudio.ai.list_chat import SearchQuery
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.library_search import MAX_SEARCH_RESULTS, public_result, search_library
+from xfinaudio.headless.optional_ai import OptionalAI
+
+
+def forbidden(*args, **kwargs):
+    raise AssertionError("Real provider requests are forbidden")
 
 
 @pytest.fixture
@@ -139,3 +146,63 @@ def test_a_search_without_a_review_returns_nothing(tmp_path):
     backend = HeadlessBackend(tmp_path / "empty")
     assert search_library(backend, [SearchQuery()])[0].records == ()
     assert (tmp_path / "empty").exists()
+
+
+#: The two searches the real provider wrote: every field, most of them unused.
+REAL_SEARCHES = (
+    ({"query": "Madonna", "genre": "", "bpmMin": 127, "bpmMax": 133, "key": ""}, "Holiday", "Madonna"),
+    (
+        {"query": "Whitney Houston", "genre": "", "bpmMin": 0, "bpmMax": 0, "key": ""},
+        "I Wanna Dance with Somebody",
+        "Whitney Houston",
+    ),
+)
+
+
+@pytest.fixture
+def real_search_chat(tmp_path, monkeypatch):
+    """A chat facade over a library that holds the two tracks those searches look for."""
+    root = tmp_path / "music"
+    shutil.copytree(FIXTURES, root)
+    for name, title, artist, bpm, key in (
+        ("madonna.flac", "Holiday", "Madonna", "128", "9A"),
+        ("whitney.flac", "I Wanna Dance with Somebody", "Whitney Houston", "122", "4B"),
+    ):
+        copy = root / name
+        shutil.copyfile(root / "track-5.flac", copy)
+        tags = FLAC(copy)
+        tags["title"], tags["artist"], tags["genre"] = title, artist, "Pop"
+        tags["bpm"], tags["initialkey"] = bpm, key
+        tags.save()
+    monkeypatch.setattr(nan_client, "_urlopen", forbidden)
+    backend = HeadlessBackend(tmp_path / "data")
+    backend.execute("library.scan", {"root": str(root)})
+    review = backend.execute("prep.generate", {"targetTrackCount": 4, "name": "Real searches"})
+    transport = ChatTransport()
+    facade = OptionalAI(backend, transport=transport)
+    credential = tmp_path / "dummy-selected.env"
+    credential.write_bytes(b"NAN_API_KEY=synthetic-test-only\n")
+    credential.chmod(0o600)
+    status = call(facade, "ai.status")
+    selected = call(facade, "ai.credential.set", {"revision": status["revision"], "path": str(credential)})
+    call(facade, "ai.settings.update", {"revision": selected["revision"], "enabled": True})
+    return facade, transport, backend, review["reviewId"]
+
+
+@pytest.mark.parametrize(("search", "title", "artist"), REAL_SEARCHES, ids=["madonna", "whitney"])
+def test_a_real_search_object_runs_and_its_results_reach_the_second_request(real_search_chat, search, title, artist):
+    facade, transport, backend, review_id = real_search_chat
+    transport.replies = [
+        json.dumps({"reply": "Busco en la biblioteca.", "actions": [], "searches": [search]}),
+        json.dumps({"reply": "Encontré esa pista.", "actions": []}),
+    ]
+    result = turn(facade, review_id)["result"]
+    # The search ran: the provider is asked once more, with the results attached.
+    assert len(transport.bodies) == 2
+    second = transport.bodies[1]["messages"]
+    assert [message["role"] for message in second] == ["system", "user", "user"]
+    results = json.loads(second[-1]["content"].split("\n", 1)[1])
+    assert [item["title"] for item in results] == [title]
+    assert results[0]["artist"] == artist
+    assert set(results[0]) == {"reference", "title", "artist", "genre", "bpm", "key", "energy", "duration"}
+    assert result["text"] == "Encontré esa pista."

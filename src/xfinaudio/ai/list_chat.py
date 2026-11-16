@@ -99,6 +99,10 @@ _REPEATED = "repeated position"
 _REPEATED_KIND = "repeated change type"
 _TARGET_OUTSIDE = "target outside the list"
 _OVER_LIMIT = "over the change limit"
+_UNDO_ALONE = "undo must be applied alone"
+_UNSUPPORTED_SEARCH = "unsupported search"
+_NO_SEARCH_FILTER = "no query or filter"
+_OVER_SEARCHES = "over the search limit"
 
 
 @dataclass(frozen=True)
@@ -184,6 +188,22 @@ class DroppedAction:
 
 
 @dataclass(frozen=True)
+class DroppedSearch:
+    """One library search the core ignored: the raw value and why it never ran.
+
+    ``raw`` is exactly what the provider wrote, kept for the opt-in diagnostic log and
+    never published to the DJ. A search that asks for nothing at all and one that cannot
+    be read both land here, with the reason, so a real turn can be diagnosed.
+    """
+
+    raw: Any
+    reason: str
+
+    def public(self) -> dict[str, Any]:
+        return {"raw": self.raw, "reason": self.reason}
+
+
+@dataclass(frozen=True)
 class ChatAnswer:
     """The reply the DJ reads, its changes, its searches and what was dropped."""
 
@@ -195,6 +215,8 @@ class ChatAnswer:
     raw: str = field(default="", compare=False, repr=False)
     # The library searches the answer asked for; running them is the caller's job.
     searches: tuple[SearchQuery, ...] = ()
+    # Diagnostics for the opt-in log: the searches that were ignored, and why.
+    ignored_searches: tuple[DroppedSearch, ...] = field(default=(), compare=False, repr=False)
 
 
 def parse_answer(raw: str, track_count: int, protected: Sequence[int] = ()) -> ChatAnswer:
@@ -215,13 +237,19 @@ def parse_answer(raw: str, track_count: int, protected: Sequence[int] = ()) -> C
     items = body.get("actions")
     if not isinstance(items, list):
         return ChatAnswer(reply=reply, raw=raw)
-    searches = _searches(body)
+    searches, ignored_searches = _searches(body)
     refused = set(protected)
     accepted: list[ProposedAction] = []
     used: set[int] = set()
     used_kinds: set[str] = set()
     dropped: list[DroppedAction] = []
+    # An ``undo`` is the only change of its reply: anything else in the same reply could
+    # only be built on a list the undo has already replaced, so it never reaches the DJ.
+    undo_alone = any(isinstance(item, dict) and item.get("type") == "undo" for item in items)
     for item in items:
+        if undo_alone and not (isinstance(item, dict) and item.get("type") == "undo"):
+            dropped.append(DroppedAction(item, _UNDO_ALONE))
+            continue
         action = _action(item, track_count, refused, used, used_kinds)
         if isinstance(action, DroppedAction):
             dropped.append(action)
@@ -234,7 +262,7 @@ def parse_answer(raw: str, track_count: int, protected: Sequence[int] = ()) -> C
         if action.type in _ONCE_PER_REPLY:
             used_kinds.add(action.type)
         accepted.append(action)
-    return ChatAnswer(reply, tuple(accepted), len(dropped), tuple(dropped), raw, searches)
+    return ChatAnswer(reply, tuple(accepted), len(dropped), tuple(dropped), raw, searches, ignored_searches)
 
 
 def _json_object(raw: str) -> dict[str, Any] | None:
@@ -340,44 +368,64 @@ def _permutation(value: Any, track_count: int) -> tuple[int, ...] | None:
     return tuple(value)
 
 
-def _searches(body: Mapping[str, Any]) -> tuple[SearchQuery, ...]:
-    """At most two readable library searches; an unreadable one is silently ignored."""
+def _searches(body: Mapping[str, Any]) -> tuple[tuple[SearchQuery, ...], tuple[DroppedSearch, ...]]:
+    """At most two readable library searches, plus every ignored search and why."""
     items = body.get("searches")
     if not isinstance(items, list):
-        return ()
+        return (), ()
     searches: list[SearchQuery] = []
+    ignored: list[DroppedSearch] = []
     for item in items:
-        query = _search(item)
+        query, reason = _search(item)
         if query is None:
+            ignored.append(DroppedSearch(item, reason))
+            continue
+        if len(searches) >= MAX_SEARCHES:
+            ignored.append(DroppedSearch(item, _OVER_SEARCHES))
             continue
         searches.append(query)
-        if len(searches) >= MAX_SEARCHES:
-            break
-    return tuple(searches)
+    return tuple(searches), tuple(ignored)
 
 
-def _search(item: Any) -> SearchQuery | None:
-    """One documented search shape, or nothing when it cannot be read."""
-    if not isinstance(item, dict) or "query" not in item or set(item) - _SEARCH_FIELDS:
-        return None
-    query, genre, key = item["query"], item.get("genre"), item.get("key")
-    if not isinstance(query, str) or len(query) > MAX_SEARCH_TEXT_CHARS or "\x00" in query:
-        return None
-    if genre is not None and (not isinstance(genre, str) or len(genre) > MAX_SEARCH_TEXT_CHARS):
-        return None
-    if key is not None and (not isinstance(key, str) or _CAMELOT_KEY.fullmatch(key) is None):
-        return None
-    low, high = item.get("bpmMin"), item.get("bpmMax")
-    for value in (low, high):
-        if value is None:
+def _search(item: Any) -> tuple[SearchQuery | None, str]:
+    """One documented search shape reduced to the filters it really asks for, and why not.
+
+    A real provider writes every field even when it does not use it, so an empty string,
+    a ``null``, a missing field and a BPM of 0 all mean "no filter". A search that asks
+    for nothing at all is ignored rather than run over the whole library, and says so.
+    """
+    if not isinstance(item, dict) or set(item) - _SEARCH_FIELDS:
+        return None, _UNSUPPORTED_SEARCH
+    for value in (item.get("query"), item.get("genre"), item.get("key")):
+        if value is not None and (not isinstance(value, str) or len(value) > MAX_SEARCH_TEXT_CHARS or "\x00" in value):
+            return None, _UNSUPPORTED_SEARCH
+    query, genre, key = _filter_text(item.get("query")), _filter_text(item.get("genre")), _filter_text(item.get("key"))
+    if key is not None and _CAMELOT_KEY.fullmatch(key) is None:
+        return None, _UNSUPPORTED_SEARCH
+    bounds: list[float | None] = []
+    for value in (item.get("bpmMin"), item.get("bpmMax")):
+        if value is None or value == "":
+            bounds.append(None)
             continue
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-            return None
+            return None, _UNSUPPORTED_SEARCH
+        if value == 0:
+            bounds.append(None)
+            continue
         if not 0 < value <= MAX_SEARCH_BPM:
-            return None
+            return None, _UNSUPPORTED_SEARCH
+        bounds.append(float(value))
+    low, high = bounds
     if low is not None and high is not None and low > high:
-        return None
-    return SearchQuery(query=query, genre=genre, bpm_min=low, bpm_max=high, key=key)
+        return None, _UNSUPPORTED_SEARCH
+    if query is None and genre is None and key is None and low is None and high is None:
+        return None, _NO_SEARCH_FILTER
+    return SearchQuery(query=query or "", genre=genre, bpm_min=low, bpm_max=high, key=key), ""
+
+
+def _filter_text(value: Any) -> str | None:
+    """A text filter, or nothing when the provider left that field empty or missing."""
+    return value if isinstance(value, str) and value else None
 
 
 _MISSING = "sin dato"
@@ -426,7 +474,8 @@ _INSTRUCTIONS = (
     "12. En un reorder, order es una permutación de 1 a N que deja las posiciones protegidas donde "
     "están.\n"
     "13. Como máximo un solo extend, un solo use_variant, un solo reorder y un solo undo por "
-    "respuesta.\n"
+    "respuesta. Un undo va solo en su respuesta: si propones deshacer, escribe un reply que solo "
+    "anuncie eso y propón el resto en el mensaje siguiente.\n"
     "14. searches lleva entre 0 y 2 búsquedas de la biblioteca local cuando necesitas ver pistas "
     "que no están en la lista. Cada búsqueda es "
     '{"query": string, "genre": string, "bpmMin": número, "bpmMax": número, "key": string}; '
@@ -658,6 +707,7 @@ __all__ = [
     "VARIANTS",
     "ChatAnswer",
     "DroppedAction",
+    "DroppedSearch",
     "ProposedAction",
     "SearchQuery",
     "chat_with_list",

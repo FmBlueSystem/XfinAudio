@@ -390,7 +390,9 @@ def undo(reason: str = "Mejor no cambiar nada") -> dict:
 def searched(facade, transport, backend, *searches: dict) -> None:
     """One successful turn that asks for a library search and receives its results."""
     transport.replies = [
-        json.dumps({"reply": "Busco en la biblioteca.", "actions": [], "searches": list(searches) or [{"query": ""}]}),
+        json.dumps(
+            {"reply": "Busco en la biblioteca.", "actions": [], "searches": list(searches) or [{"query": "test"}]}
+        ),
         json.dumps({"reply": "Estas son las pistas que encontré.", "actions": []}),
     ]
     turn(facade, backend.review_id)
@@ -483,6 +485,17 @@ def test_an_undo_with_nothing_to_undo_is_dropped_and_counted(chat_setup):
     result = turn(facade, backend.review_id)["result"]
     assert result["actions"] == [] and result["droppedActions"] == 1
     assert history(facade)["actions"] == []
+
+
+def test_an_undo_with_another_change_keeps_only_the_undo(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(move(1, 3))
+    moved = turn(facade, backend.review_id)["result"]["actions"][0]
+    call(facade, "ai.chat.apply", {"actionId": moved["actionId"]})
+    transport.reply = answer(undo(), reorder(4, 1, 2, 3), remove(2))
+    result = turn(facade, backend.review_id)["result"]
+    assert [action["type"] for action in result["actions"]] == ["undo"]
+    assert result["droppedActions"] == 2
 
 
 def test_a_reference_never_issued_is_dropped_and_counted(chat_setup):

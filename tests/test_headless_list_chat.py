@@ -376,7 +376,7 @@ def test_the_chat_disclosure_says_a_search_also_sends_its_results(chat_setup):
 def test_an_answer_with_searches_runs_them_locally_and_asks_once_more(chat_setup):
     facade, transport, backend, _, root = chat_setup
     transport.replies = [
-        search_answer({"query": ""}),
+        search_answer({"query": "test"}),
         json.dumps({"reply": "La 5 encaja al final.", "actions": []}),
     ]
     result = turn(facade, current_review_id(backend))["result"]
@@ -402,7 +402,7 @@ def test_an_answer_with_searches_runs_them_locally_and_asks_once_more(chat_setup
 
 def test_a_reference_is_reused_across_the_conversation_and_sent_only_as_its_short_form(chat_setup):
     facade, transport, backend, _, _ = chat_setup
-    transport.replies = [search_answer({"query": ""}), json.dumps({"reply": "Listo.", "actions": []})]
+    transport.replies = [search_answer({"query": "test"}), json.dumps({"reply": "Listo.", "actions": []})]
     turn(facade, current_review_id(backend))
     preview = prepare(facade, current_review_id(backend), request="¿Y la misma pista 5?")
     call(facade, "ai.run", {"previewId": preview["previewId"], "confirmed": True})
@@ -418,7 +418,7 @@ def test_a_reference_is_reused_across_the_conversation_and_sent_only_as_its_shor
 def test_searches_in_the_second_answer_are_ignored(chat_setup):
     facade, transport, backend, _, _ = chat_setup
     transport.replies = [
-        search_answer({"query": ""}),
+        search_answer({"query": "test"}),
         search_answer({"query": "una segunda búsqueda"}, reply="Sigo sin buscar más."),
     ]
     result = turn(facade, current_review_id(backend))["result"]
