@@ -448,7 +448,7 @@ function selectedPrepValues(id: string): string[] {
 }
 function prepFields(): PrepFields {
   const value = (id: string): string => element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value;
-  return { name: value('name'), count: value('count'), strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selectedPrepValues('required'), excluded: selectedPrepValues('excluded') };
+  return { name: value('name'), count: value('count'), strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selectedPrepValues('required'), excluded: selectedPrepValues('excluded'), yearMin: value('year-min'), yearMax: value('year-max') };
 }
 function renderPrepSummaries(): void {
   const fields=prepFields();const summaries=prepSummaries(fields, prepSettingsDirty);
@@ -472,6 +472,8 @@ function restorePrepForm(form: PrepFormSnapshot): void {
   scalar('count', form.targetTrackCount === null ? null : String(form.targetTrackCount));
   scalar('minutes', form.targetMinutes === null ? null : String(form.targetMinutes));
   scalar('role', form.slotRole);
+  scalar('year-min', form.yearMin === undefined || form.yearMin === null ? null : String(form.yearMin));
+  scalar('year-max', form.yearMax === undefined || form.yearMax === null ? null : String(form.yearMax));
   if (form.endTrackId !== null) endPicker.setSelected([form.endTrackId]);
   if (form.startTrackId !== null) trackSearch.setSelected(form.startTrackId);
   rememberedStrategy = form.strategy;
@@ -1495,8 +1497,8 @@ element('library-search').addEventListener('input', renderLibrary);
 element('library-show-more').addEventListener('click', () => { libraryVisibleLimit += LIBRARY_WINDOW; renderLibrary(); });
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
 element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
-for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{prepFormEdited=true;if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
-for (const id of ['name','count','strategy','minutes','role','genre','end','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
+for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end', 'year-min', 'year-max', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{prepFormEdited=true;if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
+for (const id of ['name','count','strategy','minutes','role','genre','end','year-min','year-max','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
   event.preventDefault(); const input=element<HTMLInputElement>(`prep-${id}`);
   showPrepValidation(input, input.validationMessage || 'Revisa este valor antes de generar.');
 });
@@ -1513,10 +1515,12 @@ element('prep-form').addEventListener('submit', (event) => {
   const value = (id: string) => element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value;
   let input;
   try {
-    input = buildPrepInput({ count: value('count'), name, strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selectedPrepValues('required'), excluded: selectedPrepValues('excluded') }, library, strategies);
+    input = buildPrepInput({ count: value('count'), name, strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selectedPrepValues('required'), excluded: selectedPrepValues('excluded'), yearMin: value('year-min'), yearMax: value('year-max') }, library, strategies);
   } catch (error) {
     const message=error instanceof Error ? error.message : String(error);
-    let field=prepErrorField(message,prepFields());
+    // The period owns its own refusal, so the notice focuses the first year field
+    // instead of falling through to the required-track picker.
+    let field = message === 'El año inicial no puede ser mayor que el final.' || /entre 1900 y 2100/.test(message) ? 'prep-year-min' : prepErrorField(message,prepFields());
     if(message.includes('biblioteca actual')) {const ids=new Set(library.map(track=>track.id));field=['start','end','required','excluded'].map(key=>[`prep-${key}`,['required','excluded'].includes(key)?selectedPrepValues(key):[value(key)]] as const).find(([,values])=>values.some(id=>id&&!ids.has(id)))?.[0]??field;}
     showPrepValidation(element(field), message); return;
   }

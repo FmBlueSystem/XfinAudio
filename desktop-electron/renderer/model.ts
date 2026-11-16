@@ -28,8 +28,9 @@ export interface PrepInput {
   targetTrackCount: number; name: string; strategy?: string; targetMinutes?: number;
   slotRole?: 'warmup' | 'peak_time' | 'chill' | null; genreFocus?: string;
   startTrackId?: string; endTrackId?: string; requiredTrackIds?: string[]; excludedTrackIds?: string[];
+  yearMin?: number; yearMax?: number;
 }
-export interface PrepFields { count: string; name: string; strategy: string; minutes: string; role: string; genre: string; start: string; end: string; required: string[]; excluded: string[]; }
+export interface PrepFields { count: string; name: string; strategy: string; minutes: string; role: string; genre: string; start: string; end: string; required: string[]; excluded: string[]; yearMin?: string; yearMax?: string; }
 export interface ReviewResult {
   reviewId: string;
   tracks: Track[];
@@ -143,6 +144,19 @@ export function buildPrepInput(fields: PrepFields, tracks: Track[], strategies: 
     if (fields.genre.trim().length > 100) throw new Error('El género admite hasta 100 caracteres');
     input.genreFocus = fields.genre.trim();
   }
+  // Both empty means no limit, one alone is an open range, and the same rule stays
+  // whole years in 1900..2100. The exact refusal text is what the form shows.
+  const year = (value: string | undefined): number | null => {
+    const text = (value ?? '').trim();
+    if (!text) return null;
+    const parsed = Number(text);
+    if (!/^\d{4}$/.test(text) || !Number.isInteger(parsed) || parsed < 1900 || parsed > 2100) throw new Error('El año debe estar entre 1900 y 2100');
+    return parsed;
+  };
+  const yearMin = year(fields.yearMin), yearMax = year(fields.yearMax);
+  if (yearMin !== null && yearMax !== null && yearMin > yearMax) throw new Error('El año inicial no puede ser mayor que el final.');
+  if (yearMin !== null) input.yearMin = yearMin;
+  if (yearMax !== null) input.yearMax = yearMax;
   const known = new Set(tracks.map((track) => track.id));
   const valid = (id: string) => /^[a-f0-9]{64}$/.test(id) && known.has(id);
   if ([fields.start, fields.end, ...fields.required, ...fields.excluded].filter(Boolean).some((id) => !valid(id))) throw new Error('Selecciona solo pistas de la biblioteca actual');

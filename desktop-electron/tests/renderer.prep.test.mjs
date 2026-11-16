@@ -5,7 +5,7 @@ import * as model from '../renderer/model.ts';
 
 const tracks = ['a', 'b', 'c'].map((letter, index) => ({ id: letter.repeat(64), title: letter, artist: 'Artist', bpm: 120 + index, key: '8A', energy: 5, duration: 180 }));
 const strategies = [{ name: 'balanced', displayName: 'Equilibrada', description: 'Continuidad', requiresVibeMetadata: false }, { name: 'color', displayName: 'Color', description: 'Color existente', requiresVibeMetadata: true }];
-const fields = { count: '2', name: '', strategy: '', minutes: '', role: '', genre: '', start: '', end: '', required: [], excluded: [] };
+const fields = { count: '2', name: '', strategy: '', minutes: '', role: '', genre: '', start: '', end: '', required: [], excluded: [], yearMin: '', yearMax: '' };
 const planId = 'e80f5eca-8a03-4ed3-b832-c05e9be6566c';
 const variants = ['safe', 'balanced', 'adventurous'].map((name) => ({ name, description: `${name} real`, trackCount: 2, readiness: 'ready', warnings: [], blockers: [], qualityScore: 0.8 }));
 const review = (variant = 'balanced', id = 'fresh') => ({ reviewId: id, planId, variants, tracks: tracks.slice(0, 2), warnings: [], blockers: [], name: 'Sesión equilibrada', variant, readiness: 'ready' });
@@ -23,6 +23,16 @@ test('Prep validates real catalog, bounds and all known opaque track controls', 
 test('Prep rejects conflicting, duplicate and excessive requested tracks', () => {
   assert.equal(typeof model.buildPrepInput, 'function');
   for (const patch of [{ start: tracks[0].id, end: tracks[0].id }, { required: [tracks[0].id], excluded: [tracks[0].id] }, { start: tracks[0].id, excluded: [tracks[0].id] }, { end: tracks[0].id, excluded: [tracks[0].id] }, { required: [tracks[0].id, tracks[0].id] }, { required: tracks.map((track) => track.id) }, { start: tracks[0].id, end: tracks[1].id, required: [tracks[2].id] }]) assert.throws(() => model.buildPrepInput({ ...fields, ...patch }, tracks, strategies));
+});
+test('the optional period travels as two bounds, alone or together, and a backwards range is refused', () => {
+  const base = { targetTrackCount: 2, name: 'Sesión equilibrada' };
+  assert.deepEqual(model.buildPrepInput(fields, tracks, strategies), base, 'both empty sends no period at all');
+  assert.deepEqual(model.buildPrepInput({ ...fields, yearMin: '1980', yearMax: '1989' }, tracks, strategies), { ...base, yearMin: 1980, yearMax: 1989 });
+  assert.deepEqual(model.buildPrepInput({ ...fields, yearMin: ' 1980 ' }, tracks, strategies), { ...base, yearMin: 1980 }, 'one year alone is an open range');
+  assert.deepEqual(model.buildPrepInput({ ...fields, yearMax: '1989' }, tracks, strategies), { ...base, yearMax: 1989 });
+  assert.deepEqual(model.buildPrepInput({ ...fields, yearMin: '1980', yearMax: '1980' }, tracks, strategies), { ...base, yearMin: 1980, yearMax: 1980 });
+  assert.throws(() => model.buildPrepInput({ ...fields, yearMin: '1990', yearMax: '1980' }, tracks, strategies), (error) => error.message === 'El año inicial no puede ser mayor que el final.');
+  for (const patch of [{ yearMin: '1899' }, { yearMax: '2101' }, { yearMin: '1985.5' }, { yearMin: 'abc' }, { yearMax: '-1' }, { yearMin: '0' }]) assert.throws(() => model.buildPrepInput({ ...fields, ...patch }, tracks, strategies), /entre 1900 y 2100/);
 });
 test('all real variants require a current, nonempty, unblocked, unsaved review before saving', () => {
   for (const variant of ['safe', 'balanced', 'adventurous']) {
@@ -44,7 +54,7 @@ class Element extends EventTarget {
   closest() { return null; }
   focus() { document.activeElement=this; }
 }
-const lastForm = (patch = {}) => ({ targetTrackCount: null, targetMinutes: null, strategy: null, slotRole: null, name: null, startTrackId: null, endTrackId: null, ...patch });
+const lastForm = (patch = {}) => ({ targetTrackCount: null, targetMinutes: null, strategy: null, slotRole: null, name: null, startTrackId: null, endTrackId: null, yearMin: null, yearMax: null, ...patch });
 const prepSettings = (patch = {}) => ({ revision: 'a'.repeat(64), requiredTrackIds: [], excludedTrackIds: [], genreFocus: '', unavailableRequiredCount: 0, unavailableExcludedCount: 0, lastForm: lastForm(), ...patch });
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const settle = async (count = 8) => { for (let index = 0; index < count; index++) await tick(); };
@@ -157,6 +167,11 @@ test('Prep controls and variant comparison have Spanish accessible labels and an
   assert.match(html, /<select id="prep-required" multiple hidden/);
   assert.match(html, /<select id="prep-excluded" multiple hidden/);
   assert.match(html, /<details[^>]*id="prep-advanced"/); assert.match(html, /id="prep-variants"/); assert.match(html, /no.*(?:inventa|fabrican|generan)/i);
+  const advanced = html.slice(html.indexOf('id="prep-advanced"'), html.indexOf('id="prep-track-options"'));
+  assert.match(advanced, /Época \(opcional\)/, 'the period lives inside «Afinar selección»');
+  assert.match(advanced, /<label for="prep-year-min">Desde<\/label>/);
+  assert.match(advanced, /<label for="prep-year-max">Hasta<\/label>/);
+  for (const id of ['prep-year-min', 'prep-year-max']) assert.match(advanced, new RegExp(`id="${id}" type="number" min="1900" max="2100"[^>]*data-prep-control`));
 });
 
 test('a catalog strategy with a known stable name shows its Spanish name and description, and keeps its name as the submitted value', async () => {
@@ -322,6 +337,33 @@ test('the last generated form is shown again on the next start and reaches the n
     assert.equal(f.get('prep-end').value, tracks[1].id);
     await f.submit();
     assert.deepEqual(f.generated[0], { targetTrackCount: 12, name: 'Viernes', strategy: 'color', targetMinutes: 90, slotRole: 'warmup', startTrackId: tracks[0].id, endTrackId: tracks[1].id });
+  } finally { f.restore(); }
+});
+test('the period fields reach the request and a backwards range is refused in the form', async () => {
+  const f = await fixture();
+  try {
+    f.get('prep-year-min').value = '1980'; f.get('prep-year-max').value = '1989';
+    f.get('prep-year-min').dispatchEvent(new Event('input'));
+    await f.submit();
+    assert.deepEqual(f.generated[0], { targetTrackCount: 2, name: 'Sesión equilibrada', yearMin: 1980, yearMax: 1989 });
+    f.get('prep-year-min').value = '1990'; f.get('prep-year-max').value = '1980';
+    f.get('prep-year-max').dispatchEvent(new Event('input'));
+    await f.submit();
+    assert.equal(f.generated.length, 1, 'a backwards range never reaches the core');
+    assert.equal(f.get('prep-validation').hidden, false);
+    assert.equal(f.get('prep-validation').textContent, 'El año inicial no puede ser mayor que el final.');
+  } finally { f.restore(); }
+});
+test('the remembered form brings the period back and it reaches the next request', async () => {
+  const remembered = lastForm({ targetTrackCount: 12, name: 'Viernes', yearMin: 1980, yearMax: 1989 });
+  const f = await fixture({ prepSettings: async () => prepSettings({ lastForm: remembered }), savePrepSettings: async (input) => prepSettings({ ...input, revision: 'b'.repeat(64) }) });
+  try {
+    await settle();
+    assert.equal(f.get('prep-year-min').value, '1980');
+    assert.equal(f.get('prep-year-max').value, '1989');
+    await f.submit();
+    assert.equal(f.generated[0].yearMin, 1980);
+    assert.equal(f.generated[0].yearMax, 1989);
   } finally { f.restore(); }
 });
 test('a remembered track that left the library stays visible as unavailable and blocks generation', async () => {
