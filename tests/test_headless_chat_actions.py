@@ -16,7 +16,7 @@ from tests.test_headless_ai_context import setup as setup  # noqa: F401
 from tests.test_headless_list_chat import QUESTION, call, history, prepare, turn
 from tests.test_headless_list_chat import chat_setup as _chat_setup
 from xfinaudio.headless import generated_review as generated_review_module
-from xfinaudio.headless.common import BackendError
+from xfinaudio.headless.common import BackendError, _public_track
 
 # The list-conversation fixture and helpers are reused rather than copied, so these tests
 # run exactly the same disclosed chat turn as the conversation tests do.
@@ -365,3 +365,197 @@ def test_a_prepared_turn_still_runs_through_the_injected_transport(chat_setup):
     assert "JSON" in system and "N = 4" in system
     assert "Resumen de la generación" in system
     assert transport.bodies == []
+
+
+def remove(position: int, reason: str = "Sobra") -> dict:
+    return {"type": "remove", "position": position, "reason": reason}
+
+
+def add(ref: str = "L1", position: int = 5, reason: str = "Encaja al final") -> dict:
+    return {"type": "add", "ref": ref, "position": position, "reason": reason}
+
+
+def replace_with(position: int, ref: str = "L1", reason: str = "Mejor encaje") -> dict:
+    return {"type": "replace_with", "position": position, "ref": ref, "reason": reason}
+
+
+def reorder(*order: int, reason: str = "Sube la última") -> dict:
+    return {"type": "reorder", "order": list(order), "reason": reason}
+
+
+def undo(reason: str = "Mejor no cambiar nada") -> dict:
+    return {"type": "undo", "reason": reason}
+
+
+def searched(facade, transport, backend, *searches: dict) -> None:
+    """One successful turn that asks for a library search and receives its results."""
+    transport.replies = [
+        json.dumps({"reply": "Busco en la biblioteca.", "actions": [], "searches": list(searches) or [{"query": ""}]}),
+        json.dumps({"reply": "Estas son las pistas que encontré.", "actions": []}),
+    ]
+    turn(facade, backend.review_id)
+
+
+def library_track(backend, title: str) -> dict:
+    record = next(record for record in backend._records(checked=frozenset()) if record.title == title)
+    return _public_track(record)
+
+
+def test_a_remove_action_drops_the_track_without_a_replacement_and_is_undoable(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(remove(3))
+    action = turn(facade, backend.review_id)["result"]["actions"][0]
+    current = tracks(backend)
+    assert set(action) == {"actionId", "type", "position", "title", "artist", "reason"}
+    assert action["type"] == "remove" and action["position"] == 3
+    assert action["title"] == current[2]["title"] and action["artist"] == current[2]["artist"]
+    original = ids(backend.execute("review.details", {"reviewId": backend.review_id}))
+    sent = len(transport.bodies)
+    applied = call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert ids(applied["review"]) == [original[0], original[1], original[3]]
+    assert applied["actions"] == []
+    assert len(transport.bodies) == sent
+    assert ids(backend.execute("review.undo", {"reviewId": applied["review"]["reviewId"]})) == original
+
+
+def test_an_add_action_publishes_the_found_track_and_inserts_it_at_its_position(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    searched(facade, transport, backend)
+    transport.reply = answer(add(ref="L2", position=2))
+    action = turn(facade, backend.review_id)["result"]["actions"][0]
+    assert set(action) == {"actionId", "type", "position", "track", "reason"}
+    assert action["type"] == "add" and action["position"] == 2 and action["reason"] == "Encaja al final"
+    assert set(action["track"]) == {"title", "artist", "bpm", "key"}
+    found = library_track(backend, "Electron test 6")
+    assert action["track"] == {key: found[key] for key in ("title", "artist", "bpm", "key")}
+    original = ids(backend.execute("review.details", {"reviewId": backend.review_id}))
+    applied = call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert ids(applied["review"]) == [original[0], found["id"], original[1], original[2], original[3]]
+    assert applied["actions"] == []
+    assert ids(backend.execute("review.undo", {"reviewId": applied["review"]["reviewId"]})) == original
+
+
+def test_a_replace_with_action_swaps_the_track_at_its_position(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    searched(facade, transport, backend)
+    transport.reply = answer(replace_with(2, ref="L1"))
+    action = turn(facade, backend.review_id)["result"]["actions"][0]
+    current = tracks(backend)
+    assert set(action) == {"actionId", "type", "position", "title", "artist", "track", "reason"}
+    assert action["position"] == 2 and action["title"] == current[1]["title"]
+    found = library_track(backend, "Electron test 5")
+    assert action["track"] == {key: found[key] for key in ("title", "artist", "bpm", "key")}
+    original = ids(backend.execute("review.details", {"reviewId": backend.review_id}))
+    applied = call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert ids(applied["review"]) == [original[0], found["id"], original[2], original[3]]
+    assert ids(backend.execute("review.undo", {"reviewId": applied["review"]["reviewId"]})) == original
+
+
+def test_a_reorder_action_publishes_how_many_tracks_move_and_reorders_the_list(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(reorder(4, 1, 2, 3))
+    action = turn(facade, backend.review_id)["result"]["actions"][0]
+    assert set(action) == {"actionId", "type", "moved", "reason"}
+    assert action["type"] == "reorder" and action["moved"] == 4
+    original = ids(backend.execute("review.details", {"reviewId": backend.review_id}))
+    applied = call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert ids(applied["review"]) == [original[3], original[0], original[1], original[2]]
+    assert ids(backend.execute("review.undo", {"reviewId": applied["review"]["reviewId"]})) == original
+
+
+def test_an_undo_action_undoes_the_previous_review_edit(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(move(1, 3))
+    moved = turn(facade, backend.review_id)["result"]["actions"][0]
+    original = ids(backend.execute("review.details", {"reviewId": backend.review_id}))
+    applied = call(facade, "ai.chat.apply", {"actionId": moved["actionId"]})
+    assert ids(applied["review"]) != original
+    transport.reply = answer(undo())
+    action = turn(facade, backend.review_id)["result"]["actions"][0]
+    assert set(action) == {"actionId", "type", "reason"}
+    undone = call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert ids(undone["review"]) == original
+
+
+def test_an_undo_with_nothing_to_undo_is_dropped_and_counted(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(undo())
+    result = turn(facade, backend.review_id)["result"]
+    assert result["actions"] == [] and result["droppedActions"] == 1
+    assert history(facade)["actions"] == []
+
+
+def test_a_reference_never_issued_is_dropped_and_counted(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(add(ref="L1", position=5), replace_with(2, ref="L4"))
+    result = turn(facade, backend.review_id)["result"]
+    assert result["actions"] == [] and result["droppedActions"] == 2
+
+
+def test_a_reference_from_a_previous_conversation_is_dropped(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    searched(facade, transport, backend)
+    assert call(facade, "ai.chat.reset") == {"conversation": []}
+    searched(facade, transport, backend, {"query": "test 5"})
+    transport.reply = answer(add(ref="L3", position=5))
+    result = turn(facade, backend.review_id)["result"]
+    assert result["actions"] == [] and result["droppedActions"] == 1
+
+
+def test_a_path_or_a_track_id_in_place_of_a_reference_is_dropped_and_counted(chat_setup):
+    facade, transport, backend, _, root = chat_setup
+    track_id = tracks(backend)[0]["id"]
+    path = str(root / "track-5.flac")
+    transport.reply = answer(add(ref=path, position=5), add(ref=track_id, position=5))
+    result = turn(facade, backend.review_id)["result"]
+    assert result["actions"] == [] and result["droppedActions"] == 2
+
+
+def test_an_add_that_would_break_a_protected_opening_is_dropped_and_counted(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    searched(facade, transport, backend)
+    review = backend.review
+    assert review is not None
+    ordered = list(review.recommendation.ordered_tracks)
+    backend.review = replace(
+        review,
+        recommendation=review.recommendation.model_copy(
+            update={"applied_controls": {**review.recommendation.applied_controls, "start_path": ordered[0].path}}
+        ),
+    )
+    transport.reply = answer(add(ref="L1", position=1), add(ref="L1", position=2))
+    result = turn(facade, backend.review_id)["result"]
+    assert [action["position"] for action in result["actions"]] == [2]
+    assert result["droppedActions"] == 1
+
+
+def test_a_bad_permutation_is_dropped_and_counted(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(reorder(1, 2, 2, 3))
+    result = turn(facade, backend.review_id)["result"]
+    assert result["actions"] == [] and result["droppedActions"] == 1
+    assert ids(backend.execute("review.details", {"reviewId": backend.review_id}))
+
+
+def test_a_reply_with_more_than_eight_changes_keeps_eight(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    backend.execute("prep.generate", {"targetTrackCount": 8, "name": "Ocho pistas"})
+    assert backend.review is not None and len(tracks(backend)) == 8
+    items = [remove(index) for index in range(1, 9)] + [extend(10)]
+    transport.reply = answer(*items)
+    result = turn(facade, backend.review_id)["result"]
+    assert [action["type"] for action in result["actions"]] == ["remove"] * 8
+    assert result["droppedActions"] == 1
+
+
+def test_a_pending_reorder_cannot_apply_once_the_list_changed(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = answer(reorder(2, 1, 3, 4), replace_at(3))
+    kept = turn(facade, backend.review_id)["result"]["actions"]
+    assert [action["type"] for action in kept] == ["reorder", "replace"]
+    applied = call(facade, "ai.chat.apply", {"actionId": kept[1]["actionId"]})
+    before = ids(applied["review"])
+    with pytest.raises(BackendError) as error:
+        call(facade, "ai.chat.apply", {"actionId": kept[0]["actionId"]})
+    assert error.value.code == "stale_ai"
+    assert ids(backend.execute("review.details", {"reviewId": backend.review_id})) == before

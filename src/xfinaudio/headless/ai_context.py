@@ -227,6 +227,10 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
                 "calidad, y que la biblioteca tiene más pistas que la lista no muestra."
             ),
             "Tu pregunta y la conversación de esta charla, que se guarda solo en memoria.",
+            (
+                "Si el asistente pide una búsqueda, también se envían sus resultados: referencia, título, "
+                "artista, género, BPM, tonalidad, energía y duración de las pistas encontradas."
+            ),
             "No se envían rutas de archivos, identificadores de pistas, audio ni credenciales.",
         )
     elif surface == "editor":

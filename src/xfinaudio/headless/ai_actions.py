@@ -1,14 +1,15 @@
 """The assistant's proposed list changes: kept in memory, published without identities, applied as edits.
 
 The assistant never changes the list by itself. One successful chat turn may propose
-up to five changes; the core binds each one to the track it named (never to its
-position), computes the replacement a ``replace`` would use and keeps the result next
-to the conversation, in memory only. The DJ applies one on request, and that apply
-goes through exactly the code a manual review edit uses: a new revision, undoable and
-stored like any other edit. Applying never contacts the provider.
+up to eight changes; the core binds each one to the track it named (never to its
+position), resolves the library reference an ``add`` or a ``replace_with`` names
+inside this conversation, computes the replacement a ``replace`` would use and keeps
+the result next to the conversation, in memory only. The DJ applies one on request,
+and that apply goes through exactly the code a manual review edit uses: a new revision,
+undoable and stored like any other edit. Applying never contacts the provider.
 
 Nothing published here carries a file path or a track identity: the answer names a
-position, the title and artist of the track, and, for a replacement, its fields.
+position, the title and artist of the track, and, for a library track, its fields.
 """
 
 from __future__ import annotations
@@ -16,12 +17,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from xfinaudio.headless.ai_conversation import ChatAction
+from xfinaudio.ai.list_chat import MAX_TARGET_TRACK_COUNT
+from xfinaudio.headless.ai_conversation import ChatAction, ConversationStore
 from xfinaudio.headless.common import BackendError, _public_track
+from xfinaudio.recommendation.playlist_service import insertion_positions
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
 
+    from xfinaudio.application.prep_copilot import PrepCopilotVariantApplicationResult
     from xfinaudio.headless.backend import HeadlessBackend
 
 _STALE = "Apply a change that is still pending and still possible"
@@ -31,6 +35,10 @@ _TRACK_LEFT = "track left the list"
 _NO_REPLACEMENT = "no replacement offered"
 _SAME_VARIANT = "the list already uses that alternative"
 _NO_VARIANT = "no such alternative in the plan"
+_UNKNOWN_REFERENCE = "unknown library reference"
+_PROTECTED_SLOT = "protected insert position"
+_FULL = "the list is already at its track limit"
+_NOTHING_TO_UNDO = "nothing to undo in this list"
 
 
 def propose_actions(
@@ -39,16 +47,20 @@ def propose_actions(
     """Bind this turn's validated proposals to what they named.
 
     ``items`` is the parsed answer's own shape (``type``, ``reason`` and, depending on
-    the type, ``position``, ``to`` or ``variant``). A proposal whose track is no
-    longer in the list, whose ``replace`` has no replacement the engine still offers
-    or whose ``use_variant`` names the alternative already in use is dropped and
-    counted instead of failing the turn; it is returned with the reason it was
-    dropped for the opt-in chat log.
+    the type, ``position``, ``to``, ``ref`` or ``order``). A proposal whose track is no
+    longer in the list, whose ``ref`` this conversation never issued, whose ``add`` has
+    no free insert slot, whose ``replace`` has no replacement the engine still offers or
+    whose ``use_variant`` names the alternative already in use is dropped and counted
+    instead of failing the turn; it is returned with the reason it was dropped for the
+    opt-in chat log. A ``reorder`` and an ``undo`` are bound to the tracks and to the
+    revision's own history, so a later edit makes them stale instead of wrong.
     """
-    review = backend.review
-    if review is None:
+    review, plan = backend.review, backend.plan
+    if review is None or plan is None:
         return (), tuple((item, _NO_LIST) for item in items)
+    store = backend.ai_conversation
     tracks = list(review.recommendation.ordered_tracks)
+    allowed_slots = insertion_positions(review.recommendation, frozenset(plan.intent.required_paths))
     accepted: list[ChatAction] = []
     dropped: list[tuple[Mapping[str, Any], str]] = []
     for item in items:
@@ -67,11 +79,48 @@ def propose_actions(
                 )
             )
             continue
+        if kind == "undo":
+            if not backend.review_actions.details()["canUndo"]:
+                dropped.append((item, _NOTHING_TO_UNDO))
+                continue
+            accepted.append(ChatAction(str(uuid4()), "undo", None, None, reason))
+            continue
+        if kind == "reorder":
+            order = tuple(_public_track(tracks[position - 1])["id"] for position in item["order"])
+            accepted.append(ChatAction(str(uuid4()), "reorder", None, None, reason, order=order))
+            continue
+        if kind == "add":
+            entering, refusal = _referenced(backend, store, review, item["ref"])
+            if entering is None:
+                dropped.append((item, refusal))
+                continue
+            if len(tracks) >= MAX_TARGET_TRACK_COUNT:
+                dropped.append((item, _FULL))
+                continue
+            if item["position"] not in allowed_slots:
+                dropped.append((item, _PROTECTED_SLOT))
+                continue
+            accepted.append(
+                ChatAction(str(uuid4()), "add", None, None, reason, replacement_id=entering, position=item["position"])
+            )
+            continue
         position = item["position"]
         if not 1 <= position <= len(tracks):
             dropped.append((item, _TRACK_LEFT))
             continue
         track_id = _public_track(tracks[position - 1])["id"]
+        if kind == "remove":
+            accepted.append(ChatAction(str(uuid4()), "remove", track_id, None, reason))
+            continue
+        if kind == "replace_with":
+            replacement_id, refusal = _referenced(backend, store, review, item["ref"])
+            if replacement_id is None:
+                dropped.append((item, refusal))
+                continue
+            accepted.append(
+                ChatAction(str(uuid4()), "replace_with", track_id, None, reason, replacement_id=replacement_id)
+            )
+            continue
         if kind == "move":
             accepted.append(ChatAction(str(uuid4()), "move", track_id, item["to"], reason))
             continue
@@ -83,19 +132,41 @@ def propose_actions(
     return tuple(accepted), tuple(dropped)
 
 
+def _referenced(
+    backend: HeadlessBackend, store: ConversationStore, review: PrepCopilotVariantApplicationResult, reference: Any
+) -> tuple[str | None, str]:
+    """The library track one conversation reference names, or why it cannot join the list.
+
+    The reference must be one this conversation issued, and the track behind it must
+    still pass the review's own insert rule: complete metadata, not in the list and not
+    excluded by the plan.
+    """
+    track_id = store.referenced(reference) if isinstance(reference, str) else None
+    if track_id is None:
+        return None, _UNKNOWN_REFERENCE
+    try:
+        backend.review_actions._entering(review, track_id)
+    except BackendError as error:
+        return None, str(error)
+    return track_id, ""
+
+
 def public_actions(backend: HeadlessBackend, actions: Iterable[ChatAction]) -> list[dict[str, Any]]:
     """The pending changes as the DJ sees them, at their current positions.
 
-    A change whose track left the list, or whose replacement is no longer in the
-    library, is not offered: it cannot be applied any more. Only the stored library
-    records are consulted here, so publishing never re-reads the library from disk.
+    A change whose track left the list, whose library track is no longer in the
+    library or whose bound order no longer describes this list is not offered: it
+    cannot apply any more. Only the stored library records are consulted here, so
+    publishing never re-reads the library from disk.
     """
     review = backend.review
     if review is None:
         return []
     tracks = [_public_track(track) for track in review.recommendation.ordered_tracks]
+    current_ids = [track["id"] for track in tracks]
     positions = {track["id"]: index for index, track in enumerate(tracks, start=1)}
-    library = {_public_track(record)["id"]: _public_track(record) for record in backend._records(checked=frozenset())}
+    records = (_public_track(record) for record in backend._records(checked=frozenset()))
+    library = {track["id"]: track for track in records}
     published: list[dict[str, Any]] = []
     for action in actions:
         if action.type == "extend":
@@ -116,6 +187,30 @@ def public_actions(backend: HeadlessBackend, actions: Iterable[ChatAction]) -> l
                 }
             )
             continue
+        if action.type == "undo":
+            published.append({"actionId": action.id, "type": "undo", "reason": action.reason})
+            continue
+        if action.type == "reorder":
+            order = action.order
+            if order is None or sorted(order) != sorted(current_ids):
+                continue
+            moved = sum(1 for index, track_id in enumerate(order) if track_id != current_ids[index])
+            published.append({"actionId": action.id, "type": "reorder", "moved": moved, "reason": action.reason})
+            continue
+        if action.type == "add":
+            entering = library.get(action.replacement_id or "")
+            if action.position is None or entering is None:
+                continue
+            published.append(
+                {
+                    "actionId": action.id,
+                    "type": "add",
+                    "position": action.position,
+                    "track": _library_fields(entering),
+                    "reason": action.reason,
+                }
+            )
+            continue
         position = positions.get(action.track_id or "")
         if position is None:
             continue
@@ -132,22 +227,33 @@ def public_actions(backend: HeadlessBackend, actions: Iterable[ChatAction]) -> l
             if action.to is None:
                 continue
             item["to"] = action.to
-        else:
+        elif action.type == "replace_with":
+            entering = library.get(action.replacement_id or "")
+            if entering is None:
+                continue
+            item["track"] = _library_fields(entering)
+        elif action.type == "replace":
             replacement = library.get(action.replacement_id or "")
             if replacement is None:
                 continue
-            item["replacement"] = {key: replacement[key] for key in ("title", "artist", "bpm", "key")}
+            item["replacement"] = _library_fields(replacement)
         published.append(item)
     return published
+
+
+def _library_fields(track: dict[str, Any]) -> dict[str, Any]:
+    """The library fields a card shows for a track that would join the list."""
+    return {key: track[key] for key in ("title", "artist", "bpm", "key")}
 
 
 def apply_action(backend: HeadlessBackend, action_id: str) -> dict[str, Any]:
     """Apply one pending change exactly as the equivalent manual review edit.
 
     Everything that can refuse the change -- an unknown or already applied identity,
-    a track that left the list, a track that became protected, a replacement the
-    engine no longer offers -- is ``stale_ai`` and leaves both the review and the
-    pending changes untouched. A ``to`` position is applied as written at this click.
+    a track that left the list, a track that became protected, a library track that no
+    longer exists or an order that no longer describes this list -- is ``stale_ai`` and
+    leaves both the review and the pending changes untouched. A ``to`` position and an
+    ``add`` slot are applied as written at this click.
 
     An ``extend`` grows the list through the same ``review.extend`` edit the DJ's own
     button uses and adds its ``extended`` report to the answer; a ``no_candidates``
@@ -164,14 +270,32 @@ def apply_action(backend: HeadlessBackend, action_id: str) -> dict[str, Any]:
         if action.type == "use_variant":
             raise BackendError("stale_ai", _STALE)
         details = backend.review_actions.details()
+        review_id = details["reviewId"]
         if action.type == "extend":
             if action.to is None:
                 raise BackendError("stale_ai", _STALE)
             grown = backend.review_actions.execute(
-                "review.extend", {"reviewId": details["reviewId"], "targetTrackCount": action.to}
+                "review.extend", {"reviewId": review_id, "targetTrackCount": action.to}
             )
             extended = grown.pop("extended", None)
             review = grown
+        elif action.type == "undo":
+            if not details["canUndo"]:
+                raise BackendError("stale_ai", _STALE)
+            review = backend.review_actions.execute("review.undo", {"reviewId": review_id})
+        elif action.type == "reorder":
+            order = list(action.order or ())
+            current = [track["id"] for track in details["tracks"]]
+            if sorted(order) != sorted(current):
+                raise BackendError("stale_ai", _STALE)
+            review = backend.review_actions.execute("review.reorder", {"reviewId": review_id, "trackIds": order})
+        elif action.type == "add":
+            if action.replacement_id is None or action.position is None:
+                raise BackendError("stale_ai", _STALE)
+            review = backend.review_actions.execute(
+                "review.insert",
+                {"reviewId": review_id, "trackId": action.replacement_id, "position": action.position},
+            )
         else:
             current = [track["id"] for track in details["tracks"]]
             track_id = action.track_id
@@ -183,12 +307,23 @@ def apply_action(backend: HeadlessBackend, action_id: str) -> dict[str, Any]:
                 destination = action.to
                 order = [item for item in current if item != track_id]
                 order.insert(destination - 1, track_id)
+                review = backend.review_actions.execute("review.reorder", {"reviewId": review_id, "trackIds": order})
+            elif action.type == "remove":
+                review = backend.review_actions.execute("review.drop", {"reviewId": review_id, "trackId": track_id})
+            elif action.type == "replace_with":
+                if action.replacement_id is None:
+                    raise BackendError("stale_ai", _STALE)
                 review = backend.review_actions.execute(
-                    "review.reorder", {"reviewId": details["reviewId"], "trackIds": order}
+                    "review.swap",
+                    {
+                        "reviewId": review_id,
+                        "trackId": track_id,
+                        "replacementTrackId": action.replacement_id,
+                    },
                 )
             else:
                 comparison = backend.review_actions.execute(
-                    "review.compare", {"reviewId": details["reviewId"], "trackId": track_id}
+                    "review.compare", {"reviewId": review_id, "trackId": track_id}
                 )
                 replacement = comparison["replacement"]
                 if not comparison["available"] or not isinstance(replacement, dict):
