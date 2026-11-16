@@ -21,9 +21,13 @@ from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
+    insertion_positions,
     recommendation_extended,
+    recommendation_inserted,
     recommendation_reordered,
+    recommendation_swapped,
     recommendation_with_replacement,
+    recommendation_without_paths,
     rewrite_shortfall_warnings,
 )
 from xfinaudio.recommendation.prep_copilot import (
@@ -48,9 +52,12 @@ REVIEW_FIELDS = {
     "review.details": {"reviewId"},
     "review.resume": set(),
     "review.compare": {"reviewId", "trackId"},
+    "review.drop": {"reviewId", "trackId"},
+    "review.insert": {"reviewId", "trackId", "position"},
     "review.remove": {"reviewId", "trackId"},
     "review.replace": {"reviewId", "trackId", "replacementId"},
     "review.reorder": {"reviewId", "trackIds"},
+    "review.swap": {"reviewId", "trackId", "replacementTrackId"},
     "review.extend": {"reviewId", "targetTrackCount"},
     "review.undo": {"reviewId"},
     "review.redo": {"reviewId"},
@@ -59,6 +66,8 @@ REVIEW_FIELDS = {
 HISTORY_LIMIT = 50
 # The longest list an edit may grow a review to, matching the intent's own target cap.
 MAX_EXTENDED_TRACK_COUNT = 100
+# An edit that would leave fewer tracks than this in the list is refused, never applied.
+MIN_REVIEW_TRACK_COUNT = 2
 ReviewState = tuple[PrepCopilotVariantApplicationResult, frozenset[str], dict[str, Any]]
 
 
@@ -463,13 +472,8 @@ class GeneratedReview:
     ) -> tuple[str, PlaylistRecommendation]:
         recommendation, plan = review.recommendation, self.backend.plan
         assert plan is not None
-        target = next(
-            (track.path for track in recommendation.ordered_tracks if _public_track(track)["id"] == track_id), None
-        )
-        if target is None:
-            raise BackendError("invalid_params", "Choose a track in the current generated set")
-        controls = DJControls.model_validate(recommendation.applied_controls)
-        if target in preserved_control_paths(controls) | set(plan.intent.required_paths):
+        target = self._listed(review, track_id)
+        if target in self._protected(review):
             raise BackendError("protected_track", "This track is protected by the set controls")
         current = self._sources(frozenset())
         candidates = [entry[0] for path, entry in current.items() if self._same(self.sources.get(path), entry)]
@@ -487,6 +491,95 @@ class GeneratedReview:
         # proposal would put in the list, so a candidate that changed while it was being
         # chosen is refused there with the same code as before.
         return target, proposed
+
+    def _listed(self, review: PrepCopilotVariantApplicationResult, track_id: Any) -> str:
+        """The path of a track this review's list holds, or the edit's own refusal."""
+        path = next(
+            (track.path for track in review.recommendation.ordered_tracks if _public_track(track)["id"] == track_id),
+            None,
+        )
+        if path is None:
+            raise BackendError("invalid_params", "Choose a track in the current generated set")
+        return path
+
+    def _protected(self, review: PrepCopilotVariantApplicationResult) -> set[str]:
+        """The tracks this review must never take out, exactly as every edit reads them."""
+        plan = self.backend.plan
+        assert plan is not None
+        controls = DJControls.model_validate(review.recommendation.applied_controls)
+        return preserved_control_paths(controls) | set(plan.intent.required_paths)
+
+    def _entering(self, review: PrepCopilotVariantApplicationResult, track_id: Any) -> TrackRecord:
+        """The library track an edit would put in the list, or the edit's own refusal."""
+        plan = self.backend.plan
+        assert plan is not None
+        # The command's snapshot already holds every library record still on disk, so
+        # resolving the id against it costs no further read, and the final check reads the
+        # chosen track's identity like it reads every track the proposal would list.
+        library = self._sources(frozenset())
+        track = next((entry[0] for entry in library.values() if _public_track(entry[0])["id"] == track_id), None)
+        if track is None:
+            # A track this review recorded but the disk no longer has is a changed source,
+            # not an unknown one: the DJ chose it from a list that named it.
+            if any(_public_track(entry[0])["id"] == track_id for entry in self.sources.values()):
+                raise BackendError("stale_review", "The chosen track changed on disk; prepare a current review")
+            raise BackendError("invalid_params", "Choose a library track")
+        if track.path in self._paths(review):
+            raise BackendError("invalid_params", "This track is already in the generated set")
+        if track.metadata_status != "complete":
+            raise BackendError("invalid_params", "Only a track with complete metadata can join the set")
+        if track.path in plan.intent.excluded_paths:
+            raise BackendError("invalid_params", "This track is excluded by the plan")
+        # A track of the removed set may come back: only the plan's own exclusions keep
+        # one out, and the edit that puts it back takes it out of the removed set.
+        return track
+
+    def _dropped(
+        self, review: PrepCopilotVariantApplicationResult, track_id: Any
+    ) -> tuple[PlaylistRecommendation, str]:
+        """Take a listed track out of the list without a replacement."""
+        recommendation = review.recommendation
+        path = self._listed(review, track_id)
+        if path in self._protected(review):
+            raise BackendError("protected_track", "This track is protected by the set controls")
+        if len(recommendation.ordered_tracks) - 1 < MIN_REVIEW_TRACK_COUNT:
+            raise BackendError("invalid_params", f"A generated set keeps at least {MIN_REVIEW_TRACK_COUNT} tracks")
+        proposed = recommendation_without_paths(
+            recommendation, frozenset({path}), spectral_cohesion=self.backend.preferences.spectral_cohesion()
+        )
+        return proposed, path
+
+    def _inserted(
+        self, review: PrepCopilotVariantApplicationResult, track_id: Any, position: Any
+    ) -> tuple[PlaylistRecommendation, TrackRecord]:
+        """Put a chosen library track at a chosen position of the list."""
+        recommendation = review.recommendation
+        ordered = recommendation.ordered_tracks
+        track = self._entering(review, track_id)
+        if type(position) is not int or not 1 <= position <= len(ordered) + 1:
+            raise BackendError("invalid_params", f"Insert position must be between 1 and {len(ordered) + 1}")
+        if len(ordered) >= MAX_EXTENDED_TRACK_COUNT:
+            raise BackendError("invalid_params", f"A generated set holds at most {MAX_EXTENDED_TRACK_COUNT} tracks")
+        if position not in insertion_positions(recommendation, self._protected(review)):
+            raise BackendError("protected_track", "Inserting there would break the protected controls")
+        proposed = recommendation_inserted(
+            recommendation, track, position, spectral_cohesion=self.backend.preferences.spectral_cohesion()
+        )
+        return proposed, track
+
+    def _swapped(
+        self, review: PrepCopilotVariantApplicationResult, track_id: Any, replacement_id: Any
+    ) -> tuple[PlaylistRecommendation, TrackRecord, str]:
+        """Replace one listed track with a chosen library track at the same position."""
+        recommendation = review.recommendation
+        path = self._listed(review, track_id)
+        if path in self._protected(review):
+            raise BackendError("protected_track", "This track is protected by the set controls")
+        replacement = self._entering(review, replacement_id)
+        proposed = recommendation_swapped(
+            recommendation, path, replacement, spectral_cohesion=self.backend.preferences.spectral_cohesion()
+        )
+        return proposed, replacement, path
 
     def _offered(
         self, review: PrepCopilotVariantApplicationResult, track_id: Any, replacement_id: Any
@@ -579,6 +672,7 @@ class GeneratedReview:
         if method == "review.extend":
             return self._extend(review, params["targetTrackCount"])
         removed = None
+        entering = None
         if method == "review.reorder":
             ids = params["trackIds"]
             tracks = {_public_track(track)["id"]: track for track in review.recommendation.ordered_tracks}
@@ -605,6 +699,12 @@ class GeneratedReview:
             )
         elif method == "review.replace":
             removed, proposed = self._offered(review, params["trackId"], params["replacementId"])
+        elif method == "review.drop":
+            proposed, removed = self._dropped(review, params["trackId"])
+        elif method == "review.insert":
+            proposed, entering = self._inserted(review, params["trackId"], params["position"])
+        elif method == "review.swap":
+            proposed, entering, removed = self._swapped(review, params["trackId"], params["replacementTrackId"])
         else:
             removed, proposed = self._replacement(review, params["trackId"])
         assessed = self._assess(proposed)
@@ -635,9 +735,14 @@ class GeneratedReview:
         # Only an applied edit becomes history; a refused or stale one leaves the stacks untouched.
         self._remember(self.history)
         self.future.clear()
+        # A dropped track joins the removed set; an inserted one leaves it, so a track the
+        # DJ put back can be chosen again by any later edit.
+        published = self.removed | {removed} if removed is not None else self.removed
+        if entering is not None:
+            published = published - {entering.path}
         self._publish(
             assessed,
-            self.removed | {removed} if removed is not None else self.removed,
+            frozenset(published),
             {
                 **self.base,
                 "warnings": list(dict.fromkeys([*self.base["warnings"], *proposed.warnings])),

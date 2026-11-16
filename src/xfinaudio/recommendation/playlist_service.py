@@ -160,19 +160,17 @@ class PlaylistRecommendation(BaseModel):
     replacement_policy: ReplacementPolicy | None = None
 
 
-def recommendation_without_paths(
+def _rescored(
     recommendation: PlaylistRecommendation,
-    removed_paths: frozenset[str],
-    *,
-    spectral_cohesion: float = 0.0,
+    ordered_tracks: list[TrackRecord],
+    spectral_cohesion: float,
 ) -> PlaylistRecommendation:
-    """Return a recommendation with removed tracks and honest adjacency scores."""
-    if not removed_paths:
-        return recommendation
-    ordered_tracks = [track for track in recommendation.ordered_tracks if track.path not in removed_paths]
-    if len(ordered_tracks) == len(recommendation.ordered_tracks):
-        return recommendation
+    """The recommendation carrying *ordered_tracks*, with honest adjacency scores.
 
+    Every edit that puts a different order on screen goes through here: the
+    scores the optimizer computed describe the order it chose, and carrying them
+    forward would show seams that no longer exist.
+    """
     scoring_config = TransitionScoringConfig(
         weights=recommendation.strategy.weights,
         spectral_cohesion=spectral_cohesion,
@@ -185,6 +183,87 @@ def recommendation_without_paths(
             "total_score": sum(score.total_score for score in transition_scores),
         }
     )
+
+
+def recommendation_without_paths(
+    recommendation: PlaylistRecommendation,
+    removed_paths: frozenset[str],
+    *,
+    spectral_cohesion: float = 0.0,
+) -> PlaylistRecommendation:
+    """Return a recommendation with removed tracks and honest adjacency scores."""
+    if not removed_paths:
+        return recommendation
+    ordered_tracks = [track for track in recommendation.ordered_tracks if track.path not in removed_paths]
+    if len(ordered_tracks) == len(recommendation.ordered_tracks):
+        return recommendation
+    return _rescored(recommendation, ordered_tracks, spectral_cohesion)
+
+
+def recommendation_inserted(
+    recommendation: PlaylistRecommendation,
+    track: TrackRecord,
+    position: int,
+    *,
+    spectral_cohesion: float = 0.0,
+) -> PlaylistRecommendation:
+    """Put one library track at *position* (1-based) and rescore every adjacency.
+
+    The DJ chose the track and the slot, so this adds no eligibility policy of
+    its own: the caller decides which track may join the list and which slots are
+    open, and this only places it and re-prices the order it leaves behind. A
+    track the list already holds, or a position outside ``1..N+1``, is a caller bug
+    -- honouring it would duplicate or lose a track -- so the recommendation is
+    returned unchanged.
+    """
+    ordered = list(recommendation.ordered_tracks)
+    if any(item.path == track.path for item in ordered) or not 1 <= position <= len(ordered) + 1:
+        return recommendation
+    return _rescored(
+        recommendation,
+        [*ordered[: position - 1], track, *ordered[position - 1 :]],
+        spectral_cohesion,
+    )
+
+
+def recommendation_swapped(
+    recommendation: PlaylistRecommendation,
+    removed_path: str,
+    replacement: TrackRecord,
+    *,
+    spectral_cohesion: float = 0.0,
+) -> PlaylistRecommendation:
+    """Replace one listed track with a chosen library track at the same position.
+
+    This is the removal of ``removed_path`` and the insertion of *replacement* in
+    its slot as one edit, so the neighbours are re-priced once for the order that
+    results. An unknown path, or a replacement the list already holds, is a caller
+    bug and the recommendation is returned unchanged.
+    """
+    paths = [track.path for track in recommendation.ordered_tracks]
+    if removed_path not in paths or any(track.path == replacement.path for track in recommendation.ordered_tracks):
+        return recommendation
+    index = paths.index(removed_path)
+    ordered = [*recommendation.ordered_tracks[:index], replacement, *recommendation.ordered_tracks[index + 1 :]]
+    return _rescored(recommendation, ordered, spectral_cohesion)
+
+
+def insertion_positions(
+    recommendation: PlaylistRecommendation,
+    reserved_paths: AbstractSet[str] = frozenset(),
+) -> list[int]:
+    """The 1-based positions a new track may be put at, without breaking the controls.
+
+    The rules are the extension's own: nothing goes before a protected opening
+    track, after a protected closing track or inside the manual prefix, because
+    each of those would silently move a track the DJ pinned. ``reserved_paths``
+    adds the tracks the caller has to protect beyond the set controls.
+    """
+    ordered = recommendation.ordered_tracks
+    controls = DJControls.model_validate(recommendation.applied_controls)
+    preserved = (preserved_control_paths(controls) | set(reserved_paths)) - controls.excluded_paths
+    manual_prefix_length = _manual_prefix_length(ordered, controls)
+    return [gap + 1 for gap, _, _ in _allowed_gaps(ordered, preserved, manual_prefix_length)]
 
 
 def recommendation_reordered(
@@ -214,18 +293,7 @@ def recommendation_reordered(
 
     by_path = {track.path: track for track in recommendation.ordered_tracks}
     ordered_tracks = [by_path[path] for path in ordered_paths]
-    scoring_config = TransitionScoringConfig(
-        weights=recommendation.strategy.weights,
-        spectral_cohesion=spectral_cohesion,
-    )
-    transition_scores = _score_ordered_tracks(ordered_tracks, scoring_config)
-    return recommendation.model_copy(
-        update={
-            "ordered_tracks": ordered_tracks,
-            "transition_scores": transition_scores,
-            "total_score": sum(score.total_score for score in transition_scores),
-        }
-    )
+    return _rescored(recommendation, ordered_tracks, spectral_cohesion)
 
 
 def recommendation_with_replacement(
@@ -2079,8 +2147,11 @@ __all__ = [
     "normalize_requested_genre",
     "prefilter_strategy_candidates",
     "recommend_playlist",
+    "insertion_positions",
     "recommendation_extended",
+    "recommendation_inserted",
     "recommendation_reordered",
+    "recommendation_swapped",
     "recommendation_with_replacement",
     "recommendation_without_paths",
     "rewrite_shortfall_warnings",
