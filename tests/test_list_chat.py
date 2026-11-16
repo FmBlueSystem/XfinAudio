@@ -310,7 +310,7 @@ def test_chat_instructions_ask_for_one_json_object_with_the_two_action_shapes(se
     assert "JSON" in system
     assert '"reply"' in system and '"actions"' in system
     assert '"type": "replace"' in system and '"type": "move"' in system
-    assert "entre 0 y 8" in system
+    assert "entre 0 y 20" in system
     assert "200" in system and "N = 4" in system
     assert '"type": "extend"' in system and '"type": "use_variant"' in system
     assert "mayor que el largo actual" in system and "100" in system
@@ -324,15 +324,33 @@ def test_the_chat_instructions_describe_the_searches_and_the_new_changes(setup):
     facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
     _, transport = chat(facts)
     system = transport.bodies[0]["messages"][0]["content"]
-    assert "entre 0 y 8" in system
-    for shape in ('"type": "remove"', '"type": "add"', '"type": "replace_with"', '"type": "reorder"'):
+    assert "entre 0 y 20" in system
+    for shape in (
+        '"type": "remove"',
+        '"type": "add"',
+        '"type": "replace_with"',
+        '"type": "reorder"',
+        '"type": "period"',
+    ):
         assert shape in system
     assert '"type": "undo"' in system
+    assert "un solo period" in system
     assert '"searches"' in system
     assert '"query"' in system and '"bpmMin"' in system and '"bpmMax"' in system and '"key"' in system
     assert "entre 0 y 2 búsquedas" in system and "20" in system
     assert "L1" in system
     assert "un solo reorder y un solo undo" in system
+
+
+def test_the_chat_instructions_ask_for_one_period_change_instead_of_swaps(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    _, transport = chat(facts)
+    system = transport.bodies[0]["messages"][0]["content"]
+    assert '"type": "period", "yearMin": 1980' in system
+    assert "en vez de cambios pista por pista" in system
+    assert "protegidas que quedan fuera del período" in system
 
 
 def test_the_chat_instructions_say_it_only_proposes_and_searches_before_answering(setup):
@@ -511,9 +529,9 @@ def test_every_dropped_action_reports_its_raw_value_and_the_reason():
     assert list_chat.parse_answer(repeated, 8).dropped_items == (
         list_chat.DroppedAction({"type": "move", "position": 2, "to": 1, "reason": "motivo"}, "repeated position"),
     )
-    nine = structured(*[{"type": "replace", "position": index, "reason": "motivo"} for index in range(1, 10)])
-    assert list_chat.parse_answer(nine, 10).dropped_items == (
-        list_chat.DroppedAction({"type": "replace", "position": 9, "reason": "motivo"}, "over the change limit"),
+    too_many = structured(*[{"type": "replace", "position": index, "reason": "motivo"} for index in range(1, 22)])
+    assert list_chat.parse_answer(too_many, 30).dropped_items == (
+        list_chat.DroppedAction({"type": "replace", "position": 21, "reason": "motivo"}, "over the change limit"),
     )
 
 
@@ -580,9 +598,9 @@ def test_a_repeated_position_and_actions_beyond_five_are_dropped_and_counted():
     answer = list_chat.parse_answer(repeated, 8)
     assert answer.actions == (list_chat.ProposedAction("replace", 2, None, "motivo"),)
     assert answer.dropped == 1
-    nine = structured(*[{"type": "replace", "position": index, "reason": "motivo"} for index in range(1, 10)])
-    answer = list_chat.parse_answer(nine, 10)
-    assert [action.position for action in answer.actions] == [1, 2, 3, 4, 5, 6, 7, 8]
+    twenty_one = structured(*[{"type": "replace", "position": index, "reason": "motivo"} for index in range(1, 22)])
+    answer = list_chat.parse_answer(twenty_one, 30)
+    assert [action.position for action in answer.actions] == list(range(1, 21))
     assert answer.dropped == 1
 
 
@@ -688,6 +706,53 @@ def test_only_one_undo_is_kept_per_reply():
     )
     answer = list_chat.parse_answer(raw, 4)
     assert [action.type for action in answer.actions] == ["undo"]
+    assert answer.dropped == 1
+    assert [item.reason for item in answer.dropped_items] == ["repeated change type"]
+
+
+def test_the_answer_is_read_with_the_period_shape():
+    answer = list_chat.parse_answer(
+        structured({"type": "period", "yearMin": 1980, "yearMax": 1989, "reason": "Solo los 80"}),
+        4,
+    )
+    assert answer.actions == (
+        list_chat.ProposedAction("period", None, None, "Solo los 80", year_min=1980, year_max=1989),
+    )
+    assert answer.dropped == 0
+    assert [action.public() for action in answer.actions] == [
+        {"type": "period", "yearMin": 1980, "yearMax": 1989, "reason": "Solo los 80"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "item,reason",
+    [
+        ({"type": "period", "yearMin": 1899, "yearMax": 1989, "reason": "motivo"}, "bad period"),
+        ({"type": "period", "yearMin": 1980, "yearMax": 2101, "reason": "motivo"}, "bad period"),
+        ({"type": "period", "yearMin": 1990, "yearMax": 1989, "reason": "motivo"}, "bad period"),
+        ({"type": "period", "yearMin": "1980", "yearMax": 1989, "reason": "motivo"}, "bad period"),
+        ({"type": "period", "yearMin": True, "yearMax": 1989, "reason": "motivo"}, "bad period"),
+        ({"type": "period", "yearMin": 1980.0, "yearMax": 1989, "reason": "motivo"}, "bad period"),
+        ({"type": "period", "yearMin": 1980, "reason": "motivo"}, "unexpected fields"),
+        ({"type": "period", "yearMin": 1980, "yearMax": 1989, "position": 2, "reason": "motivo"}, "unexpected fields"),
+        ({"type": "period", "yearMin": 1980, "yearMax": 1989}, "unexpected fields"),
+        ({"type": "period", "yearMin": 1980, "yearMax": 1989, "reason": "x" * 201}, "missing or oversized reason"),
+    ],
+)
+def test_a_period_that_cannot_apply_is_dropped_with_its_reason(item, reason):
+    answer = list_chat.parse_answer(structured(item), 4)
+    assert answer.actions == ()
+    assert answer.dropped == 1
+    assert answer.dropped_items == (list_chat.DroppedAction(item, reason),)
+
+
+def test_only_one_period_is_kept_per_reply():
+    raw = structured(
+        {"type": "period", "yearMin": 1980, "yearMax": 1989, "reason": "motivo"},
+        {"type": "period", "yearMin": 1990, "yearMax": 1999, "reason": "motivo"},
+    )
+    answer = list_chat.parse_answer(raw, 4)
+    assert [action.type for action in answer.actions] == ["period"]
     assert answer.dropped == 1
     assert [item.reason for item in answer.dropped_items] == ["repeated change type"]
 

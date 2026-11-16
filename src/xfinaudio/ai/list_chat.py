@@ -4,8 +4,8 @@ The assistant only reads the list facts rendered here (positions, titles,
 transitions, the readiness report and the generation the list came from), the
 conversation the core stores in memory and, when it asks for one, the results of a
 local library search. One turn answers with the prose the DJ reads and, optionally,
-up to eight proposed changes (``replace``, ``remove``, ``move``, ``add``,
-``replace_with``, ``reorder``, ``extend``, ``use_variant`` or ``undo``); the core
+up to twenty proposed changes (``replace``, ``remove``, ``move``, ``add``,
+``replace_with``, ``reorder``, ``extend``, ``use_variant``, ``period`` or ``undo``); the core
 validates them against the list and applies one only when the DJ asks for it, so the
 assistant itself never changes anything.
 
@@ -39,7 +39,7 @@ MAX_REPLY_CHARS = 4000
 #: Every turn is a reasoning call over the whole list, exactly like the review commentary.
 DEFAULT_CHAT_TIMEOUT_SECONDS = 120.0
 #: The most changes one answer may propose; the rest are dropped and counted.
-MAX_ACTIONS = 8
+MAX_ACTIONS = 20
 #: The most library searches one answer may ask for; the rest are ignored.
 MAX_SEARCHES = 2
 #: The longest reason one proposal may carry; a longer one is dropped.
@@ -55,6 +55,9 @@ MAX_SEARCH_YEAR = 9999
 MAX_FOUND_TRACKS = 40
 #: The longest list one proposal may grow, matching the engine's own target cap.
 MAX_TARGET_TRACK_COUNT = 100
+#: The calendar years one ``period`` proposal may name, both ends included.
+MIN_PERIOD_YEAR = 1900
+MAX_PERIOD_YEAR = 2100
 #: The types one answer may propose; four change one position, the rest the whole list.
 ACTION_TYPES = (
     "replace",
@@ -65,6 +68,7 @@ ACTION_TYPES = (
     "reorder",
     "extend",
     "use_variant",
+    "period",
     "undo",
 )
 #: The plan's alternatives; a ``use_variant`` proposal names exactly one of them.
@@ -79,12 +83,13 @@ _ACTION_FIELDS = {
     "reorder": frozenset({"type", "order", "reason"}),
     "extend": frozenset({"type", "to", "reason"}),
     "use_variant": frozenset({"type", "variant", "reason"}),
+    "period": frozenset({"type", "yearMin", "yearMax", "reason"}),
     "undo": frozenset({"type", "reason"}),
 }
 #: The fields one library search may carry, exactly; only ``query`` is required.
 _SEARCH_FIELDS = frozenset({"query", "genre", "bpmMin", "bpmMax", "key", "yearMin", "yearMax"})
-#: ``reorder``, ``extend``, ``use_variant`` and ``undo`` are list-level, so one each.
-_ONCE_PER_REPLY = frozenset({"extend", "use_variant", "reorder", "undo"})
+#: ``reorder``, ``extend``, ``use_variant``, ``period`` and ``undo`` are list-level, so one each.
+_ONCE_PER_REPLY = frozenset({"extend", "use_variant", "reorder", "undo", "period"})
 #: The short library reference an ``add`` or a ``replace_with`` names, and nothing else.
 _REFERENCE = re.compile(r"L[1-9][0-9]{0,5}")
 #: A Camelot key, exactly as the local Library query reads one.
@@ -115,6 +120,7 @@ _TARGET_OUTSIDE = "target outside the list"
 _OVER_LIMIT = "over the change limit"
 _UNDO_ALONE = "undo must be applied alone"
 _UNSUPPORTED_SEARCH = "unsupported search"
+_BAD_PERIOD = "bad period"
 _NO_SEARCH_FILTER = "no query or filter"
 _OVER_SEARCHES = "over the search limit"
 
@@ -159,8 +165,9 @@ class ProposedAction:
     """One validated change the assistant proposed; every position is 1-based.
 
     ``replace``, ``remove``, ``move``, ``add`` and ``replace_with`` name a
-    ``position``; ``extend`` carries the list length it asks for in ``to`` and
-    ``use_variant`` the ``variant`` it proposes; ``reorder`` carries the ``order``
+    ``position``; ``extend`` carries the list length it asks for in ``to``,
+    ``use_variant`` the ``variant`` it proposes and ``period`` the ``year_min`` and
+    ``year_max`` it would fit the whole list to; ``reorder`` carries the ``order``
     permutation and ``undo`` names nothing. ``add`` and ``replace_with`` also carry
     the short library ``ref`` their track came from, which the core resolves against
     this conversation's own results.
@@ -174,6 +181,8 @@ class ProposedAction:
     track_count: int | None = None
     ref: str | None = None
     order: tuple[int, ...] = ()
+    year_min: int | None = None
+    year_max: int | None = None
 
     def public(self) -> dict[str, Any]:
         item: dict[str, Any] = {"type": self.type}
@@ -190,6 +199,10 @@ class ProposedAction:
             item["ref"] = self.ref
         if self.order:
             item["order"] = list(self.order)
+        if self.year_min is not None:
+            item["yearMin"] = self.year_min
+        if self.year_max is not None:
+            item["yearMax"] = self.year_max
         return item
 
 
@@ -406,7 +419,25 @@ def _list_action(
         if any(order[position - 1] != position for position in protected):
             return DroppedAction(item, _PROTECTED)
         return ProposedAction("reorder", None, None, reason, order=order)
+    if kind == "period":
+        years = _period_years(item["yearMin"], item["yearMax"])
+        if years is None:
+            return DroppedAction(item, _BAD_PERIOD)
+        return ProposedAction("period", None, None, reason, year_min=years[0], year_max=years[1])
     return ProposedAction("undo", None, None, reason)
+
+
+def _period_years(year_min: Any, year_max: Any) -> tuple[int, int] | None:
+    """The two calendar years a ``period`` asks for, or nothing when they cannot be read.
+
+    A period is two whole years between 1900 and 2100 with the smaller one first: the
+    engine refuses anything else, so the parser never publishes one either.
+    """
+    if type(year_min) is not int or type(year_max) is not int:
+        return None
+    if not MIN_PERIOD_YEAR <= year_min <= year_max <= MAX_PERIOD_YEAR:
+        return None
+    return year_min, year_max
 
 
 def _permutation(value: Any, track_count: int) -> tuple[int, ...] | None:
@@ -557,7 +588,7 @@ _INSTRUCTIONS = (
     "7. Responde siempre con un único objeto JSON, sin markdown y sin nada fuera de él: "
     '{"reply": string, "actions": [cambio, ...], "searches": [búsqueda, ...]}.\n'
     "8. reply repite en español lo que le dirías al DJ; es lo único que él lee.\n"
-    "9. actions lleva entre 0 y 8 cambios. Cada cambio es exactamente una de estas formas: "
+    "9. actions lleva entre 0 y 20 cambios. Cada cambio es exactamente una de estas formas: "
     '{"type": "replace", "position": 3, "reason": "motivo"} para quitar esa pista y poner en su '
     "lugar la que el motor elija, "
     '{"type": "remove", "position": 3, "reason": "motivo"} para quitarla sin reemplazo, '
@@ -571,6 +602,8 @@ _INSTRUCTIONS = (
     "de pistas con lo que el motor elija de la biblioteca, "
     '{"type": "use_variant", "variant": "adventurous", "reason": "motivo"} para proponer otra '
     "de las alternativas del plan, o "
+    '{"type": "period", "yearMin": 1980, "yearMax": 1989, "reason": "motivo"} para ajustar '
+    "toda la lista a esa época, o "
     '{"type": "undo", "reason": "motivo"} para deshacer el último cambio de la lista.\n'
     "10. N es el número de pistas de la lista: en un replace, un remove, un move o un replace_with, "
     "position va de 1 a N, to nunca es igual a position, reason no pasa de 200 caracteres y no "
@@ -578,12 +611,13 @@ _INSTRUCTIONS = (
     "ref es una referencia como L1 de los resultados de una búsqueda.\n"
     "11. En un extend, to es mayor que el largo actual de la lista y como máximo 100. En un "
     "use_variant, variant es una de las otras alternativas del resumen, nunca la actual: safe, "
-    "balanced o adventurous.\n"
+    "balanced o adventurous. En un period, yearMin y yearMax son años entre 1900 y 2100 y yearMin "
+    "no pasa de yearMax.\n"
     "12. En un reorder, order es una permutación de 1 a N que deja las posiciones protegidas donde "
     "están.\n"
     "13. Como máximo un solo extend, un solo use_variant, un solo reorder y un solo undo por "
-    "respuesta. Un undo va solo en su respuesta: si propones deshacer, escribe un reply que solo "
-    "anuncie eso y propón el resto en el mensaje siguiente.\n"
+    "respuesta, y como máximo un solo period. Un undo va solo en su respuesta: si propones "
+    "deshacer, escribe un reply que solo anuncie eso y propón el resto en el mensaje siguiente.\n"
     "14. searches lleva entre 0 y 2 búsquedas de la biblioteca local cuando necesitas ver pistas "
     "que no están en la lista. Cada búsqueda es "
     '{"query": string, "genre": string, "bpmMin": número, "bpmMax": número, "key": string, '
@@ -607,6 +641,10 @@ _INSTRUCTIONS = (
     "21. La lista de arriba es la lista actual, tal como está ahora y con todos los cambios ya "
     "aplicados: trabaja siempre desde ella y nunca le pidas al DJ que te la dicte, te la pegue o "
     "te la cuente."
+    "\n"
+    "22. Cuando el DJ quiera mantener la lista en una década o un período, propón un solo cambio "
+    "period con yearMin y yearMax en vez de cambios pista por pista, y menciona en el reply las "
+    "pistas protegidas que quedan fuera del período."
 )
 
 

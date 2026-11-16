@@ -46,7 +46,8 @@ class ChatAction:
     library track in ``replacement_id`` at the slot ``position``, ``replace_with``
     swaps the listed track for that library one, ``extend`` grows the list to ``to``
     tracks and ``use_variant`` switches to the plan alternative ``variant``, whose
-    length was ``track_count`` when it was proposed. ``track_id``, ``replacement_id``
+    length was ``track_count`` when it was proposed. ``period`` fits the whole list to
+    the ``year_min``..``year_max`` release-year range. ``track_id``, ``replacement_id``
     and ``order`` are internal public track identities and are never published: the
     answer carries titles, positions and reasons only. A list-level change names no
     track, so its ``track_id`` stays empty.
@@ -62,6 +63,8 @@ class ChatAction:
     track_count: int | None = None
     position: int | None = None
     order: tuple[str, ...] | None = None
+    year_min: int | None = None
+    year_max: int | None = None
 
 
 def applied_changes(previous: Sequence[TrackRecord], current: Sequence[TrackRecord]) -> tuple[str, ...]:

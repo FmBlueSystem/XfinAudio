@@ -23,7 +23,9 @@ from xfinaudio.recommendation.controls import DJControls, preserved_control_path
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
     insertion_positions,
+    known_release_year,
     recommendation_extended,
+    recommendation_fitted,
     recommendation_inserted,
     recommendation_reordered,
     recommendation_swapped,
@@ -60,6 +62,7 @@ REVIEW_FIELDS = {
     "review.reorder": {"reviewId", "trackIds"},
     "review.swap": {"reviewId", "trackId", "replacementTrackId"},
     "review.extend": {"reviewId", "targetTrackCount"},
+    "review.fit_period": {"reviewId", "yearMin", "yearMax"},
     "review.undo": {"reviewId"},
     "review.redo": {"reviewId"},
 }
@@ -69,6 +72,9 @@ HISTORY_LIMIT = 50
 MAX_EXTENDED_TRACK_COUNT = 100
 # An edit that would leave fewer tracks than this in the list is refused, never applied.
 MIN_REVIEW_TRACK_COUNT = 2
+# The calendar years a period edit may name, both ends included.
+MIN_PERIOD_YEAR = 1900
+MAX_PERIOD_YEAR = 2100
 ReviewState = tuple[PrepCopilotVariantApplicationResult, frozenset[str], dict[str, Any]]
 
 
@@ -668,8 +674,82 @@ class GeneratedReview:
             "extended": {"requested": target - current, "added": added, "outsideGenre": outside_genre},
         }
 
+    def _fit_period(self, review: PrepCopilotVariantApplicationResult, year_min: Any, year_max: Any) -> dict[str, Any]:
+        """Replace every track outside a release-year period that may leave, in one step.
+
+        The replacement rules live in the engine (`recommendation_fitted`); this binds
+        the review's own context to them -- the same candidate snapshot, the variant's
+        genre filter and the library changes that make an edit stale -- reports what
+        stayed outside and why, and republishes the result like any other edit.
+        """
+        recommendation, plan = review.recommendation, self.backend.plan
+        assert plan is not None
+        if (
+            type(year_min) is not int
+            or type(year_max) is not int
+            or not MIN_PERIOD_YEAR <= year_min <= year_max <= MAX_PERIOD_YEAR
+        ):
+            raise BackendError(
+                "invalid_params",
+                f"A period is two years between {MIN_PERIOD_YEAR} and {MAX_PERIOD_YEAR}, the smaller first",
+            )
+        current_sources = self._sources(frozenset())
+        candidates = [entry[0] for path, entry in current_sources.items() if self._same(self.sources.get(path), entry)]
+        in_genre, _ = _filter_tracks_for_variant(cast(PrepVariantName, review.variant_name), candidates, plan.intent)
+        proposed = recommendation_fitted(
+            recommendation,
+            candidates,
+            year_min,
+            year_max,
+            spectral_cohesion=self.backend.preferences.spectral_cohesion(),
+            in_genre_paths=frozenset(track.path for track in in_genre),
+            locked_paths=frozenset(plan.intent.required_paths),
+            excluded_paths=frozenset(plan.intent.excluded_paths) | self.removed,
+            loudness_band=self.backend.preferences.loudness_band(),
+        )
+        before = [track.path for track in recommendation.ordered_tracks]
+        after = [track.path for track in proposed.ordered_tracks]
+        replaced = [old for old, new in zip(before, after, strict=True) if old != new]
+        if not replaced:
+            raise BackendError("no_candidates", "No eligible library track fits this period")
+        protected = self._protected(review)
+        kept = []
+        for position, track in enumerate(proposed.ordered_tracks, start=1):
+            year = known_release_year(track)
+            if year is not None and year_min <= year <= year_max:
+                continue
+            kept.append(
+                {
+                    "position": position,
+                    "title": track.title or Path(track.path).stem,
+                    "year": year,
+                    "reason": "protected" if track.path in protected else "no_candidate",
+                }
+            )
+        current = self._sources(frozenset(track.path for track in proposed.ordered_tracks), final=True)
+        if any(
+            not self._same(self.sources.get(track.path), current.get(track.path)) for track in proposed.ordered_tracks
+        ):
+            raise BackendError("stale_review", "Period sources changed; prepare a current review")
+        assessed = self._assess(proposed)
+        self.verify(self.review_id)
+        # The whole run is one edit: one undo step, a fresh revision, and the store rewritten.
+        self._remember(self.history)
+        self.future.clear()
+        self._publish(assessed, self.removed | frozenset(replaced), dict(self.base))
+        return {
+            **self.details(),
+            "period": {
+                "yearMin": year_min,
+                "yearMax": year_max,
+                "replaced": len(replaced),
+                "kept": kept,
+            },
+        }
+
     def execute(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if set(params) != REVIEW_FIELDS[method]:
+            raise BackendError("invalid_params", "Missing or unexpected generated review fields")
             raise BackendError("invalid_params", "Missing or unexpected generated review fields")
         if method == "review.resume":
             return self.resume()
@@ -680,6 +760,8 @@ class GeneratedReview:
             return self._travel(back=method == "review.undo")
         if method == "review.extend":
             return self._extend(review, params["targetTrackCount"])
+        if method == "review.fit_period":
+            return self._fit_period(review, params["yearMin"], params["yearMax"])
         removed = None
         entering = None
         if method == "review.reorder":
