@@ -13,11 +13,20 @@ export interface AiChatMessage { role: 'user' | 'assistant'; text: string; }
 /** The engine candidate a `replace` proposal would put in the track's place; never a path or an id. */
 export interface AiChatReplacement { title: string; artist: string; bpm: number | null; key: string | null; }
 /**
+ * One track a period run could not replace (S13): where it sits, what it is, its release year
+ * (null when unknown) and why it stayed — it is protected, or no library track of that period
+ * mixes with its neighbours.
+ */
+export interface AiChatPeriodKept { position: number; title: string; year: number | null; reason: 'protected' | 'no_candidate'; }
+/** What a period run did to the list: how many tracks it replaced and the ones it could not. */
+export interface AiChatPeriod { yearMin: number; yearMax: number; replaced: number; kept: AiChatPeriodKept[]; }
+/**
  * One change the last reply proposes; the core validates it and keeps it bound to the current
  * list. `replace` and `move` edit one position; `extend` grows the list to `to` tracks and
  * `use_variant` chooses another alternative of the same plan, which the renderer owns. The
  * five shapes below are S5's new tools: they drop, add, swap, reorder or undo, always bound
- * to the public metadata of the tracks they touch, never a path or a track id.
+ * to the public metadata of the tracks they touch, never a path or a track id. `period` is
+ * S14's whole-list change: a year range and how many unprotected tracks sit outside it.
  */
 export type AiChatAction =
   | { actionId: string; type: 'replace'; position: number; title: string; artist: string; reason: string; replacement: AiChatReplacement }
@@ -28,7 +37,8 @@ export type AiChatAction =
   | { actionId: string; type: 'add'; position: number; track: AiChatReplacement; reason: string }
   | { actionId: string; type: 'replace_with'; position: number; title: string; artist: string; track: AiChatReplacement; reason: string }
   | { actionId: string; type: 'reorder'; moved: number; reason: string }
-  | { actionId: string; type: 'undo'; reason: string };
+  | { actionId: string; type: 'undo'; reason: string }
+  | { actionId: string; type: 'period'; yearMin: number; yearMax: number; outside: number; reason: string };
 /** The whole stored conversation, oldest first, plus the changes still pending: the answer of ai.chat.history and ai.chat.reset. */
 export interface AiChatHistory { conversation: AiChatMessage[]; actions: AiChatAction[]; }
 export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection' | 'chat'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; conversation?: AiChatMessage[]; listChanged?: boolean; actions?: AiChatAction[]; droppedActions?: number; }

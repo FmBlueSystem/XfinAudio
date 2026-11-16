@@ -3,7 +3,7 @@ import { errorCode } from './errors.js';
 import { SHORT_LIST_NO_CANDIDATES, alternativeCardText, extendedLine } from './short-list-notice.js';
 import type { ExtendedList } from './short-list-notice.js';
 import type { PrepVariant } from './model.js';
-import type { AiChatAction, AiChatHistory, AiChatMessage, AiChatReplacement, AiContext, AiPayload, AiPreview, AiResult, AiSurface, OptionalAiHost } from './optional-ai.js';
+import type { AiChatAction, AiChatHistory, AiChatMessage, AiChatPeriod, AiChatPeriodKept, AiChatReplacement, AiContext, AiPayload, AiPreview, AiResult, AiSurface, OptionalAiHost } from './optional-ai.js';
 import type { DetailedReview } from './generated-review.js';
 export type { AiChatAction, AiChatHistory, AiChatMessage } from './optional-ai.js';
 /** The conversation surface: one chat per generated review, read-only for the list. */
@@ -16,8 +16,8 @@ export const CHAT_REPLY_LIMIT = 4000;
 export const CHAT_MESSAGE_LIMIT = 200;
 const CHAT_PAYLOAD_BODY_LIMIT = 64 * 1024;
 const CHAT_PAYLOAD_BYTES_LIMIT = 1024 * 1024;
-/** S5 accepts at most eight proposals per reply, so the panel never renders more. */
-const CHAT_ACTION_LIMIT = 8;
+/** S14 accepts at most twenty proposals per reply, so the panel never renders more. */
+const CHAT_ACTION_LIMIT = 20;
 /** Rejected items are counted, not listed: the reply's own length bounds how many there can be. */
 const CHAT_DROPPED_LIMIT = 200;
 /** A position is 1..N of the list itself; the panel only bounds the payload, the core owns N. */
@@ -44,6 +44,21 @@ export const listChatAppliedAll = (applied: number, total: number): string => `S
 /** Said after a proposed alternative replaced the review: the core reset the conversation with it. */
 export const LIST_CHAT_VARIANT_CHANGED = 'Se cambió la alternativa. La conversación empieza de nuevo.';
 export const LIST_CHAT_VARIANT_UNAVAILABLE = 'Actualiza la aplicación para cambiar de alternativa desde el asistente.';
+/** S15: the line that heads the tracks a period run could not replace, with how many there are. */
+export const listChatPeriodKept = (count: number): string => `Quedan ${count} fuera de época:`;
+/** S15: what a period run replaced, said once after it is applied. */
+export const listChatPeriodNotice = (replaced: number): string => `Se reemplazaron ${replaced} pistas.`;
+/**
+ * S15: one kept track, with its position, title and release year («sin año» when unknown) and
+ * why it stayed: it is protected, or no track of that period mixes with its neighbours.
+ */
+export function listChatPeriodLine(kept: AiChatPeriodKept): string {
+  const year = kept.year === null ? 'sin año' : String(kept.year);
+  const why = kept.reason === 'protected' ? 'protegida' : 'no hay otra de esa época que mezcle';
+  return `${kept.position}. ${kept.title} (${year}) — ${why}`;
+}
+/** S15: what the last period change did, as the window shows it after applying it. */
+export interface ListChatPeriodReport { notice: string; kept: string[] }
 /** The one line each card shows for its action, in the panel's Spanish. */
 export function listChatActionText(action: AiChatAction): string {
   switch (action.type) {
@@ -55,6 +70,7 @@ export function listChatActionText(action: AiChatAction): string {
     case 'replace_with': return `Reemplazar ${action.position}. ${action.title} por ${action.track.title}`;
     case 'reorder': return `Reordenar la lista (${action.moved} pistas cambian de lugar)`;
     case 'undo': return 'Deshacer el último cambio';
+    case 'period': return `Ajustar la lista a ${action.yearMin}–${action.yearMax} (${action.outside} pistas fuera de época)`;
     default: return alternativeCardText(action.variant, action.trackCount);
   }
 }
@@ -64,7 +80,7 @@ export interface ListChatApi {
   prepareAiRequest(input: { surface: AiSurface; request: string; context: AiContext }): Promise<AiPreview>;
   runAiRequest(input: { previewId: string }): Promise<{ cancelled: boolean; result: AiResult | null }>;
   inspectAiPayload(input: { previewId: string }): Promise<AiPayload>;
-  aiChatApply(input: { actionId: string }): Promise<{ review: DetailedReview; actions: AiChatAction[]; extended?: ExtendedList }>;
+  aiChatApply(input: { actionId: string }): Promise<{ review: DetailedReview; actions: AiChatAction[]; extended?: ExtendedList; period?: AiChatPeriod }>;
   /** Optional until the host ships it: S9's batch undo is only offered when the core can undo. */
   reviewUndo?(input: { reviewId: string }): Promise<DetailedReview>;
 }
@@ -77,6 +93,8 @@ export type ListChatHost = Pick<OptionalAiHost, 'canAct' | 'changed' | 'perform'
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= max;
+/** A release year inside S13's own window, 1900 to 2100; the core refuses everything else. */
+const yearInRange = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1900 && (value as number) <= 2100;
 function invalid(): never { throw Object.assign(new Error('Invalid AI response'), { code: 'invalid_ai_response' }); }
 /** Exact `{role, text}` pairs only: the panel renders them, so nothing else may ride along. */
 function roleOf(value: unknown): AiChatMessage['role'] {
@@ -172,6 +190,14 @@ function actionCopy(value: unknown): AiChatAction {
     if (keys !== 'actionId,reason,type') invalid();
     return { actionId, type: 'undo', reason };
   }
+  // S14's period change speaks about the whole list: a year range and the count of the
+  // unprotected tracks the current list has outside it, which the core drops when it is 0.
+  if (value.type === 'period') {
+    if (keys !== 'actionId,outside,reason,type,yearMax,yearMin') invalid();
+    if (!yearInRange(value.yearMin) || !yearInRange(value.yearMax) || value.yearMin > value.yearMax) invalid();
+    if (!Number.isInteger(value.outside) || (value.outside as number) < 0 || (value.outside as number) > 100) invalid();
+    return { actionId, type: 'period', yearMin: value.yearMin, yearMax: value.yearMax, outside: value.outside as number, reason };
+  }
   return invalid();
 }
 function actionsCopy(value: unknown): AiChatAction[] {
@@ -180,13 +206,28 @@ function actionsCopy(value: unknown): AiChatAction[] {
   if (new Set(actions.map((action) => action.actionId)).size !== actions.length) invalid();
   return actions;
 }
-/** The `extended` field S1 adds to an answer that grew the list: three exact counts, nothing else. */
-function extendedCopy(value: unknown): ExtendedList {
+/** The `extended` field S1 adds to an answer that grew the list: three exact counts, nothing else. */function extendedCopy(value: unknown): ExtendedList {
   if (!isRecord(value) || Object.keys(value).sort().join(',') !== 'added,outsideGenre,requested') invalid();
   for (const key of ['requested', 'added', 'outsideGenre'] as const) {
     if (!Number.isInteger(value[key]) || (value[key] as number) < 0) invalid();
   }
   return value as unknown as ExtendedList;
+}
+/** S13's period result: what the run replaced and the tracks it could not, position and metadata only. */
+function periodCopy(value: unknown): AiChatPeriod {
+  if (!isRecord(value) || Object.keys(value).sort().join(',') !== 'kept,replaced,yearMax,yearMin') invalid();
+  if (!yearInRange(value.yearMin) || !yearInRange(value.yearMax) || value.yearMin > value.yearMax) invalid();
+  if (!Number.isInteger(value.replaced) || (value.replaced as number) < 0 || (value.replaced as number) > 100) invalid();
+  if (!Array.isArray(value.kept) || value.kept.length > 100) invalid();
+  const kept = value.kept.map((item): AiChatPeriodKept => {
+    if (!isRecord(item) || Object.keys(item).sort().join(',') !== 'position,reason,title,year') invalid();
+    if (!Number.isInteger(item.position) || (item.position as number) < 1 || (item.position as number) > CHAT_POSITION_LIMIT) invalid();
+    if (!text(item.title, 300)) invalid();
+    if (item.year !== null && !yearInRange(item.year)) invalid();
+    if (item.reason !== 'protected' && item.reason !== 'no_candidate') invalid();
+    return { position: item.position as number, title: item.title, year: item.year as number | null, reason: item.reason };
+  });
+  return { yearMin: value.yearMin, yearMax: value.yearMax, replaced: value.replaced as number, kept };
 }
 /** The review an applied action minted: the same payload a manual edit answers, which the screen sets as its own. */
 function reviewCopy(value: unknown): DetailedReview {
@@ -229,6 +270,8 @@ export class ListChatController {
   autoApply = true;
   /** S9: what the last automatic batch applied and how many steps undo it; null hides the undo. */
   autoBatch: { count: number; notice: string; texts: string[] } | null = null;
+  /** S15: what the last period change did, as the window reports it; null hides the report. */
+  period: ListChatPeriodReport | null = null;
   /** True while the chat itself applies a batch or undoes one, so its own edits never retire it. */
   private inBatch = false;
   /** True while the chat hands a review it minted to the screen: that is not another edit. */
@@ -267,7 +310,7 @@ export class ListChatController {
     if (next === this.review) return;
     this.generation++;
     this.review = next; this.messages = []; this.preview = null; this.payload = null; this.readAgain = null;
-    this.actions = []; this.droppedActions = 0; this.autoBatch = null;
+    this.actions = []; this.droppedActions = 0; this.autoBatch = null; this.period = null;
     this.error = ''; this.notice = ''; this.loaded = false;
     this.host.changed();
   }
@@ -343,7 +386,7 @@ export class ListChatController {
     const droppedActions = result.droppedActions;
     if (!Number.isInteger(droppedActions) || (droppedActions as number) < 0 || (droppedActions as number) > CHAT_DROPPED_LIMIT) invalid();
     this.messages = messages; this.actions = actions; this.droppedActions = droppedActions as number;
-    this.request = ''; this.notice = '';
+    this.request = ''; this.notice = ''; this.period = null;
     const last = messages.at(-1);
     this.readAgain = result.listChanged && last?.role === 'assistant' ? messages.length - 1 : null;
   }
@@ -382,13 +425,18 @@ export class ListChatController {
     if (this.pending || !this.host.canAct()) return false;
     if (action.type === 'use_variant') { await this.applyVariant(action.variant); return false; }
     const extend = action.type === 'extend';
+    const period = action.type === 'period';
     let applied = false;
     await this.perform('apply', LIST_CHAT_APPLYING, () => this.api.aiChatApply({ actionId: action.actionId }), (value) => {
       const review = reviewCopy(value?.review);
       const actions = actionsCopy(value?.actions);
       const extended = extend && value && Object.hasOwn(value, 'extended') ? extendedCopy(value.extended) : null;
+      // S15: the period answer carries what it replaced and the tracks it could not, which the
+      // window reports beside the cards; it outlives its own batch step so the report still shows.
+      const replaced = period && value && Object.hasOwn(value, 'period') ? periodCopy(value.period) : null;
       this.actions = actions; this.droppedActions = 0;
-      this.notice = extended ? extendedLine(extended) : LIST_CHAT_APPLIED; this.error = '';
+      this.notice = extended ? extendedLine(extended) : replaced ? listChatPeriodNotice(replaced.replaced) : LIST_CHAT_APPLIED; this.error = '';
+      if (period) this.period = replaced ? { notice: listChatPeriodNotice(replaced.replaced), kept: replaced.kept.map(listChatPeriodLine) } : null;
       // A single click is another way of editing the list, so it retires an earlier batch undo.
       if (!this.inBatch) this.autoBatch = null;
       this.handOff(review);
@@ -478,6 +526,7 @@ export class ListChatController {
       this.actions = actionsCopy(value?.actions); this.droppedActions = 0;
       this.loaded = true;
       this.request = ''; this.readAgain = null; this.preview = null; this.payload = null; this.error = ''; this.notice = '';
+      this.period = null;
     });
   }
   /** Read-only inspection of the exact body the last prepared turn would send. */

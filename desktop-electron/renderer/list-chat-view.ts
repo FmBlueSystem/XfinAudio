@@ -1,5 +1,5 @@
 import { AI_RECIPIENT } from './optional-ai.js';
-import { LIST_CHAT_AUTO, LIST_CHAT_PROPOSED, LIST_CHAT_READ_AGAIN, LIST_CHAT_UNDO_BATCH, listChatActionText, listChatDropped } from './list-chat.js';
+import { LIST_CHAT_AUTO, LIST_CHAT_PROPOSED, LIST_CHAT_READ_AGAIN, LIST_CHAT_UNDO_BATCH, listChatActionText, listChatDropped, listChatPeriodKept } from './list-chat.js';
 import type { ListChatController } from './list-chat.js';
 /** S7's exact copy: the empty state and the three questions that only fill the box. */
 export const LIST_CHAT_EMPTY = 'Pregunta cómo mejorar esta lista. El asistente lee las pistas, las transiciones y los avisos.';
@@ -24,6 +24,12 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
   const heading = identify(make('h3', 'Asistente de lista'), 'heading');
   const error = identify(make('p', '', 'review-notice blocker'), 'error'); error.setAttribute('role', 'alert');
   const notice = identify(make('p', '', 'review-notice'), 'notice'); notice.setAttribute('role', 'status');
+  // S15: what the last period change replaced and the tracks that are still out of period.
+  const periodReport = identify(make('section', '', 'list-chat-period'), 'period');
+  const periodNotice = identify(make('p', '', 'review-notice'), 'period-notice'); periodNotice.setAttribute('role', 'status');
+  const periodKeptHeading = identify(make('p', '', 'field-hint'), 'period-kept-heading');
+  const periodKeptList = identify(make('ul', '', 'list-chat-period-kept'), 'period-kept');
+  periodReport.append(periodNotice, periodKeptHeading, periodKeptList);
   // S9: the window applies every reply at once unless the DJ turns this switch off.
   const auto = identify(make('div', '', 'editor-actions list-chat-auto'), 'auto');
   const autoLabel = make('label', LIST_CHAT_AUTO); autoLabel.setAttribute('for', `${prefix}-auto-toggle`);
@@ -77,13 +83,22 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
   payload.append(payloadSummary, payloadBody, payloadHint);
   payload.addEventListener('toggle', () => { if (payload.open) void controller.inspectPayload(); });
   prepared.append(previewRecipient, previewLines, payload);
-  section.append(heading, error, notice, auto, autoApplied, empty, examples, conversation, proposed, requestField, actions, pending, disclosure, prepared);
+  section.append(heading, error, notice, periodReport, auto, autoApplied, empty, examples, conversation, proposed, requestField, actions, pending, disclosure, prepared);
   root.replaceChildren(section);
   const render = (): void => {
     error.hidden = !controller.error; error.textContent = controller.error;
-    // After a batch the summary is the batch region's own line, so the panel never says it twice.
-    notice.hidden = !controller.notice || controller.notice === controller.autoBatch?.notice;
+    // After a batch the summary is the batch region's own line, and a period run says its own, so
+    // the panel never says the same thing twice.
+    notice.hidden = !controller.notice || controller.notice === controller.autoBatch?.notice || controller.notice === controller.period?.notice;
     notice.textContent = controller.notice;
+    // S15: the report of the last period change, with the tracks it could not replace.
+    const report = controller.period;
+    periodReport.hidden = !report;
+    periodNotice.textContent = report?.notice ?? '';
+    const kept = report?.kept ?? [];
+    periodKeptHeading.hidden = kept.length === 0;
+    periodKeptHeading.textContent = kept.length > 0 ? listChatPeriodKept(kept.length) : '';
+    periodKeptList.replaceChildren(...kept.map((line) => make('li', line)));
     autoToggle.checked = controller.autoApply;
     autoApplied.hidden = !controller.autoBatch;
     autoNotice.textContent = controller.autoBatch?.notice ?? '';
