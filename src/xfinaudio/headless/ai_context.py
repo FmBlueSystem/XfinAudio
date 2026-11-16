@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from xfinaudio.ai.connection_test import PROBE_MESSAGE
-from xfinaudio.ai.list_chat import MAX_CHAT_TRACKS, list_facts, protected_numbers, protected_positions
+from xfinaudio.ai.list_chat import (
+    MAX_CHAT_TRACKS,
+    conversation_state,
+    list_facts,
+    protected_numbers,
+    protected_positions,
+)
 from xfinaudio.ai.privacy import redact_paths
 from xfinaudio.ai.saved_assists import anonymize_saved_request, build_saved_descriptors
 from xfinaudio.application.playlist_improvement import (
@@ -17,7 +23,8 @@ from xfinaudio.application.playlist_improvement import (
     MIN_IMPROVEMENT_TRACKS,
     ImprovementCandidateSet,
 )
-from xfinaudio.headless.common import BackendError
+from xfinaudio.headless.common import BackendError, _public_track
+from xfinaudio.headless.library_search import public_result
 from xfinaudio.headless.serato_safety import source_identity
 from xfinaudio.headless.serato_source import load_source
 from xfinaudio.metadata.metadata_gaps import build_metadata_gap_report
@@ -25,7 +32,11 @@ from xfinaudio.metadata.tempo import is_valid_bpm
 from xfinaudio.recommendation.scoring import bpm_difference_percent, effective_energy_delta
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from xfinaudio.headless.ai_conversation import ConversationStore
     from xfinaudio.headless.backend import HeadlessBackend
+    from xfinaudio.library.models import TrackRecord
 
 SURFACES = frozenset({"library", "prep", "review", "chat", "saved", "editor", "metadata", "live", "connection"})
 FREE_TEXT = frozenset({"library", "prep", "saved", "editor", "chat"})
@@ -103,6 +114,24 @@ def _improvement_disclosure(candidates: ImprovementCandidateSet, include_replace
             "preparar no contacta al proveedor."
         ),
     )
+
+
+def _found_tracks(
+    store: ConversationStore, records: Sequence[TrackRecord], listed: frozenset[str]
+) -> list[dict[str, Any]]:
+    """The tracks earlier searches of this conversation found and can still offer.
+
+    A track the conversation already showed stays named by the same reference, and the
+    most recently found one comes first. Only a track that is still in the library and
+    not in the current list is offered: one the DJ already added is in the list above.
+    """
+    by_id = {_public_track(record)["id"]: record for record in records}
+    found: list[dict[str, Any]] = []
+    for reference, track_id in store.references():
+        record = by_id.get(track_id)
+        if record is not None and record.path not in listed:
+            found.append(public_result(reference, record))
+    return found
 
 
 def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, Any], request: str) -> AssistContext:
@@ -208,8 +237,20 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
             alternatives=[item for item in variants if isinstance(item, dict)],
         )
         conversation = backend.ai_conversation.prompt()
+        # What the DJ changed since the previous answer, and the tracks earlier searches
+        # found: both stay in memory with the conversation, and the system message states
+        # that the list above is the list as it is now.
+        state = conversation_state(
+            backend.ai_conversation.applied_since_turn(),
+            _found_tracks(
+                backend.ai_conversation,
+                records,
+                frozenset(track.path for track in recommendation.ordered_tracks),
+            ),
+        )
         data.update(
             facts=facts,
+            state=state,
             listFingerprint=_fingerprint(facts),
             conversation=conversation,
             firstTurn=backend.ai_conversation.first_turn,
@@ -220,7 +261,8 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
         )
         revision_data.extend([source.revision, conversation])
         disclosure = (
-            "Posiciones, títulos, artistas, géneros, BPM, tonalidad, energía y duración de la lista revisada.",
+            "Posiciones, títulos, artistas, géneros, BPM, tonalidad, energía, duración y año de "
+            "lanzamiento de la lista revisada.",
             "Transiciones con su puntuación, explicaciones y avisos, y la preparación con sus bloqueos.",
             (
                 "Las pistas solicitadas, los avisos del motor y las otras alternativas con su cantidad y "
@@ -229,7 +271,7 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
             "Tu pregunta y la conversación de esta charla, que se guarda solo en memoria.",
             (
                 "Si el asistente pide una búsqueda, también se envían sus resultados: referencia, título, "
-                "artista, género, BPM, tonalidad, energía y duración de las pistas encontradas."
+                "artista, género, BPM, tonalidad, energía, duración y año de las pistas encontradas."
             ),
             "No se envían rutas de archivos, identificadores de pistas, audio ni credenciales.",
         )

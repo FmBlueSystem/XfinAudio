@@ -48,6 +48,11 @@ MAX_REASON_CHARS = 200
 MAX_SEARCH_TEXT_CHARS = 200
 #: The widest BPM a search may name, matching the local Library query contract.
 MAX_SEARCH_BPM = 400
+#: A release year is a plain calendar year; anything else is not a year filter.
+MIN_SEARCH_YEAR = 1
+MAX_SEARCH_YEAR = 9999
+#: The most tracks an earlier search offers again, most recent first.
+MAX_FOUND_TRACKS = 40
 #: The longest list one proposal may grow, matching the engine's own target cap.
 MAX_TARGET_TRACK_COUNT = 100
 #: The types one answer may propose; four change one position, the rest the whole list.
@@ -77,7 +82,7 @@ _ACTION_FIELDS = {
     "undo": frozenset({"type", "reason"}),
 }
 #: The fields one library search may carry, exactly; only ``query`` is required.
-_SEARCH_FIELDS = frozenset({"query", "genre", "bpmMin", "bpmMax", "key"})
+_SEARCH_FIELDS = frozenset({"query", "genre", "bpmMin", "bpmMax", "key", "yearMin", "yearMax"})
 #: ``reorder``, ``extend``, ``use_variant`` and ``undo`` are list-level, so one each.
 _ONCE_PER_REPLY = frozenset({"extend", "use_variant", "reorder", "undo"})
 #: The short library reference an ``add`` or a ``replace_with`` names, and nothing else.
@@ -128,6 +133,9 @@ class SearchQuery:
     bpm_min: float | None = None
     bpm_max: float | None = None
     key: str | None = None
+    #: A release year bound; with one of them, a track without a known year never matches.
+    year_min: int | None = None
+    year_max: int | None = None
 
     def public(self) -> dict[str, Any]:
         item: dict[str, Any] = {"query": self.query}
@@ -139,6 +147,10 @@ class SearchQuery:
             item["bpmMax"] = self.bpm_max
         if self.key is not None:
             item["key"] = self.key
+        if self.year_min is not None:
+            item["yearMin"] = self.year_min
+        if self.year_max is not None:
+            item["yearMax"] = self.year_max
         return item
 
 
@@ -452,9 +464,56 @@ def _search(item: Any) -> tuple[SearchQuery | None, str]:
     low, high = bounds
     if low is not None and high is not None and low > high:
         return None, _UNSUPPORTED_SEARCH
-    if query is None and genre is None and key is None and low is None and high is None:
+    years: list[int | None] = []
+    for value in (item.get("yearMin"), item.get("yearMax")):
+        readable, year = _year_filter(value)
+        if not readable:
+            return None, _UNSUPPORTED_SEARCH
+        years.append(year)
+    first_year, last_year = years
+    if first_year is not None and last_year is not None and first_year > last_year:
+        return None, _UNSUPPORTED_SEARCH
+    if (
+        query is None
+        and genre is None
+        and key is None
+        and low is None
+        and high is None
+        and first_year is None
+        and last_year is None
+    ):
         return None, _NO_SEARCH_FILTER
-    return SearchQuery(query=query or "", genre=genre, bpm_min=low, bpm_max=high, key=key), ""
+    return (
+        SearchQuery(
+            query=query or "",
+            genre=genre,
+            bpm_min=low,
+            bpm_max=high,
+            key=key,
+            year_min=first_year,
+            year_max=last_year,
+        ),
+        "",
+    )
+
+
+def _year_filter(value: Any) -> tuple[bool, int | None]:
+    """One release year bound, or whether it could be read at all.
+
+    A real provider writes every field: an empty string, a ``null``, a missing value and
+    a year of 0 all mean "no limit", exactly like the BPM bounds. A year is a plain
+    integer, so a decimal that is not a whole year and a year outside the calendar are
+    not a filter but an unreadable search.
+    """
+    if value is None or value == "":
+        return True, None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return False, None
+    if value == 0:
+        return True, None
+    if not isinstance(value, int) or not MIN_SEARCH_YEAR <= value <= MAX_SEARCH_YEAR:
+        return False, None
+    return True, value
 
 
 def _filter_text(value: Any) -> str | None:
@@ -467,6 +526,17 @@ _EMPTY_POSITIONS = "ninguna"
 _EMPTY_CHECKS = "ninguno"
 _EMPTY_WARNINGS = "ninguno"
 _EMPTY_ALTERNATIVES = "ninguna"
+#: The two state lines a turn sends when nothing was applied and nothing was found.
+_EMPTY_APPLIED = "ninguno"
+_EMPTY_FOUND = "ninguna"
+#: What the list above is, stated on every turn of the conversation.
+_CURRENT_LIST = (
+    "La lista de arriba es la lista actual, tal como está ahora y con todos los cambios ya "
+    "aplicados: trabaja siempre desde ella y nunca le pidas al DJ que te la dicte, te la pegue o "
+    "te la cuente."
+)
+#: What the references of the found tracks mean in this conversation.
+_REFERENCE_RULE = "referencias válidas en esta conversación, de la más reciente a la más antigua"
 
 _INSTRUCTIONS = (
     "Eres el asistente de lista de XfinAudio. Lees la lista que el DJ está armando y charlas "
@@ -512,7 +582,8 @@ _INSTRUCTIONS = (
     "anuncie eso y propón el resto en el mensaje siguiente.\n"
     "14. searches lleva entre 0 y 2 búsquedas de la biblioteca local cuando necesitas ver pistas "
     "que no están en la lista. Cada búsqueda es "
-    '{"query": string, "genre": string, "bpmMin": número, "bpmMax": número, "key": string}; '
+    '{"query": string, "genre": string, "bpmMin": número, "bpmMax": número, "key": string, '
+    '"yearMin": número, "yearMax": número}; '
     "query puede ser vacío y solo hace falta el campo que quieras acotar. Cada búsqueda devuelve "
     "hasta 20 pistas con una referencia como L1: úsalas en ref y no pidas otra búsqueda en la "
     "misma respuesta.\n"
@@ -524,7 +595,14 @@ _INSTRUCTIONS = (
     "18. En el reply nombra cada pista que encontraste por su título y su artista, nunca por su "
     "referencia: L1, L2… son internas, van solo en ref y el DJ no las lee.\n"
     "19. Cuando le hables al DJ de las alternativas del plan, llámalas «segura», «equilibrada» y "
-    "«exploratoria»; en variant sigue escribiendo safe, balanced o adventurous."
+    "«exploratoria»; en variant sigue escribiendo safe, balanced o adventurous.\n"
+    "20. Si el DJ pide una década o un período, usa el dato «año» de cada pista y los filtros "
+    "yearMin y yearMax de la búsqueda: nunca inventes ni adivines un año de memoria. Si una pista "
+    "no tiene año, dilo."
+    "\n"
+    "21. La lista de arriba es la lista actual, tal como está ahora y con todos los cambios ya "
+    "aplicados: trabaja siempre desde ella y nunca le pidas al DJ que te la dicte, te la pegue o "
+    "te la cuente."
 )
 
 
@@ -576,7 +654,7 @@ def list_facts(
         "Datos de la lista (esta es la única información que puedes usar):",
         "",
         "Pistas en orden de reproducción (posición. título — artista | género | BPM | "
-        "tonalidad Camelot | energía | duración):",
+        "tonalidad Camelot | energía | duración | año):",
         *(_track_line(index, track) for index, track in enumerate(tracks, start=1)),
         "",
         "Transiciones (todas las del orden actual, con su posición de origen → destino):",
@@ -613,6 +691,30 @@ def list_facts(
     return redact_paths(facts, paths)
 
 
+def conversation_state(applied: Sequence[str] = (), found: Sequence[Mapping[str, Any]] = ()) -> str:
+    """The state of the conversation the turn sends after the list facts.
+
+    Three parts, in Spanish: the list above is the current list as it is now (never the
+    list the conversation started with), the changes the DJ applied to it since the
+    previous successful turn, oldest first, and the tracks earlier searches of this
+    conversation found and that are still usable, most recent first. A line names
+    positions and titles and never a file path or a track identity.
+    """
+    changes = [f"- {line}" for line in applied] or [f"- {_EMPTY_APPLIED}"]
+    tracks = [f"- {_found_line(item)}" for item in found[:MAX_FOUND_TRACKS]] or [f"- {_EMPTY_FOUND}"]
+    lines = [
+        "Estado de la conversación:",
+        f"- {_CURRENT_LIST}",
+        "",
+        "Cambios aplicados desde tu última respuesta:",
+        *changes,
+        "",
+        f"Pistas que ya encontraste ({_REFERENCE_RULE}):",
+        *tracks,
+    ]
+    return "\n".join(lines)
+
+
 def chat_with_list(
     facts: str,
     request: str,
@@ -621,6 +723,7 @@ def chat_with_list(
     track_count: int,
     protected: Sequence[int] = (),
     search_results: Sequence[Mapping[str, Any]] = (),
+    state: str = "",
     model: str | None = None,
     timeout: float = DEFAULT_CHAT_TIMEOUT_SECONDS,
     transport: Transport | None = None,
@@ -637,7 +740,10 @@ def chat_with_list(
     if not is_ai_enabled():
         raise NanConfigError(f"AI is disabled: set {ENABLED_ENV}=1 in the environment before starting a conversation.")
     counted = f"N = {track_count} pistas en la lista de abajo."
-    messages = [{"role": "system", "content": f"{_INSTRUCTIONS}\n\n{counted}\n\n{facts}"}]
+    system = f"{_INSTRUCTIONS}\n\n{counted}\n\n{facts}"
+    if state:
+        system = f"{system}\n\n{state}"
+    messages = [{"role": "system", "content": system}]
     messages.extend({"role": message["role"], "content": message["text"]} for message in conversation)
     messages.append({"role": "user", "content": request})
     if search_results:
@@ -666,16 +772,42 @@ def search_message(results: Sequence[Mapping[str, Any]]) -> str:
 def _track_line(index: int, track: TrackRecord) -> str:
     title = (track.title or "(sin título)").strip()
     artist = (track.artist or "(artista desconocido)").strip()
-    return " | ".join(
-        (
-            f"{index}. {title} — {artist}",
-            _shown(track.genre),
-            f"BPM {_number(track.bpm)}",
-            _shown(track.camelot_key),
-            f"energía {_number(track.energy_level)}",
-            _duration(track.duration),
-        )
-    )
+    fields = [
+        f"{index}. {title} — {artist}",
+        _shown(track.genre),
+        f"BPM {_number(track.bpm)}",
+        _shown(track.camelot_key),
+        f"energía {_number(track.energy_level)}",
+        _duration(track.duration),
+    ]
+    year = _year(track.release_year)
+    if year is not None:
+        fields.append(year)
+    return " | ".join(fields)
+
+
+def _year(value: object) -> str | None:
+    """The release year as the DJ reads it, or nothing when the library does not know it."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return f"año {value}"
+
+
+def _found_line(item: Mapping[str, Any]) -> str:
+    """One track an earlier search of this conversation found, with the fields a result has."""
+    fields = [
+        str(item.get("reference") or _MISSING),
+        f"{_shown(item.get('title'))} — {_shown(item.get('artist'))}",
+        _shown(item.get("genre")),
+        f"BPM {_number(item.get('bpm'))}",
+        _shown(item.get("key")),
+        f"energía {_number(item.get('energy'))}",
+        _duration(item.get("duration")),
+    ]
+    year = _year(item.get("year"))
+    if year is not None:
+        fields.append(year)
+    return " | ".join(fields)
 
 
 def _transition_line(index: int, transition: TransitionScore) -> str:
@@ -737,6 +869,7 @@ __all__ = [
     "DEFAULT_CHAT_TIMEOUT_SECONDS",
     "MAX_ACTIONS",
     "MAX_CHAT_TRACKS",
+    "MAX_FOUND_TRACKS",
     "MAX_REASON_CHARS",
     "MAX_REPLY_CHARS",
     "MAX_SEARCHES",
@@ -749,6 +882,7 @@ __all__ = [
     "ProposedAction",
     "SearchQuery",
     "chat_with_list",
+    "conversation_state",
     "list_facts",
     "parse_answer",
     "protected_numbers",

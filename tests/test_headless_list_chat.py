@@ -393,7 +393,7 @@ def test_an_answer_with_searches_runs_them_locally_and_asks_once_more(chat_setup
     results = json.loads(second[-1]["content"].split("\n", 1)[1])
     assert [item["reference"] for item in results] == ["L1", "L2", "L3", "L4"]
     assert [item["title"] for item in results] == [f"Electron test {index}" for index in (5, 6, 7, 8)]
-    assert set(results[0]) == {"reference", "title", "artist", "genre", "bpm", "key", "energy", "duration"}
+    assert set(results[0]) == {"reference", "title", "artist", "genre", "bpm", "key", "energy", "duration", "year"}
     published = json.dumps(transport.bodies)
     assert str(root) not in published and ".flac" not in published
     for track in backend._records(checked=frozenset()):
@@ -437,3 +437,130 @@ def test_a_track_two_searches_both_found_is_offered_once(chat_setup):
     results = json.loads(transport.bodies[1]["messages"][-1]["content"].split("\n", 1)[1])
     assert [item["reference"] for item in results] == ["L1", "L2", "L3", "L4"]
     assert len({item["title"] for item in results}) == 4
+
+
+def searched_turn(facade, review, *searches):
+    """One successful turn that asks for a library search and reads its results."""
+    transport = facade.transport
+    asked = list(searches) or [{"query": "test"}]
+    transport.replies = [
+        json.dumps({"reply": "Busco en la biblioteca.", "actions": [], "searches": asked}),
+        json.dumps({"reply": "Estas son las pistas que encontré.", "actions": []}),
+    ]
+    return turn(facade, review)
+
+
+def found_results(facade, sent: int) -> list[dict]:
+    """The results the provider received in the search round of the turn."""
+    body = facade.transport.bodies[sent + 1]
+    return json.loads(body["messages"][-1]["content"].split("\n", 1)[1])
+
+
+def test_a_second_turn_reports_the_current_list_the_applied_changes_and_the_tracks_it_found(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    review = current_review_id(backend)
+    searched_turn(facade, review)
+    found = found_results(facade, 0)
+    assert found
+    details = backend.execute("review.details", {"reviewId": backend.review_id})
+    dropped = details["tracks"][2]
+    applied = backend.execute("review.drop", {"reviewId": details["reviewId"], "trackId": dropped["id"]})
+    assert [track["title"] for track in applied["tracks"]] == [
+        track["title"] for track in details["tracks"] if track["id"] != dropped["id"]
+    ]
+
+    turn(facade, applied["reviewId"], request="¿Cómo queda la lista ahora?")
+    system = transport.bodies[-1]["messages"][0]["content"]
+    # The list the assistant reads is the list as it is now, with the change already in it.
+    assert "La lista de arriba es la lista actual" in system
+    assert "nunca le pidas al DJ" in system
+    assert f"- pistas en la lista: {len(applied['tracks'])}" in system
+    titles = [track["title"] for track in applied["tracks"]]
+    assert all(f"{index}. {title}" in system for index, title in enumerate(titles, start=1))
+    assert f"3. {dropped['title']}" not in system
+    # What changed since the previous answer, oldest first, with position and titles.
+    assert "Cambios aplicados desde tu última respuesta" in system
+    assert f"- Quitar la posición 3: «{dropped['title']}» — {dropped['artist']}" in system.splitlines()
+    # The references the earlier search issued are still offered, with their fields.
+    assert "Pistas que ya encontraste" in system
+    for result in found:
+        line = (
+            f"- {result['reference']} | {result['title']} — {result['artist']} | {result['genre']} | "
+            f"BPM {result['bpm']:g} | {result['key']} | energía {result['energy']} | 0:02"
+        )
+        assert line in system
+
+
+def test_the_turn_after_a_manual_edit_reports_it_and_forgets_it_once_reported(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    review = current_review_id(backend)
+    turn(facade, review)
+    details = backend.execute("review.details", {"reviewId": backend.review_id})
+    ids = [track["id"] for track in details["tracks"]]
+    edited = backend.execute("review.reorder", {"reviewId": details["reviewId"], "trackIds": list(reversed(ids))})
+    turn(facade, edited["reviewId"], request="¿Cómo queda?")
+    system = transport.bodies[-1]["messages"][0]["content"]
+    assert "Reordenar la lista: 4 pistas cambian de lugar" in system
+    turn(facade, backend.review_id, request="¿Y ahora?")
+    system = transport.bodies[-1]["messages"][0]["content"]
+    assert "Cambios aplicados desde tu última respuesta:\n- ninguno" in system
+
+
+def test_a_track_found_in_the_first_turn_is_added_by_reference_without_another_search(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    review = current_review_id(backend)
+    searched_turn(facade, review)
+    found = found_results(facade, 0)
+    second = found[1]
+    assert len(transport.bodies) == 2
+    transport.replies = [
+        json.dumps(
+            {
+                "reply": "Propongo agregar esa pista al final.",
+                "actions": [{"type": "add", "ref": second["reference"], "position": 5, "reason": "Encaja al final"}],
+            }
+        )
+    ]
+    result = turn(facade, backend.review_id, request="Agrega la que encontraste")["result"]
+    # The second turn sent exactly one request: the reference needed no new search.
+    assert len(transport.bodies) == 3
+    assert result["droppedActions"] == 0
+    action = result["actions"][0]
+    assert action["type"] == "add" and action["position"] == 5
+    assert action["track"]["title"] == second["title"] and action["track"]["artist"] == second["artist"]
+    system = transport.bodies[-1]["messages"][0]["content"]
+    assert f"- {second['reference']} | {second['title']} — {second['artist']}" in system
+
+
+def test_the_conversation_state_never_carries_a_path_or_a_track_id(chat_setup):
+    facade, transport, backend, _, root = chat_setup
+    review = current_review_id(backend)
+    searched_turn(facade, review)
+    details = backend.execute("review.details", {"reviewId": backend.review_id})
+    backend.execute("review.drop", {"reviewId": details["reviewId"], "trackId": details["tracks"][2]["id"]})
+    turn(facade, backend.review_id, request="¿Cómo queda?")
+    body = json.dumps(transport.bodies[-1])
+    assert "Pistas que ya encontraste" in body and "Cambios aplicados" in body
+    assert str(root) not in body and ".flac" not in body
+    for track in backend._records(checked=frozenset()):
+        assert _public_track(track)["id"] not in body
+
+
+def test_the_store_keeps_at_most_twenty_applied_lines_and_the_last_twenty(chat_setup):
+    facade, _, backend, _, _ = chat_setup
+    store = backend.ai_conversation
+    turn(facade, current_review_id(backend))
+    lines = [f"Cambio {index}" for index in range(25)]
+    store.note_applied(lines)
+    assert store.applied_since_turn() == tuple(lines[-20:])
+    turn(facade, backend.review_id, request="¿Y ahora?")
+    assert store.applied_since_turn() == ()
+
+
+def test_the_store_offers_the_tracks_it_found_most_recent_last_shown_first(chat_setup):
+    facade, _, backend, _, _ = chat_setup
+    store = backend.ai_conversation
+    first, second = store.reference("a" * 64), store.reference("b" * 64)
+    assert (first, second) == ("L1", "L2")
+    assert store.references() == (("L2", "b" * 64), ("L1", "a" * 64))
+    assert store.reference("a" * 64) == "L1"

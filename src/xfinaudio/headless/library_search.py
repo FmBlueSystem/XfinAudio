@@ -7,8 +7,8 @@ Library's own text filter does (title, artist and genre), and the closest BPM to
 list comes first, because that is the track the engine could actually swap in.
 
 What leaves this module for the provider is a short conversation-scoped reference
-(``L1``, ``L2``...) plus title, artist, genre, BPM, key, energy and duration. A file
-path and a public track identity never leave it.
+(``L1``, ``L2``...) plus title, artist, genre, BPM, key, energy, duration and release
+year. A file path and a public track identity never leave it.
 """
 
 from __future__ import annotations
@@ -73,6 +73,7 @@ def public_result(reference: str, record: TrackRecord) -> dict[str, Any]:
         "key": record.camelot_key,
         "energy": record.energy_level,
         "duration": record.duration,
+        "year": record.release_year,
     }
 
 
@@ -93,7 +94,18 @@ def _matches(query: SearchQuery, record: TrackRecord) -> bool:
         return False
     if query.key and query.key != (record.camelot_key or "").upper():
         return False
+    if not _in_years(query.year_min, query.year_max, record.release_year):
+        return False
     return _within(query.bpm_min, query.bpm_max, record.bpm)
+
+
+def _in_years(low: int | None, high: int | None, value: int | None) -> bool:
+    """Whether one release year satisfies a search range; an unknown year never does."""
+    if low is None and high is None:
+        return True
+    if value is None or value <= 0:
+        return False
+    return (low is None or value >= low) and (high is None or value <= high)
 
 
 def _within(low: float | None, high: float | None, value: float | None) -> bool:

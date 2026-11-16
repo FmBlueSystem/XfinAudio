@@ -8,13 +8,21 @@ the core discards the generated review.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+
+from xfinaudio.library.models import TrackRecord
 
 #: Messages kept across turns; the oldest pair is dropped once the list is longer.
 MESSAGE_LIMIT = 40
 #: Messages sent with the new question; the rest stay readable but are not resent.
 PROMPT_LIMIT = 20
+#: The most applied changes one turn reports; the oldest fall out first.
+APPLIED_LIMIT = 20
+#: The longest title or artist one change line names.
+_MAX_NAMED_CHARS = 80
+#: The most lines one applied edit describes; a wholesale change is summarized instead.
+_MAX_LINES_PER_EDIT = 4
 
 
 @dataclass(frozen=True)
@@ -56,6 +64,77 @@ class ChatAction:
     order: tuple[str, ...] | None = None
 
 
+def applied_changes(previous: Sequence[TrackRecord], current: Sequence[TrackRecord]) -> tuple[str, ...]:
+    """The short Spanish lines one applied edit reads, oldest change first.
+
+    The lines are computed from the two lists themselves, so a change the DJ made by
+    hand, one the assistant's card applied and an undo or redo all describe the same
+    way: what the list had, what it has now, and where. A line names positions, titles
+    and artists only, so nothing here can carry a file path or a track identity.
+    """
+    before, after = list(previous), list(current)
+    if [track.path for track in before] == [track.path for track in after]:
+        return ()
+    stayed = {track.path for track in after}
+    was = {track.path for track in before}
+    removed = [(position, track) for position, track in enumerate(before, start=1) if track.path not in stayed]
+    added = [(position, track) for position, track in enumerate(after, start=1) if track.path not in was]
+    if not removed and not added:
+        return (_order_line(before, after),)
+    if not removed and len(added) > 1 and all(position > len(before) for position, _ in added):
+        return (f"Ampliar la lista a {len(after)} pistas",)
+    lines: list[str] = []
+    paired: set[int] = set()
+    for position, track in removed:
+        replaced = next((item for item in added if item[0] == position), None)
+        if replaced is None:
+            lines.append(f"Quitar la posición {position}: {_named(track)}")
+            continue
+        paired.add(replaced[0])
+        lines.append(f"Reemplazar la posición {position}: {_named(track)} por {_named(replaced[1])}")
+    lines.extend(
+        f"Agregar en la posición {position}: {_named(track)}" for position, track in added if position not in paired
+    )
+    return _bounded(lines)
+
+
+def _order_line(before: Sequence[TrackRecord], after: Sequence[TrackRecord]) -> str:
+    """The one line a change that only moved tracks around reads."""
+    move = _single_move(before, after)
+    if move is not None:
+        track, origin, destination = move
+        return f"Mover la posición {origin} a la posición {destination}: {_named(track)}"
+    moved = sum(1 for index, track in enumerate(before) if after[index].path != track.path)
+    return f"Reordenar la lista: {moved} pistas cambian de lugar"
+
+
+def _single_move(before: Sequence[TrackRecord], after: Sequence[TrackRecord]) -> tuple[TrackRecord, int, int] | None:
+    """The one track a pure move took out and put back elsewhere, or nothing."""
+    paths = [track.path for track in after]
+    for origin, track in enumerate(before, start=1):
+        rest = [item.path for index, item in enumerate(before, start=1) if index != origin]
+        if sorted(rest) != sorted(paths):
+            continue
+        for destination in range(1, len(before) + 1):
+            if rest[: destination - 1] + [track.path] + rest[destination - 1 :] == paths:
+                return track, origin, destination
+    return None
+
+
+def _named(track: TrackRecord) -> str:
+    """One track as a change line names it: its title and its artist, never its path."""
+    title = (track.title or "(sin título)")[:_MAX_NAMED_CHARS]
+    artist = (track.artist or "(artista desconocido)")[:_MAX_NAMED_CHARS]
+    return f"«{title}» — {artist}"
+
+
+def _bounded(lines: list[str]) -> tuple[str, ...]:
+    """The lines of one edit, summarized when the edit replaced almost the whole list."""
+    if len(lines) <= _MAX_LINES_PER_EDIT:
+        return tuple(lines)
+    return (*lines[:_MAX_LINES_PER_EDIT], f"y {len(lines) - _MAX_LINES_PER_EDIT} cambios más")
+
+
 class ConversationStore:
     """The single conversation about the list in progress, kept in memory only."""
 
@@ -67,6 +146,12 @@ class ConversationStore:
         # may name later: ``L1``, ``L2``... and nothing else, valid for this conversation.
         self._references: dict[str, str] = {}
         self._named: dict[str, str] = {}
+        # The tracks this conversation already showed, most recently found first, so a
+        # later turn can offer them again without repeating a search.
+        self._recent: list[str] = []
+        # What the DJ changed in the list since the previous successful turn, oldest
+        # first, as short lines that name positions and titles and never an identity.
+        self._applied: list[str] = []
 
     @property
     def first_turn(self) -> bool:
@@ -108,19 +193,40 @@ class ConversationStore:
 
         A track already shown keeps its reference, so a reference the assistant read
         in an earlier turn still names the same track; every new one gets the next
-        number in order.
+        number in order, and the track becomes the most recently found one.
         """
         existing = self._references.get(track_id)
         if existing is not None:
+            self._recent = [track_id, *(item for item in self._recent if item != track_id)]
             return existing
         reference = f"L{len(self._references) + 1}"
         self._references[track_id] = reference
         self._named[reference] = track_id
+        self._recent = [track_id, *self._recent]
         return reference
 
     def referenced(self, reference: str) -> str | None:
         """The library track this conversation gave that reference to, if it ever did."""
         return self._named.get(reference)
+
+    def references(self) -> tuple[tuple[str, str], ...]:
+        """The references this conversation issued, most recent first, with their track."""
+        return tuple((self._references[track_id], track_id) for track_id in self._recent)
+
+    def note_applied(self, lines: Iterable[str]) -> tuple[str, ...]:
+        """Record the changes applied to the list since the previous successful turn.
+
+        A change made before the conversation's first successful turn belongs to the
+        state the DJ handed over, not to a previous answer, so nothing is recorded yet.
+        """
+        if self._messages:
+            self._applied.extend(lines)
+            del self._applied[:-APPLIED_LIMIT]
+        return self.applied_since_turn()
+
+    def applied_since_turn(self) -> tuple[str, ...]:
+        """The changes applied since the previous successful turn, oldest first."""
+        return tuple(self._applied)
 
     def record(self, fingerprint: str, request: str, reply: str) -> list[dict[str, str]]:
         """Store one successful turn and return the whole conversation, oldest first."""
@@ -129,6 +235,9 @@ class ConversationStore:
         while len(self._messages) > MESSAGE_LIMIT:
             del self._messages[:2]
         self._list = fingerprint
+        # The changes were reported in this turn's system message, so the next turn
+        # reports only what the DJ applies from now on.
+        self._applied.clear()
         return self.snapshot()
 
     def reset(self) -> list[dict[str, str]]:
@@ -138,7 +247,17 @@ class ConversationStore:
         self._actions = ()
         self._references.clear()
         self._named.clear()
+        self._recent.clear()
+        self._applied.clear()
         return []
 
 
-__all__ = ["MESSAGE_LIMIT", "PROMPT_LIMIT", "ChatAction", "ConversationStore", "Message"]
+__all__ = [
+    "APPLIED_LIMIT",
+    "MESSAGE_LIMIT",
+    "PROMPT_LIMIT",
+    "ChatAction",
+    "ConversationStore",
+    "Message",
+    "applied_changes",
+]

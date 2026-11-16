@@ -923,3 +923,134 @@ def test_the_chat_instructions_forbid_the_references_and_name_the_alternatives_i
     for wording in ("«segura»", "«equilibrada»", "«exploratoria»"):
         assert wording in system
     assert "en variant sigue escribiendo safe, balanced o adventurous" in system
+
+
+def test_list_facts_carry_the_release_year_and_omit_it_when_it_is_unknown(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    tracks = list(recommendation.ordered_tracks)
+    tracks[0] = tracks[0].model_copy(update={"release_year": 1985})
+    facts = list_chat.list_facts(
+        recommendation.model_copy(update={"ordered_tracks": tracks}),
+        readiness,
+        {"opening": [], "closing": [], "required": []},
+    )
+    header = next(line for line in facts.splitlines() if line.startswith("Pistas en orden de reproducción"))
+    assert "año" in header
+    first = next(line for line in facts.splitlines() if line.startswith("1. "))
+    assert first.split(" | ")[-1] == "año 1985"
+    second = next(line for line in facts.splitlines() if line.startswith("2. "))
+    assert len(second.split(" | ")) == 6
+    assert "año" not in second
+
+
+#: One change the DJ applied and one track an earlier search of the same conversation found.
+APPLIED_LINE = "Quitar la posición 3: «Electron test 3» — XfinAudio Test"
+FOUND_RESULT = {
+    "reference": "L2",
+    "title": "Electron test 6",
+    "artist": "XfinAudio Test",
+    "genre": "House",
+    "bpm": 124.0,
+    "key": "9A",
+    "energy": 6,
+    "duration": 2.0,
+    "year": 1994,
+}
+
+
+def test_the_conversation_state_says_the_list_is_current_and_lists_what_changed_and_what_was_found():
+    state = list_chat.conversation_state((APPLIED_LINE,), (FOUND_RESULT,))
+    lines = state.splitlines()
+    assert "La lista de arriba es la lista actual" in state
+    assert "nunca le pidas al DJ" in state
+    assert "Cambios aplicados desde tu última respuesta:" in lines
+    assert f"- {APPLIED_LINE}" in lines
+    assert any(line.startswith("Pistas que ya encontraste") for line in lines)
+    assert "- L2 | Electron test 6 — XfinAudio Test | House | BPM 124 | 9A | energía 6 | 0:02 | año 1994" in lines
+
+
+def test_the_conversation_state_says_none_when_nothing_was_applied_or_found():
+    state = list_chat.conversation_state()
+    lines = state.splitlines()
+    assert "- ninguno" in lines
+    assert "- ninguna" in lines
+    assert any(line.startswith("Pistas que ya encontraste") for line in lines)
+
+
+def test_the_conversation_state_offers_at_most_forty_found_tracks():
+    found = [dict(FOUND_RESULT, reference=f"L{index}") for index in range(1, 45)]
+    lines = [
+        line
+        for line in list_chat.conversation_state((), found).splitlines()
+        if line.startswith("- L") and " | " in line
+    ]
+    assert len(lines) == 40
+    assert lines[0].startswith("- L1 |") and lines[-1].startswith("- L40 |")
+
+
+def test_chat_sends_the_conversation_state_after_the_list_facts(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    transport = ChatTransport()
+    with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
+        list_chat.chat_with_list(
+            facts,
+            "Pregunta",
+            [],
+            track_count=4,
+            state=list_chat.conversation_state((APPLIED_LINE,)),
+            transport=transport,
+        )
+    system = transport.bodies[0]["messages"][0]["content"]
+    found_header = (
+        "Pistas que ya encontraste (referencias válidas en esta conversación, de la más reciente a la más antigua):"
+    )
+    changes = f"Cambios aplicados desde tu última respuesta:\n- {APPLIED_LINE}"
+    assert system.endswith(f"{changes}\n\n{found_header}\n- ninguna")
+    assert system.index("Datos de la lista") < system.index("Estado de la conversación")
+
+
+def test_the_chat_instructions_use_the_year_data_and_never_guess_it(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    _, transport = chat(facts)
+    system = transport.bodies[0]["messages"][0]["content"]
+    assert '"yearMin": número' in system and '"yearMax": número' in system
+    assert "nunca inventes ni adivines un año de memoria" in system
+    assert "Si una pista no tiene año, dilo" in system
+    assert "La lista de arriba es la lista actual" in system
+    assert "nunca le pidas al DJ que te la dicte" in system
+
+
+def test_the_answer_is_read_with_the_year_filter_of_a_search():
+    raw = json.dumps({"reply": "Busco.", "actions": [], "searches": [{"query": "", "yearMin": 1980, "yearMax": 1989}]})
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.searches == (list_chat.SearchQuery(query="", year_min=1980, year_max=1989),)
+    assert [query.public() for query in answer.searches] == [{"query": "", "yearMin": 1980, "yearMax": 1989}]
+
+
+@pytest.mark.parametrize("item", [{"query": "", "yearMin": 0, "yearMax": 0}, {"query": "", "yearMin": None}])
+def test_a_year_of_zero_or_null_is_no_limit(item):
+    raw = json.dumps({"reply": "Busco.", "actions": [], "searches": [item]})
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.searches == ()
+    assert answer.ignored_searches == (list_chat.DroppedSearch(item, "no query or filter"),)
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"query": "", "yearMin": "1980"},
+        {"query": "", "yearMin": 1985.5},
+        {"query": "", "yearMin": 1990, "yearMax": 1980},
+        {"query": "", "yearMin": True},
+    ],
+)
+def test_a_year_filter_that_is_not_an_integer_range_is_ignored(item):
+    raw = json.dumps({"reply": "Busco.", "actions": [], "searches": [item]})
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.searches == ()
+    assert answer.ignored_searches == (list_chat.DroppedSearch(item, "unsupported search"),)

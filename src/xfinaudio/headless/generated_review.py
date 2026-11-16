@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from xfinaudio.application.prep_copilot import PrepCopilotVariantApplicationResult
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
+from xfinaudio.headless.ai_conversation import applied_changes
 from xfinaudio.headless.common import BackendError, _inside, _public_track
 from xfinaudio.headless.review_evidence import evidence
 from xfinaudio.headless.review_store import VERSION, clear_review, read_review, write_review
@@ -410,6 +411,7 @@ class GeneratedReview:
         self, review: PrepCopilotVariantApplicationResult, removed: frozenset[str], base: dict[str, Any]
     ) -> None:
         """Republish one applied state under a fresh revision, exactly like an edit."""
+        previous = self.backend.review
         self.backend.review = review
         self.backend.review_id = str(uuid4())
         self.review_id = self.backend.review_id
@@ -429,6 +431,13 @@ class GeneratedReview:
         self.offers.clear()
         self.backend.live.invalidate()
         self.backend.invalidate_optional_ai()
+        # The conversation remembers what each applied change did to the list, so its next
+        # turn can tell the assistant what changed. Only the two lists are compared: no
+        # path and no track identity ever enters that memory.
+        if previous is not None:
+            self.backend.ai_conversation.note_applied(
+                applied_changes(previous.recommendation.ordered_tracks, review.recommendation.ordered_tracks)
+            )
         self._persist()
 
     def _travel(self, *, back: bool) -> dict[str, Any]:

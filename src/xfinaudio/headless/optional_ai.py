@@ -180,6 +180,9 @@ def _parsed_searches(searches: Any) -> bool:
         for field in ("bpmMin", "bpmMax"):
             if field in item and type(item[field]) not in (int, float):
                 return False
+        for field in ("yearMin", "yearMax"):
+            if field in item and type(item[field]) is not int:
+                return False
     return True
 
 

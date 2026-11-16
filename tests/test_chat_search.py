@@ -124,8 +124,10 @@ def test_a_public_result_carries_the_reference_and_the_listed_fields_and_no_iden
     backend, _, root = setup
     record = search_library(backend, [SearchQuery(query="test 5")])[0].records[0]
     result = public_result("L1", record)
-    assert set(result) == {"reference", "title", "artist", "genre", "bpm", "key", "energy", "duration"}
+    assert set(result) == {"reference", "title", "artist", "genre", "bpm", "key", "energy", "duration", "year"}
     assert result["reference"] == "L1" and result["title"] == "Electron test 5"
+    assert result["year"] is None
+    assert public_result("L1", record.model_copy(update={"release_year": 1985}))["year"] == 1985
     published = json.dumps(result)
     assert str(root) not in published and ".flac" not in published
     for track in backend._records(checked=frozenset()):
@@ -204,5 +206,45 @@ def test_a_real_search_object_runs_and_its_results_reach_the_second_request(real
     results = json.loads(second[-1]["content"].split("\n", 1)[1])
     assert [item["title"] for item in results] == [title]
     assert results[0]["artist"] == artist
-    assert set(results[0]) == {"reference", "title", "artist", "genre", "bpm", "key", "energy", "duration"}
+    assert set(results[0]) == {"reference", "title", "artist", "genre", "bpm", "key", "energy", "duration", "year"}
     assert result["text"] == "Encontré esa pista."
+
+
+@pytest.fixture
+def year_setup(tmp_path):
+    """A library where two eligible tracks carry a release year and the rest do not."""
+    root = tmp_path / "music"
+    shutil.copytree(FIXTURES, root)
+    for index, year in ((1, 1985), (2, 1994)):
+        copy = root / f"year-{index}.flac"
+        shutil.copyfile(root / "track-5.flac", copy)
+        tags = FLAC(copy)
+        tags["title"] = f"Year test {index}"
+        tags["date"] = str(year)
+        tags.save()
+    backend = HeadlessBackend(tmp_path / "data")
+    backend.execute("library.scan", {"root": str(root)})
+    backend.execute("prep.generate", {"targetTrackCount": 4, "name": "Years"})
+    return backend
+
+
+def test_a_search_carries_the_release_year_of_each_result_and_nothing_when_it_is_unknown(year_setup):
+    records = search_library(year_setup, [SearchQuery(query="year test")])[0].records
+    assert [(record.title, record.release_year) for record in records] == [("Year test 1", 1985), ("Year test 2", 1994)]
+    results = [public_result(f"L{index}", record) for index, record in enumerate(records, start=1)]
+    assert [result["year"] for result in results] == [1985, 1994]
+    unknown = search_library(year_setup, [SearchQuery(query="test 5")])[0].records[0]
+    assert public_result("L9", unknown)["year"] is None
+
+
+def test_a_year_range_returns_only_tracks_with_a_year_inside_it(year_setup):
+    within = search_library(year_setup, [SearchQuery(year_min=1980, year_max=1990)])[0].records
+    titles = [record.title for record in within]
+    assert titles == ["Year test 1"]
+    assert [record.title for record in search_library(year_setup, [SearchQuery(year_min=1990)])[0].records] == [
+        "Year test 2"
+    ]
+    assert [record.title for record in search_library(year_setup, [SearchQuery(year_max=1900)])[0].records] == []
+    # Without a year limit the tracks without a year are still offered.
+    without = search_library(year_setup, [SearchQuery(query="test 5")])[0].records
+    assert [record.title for record in without] == ["Electron test 5"]

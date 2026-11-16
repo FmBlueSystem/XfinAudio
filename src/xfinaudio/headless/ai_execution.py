@@ -170,6 +170,7 @@ def _chat_turn(
             track_count=data["trackCount"],
             protected=data["protectedPositions"],
             search_results=search_results,
+            state=data["state"],
             transport=transport,
             timeout=timeout,
         )
