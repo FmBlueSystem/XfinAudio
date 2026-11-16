@@ -499,6 +499,122 @@ def recommendation_extended(
     return grown, added_outside
 
 
+def recommendation_fitted(
+    recommendation: PlaylistRecommendation,
+    candidates: list[TrackRecord],
+    year_min: int,
+    year_max: int,
+    *,
+    spectral_cohesion: float = 0.0,
+    in_genre_paths: frozenset[str] | None = None,
+    locked_paths: frozenset[str] = frozenset(),
+    excluded_paths: frozenset[str] = frozenset(),
+    loudness_band: LoudnessBand | None = None,
+) -> PlaylistRecommendation:
+    """Replace the tracks outside a release-year range, one position at a time.
+
+    Every track of the list whose release year is unknown or outside
+    ``year_min..year_max``, and that the controls do not protect, is replaced in
+    place by a library track from inside the range. The list keeps its length and
+    its order, and the replaced tracks leave it exactly as a hand swap would.
+
+    Eligibility is the extension's own chain: complete metadata, not in the list,
+    not excluded, never another version of a song the list keeps, and beatmatchable
+    into the slot. ``in_genre_paths`` names the candidates the current variant's
+    genre filter allows; those are used first, and only when they run out does the
+    rest of the library follow.
+
+    A slot takes the candidate whose weakest transition with its two neighbours is
+    the highest, and a track that entered an earlier slot of this same run is the
+    neighbour its own slot is priced against. A slot with no candidate keeps its
+    track, so the caller can report what stayed outside and why. The result is
+    rescored; a list that needs no replacement is returned unchanged.
+    """
+    ordered = list(recommendation.ordered_tracks)
+    pool = _edit_pool(
+        recommendation,
+        candidates,
+        locked_paths=locked_paths,
+        excluded_paths=excluded_paths,
+        loudness_band=loudness_band,
+        prefer_genre=False,
+    )
+    recommendation = pool.recommendation
+
+    def eligible(track: TrackRecord) -> bool:
+        """Whether one library track may fill a slot of this run."""
+        return (
+            track.path not in pool.excluded
+            and track.metadata_status == "complete"
+            and in_year_range(track, year_min, year_max)
+        )
+
+    in_genre_pool = [
+        candidate
+        for candidate in pool.candidates
+        if eligible(candidate) and (in_genre_paths is None or candidate.path in in_genre_paths)
+    ]
+    outside_pool = [
+        candidate
+        for candidate in pool.candidates
+        if eligible(candidate) and in_genre_paths is not None and candidate.path not in in_genre_paths
+    ]
+    scoring_config = TransitionScoringConfig(
+        weights=recommendation.strategy.weights,
+        spectral_cohesion=spectral_cohesion,
+    )
+    cache: dict[tuple, TransitionScore] = {}
+    replaced = False
+    for index, listed in enumerate(list(ordered)):
+        if in_year_range(listed, year_min, year_max) or listed.path in pool.preserved:
+            continue
+        present = {track.path for track in ordered}
+        # The leaving track is not a candidate for its own slot, but the songs the rest of
+        # the list keeps are still songs it may not double.
+        kept = [track for position, track in enumerate(ordered) if position != index]
+        duplicate_keys = {key for track in kept if (key := _duplicate_key(track)) is not None}
+        same_song_keys = [key for track in kept if (key := _same_song_key(track)) is not None]
+        chosen = _period_fit(
+            _usable(in_genre_pool, present, duplicate_keys, same_song_keys), ordered, index, scoring_config, cache
+        )
+        if chosen is None:
+            chosen = _period_fit(
+                _usable(outside_pool, present, duplicate_keys, same_song_keys), ordered, index, scoring_config, cache
+            )
+        if chosen is None:
+            continue
+        ordered[index] = chosen
+        replaced = True
+    if not replaced:
+        return recommendation
+    transition_scores = _score_ordered_tracks(ordered, scoring_config)
+    return recommendation.model_copy(
+        update={
+            "ordered_tracks": ordered,
+            "transition_scores": transition_scores,
+            "total_score": sum(score.total_score for score in transition_scores),
+        }
+    )
+
+
+def known_release_year(track: TrackRecord) -> int | None:
+    """A track's release year when the library knows it, and nothing otherwise."""
+    year = track.release_year
+    if isinstance(year, bool) or not isinstance(year, int) or year <= 0:
+        return None
+    return year
+
+
+def in_year_range(track: TrackRecord, year_min: int, year_max: int) -> bool:
+    """Whether a track's release year is known and inside the range.
+
+    A track whose year the library does not know is outside every range: fitting a list
+    to a period cannot vouch for a track it has no year for.
+    """
+    year = known_release_year(track)
+    return year is not None and year_min <= year <= year_max
+
+
 def rewrite_shortfall_warnings(warnings: list[str], selected: int) -> list[str]:
     """Restate the engine's track-count shortfall for a set that has just grown.
 
@@ -799,6 +915,38 @@ def _transition_score(
         config=scoring_config,
         cache=cache,
     ).total_score
+
+
+def _period_fit(
+    candidates: list[TrackRecord],
+    ordered: list[TrackRecord],
+    index: int,
+    scoring_config: TransitionScoringConfig,
+    cache: dict[tuple, TransitionScore],
+) -> TrackRecord | None:
+    """The candidate whose weakest transition with a slot's two neighbours is the highest.
+
+    The slot is ``index`` of *ordered* as it stands now, so a track that entered an
+    earlier slot of the same run is the neighbour its own slot is priced against, and
+    the neighbour after it is still the track the list holds there. Ties go to the
+    candidate with the better sum and then to the pool's own order, so one library
+    always answers the same. ``None`` when no candidate can be mixed in there.
+    """
+    left = ordered[index - 1] if index > 0 else None
+    right = ordered[index + 1] if index + 1 < len(ordered) else None
+    best: tuple[tuple[float, float], TrackRecord] | None = None
+    for candidate in _closest_in_bpm(candidates, ordered, _EXTEND_BPM_NEIGHBOUR_LIMIT):
+        if not _beats_neighbours(candidate, (left, right)):
+            continue
+        new: list[float] = []
+        if left is not None:
+            new.append(_transition_score(left, candidate, scoring_config, cache))
+        if right is not None:
+            new.append(_transition_score(candidate, right, scoring_config, cache))
+        key = (min(new), sum(new)) if new else (0.0, 0.0)
+        if best is None or key > best[0]:
+            best = (key, candidate)
+    return best[1] if best is not None else None
 
 
 def _best_extension(

@@ -1,7 +1,7 @@
 """The assistant's proposed list changes: kept in memory, published without identities, applied as edits.
 
 The assistant never changes the list by itself. One successful chat turn may propose
-up to eight changes; the core binds each one to the track it named (never to its
+up to twenty changes; the core binds each one to the track it named (never to its
 position), resolves the library reference an ``add`` or a ``replace_with`` names
 inside this conversation, computes the replacement a ``replace`` would use and keeps
 the result next to the conversation, in memory only. The DJ applies one on request,
@@ -20,7 +20,7 @@ from uuid import uuid4
 from xfinaudio.ai.list_chat import MAX_TARGET_TRACK_COUNT
 from xfinaudio.headless.ai_conversation import ChatAction, ConversationStore
 from xfinaudio.headless.common import BackendError, _public_track
-from xfinaudio.recommendation.playlist_service import insertion_positions
+from xfinaudio.recommendation.playlist_service import in_year_range, insertion_positions
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -39,6 +39,7 @@ _UNKNOWN_REFERENCE = "unknown library reference"
 _PROTECTED_SLOT = "protected insert position"
 _FULL = "the list is already at its track limit"
 _NOTHING_TO_UNDO = "nothing to undo in this list"
+_NOTHING_OUTSIDE = "no track outside the period"
 
 
 def propose_actions(
@@ -47,13 +48,14 @@ def propose_actions(
     """Bind this turn's validated proposals to what they named.
 
     ``items`` is the parsed answer's own shape (``type``, ``reason`` and, depending on
-    the type, ``position``, ``to``, ``ref`` or ``order``). A proposal whose track is no
-    longer in the list, whose ``ref`` this conversation never issued, whose ``add`` has
-    no free insert slot, whose ``replace`` has no replacement the engine still offers or
-    whose ``use_variant`` names the alternative already in use is dropped and counted
-    instead of failing the turn; it is returned with the reason it was dropped for the
-    opt-in chat log. A ``reorder`` and an ``undo`` are bound to the tracks and to the
-    revision's own history, so a later edit makes them stale instead of wrong.
+    the type, ``position``, ``to``, ``ref``, ``order``, ``yearMin`` or ``yearMax``). A
+    proposal whose track is no longer in the list, whose ``ref`` this conversation never
+    issued, whose ``add`` has no free insert slot, whose ``replace`` has no replacement
+    the engine still offers, whose ``use_variant`` names the alternative already in use
+    or whose ``period`` would replace nothing is dropped and counted instead of failing
+    the turn; it is returned with the reason it was dropped for the opt-in chat log. A
+    ``reorder`` and an ``undo`` are bound to the tracks and to the revision's own
+    history, so a later edit makes them stale instead of wrong.
     """
     review, plan = backend.review, backend.plan
     if review is None or plan is None:
@@ -67,6 +69,24 @@ def propose_actions(
         kind, reason = item["type"], item["reason"]
         if kind == "extend":
             accepted.append(ChatAction(str(uuid4()), "extend", None, item["to"], reason))
+            continue
+        if kind == "period":
+            # A period changes nothing when every track the fit could touch is already
+            # inside the range, so it is never offered as a change.
+            if not _outside_period(backend, review, item["yearMin"], item["yearMax"]):
+                dropped.append((item, _NOTHING_OUTSIDE))
+                continue
+            accepted.append(
+                ChatAction(
+                    str(uuid4()),
+                    "period",
+                    None,
+                    None,
+                    reason,
+                    year_min=item["yearMin"],
+                    year_max=item["yearMax"],
+                )
+            )
             continue
         if kind == "use_variant":
             track_count, refusal = _offered_variant(backend, review.variant_name, item["variant"])
@@ -190,6 +210,24 @@ def public_actions(backend: HeadlessBackend, actions: Iterable[ChatAction]) -> l
         if action.type == "undo":
             published.append({"actionId": action.id, "type": "undo", "reason": action.reason})
             continue
+        if action.type == "period":
+            if action.year_min is None or action.year_max is None:
+                continue
+            outside = _outside_period(backend, review, action.year_min, action.year_max)
+            if not outside:
+                # Nothing is left outside the range: this change has nothing to offer.
+                continue
+            published.append(
+                {
+                    "actionId": action.id,
+                    "type": "period",
+                    "yearMin": action.year_min,
+                    "yearMax": action.year_max,
+                    "outside": outside,
+                    "reason": action.reason,
+                }
+            )
+            continue
         if action.type == "reorder":
             order = action.order
             if order is None or sorted(order) != sorted(current_ids):
@@ -244,6 +282,25 @@ def public_actions(backend: HeadlessBackend, actions: Iterable[ChatAction]) -> l
     return published
 
 
+def _outside_period(
+    backend: HeadlessBackend,
+    review: PrepCopilotVariantApplicationResult,
+    year_min: int,
+    year_max: int,
+) -> int:
+    """How many tracks of the list a period fit could change right now.
+
+    Only the unprotected tracks whose release year is unknown or outside the range
+    count: the protected ones stay whatever the period says.
+    """
+    protected = backend.review_actions._protected(review)
+    return sum(
+        1
+        for track in review.recommendation.ordered_tracks
+        if track.path not in protected and not in_year_range(track, year_min, year_max)
+    )
+
+
 def _library_fields(track: dict[str, Any]) -> dict[str, Any]:
     """The library fields a card shows for a track that would join the list."""
     return {key: track[key] for key in ("title", "artist", "bpm", "key")}
@@ -260,7 +317,8 @@ def apply_action(backend: HeadlessBackend, action_id: str) -> dict[str, Any]:
 
     An ``extend`` grows the list through the same ``review.extend`` edit the DJ's own
     button uses and adds its ``extended`` report to the answer; a ``no_candidates``
-    refusal is passed through unchanged and the change stays pending. A
+    refusal is passed through unchanged and the change stays pending. A ``period`` does
+    the same through ``review.fit_period`` and adds its ``period`` report. A
     ``use_variant`` is never applied here: choosing an alternative belongs to the
     renderer, so it is ``stale_ai`` and stays pending too.
     """
@@ -269,6 +327,7 @@ def apply_action(backend: HeadlessBackend, action_id: str) -> dict[str, Any]:
     if action is None:
         raise BackendError("stale_ai", _STALE)
     extended: dict[str, Any] | None = None
+    period: dict[str, Any] | None = None
     try:
         if action.type == "use_variant":
             raise BackendError("stale_ai", _STALE)
@@ -282,6 +341,15 @@ def apply_action(backend: HeadlessBackend, action_id: str) -> dict[str, Any]:
             )
             extended = grown.pop("extended", None)
             review = grown
+        elif action.type == "period":
+            if action.year_min is None or action.year_max is None:
+                raise BackendError("stale_ai", _STALE)
+            fitted = backend.review_actions.execute(
+                "review.fit_period",
+                {"reviewId": review_id, "yearMin": action.year_min, "yearMax": action.year_max},
+            )
+            period = fitted.pop("period", None)
+            review = fitted
         elif action.type == "undo":
             if not details["canUndo"]:
                 raise BackendError("stale_ai", _STALE)
@@ -348,6 +416,8 @@ def apply_action(backend: HeadlessBackend, action_id: str) -> dict[str, Any]:
     answer: dict[str, Any] = {"review": review, "actions": public_actions(backend, store.applied(action.id))}
     if extended is not None:
         answer["extended"] = extended
+    if period is not None:
+        answer["period"] = period
     return answer
 
 

@@ -14,7 +14,7 @@ import stat
 import pytest
 
 from tests.test_headless_ai_context import setup as setup  # noqa: F401
-from tests.test_headless_chat_actions import answer, move, replace_at, tracks
+from tests.test_headless_chat_actions import aged, answer, move, replace_at, tracks
 from tests.test_headless_list_chat import QUESTION, REPLY, call, prepare, turn
 from tests.test_headless_list_chat import chat_setup as _chat_setup
 from xfinaudio.headless.chat_log import MAX_CHAT_LOG_BYTES, ChatLog
@@ -109,6 +109,19 @@ def test_apply_and_reset_are_logged_with_the_new_order(chat_setup, monkeypatch):
         {"position": index, "title": track["title"]} for index, track in enumerate(applied["review"]["tracks"], 1)
     ]
     assert set(entries[2]) == {"time", "event"}
+
+
+def test_apply_logs_a_period_and_what_it_replaced(chat_setup, monkeypatch):
+    facade, transport, backend, _, _ = chat_setup
+    enable(monkeypatch)
+    restored = aged(backend, lambda index: 2000 if index < 4 else 1985)
+    transport.reply = answer({"type": "period", "yearMin": 1980, "yearMax": 1989, "reason": "Solo los 80"})
+    action = turn(facade, restored["reviewId"])["result"]["actions"][0]
+    applied = call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    entry = log_entries(backend)[-1]
+    assert entry["event"] == "apply"
+    assert entry["action"] == action
+    assert entry["period"] == applied["period"]
 
 
 def test_a_failed_apply_logs_the_action_identity_and_the_error_code(chat_setup, monkeypatch):

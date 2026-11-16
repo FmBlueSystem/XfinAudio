@@ -161,6 +161,11 @@ def _parsed_chat_answer(answer: dict[str, Any]) -> bool:
         elif kind == "use_variant":
             if set(item) != {"type", "variant", "reason"} or item["variant"] not in VARIANTS:
                 return False
+        elif kind == "period":
+            if set(item) != {"type", "yearMin", "yearMax", "reason"}:
+                return False
+            if type(item["yearMin"]) is not int or type(item["yearMax"]) is not int:
+                return False
         elif set(item) != {"type", "reason"}:
             return False
     return True
@@ -315,6 +320,7 @@ class OptionalAI:
                             {"position": position, "title": track["title"]}
                             for position, track in enumerate(result["review"]["tracks"], start=1)
                         ],
+                        **({"period": result["period"]} if "period" in result else {}),
                     )
                 return result
             if method == "ai.run":

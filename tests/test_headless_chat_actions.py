@@ -550,15 +550,83 @@ def test_a_bad_permutation_is_dropped_and_counted(chat_setup):
     assert ids(backend.execute("review.details", {"reviewId": backend.review_id}))
 
 
-def test_a_reply_with_more_than_eight_changes_keeps_eight(chat_setup):
+def test_a_reply_may_now_carry_more_than_eight_changes(chat_setup):
     facade, transport, backend, _, _ = chat_setup
     backend.execute("prep.generate", {"targetTrackCount": 8, "name": "Ocho pistas"})
     assert backend.review is not None and len(tracks(backend)) == 8
     items = [remove(index) for index in range(1, 9)] + [extend(10)]
     transport.reply = answer(*items)
     result = turn(facade, backend.review_id)["result"]
-    assert [action["type"] for action in result["actions"]] == ["remove"] * 8
+    assert [action["type"] for action in result["actions"]] == [*["remove"] * 8, "extend"]
+    assert result["droppedActions"] == 0
+
+
+def period(year_min: int = 1980, year_max: int = 1989, reason: str = "Solo los 80") -> dict:
+    return {"type": "period", "yearMin": year_min, "yearMax": year_max, "reason": reason}
+
+
+def aged(backend, year_of) -> dict:
+    """Give every scanned record a release year, leaving the files themselves untouched."""
+    records = sorted(backend._records(checked=frozenset()), key=lambda record: record.bpm or 0)
+    backend.repository.save_scan_results(
+        [record.model_copy(update={"release_year": year_of(index)}) for index, record in enumerate(records)]
+    )
+    return backend.execute("prep.generate", {"targetTrackCount": 4})
+
+
+def test_a_period_action_publishes_the_range_and_the_count_outside_and_applies_the_fit(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    # The four slowest tracks of the fixture are the ones a four-track list picks; give
+    # them a year outside the period and every other track a year inside it.
+    review = aged(backend, lambda index: 2000 if index < 4 else 1985)
+    assert backend.review is not None
+    outside = sum(1 for track in backend.review.recommendation.ordered_tracks if track.release_year == 2000)
+    assert outside >= 1
+    transport.reply = answer(period())
+    action = turn(facade, review["reviewId"])["result"]["actions"][0]
+    assert set(action) == {"actionId", "type", "yearMin", "yearMax", "outside", "reason"}
+    assert (action["yearMin"], action["yearMax"], action["outside"]) == (1980, 1989, outside)
+    original = ids(backend.execute("review.details", {"reviewId": review["reviewId"]}))
+    sent = len(transport.bodies)
+    applied = call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert set(applied) == {"review", "actions", "period"}
+    assert (applied["period"]["yearMin"], applied["period"]["yearMax"]) == (1980, 1989)
+    assert applied["period"]["replaced"] == outside
+    assert applied["period"]["kept"] == []
+    assert all(track.release_year == 1985 for track in backend.review.recommendation.ordered_tracks)
+    assert (applied["review"]["canUndo"], applied["review"]["canRedo"]) == (True, False)
+    assert applied["actions"] == []
+    assert len(transport.bodies) == sent
+    undone = backend.execute("review.undo", {"reviewId": applied["review"]["reviewId"]})
+    assert ids(undone) == original
+
+
+def test_a_period_with_nothing_outside_is_dropped_and_counted(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    review = aged(backend, lambda index: 1985)
+    transport.reply = answer(period(), remove(2))
+    result = turn(facade, review["reviewId"])["result"]
+    assert [action["type"] for action in result["actions"]] == ["remove"]
     assert result["droppedActions"] == 1
+    assert history(facade)["actions"] == result["actions"]
+
+
+def test_a_period_apply_with_no_candidate_passes_no_candidates_through(chat_setup, monkeypatch):
+    facade, transport, backend, _, _ = chat_setup
+    review = aged(backend, lambda index: 2000 if index < 4 else 1985)
+    transport.reply = answer(period())
+    action = turn(facade, review["reviewId"])["result"]["actions"][0]
+    monkeypatch.setattr(
+        generated_review_module,
+        "recommendation_fitted",
+        lambda recommendation, *args, **kwargs: recommendation,
+    )
+    before = ids(backend.execute("review.details", {"reviewId": backend.review_id}))
+    with pytest.raises(BackendError) as error:
+        call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert error.value.code == "no_candidates"
+    assert ids(backend.execute("review.details", {"reviewId": backend.review_id})) == before
+    assert [item["actionId"] for item in history(facade)["actions"]] == [action["actionId"]]
 
 
 def test_a_pending_reorder_cannot_apply_once_the_list_changed(chat_setup):

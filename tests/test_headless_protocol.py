@@ -57,6 +57,7 @@ EXPECTED_REFUSED_METHODS = (
     "profiles.complete",
     "review.drop",
     "review.extend",
+    "review.fit_period",
     "review.insert",
     "review.redo",
     "review.remove",
