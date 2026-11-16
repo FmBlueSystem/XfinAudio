@@ -68,7 +68,14 @@ collections to local search without a provider call.
   «Deshacer», and never contacts the provider. The assistant is also told how
   many tracks were requested, the engine warnings and the other alternatives
   (track count and score), and may propose extending the list or using another
-  alternative; extending adds tracks the engine picks from the library. The assistant cannot save or
+  alternative; extending adds tracks the engine picks from the library. The
+  assistant may also ask for one round of local library searches per message
+  (up to two searches, up to 20 results each); the title, artist, genre, BPM,
+  key, energy and duration of the tracks found are then sent to the provider,
+  never a path or an identifier. With those results it can propose removing a
+  track, adding or swapping in a track it found, reordering, or undoing the
+  last change. It lives in a floating window opened from the bot button of the
+  review screen. The assistant cannot save or
   export anything
 - **My Playlists:** local search and comparisons use saved sets and known metadata.
   Optional AI interprets semantic queries using anonymous set IDs and aggregates;
