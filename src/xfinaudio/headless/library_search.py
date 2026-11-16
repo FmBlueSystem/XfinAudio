@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.metadata.tempo import is_valid_bpm
+from xfinaudio.recommendation.playlist_service import in_plan_period
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -54,10 +55,15 @@ def search_library(backend: HeadlessBackend, queries: Sequence[SearchQuery]) -> 
     listed_bpms = [track.bpm for track in review.recommendation.ordered_tracks]
     anchors = [bpm for bpm in listed_bpms if bpm is not None and is_valid_bpm(bpm)]
     # The command's own snapshot already holds every record, so this reads no file.
+    # S17: a list the DJ generated with a release period only searches inside it, so a
+    # search can never offer a track the period rules out.
     eligible = [
         record
         for record in backend._records(checked=frozenset())
-        if record.path not in listed and record.path not in excluded and record.metadata_status == "complete"
+        if record.path not in listed
+        and record.path not in excluded
+        and record.metadata_status == "complete"
+        and in_plan_period(record, plan.intent.year_min, plan.intent.year_max)
     ]
     return tuple(LibraryMatch(query, _execute(query, eligible, anchors)) for query in queries)
 

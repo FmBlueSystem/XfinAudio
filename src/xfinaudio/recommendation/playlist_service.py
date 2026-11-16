@@ -615,6 +615,22 @@ def in_year_range(track: TrackRecord, year_min: int, year_max: int) -> bool:
     return year is not None and year_min <= year <= year_max
 
 
+def in_plan_period(track: TrackRecord, year_min: int | None, year_max: int | None) -> bool:
+    """Whether the engine may pick a track for a plan generated with this period (S17).
+
+    A list the DJ generated with a release period keeps it: every track the engine
+    chooses afterwards -- growth, a replacement, a library search -- comes from inside
+    the period the plan was made with. Either bound alone is an open range and no bound
+    at all is no period, so a list generated without one behaves exactly as before. A
+    track whose year the library does not know is never inside a named period, which is
+    the same rule generation and the year-limited search follow.
+    """
+    if year_min is None and year_max is None:
+        return True
+    year = known_release_year(track)
+    return year is not None and (year_min is None or year >= year_min) and (year_max is None or year <= year_max)
+
+
 def rewrite_shortfall_warnings(warnings: list[str], selected: int) -> list[str]:
     """Restate the engine's track-count shortfall for a set that has just grown.
 

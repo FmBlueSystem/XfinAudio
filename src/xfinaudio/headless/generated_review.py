@@ -22,6 +22,7 @@ from xfinaudio.quality.recommendation_quality import RecommendationQualityReport
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
+    in_plan_period,
     insertion_positions,
     known_release_year,
     recommendation_extended,
@@ -482,6 +483,21 @@ class GeneratedReview:
             readiness_report=readiness,
         )
 
+    def _candidate_pool(self) -> list[TrackRecord]:
+        """The library tracks an engine edit may pick from, period included (S17).
+
+        A plan generated with a release period keeps it: growth, and the replacement an
+        edit offers, only consider tracks whose year is inside that period. An explicit
+        choice -- ``review.insert`` and ``review.swap`` -- never comes through here, so
+        the DJ can still name any library track. A plan without a period keeps every
+        track, exactly as before.
+        """
+        plan = self.backend.plan
+        assert plan is not None
+        current = self._sources(frozenset())
+        candidates = [entry[0] for path, entry in current.items() if self._same(self.sources.get(path), entry)]
+        return [track for track in candidates if in_plan_period(track, plan.intent.year_min, plan.intent.year_max)]
+
     def _replacement(
         self, review: PrepCopilotVariantApplicationResult, track_id: Any
     ) -> tuple[str, PlaylistRecommendation]:
@@ -490,8 +506,7 @@ class GeneratedReview:
         target = self._listed(review, track_id)
         if target in self._protected(review):
             raise BackendError("protected_track", "This track is protected by the set controls")
-        current = self._sources(frozenset())
-        candidates = [entry[0] for path, entry in current.items() if self._same(self.sources.get(path), entry)]
+        candidates = self._candidate_pool()
         candidates, _ = _filter_tracks_for_variant(cast(PrepVariantName, review.variant_name), candidates, plan.intent)
         proposed = recommendation_with_replacement(
             recommendation,
@@ -630,6 +645,11 @@ class GeneratedReview:
             )
         current_sources = self._sources(frozenset())
         candidates = [entry[0] for path, entry in current_sources.items() if self._same(self.sources.get(path), entry)]
+        # S17: the outside-genre pool the engine may bridge into is period-scoped too, so a
+        # list generated with a period never grows past the tracks that period holds.
+        candidates = [
+            track for track in candidates if in_plan_period(track, plan.intent.year_min, plan.intent.year_max)
+        ]
         in_genre, _ = _filter_tracks_for_variant(cast(PrepVariantName, review.variant_name), candidates, plan.intent)
         proposed, outside_genre = recommendation_extended(
             recommendation,
