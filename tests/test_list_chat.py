@@ -1054,3 +1054,18 @@ def test_a_year_filter_that_is_not_an_integer_range_is_ignored(item):
     answer = list_chat.parse_answer(raw, 4)
     assert answer.searches == ()
     assert answer.ignored_searches == (list_chat.DroppedSearch(item, "unsupported search"),)
+
+
+def test_a_replace_that_names_a_found_track_is_read_as_replace_with():
+    """Real provider answers write a swap for a found track as ``replace`` plus ``ref``."""
+    raw = json.dumps(
+        {
+            "reply": "Propongo un cambio.",
+            "actions": [{"type": "replace", "position": 2, "ref": "L18", "reason": "Es de 1986."}],
+        }
+    )
+
+    answer = list_chat.parse_answer(raw, 4)
+
+    assert [(action.type, action.position, action.ref) for action in answer.actions] == [("replace_with", 2, "L18")]
+    assert answer.dropped == 0

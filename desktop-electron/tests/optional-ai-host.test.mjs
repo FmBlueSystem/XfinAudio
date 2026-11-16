@@ -300,7 +300,7 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
   assert.deepEqual(results.map(result=>result.title),['Electron test 5','Electron test 6','Electron test 7','Electron test 8'],'the whole eligible library, closest BPM first');
   assert.deepEqual(results.map(result=>result.reference),['L1','L2','L3','L4'],'each result gets a conversation reference');
   for(const result of results){
-   assert.deepEqual(Object.keys(result).sort(),['artist','bpm','duration','energy','genre','key','reference','title'],'a result carries no path and no track identity');
+   assert.deepEqual(Object.keys(result).filter(key=>key!=='año').sort(),['artist','bpm','duration','energy','genre','key','reference','title'],'a result carries no path and no track identity; the release year is the only optional field');
    assert.equal(/[0-9a-f]{64}/.test(JSON.stringify(result)),false);
   }
   const [removeCard,addCard,swapCard,orderCard]=published;

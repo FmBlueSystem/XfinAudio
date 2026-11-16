@@ -349,6 +349,10 @@ def _action(
     """Accept exactly one documented shape, or say why the item was dropped."""
     if not isinstance(item, dict) or item.get("type") not in ACTION_TYPES:
         return DroppedAction(item, _UNSUPPORTED)
+    # The provider often writes a swap for a track it found as ``replace`` with a
+    # ``ref``; that is the ``replace_with`` shape under another name.
+    if item["type"] == "replace" and "ref" in item:
+        item = {**item, "type": "replace_with"}
     kind = item["type"]
     if set(item) != _ACTION_FIELDS[kind]:
         return DroppedAction(item, _UNEXPECTED_FIELDS)
