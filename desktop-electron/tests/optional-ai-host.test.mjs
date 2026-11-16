@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {mkdtemp,realpath,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';
-const require=createRequire(import.meta.url),{OptionalAiHost}=require('../.out/main/optional-ai-host.js'),{validateRequest}=require('../.out/main/security.js'),{PythonBridge}=require('../.out/main/bridge.js');
+const require=createRequire(import.meta.url),{OptionalAiHost}=require('../.out/main/optional-ai-host.js'),{validateRequest}=require('../.out/main/security.js'),{PythonBridge}=require('../.out/main/bridge.js'),{ListChatController,listChatActionText}=require('../.out/renderer/list-chat.js');
 const id='11111111-1111-4111-8111-111111111111',rev='a'.repeat(64),recipient='https://api.nan.builders/v1/chat/completions',deferred=()=>{let resolve;return {promise:new Promise(r=>resolve=r),resolve:v=>resolve(v)}},python=process.env.XFIN_PYTHON,coreRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 function fixture(){const calls=[];let choose=async()=>null,confirm=async()=>true,closing=false,endpoint=recipient,auto=false,firstTurn=true,prepared='editor';const host=new OptionalAiHost({request:async(method,params)=>{calls.push([method,params]);if(method==='ai.prepare'){prepared=String(params.surface);return {previewId:id,surface:prepared,firstTurn,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};}if(method==='ai.confirmation')return {previewId:id,surface:prepared,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};if(method==='ai.run')return {cancelled:false,result:{resultId:id}};return {revision:rev};},choose:()=>choose(),confirm:summary=>{calls.push(['dialog',summary]);return confirm();},cancel:async()=>{calls.push(['cancel']);return {cancelled:true};},autoAuthorize:async()=>auto,isClosing:()=>closing});return {host,calls,setChoose:v=>choose=v,setConfirm:v=>confirm=v,setAuto:v=>auto=v,setFirstTurn:v=>firstTurn=v,close:()=>closing=true,badEndpoint:()=>endpoint='https://elsewhere.example'};}
 test('prepare and declined native AI confirmation cannot send a provider request',async()=>{const f=fixture();await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});f.setConfirm(async()=>false);assert.deepEqual(await f.host.ask(id),{cancelled:true,result:null});assert.ok(!f.calls.some(([m])=>m==='ai.run'));});
@@ -123,6 +123,13 @@ test('automatic authorization keeps its meaning for chat, first turn included',a
 // `ai.chat.reset` behind the bridge.
 const reply='Mueve la pista 1 a la posición 2: la curva de energía sube parejo.',
  reason='La energía sube parejo si la 1 va después de la 2.',
+ searchRequest='Busca en la biblioteca y propón cambios.',
+ searchReply='Encontré dos pistas que encajan: quito la 3, sumo la 6 al final y cambio la 1 por la 5.',
+ removeReason='Sobra: no aporta a la curva.',
+ addReason='Cierra con más energía.',
+ replaceReason='La 5 encaja mejor al inicio.',
+ reorderReason='La curva de energía sube antes.',
+ undoReason='El orden anterior servía mejor.',
  chatScript=`import io,json,re,sys,urllib.request
 from pathlib import Path
 from xfinaudio.headless.backend import HeadlessBackend
@@ -135,6 +142,22 @@ urllib.request.urlopen=forbidden
 urllib.request.build_opener=forbidden
 root=Path(sys.argv[1])
 backend=HeadlessBackend(root)
+def answer_body(reply,actions,searches=None):
+    body={'reply':reply,'actions':list(actions)}
+    if searches is not None: body['searches']=list(searches)
+    return json.dumps(body,ensure_ascii=False)
+# The plain turn: one move, as before.
+MOVE=answer_body("""${reply}""",[{'type':'move','position':1,'to':2,'reason':"""${reason}"""}])
+# S4: the first answer of the search turn asks for one library search and proposes nothing.
+SEARCH=answer_body('Busco en la biblioteca.',[],[{'query':''}])
+# S5: the second answer proposes the five new changes against the list it just read.
+FIVE=answer_body("""${searchReply}""",[
+ {'type':'remove','position':3,'reason':"""${removeReason}"""},
+ {'type':'add','ref':'L2','position':5,'reason':"""${addReason}"""},
+ {'type':'replace_with','position':2,'ref':'L1','reason':"""${replaceReason}"""},
+ {'type':'reorder','order':[4,1,2,3],'reason':"""${reorderReason}"""},
+ {'type':'undo','reason':"""${undoReason}"""},
+])
 def fake(request,*,timeout):
     assert request.full_url==nan_client.DEFAULT_ENDPOINT
     assert request.get_header('Authorization')=='Bearer dummy-test-only'
@@ -149,9 +172,19 @@ def fake(request,*,timeout):
     system=json.loads(body)['messages'][0]
     assert system['role']=='system'
     assert 'JSON' in system['content'] and '"reply"' in system['content'] and '"actions"' in system['content'] and '"to"' in system['content']
+    # One answer per request: a search round sends its second request with the local
+    # results as the last message, and only that request carries the five changes.
+    last=json.loads(body)['messages'][-1]['content']
+    if last.startswith('Resultados de tu búsqueda'):
+        assert '.flac' not in last
+        assert not re.search(r'[0-9a-f]{64}',last)
+        content=FIVE
+    elif last=="""${searchRequest}""":
+        content=SEARCH
+    else:
+        content=MOVE
     with (root/'fake-requests.jsonl').open('a') as log: log.write(json.dumps({'recipient':request.full_url,'body':body})+'\\n')
-    answer=json.dumps({'reply':"""${reply}""",'actions':[{'type':'move','position':1,'to':2,'reason':"""${reason}"""}]})
-    return io.BytesIO(json.dumps({'choices':[{'message':{'content':answer}}]}).encode())
+    return io.BytesIO(json.dumps({'choices':[{'message':{'content':content}}]}).encode())
 backend.optional_ai.transport=fake
 JsonlServer(backend,sys.stdout).run(sys.stdin.buffer)
 `;
@@ -235,5 +268,78 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
   assert.deepEqual(await core.request('ai.chat.reset'),{conversation:[]});
   assert.deepEqual(await core.request('ai.chat.history'),{conversation:[],actions:[]},'reset clears the conversation and its changes');
   assert.equal((await host.prepare({surface:'chat',request:'Otra vez',context:{reviewId:untouched.reviewId}})).firstTurn,true,'reset starts a new conversation');
+  // --- S4/S5/S6: one search round, then the five new changes, proven against the real core ---
+  // A manual reorder gives the review an undo step, and S5 only proposes `undo` when one exists.
+  const relisted=await core.request('review.reorder',{reviewId:untouched.reviewId,trackIds:[order[1],order[0],order[2],order[3]]});
+  assert.deepEqual(relisted.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 3','Electron test 4'],'the list the assistant reads next');
+  assert.equal(relisted.canUndo,true,'the review now has an undo step to propose undoing');
+  const asked=await host.prepare({surface:'chat',request:searchRequest,context:{reviewId:relisted.reviewId}});
+  assert.equal(asked.firstTurn,true,'the reset conversation asks for consent again');
+  const searched=await host.ask(asked.previewId);
+  assert.equal(dialogs.length,2,'the new conversation is consented once');
+  assert.equal(searched.cancelled,false);
+  assert.equal(searched.result.text,searchReply,'only the final answer is what the DJ reads');
+  assert.deepEqual(searched.result.conversation.map(message=>message.text),[searchRequest,searchReply],'the search answer is neither shown nor stored');
+  assert.equal(searched.result.listChanged,false);
+  assert.equal(searched.result.droppedActions,0,'every documented change can apply');
+  const published=searched.result.actions;
+  assert.deepEqual(published.map(action=>action.type),['remove','add','replace_with','reorder','undo'],'S5 publishes the five new changes');
+  assert.equal(await requests(),4,'the search turn is exactly two provider requests');
+  const bodies=(await readFile(path.join(data,'fake-requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(JSON.parse(line).body));
+  const searching=bodies.filter(body=>body.messages.at(-1).content.startsWith('Resultados de tu búsqueda'));
+  assert.equal(searching.length,1,'one search round, one extra request');
+  const results=JSON.parse(searching[0].messages.at(-1).content.split('\n').at(-1));
+  assert.deepEqual(results.map(result=>result.title),['Electron test 5','Electron test 6','Electron test 7','Electron test 8'],'the whole eligible library, closest BPM first');
+  assert.deepEqual(results.map(result=>result.reference),['L1','L2','L3','L4'],'each result gets a conversation reference');
+  for(const result of results){
+   assert.deepEqual(Object.keys(result).sort(),['artist','bpm','duration','energy','genre','key','reference','title'],'a result carries no path and no track identity');
+   assert.equal(/[0-9a-f]{64}/.test(JSON.stringify(result)),false);
+  }
+  const [removeCard,addCard,swapCard,orderCard,undoCard]=published;
+  const library=(result,keys)=>Object.fromEntries(keys.map(key=>[key,result[key]]));
+  assert.deepEqual(Object.keys(removeCard).sort(),['actionId','artist','position','reason','title','type'],'a remove publishes exactly its documented fields');
+  assert.deepEqual([removeCard.position,removeCard.title,removeCard.artist,removeCard.reason],[3,'Electron test 3','XfinAudio Test',removeReason]);
+  assert.deepEqual(Object.keys(addCard).sort(),['actionId','position','reason','track','type'],'an add publishes exactly its documented fields');
+  assert.deepEqual([addCard.position,addCard.reason],[5,addReason]);
+  assert.deepEqual(addCard.track,library(results[1],['title','artist','bpm','key']),'the added track is the one L2 named');
+  assert.deepEqual(Object.keys(swapCard).sort(),['actionId','artist','position','reason','title','track','type'],'a replace_with publishes a remove plus the new track');
+  assert.deepEqual([swapCard.position,swapCard.title,swapCard.reason],[2,'Electron test 1',replaceReason]);
+  assert.deepEqual(swapCard.track,library(results[0],['title','artist','bpm','key']),'the replacing track is the one L1 named');
+  assert.deepEqual(Object.keys(orderCard).sort(),['actionId','moved','reason','type'],'a reorder publishes how many tracks move');
+  assert.deepEqual([orderCard.moved,orderCard.reason],[4,reorderReason]);
+  assert.deepEqual(Object.keys(undoCard).sort(),['actionId','reason','type'],'an undo names nothing');
+  assert.equal(undoCard.reason,undoReason);
+  assert.equal(JSON.stringify(searched.result).includes('.flac'),false,'no local path leaves the core');
+  assert.equal(/[0-9a-f]{64}/.test(JSON.stringify(searched.result)),false,'no track identity leaves the core');
+  // The renderer's own validator and card text, fed with the actions the real core published.
+  const history=await core.request('ai.chat.history');
+  assert.deepEqual(history.actions,published,'the core reports the same pending changes');
+  const unreachable=()=>{throw new Error('unreachable')};
+  const panel=new ListChatController({aiChatHistory:async()=>history,aiChatReset:async()=>history,prepareAiRequest:unreachable,runAiRequest:unreachable,inspectAiPayload:unreachable,aiChatApply:unreachable},{canAct:()=>true,changed:()=>{},perform:async(_label,task,apply,fail)=>{try{apply(await task(),true);}catch(error){fail(error);}}});
+  panel.setReview(relisted.reviewId);
+  await panel.load();
+  assert.equal(panel.error,'','the renderer accepts every change the core published');
+  assert.deepEqual(panel.actions,published,'no change, field or bound was refused');
+  assert.equal(panel.droppedActions,0);
+  assert.deepEqual(panel.actions.map(listChatActionText),[
+   'Quitar 3. Electron test 3',
+   'Agregar Electron test 6 en la posición 5',
+   'Reemplazar 2. Electron test 1 por Electron test 5',
+   'Reordenar la lista (4 pistas cambian de lugar)',
+   'Deshacer el último cambio',
+  ],'every card renders its S6 sentence');
+  // S5: each shown change applies as a normal review edit through the validated bridge request.
+  const applyOnce=action=>core.request('ai.chat.apply',validateRequest('aiChatApply',{actionId:action.actionId}));
+  const afterAdd=await applyOnce(addCard);
+  assert.deepEqual(afterAdd.review.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 3','Electron test 4','Electron test 6'],'the added track enters at its position');
+  assert.deepEqual(afterAdd.actions.map(action=>action.type),['remove','replace_with','undo'],'the changes still pending stay bound to their tracks');
+  const afterRemove=await applyOnce(removeCard);
+  assert.deepEqual(afterRemove.review.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 4','Electron test 6'],'the removed track leaves without a replacement');
+  const afterSwap=await applyOnce(swapCard);
+  assert.deepEqual(afterSwap.review.tracks.map(track=>track.title),['Electron test 2','Electron test 5','Electron test 4','Electron test 6'],'the swap replaces its track at its position');
+  assert.deepEqual(afterSwap.actions.map(action=>action.type),['undo'],'a reorder bound to the old list is no longer offered');
+  assert.equal(await requests(),4,'applying never calls the provider');
+  const reverted=await core.request('review.undo',{reviewId:afterSwap.review.reviewId});
+  assert.deepEqual(reverted.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 4','Electron test 6'],'undo reverts the applied change');
  }finally{await core.close();await rm(data,{recursive:true,force:true});}
 });
