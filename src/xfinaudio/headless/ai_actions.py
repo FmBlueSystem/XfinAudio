@@ -195,6 +195,9 @@ def public_actions(backend: HeadlessBackend, actions: Iterable[ChatAction]) -> l
             if order is None or sorted(order) != sorted(current_ids):
                 continue
             moved = sum(1 for index, track_id in enumerate(order) if track_id != current_ids[index])
+            if moved == 0:
+                # Nothing would change place (an identity order, or one already applied).
+                continue
             published.append({"actionId": action.id, "type": "reorder", "moved": moved, "reason": action.reason})
             continue
         if action.type == "add":

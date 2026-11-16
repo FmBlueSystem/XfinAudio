@@ -334,6 +334,20 @@ def test_the_chat_instructions_describe_the_searches_and_the_new_changes(setup):
     assert "un solo reorder y un solo undo" in system
 
 
+def test_the_chat_instructions_say_it_only_proposes_and_searches_before_answering(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    _, transport = chat(facts)
+    system = transport.bodies[0]["messages"][0]["content"]
+    assert "nunca cambias la lista" in system
+    assert "«Aplicar»" in system
+    for wording in ("«propongo»", "«hecho»", "«quité»", "«deshice»"):
+        assert wording in system
+    assert "reply corto" in system
+    assert "recibirás los resultados" in system and "volverás a responder" in system
+
+
 def test_the_answer_is_read_as_a_json_object_with_its_valid_actions(setup):
     backend, _, _ = setup
     recommendation, readiness = review_of(backend)
@@ -362,7 +376,6 @@ def test_the_answer_is_read_as_a_json_object_with_its_valid_actions(setup):
     "raw",
     [
         "Quitaría la pista 3 y movería la 4 al cierre.",
-        'Claro: {"reply": "Listo.", "actions": []}',
         '["no", "es", "un", "objeto"]',
         json.dumps({"actions": [{"type": "replace", "position": 1, "reason": "motivo"}]}),
         json.dumps({"reply": 7, "actions": []}),
@@ -380,6 +393,57 @@ def test_a_fenced_json_object_is_read_as_the_structured_answer():
     answer = list_chat.parse_answer(raw, 4)
     assert answer.reply == "Propongo dos cambios."
     assert answer.actions == (list_chat.ProposedAction("move", 1, 2, "motivo"),)
+
+
+def _line_broken_answer(prefix: str = "", suffix: str = "", fenced: bool = False) -> str:
+    """One answer whose ``reply`` keeps a literal line break and a tab, padded as the model writes it."""
+    body = (
+        '{"reply": "Propongo esto:\n\tprimero quitar la pista 3", '
+        '"actions": [{"type": "remove", "position": 3, "reason": "Sobra"}], '
+        '"searches": [{"query": "Madonna"}]}'
+    )
+    if fenced:
+        fence = "`" * 3
+        return prefix + fence + "json\n" + body + "\n" + fence + suffix
+    return prefix + body + suffix
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        _line_broken_answer(),
+        _line_broken_answer(fenced=True),
+        _line_broken_answer(prefix="Aquí va mi respuesta.\n", suffix="\n¿Te parece bien?"),
+    ],
+    ids=["plain", "fenced", "padded"],
+)
+def test_an_answer_with_line_breaks_and_a_tab_inside_the_reply_is_read_whole(raw):
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.reply == "Propongo esto:\n\tprimero quitar la pista 3"
+    assert answer.actions == (list_chat.ProposedAction("remove", 3, None, "Sobra"),)
+    assert answer.searches == (list_chat.SearchQuery(query="Madonna"),)
+    assert answer.dropped == 0
+    assert answer.raw == raw
+
+
+def test_plain_text_without_an_object_is_still_the_whole_reply():
+    raw = "Propongo quitar la pista 3.\n\tY mover la 4 al cierre."
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.reply == raw
+    assert answer.actions == () and answer.searches == () and answer.dropped == 0
+
+
+def test_an_answer_with_line_breaks_shows_and_stores_only_the_reply_string(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    transport = ChatTransport(_line_broken_answer(fenced=True))
+    with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
+        answer = list_chat.chat_with_list(facts, "Pregunta", [], track_count=4, transport=transport)
+    assert answer.reply == "Propongo esto:\n\tprimero quitar la pista 3"
+    assert "reply" not in answer.reply and "actions" not in answer.reply and "{" not in answer.reply
+    assert [action.type for action in answer.actions] == ["remove"]
+    assert [query.query for query in answer.searches] == ["Madonna"]
 
 
 @pytest.mark.parametrize(

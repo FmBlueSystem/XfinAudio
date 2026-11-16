@@ -84,6 +84,8 @@ _ONCE_PER_REPLY = frozenset({"extend", "use_variant", "reorder", "undo"})
 _REFERENCE = re.compile(r"L[1-9][0-9]{0,5}")
 #: A Camelot key, exactly as the local Library query reads one.
 _CAMELOT_KEY = re.compile(r"(?:[1-9]|1[0-2])[AB]")
+#: The answer reader: real answers carry literal line breaks and tabs inside ``reply``.
+_TOLERANT_JSON = json.JSONDecoder(strict=False)
 #: Why a proposed change was refused; the opt-in chat log repeats each reason verbatim.
 _UNSUPPORTED = "unsupported change"
 _UNEXPECTED_FIELDS = "unexpected fields"
@@ -236,17 +238,35 @@ def parse_answer(raw: str, track_count: int, protected: Sequence[int] = ()) -> C
 
 
 def _json_object(raw: str) -> dict[str, Any] | None:
-    """The structured object an answer carries, tolerating a fenced or padded provider reply."""
+    """The structured object an answer carries, tolerating a fenced or padded provider reply.
+
+    Real answers write the ``reply`` string with literal line breaks and tabs, which strict
+    JSON rejects, and pad the object with a sentence, a fence or both. So the fences and the
+    surrounding prose are removed and the first readable object of the text is returned, its
+    strings still holding those control characters; the reply is then the text itself.
+    """
     text = raw.strip()
     if text.startswith("```"):
-        text = text.split("\n", 1)[-1] if "\n" in text else ""
-    if text.endswith("```"):
-        text = text[: -len("```")]
-    try:
-        value = json.loads(text)
-    except ValueError:
-        return None
-    return value if isinstance(value, dict) else None
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+    fence = text.rfind("```")
+    if fence != -1:
+        text = text[:fence]
+    return _first_object(text)
+
+
+def _first_object(text: str) -> dict[str, Any] | None:
+    """The first JSON object the text can read, ignoring any prose before it."""
+    start = text.find("{")
+    while start != -1:
+        try:
+            value, _ = _TOLERANT_JSON.raw_decode(text, start)
+        except ValueError:
+            start = text.find("{", start + 1)
+            continue
+        if isinstance(value, dict):
+            return value
+        start = text.find("{", start + 1)
+    return None
 
 
 def _action(
@@ -413,7 +433,11 @@ _INSTRUCTIONS = (
     "query puede ser vacío y solo hace falta el campo que quieras acotar. Cada búsqueda devuelve "
     "hasta 20 pistas con una referencia como L1: úsalas en ref y no pidas otra búsqueda en la "
     "misma respuesta.\n"
-    "15. Si no propones cambios, deja actions como lista vacía."
+    "15. Si no propones cambios, deja actions como lista vacía.\n"
+    "16. Tú nunca cambias la lista: solo propones cambios que el DJ aplica con «Aplicar». Escribe "
+    "«propongo»; nunca «hecho», «quité» ni «deshice».\n"
+    "17. Si necesitas ver pistas de la biblioteca, pide la búsqueda en searches y escribe un reply "
+    "corto: recibirás los resultados y volverás a responder."
 )
 
 
