@@ -84,6 +84,15 @@ _ONCE_PER_REPLY = frozenset({"extend", "use_variant", "reorder", "undo"})
 _REFERENCE = re.compile(r"L[1-9][0-9]{0,5}")
 #: A Camelot key, exactly as the local Library query reads one.
 _CAMELOT_KEY = re.compile(r"(?:[1-9]|1[0-2])[AB]")
+#: A search reference the provider writes in the prose; the DJ never reads one.
+_REFERENCE_IN_REPLY = re.compile(r"(?<!\w)L[1-9][0-9]{0,5}(?!\w)")
+#: The brackets a removed reference leaves empty.
+_EMPTY_BRACKETS = re.compile(r"\(\s*\)|\[\s*\]|\{\s*\}")
+#: The gap a removed reference leaves on one line of the reply.
+_SPACE_RUN = re.compile(r"[ \t]{2,}")
+#: The spacing artifacts a removed reference leaves next to a bracket or a punctuation mark.
+_SPACE_BEFORE = re.compile(r" +([,.;:!?»)\]])")
+_SPACE_AFTER = re.compile(r"([«([{]) +")
 #: The answer reader: real answers carry literal line breaks and tabs inside ``reply``.
 _TOLERANT_JSON = json.JSONDecoder(strict=False)
 #: Why a proposed change was refused; the opt-in chat log repeats each reason verbatim.
@@ -230,13 +239,13 @@ def parse_answer(raw: str, track_count: int, protected: Sequence[int] = ()) -> C
     """
     body = _json_object(raw)
     if body is None:
-        return ChatAnswer(reply=raw, raw=raw)
+        return ChatAnswer(reply=_clean_reply(raw), raw=raw)
     reply = body.get("reply")
     if not isinstance(reply, str):
-        return ChatAnswer(reply=raw, raw=raw)
+        return ChatAnswer(reply=_clean_reply(raw), raw=raw)
     items = body.get("actions")
     if not isinstance(items, list):
-        return ChatAnswer(reply=reply, raw=raw)
+        return ChatAnswer(reply=_clean_reply(reply), raw=raw)
     searches, ignored_searches = _searches(body)
     refused = set(protected)
     accepted: list[ProposedAction] = []
@@ -262,7 +271,32 @@ def parse_answer(raw: str, track_count: int, protected: Sequence[int] = ()) -> C
         if action.type in _ONCE_PER_REPLY:
             used_kinds.add(action.type)
         accepted.append(action)
-    return ChatAnswer(reply, tuple(accepted), len(dropped), tuple(dropped), raw, searches, ignored_searches)
+    return ChatAnswer(
+        _clean_reply(reply), tuple(accepted), len(dropped), tuple(dropped), raw, searches, ignored_searches
+    )
+
+
+def _clean_reply(reply: str) -> str:
+    """The reply as the DJ reads it: no internal search reference, no gap one left behind.
+
+    The provider names a library track with its short reference (``L26``) in the prose
+    even though that reference is internal to the conversation. A reference is removed
+    where it stands, together with the brackets, the spacing and the punctuation it
+    leaves orphaned, so a title and its artist stay exactly as written. A word that
+    merely starts with an ``L`` (``La``, ``L.A.``, ``LP``) is not a reference and is
+    left untouched, and a reply without a reference is returned verbatim.
+    """
+    if _REFERENCE_IN_REPLY.search(reply) is None:
+        return reply
+    text = _REFERENCE_IN_REPLY.sub("", reply)
+    while _EMPTY_BRACKETS.search(text) is not None:
+        text = _EMPTY_BRACKETS.sub("", text)
+    return "\n".join(_tidy_reply_line(line) for line in text.split("\n"))
+
+
+def _tidy_reply_line(line: str) -> str:
+    """One line of a cleaned reply, without the doubled spaces and stray edges."""
+    return _SPACE_BEFORE.sub(r"\1", _SPACE_AFTER.sub(r"\1", _SPACE_RUN.sub(" ", line).strip()))
 
 
 def _json_object(raw: str) -> dict[str, Any] | None:
@@ -486,7 +520,11 @@ _INSTRUCTIONS = (
     "16. Tú nunca cambias la lista: solo propones cambios que el DJ aplica con «Aplicar». Escribe "
     "«propongo»; nunca «hecho», «quité» ni «deshice».\n"
     "17. Si necesitas ver pistas de la biblioteca, pide la búsqueda en searches y escribe un reply "
-    "corto: recibirás los resultados y volverás a responder."
+    "corto: recibirás los resultados y volverás a responder.\n"
+    "18. En el reply nombra cada pista que encontraste por su título y su artista, nunca por su "
+    "referencia: L1, L2… son internas, van solo en ref y el DJ no las lee.\n"
+    "19. Cuando le hables al DJ de las alternativas del plan, llámalas «segura», «equilibrada» y "
+    "«exploratoria»; en variant sigue escribiendo safe, balanced o adventurous."
 )
 
 
