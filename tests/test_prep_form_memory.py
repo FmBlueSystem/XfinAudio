@@ -24,6 +24,8 @@ FORM_FIELDS = {
     "name",
     "startTrackId",
     "endTrackId",
+    "yearMin",
+    "yearMax",
 }
 
 
@@ -50,6 +52,8 @@ def test_a_successful_generation_remembers_the_form_for_the_next_start(tmp_path:
         slotRole="warmup",
         startTrackId=identity(records[0]),
         endTrackId=identity(records[1]),
+        yearMin=1980,
+        yearMax=1989,
     )
     expected = {
         "targetTrackCount": 4,
@@ -59,6 +63,8 @@ def test_a_successful_generation_remembers_the_form_for_the_next_start(tmp_path:
         "name": "Club",
         "startTrackId": identity(records[0]),
         "endTrackId": identity(records[1]),
+        "yearMin": 1980,
+        "yearMax": 1989,
     }
     current = snapshot(backend)
     assert current.get("lastForm") == expected
@@ -83,6 +89,8 @@ def test_a_refused_generation_remembers_nothing_and_keeps_the_previous_form(tmp_
         {"targetTrackCount": 1},
         {"name": "Segunda", "startTrackId": "0" * 64},
         {"name": "Segunda", "targetMinutes": 0},
+        {"name": "Segunda", "yearMin": 1990, "yearMax": 1980},
+        {"name": "Segunda", "yearMin": 1899},
     ):
         with pytest.raises(BackendError):
             backend.execute("prep.generate", {"targetTrackCount": 4, "name": "Club", **refused})

@@ -22,6 +22,7 @@ from xfinaudio.recommendation.prep_copilot import (
     DJSetIntent,
     PrepCopilotPlan,
     build_prep_copilot_plan,
+    period_keeps_track,
 )
 
 GENERATE_FIELDS = {
@@ -35,6 +36,8 @@ GENERATE_FIELDS = {
     "endTrackId",
     "requiredTrackIds",
     "excludedTrackIds",
+    "yearMin",
+    "yearMax",
 }
 VARIANT_NAMES = ("safe", "balanced", "adventurous")
 
@@ -74,6 +77,19 @@ def make_intent(params: dict[str, Any], name: str, paths: dict[str, str], record
     if "genreFocus" in params and (not isinstance(genre, str) or len(genre) > 100 or "\x00" in genre):
         raise ValueError("Invalid genre focus")
 
+    def release_year(field: str) -> int | None:
+        """S16: an optional bound of the release period, 1900 to 2100."""
+        if field not in params:
+            return None
+        value = params[field]
+        if not isinstance(value, int) or isinstance(value, bool) or not 1900 <= value <= 2100:
+            raise ValueError("A release year must be an integer from 1900 to 2100")
+        return value
+
+    year_min, year_max = release_year("yearMin"), release_year("yearMax")
+    if year_min is not None and year_max is not None and year_min > year_max:
+        raise ValueError("The initial year cannot be greater than the final year")
+
     def resolve(track_id: Any) -> str:
         if not isinstance(track_id, str) or re.fullmatch(r"[0-9a-f]{64}", track_id) is None or track_id not in paths:
             raise ValueError("Track identity is not in the current authorized library")
@@ -110,6 +126,8 @@ def make_intent(params: dict[str, Any], name: str, paths: dict[str, str], record
         end_path=end,
         required_paths=required,
         excluded_paths=excluded,
+        year_min=year_min,
+        year_max=year_max,
     )
 
 
@@ -123,6 +141,10 @@ def generate_plan(
 ) -> PrepCopilotPlan:
     """Preserve hard filters, control priorities and the bound colour identity."""
     band = DEFAULT_LOUDNESS_BAND if loudness_band is None else loudness_band
+    # S16: the period narrows the library before the interactive candidate cap, so
+    # the cap can never spend its slots on tracks outside the epoch the DJ asked
+    # for. The plan builder applies the same rule per variant for its other callers.
+    records = [record for record in records if period_keeps_track(intent, record)]
     manual = [intent.start_path] if intent.start_path is not None else []
     manual.extend(path for path in intent.required_paths if path not in manual)
     controls = DJControls(

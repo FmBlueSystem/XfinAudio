@@ -151,6 +151,8 @@ def test_prep_form_settings_defaults_to_an_untouched_form() -> None:
     assert form.name is None
     assert form.start_track_path is None
     assert form.end_track_path is None
+    assert form.year_min is None
+    assert form.year_max is None
 
 
 def test_app_settings_payload_without_build_section_hydrates_defaults() -> None:
@@ -180,6 +182,8 @@ def test_app_settings_ignores_a_legacy_prep_form_section() -> None:
         ("slot_role", "unknown", "Input should be 'warmup', 'peak_time' or 'chill'"),
         ("strategy", "x" * 51, "at most 50 characters"),
         ("name", "x" * 201, "at most 200 characters"),
+        ("year_min", 1899, "greater than or equal to 1900"),
+        ("year_max", 2101, "less than or equal to 2100"),
     ],
 )
 def test_prep_form_settings_rejects_values_outside_the_prep_contract(field: str, value: object, message: str) -> None:

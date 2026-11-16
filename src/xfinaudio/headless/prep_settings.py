@@ -181,6 +181,8 @@ class PrepSettings:
             "name": form.name,
             "startTrackId": remembered(form.start_track_path),
             "endTrackId": remembered(form.end_track_path),
+            "yearMin": form.year_min,
+            "yearMax": form.year_max,
         }
 
     def remember(self, intent: DJSetIntent) -> None:
@@ -193,6 +195,8 @@ class PrepSettings:
             name=intent.name,
             start_track_path=intent.start_path,
             end_track_path=intent.end_path,
+            year_min=intent.year_min,
+            year_max=intent.year_max,
         )
         try:
             write_form(self.backend.data_dir, form)

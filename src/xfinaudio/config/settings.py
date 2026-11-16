@@ -157,6 +157,10 @@ class PrepFormSettings(BaseModel):
     name: str | None = Field(default=None, max_length=200)
     start_track_path: str | None = None
     end_track_path: str | None = None
+    # S16: the optional release period the form carried, so the next start offers the
+    # same epoch. Either bound alone is an open range; both empty means no limit.
+    year_min: int | None = Field(default=None, ge=1900, le=2100)
+    year_max: int | None = Field(default=None, ge=1900, le=2100)
 
 
 class AppSettings(BaseModel):

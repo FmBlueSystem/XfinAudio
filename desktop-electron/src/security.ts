@@ -44,7 +44,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     openLive:['reviewId'],getLiveStatus:['sessionId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
     chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
     chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],prepGenres:['startTrackId','genre'],selectPrepVariant:['planId','variant'],
-    generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds'],
+    generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds','yearMin','yearMax'],
     savePlaylist:['name','reviewId'],listPlaylists:[],renamePlaylist:['playlistId','name'],duplicatePlaylist:['playlistId'],openPlaylistEditor:['playlistId'],
     previewPlaylistEdit:['editId','trackIds','request'],savePlaylistEdit:['editId','name','trackIds'],savePlaylistImprovement:['editId','name','proposalId','digest','draftIds'],discardPlaylistEdit:['editId'],setDraftDirty:['dirty'],openPlaylist:['playlistId'],cancelCurrent:[],
   };
@@ -78,6 +78,13 @@ function validatePrepIntent(params:Record<string,unknown>):void {
   if('targetMinutes' in params && (typeof params.targetMinutes!=='number'||!Number.isFinite(params.targetMinutes)||params.targetMinutes<=0||params.targetMinutes>600))throw new Error('Choose a duration greater than zero and at most 600 minutes');
   if('slotRole' in params && params.slotRole!==null && (typeof params.slotRole!=='string'||!['warmup','peak_time','chill'].includes(params.slotRole)))throw new Error('Invalid slot role');
   if('genreFocus' in params && (typeof params.genreFocus!=='string'||params.genreFocus.length>100||/[\x00-\x1f]/.test(params.genreFocus)))throw new Error('Invalid genre');
+  // S16: the optional release period. Whole years only, and a bound that arrives alone
+  // is an open range, so nothing is defaulted here.
+  for(const name of ['yearMin','yearMax'])if(name in params){
+    const value=params[name];
+    if(!Number.isInteger(value)||Number(value)<1900||Number(value)>2100)throw new Error('Invalid release year');
+  }
+  if(Number.isInteger(params.yearMin)&&Number.isInteger(params.yearMax)&&Number(params.yearMin)>Number(params.yearMax))throw new Error('The initial year cannot be greater than the final year');
   for(const name of ['startTrackId','endTrackId'])if(name in params)assertTrackId(params[name]);
   for(const name of ['requiredTrackIds','excludedTrackIds']) {
     if(!(name in params))continue;

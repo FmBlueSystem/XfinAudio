@@ -14,6 +14,11 @@ test('extended Prep accepts bounded domain intent using opaque track IDs',()=>{
  const params={targetTrackCount:20,name:'Session',strategy:'warmup',targetMinutes:30,slotRole:'warmup',genreFocus:'House',startTrackId:start,endTrackId:end,requiredTrackIds:[start],excludedTrackIds:[excluded]};
  assert.deepEqual(validateRequest('generatePrep',params),params);
 });
+test('an optional release period crosses only as two bounded whole years',()=>{
+ const basic={targetTrackCount:20,name:'Session'};
+ for(const period of [{yearMin:1980},{yearMax:1989},{yearMin:1980,yearMax:1989},{yearMin:1900,yearMax:2100},{yearMin:1980,yearMax:1980}])assert.deepEqual(validateRequest('generatePrep',{...basic,...period}),{...basic,...period});
+ for(const period of [{yearMin:1899},{yearMax:2101},{yearMin:0},{yearMin:1985.5},{yearMin:'1980'},{yearMax:true},{yearMin:[1980]},{yearMin:null},{yearMin:1990,yearMax:1980}])assert.throws(()=>validateRequest('generatePrep',{...basic,...period}));
+});
 test('the genre catalog read accepts only a bounded seed identity and genre text',()=>{
  assert.deepEqual(validateRequest('prepGenres',{}),{});
  assert.deepEqual(validateRequest('prepGenres',{startTrackId:start}),{startTrackId:start});

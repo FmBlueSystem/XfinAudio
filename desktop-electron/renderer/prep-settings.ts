@@ -4,7 +4,7 @@ import { errorCode, userErrorMessage } from './errors.js';
 export interface PrepSelections { requiredTrackIds: string[]; excludedTrackIds: string[]; genreFocus: string; }
 export type PrepSlotRole = 'warmup' | 'peak_time' | 'chill';
 /** The Prep form the core accepted in the last successful generation. */
-export interface PrepFormSnapshot { targetTrackCount: number | null; targetMinutes: number | null; strategy: string | null; slotRole: PrepSlotRole | null; name: string | null; startTrackId: string | null; endTrackId: string | null; }
+export interface PrepFormSnapshot { targetTrackCount: number | null; targetMinutes: number | null; strategy: string | null; slotRole: PrepSlotRole | null; name: string | null; startTrackId: string | null; endTrackId: string | null; yearMin?: number | null; yearMax?: number | null; }
 export const EMPTY_PREP_FORM: PrepFormSnapshot = { targetTrackCount: null, targetMinutes: null, strategy: null, slotRole: null, name: null, startTrackId: null, endTrackId: null };
 export interface PrepSettingsSnapshot extends PrepSelections { revision: string; unavailableRequiredCount: number; unavailableExcludedCount: number; lastForm: PrepFormSnapshot; }
 export interface PrepSettingsApi { prepSettings(): Promise<PrepSettingsSnapshot>; savePrepSettings(input: PrepSelections & { revision: string; clearUnavailable: boolean }): Promise<PrepSettingsSnapshot>; prepGenres?(input: GenreRequest): Promise<unknown>; }
@@ -27,8 +27,18 @@ function validatePrepForm(value: unknown): PrepFormSnapshot {
   check('slotRole', (item) => typeof item === 'string' && ['warmup', 'peak_time', 'chill'].includes(item));
   check('name', (item) => typeof item === 'string' && item.length <= 200 && !/[\x00-\x1f]/.test(item));
   check('startTrackId', digest); check('endTrackId', digest);
+  // S16: the remembered period. Both empty means no limit, so null is valid too.
+  const year = (item: unknown): boolean => Number.isInteger(item) && Number(item) >= 1900 && Number(item) <= 2100;
+  check('yearMin', year); check('yearMax', year);
+  if (set('yearMin') && set('yearMax') && Number(form.yearMin) > Number(form.yearMax)) invalid();
   const pick = <K extends keyof PrepFormSnapshot>(field: K): PrepFormSnapshot[K] => (set(field) ? form[field] : null) as PrepFormSnapshot[K];
-  return { targetTrackCount: pick('targetTrackCount'), targetMinutes: pick('targetMinutes'), strategy: pick('strategy'), slotRole: pick('slotRole'), name: pick('name'), startTrackId: pick('startTrackId'), endTrackId: pick('endTrackId') };
+  // A payload that predates the period leaves the keys out, so the form is untouched
+  // and an older response still round-trips unchanged.
+  return {
+    targetTrackCount: pick('targetTrackCount'), targetMinutes: pick('targetMinutes'), strategy: pick('strategy'), slotRole: pick('slotRole'), name: pick('name'), startTrackId: pick('startTrackId'), endTrackId: pick('endTrackId'),
+    ...('yearMin' in form ? { yearMin: pick('yearMin') } : {}),
+    ...('yearMax' in form ? { yearMax: pick('yearMax') } : {}),
+  };
 }
 function validate(value: PrepSettingsSnapshot): PrepSettingsSnapshot {
   const lists = [value.requiredTrackIds, value.excludedTrackIds];
