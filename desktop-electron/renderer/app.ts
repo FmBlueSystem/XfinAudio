@@ -27,6 +27,8 @@ import { createOptionalAiView } from './optional-ai-view.js';
 import { ListChatController } from './list-chat.js';
 import type { ListChatApi } from './list-chat.js';
 import { createListChatView } from './list-chat-view.js';
+import { BotWindowController } from './bot-window.js';
+import { createBotWindowView } from './bot-window-view.js';
 import { PreferencesController } from './preferences.js';
 import { LoudnessController } from './loudness.js';
 import type { LoudnessApi } from './loudness.js';
@@ -183,6 +185,7 @@ let ai: OptionalAiController | undefined;
 let renderAi = (): void => {};
 let listChat: ListChatController | undefined;
 let renderListChat = (): void => {};
+let renderBotWindow = (): void => {};
 let aiContextKey = '';
 let deferredAiApply: (() => void) | null = null;
 let aiLibraryFilter: Set<string> | null = null;
@@ -409,7 +412,8 @@ const listChatApi: ListChatApi | null = (() => {
 })();
 listChat = listChatApi ? new ListChatController(listChatApi, {
   canAct: () => coreAvailable && !gate.busy,
-  changed: () => renderListChat(),
+  // The badge counts the proposals the reply still holds, so the bot button follows them.
+  changed: () => { renderListChat(); renderBotWindow(); },
   applied: (value) => applyReview(value),
   // S6: a proposed alternative is chosen by this screen, never applied in the core.
   chooseVariant: (variant) => chooseAlternative(variant),
@@ -418,8 +422,18 @@ listChat = listChatApi ? new ListChatController(listChatApi, {
     if (!listChat?.error) showStatus('Asistente de lista', listChat?.notice || 'El asistente solo lee la lista: no cambia pistas, orden ni metadatos.');
   }, false, failure),
 }) : undefined;
-if (listChat) renderListChat = createListChatView(element('list-chat-container'), listChat, { idPrefix: 'list-chat' });
-else element('list-chat-container').hidden = true;
+/**
+ * S1: the list chat is a bot button with a floating window on the review screen, not a section
+ * of the AI panel. The window owns only its own visibility; the chat keeps its conversation.
+ */
+const botWindow = new BotWindowController({
+  canAct: () => coreAvailable && !gate.busy,
+  changed: () => { renderBotWindow(); if (botWindow.open) loadChatIfOpen(); },
+  pending: () => listChat?.actions.length ?? 0,
+});
+renderBotWindow = createBotWindowView(element('bot-window-root'), botWindow, {
+  mount: (container) => { if (listChat) renderListChat = createListChatView(container, listChat, { idPrefix: 'list-chat' }); },
+});
 function invalidateAiSource(): void { aiContextKey = ''; deferredAiApply = null; ai?.invalidate(); }
 /** Selected values of a carrier select: what it reports selected and what its options mark. */
 function selectedPrepValues(id: string): string[] {
@@ -511,10 +525,10 @@ function syncAiContext(): void {
     revision = [libraryGeneration, playlists.map((item) => [item.id, item.name, item.trackCount, item.createdAt]), [...aiSavedScope]];
   } else if (route === 'ai') { surface = 'connection'; revision = 'synthetic'; }
   panel.hidden = !aiAvailable() || !surface;
-  // The chat belongs to the review screen only: it reads this generated list and speaks about it.
-  const chatPanel = element('list-chat-container');
+  // The chat belongs to the review screen only: it reads this generated list and speaks about
+  // it from its own floating window, while every other AI function stays in this panel.
   const chatReview = Boolean(listChat) && route === 'review' && Boolean(review?.reviewId);
-  chatPanel.hidden = !chatReview;
+  botWindow.setAvailable(chatReview);
   listChat?.setReview(chatReview ? review?.reviewId ?? null : null);
   if (chatReview) { renderListChat(); loadChatIfOpen(); }
   element('context-ai').hidden = panel.hidden || route === 'ai';
@@ -533,10 +547,10 @@ function loadAiIfOpen(): boolean {
   if (!ai || !coreAvailable || gate.busy || !aiAvailable() || ai.snapshot || ai.pending || ai.dirty || element('ai-panel').hidden || !element<HTMLDetailsElement>('ai-panel').open) return false;
   void ai.load(); return true;
 }
-/** The chat panel reads the stored conversation the first time it is opened on the review screen. */
+/** The bot window reads the stored conversation the first time it is opened on the review screen. */
 function loadChatIfOpen(): boolean {
   if (!listChat || !coreAvailable || gate.busy || !listChat.reviewId || listChat.pending || listChat.loaded) return false;
-  if (element('ai-panel').hidden || !element<HTMLDetailsElement>('ai-panel').open) return false;
+  if (!botWindow.open) return false;
   void listChat.load(); return true;
 }
 function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => void {
@@ -1476,7 +1490,7 @@ element('library-retry').addEventListener('click', retryLibraryBootstrap);
 element('library-search').addEventListener('input', renderLibrary);
 element('library-show-more').addEventListener('click', () => { libraryVisibleLimit += LIBRARY_WINDOW; renderLibrary(); });
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
-element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); loadChatIfOpen(); });
+element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
 for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{prepFormEdited=true;if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
 for (const id of ['name','count','strategy','minutes','role','genre','end','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
   event.preventDefault(); const input=element<HTMLInputElement>(`prep-${id}`);

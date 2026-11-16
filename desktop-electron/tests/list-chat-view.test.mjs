@@ -260,3 +260,49 @@ test('the two new proposal shapes are drawn as their own cards with «Aplicar»'
     assert.equal(f.get('apply-1').attrs['aria-label'], 'Aplicar: Usar la alternativa exploratoria (20 pistas)');
   } finally { f.restore(); }
 });
+const cardUuid = (n) => `${String(n).repeat(8)}-1111-4111-8111-111111111111`;
+const removeCard = { actionId: cardUuid(3), type: 'remove', position: 2, title: 'Segunda', artist: 'DJ Dos', reason: 'Choca de tonalidad con la tercera' };
+const addCard = { actionId: cardUuid(4), type: 'add', position: 3, track: { title: 'Nueva', artist: 'DJ Cinco', bpm: 126, key: '10A' }, reason: 'Sube la energía del cierre' };
+const replaceWithCard = { actionId: cardUuid(5), type: 'replace_with', position: 2, title: 'Segunda', artist: 'DJ Dos', track: { title: 'Otra', artist: 'DJ Seis', bpm: 124, key: '9A' }, reason: 'Encaja mejor con la tercera' };
+const reorderCard = { actionId: cardUuid(6), type: 'reorder', moved: 3, reason: 'La curva de energía sube antes' };
+const undoCard = { actionId: cardUuid(7), type: 'undo', reason: 'El orden anterior era mejor' };
+test('S6: the five new cards show their exact sentence, the reason and one Aplicar each', async () => {
+  const f = await fixture({}, ['Pregunta previa', 'Respuesta previa'], [removeCard, addCard, replaceWithCard, reorderCard, undoCard]);
+  try {
+    assert.equal(f.get('proposed').hidden, false);
+    const cards = f.get('proposed-actions').children;
+    assert.equal(cards.length, 5);
+    assert.deepEqual(cards.map((card) => card.children[0].textContent), [
+      'Quitar 2. Segunda',
+      'Agregar Nueva en la posición 3',
+      'Reemplazar 2. Segunda por Otra',
+      'Reordenar la lista (3 pistas cambian de lugar)',
+      'Deshacer el último cambio',
+    ]);
+    assert.deepEqual(cards.map((card) => card.children[1].textContent), [removeCard.reason, addCard.reason, replaceWithCard.reason, reorderCard.reason, undoCard.reason]);
+    const buttons = all(f.get('proposed-actions')).filter((node) => node.tagName === 'button');
+    assert.deepEqual(buttons.map((node) => node.textContent), ['Aplicar', 'Aplicar', 'Aplicar', 'Aplicar', 'Aplicar']);
+    assert.equal(f.get('apply-0').attrs['aria-label'], 'Aplicar: Quitar 2. Segunda');
+    assert.equal(f.get('apply-4').attrs['aria-label'], 'Aplicar: Deshacer el último cambio');
+  } finally { f.restore(); }
+});
+test('S2: two or more proposals offer «Aplicar todo», which applies them in order and reports the count', async () => {
+  const seen = [];
+  const f = await fixture({ aiChatApply: async (input) => { seen.push(input.actionId); return { review: appliedReview, actions: [] }; } }, ['Pregunta previa', 'Respuesta previa'], [removeCard, undoCard]);
+  try {
+    assert.equal(f.get('apply-all').hidden, false);
+    assert.equal(f.get('apply-all').textContent, 'Aplicar todo');
+    assert.equal(f.get('apply-all').disabled, false);
+    f.get('apply-all').dispatchEvent(new Event('click')); await tick();
+    assert.deepEqual(seen, [removeCard.actionId, undoCard.actionId]);
+    assert.equal(f.get('notice').hidden, false);
+    assert.equal(f.get('notice').textContent, 'Se aplicaron 2 de 2 cambios.');
+  } finally { f.restore(); }
+});
+test('S2: «Aplicar todo» is not offered for a single change', async () => {
+  const f = await fixture({}, ['Pregunta previa', 'Respuesta previa'], [removeCard]);
+  try {
+    assert.equal(f.get('proposed').hidden, false);
+    assert.equal(f.get('apply-all').hidden, true);
+  } finally { f.restore(); }
+});

@@ -264,7 +264,23 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 #optional-ai-config { margin: 14px 0; }
 #optional-ai-container textarea { width: 100%; background: #14161a; color: #e7e9ec; border: 1px solid #373b42; border-radius: 5px; padding: 12px; font: inherit; }
 /* The list assistant: a conversation over the generated list, never a control over it. */
-#list-chat-container { margin-bottom: 18px; }
+#list-chat-container { margin-bottom: 0; }
+/* S1: a round bot button fixed at the bottom right and a non-modal floating window. */
+.bot-window-root { position: fixed; right: 24px; bottom: 104px; z-index: 60; display: flex; flex-direction: column-reverse; align-items: flex-end; gap: 12px; }
+.bot-window-root[hidden] { display: none; }
+.bot-button { position: relative; width: 56px; height: 56px; border-radius: 50%; border: 1px solid #3b4650; background: #1a1d21; color: #c4ded7; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); }
+.bot-button:hover { border-color: #4b8bbf; color: #e7e9ec; }
+.bot-button:focus-visible { outline: 2px solid #4b8bbf; outline-offset: 2px; }
+.bot-badge { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #b4472f; color: #fff; font-size: 11px; line-height: 20px; text-align: center; }
+.bot-badge[hidden] { display: none; }
+.bot-window { width: min(440px, calc(100vw - 48px)); max-height: min(70vh, 640px); overflow: auto; padding: 16px 18px; background: #16181c; border: 1px solid #33373e; border-radius: 10px; box-shadow: 0 18px 40px rgba(0, 0, 0, .45); }
+.bot-window[hidden] { display: none; }
+.bot-window-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.bot-window-header h3 { margin: 0; font-size: 15px; }
+@media (max-width: 700px) {
+  .bot-window-root { right: 12px; bottom: 96px; }
+  .bot-window { width: calc(100vw - 24px); }
+}
 .list-chat { padding: 0; }
 .list-chat-conversation { list-style: none; margin: 14px 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .list-chat-turn { border: 1px solid #33373e; border-radius: 6px; padding: 10px 14px; background: #1a1d21; }

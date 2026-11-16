@@ -16,8 +16,8 @@ export const CHAT_REPLY_LIMIT = 4000;
 export const CHAT_MESSAGE_LIMIT = 200;
 const CHAT_PAYLOAD_BODY_LIMIT = 64 * 1024;
 const CHAT_PAYLOAD_BYTES_LIMIT = 1024 * 1024;
-/** S1 accepts at most five proposals per reply, so the panel never renders more. */
-const CHAT_ACTION_LIMIT = 5;
+/** S5 accepts at most eight proposals per reply, so the panel never renders more. */
+const CHAT_ACTION_LIMIT = 8;
 /** Rejected items are counted, not listed: the reply's own length bounds how many there can be. */
 const CHAT_DROPPED_LIMIT = 200;
 /** A position is 1..N of the list itself; the panel only bounds the payload, the core owns N. */
@@ -31,6 +31,8 @@ export const LIST_CHAT_APPLYING = 'Aplicando el cambio propuesto…';
 export const LIST_CHAT_APPLIED = 'Cambio aplicado. Puedes deshacerlo con Deshacer.';
 /** The line that explains the proposals the core refused to turn into an action. */
 export const listChatDropped = (count: number): string => `Se descartaron ${count} cambios que no se pueden aplicar.`;
+/** S2: the batch result, whether every shown change was applied or the batch stopped early. */
+export const listChatAppliedAll = (applied: number, total: number): string => `Se aplicaron ${applied} de ${total} cambios.`;
 /** Said after a proposed alternative replaced the review: the core reset the conversation with it. */
 export const LIST_CHAT_VARIANT_CHANGED = 'Se cambió la alternativa. La conversación empieza de nuevo.';
 export const LIST_CHAT_VARIANT_UNAVAILABLE = 'Actualiza la aplicación para cambiar de alternativa desde el asistente.';
@@ -40,6 +42,11 @@ export function listChatActionText(action: AiChatAction): string {
     case 'replace': return `Reemplazar ${action.position}. ${action.title} por ${action.replacement.title}`;
     case 'move': return `Mover ${action.position}. ${action.title} a la posición ${action.to}`;
     case 'extend': return `Ampliar la lista a ${action.to} pistas`;
+    case 'remove': return `Quitar ${action.position}. ${action.title}`;
+    case 'add': return `Agregar ${action.track.title} en la posición ${action.position}`;
+    case 'replace_with': return `Reemplazar ${action.position}. ${action.title} por ${action.track.title}`;
+    case 'reorder': return `Reordenar la lista (${action.moved} pistas cambian de lugar)`;
+    case 'undo': return 'Deshacer el último cambio';
     default: return alternativeCardText(action.variant, action.trackCount);
   }
 }
@@ -125,6 +132,36 @@ function actionCopy(value: unknown): AiChatAction {
     if (!Number.isInteger(value.trackCount) || (value.trackCount as number) < 1 || (value.trackCount as number) > 100) invalid();
     return { actionId, type: 'use_variant', variant: value.variant as PrepVariant, trackCount: value.trackCount as number, reason };
   }
+  // S5's new tools: one position of the list for drop/add/swap, the whole list for reorder,
+  // and undo, which speaks about the last review step. `add` may address the position after
+  // the last track, so its bound is the panel's position window, not N itself.
+  if (value.type === 'remove') {
+    if (keys !== 'actionId,artist,position,reason,title,type') invalid();
+    if (!text(value.title, 300) || !text(value.artist, 300)) invalid();
+    if (!Number.isInteger(value.position) || (value.position as number) < 1 || (value.position as number) > CHAT_POSITION_LIMIT) invalid();
+    return { actionId, type: 'remove', position: value.position as number, title: value.title, artist: value.artist, reason };
+  }
+  if (value.type === 'add') {
+    if (keys !== 'actionId,position,reason,track,type') invalid();
+    if (!Number.isInteger(value.position) || (value.position as number) < 1 || (value.position as number) > CHAT_POSITION_LIMIT) invalid();
+    return { actionId, type: 'add', position: value.position as number, track: replacementCopy(value.track), reason };
+  }
+  if (value.type === 'replace_with') {
+    if (keys !== 'actionId,artist,position,reason,title,track,type') invalid();
+    if (!text(value.title, 300) || !text(value.artist, 300)) invalid();
+    if (!Number.isInteger(value.position) || (value.position as number) < 1 || (value.position as number) > CHAT_POSITION_LIMIT) invalid();
+    return { actionId, type: 'replace_with', position: value.position as number, title: value.title, artist: value.artist, track: replacementCopy(value.track), reason };
+  }
+  if (value.type === 'reorder') {
+    if (keys !== 'actionId,moved,reason,type') invalid();
+    // A permutation that leaves every track in place changes nothing, so it is not a reorder.
+    if (!Number.isInteger(value.moved) || (value.moved as number) < 1 || (value.moved as number) > 100) invalid();
+    return { actionId, type: 'reorder', moved: value.moved as number, reason };
+  }
+  if (value.type === 'undo') {
+    if (keys !== 'actionId,reason,type') invalid();
+    return { actionId, type: 'undo', reason };
+  }
   return invalid();
 }
 function actionsCopy(value: unknown): AiChatAction[] {
@@ -193,6 +230,8 @@ export class ListChatController {
   get canReset(): boolean { return !this.pending && this.host.canAct() && this.review !== ''; }
   /** Every card shares the panel's state: nothing is applied while anything is running. */
   get applyEnabled(): boolean { return !this.pending && this.host.canAct() && this.review !== ''; }
+  /** S2: a batch only exists with two or more proposed changes. */
+  get canApplyAll(): boolean { return this.applyEnabled && this.actions.length >= 2; }
   get requestEditable(): boolean { return !this.pending && this.host.canAct() && this.review !== ''; }
   /**
    * Publishes the review the conversation belongs to. Another review is another conversation
@@ -279,9 +318,32 @@ export class ListChatController {
     if (!this.applyEnabled) return;
     const action = this.actions.find((item) => item.actionId === actionId);
     if (!action) return;
-    if (action.type === 'use_variant') { await this.applyVariant(action.variant); return; }
+    await this.applyAction(action);
+  }
+  /**
+   * S2: applies the shown changes one after another in that order, stops at the first failure
+   * and reports how many of them were applied. A proposed alternative is the screen's own
+   * choice, never a batch edit, so the batch stops before it instead of guessing.
+   */
+  async applyAll(): Promise<void> {
+    if (!this.canApplyAll) return;
+    const batch = [...this.actions];
+    let applied = 0;
+    for (const action of batch) {
+      if (action.type === 'use_variant') break;
+      if (!(await this.applyAction(action))) break;
+      applied++;
+    }
+    this.notice = listChatAppliedAll(applied, batch.length);
+    this.host.changed();
+  }
+  /** One proposal through the core; true only when the core answered with the new review. */
+  private async applyAction(action: AiChatAction): Promise<boolean> {
+    if (this.pending || !this.host.canAct()) return false;
+    if (action.type === 'use_variant') { await this.applyVariant(action.variant); return false; }
     const extend = action.type === 'extend';
-    await this.perform('apply', LIST_CHAT_APPLYING, () => this.api.aiChatApply({ actionId }), (value) => {
+    let applied = false;
+    await this.perform('apply', LIST_CHAT_APPLYING, () => this.api.aiChatApply({ actionId: action.actionId }), (value) => {
       const review = reviewCopy(value?.review);
       const actions = actionsCopy(value?.actions);
       const extended = extend && value && Object.hasOwn(value, 'extended') ? extendedCopy(value.extended) : null;
@@ -289,7 +351,9 @@ export class ListChatController {
       this.notice = extended ? extendedLine(extended) : LIST_CHAT_APPLIED; this.error = '';
       this.review = review.reviewId;
       this.host.applied?.(review);
+      applied = true;
     });
+    return applied;
   }
   /**
    * A proposed alternative is chosen by the screen, which owns the plan, the discard question and

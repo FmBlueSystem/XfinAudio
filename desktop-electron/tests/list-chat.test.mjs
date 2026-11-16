@@ -193,7 +193,7 @@ test('a proposed action that is not exactly one of the two shapes is refused as 
     chatResult({ actions: [{ ...moveAction(), type: 'remove' }] }),
     chatResult({ actions: [{ ...moveAction(), actionId: 'not-a-uuid' }] }),
     chatResult({ actions: [moveAction(), moveAction()] }),
-    chatResult({ actions: [moveAction(), replaceAction(), moveAction(), replaceAction(), moveAction(), replaceAction()] }),
+    chatResult({ actions: [moveAction(), replaceAction(), moveAction(), replaceAction(), moveAction(), replaceAction(), moveAction(), replaceAction(), moveAction()] }),
     chatResult({ droppedActions: -1 }),
     chatResult({ droppedActions: 1.5 }),
     chatResult({ actions: undefined }),
@@ -414,4 +414,120 @@ test('a use_variant card without the screen hook says the app must be updated an
   assert.equal(f.controller.error, 'Actualiza la aplicación para cambiar de alternativa desde el asistente.');
   assert.equal(f.calls.some(([kind]) => kind === 'apply'), false);
   assert.deepEqual(f.controller.actions, [variantAction()]);
+});
+// S5's five new shapes, exactly as the core shows them to the panel.
+const actionUuid = (n) => `${String(n).repeat(8)}-1111-4111-8111-111111111111`;
+const removeAction = (patch = {}) => ({ actionId: actionUuid(1), type: 'remove', position: 2, title: 'Segunda', artist: 'DJ Dos', reason: 'Choca de tonalidad con la tercera', ...patch });
+const addAction = (patch = {}) => ({ actionId: actionUuid(2), type: 'add', position: 3, track: { title: 'Nueva', artist: 'DJ Cinco', bpm: 126, key: '10A' }, reason: 'Sube la energía del cierre', ...patch });
+const replaceWithAction = (patch = {}) => ({ actionId: actionUuid(3), type: 'replace_with', position: 2, title: 'Segunda', artist: 'DJ Dos', track: { title: 'Otra', artist: 'DJ Seis', bpm: 124, key: '9A' }, reason: 'Encaja mejor con la tercera', ...patch });
+const reorderAction = (patch = {}) => ({ actionId: actionUuid(4), type: 'reorder', moved: 3, reason: 'La curva de energía sube antes', ...patch });
+const undoAction = (patch = {}) => ({ actionId: actionUuid(5), type: 'undo', reason: 'El orden anterior era mejor', ...patch });
+test('S6 copy: the five new cards say exactly what they do', () => {
+  assert.equal(listChatActionText(removeAction()), 'Quitar 2. Segunda');
+  assert.equal(listChatActionText(addAction()), 'Agregar Nueva en la posición 3');
+  assert.equal(listChatActionText(replaceWithAction()), 'Reemplazar 2. Segunda por Otra');
+  assert.equal(listChatActionText(reorderAction()), 'Reordenar la lista (3 pistas cambian de lugar)');
+  assert.equal(listChatActionText(reorderAction({ moved: 1 })), 'Reordenar la lista (1 pistas cambian de lugar)');
+  assert.equal(listChatActionText(undoAction()), 'Deshacer el último cambio');
+});
+test('the five new proposal shapes are accepted from history and from a reply', async () => {
+  const stored = fixture({ aiChatHistory: async () => { stored.calls.push(['history']); return { conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction(), replaceWithAction()] }; } });
+  await stored.controller.load();
+  assert.deepEqual(stored.controller.actions, [removeAction(), replaceWithAction()]);
+  assert.equal(stored.controller.error, '');
+  const replied = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [removeAction(), addAction(), replaceWithAction(), reorderAction(), undoAction()] }) }) });
+  replied.controller.setRequest(question);
+  await replied.controller.send();
+  assert.deepEqual(replied.controller.actions, [removeAction(), addAction(), replaceWithAction(), reorderAction(), undoAction()]);
+  assert.equal(replied.controller.error, '');
+  assert.equal(replied.controller.droppedActions, 0);
+});
+test('a new card that is not exactly its shape is refused as an invalid AI response', async () => {
+  const malformed = [
+    chatResult({ actions: [{ ...removeAction(), path: '/Users/dj/track.mp3' }] }),
+    chatResult({ actions: [{ ...removeAction(), position: 0 }] }),
+    chatResult({ actions: [{ ...removeAction(), position: 1.5 }] }),
+    chatResult({ actions: [{ ...removeAction(), track: { title: 'Nueva', artist: 'DJ', bpm: 120, key: '9A' } }] }),
+    chatResult({ actions: [{ ...addAction(), position: 0 }] }),
+    chatResult({ actions: [{ ...addAction(), track: { title: 'Nueva', artist: 'DJ', bpm: 120 } }] }),
+    chatResult({ actions: [{ ...addAction(), track: { title: 'Nueva', artist: 'DJ', bpm: 120, key: '9A', id: 'b'.repeat(64) } }] }),
+    chatResult({ actions: [{ ...addAction(), title: 'Nueva' }] }),
+    chatResult({ actions: [{ ...replaceWithAction(), track: { title: 'Otra', artist: 'DJ', bpm: 120, key: '9A', path: '/tmp/a.mp3' } }] }),
+    chatResult({ actions: [{ ...reorderAction(), moved: 0 }] }),
+    chatResult({ actions: [{ ...reorderAction(), moved: 101 }] }),
+    chatResult({ actions: [{ ...reorderAction(), moved: 2.5 }] }),
+    chatResult({ actions: [{ ...reorderAction(), order: [2, 1] }] }),
+    chatResult({ actions: [{ ...undoAction(), position: 2 }] }),
+    chatResult({ actions: [{ ...undoAction(), type: 'undo ' }] }),
+    chatResult({ actions: [removeAction(), undoAction(), addAction(), reorderAction(), removeAction(), undoAction(), addAction(), reorderAction(), undoAction()] }),
+  ];
+  for (const result of malformed) {
+    const f = fixture({ runAiRequest: async () => ({ cancelled: false, result }) });
+    await f.controller.load();
+    f.controller.setRequest(question);
+    await f.controller.send();
+    assert.equal(f.controller.error, 'La respuesta no cumple los límites esperados. No se ha aplicado ninguna propuesta.', JSON.stringify(result.actions[0]).slice(0, 90));
+    assert.deepEqual(f.controller.actions, []);
+    assert.equal(f.controller.droppedActions, 0);
+  }
+});
+test('S2: «Aplicar todo» appears with two changes and is refused with only one', async () => {
+  const one = fixture({ aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction()] }) });
+  await one.controller.load();
+  assert.equal(one.controller.canApplyAll, false);
+  const two = fixture({ aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction(), addAction()] }) });
+  await two.controller.load();
+  assert.equal(two.controller.canApplyAll, true);
+  await one.controller.applyAll();
+  assert.equal(one.calls.some(([kind]) => kind === 'apply'), false);
+});
+test('S2: «Aplicar todo» applies the changes one after another in the order shown and reports the count', async () => {
+  const seen = [];
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction(), addAction()] }),
+    aiChatApply: async (input) => { seen.push(input.actionId); f.calls.push(['apply', input]); return { review: appliedReview, actions: [] }; },
+  });
+  await f.controller.load();
+  await f.controller.applyAll();
+  assert.deepEqual(seen, [removeAction().actionId, addAction().actionId], 'the shown order is kept');
+  assert.equal(f.controller.notice, 'Se aplicaron 2 de 2 cambios.');
+  assert.equal(f.controller.error, '');
+  assert.equal(f.applied.length, 2);
+  assert.deepEqual(f.controller.actions, []);
+  assert.equal(f.controller.pending, null);
+});
+test('S2: «Aplicar todo» stops at the first failure and still says how many changes were applied', async () => {
+  const seen = [];
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction(), addAction(), undoAction()] }),
+    aiChatApply: async (input) => {
+      seen.push(input.actionId);
+      if (input.actionId === addAction().actionId) throw Object.assign(new Error('bad'), { code: 'invalid_params' });
+      return { review: appliedReview, actions: [addAction(), undoAction()] };
+    },
+  });
+  await f.controller.load();
+  await f.controller.applyAll();
+  assert.deepEqual(seen, [removeAction().actionId, addAction().actionId], 'the batch stops at the first failure');
+  assert.equal(f.controller.notice, 'Se aplicaron 1 de 3 cambios.');
+  assert.equal(f.controller.error, 'Revisa los datos de la operación y sus límites antes de intentarlo de nuevo.');
+  assert.equal(f.applied.length, 1);
+});
+test('S2: «Aplicar todo» stops before a proposed alternative, which belongs to the screen', async () => {
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction(), variantAction()] }),
+    aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: [variantAction()] }; },
+  });
+  await f.controller.load();
+  await f.controller.applyAll();
+  assert.equal(f.calls.filter(([kind]) => kind === 'apply').length, 1);
+  assert.equal(f.controller.notice, 'Se aplicaron 1 de 2 cambios.');
+});
+test('S2: «Aplicar todo» is refused while the app cannot act', async () => {
+  const f = fixture({ aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction(), addAction()] }) });
+  await f.controller.load();
+  f.block();
+  assert.equal(f.controller.canApplyAll, false);
+  await f.controller.applyAll();
+  assert.equal(f.calls.some(([kind]) => kind === 'apply'), false);
 });

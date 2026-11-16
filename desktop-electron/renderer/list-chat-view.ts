@@ -5,6 +5,8 @@ import type { ListChatController } from './list-chat.js';
 export const LIST_CHAT_EMPTY = 'Pregunta cómo mejorar esta lista. El asistente lee las pistas, las transiciones y los avisos.';
 export const LIST_CHAT_EXAMPLES = ['¿Qué transiciones son las más débiles?', '¿Qué pista quitarías y por qué?', '¿Cómo mejoro la curva de energía?'] as const;
 export const LIST_CHAT_DISCLOSURE = 'El asistente lee la lista y la conversación con Nan Builders: se comparten los títulos, artistas y metadatos de la lista, sus transiciones, la preparación y los avisos; nunca rutas de archivo ni identificadores de pista. La lista solo se lee: el asistente no la cambia.';
+/** S2's batch action, offered only with two or more proposed changes. */
+export const LIST_CHAT_APPLY_ALL = 'Aplicar todo';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
 };
@@ -35,8 +37,10 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
   const proposed = identify(make('section'), 'proposed');
   const proposedHeading = identify(make('h4', LIST_CHAT_PROPOSED), 'proposed-heading');
   const proposedCards = identify(make('ul', '', 'list-chat-actions'), 'proposed-actions');
+  const applyAll = identify(make('button', LIST_CHAT_APPLY_ALL, 'button subtle'), 'apply-all'); applyAll.type = 'button';
+  applyAll.addEventListener('click', () => { if (!applyAll.disabled) void controller.applyAll(); });
   const dropped = identify(make('p', '', 'review-notice'), 'dropped');
-  proposed.append(proposedHeading, proposedCards, dropped);
+  proposed.append(proposedHeading, proposedCards, applyAll, dropped);
   const requestField = identify(make('div'), 'request-field');
   const requestLabel = make('label', 'Pregunta sobre esta lista'); requestLabel.setAttribute('for', `${prefix}-request`);
   const request = identify(make('textarea'), 'request'); request.maxLength = 2000; request.rows = 3; request.setAttribute('aria-describedby', `${prefix}-disclosure`);
@@ -91,6 +95,9 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
     }));
     dropped.hidden = controller.droppedActions <= 0;
     dropped.textContent = controller.droppedActions > 0 ? listChatDropped(controller.droppedActions) : '';
+    // S2: the batch action only exists while two or more changes are still proposed.
+    applyAll.hidden = controller.actions.length < 2;
+    applyAll.disabled = !controller.canApplyAll;
     pending.hidden = !busy; pending.textContent = controller.pendingText;
     prepared.hidden = !controller.preview;
     previewLines.replaceChildren();
