@@ -129,7 +129,14 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
     is_improvement_editor = surface == "editor" and set(selector) == _IMPROVEMENT_SELECTOR_FIELDS
     if set(selector) != expected and not (surface == "saved" and not selector) and not is_improvement_editor:
         raise BackendError("invalid_params", "Unexpected assistance context fields")
-    records = backend._records() if surface != "connection" else []
+    # The chat surface reads the disk identity of the tracks its list holds and of no other
+    # library track: the revision it uses for staleness still changes when one of them does.
+    listed = (
+        frozenset(track.path for track in backend.review.recommendation.ordered_tracks)
+        if surface == "chat" and backend.review is not None
+        else None
+    )
+    records = backend._records(checked=listed) if surface != "connection" else []
     if not records and surface != "connection":
         raise BackendError("ai_context_unavailable", "Scan an authorized library first")
     paths = [record.path for record in records]
@@ -137,7 +144,7 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
     identities = []
     for record in records:
         try:
-            identity = source_identity(Path(record.path))
+            identity = source_identity(Path(record.path)) if listed is None or record.path in listed else None
         except (OSError, ValueError):
             identity = None
         identities.append([record.path, identity])
@@ -173,7 +180,7 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
     elif surface == "chat":
         # The conversation reads the same current review the commentary does, rebuilt
         # on every turn, so an edit between turns is what the assistant reads next.
-        source = load_source(backend, {"kind": "review", "reviewId": selector["reviewId"]})
+        source = load_source(backend, {"kind": "review", "reviewId": selector["reviewId"]}, checked=listed)
         if backend.review is None:
             raise BackendError("ai_context_unavailable", "Prepare a current review first")
         recommendation = backend.review.recommendation.model_copy(deep=True)

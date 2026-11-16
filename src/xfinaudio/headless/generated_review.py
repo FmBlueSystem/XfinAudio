@@ -40,7 +40,8 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 
-SourceSnapshot = dict[str, tuple[TrackRecord, tuple[object, ...]]]
+SourceEntry = tuple[TrackRecord, tuple[object, ...] | None]
+SourceSnapshot = dict[str, SourceEntry]
 PlanBinding = tuple[SourceSnapshot, tuple[object, ...]]
 
 REVIEW_FIELDS = {
@@ -66,7 +67,7 @@ class GeneratedReview:
         self.backend = backend
         self.review_id: str | None = None
         self.base: dict[str, Any] = {}
-        self.sources: dict[str, tuple[TrackRecord, tuple[object, ...]]] = {}
+        self.sources: dict[str, SourceEntry] = {}
         self.policy: tuple[object, ...] = ()
         self.removed: frozenset[str] = frozenset()
         self.plan_id: str | None = None
@@ -145,13 +146,18 @@ class GeneratedReview:
         self._refreshed = self._refreshed or final
         return self._snapshot
 
-    def _build_sources(self, checked: frozenset[str] | None) -> SourceSnapshot:
+    def _build_sources(self, checked: frozenset[str] | None, *, unread: bool = False) -> SourceSnapshot:
         """Read the library sources exactly as they are now, for the ``checked`` paths.
 
         Only the ``checked`` paths are read from disk; every other library track
         contributes its stored record and the identity the generation recorded, so a
         review command never re-checks a track it does not act on. The result belongs to
         the caller: one command copies the entries it asked for into its own snapshot.
+
+        ``unread`` keeps every unlisted library track even before this review recorded
+        anything about it, with its stored record and no identity: that is the whole
+        library a restart restores, without reading the disk of the tracks it does not
+        list.
         """
         result = {}
         for track in self.backend._records(checked=checked):
@@ -163,11 +169,42 @@ class GeneratedReview:
                     stored = self.sources.get(track.path)
                     if stored is not None:
                         result[track.path] = track, stored[1]
+                    elif unread:
+                        result[track.path] = track, None
                     continue
                 result[track.path] = track, source_identity(path)
             except (OSError, RuntimeError):
                 pass
         return result
+
+    @staticmethod
+    def _same(recorded: SourceEntry | None, current: SourceEntry | None) -> bool:
+        """Whether one track is still exactly what this review recorded.
+
+        A restored review reads the disk identity only of the tracks its list holds and
+        keeps every other library track with the record the scan stored, so where no
+        identity was recorded the record alone decides and the fresh read is the one the
+        command acts on.
+        """
+        if recorded is None or current is None:
+            return False
+        return recorded[0] == current[0] and (recorded[1] is None or recorded[1] == current[1])
+
+    @classmethod
+    def _unchanged(cls, recorded: SourceSnapshot, current: SourceSnapshot) -> bool:
+        """Whether every recorded track is still what it was, and no track left the library."""
+        return set(recorded) == set(current) and all(cls._same(recorded[path], current[path]) for path in recorded)
+
+    def _reverify(self, recorded: SourceSnapshot) -> SourceSnapshot:
+        """Re-read a snapshot the way it was recorded: only where it recorded an identity.
+
+        A generation snapshot covers the whole library, so its verification reads the whole
+        library, and a track that appeared since is still a change. A restart records
+        identities only for the tracks its list holds, so its verification reads those and
+        keeps every other library track with the record the scan stored.
+        """
+        checked = frozenset(path for path, entry in recorded.items() if entry[1] is not None)
+        return self._build_sources(checked, unread=True)
 
     def capture_plan(self, records: list[TrackRecord]) -> PlanBinding:
         """Capture the inputs before the engine runs, never on later selection."""
@@ -178,7 +215,7 @@ class GeneratedReview:
 
     def bind_plan(self, plan_id: str, binding: PlanBinding) -> None:
         """Publish only a plan whose complete candidate context is still current."""
-        if self._sources(final=True) != binding[0] or self._policy() != binding[1]:
+        if not self._unchanged(binding[0], self._reverify(binding[0])) or self._policy() != binding[1]:
             raise BackendError("stale_plan", "Library sources or settings changed during preparation; regenerate")
         self.plan_id, self.plan_binding = plan_id, binding
 
@@ -187,7 +224,7 @@ class GeneratedReview:
         if (
             self.plan_id != plan_id
             or binding is None
-            or self._sources(final=True) != binding[0]
+            or not self._unchanged(binding[0], self._reverify(binding[0]))
             or self._policy() != binding[1]
         ):
             raise BackendError("stale_plan", "The generation context changed; generate a current plan")
@@ -224,7 +261,8 @@ class GeneratedReview:
             raise BackendError("stale_review", "Open a current generated review before continuing")
         current = self._sources(self._paths(review))
         if self._policy() != self.policy or any(
-            current.get(track.path) != self.sources.get(track.path) or current.get(track.path, (None,))[0] != track
+            not self._same(self.sources.get(track.path), current.get(track.path))
+            or current.get(track.path, (None,))[0] != track
             for track in review.recommendation.ordered_tracks
         ):
             raise BackendError("stale_review", "Review sources or settings changed; prepare a current review")
@@ -263,7 +301,7 @@ class GeneratedReview:
             LOGGER.warning("The stored list in progress could not be decoded; it is dropped")
             clear_review(self.backend.data_dir)
             return
-        sources = self._sources()
+        sources = self._build_sources(self._paths(review), unread=True)
         # Restore only when every reviewed track is still the exact library record it was saved with.
         if any(sources.get(track.path, (None,))[0] != track for track in review.recommendation.ordered_tracks):
             LOGGER.warning("The list in progress was dropped because the library changed")
@@ -297,7 +335,9 @@ class GeneratedReview:
         self.history.clear()
         self.future.clear()
         self.offers.clear()
-        # Bind against the library as it is now, so every later edit keeps the stale-source checks.
+        # Bind against the library as it is now, so every later edit keeps the stale-source
+        # checks. The binding re-reads the tracks the list holds and no other one, so a
+        # change made while restoring is still refused.
         self.bind_plan(payload["planId"], (self.sources, self.policy))
 
     @staticmethod
@@ -394,7 +434,8 @@ class GeneratedReview:
         state_paths = self._paths(state[0])
         current = self._sources(state_paths, final=True)
         if any(
-            current.get(track.path) != self.sources.get(track.path) for track in state[0].recommendation.ordered_tracks
+            not self._same(self.sources.get(track.path), current.get(track.path))
+            for track in state[0].recommendation.ordered_tracks
         ):
             raise BackendError("stale_review", "Restored sources changed; prepare a current review")
         source.pop()
@@ -431,9 +472,7 @@ class GeneratedReview:
         if target in preserved_control_paths(controls) | set(plan.intent.required_paths):
             raise BackendError("protected_track", "This track is protected by the set controls")
         current = self._sources(frozenset())
-        candidates = [
-            track for path, (track, identity) in current.items() if self.sources.get(path) == (track, identity)
-        ]
+        candidates = [entry[0] for path, entry in current.items() if self._same(self.sources.get(path), entry)]
         candidates, _ = _filter_tracks_for_variant(cast(PrepVariantName, review.variant_name), candidates, plan.intent)
         proposed = recommendation_with_replacement(
             recommendation,
@@ -482,9 +521,7 @@ class GeneratedReview:
                 f"Target track count must be greater than the current list and at most {MAX_EXTENDED_TRACK_COUNT}",
             )
         current_sources = self._sources(frozenset())
-        candidates = [
-            track for path, (track, identity) in current_sources.items() if self.sources.get(path) == (track, identity)
-        ]
+        candidates = [entry[0] for path, entry in current_sources.items() if self._same(self.sources.get(path), entry)]
         in_genre, _ = _filter_tracks_for_variant(cast(PrepVariantName, review.variant_name), candidates, plan.intent)
         proposed, outside_genre = recommendation_extended(
             recommendation,
@@ -500,7 +537,9 @@ class GeneratedReview:
         if added <= 0:
             raise BackendError("no_candidates", "No eligible library track is left to extend this list")
         after = self._sources(frozenset(track.path for track in proposed.ordered_tracks), final=True)
-        if any(after.get(track.path) != self.sources.get(track.path) for track in proposed.ordered_tracks):
+        if any(
+            not self._same(self.sources.get(track.path), after.get(track.path)) for track in proposed.ordered_tracks
+        ):
             raise BackendError("stale_review", "Extension sources changed; prepare a current review")
         assessed = self._assess(proposed)
         self.verify(self.review_id)
@@ -571,7 +610,10 @@ class GeneratedReview:
         assessed = self._assess(proposed)
         self.verify(params["reviewId"])
         current_sources = self._sources(frozenset(track.path for track in proposed.ordered_tracks), final=True)
-        if any(current_sources.get(track.path) != self.sources.get(track.path) for track in proposed.ordered_tracks):
+        if any(
+            not self._same(self.sources.get(track.path), current_sources.get(track.path))
+            for track in proposed.ordered_tracks
+        ):
             raise BackendError("stale_review", "Proposed sources changed; prepare a current review")
         if method == "review.compare":
             current_paths = {track.path for track in review.recommendation.ordered_tracks}

@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from tests.test_headless_prep_parity import identity, seeded
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.common import BackendError
 from xfinaudio.headless.review_store import FIELDS, store_path
@@ -126,6 +127,21 @@ def test_the_removed_set_survives_so_a_banned_track_is_not_backfilled(tmp_path: 
     assert original[0] not in [track["id"] for track in again["tracks"]]
 
 
+def analyzed(backend: HeadlessBackend, records: list[Any]) -> None:
+    """Bind each record to the bytes it was analyzed from, as a real scan with profiles does."""
+    profile = SpectralProfile(
+        red_ratio=0.5,
+        green_ratio=0.3,
+        blue_ratio=0.2,
+        centroid_hz=1000,
+        rolloff_hz=2000,
+        dominant_color="BLUE",
+        analysis_version=CURRENT_ANALYSIS_VERSION,
+    )
+    for record in records:
+        backend.repository.update_spectral_profile(record.path, profile)
+
+
 def test_a_changed_library_drops_the_stored_review_with_an_explicit_notice(tmp_path: Path) -> None:
     backend, records, _ = generated(tmp_path)
     backend.repository.save_scan_results([records[0].model_copy(update={"bpm": 126}), *records[1:]])
@@ -137,6 +153,23 @@ def test_a_changed_library_drops_the_stored_review_with_an_explicit_notice(tmp_p
     # The drop is final: a later start has nothing left to report.
     restarted_backend = stored_backend(restarted)
     assert restarted_backend.execute("review.resume", {}) == {"available": False, "review": None, "dropped": False}
+
+
+@pytest.mark.parametrize("mutation", ["changed", "moved", "deleted"])
+def test_a_list_track_changed_on_disk_drops_the_stored_review(tmp_path: Path, mutation: str) -> None:
+    backend, records = seeded(tmp_path, 8)
+    analyzed(backend, records)
+    backend.execute("prep.generate", {"targetTrackCount": 4})
+    listed = backend.review.recommendation.ordered_tracks
+    target = Path(listed[1].path)
+    if mutation == "changed":
+        target.write_bytes(b"changed after the list was generated")
+    elif mutation == "moved":
+        target.rename(target.with_name(target.name + ".moved"))
+    else:
+        target.unlink()
+    restarted = stored_backend(backend)
+    assert restarted.execute("review.resume", {}) == {"available": False, "review": None, "dropped": True}
 
 
 @pytest.mark.parametrize(

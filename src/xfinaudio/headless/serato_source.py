@@ -36,14 +36,19 @@ class ExportSource:
     metadata_records: tuple[TrackRecord, ...] | None = None
 
 
-def load_source(backend: HeadlessBackend, value: Any) -> ExportSource:
+def load_source(backend: HeadlessBackend, value: Any, *, checked: frozenset[str] | None = None) -> ExportSource:
+    """Reload one export source; ``checked`` names the tracks whose disk identity it reads.
+
+    A caller that loads the current review passes the tracks of its list, so the rest of
+    the library contributes its stored record without touching the disk.
+    """
     if (
         not isinstance(value, dict)
         or not isinstance(value.get("kind"), str)
         or value["kind"] not in {"saved", "review", "metadata"}
     ):
         raise BackendError("invalid_params", "Choose a saved set, current review or metadata worklist")
-    records = {track.path: track for track in backend._records()}
+    records = {track.path: track for track in backend._records(checked=checked)}
     recommendation = None
     variant = None
     blockers: list[str] = []
