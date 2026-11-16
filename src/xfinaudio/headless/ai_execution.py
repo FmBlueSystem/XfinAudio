@@ -8,7 +8,7 @@ from xfinaudio.ai import nan_client
 from xfinaudio.ai.connection_test import PROBE_MESSAGE
 from xfinaudio.ai.grounded_evidence import explain_grounded_evidence
 from xfinaudio.ai.intent_copilot import extract_intent
-from xfinaudio.ai.list_chat import chat_with_list
+from xfinaudio.ai.list_chat import ChatAnswer, chat_with_list
 from xfinaudio.ai.saved_assists import interpret_saved_request
 from xfinaudio.ai.set_narrator import narrate_set
 from xfinaudio.ai.structured_assists import (
@@ -22,14 +22,24 @@ from xfinaudio.application.playlist_improvement import ImprovementError, validat
 from xfinaudio.application.saved_playlist_assistant import compare_saved_sets
 from xfinaudio.headless.ai_protocol import AI_REQUEST_TIMEOUT_SECONDS
 from xfinaudio.headless.common import BackendError, _public_track, _text
+from xfinaudio.headless.library_search import public_result, search_library
 from xfinaudio.headless.prep import make_intent
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from xfinaudio.headless.ai_context import AssistContext
     from xfinaudio.headless.backend import HeadlessBackend
 
 
-def execute_context(context: AssistContext, transport: nan_client.Transport) -> dict[str, Any]:
+def execute_context(
+    context: AssistContext, transport: nan_client.Transport, backend: HeadlessBackend | None = None
+) -> dict[str, Any]:
+    """Run one surface against the provider through ``transport``.
+
+    ``backend`` is the local library a chat turn searches: the search runs between two
+    requests, so the caller that owns it hands it over here. No other surface reads it.
+    """
     surface, data = context.surface, context.data
     proposal = None
     text = ""
@@ -98,17 +108,9 @@ def execute_context(context: AssistContext, transport: nan_client.Transport) -> 
         text = "La comparación o selección se calculará localmente al aplicar."
     elif surface == "chat":
         # One system message with the current list, the stored conversation and this
-        # turn's question. The reply is prose; the changes it proposes are validated
-        # here and applied only when the DJ asks for one.
-        answer = chat_with_list(
-            data["facts"],
-            context.request,
-            data["conversation"],
-            track_count=data["trackCount"],
-            protected=data["protectedPositions"],
-            transport=transport,
-            timeout=AI_REQUEST_TIMEOUT_SECONDS[surface],
-        )
+        # turn's question. A turn that asks for a library search gets one more message
+        # with the local results and one more request, never more than that.
+        answer, searches = _chat_turn(backend, context, transport)
         text = answer.reply
         kind = "chat"
         extra = {
@@ -117,6 +119,7 @@ def execute_context(context: AssistContext, transport: nan_client.Transport) -> 
             # Diagnostics for the opt-in chat log: never part of what the DJ receives.
             "droppedItems": [item.public() for item in answer.dropped_items],
             "rawText": answer.raw,
+            "searches": list(searches),
         }
     elif surface == "review":
         text = narrate_set(
@@ -141,6 +144,52 @@ def execute_context(context: AssistContext, transport: nan_client.Transport) -> 
         "canApply": proposal is not None,
         **extra,
     }
+
+
+def _chat_turn(
+    backend: HeadlessBackend | None, context: AssistContext, transport: nan_client.Transport
+) -> tuple[ChatAnswer, tuple[dict[str, Any], ...]]:
+    """One conversation turn, with at most one local search round behind it.
+
+    An answer that carries ``searches`` runs them here over the stored library records,
+    asks the provider once more with the results attached and keeps that second answer.
+    Searches in the second answer are ignored, and the references the results got stay
+    valid for the rest of the conversation. The user sees and stores only the final
+    reply.
+    """
+    data, surface = context.data, context.surface
+    timeout = AI_REQUEST_TIMEOUT_SECONDS[surface]
+
+    def send(search_results: Sequence[Mapping[str, Any]] = ()) -> ChatAnswer:
+        return chat_with_list(
+            data["facts"],
+            context.request,
+            data["conversation"],
+            track_count=data["trackCount"],
+            protected=data["protectedPositions"],
+            search_results=search_results,
+            transport=transport,
+            timeout=timeout,
+        )
+
+    answer = send()
+    if not answer.searches or backend is None:
+        return answer, ()
+    matches = search_library(backend, answer.searches)
+    store = backend.ai_conversation
+    # A reference is issued in the order the DJ would read the results and never names
+    # the track itself; the same track keeps its reference for the whole conversation,
+    # so a track two searches both found is offered once, under one reference.
+    results: list[dict[str, Any]] = []
+    shown: set[str] = set()
+    for match in matches:
+        for record in match.records:
+            track_id = _public_track(record)["id"]
+            if track_id in shown:
+                continue
+            shown.add(track_id)
+            results.append(public_result(store.reference(track_id), record))
+    return send(results), tuple(match.public() for match in matches)
 
 
 def apply_context(backend: HeadlessBackend, context: AssistContext, answer: dict[str, Any]) -> dict[str, Any]:

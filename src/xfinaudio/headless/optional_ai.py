@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from xfinaudio.ai.list_chat import ACTION_TYPES, MAX_ACTIONS, VARIANTS
+from xfinaudio.ai.list_chat import ACTION_TYPES, MAX_ACTIONS, MAX_SEARCHES, VARIANTS
 from xfinaudio.ai.nan_client import DEFAULT_ENDPOINT, Transport, request_context
 from xfinaudio.config.settings import AiSettings
 from xfinaudio.headless.ai_actions import apply_action, propose_actions, public_actions
@@ -71,7 +71,7 @@ class _PayloadPreviewed(Exception):
     """Private abort raised once one provider body has been built and captured."""
 
 
-def _serialized_body(context: AssistContext) -> bytes:
+def _serialized_body(context: AssistContext, backend: HeadlessBackend) -> bytes:
     """Build the exact provider body for ``context`` with no network, key, or credential access.
 
     The surface builders run unchanged through the ordinary execution path with a capture
@@ -90,7 +90,7 @@ def _serialized_body(context: AssistContext) -> bytes:
 
     try:
         with request_context(enabled=True, key_provider=lambda: _UNUSED_PREVIEW_KEY):
-            execute_context(context, capture)
+            execute_context(context, capture, backend)
     except _PayloadPreviewed:
         pass
     except BackendError:
@@ -115,6 +115,8 @@ def _parsed_chat_answer(answer: dict[str, Any]) -> bool:
     for item in dropped:
         if not isinstance(item, dict) or set(item) != {"raw", "reason"} or not isinstance(item["reason"], str):
             return False
+    if not _parsed_searches(answer["searches"]):
+        return False
     if len(actions) > MAX_ACTIONS:
         return False
     for item in actions:
@@ -123,19 +125,59 @@ def _parsed_chat_answer(answer: dict[str, Any]) -> bool:
         if not isinstance(item["reason"], str):
             return False
         kind = item["type"]
-        if kind in ("replace", "move"):
-            expected = {"type", "position", "reason"} if kind == "replace" else {"type", "position", "to", "reason"}
+        if kind in ("replace", "remove", "replace_with"):
+            expected = {"type", "position", "reason"}
+            if kind == "replace_with":
+                expected |= {"ref"}
+            if set(item) != expected or type(item["position"]) is not int:
+                return False
+            if "ref" in item and not isinstance(item["ref"], str):
+                return False
+        elif kind == "add":
             if (
-                set(item) != expected
+                set(item) != {"type", "ref", "position", "reason"}
                 or type(item["position"]) is not int
-                or ("to" in item and type(item["to"]) is not int)
+                or not isinstance(item["ref"], str)
             ):
+                return False
+        elif kind == "move":
+            if (
+                set(item) != {"type", "position", "to", "reason"}
+                or type(item["position"]) is not int
+                or type(item["to"]) is not int
+            ):
+                return False
+        elif kind == "reorder":
+            order = item["order"]
+            if set(item) != {"type", "order", "reason"} or not isinstance(order, list):
+                return False
+            if any(type(position) is not int for position in order):
                 return False
         elif kind == "extend":
             if set(item) != {"type", "to", "reason"} or type(item["to"]) is not int:
                 return False
-        elif set(item) != {"type", "variant", "reason"} or item["variant"] not in VARIANTS:
+        elif kind == "use_variant":
+            if set(item) != {"type", "variant", "reason"} or item["variant"] not in VARIANTS:
+                return False
+        elif set(item) != {"type", "reason"}:
             return False
+    return True
+
+
+def _parsed_searches(searches: Any) -> bool:
+    """The local searches one answer asked for, in the shape the parser publishes."""
+    if not isinstance(searches, list) or len(searches) > MAX_SEARCHES:
+        return False
+    for item in searches:
+        if not isinstance(item, dict) or "query" not in item or not isinstance(item["query"], str):
+            return False
+        if "genre" in item and not isinstance(item["genre"], str):
+            return False
+        if "key" in item and not isinstance(item["key"], str):
+            return False
+        for field in ("bpmMin", "bpmMax"):
+            if field in item and type(item[field]) not in (int, float):
+                return False
     return True
 
 
@@ -154,7 +196,7 @@ def _published(answer: dict[str, Any]) -> dict[str, Any]:
 
 
 #: The fields one chat turn carries for the opt-in log only; never published to the DJ.
-_DIAGNOSTIC_FIELDS = ("actions", "droppedActions", "droppedItems", "rawText")
+_DIAGNOSTIC_FIELDS = ("actions", "droppedActions", "droppedItems", "rawText", "searches")
 
 
 class OptionalAI:
@@ -319,7 +361,7 @@ class OptionalAI:
         """
         pending = self._pending(params["previewId"])
         self._fresh(pending.reference)
-        body = _serialized_body(pending.context)
+        body = _serialized_body(pending.context, self.backend)
         truncated = len(body) > MAX_PAYLOAD_PREVIEW_BYTES
         text = body[:MAX_PAYLOAD_PREVIEW_BYTES].decode("utf-8", errors="ignore") if truncated else body.decode("utf-8")
         return {
@@ -398,12 +440,12 @@ class OptionalAI:
         return context
 
     @staticmethod
-    def _answer(context: AssistContext, transport: Transport) -> dict[str, Any]:
+    def _answer(context: AssistContext, transport: Transport, backend: HeadlessBackend) -> dict[str, Any]:
         try:
-            answer = execute_context(context, transport)
+            answer = execute_context(context, transport, backend)
             expected = {"surface", "kind", "title", "text", "proposal", "canApply"}
             if context.surface == "chat":
-                expected |= {"actions", "droppedActions", "droppedItems", "rawText"}
+                expected |= {"actions", "droppedActions", "droppedItems", "rawText", "searches"}
             if (
                 not isinstance(answer, dict)
                 or set(answer) != expected
@@ -440,7 +482,7 @@ class OptionalAI:
             answer = provider_request(
                 pending.reference.settings,
                 pending.reference.binding,
-                lambda send: self._answer(pending.context, send),
+                lambda send: self._answer(pending.context, send, self.backend),
                 transport=self.transport,
                 surface=pending.context.surface,
             )
@@ -484,6 +526,7 @@ class OptionalAI:
                 ],
                 listChanged=changed,
                 trackCount=context.data["trackCount"],
+                searches=answer["searches"],
             )
         result_id = str(uuid4())
         self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(published))

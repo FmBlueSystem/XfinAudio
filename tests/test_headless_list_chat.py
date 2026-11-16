@@ -9,7 +9,7 @@ import pytest
 
 from tests.test_headless_ai_context import setup as setup
 from xfinaudio.ai import nan_client
-from xfinaudio.headless.common import BackendError
+from xfinaudio.headless.common import BackendError, _public_track
 from xfinaudio.library.scan_service import ScanCancellationToken
 
 QUESTION = "¿Qué pista quitarías y por qué?"
@@ -21,6 +21,8 @@ class ChatTransport:
 
     def __init__(self, reply: str = REPLY):
         self.reply = reply
+        # An answer that asks for a search is followed by the next answer in ``replies``.
+        self.replies: list[str] = []
         self.bodies: list[dict] = []
         self.timeouts: list[float] = []
         self.on_send = lambda: None
@@ -29,7 +31,8 @@ class ChatTransport:
         self.bodies.append(json.loads(request.data.decode("utf-8")))
         self.timeouts.append(timeout)
         self.on_send()
-        return io.BytesIO(json.dumps({"choices": [{"message": {"content": self.reply}}]}).encode())
+        content = self.replies.pop(0) if self.replies else self.reply
+        return io.BytesIO(json.dumps({"choices": [{"message": {"content": content}}]}).encode())
 
 
 def forbidden(*args, **kwargs):
@@ -357,3 +360,80 @@ def test_the_review_commentary_surface_keeps_its_previous_shape(chat_setup):
     assert result["surface"] == "review" and result["kind"] == "commentary" and result["canApply"] is False
     assert [message["role"] for message in transport.bodies[0]["messages"]] == ["system", "user"]
     assert call(facade, "ai.chat.history") == {"conversation": [], "actions": []}
+
+
+def search_answer(*searches: dict, reply: str = "Busco en la biblioteca.") -> str:
+    return json.dumps({"reply": reply, "actions": [], "searches": list(searches)})
+
+
+def test_the_chat_disclosure_says_a_search_also_sends_its_results(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    preview = prepare(facade, current_review_id(backend))
+    assert any("búsqueda" in item for item in preview["disclosure"])
+    assert transport.bodies == []
+
+
+def test_an_answer_with_searches_runs_them_locally_and_asks_once_more(chat_setup):
+    facade, transport, backend, _, root = chat_setup
+    transport.replies = [
+        search_answer({"query": ""}),
+        json.dumps({"reply": "La 5 encaja al final.", "actions": []}),
+    ]
+    result = turn(facade, current_review_id(backend))["result"]
+    # At most one search round per turn: exactly two provider requests, both disclosed once.
+    assert len(transport.bodies) == 2 and transport.timeouts == [120, 120]
+    first, second = (body["messages"] for body in transport.bodies)
+    assert [message["role"] for message in first] == ["system", "user"]
+    assert [message["role"] for message in second] == ["system", "user", "user"]
+    assert result["text"] == "La 5 encaja al final."
+    assert result["conversation"] == [
+        {"role": "user", "text": QUESTION},
+        {"role": "assistant", "text": "La 5 encaja al final."},
+    ]
+    results = json.loads(second[-1]["content"].split("\n", 1)[1])
+    assert [item["reference"] for item in results] == ["L1", "L2", "L3", "L4"]
+    assert [item["title"] for item in results] == [f"Electron test {index}" for index in (5, 6, 7, 8)]
+    assert set(results[0]) == {"reference", "title", "artist", "genre", "bpm", "key", "energy", "duration"}
+    published = json.dumps(transport.bodies)
+    assert str(root) not in published and ".flac" not in published
+    for track in backend._records(checked=frozenset()):
+        assert _public_track(track)["id"] not in published
+
+
+def test_a_reference_is_reused_across_the_conversation_and_sent_only_as_its_short_form(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.replies = [search_answer({"query": ""}), json.dumps({"reply": "Listo.", "actions": []})]
+    turn(facade, current_review_id(backend))
+    preview = prepare(facade, current_review_id(backend), request="¿Y la misma pista 5?")
+    call(facade, "ai.run", {"previewId": preview["previewId"], "confirmed": True})
+    assert len(transport.bodies) == 3
+    # The reference a later turn names still resolves inside the same conversation.
+    from tests.test_headless_chat_actions import add, answer
+
+    transport.reply = answer(add(ref="L1", position=5))
+    result = turn(facade, current_review_id(backend), request="Agrega la cinco.")["result"]
+    assert [action["type"] for action in result["actions"]] == ["add"]
+
+
+def test_searches_in_the_second_answer_are_ignored(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.replies = [
+        search_answer({"query": ""}),
+        search_answer({"query": "una segunda búsqueda"}, reply="Sigo sin buscar más."),
+    ]
+    result = turn(facade, current_review_id(backend))["result"]
+    assert len(transport.bodies) == 2
+    assert result["text"] == "Sigo sin buscar más."
+    assert result["conversation"][-1] == {"role": "assistant", "text": "Sigo sin buscar más."}
+
+
+def test_a_track_two_searches_both_found_is_offered_once(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.replies = [
+        search_answer({"query": ""}, {"query": "house"}),
+        json.dumps({"reply": "Cuatro pistas sirven.", "actions": []}),
+    ]
+    turn(facade, current_review_id(backend))
+    results = json.loads(transport.bodies[1]["messages"][-1]["content"].split("\n", 1)[1])
+    assert [item["reference"] for item in results] == ["L1", "L2", "L3", "L4"]
+    assert len({item["title"] for item in results}) == 4

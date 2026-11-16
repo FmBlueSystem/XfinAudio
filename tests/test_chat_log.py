@@ -39,7 +39,7 @@ def log_entries(backend) -> list[dict]:
 
 def test_without_the_variable_nothing_is_written_and_the_turn_is_unchanged(chat_setup):
     facade, transport, backend, _, _ = chat_setup
-    transport.reply = answer(replace_at(2), {"type": "remove", "position": 1, "reason": "x"})
+    transport.reply = answer(replace_at(2), {"type": "shuffle", "position": 1, "reason": "x"})
     result = turn(facade, backend.review_id)["result"]
     assert not (backend.data_dir / "logs").exists()
     assert "rawText" not in result and "droppedItems" not in result
@@ -50,7 +50,7 @@ def test_without_the_variable_nothing_is_written_and_the_turn_is_unchanged(chat_
 def test_a_turn_appends_one_line_with_the_reply_the_actions_and_each_dropped_value(chat_setup, monkeypatch):
     facade, transport, backend, _, root = chat_setup
     enable(monkeypatch)
-    refused = {"type": "remove", "position": 1, "reason": "x"}
+    refused = {"type": "shuffle", "position": 1, "reason": "x"}
     transport.reply = answer(replace_at(3), move(4, 1), refused)
     result = turn(facade, backend.review_id)["result"]
     entries = log_entries(backend)
@@ -173,3 +173,27 @@ def test_history_never_writes_a_line(chat_setup, monkeypatch):
     turn(facade, backend.review_id)
     assert [entry["event"] for entry in log_entries(backend)] == ["turn"]
     assert REPLY in log_path(backend).read_text(encoding="utf-8")
+
+
+def test_a_turn_with_a_search_logs_each_search_and_how_many_results_it_had(chat_setup, monkeypatch):
+    facade, transport, backend, _, _ = chat_setup
+    enable(monkeypatch)
+    transport.replies = [
+        json.dumps(
+            {
+                "reply": "Busco en la biblioteca.",
+                "actions": [],
+                "searches": [{"query": "house", "bpmMin": 120}, {"query": "techno"}],
+            }
+        ),
+        json.dumps({"reply": "Encontré cuatro.", "actions": []}),
+    ]
+    turn(facade, backend.review_id)
+    entry = log_entries(backend)[0]
+    assert entry["event"] == "turn" and entry["reply"] == "Encontré cuatro."
+    assert entry["searches"] == [
+        {"query": "house", "bpmMin": 120, "resultCount": 4},
+        {"query": "techno", "resultCount": 0},
+    ]
+    text = log_path(backend).read_text(encoding="utf-8")
+    assert "L1" not in text and ".flac" not in text

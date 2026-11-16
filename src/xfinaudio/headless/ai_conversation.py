@@ -33,12 +33,15 @@ class ChatAction:
     """One validated change the assistant proposed, bound to what it named.
 
     ``type`` is ``replace`` (take that track out and put the engine's replacement in
-    its place), ``move``, ``extend`` (grow the list to ``to`` tracks) or
-    ``use_variant`` (switch to the plan alternative ``variant``, whose length was
-    ``track_count`` when it was proposed). ``track_id`` and ``replacement_id`` are
-    internal public track identities and are never published: the answer carries
-    titles, positions and reasons only. A list-level change names no track, so its
-    ``track_id`` stays empty.
+    its place), ``remove`` (take it out without a replacement), ``move``, ``reorder``
+    (the ``order`` of the tracks as it was proposed) or ``undo``; ``add`` puts the
+    library track in ``replacement_id`` at the slot ``position``, ``replace_with``
+    swaps the listed track for that library one, ``extend`` grows the list to ``to``
+    tracks and ``use_variant`` switches to the plan alternative ``variant``, whose
+    length was ``track_count`` when it was proposed. ``track_id``, ``replacement_id``
+    and ``order`` are internal public track identities and are never published: the
+    answer carries titles, positions and reasons only. A list-level change names no
+    track, so its ``track_id`` stays empty.
     """
 
     id: str
@@ -49,6 +52,8 @@ class ChatAction:
     replacement_id: str | None = None
     variant: str | None = None
     track_count: int | None = None
+    position: int | None = None
+    order: tuple[str, ...] | None = None
 
 
 class ConversationStore:
@@ -58,6 +63,10 @@ class ConversationStore:
         self._messages: list[Message] = []
         self._list: str | None = None
         self._actions: tuple[ChatAction, ...] = ()
+        # The library tracks a search showed, each with the short reference the assistant
+        # may name later: ``L1``, ``L2``... and nothing else, valid for this conversation.
+        self._references: dict[str, str] = {}
+        self._named: dict[str, str] = {}
 
     @property
     def first_turn(self) -> bool:
@@ -94,6 +103,25 @@ class ConversationStore:
         """True when this turn reads a different list than the last successful turn."""
         return self._list is not None and self._list != fingerprint
 
+    def reference(self, track_id: str) -> str:
+        """The conversation-scoped short reference for one library track.
+
+        A track already shown keeps its reference, so a reference the assistant read
+        in an earlier turn still names the same track; every new one gets the next
+        number in order.
+        """
+        existing = self._references.get(track_id)
+        if existing is not None:
+            return existing
+        reference = f"L{len(self._references) + 1}"
+        self._references[track_id] = reference
+        self._named[reference] = track_id
+        return reference
+
+    def referenced(self, reference: str) -> str | None:
+        """The library track this conversation gave that reference to, if it ever did."""
+        return self._named.get(reference)
+
     def record(self, fingerprint: str, request: str, reply: str) -> list[dict[str, str]]:
         """Store one successful turn and return the whole conversation, oldest first."""
         self._messages.extend((Message("user", request), Message("assistant", reply)))
@@ -104,10 +132,12 @@ class ConversationStore:
         return self.snapshot()
 
     def reset(self) -> list[dict[str, str]]:
-        """Forget the conversation, the changes it proposed and the list it read."""
+        """Forget the conversation, the changes it proposed and the references it issued."""
         self._messages.clear()
         self._list = None
         self._actions = ()
+        self._references.clear()
+        self._named.clear()
         return []
 
 

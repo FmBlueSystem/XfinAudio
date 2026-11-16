@@ -309,12 +309,29 @@ def test_chat_instructions_ask_for_one_json_object_with_the_two_action_shapes(se
     assert "JSON" in system
     assert '"reply"' in system and '"actions"' in system
     assert '"type": "replace"' in system and '"type": "move"' in system
-    assert "entre 0 y 5" in system
+    assert "entre 0 y 8" in system
     assert "200" in system and "N = 4" in system
     assert '"type": "extend"' in system and '"type": "use_variant"' in system
     assert "mayor que el largo actual" in system and "100" in system
     assert '"variant": "adventurous"' in system
-    assert "un solo extend y un solo use_variant" in system
+    assert "un solo extend, un solo use_variant, un solo reorder y un solo undo" in system
+
+
+def test_the_chat_instructions_describe_the_searches_and_the_new_changes(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    _, transport = chat(facts)
+    system = transport.bodies[0]["messages"][0]["content"]
+    assert "entre 0 y 8" in system
+    for shape in ('"type": "remove"', '"type": "add"', '"type": "replace_with"', '"type": "reorder"'):
+        assert shape in system
+    assert '"type": "undo"' in system
+    assert '"searches"' in system
+    assert '"query"' in system and '"bpmMin"' in system and '"bpmMax"' in system and '"key"' in system
+    assert "entre 0 y 2 búsquedas" in system and "20" in system
+    assert "L1" in system
+    assert "un solo reorder y un solo undo" in system
 
 
 def test_the_answer_is_read_as_a_json_object_with_its_valid_actions(setup):
@@ -369,7 +386,7 @@ def test_a_fenced_json_object_is_read_as_the_structured_answer():
     "item",
     [
         "no es un objeto",
-        {"type": "remove", "position": 1, "reason": "motivo"},
+        {"type": "shuffle", "position": 1, "reason": "motivo"},
         {"type": "replace", "position": 1, "reason": "motivo", "to": 2},
         {"type": "move", "position": 1, "reason": "motivo"},
         {"type": "move", "position": 1, "to": 2, "reason": "motivo", "path": "/private"},
@@ -396,7 +413,7 @@ def test_an_action_that_cannot_apply_is_dropped_and_counted(item):
 def test_every_dropped_action_reports_its_raw_value_and_the_reason():
     raw_items = [
         "no es un objeto",
-        {"type": "remove", "position": 1, "reason": "motivo"},
+        {"type": "shuffle", "position": 1, "reason": "motivo"},
         {"type": "replace", "position": 1, "reason": "motivo", "to": 2},
         {"type": "replace", "position": 9, "reason": "motivo"},
         {"type": "replace", "position": 1, "reason": "x" * 201},
@@ -427,9 +444,9 @@ def test_every_dropped_action_reports_its_raw_value_and_the_reason():
     assert list_chat.parse_answer(repeated, 8).dropped_items == (
         list_chat.DroppedAction({"type": "move", "position": 2, "to": 1, "reason": "motivo"}, "repeated position"),
     )
-    six = structured(*({"type": "replace", "position": index, "reason": "motivo"} for index in range(1, 7)))
-    assert list_chat.parse_answer(six, 8).dropped_items == (
-        list_chat.DroppedAction({"type": "replace", "position": 6, "reason": "motivo"}, "over the change limit"),
+    nine = structured(*[{"type": "replace", "position": index, "reason": "motivo"} for index in range(1, 10)])
+    assert list_chat.parse_answer(nine, 10).dropped_items == (
+        list_chat.DroppedAction({"type": "replace", "position": 9, "reason": "motivo"}, "over the change limit"),
     )
 
 
@@ -496,9 +513,9 @@ def test_a_repeated_position_and_actions_beyond_five_are_dropped_and_counted():
     answer = list_chat.parse_answer(repeated, 8)
     assert answer.actions == (list_chat.ProposedAction("replace", 2, None, "motivo"),)
     assert answer.dropped == 1
-    six = structured(*({"type": "replace", "position": index, "reason": "motivo"} for index in range(1, 7)))
-    answer = list_chat.parse_answer(six, 8)
-    assert [action.position for action in answer.actions] == [1, 2, 3, 4, 5]
+    nine = structured(*[{"type": "replace", "position": index, "reason": "motivo"} for index in range(1, 10)])
+    answer = list_chat.parse_answer(nine, 10)
+    assert [action.position for action in answer.actions] == [1, 2, 3, 4, 5, 6, 7, 8]
     assert answer.dropped == 1
 
 
@@ -514,3 +531,165 @@ def test_the_reply_rule_still_applies_to_a_structured_reply(setup, reply):
     ):
         list_chat.chat_with_list(facts, "Pregunta", [], track_count=4, transport=transport)
     assert len(transport.bodies) == 1
+
+
+def test_the_answer_is_read_with_the_remove_add_and_replace_with_shapes():
+    answer = list_chat.parse_answer(
+        structured(
+            {"type": "remove", "position": 3, "reason": "Sobra"},
+            {"type": "add", "ref": "L1", "position": 5, "reason": "Encaja"},
+            {"type": "replace_with", "position": 4, "ref": "L2", "reason": "Mejor"},
+        ),
+        4,
+    )
+    assert answer.actions == (
+        list_chat.ProposedAction("remove", 3, None, "Sobra"),
+        list_chat.ProposedAction("add", 5, None, "Encaja", ref="L1"),
+        list_chat.ProposedAction("replace_with", 4, None, "Mejor", ref="L2"),
+    )
+    assert [action.public() for action in answer.actions] == [
+        {"type": "remove", "position": 3, "reason": "Sobra"},
+        {"type": "add", "position": 5, "ref": "L1", "reason": "Encaja"},
+        {"type": "replace_with", "position": 4, "ref": "L2", "reason": "Mejor"},
+    ]
+    assert answer.dropped == 0
+
+
+def test_the_answer_is_read_with_the_reorder_and_undo_shapes():
+    answer = list_chat.parse_answer(
+        structured(
+            {"type": "reorder", "order": [2, 1, 3, 4], "reason": "Sube la 2"},
+            {"type": "undo", "reason": "Mejor no"},
+        ),
+        4,
+    )
+    assert answer.actions == (
+        list_chat.ProposedAction("reorder", None, None, "Sube la 2", order=(2, 1, 3, 4)),
+        list_chat.ProposedAction("undo", None, None, "Mejor no"),
+    )
+    assert [action.public() for action in answer.actions] == [
+        {"type": "reorder", "order": [2, 1, 3, 4], "reason": "Sube la 2"},
+        {"type": "undo", "reason": "Mejor no"},
+    ]
+    assert answer.dropped == 0
+
+
+@pytest.mark.parametrize(
+    "item,reason",
+    [
+        ({"type": "remove", "position": 3, "reason": "motivo"}, "protected position"),
+        ({"type": "remove", "position": 0, "reason": "motivo"}, "position outside the list"),
+        ({"type": "add", "ref": "L1", "position": 0, "reason": "motivo"}, "position outside the list"),
+        ({"type": "add", "ref": "L1", "position": 6, "reason": "motivo"}, "position outside the list"),
+        ({"type": "add", "ref": "/private/tmp/one.flac", "position": 2, "reason": "motivo"}, "unsupported reference"),
+        ({"type": "add", "ref": "a" * 64, "position": 2, "reason": "motivo"}, "unsupported reference"),
+        ({"type": "add", "ref": "l1", "position": 2, "reason": "motivo"}, "unsupported reference"),
+        ({"type": "add", "ref": "L0", "position": 2, "reason": "motivo"}, "unsupported reference"),
+        ({"type": "add", "ref": 3, "position": 2, "reason": "motivo"}, "unsupported reference"),
+        ({"type": "add", "ref": "L1", "position": 2}, "unexpected fields"),
+        ({"type": "replace_with", "position": 3, "ref": "L1", "reason": "motivo"}, "protected position"),
+        ({"type": "replace_with", "position": 2, "ref": None, "reason": "motivo"}, "unsupported reference"),
+        ({"type": "reorder", "order": [1, 2, 3], "reason": "motivo"}, "bad permutation"),
+        ({"type": "reorder", "order": [1, 2, 3, 4, 5], "reason": "motivo"}, "bad permutation"),
+        ({"type": "reorder", "order": [1, 2, 2, 4], "reason": "motivo"}, "bad permutation"),
+        ({"type": "reorder", "order": [1, 2, 3, "4"], "reason": "motivo"}, "bad permutation"),
+        ({"type": "reorder", "order": 4, "reason": "motivo"}, "bad permutation"),
+        ({"type": "reorder", "order": [1, 3, 2, 4], "reason": "motivo"}, "protected position"),
+        ({"type": "undo"}, "unexpected fields"),
+        ({"type": "undo", "reason": "x" * 201}, "missing or oversized reason"),
+    ],
+)
+def test_a_new_change_that_cannot_apply_is_dropped_with_its_reason(item, reason):
+    answer = list_chat.parse_answer(structured(item), 4, (3,))
+    assert answer.actions == ()
+    assert answer.dropped == 1
+    assert answer.dropped_items == (list_chat.DroppedAction(item, reason),)
+
+
+def test_only_one_reorder_and_one_undo_are_kept_per_reply():
+    raw = structured(
+        {"type": "reorder", "order": [2, 1, 3, 4], "reason": "motivo"},
+        {"type": "undo", "reason": "motivo"},
+        {"type": "reorder", "order": [4, 3, 2, 1], "reason": "motivo"},
+        {"type": "undo", "reason": "motivo"},
+    )
+    answer = list_chat.parse_answer(raw, 4)
+    assert [action.type for action in answer.actions] == ["reorder", "undo"]
+    assert answer.dropped == 2
+    assert [item.reason for item in answer.dropped_items] == ["repeated change type", "repeated change type"]
+
+
+def test_the_answer_is_read_with_up_to_two_searches():
+    raw = json.dumps(
+        {
+            "reply": "Busco en la biblioteca.",
+            "actions": [],
+            "searches": [
+                {"query": "", "bpmMin": 120, "bpmMax": 124},
+                {"query": "test 7", "genre": "House", "key": "8A"},
+                {"query": "una tercera búsqueda"},
+            ],
+        }
+    )
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.searches == (
+        list_chat.SearchQuery(query="", bpm_min=120, bpm_max=124),
+        list_chat.SearchQuery(query="test 7", genre="House", key="8A"),
+    )
+    assert answer.dropped == 0
+    assert [query.public() for query in answer.searches] == [
+        {"query": "", "bpmMin": 120, "bpmMax": 124},
+        {"query": "test 7", "genre": "House", "key": "8A"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        "no es un objeto",
+        {"genre": "House"},
+        {"query": 7},
+        {"query": "", "path": "/private/tmp/one.flac"},
+        {"query": "", "bpmMin": "120"},
+        {"query": "", "bpmMin": 130, "bpmMax": 120},
+        {"query": "", "key": "Z"},
+        {"query": "", "genre": 7},
+        {"query": "x" * 201},
+    ],
+)
+def test_an_invalid_search_is_dropped_without_counting_a_change(item):
+    raw = json.dumps({"reply": "Busco.", "actions": [], "searches": [item]})
+    answer = list_chat.parse_answer(raw, 4)
+    assert answer.searches == ()
+    assert answer.dropped == 0
+
+
+def test_chat_sends_the_search_results_as_one_more_message_without_paths(setup):
+    backend, _, root = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    results = [
+        {
+            "reference": "L1",
+            "title": "Electron test 5",
+            "artist": "XfinAudio Test",
+            "genre": "House",
+            "bpm": 122.0,
+            "key": "8A",
+            "energy": 6,
+            "duration": 2.0,
+        }
+    ]
+    transport = ChatTransport()
+    with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
+        answer = list_chat.chat_with_list(
+            facts, "Pregunta", [], track_count=4, search_results=results, transport=transport
+        )
+    assert answer.actions == ()
+    messages = transport.bodies[0]["messages"]
+    assert [message["role"] for message in messages] == ["system", "user", "user"]
+    assert json.loads(messages[-1]["content"].split("\n", 1)[1]) == results
+    assert "L1" in messages[-1]["content"]
+    assert str(root) not in messages[-1]["content"]
+    for track in backend._records(checked=frozenset()):
+        assert track.path not in messages[-1]["content"]
