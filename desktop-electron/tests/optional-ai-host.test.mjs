@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {mkdtemp,realpath,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';
-const require=createRequire(import.meta.url),{OptionalAiHost}=require('../.out/main/optional-ai-host.js'),{validateRequest}=require('../.out/main/security.js'),{PythonBridge}=require('../.out/main/bridge.js'),{ListChatController,listChatActionText}=require('../.out/renderer/list-chat.js');
+const require=createRequire(import.meta.url),{OptionalAiHost}=require('../.out/main/optional-ai-host.js'),{validateRequest}=require('../.out/main/security.js'),{PythonBridge}=require('../.out/main/bridge.js'),{ListChatController,listChatActionText,listChatPeriodKept,listChatPeriodLine,listChatPeriodNotice}=require('../.out/renderer/list-chat.js'),{SHORT_LIST_NO_CANDIDATES}=require('../.out/renderer/short-list-notice.js');
 const id='11111111-1111-4111-8111-111111111111',rev='a'.repeat(64),recipient='https://api.nan.builders/v1/chat/completions',deferred=()=>{let resolve;return {promise:new Promise(r=>resolve=r),resolve:v=>resolve(v)}},python=process.env.XFIN_PYTHON,coreRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 function fixture(){const calls=[];let choose=async()=>null,confirm=async()=>true,closing=false,endpoint=recipient,auto=false,firstTurn=true,prepared='editor';const host=new OptionalAiHost({request:async(method,params)=>{calls.push([method,params]);if(method==='ai.prepare'){prepared=String(params.surface);return {previewId:id,surface:prepared,firstTurn,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};}if(method==='ai.confirmation')return {previewId:id,surface:prepared,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};if(method==='ai.run')return {cancelled:false,result:{resultId:id}};return {revision:rev};},choose:()=>choose(),confirm:summary=>{calls.push(['dialog',summary]);return confirm();},cancel:async()=>{calls.push(['cancel']);return {cancelled:true};},autoAuthorize:async()=>auto,isClosing:()=>closing});return {host,calls,setChoose:v=>choose=v,setConfirm:v=>confirm=v,setAuto:v=>auto=v,setFirstTurn:v=>firstTurn=v,close:()=>closing=true,badEndpoint:()=>endpoint='https://elsewhere.example'};}
 test('prepare and declined native AI confirmation cannot send a provider request',async()=>{const f=fixture();await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});f.setConfirm(async()=>false);assert.deepEqual(await f.host.ask(id),{cancelled:true,result:null});assert.ok(!f.calls.some(([m])=>m==='ai.run'));});
@@ -132,6 +132,9 @@ const reply='Mueve la pista 1 a la posición 2: la curva de energía sube parejo
  undoReason='El orden anterior servía mejor.',
  undoRequest='Deshaz el último cambio de la lista.',
  undoReply='Deshago el último cambio: el orden anterior servía mejor.',
+ periodRequest='Ajusta la lista a los 80.',
+ periodReply='Propongo ajustar la lista a 1980–1989.',
+ periodReason='El DJ pidió solo canciones de los 80.',
  chatScript=`import io,json,re,sys,urllib.request
 from pathlib import Path
 from xfinaudio.headless.backend import HeadlessBackend
@@ -163,6 +166,10 @@ FOUR=answer_body("""${searchReply}""",[
 ])
 # S8: an undo must be the only change of its reply, so it comes in a turn of its own.
 UNDO=answer_body("""${undoReply}""",[{'type':'undo','reason':"""${undoReason}"""}])
+# S14: the period change speaks about the whole list, not about one position. Bound to the
+# fixture list every track is outside 1980-1989 (none carries a release year), so the change
+# is published; applying it has nothing to put in place and the core refuses it (S13).
+PERIOD=answer_body("""${periodReply}""",[{'type':'period','yearMin':1980,'yearMax':1989,'reason':"""${periodReason}"""}])
 def fake(request,*,timeout):
     assert request.full_url==nan_client.DEFAULT_ENDPOINT
     assert request.get_header('Authorization')=='Bearer dummy-test-only'
@@ -189,6 +196,8 @@ def fake(request,*,timeout):
         content=SEARCH
     elif last=="""${undoRequest}""":
         content=UNDO
+    elif last=="""${periodRequest}""":
+        content=PERIOD
     else:
         content=MOVE
     with (root/'fake-requests.jsonl').open('a') as log: log.write(json.dumps({'recipient':request.full_url,'body':body})+'\\n')
@@ -322,7 +331,7 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
   const history=await core.request('ai.chat.history');
   assert.deepEqual(history.actions,published,'the core reports the same pending changes');
   const unreachable=()=>{throw new Error('unreachable')};
-  const panelFor=history=>new ListChatController({aiChatHistory:async()=>history,aiChatReset:async()=>history,prepareAiRequest:unreachable,runAiRequest:unreachable,inspectAiPayload:unreachable,aiChatApply:unreachable},{canAct:()=>true,changed:()=>{},perform:async(_label,task,apply,fail)=>{try{apply(await task(),true);}catch(error){fail(error);}}});
+  const panelFor=(history,applyAction=unreachable)=>new ListChatController({aiChatHistory:async()=>history,aiChatReset:async()=>history,prepareAiRequest:unreachable,runAiRequest:unreachable,inspectAiPayload:unreachable,aiChatApply:applyAction},{canAct:()=>true,changed:()=>{},perform:async(_label,task,apply,fail)=>{try{apply(await task(),true);}catch(error){fail(error);}}});
   const panel=panelFor(history);
   panel.setReview(relisted.reviewId);
   await panel.load();
@@ -388,5 +397,55 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
   assert.deepEqual(reverted.review.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 4','Electron test 6'],'the applied undo reverts the last applied change');
   assert.deepEqual(reverted.actions,[],'no change stays pending after the undo');
   assert.equal(await requests(),5,'applying the undo never calls the provider');
+  // --- S13/S14/S15: one period change, published by the real core, shown and applied by the renderer ---
+  // The fixture library has no release year and no protected track, so every track of the list
+  // is outside 1980-1989 and S14 publishes the change instead of dropping it.
+  const periodAsk=await host.prepare({surface:'chat',request:periodRequest,context:{reviewId:reverted.review.reviewId}});
+  assert.equal(periodAsk.firstTurn,false,'the conversation still carries its turns');
+  const periodTurn=await host.ask(periodAsk.previewId);
+  assert.equal(dialogs.length,2,'a further turn of the same conversation reuses the first consent');
+  assert.equal(periodTurn.result.text,periodReply,'the period answer is what the DJ reads');
+  assert.equal(periodTurn.result.listChanged,true,'the applied undo changed the list since the last successful turn, so the turn reads it again');
+  assert.equal(periodTurn.result.droppedActions,0,'a list with tracks outside the range can be fitted');
+  assert.deepEqual(periodTurn.result.actions.map(action=>action.type),['period'],'S14 publishes the one period change');
+  const [periodCard]=periodTurn.result.actions;
+  assert.deepEqual(Object.keys(periodCard).sort(),['actionId','outside','reason','type','yearMax','yearMin'],'a period publishes exactly its documented fields');
+  assert.deepEqual([periodCard.yearMin,periodCard.yearMax,periodCard.reason],[1980,1989,periodReason]);
+  assert.equal(periodCard.outside,4,'S14 counts the unprotected tracks outside the range: the four fixture tracks have no year');
+  assert.equal(await requests(),6,'the period turn is exactly one provider request');
+  assert.equal(/[0-9a-f]{64}/.test(JSON.stringify(periodCard)),false,'no track identity leaves the core');
+  // The renderer's own validator and S15 card sentence, fed with what the real core published.
+  const periodHistory=await core.request('ai.chat.history');
+  assert.deepEqual(periodHistory.actions,[periodCard],'the core reports the period change it published');
+  const periodPanel=panelFor(periodHistory,params=>core.request('ai.chat.apply',validateRequest('aiChatApply',params)));
+  periodPanel.setReview(reverted.review.reviewId);
+  await periodPanel.load();
+  assert.equal(periodPanel.error,'','the renderer accepts the period change the core published');
+  assert.deepEqual(periodPanel.actions,[periodCard],'no field or bound of the period change was refused');
+  assert.equal(periodPanel.droppedActions,0);
+  assert.equal(listChatActionText(periodCard),'Ajustar la lista a 1980–1989 (4 pistas fuera de época)','S15 renders the card sentence the core described');
+  // S14/S13: the validated request applies the change through `review.fit_period`, which finds no
+  // library track with a year inside the range and refuses with `no_candidates`, changing nothing.
+  const periodParams=validateRequest('aiChatApply',{actionId:periodCard.actionId});
+  assert.deepEqual(periodParams,{actionId:periodCard.actionId});
+  await assert.rejects(core.request('ai.chat.apply',periodParams),error=>error.code==='no_candidates','S13 refuses a period it cannot fill');
+  assert.equal(await requests(),6,'applying the period never calls the provider');
+  assert.deepEqual((await core.request('review.details',{reviewId:reverted.review.reviewId})).tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 4','Electron test 6'],'the refused period changes nothing');
+  assert.deepEqual((await core.request('ai.chat.history')).actions,[periodCard],'the refused period stays pending');
+  // The window's own apply path: the refusal is the existing no-candidates line, never an error
+  // the DJ has to fix and never an invented S15 report.
+  await periodPanel.apply(periodCard.actionId);
+  assert.equal(periodPanel.error,'','a refusal the core reports is not an error');
+  assert.equal(periodPanel.notice,SHORT_LIST_NO_CANDIDATES,'the window says there is no track to fit the period with');
+  assert.equal(periodPanel.period,null,'S15 shows no report when nothing was replaced');
+  assert.deepEqual(periodPanel.actions,[periodCard],'the refused change stays as a card');
+  // S15's report helpers, on the exact shape S13 documents: the real core never sent one here,
+  // because the fixture library knows no release year to fit.
+  assert.equal(listChatPeriodNotice(2),'Se reemplazaron 2 pistas.');
+  assert.equal(listChatPeriodKept(2),'Quedan 2 fuera de época:');
+  assert.deepEqual([
+   listChatPeriodLine({position:1,title:'Electron test 1',year:null,reason:'protected'}),
+   listChatPeriodLine({position:4,title:'Electron test 4',year:1989,reason:'no_candidate'}),
+  ],['1. Electron test 1 (sin año) — protegida','4. Electron test 4 (1989) — no hay otra de esa época que mezcle'],'S15 says why each kept track stayed');
  }finally{await core.close();await rm(data,{recursive:true,force:true});}
 });
