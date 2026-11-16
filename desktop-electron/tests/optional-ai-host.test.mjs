@@ -130,6 +130,8 @@ const reply='Mueve la pista 1 a la posición 2: la curva de energía sube parejo
  replaceReason='La 5 encaja mejor al inicio.',
  reorderReason='La curva de energía sube antes.',
  undoReason='El orden anterior servía mejor.',
+ undoRequest='Deshaz el último cambio de la lista.',
+ undoReply='Deshago el último cambio: el orden anterior servía mejor.',
  chatScript=`import io,json,re,sys,urllib.request
 from pathlib import Path
 from xfinaudio.headless.backend import HeadlessBackend
@@ -148,16 +150,19 @@ def answer_body(reply,actions,searches=None):
     return json.dumps(body,ensure_ascii=False)
 # The plain turn: one move, as before.
 MOVE=answer_body("""${reply}""",[{'type':'move','position':1,'to':2,'reason':"""${reason}"""}])
-# S4: the first answer of the search turn asks for one library search and proposes nothing.
-SEARCH=answer_body('Busco en la biblioteca.',[],[{'query':''}])
-# S5: the second answer proposes the five new changes against the list it just read.
-FIVE=answer_body("""${searchReply}""",[
+# S4/S8: the first answer asks for one library search in the shape a real provider writes
+# (every field present, empty strings and zeros for the ones it does not use) and proposes
+# nothing.
+SEARCH=answer_body('Busco en la biblioteca.',[],[{'query':'Electron','genre':'','bpmMin':0,'bpmMax':0,'key':''}])
+# S5: the second answer proposes the rest against the list it just read.
+FOUR=answer_body("""${searchReply}""",[
  {'type':'remove','position':3,'reason':"""${removeReason}"""},
  {'type':'add','ref':'L2','position':5,'reason':"""${addReason}"""},
  {'type':'replace_with','position':2,'ref':'L1','reason':"""${replaceReason}"""},
  {'type':'reorder','order':[4,1,2,3],'reason':"""${reorderReason}"""},
- {'type':'undo','reason':"""${undoReason}"""},
 ])
+# S8: an undo must be the only change of its reply, so it comes in a turn of its own.
+UNDO=answer_body("""${undoReply}""",[{'type':'undo','reason':"""${undoReason}"""}])
 def fake(request,*,timeout):
     assert request.full_url==nan_client.DEFAULT_ENDPOINT
     assert request.get_header('Authorization')=='Bearer dummy-test-only'
@@ -165,22 +170,25 @@ def fake(request,*,timeout):
     # S3: one system message carries the list itself (the fixture tracks are titled
     # 'Electron test N', so their titles are the evidence the list was read) plus the
     # transitions, and never a local file path or a track identity (a sha256 hex id).
+    # A later turn's list no longer holds 'Electron test 1', so the list is read by counting.
     assert str(root) not in body and 'fixtures/music' not in body
-    assert 'Electron test 1' in body and 'Transiciones' in body
+    assert len(re.findall(r'Electron test [0-9]',body))>=4 and 'Transiciones' in body
     assert not re.search(r'[0-9a-f]{64}',body)
     # S1: the chat instructions ask for the JSON object carrying the documented changes.
     system=json.loads(body)['messages'][0]
     assert system['role']=='system'
     assert 'JSON' in system['content'] and '"reply"' in system['content'] and '"actions"' in system['content'] and '"to"' in system['content']
     # One answer per request: a search round sends its second request with the local
-    # results as the last message, and only that request carries the five changes.
+    # results as the last message, and only that request carries the tracked changes.
     last=json.loads(body)['messages'][-1]['content']
     if last.startswith('Resultados de tu búsqueda'):
         assert '.flac' not in last
         assert not re.search(r'[0-9a-f]{64}',last)
-        content=FIVE
+        content=FOUR
     elif last=="""${searchRequest}""":
         content=SEARCH
+    elif last=="""${undoRequest}""":
+        content=UNDO
     else:
         content=MOVE
     with (root/'fake-requests.jsonl').open('a') as log: log.write(json.dumps({'recipient':request.full_url,'body':body})+'\\n')
@@ -268,7 +276,7 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
   assert.deepEqual(await core.request('ai.chat.reset'),{conversation:[]});
   assert.deepEqual(await core.request('ai.chat.history'),{conversation:[],actions:[]},'reset clears the conversation and its changes');
   assert.equal((await host.prepare({surface:'chat',request:'Otra vez',context:{reviewId:untouched.reviewId}})).firstTurn,true,'reset starts a new conversation');
-  // --- S4/S5/S6: one search round, then the five new changes, proven against the real core ---
+  // --- S4/S5/S6/S8: one search round, then the four new changes, then the undo alone ---
   // A manual reorder gives the review an undo step, and S5 only proposes `undo` when one exists.
   const relisted=await core.request('review.reorder',{reviewId:untouched.reviewId,trackIds:[order[1],order[0],order[2],order[3]]});
   assert.deepEqual(relisted.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 3','Electron test 4'],'the list the assistant reads next');
@@ -283,7 +291,7 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
   assert.equal(searched.result.listChanged,false);
   assert.equal(searched.result.droppedActions,0,'every documented change can apply');
   const published=searched.result.actions;
-  assert.deepEqual(published.map(action=>action.type),['remove','add','replace_with','reorder','undo'],'S5 publishes the five new changes');
+  assert.deepEqual(published.map(action=>action.type),['remove','add','replace_with','reorder'],'S5 publishes the changes its reply carries');
   assert.equal(await requests(),4,'the search turn is exactly two provider requests');
   const bodies=(await readFile(path.join(data,'fake-requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(JSON.parse(line).body));
   const searching=bodies.filter(body=>body.messages.at(-1).content.startsWith('Resultados de tu búsqueda'));
@@ -295,7 +303,7 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
    assert.deepEqual(Object.keys(result).sort(),['artist','bpm','duration','energy','genre','key','reference','title'],'a result carries no path and no track identity');
    assert.equal(/[0-9a-f]{64}/.test(JSON.stringify(result)),false);
   }
-  const [removeCard,addCard,swapCard,orderCard,undoCard]=published;
+  const [removeCard,addCard,swapCard,orderCard]=published;
   const library=(result,keys)=>Object.fromEntries(keys.map(key=>[key,result[key]]));
   assert.deepEqual(Object.keys(removeCard).sort(),['actionId','artist','position','reason','title','type'],'a remove publishes exactly its documented fields');
   assert.deepEqual([removeCard.position,removeCard.title,removeCard.artist,removeCard.reason],[3,'Electron test 3','XfinAudio Test',removeReason]);
@@ -307,15 +315,14 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
   assert.deepEqual(swapCard.track,library(results[0],['title','artist','bpm','key']),'the replacing track is the one L1 named');
   assert.deepEqual(Object.keys(orderCard).sort(),['actionId','moved','reason','type'],'a reorder publishes how many tracks move');
   assert.deepEqual([orderCard.moved,orderCard.reason],[4,reorderReason]);
-  assert.deepEqual(Object.keys(undoCard).sort(),['actionId','reason','type'],'an undo names nothing');
-  assert.equal(undoCard.reason,undoReason);
   assert.equal(JSON.stringify(searched.result).includes('.flac'),false,'no local path leaves the core');
   assert.equal(/[0-9a-f]{64}/.test(JSON.stringify(searched.result)),false,'no track identity leaves the core');
   // The renderer's own validator and card text, fed with the actions the real core published.
   const history=await core.request('ai.chat.history');
   assert.deepEqual(history.actions,published,'the core reports the same pending changes');
   const unreachable=()=>{throw new Error('unreachable')};
-  const panel=new ListChatController({aiChatHistory:async()=>history,aiChatReset:async()=>history,prepareAiRequest:unreachable,runAiRequest:unreachable,inspectAiPayload:unreachable,aiChatApply:unreachable},{canAct:()=>true,changed:()=>{},perform:async(_label,task,apply,fail)=>{try{apply(await task(),true);}catch(error){fail(error);}}});
+  const panelFor=history=>new ListChatController({aiChatHistory:async()=>history,aiChatReset:async()=>history,prepareAiRequest:unreachable,runAiRequest:unreachable,inspectAiPayload:unreachable,aiChatApply:unreachable},{canAct:()=>true,changed:()=>{},perform:async(_label,task,apply,fail)=>{try{apply(await task(),true);}catch(error){fail(error);}}});
+  const panel=panelFor(history);
   panel.setReview(relisted.reviewId);
   await panel.load();
   assert.equal(panel.error,'','the renderer accepts every change the core published');
@@ -326,20 +333,44 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
    'Agregar Electron test 6 en la posición 5',
    'Reemplazar 2. Electron test 1 por Electron test 5',
    'Reordenar la lista (4 pistas cambian de lugar)',
-   'Deshacer el último cambio',
   ],'every card renders its S6 sentence');
   // S5: each shown change applies as a normal review edit through the validated bridge request.
   const applyOnce=action=>core.request('ai.chat.apply',validateRequest('aiChatApply',{actionId:action.actionId}));
   const afterAdd=await applyOnce(addCard);
   assert.deepEqual(afterAdd.review.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 3','Electron test 4','Electron test 6'],'the added track enters at its position');
-  assert.deepEqual(afterAdd.actions.map(action=>action.type),['remove','replace_with','undo'],'the changes still pending stay bound to their tracks');
+  assert.deepEqual(afterAdd.actions.map(action=>action.type),['remove','replace_with'],'the changes still pending stay bound to their tracks');
   const afterRemove=await applyOnce(removeCard);
   assert.deepEqual(afterRemove.review.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 4','Electron test 6'],'the removed track leaves without a replacement');
   const afterSwap=await applyOnce(swapCard);
   assert.deepEqual(afterSwap.review.tracks.map(track=>track.title),['Electron test 2','Electron test 5','Electron test 4','Electron test 6'],'the swap replaces its track at its position');
-  assert.deepEqual(afterSwap.actions.map(action=>action.type),['undo'],'a reorder bound to the old list is no longer offered');
+  assert.deepEqual(afterSwap.actions,[],'a reorder bound to the old list is no longer offered');
   assert.equal(await requests(),4,'applying never calls the provider');
-  const reverted=await core.request('review.undo',{reviewId:afterSwap.review.reviewId});
-  assert.deepEqual(reverted.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 4','Electron test 6'],'undo reverts the applied change');
+  // S8: the undo is the only change of its own reply, in a further turn of the conversation.
+  const undoAsk=await host.prepare({surface:'chat',request:undoRequest,context:{reviewId:afterSwap.review.reviewId}});
+  assert.equal(undoAsk.firstTurn,false,'the conversation still carries its turns');
+  const undoneTurn=await host.ask(undoAsk.previewId);
+  assert.equal(dialogs.length,2,'a further turn of the same conversation reuses the first consent');
+  assert.equal(undoneTurn.result.text,undoReply,'the undo answer is what the DJ reads');
+  assert.equal(undoneTurn.result.droppedActions,0,'the undo is the whole reply, so nothing is dropped');
+  assert.deepEqual(undoneTurn.result.actions.map(action=>action.type),['undo'],'S8 publishes the undo alone');
+  const [undoCard]=undoneTurn.result.actions;
+  assert.deepEqual(Object.keys(undoCard).sort(),['actionId','reason','type'],'an undo names nothing');
+  assert.equal(undoCard.reason,undoReason);
+  assert.equal(JSON.stringify(undoneTurn.result).includes('.flac'),false,'no local path leaves the core');
+  assert.equal(/[0-9a-f]{64}/.test(JSON.stringify(undoneTurn.result)),false,'no track identity leaves the core');
+  const undoHistory=await core.request('ai.chat.history');
+  assert.deepEqual(undoHistory.actions,[undoCard],'the core reports the undo it just published');
+  const undoPanel=panelFor(undoHistory);
+  undoPanel.setReview(afterSwap.review.reviewId);
+  await undoPanel.load();
+  assert.equal(undoPanel.error,'','the renderer accepts the undo the core published');
+  assert.deepEqual(undoPanel.actions,[undoCard],'no field or bound was refused');
+  assert.equal(undoPanel.droppedActions,0);
+  assert.deepEqual(undoPanel.actions.map(listChatActionText),['Deshacer el último cambio'],'the undo card renders its S6 sentence');
+  assert.equal(await requests(),5,'the undo turn is exactly one provider request');
+  const reverted=await applyOnce(undoCard);
+  assert.deepEqual(reverted.review.tracks.map(track=>track.title),['Electron test 2','Electron test 1','Electron test 4','Electron test 6'],'the applied undo reverts the last applied change');
+  assert.deepEqual(reverted.actions,[],'no change stays pending after the undo');
+  assert.equal(await requests(),5,'applying the undo never calls the provider');
  }finally{await core.close();await rm(data,{recursive:true,force:true});}
 });
