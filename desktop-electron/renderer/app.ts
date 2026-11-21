@@ -768,12 +768,14 @@ function refreshPreferenceLabelsIfNeeded(): boolean {
 function continueIdleWork(kind: string): void {
   if (!coreAvailable || gate.busy) return;
   if (refreshPreferenceLabelsIfNeeded()) return;
-  if (libraryBootstrapped && reviewResumePending) { reviewResumePending = false; void loadReviewResume(); return; }
   if(profileAutoPending!==null){const generation=profileAutoPending;profileAutoPending=null;if(generation===libraryGeneration&&!profilesStale){void completeProfiles();return;}}
   if (libraryBootstrapped && preferencesBootstrapPending) { preferencesBootstrapPending = false; void preferences.load(); return; }
   if (libraryBootstrapped && statusBootstrapPending) { statusBootstrapPending = false; void loadLibraryStatus(); return; }
   if(libraryBootstrapped&&profileBootstrapPending){profileBootstrapPending=false;void loadProfiles();return;}
   if(libraryBootstrapped&&prepSettingsBootstrapPending&&prepSettings&&!prepSettings.pending&&!prepSettings.dirty&&kind!=='prep-settings'){prepSettingsBootstrapPending=false;void prepSettings.load();return;}
+  // The deferred Prep restore invalidates the Prep view. Ask for the stored list only after
+  // every bootstrap read, so none of them can clear the offer before it is shown (S19).
+  if (libraryBootstrapped && reviewResumePending) { reviewResumePending = false; void loadReviewResume(); return; }
   if(route==='preferences'&&kind!=='profile-settings'&&!profileSettingsAttempted&&profileSettingsAvailable()){profileSettingsAttempted=true;void profileSettings.load();return;}
   if (route === 'playlists' && !playlistsLoaded && kind !== 'playlists') { void loadPlaylists(); return; }
   if (route === 'metadata' && !metadataReport && kind !== 'metadata') { void loadMetadata(); return; }

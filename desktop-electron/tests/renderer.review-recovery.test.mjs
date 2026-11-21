@@ -19,6 +19,10 @@ const planId = 'e80f5eca-8a03-4ed3-b832-c05e9be6566c';
 const variants = ['safe', 'balanced', 'adventurous'].map((name) => ({ name, description: name, trackCount: 3, readiness: 'ready', warnings: [], blockers: [], qualityScore: 0.8 }));
 const review = (patch = {}) => ({ reviewId: 'c0ffee00-0000-4000-8000-000000000001', planId, variants, tracks, warnings: [], blockers: [], name: 'Lista en curso', variant: 'balanced', readiness: 'ready', ...patch });
 const notice = 'La lista en curso ya no se puede recuperar porque la biblioteca cambió';
+const preferences = () => ({ revision: 'a'.repeat(64), previewVolume: 0.25, watchLibrary: true, recoveryWarning: false, libraryLabels: [], capabilities: { loudnessWriteback: false, providers: false, language: 'es' } });
+const libraryStatus = (revision = 2) => ({ revision, changeState: 'restored', watchState: 'active', rootCount: 1, watchedCount: 1 });
+const profileStatus = () => ({ state: 'complete', totalTracks: tracks.length, readyCount: tracks.length, spectralReadyCount: tracks.length, danceabilityReadyCount: tracks.length, edgeReadyCount: tracks.length, pendingCount: 0, failedCount: 0 });
+const prepSnapshot = () => ({ revision: 'a'.repeat(64), requiredTrackIds: [], excludedTrackIds: [], genreFocus: '', unavailableRequiredCount: 0, unavailableExcludedCount: 0, lastForm: { targetTrackCount: null, targetMinutes: null, strategy: null, slotRole: null, name: null, startTrackId: null, endTrackId: null, yearMin: null, yearMax: null } });
 
 let sequence = 0;
 async function fixture(overrides = {}) {
@@ -85,5 +89,38 @@ test('without a list in progress nothing is offered and nothing is claimed', asy
     assert.equal(f.get('resume-review').hidden, true);
     assert.equal(f.get('session-resume').hidden, true);
     assert.equal(f.get('operation-label').textContent, '');
+  } finally { f.restore(); }
+});
+
+test('the offer survives the real start order of library, idle and status reads', async () => {
+  const order = [];
+  let resumeCalls = 0;
+  const current = review();
+  const f = await fixture({
+    reviewResume: async () => { resumeCalls += 1; order.push('resume'); return { available: true, review: current, dropped: false }; },
+    getPreferences: async () => { order.push('preferences'); return preferences(); },
+    savePreferences: async () => preferences(),
+    getLibraryStatus: async () => { order.push('library-status'); return libraryStatus(); },
+    onLibraryStatus: (callback) => { callback(libraryStatus(1)); return () => {}; },
+    rescanLibrary: async () => ({ tracks, count: tracks.length }),
+    getProfileStatus: async () => { order.push('profiles'); return profileStatus(); },
+    completeProfiles: async () => ({ cancelled: false, tracks, status: profileStatus(), completeCount: tracks.length, incompleteCount: 0 }),
+    prepSettings: async () => { order.push('prep-settings'); return prepSnapshot(); },
+    savePrepSettings: async (input) => ({ ...prepSnapshot(), ...input, revision: 'b'.repeat(64) }),
+  });
+  try {
+    assert.equal(f.get('resume-review').hidden, false, 'a stored list is offered after the real start order');
+    assert.equal(f.get('session-resume').hidden, false);
+    assert.equal(f.get('resume-review').textContent, 'Continuar con la lista en curso');
+    assert.equal(f.get('operation-status').hidden, true);
+    assert.equal(f.get('operation-label').textContent, '');
+    assert.equal(f.get('review-content').hidden, true, 'the list stays an offer until the user opens it');
+    assert.equal(resumeCalls, 1);
+    assert.deepEqual(order, ['preferences', 'library-status', 'profiles', 'prep-settings', 'resume'], 'bootstrap reads run before the resume check');
+    f.click('resume-review');
+    await settle();
+    assert.equal(f.get('review-content').hidden, false);
+    assert.equal(f.get('resume-review').hidden, true, 'an opened list is no longer only an offer');
+    assert.equal(resumeCalls, 1, 'opening the recovered list must not call the core again');
   } finally { f.restore(); }
 });
