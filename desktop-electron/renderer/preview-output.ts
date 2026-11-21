@@ -125,6 +125,10 @@ export interface PreviewOutputController {
   /** S13 (b): «Destino de la preescucha» for a calibrated output, empty otherwise. */
   readonly destinationLabel: string;
   readonly available: boolean;
+  /** S13 (d): true while the calibration wizard is open: no preview may start. */
+  readonly calibrating: boolean;
+  /** S13 (d): false when the chosen output is not connected, so «Calibrar canales» is disabled. */
+  readonly connected: boolean;
   readonly message: string;
   /** S13 (b): the one list the view renders for the three cases. */
   destinations(playing?: readonly PreviewPlaying[] | null): readonly DestinationOption[];
@@ -137,6 +141,11 @@ export interface PreviewOutputController {
   saveCalibration(roles: Record<string, unknown>): void;
   /** S13 (e): back to the pairs, or to the Rane FOUR table. */
   clearCalibration(): void;
+  /** S13 (d): the wizard's own tone, on the pair of its step, without touching the stored choice. */
+  toneOn(pair: string): void;
+  /** S13 (d): opens the wizard; every preview is refused until `endCalibration`. */
+  beginCalibration(): void;
+  endCalibration(): void;
   prepare(element: HTMLAudioElement): Promise<boolean>;
   tone(): void;
   dispose(): void;
@@ -367,6 +376,8 @@ export class PreviewOutput implements PreviewOutputController {
   private chosenPair = DEFAULT_PAIR;
   private channelCount = 0;
   private selectable = true;
+  /** S13 (d): the calibration wizard is open, so no preview may start. */
+  private wizard = false;
   private listed = false;
   private readonly contexts = new Map<string, PreviewAudioContext>();
   private system: PreviewAudioContext | null = null;
@@ -401,18 +412,24 @@ export class PreviewOutput implements PreviewOutputController {
   }
   get pairRole(): CalibrationRole | null { return this.calibration?.[this.chosenPair] ?? null; }
   get destinationLabel(): string { return this.calibration === null ? '' : DESTINATION_LABEL; }
+  get calibrating(): boolean { return this.wizard; }
+  get connected(): boolean { return this.selectable; }
   get available(): boolean {
     if (!this.selectable) return false;
+    // S13 (d): while the wizard is open no preview can start.
+    if (this.wizard) return false;
     // S13 (b): a calibration that offers no pair at all disables the preview.
     return this.calibration === null || calibrationDestinations(this.calibration, null).length > 0;
   }
   /**
    * S11 (e): only a chosen output that left the list has something to say.
    * S13 (b): a calibration with no usable pair says so instead.
+   * S13 (d): an open wizard has its own words, so nothing is said here.
    */
   get message(): string {
     if (!this.listed || this.chosen === null) return '';
     if (!this.selectable) return `${this.chosen} no está conectado. La preescucha está deshabilitada.`;
+    if (this.wizard) return '';
     return this.available ? '' : NO_DESTINATION_MESSAGE;
   }
 
@@ -506,16 +523,45 @@ export class PreviewOutput implements PreviewOutputController {
 
   /** S11 (c): a one-second quiet tone on exactly the chosen output and pair. */
   tone(): void {
+    // S13 (d): the wizard sounds its own pair; the «Probar» button waits for it to close.
+    if (this.wizard) return;
+    if (this.chosen === null) { this.playTone(null); return; }
+    if (!this.available) return;
+    this.playTone(this.chosenPair);
+  }
+
+  /**
+   * S13 (d): the tone of a wizard step, on the pair it asks about. It never touches the stored
+   * choice, so cancelling leaves the previous pair exactly where it was.
+   */
+  toneOn(pair: string): void {
+    if (this.chosen === null || !this.selectable || !pairChannels(pair)) return;
+    this.playTone(pair);
+  }
+
+  /** S13 (d): open, so `available` refuses every preview until `endCalibration`. */
+  beginCalibration(): void {
+    if (this.wizard) return;
+    this.wizard = true;
+    this.notify();
+  }
+
+  endCalibration(): void {
+    if (!this.wizard) return;
+    this.wizard = false;
+    this.notify();
+  }
+
+  private playTone(pair: string | null): void {
     try {
-      if (this.chosen !== null && !this.available) return;
-      const context = this.chosen === null ? this.systemContext() : this.contextFor(this.chosen);
+      const context = pair === null ? this.systemContext() : this.contextFor(this.chosen as string);
       if (context === null) return;
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       oscillator.frequency.value = TONE_HZ;
       gain.gain.value = TONE_GAIN;
       oscillator.connect(gain);
-      if (this.chosen === null) gain.connect(context.destination);
+      if (pair === null) gain.connect(context.destination);
       else {
         // The destination must carry every channel of the device, discrete: with its default
         // of two channels it folds the merger down and every pair sounds on 1-2.
@@ -524,7 +570,7 @@ export class PreviewOutput implements PreviewOutputController {
         destination.channelCountMode = 'explicit';
         destination.channelInterpretation = 'discrete';
         const merger = context.createChannelMerger(destination.maxChannelCount);
-        const [left, right] = pairChannels(this.chosenPair) ?? [0, 1];
+        const [left, right] = pairChannels(pair) ?? [0, 1];
         // The tone is mono: the same signal to both channels of the pair.
         gain.connect(merger, 0, left);
         gain.connect(merger, 0, right);
