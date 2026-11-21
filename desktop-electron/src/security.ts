@@ -3,6 +3,17 @@ import {REVIEW_CONTROL_FIELDS,validateReviewControlRequest} from './review-secur
 import {OFFLINE_FIELDS,validateOfflineRequest} from './offline-security';
 
 export const APP_URL = 'xfin-app://ui/index.html';
+/** The origin of the app's own page: the only origin the host trusts for checks and audio reads. */
+export const APP_ORIGIN = 'xfin-app://ui';
+/**
+ * S11a: the app page may check the two permissions its preview needs to reach a chosen
+ * output and channel pair. No other page, and no other permission, is ever allowed, and a
+ * check is not a capture: every permission request stays refused in main.ts.
+ */
+export function permissionCheckAllowed(permission: string, requestingOrigin: string, appOrigin: string): boolean {
+  if (requestingOrigin !== appOrigin) return false;
+  return permission === 'media' || permission === 'speaker-selection';
+}
 export const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src xfin-audio:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'";
 export function isTrustedSender(url: string): boolean { return url === APP_URL || url.startsWith(APP_URL + '#'); }
 export function assertTrackId(id: unknown): asserts id is string {
