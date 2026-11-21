@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('xfin',Object.freeze({
   },
   openLive:(params:unknown)=>invoke('openLive',params),getLiveStatus:(params:unknown)=>invoke('getLiveStatus',params),liveFollow:(params?:unknown)=>invoke('liveFollow',params),dragTrack:(params:unknown)=>invoke('dragTrack',params),
   advanceLive:(params:unknown)=>invoke('advanceLive',params),clearLive:(params:unknown)=>invoke('clearLive',params),
+  getPreviewSetup:()=>invoke('getPreviewSetup'),savePreviewSetup:(params:unknown)=>invoke('savePreviewSetup',params),
   chooseSeratoDestination:()=>invoke('chooseSeratoDestination'),detectSeratoDestination:()=>invoke('detectSeratoDestination'),previewSeratoExport:(params:unknown)=>invoke('previewSeratoExport',params),quickSeratoExport:(params:unknown)=>invoke('quickSeratoExport',params),
   commitSeratoExport:(params:unknown)=>invoke('commitSeratoExport',params),revealSeratoExport:(params:unknown)=>invoke('revealSeratoExport',params),
   chooseLibrary:()=>invoke('chooseLibrary'),listLibrary:()=>invoke('listLibrary'),

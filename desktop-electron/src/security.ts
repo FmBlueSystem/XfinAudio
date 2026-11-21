@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {REVIEW_CONTROL_FIELDS,validateReviewControlRequest} from './review-security';
 import {OFFLINE_FIELDS,validateOfflineRequest} from './offline-security';
+import {validatePreviewSetup} from './preview-setup';
 
 export const APP_URL = 'xfin-app://ui/index.html';
 /** The origin of the app's own page: the only origin the host trusts for checks and audio reads. */
@@ -56,6 +57,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     getLoudnessStatus:[],revealLoudnessBackups:[],revealLogs:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],liveFollow:['deck'],dragTrack:['trackId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
+    getPreviewSetup:[],savePreviewSetup:['output','calibration'],
     chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
     chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],prepGenres:['startTrackId','genre'],selectPrepVariant:['planId','variant'],
     generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds','yearMin','yearMax'],
@@ -81,6 +83,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
   validateEditorRequest(method,params);
   validateSeratoRequest(method,params);
   validateLiveRequest(method,params);
+  validatePreviewSetupRequest(method,params);
   if ('name' in params && method!=='previewSeratoExport' && method!=='quickSeratoExport' && (typeof params.name !== 'string' || !params.name.trim() || params.name.length>200 || /[\x00-\x1f]/.test(params.name))) throw new Error('Invalid name');
   if (method === 'savePlaylist' && (typeof params.name !== 'string' || typeof params.reviewId !== 'string' || !uuid.test(params.reviewId))) throw new Error('Invalid review');
   if (['openPlaylist','openPlaylistEditor','renamePlaylist','duplicatePlaylist'].includes(method) && (typeof params.playlistId !== 'string' || !/^[1-9]\d{0,14}$/.test(params.playlistId))) throw new Error('Invalid playlist');
@@ -182,6 +185,12 @@ function validateLiveRequest(method:string,params:Record<string,unknown>):void {
     assertTrackId(params.trackId);
     if(!Number.isInteger(params.revision)||Number(params.revision)<0||Number(params.revision)>500)throw new Error('Invalid Live revision');
   }
+}
+
+function validatePreviewSetupRequest(method:string,params:Record<string,unknown>):void {
+  // S14a: the stored preview setup and the request that writes it share one validator, so the
+  // renderer cannot hand over a shape the host would later refuse to read back.
+  if(method==='savePreviewSetup')validatePreviewSetup(params);
 }
 
 function validateLoudnessRequest(method:string,params:Record<string,unknown>):void {
