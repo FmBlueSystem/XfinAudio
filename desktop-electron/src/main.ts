@@ -359,4 +359,6 @@ app.on('window-all-closed',()=>app.quit());
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.focus();}});
 process.on('uncaughtException',error=>{log.write(`uncaught exception: ${describeFailure(error)}`);console.error(error);});
 process.on('unhandledRejection',reason=>{log.write(`unhandled rejection: ${describeFailure(reason)}`);console.error(reason);});
+// The brand that publishes the app, shown in the system About panel.
+app.setAboutPanelOptions({applicationName:'XfinAudio',applicationVersion:app.getVersion(),copyright:'by BlueSystemAudio'});
 if(ownsInstance)app.whenReady().then(start).catch(error=>{console.error(error);app.quit();});

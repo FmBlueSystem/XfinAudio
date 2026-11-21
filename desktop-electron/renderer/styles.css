@@ -16,6 +16,10 @@ button { color: inherit; }
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 12px 43px; font-size: 23px; font-weight: 750; letter-spacing: -.8px; }
 .brand-light { font-weight: 450; color: #cbd0d6; }
 .brand small { display: block; margin-top: 7px; color: #717780; font-size: 7px; letter-spacing: 1.9px; font-weight: 650; }
+.brand small.brand-by { margin-top: 4px; font-size: 10px; letter-spacing: 0; font-weight: 450; color: #717780; }
+.brand-owner { font-size: 11px; font-weight: 750; letter-spacing: -.2px; color: #e7e9ec; }
+.brand-owner-blue { color: #3b8cff; }
+.brand-owner-light { font-weight: 450; color: #cbd0d6; }
 .brand-mark { display: flex; align-items: center; gap: 3px; height: 32px; }
 .brand-mark i { background: var(--cyan); width: 4px; height: 16px; border-radius: 4px; }
 .brand-mark i:nth-child(2) { height: 30px; }.brand-mark i:nth-child(3) { height: 23px; }.brand-mark i:nth-child(4) { height: 11px; }
