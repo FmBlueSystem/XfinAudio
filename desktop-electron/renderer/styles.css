@@ -217,6 +217,11 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 #editor-switch h3 { margin: 0; }#page-editor > .section-heading { align-items: flex-start; }
 
 .review-engine-facts { white-space: pre-wrap; overflow-wrap: anywhere; }
+.live-follow { margin-bottom: 18px; }
+.live-follow h4 { margin: 16px 0 6px; font-size: 10px; letter-spacing: 1.2px; color: #828891; text-transform: uppercase; }
+.live-follow-toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; font-weight: 600; }
+.live-follow-toggle input { width: 15px; height: 15px; accent-color: var(--cyan); }
+.live-follow-current { color: var(--cyan); }
 
 .library-grid { min-width: 1100px; }
 .library-grid .track-name { width: auto; min-width: 160px; max-width: 320px; }
