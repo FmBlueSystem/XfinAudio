@@ -228,6 +228,13 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 .live-follow-deck.is-current { color: var(--cyan); font-weight: 600; }
 .live-follow-suggestions { table-layout: auto; }
 .live-follow-suggestions tr[draggable="true"] { cursor: grab; }
+/* S11 (c): the preview output setting, under the follow section. */
+.preview-output { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
+.preview-output h4 { margin: 0 0 6px; }
+.preview-output-field { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 11px; color: #b9bec6; }
+.preview-output-field > span { min-width: 54px; }
+.preview-output-field select { flex: 1; min-width: 0; }
+.preview-output .button { margin-top: 10px; }
 
 .library-grid { min-width: 1100px; }
 .library-grid .track-name { width: auto; min-width: 160px; max-width: 320px; }
