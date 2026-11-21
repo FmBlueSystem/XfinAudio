@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ListChatController, CHAT_SURFACE, LIST_CHAT_PENDING, listChatActionText } from '../.out/renderer/list-chat.js';
+import { ListChatController, CHAT_SURFACE, LIST_CHAT_PENDING, listChatActionText, listChatAppliedAll, listChatAutoApplied, listChatBatchUndone } from '../.out/renderer/list-chat.js';
 const uuid = '12345678-1234-4123-8123-123456789012';
 const uuid2 = '87654321-4321-4321-8321-210987654321';
 const question = '¿Qué pista quitarías y por qué?';
@@ -604,7 +604,7 @@ async function batchUndoNotice(actions, expected) {
   assert.equal(f.controller.canUndoBatch, false);
 }
 test('S18(d): a one-change batch undo says one change', async () => {
-  await batchUndoNotice([removeAction({ actionId: idOf(1) })], 'Se deshicieron 1 cambios.');
+  await batchUndoNotice([removeAction({ actionId: idOf(1) })], 'Se deshizo 1 cambio.');
 });
 test('S18(d): a three-change batch undo says three changes', async () => {
   await batchUndoNotice([
@@ -612,6 +612,30 @@ test('S18(d): a three-change batch undo says three changes', async () => {
     addAction({ actionId: idOf(2) }),
     reorderAction({ actionId: idOf(3) }),
   ], 'Se deshicieron 3 cambios.');
+});
+test('S7 copy: the batch notices speak in the singular for one change and keep the plural otherwise', () => {
+  assert.equal(listChatAutoApplied(1), 'Se aplicó 1 cambio.');
+  assert.equal(listChatBatchUndone(1), 'Se deshizo 1 cambio.');
+  assert.equal(listChatAutoApplied(2), 'Se aplicaron 2 cambios.');
+  assert.equal(listChatBatchUndone(2), 'Se deshicieron 2 cambios.');
+  assert.equal(listChatAppliedAll(1, 3), 'Se aplicaron 1 de 3 cambios.');
+});
+test('S6: a saved list never shows a use_variant card, from a reply or from history, and a generated one still does', async () => {
+  const stored = fixture({ aiChatHistory: async () => ({ conversation: conversation(question, reply), actions: [variantAction()] }) });
+  stored.controller.setReview(uuid, true);
+  await stored.controller.load();
+  assert.deepEqual(stored.controller.actions, []);
+  const replied = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [variantAction(), removeAction({ actionId: idOf(1) })] }) }) });
+  replied.controller.setReview(uuid, true);
+  replied.controller.setAutoApply(false);
+  replied.controller.setRequest(question);
+  await replied.controller.send();
+  assert.deepEqual(replied.controller.actions.map((action) => action.type), ['remove'], 'only the alternative card is withheld');
+  const generated = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [variantAction()] }) }) });
+  generated.controller.setAutoApply(false);
+  generated.controller.setRequest(question);
+  await generated.controller.send();
+  assert.deepEqual(generated.controller.actions, [variantAction()]);
 });
 // --- S15: fit the list to a period, card and report ---
 const periodAction = (patch = {}) => ({ actionId: idOf(8), type: 'period', yearMin: 1980, yearMax: 1999, outside: 7, reason: 'El DJ pidió solo los 80 y los 90', ...patch });
