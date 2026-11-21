@@ -11,17 +11,24 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from xfinaudio.headless.saved_review import SAVED_VARIANT
+
 LOGGER = logging.getLogger(__name__)
 STORE_NAME = "active_review.json"
-VERSION = 1
+VERSION = 2
 MAX_STORE_BYTES = 4 * 1024 * 1024
-VARIANT_NAMES = ("safe", "balanced", "adventurous")
+VARIANT_NAMES = ("safe", "balanced", "adventurous", SAVED_VARIANT)
 READINESS_STATUSES = ("ready", "needs_review", "blocked")
 FIELDS = ("version", "reviewId", "planId", "name", "variant", "warnings", "variants", "review", "plan", "removed")
+# Only a saved list carries the playlist it stays tied to (S3); a generated review never does.
+SAVED_FIELD = "savedPlaylist"
+SAVED_FIELDS = (*FIELDS, SAVED_FIELD)
+SAVED_PLAYLIST_FIELDS = {"id", "name", "createdAt", "updatedAt", "trackPaths"}
 VARIANT_FIELDS = {
     "name",
     "description",
@@ -65,24 +72,59 @@ def _variant(value: Any) -> bool:
     )
 
 
-def _valid(payload: Any) -> bool:
-    """Accept exactly the recovery contract this version writes, nothing else."""
+def _timestamp(value: Any) -> bool:
+    """Accept only a time the core can read back as the moment it stored."""
+    if not isinstance(value, str):
+        return False
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _saved_playlist(value: Any) -> bool:
+    """Accept only the playlist snapshot a restored saved list stays tied to (S3)."""
     return (
-        isinstance(payload, dict)
-        and set(payload) == set(FIELDS)
-        and type(payload["version"]) is int
-        and payload["version"] == VERSION
+        isinstance(value, dict)
+        and set(value) == SAVED_PLAYLIST_FIELDS
+        and type(value["id"]) is int
+        and value["id"] > 0
+        and isinstance(value["name"], str)
+        and bool(value["name"].strip())
+        and _timestamp(value["createdAt"])
+        and _timestamp(value["updatedAt"])
+        and _texts(value["trackPaths"])
+    )
+
+
+def _valid(payload: Any) -> bool:
+    """Accept exactly the recovery contract this version writes, or the one written before it.
+
+    Version 1 is the file a build that could not recover a saved list wrote: a generated
+    review and nothing else. Version 2 adds the saved playlist a saved list is tied to,
+    and only a saved list carries it, so a stored saved list and a stored generation can
+    never be mistaken for each other.
+    """
+    if not isinstance(payload, dict) or set(payload) not in (set(FIELDS), set(SAVED_FIELDS)):
+        return False
+    linked = SAVED_FIELD in payload
+    return (
+        type(payload["version"]) is int
+        and payload["version"] in ((VERSION,) if linked else (1, VERSION))
         and _valid_identity(payload["reviewId"])
         and _valid_identity(payload["planId"])
         and isinstance(payload["name"], str)
         and bool(payload["name"].strip())
         and payload["variant"] in VARIANT_NAMES
+        and (payload["variant"] == SAVED_VARIANT) == linked
         and _texts(payload["warnings"])
         and isinstance(payload["variants"], list)
         and all(_variant(item) for item in payload["variants"])
         and isinstance(payload["review"], dict)
         and isinstance(payload["plan"], dict)
         and _texts(payload["removed"])
+        and (not linked or _saved_playlist(payload[SAVED_FIELD]))
     )
 
 

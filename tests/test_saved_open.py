@@ -116,4 +116,4 @@ def test_opening_a_saved_playlist_replaces_the_generated_list_in_progress(tmp_pa
         backend.execute("review.details", {"reviewId": generated["reviewId"]})
     assert error.value.code == "stale_review"
     assert backend.execute("review.resume", {})["review"]["reviewId"] == opened["reviewId"]
-    assert not (backend.data_dir / "active_review.json").exists()
+    assert (backend.data_dir / "active_review.json").exists()
