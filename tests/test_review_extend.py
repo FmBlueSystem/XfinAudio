@@ -12,6 +12,7 @@ from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.common import BackendError
 from xfinaudio.library.duplicate_grouping import playlist_duplicate_group_key
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.recommendation.controls import DJControls
 from xfinaudio.recommendation.playlist_service import (
     PlaylistRecommendation,
     recommend_playlist,
@@ -60,6 +61,12 @@ def engine_track(
 def pinned(*tracks: TrackRecord) -> PlaylistRecommendation:
     """A generated list pinned to *tracks*' order, so its scores describe that order."""
     return recommendation_reordered(recommend_playlist(list(tracks), "build"), [track.path for track in tracks])
+
+
+def pinned_with_manual_prefix(recommendation: PlaylistRecommendation, *paths: str) -> PlaylistRecommendation:
+    """Mark the leading *paths* as a hand-ordered prefix, protecting their interior gaps."""
+    controls = DJControls.model_validate({**recommendation.applied_controls, "manual_order_paths": list(paths)})
+    return recommendation.model_copy(update={"applied_controls": controls.model_dump()})
 
 
 def scored(recommendation: PlaylistRecommendation, left: TrackRecord, right: TrackRecord) -> float:
@@ -454,3 +461,111 @@ def test_a_restart_recovers_the_grown_list(tmp_path: Path) -> None:
     again = restarted.execute("review.extend", {"reviewId": grew["reviewId"], "targetTrackCount": 7})
     assert len(ids(again)) == 7
     assert set(grown) <= set(ids(again))
+
+
+# --- S2: the extension repairs weak stretches ---------------------------------
+
+
+def test_a_weak_opening_transition_is_repaired_in_its_gap_not_at_the_end() -> None:
+    """A weak first transition plus a fitting candidate puts the candidate in the gap.
+
+    The old rule priced the tail as a single strong transition, so it appended
+    the candidate; S2 takes the interior repair instead.
+    """
+    opening = engine_track("/opening.flac", bpm=120.0, key="1A", energy=2)
+    middle = engine_track("/middle.flac", bpm=120.0, key="4A", energy=7)
+    recommendation = pinned(opening, middle)
+    broken = scored(recommendation, opening, middle)
+    assert broken < 0.5  # the first transition is weak
+    repair = engine_track("/repair.flac", bpm=120.0, key="2A", energy=6)
+    into_opening = scored(recommendation, opening, repair)
+    into_middle = scored(recommendation, repair, middle)
+    assert min(into_opening, into_middle) >= 0.5  # both new transitions are strong -> a repair
+    # Under the old rule the tail's single transition is the best pair's primary key.
+    old_primary = {
+        "start": scored(recommendation, repair, opening),
+        "gap": min(into_opening, into_middle),
+        "end": scored(recommendation, middle, repair),
+    }
+    assert old_primary["end"] == max(old_primary.values())
+
+    grown, outside_genre = recommendation_extended(recommendation, [repair], 3)
+
+    assert [track.path for track in grown.ordered_tracks] == [
+        "/opening.flac",
+        "/repair.flac",
+        "/middle.flac",
+    ]
+    assert outside_genre == 0
+
+
+def test_with_no_repair_available_the_result_is_exactly_the_old_one() -> None:
+    """A weak stretch that no candidate can mend falls back to the current rule unchanged."""
+    opening = engine_track("/opening.flac", bpm=120.0, key="1A", energy=2)
+    middle = engine_track("/middle.flac", bpm=120.0, key="4A", energy=7)
+    recommendation = pinned(opening, middle)
+    assert scored(recommendation, opening, middle) < 0.5  # weak, but ...
+    tail = engine_track("/tail.flac", bpm=120.0, key="4A", energy=6)
+    # ... this candidate cannot repair it: one of the two new transitions is weak.
+    assert min(scored(recommendation, opening, tail), scored(recommendation, tail, middle)) < 0.5
+
+    grown, outside_genre = recommendation_extended(recommendation, [tail], 3)
+
+    # No repair exists, so the best single transition wins and the track is appended.
+    assert [track.path for track in grown.ordered_tracks] == [
+        "/opening.flac",
+        "/middle.flac",
+        "/tail.flac",
+    ]
+    assert outside_genre == 0
+
+
+def test_a_repair_is_never_placed_in_a_protected_gap() -> None:
+    """An interior repair must still respect the protected hand-ordered prefix."""
+    opening = engine_track("/opening.flac", bpm=120.0, key="1A", energy=2)
+    second = engine_track("/second.flac", bpm=120.0, key="4A", energy=7)
+    third = engine_track("/third.flac", bpm=120.0, key="8A", energy=7)
+    recommendation = pinned_with_manual_prefix(pinned(opening, second, third), opening.path, second.path)
+    repair = engine_track("/repair.flac", bpm=120.0, key="2A", energy=6)
+    # The first transition is weak and the candidate would mend it ...
+    assert scored(recommendation, opening, second) < 0.5
+    assert min(scored(recommendation, opening, repair), scored(recommendation, repair, second)) >= 0.5
+    # ... but that gap sits inside the protected manual prefix.
+
+    grown, _ = recommendation_extended(recommendation, [repair], 4)
+
+    order = [track.path for track in grown.ordered_tracks]
+    assert len(order) == 4
+    assert order[0] == "/opening.flac" and order[1] == "/second.flac"  # protected adjacency intact
+    assert "/repair.flac" not in order[:2]  # the repair never sits in the protected gap
+    assert "/repair.flac" in order  # it is still added, in an allowed gap
+
+
+def test_a_tie_between_repairs_goes_to_the_weakest_broken_transition() -> None:
+    """Two repairs tie on their weakest new transition; S2 prefers the weaker broken one."""
+    opening = engine_track("/opening.flac", bpm=120.0, key="1A", energy=2)
+    middle = engine_track("/middle.flac", bpm=120.0, key="5A", energy=6)
+    closing = engine_track("/closing.flac", bpm=120.0, key="9A", energy=3)
+    recommendation = pinned(opening, middle, closing)
+    repair = engine_track("/repair.flac", bpm=120.0, key="9A", energy=4)
+    broken_first = scored(recommendation, opening, middle)
+    broken_last = scored(recommendation, middle, closing)
+    assert broken_first < 0.5 and broken_last < 0.5
+    assert broken_first < broken_last  # the first gap breaks the weaker transition
+    gap_first = min(scored(recommendation, opening, repair), scored(recommendation, repair, middle))
+    gap_last = min(scored(recommendation, middle, repair), scored(recommendation, repair, closing))
+    assert gap_first >= 0.5 and gap_last >= 0.5  # both pairs are repairs
+    assert gap_first == gap_last  # tie on the highest weakest new transition
+    # The old sum-minus-broken tie-break would pick the later gap; S2 does not.
+    sum_first = scored(recommendation, opening, repair) + scored(recommendation, repair, middle) - broken_first
+    sum_last = scored(recommendation, middle, repair) + scored(recommendation, repair, closing) - broken_last
+    assert sum_last > sum_first
+
+    grown, _ = recommendation_extended(recommendation, [repair], 4)
+
+    assert [track.path for track in grown.ordered_tracks] == [
+        "/opening.flac",
+        "/repair.flac",
+        "/middle.flac",
+        "/closing.flac",
+    ]

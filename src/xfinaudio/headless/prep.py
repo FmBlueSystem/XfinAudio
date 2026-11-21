@@ -21,8 +21,10 @@ from xfinaudio.recommendation.prep_copilot import (
     PREP_PLAYED_SECONDS_PER_TRACK,
     DJSetIntent,
     PrepCopilotPlan,
+    PrepVariantName,
     build_prep_copilot_plan,
     period_keeps_track,
+    variant_eligible_tracks,
 )
 
 GENERATE_FIELDS = {
@@ -175,6 +177,23 @@ def generate_plan(
             strategy_name=intent.strategy,
             loudness_band=band,
         )
+    # S4: the interactive cap happens before the variants see the pool. With a
+    # genre focus, plan safe and balanced again from the whole period-scoped
+    # library through the SAME candidate builder, so S1 chooses a tempo-coherent
+    # pool inside the genre. Adventurous keeps the original capped pool.
+    variant_pools: dict[PrepVariantName, list[TrackRecord]] | None = None
+    if intent.genre_focus is not None:
+        variant_pools = {}
+        focused_names: tuple[PrepVariantName, ...] = ("safe", "balanced")
+        for name in focused_names:
+            variant_pools[name] = plan_recommendation_candidates(
+                scanned_records=variant_eligible_tracks(name, records, intent),
+                controls=controls,
+                limit=limit,
+                strategy_name=intent.strategy,
+                loudness_band=band,
+                protected_path=anchor,
+            )
     return build_prep_copilot_plan(
         candidates,
         intent,
@@ -182,6 +201,7 @@ def generate_plan(
         loudness_band=band,
         spectral_cohesion=spectral_cohesion,
         checkpoint=checkpoint,
+        variant_pools=variant_pools,
     )
 
 
