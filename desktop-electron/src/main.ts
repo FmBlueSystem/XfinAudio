@@ -2,7 +2,7 @@ import {app,BrowserWindow,dialog,ipcMain,protocol,session,shell} from './electro
 import {nativeImage} from 'electron';
 import type {BrowserWindow as BrowserWindowType,NativeImage} from 'electron';
 import path from 'node:path';
-import {readFile,stat} from 'node:fs/promises';
+import {readFile,rename,stat,unlink,writeFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {PythonBridge} from './bridge';
 import {CoreSupervisor} from './core-supervisor';
@@ -25,10 +25,19 @@ import {LibraryHost} from './library-host';
 import {LibraryWatch} from './library-watch';
 import {createNativeWatchFactory} from './native-watch';
 import {createDragTracks} from './drag-track';
+import {createPreviewSetupStore} from './preview-setup';
 import type {DragTracks} from './drag-track';
 app.setName('XfinAudio Next');
 const dataDir=configureStorage(app,process.env.XFIN_DATA_DIR);
 const log=new RotatingLog(path.join(dataDir,'logs'));
+/**
+ * S14a: the preview setup of S11-S13 survives a restart in the app's data folder, because the
+ * window's session is in memory. It is host-local: no core job is involved, so it also answers
+ * while one runs.
+ */
+const previewSetup=createPreviewSetupStore({directory:app.getPath('userData'),fs:{readFile,stat,writeFile,rename,unlink}});
+/** The two actions the busy boundary below never refuses: they never reach the core. */
+const PREVIEW_SETUP_ACTIONS:ReadonlySet<string>=new Set(['getPreviewSetup','savePreviewSetup']);
 /** Only an error name and message reach the log; a rejection value is never serialized. */
 const describeFailure=(value:unknown):string=>value instanceof Error?`${value.name}: ${value.message}`.slice(0,500):`non-error failure (${typeof value})`;
 const ownsInstance=app.requestSingleInstanceLock();
@@ -143,7 +152,7 @@ async function run(method:string,params:Record<string,unknown>={}) {
 }
 async function action(method:string,raw:unknown) {
   const params=validateRequest(method,raw);
-  assertDispatchable(method,{legacy:legacy.busy,offline:offline.busy,profiles:profiles.busy,serato:serato.busy,optionalAi:optionalAi.busy,loudness:loudness.busy,library:libraryHost.busy,dialog:dialogOpen,job:current!==null});
+  if(!PREVIEW_SETUP_ACTIONS.has(method))assertDispatchable(method,{legacy:legacy.busy,offline:offline.busy,profiles:profiles.busy,serato:serato.busy,optionalAi:optionalAi.busy,loudness:loudness.busy,library:libraryHost.busy,dialog:dialogOpen,job:current!==null});
   if(legacy.restartRequired&&method!=='setDraftDirty')throw new Error('[legacy_restart_required] Restart required after import');
   if(closeFlow.isClosing&&method!=='setDraftDirty')throw new Error('La aplicación se está cerrando');
   if(draftDirty&&method==='deletePlaylist')throw new Error('[dirty_saved_draft] Save or discard drafts before deletion');
@@ -192,6 +201,8 @@ async function action(method:string,raw:unknown) {
     case 'runLoudness':return loudness.run(params.previewId as string);
     case 'getPreferences':return run('settings.get');
     case 'savePreferences':return libraryHost.savePreferences(params);
+    case 'getPreviewSetup':return previewSetup.load();
+    case 'savePreviewSetup':return previewSetup.save(params);
     case 'getLibraryStatus':return libraryHost.status;
     case 'rescanLibrary':return libraryHost.rescan();
     case 'openLive':return run('live.open',params);

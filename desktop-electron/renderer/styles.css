@@ -239,6 +239,12 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 .preview-output-field > span { min-width: 54px; }
 .preview-output-field select { flex: 1; min-width: 0; }
 .preview-output .button { margin-top: 10px; }
+/* S13 (d)-(e): the calibration wizard inside the setting. */
+.preview-calibration-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.preview-calibration { margin-top: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.preview-calibration-heading { margin: 0 0 4px; font-size: 12px; font-weight: 600; }
+.preview-calibration-answers { display: flex; gap: 6px; flex-wrap: wrap; }
+.preview-calibration-answers .button { margin-top: 0; }
 
 .library-grid { min-width: 1100px; }
 .library-grid .track-name { width: auto; min-width: 160px; max-width: 320px; }

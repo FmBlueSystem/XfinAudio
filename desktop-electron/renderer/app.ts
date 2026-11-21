@@ -56,6 +56,7 @@ import { renderMetadataPanel } from './metadata.js';
 import type { MetadataReport } from './metadata.js';
 import { createPlayer } from './player.js';
 import { createPreviewOutput } from './preview-output.js';
+import { createPreviewSetupStorage } from './preview-setup-storage.js';
 import { createTrackSearchView } from './track-search-view.js';
 import { createTrackPicker } from './track-picker-view.js';
 
@@ -213,11 +214,13 @@ let activeJobId = '';
 let cancellable = false;
 const titles: Record<Route, string> = { library: 'Biblioteca', metadata: 'Metadatos', prep: 'Crear lista', review: 'Revisar y exportar', playlists: 'Playlists guardadas', editor: 'Editar playlist', serato: 'Exportar a Serato', live: 'Asistente Live', preferences: 'Ajustes', loudness: 'Sonoridad', ai: 'IA opcional' };
 // S11 (b)-(e): the browser reaches this module as arguments, so the routing itself is tested
-// with fakes. The choice is a form value with no core setting yet, so it lives in storage.
+// with fakes. S14 (b): the choice is kept by the host (`preview-setup.json`), never by
+// `localStorage`, whose session is in memory and empty after every restart.
+const previewSetup = createPreviewSetupStorage(api);
 const previewOutput = createPreviewOutput({
   enumerateDevices: () => (navigator.mediaDevices ? navigator.mediaDevices.enumerateDevices() : Promise.resolve([])),
   createAudioContext: (options) => new AudioContext(options as AudioContextOptions),
-  storage: window.localStorage,
+  storage: previewSetup,
   listenDeviceChange: (listener) => {
     const devices = navigator.mediaDevices;
     if (!devices) return () => {};
@@ -226,6 +229,8 @@ const previewOutput = createPreviewOutput({
   },
   changed: () => { renderLiveFollow(); renderLive(); },
 });
+// S14 (b): the remembered output, pair and calibration are applied as soon as the host answers.
+void previewSetup.load().then((restored) => { if (restored) previewOutput.reload(); });
 void previewOutput.refresh();
 const player = createPlayer(() => {
   document.querySelectorAll<HTMLButtonElement>('[data-track-id]').forEach((button) => {
