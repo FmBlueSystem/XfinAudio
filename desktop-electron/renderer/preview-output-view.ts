@@ -1,5 +1,5 @@
 /** S11 (c): the «Salida de preescucha» setting, under «Seguir a Serato»; S12 adds the mixer channel. */
-import { SYSTEM_OUTPUT, channelHint, channelNotice, channelOptions, channelOfPair } from './preview-output.js';
+import { DESTINATION_LABEL, SYSTEM_OUTPUT, PHONES_HINT, channelHint, channelNotice } from './preview-output.js';
 import type { PreviewOutputController, PreviewPlaying } from './preview-output.js';
 
 export const MIXER_HINT = 'La preescucha suena por el canal del mezclador que recibe esos canales: deja su fader abajo y activa su CUE para oírla solo en los auriculares.';
@@ -48,11 +48,9 @@ export function createPreviewOutputView(controller: PreviewOutputController): Pr
 
   outputSelect.addEventListener('change', () => { controller.select(outputSelect.value || null); });
   pairSelect.addEventListener('change', () => {
-    const channels = controller.channels;
-    // S12 (c): the option's value is the pair, so one select can show either.
-    const channel = channelOfPair(channels, pairSelect.value);
-    if (channel === null) { controller.selectPair(pairSelect.value); return; }
-    controller.selectChannel(channel);
+    // S13 (b): the option's value is the pair in all three cases, so the stored value stays
+    // `{label, pair}` and a calibrated channel is only another way to choose it.
+    controller.selectPair(pairSelect.value);
   });
   tone.addEventListener('click', () => { controller.tone(); });
 
@@ -61,29 +59,27 @@ export function createPreviewOutputView(controller: PreviewOutputController): Pr
     render(playing?: readonly PreviewPlaying[] | null): void {
       const system = controller.label === null;
       const answer = playing ?? null;
-      const channels = controller.channels;
-      const mixer = channels.length > 0;
       const channel = controller.channel;
+      // S13 (b): one list for a calibrated output, the Rane FOUR table and the plain pairs.
+      const destinations = controller.destinations(answer);
+      const label = controller.destinationLabel || (controller.channels.length > 0 ? MIXER_CHANNEL_LABEL : PAIRS_LABEL);
       outputSelect.replaceChildren(option(SYSTEM_OUTPUT, ''), ...controller.outputs.map((output) => option(output.label, output.label)));
       outputSelect.value = controller.label ?? '';
-      pairField.hidden = system;
-      pairCaption.textContent = mixer ? MIXER_CHANNEL_LABEL : PAIRS_LABEL;
-      pairSelect.setAttribute('aria-label', mixer ? MIXER_CHANNEL_LABEL : PAIRS_ARIA_LABEL);
-      if (mixer) {
-        const choices = channelOptions(channels, answer);
-        pairSelect.replaceChildren(...choices.map((entry) => option(entry.caption, entry.pair)));
-        // The pair stays the stored value: the select only shows it as its channel.
-        pairSelect.value = choices.find((entry) => entry.number === channel)?.pair ?? '';
-      } else {
-        pairSelect.replaceChildren(...controller.pairs.map((pair) => option(pair, pair)));
-        pairSelect.value = controller.pair;
-      }
+      pairField.hidden = system || destinations.length === 0;
+      pairCaption.textContent = label;
+      pairSelect.setAttribute('aria-label', controller.destinationLabel ? DESTINATION_LABEL
+        : controller.channels.length > 0 ? MIXER_CHANNEL_LABEL : PAIRS_ARIA_LABEL);
+      pairSelect.replaceChildren(...destinations.map((entry) => option(entry.text, entry.pair)));
+      pairSelect.value = destinations.some((entry) => entry.pair === controller.pair) ? controller.pair : '';
       tone.disabled = !controller.available;
-      const notice = mixer ? channelNotice(channels, channel, answer) : '';
+      const notice = channel === null ? '' : channelNotice(controller.channels, channel, answer);
       channelMessage.hidden = !notice;
       channelMessage.textContent = notice;
-      // S12 (e): the Rane FOUR names the channel instead of the generic line of S11 (c).
-      hint.textContent = mixer && channel !== null ? channelHint(channel) : MIXER_HINT;
+      // S13 (c): a calibrated phones pair goes straight to the headphones; a channel keeps the
+      // lines of S12 (d) and (e); every other output keeps the generic line of S11 (c).
+      hint.textContent = controller.pairRole === 'phones'
+        ? PHONES_HINT
+        : channel !== null ? channelHint(channel) : MIXER_HINT;
       message.hidden = !controller.message;
       message.textContent = controller.message;
     },

@@ -21,6 +21,34 @@ export const RANE_FOUR_CHANNELS: readonly number[] = [3, 1, 2, 4];
 /** S12 (c): the channel the Rane FOUR starts on when the user picks it. */
 export const PRESELECTED_CHANNEL = 3;
 
+// ---- S13 (a): the calibration of any controller ----
+
+/** S13 (a): where a calibration lives, per output label and pair. */
+export const CALIBRATION_STORAGE_KEY = 'xfin.preview-calibration';
+/** S13 (b): the select of a calibrated output. */
+export const DESTINATION_LABEL = 'Destino de la preescucha';
+/** S13 (b): the calibrated headphones pair, first in the list. */
+export const PHONES_DESTINATION = 'Auriculares';
+/** S13 (c): the line for a calibrated headphones pair. */
+export const PHONES_HINT = 'La preescucha suena directo en los auriculares.';
+/** S13 (b): a calibration that offers no pair at all disables the preview. */
+export const NO_DESTINATION_MESSAGE = 'La calibración no encontró ninguna salida para la preescucha. Vuelve a calibrar.';
+/** S13 (a): the mixer channels a calibration may name. */
+export const CALIBRATION_CHANNELS: readonly number[] = [1, 2, 3, 4];
+
+/** S13 (a): a role a pair can hold, as it is written in the stored value. */
+export type CalibrationRole = 'phones' | 'room' | 'silent' | `channel:${number}`;
+/** S13 (a): one output's calibration: pair → role. */
+export type CalibrationRoles = Record<string, CalibrationRole>;
+/** S13 (a): every output's calibration: label → pair → role. */
+export type Calibration = Record<string, CalibrationRoles>;
+
+/** What an option of the destination select stands for. */
+export type DestinationKind = 'phones' | 'channel' | 'pair';
+
+/** S13 (b): one option of the destination select, for the view to render. */
+export interface DestinationOption { pair: string; text: string; kind: DestinationKind; }
+
 export interface MixerChannel { number: number; pair: string; }
 
 /** S12 (b): a deck of the last `liveFollow` answer, reduced to what a mark needs. */
@@ -83,17 +111,32 @@ export interface PreviewOutputController {
   readonly label: string | null;
   readonly pair: string;
   readonly pairs: readonly string[];
-  /** S12 (a): «Canal 3», «Canal 1», «Canal 2», «Canal 4» for the Rane FOUR, none otherwise. */
+  /**
+   * S12 (a): «Canal 3», «Canal 1», «Canal 2», «Canal 4» for the Rane FOUR, none otherwise.
+   * S13 (b): the channels of a calibration when the output has one, since it wins.
+   */
   readonly channels: readonly MixerChannel[];
   /** S12: the channel the stored pair means on this output, or null when it is not one. */
   readonly channel: number | null;
+  /** S13 (a): the chosen output's calibration, or null when it has none. */
+  readonly calibration: CalibrationRoles | null;
+  /** S13 (c): the role the calibration gives the chosen pair, or null without one. */
+  readonly pairRole: CalibrationRole | null;
+  /** S13 (b): «Destino de la preescucha» for a calibrated output, empty otherwise. */
+  readonly destinationLabel: string;
   readonly available: boolean;
   readonly message: string;
+  /** S13 (b): the one list the view renders for the three cases. */
+  destinations(playing?: readonly PreviewPlaying[] | null): readonly DestinationOption[];
   refresh(): Promise<void>;
   select(label: string | null): void;
   selectPair(pair: string): void;
   /** S12 (c): choosing a channel chooses its pair; the stored value stays `{label, pair}`. */
   selectChannel(channel: number): void;
+  /** S13 (a): stores the roles of the chosen output; S13 (b): chooses the pair it offers first. */
+  saveCalibration(roles: Record<string, unknown>): void;
+  /** S13 (e): back to the pairs, or to the Rane FOUR table. */
+  clearCalibration(): void;
   prepare(element: HTMLAudioElement): Promise<boolean>;
   tone(): void;
   dispose(): void;
@@ -169,6 +212,119 @@ export function channelHint(channel: number): string {
   return `Baja el fader del canal ${channel} y activa su CUE para oír la preescucha solo en los auriculares.`;
 }
 
+/** S13 (a): a role read from the stored value, or null when it is not one. */
+export function calibrationRole(value: unknown): CalibrationRole | null {
+  if (value === 'phones' || value === 'room' || value === 'silent') return value;
+  if (typeof value !== 'string') return null;
+  const match = /^channel:([1-4])$/.exec(value);
+  if (!match) return null;
+  const number = Number(match[1]);
+  return CALIBRATION_CHANNELS.includes(number) ? (`channel:${number}` as CalibrationRole) : null;
+}
+
+/** S13 (a): the mixer channel a role names, or null for every other role. */
+export function roleChannel(role: CalibrationRole | null | undefined): number | null {
+  if (typeof role !== 'string') return null;
+  const match = /^channel:([1-4])$/.exec(role);
+  return match ? Number(match[1]) : null;
+}
+
+const exclusiveRole = (role: CalibrationRole): boolean => role === 'phones' || roleChannel(role) !== null;
+
+/**
+ * S13 (a): the roles a calibration keeps. Two pairs cannot hold the same channel number nor both
+ * be `phones`: assigning one that is taken clears the earlier pair to `silent`.
+ */
+export function calibrationRoles(value: unknown): CalibrationRoles {
+  const roles: CalibrationRoles = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return roles;
+  const taken = new Set<CalibrationRole>();
+  for (const [pair, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!pairChannels(pair)) continue;
+    const role = calibrationRole(raw);
+    if (role === null) continue;
+    if (exclusiveRole(role)) {
+      if (taken.has(role)) {
+        for (const [earlier, earlierRole] of Object.entries(roles)) {
+          if (earlierRole === role) roles[earlier] = 'silent';
+        }
+      }
+      taken.add(role);
+    }
+    roles[pair] = role;
+  }
+  return roles;
+}
+
+/** S13 (a): the stored calibrations; an unreadable or malformed value counts as none. */
+export function storedCalibration(storage: PreviewOutputStorage): Calibration {
+  const calibration: Calibration = {};
+  let parsed: unknown;
+  try { parsed = JSON.parse(storage.getItem(CALIBRATION_STORAGE_KEY) ?? 'null'); }
+  catch { return calibration; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return calibration;
+  for (const [label, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!label.trim() || !value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const roles = calibrationRoles(value);
+    // A label whose roles are all unreadable is malformed too: it is no calibration.
+    if (Object.keys(roles).length > 0) calibration[label] = roles;
+  }
+  return calibration;
+}
+
+/** S13 (a): the mixer channels a calibration names, ascending by channel number. */
+export function calibrationChannels(roles: CalibrationRoles | null | undefined): MixerChannel[] {
+  if (!roles) return [];
+  const channels: MixerChannel[] = [];
+  for (const [pair, role] of Object.entries(roles)) {
+    const number = roleChannel(role);
+    if (number !== null) channels.push({ number, pair });
+  }
+  return channels.sort((left, right) => left.number - right.number);
+}
+
+/**
+ * S13 (b): the pairs a calibration offers — the `phones` pair first as «Auriculares», then the
+ * channels ascending with the marks of S12 (b). A pair marked `room` or `silent` is never offered.
+ */
+export function calibrationDestinations(
+  roles: CalibrationRoles | null | undefined,
+  playing?: readonly PreviewPlaying[] | null,
+): DestinationOption[] {
+  if (!roles) return [];
+  const destinations: DestinationOption[] = [];
+  const phones = Object.entries(roles).find(([, role]) => role === 'phones')?.[0];
+  if (phones !== undefined) destinations.push({ pair: phones, text: PHONES_DESTINATION, kind: 'phones' });
+  for (const channel of channelOptions(calibrationChannels(roles), playing)) {
+    destinations.push({ pair: channel.pair, text: channel.caption, kind: 'channel' });
+  }
+  return destinations;
+}
+
+export interface DestinationSource {
+  /** S13 (a): the chosen output's calibration, or null when it has none. */
+  calibration: CalibrationRoles | null;
+  /** S12 (a): the Rane FOUR's built-in table; empty for every other output. */
+  channels: readonly MixerChannel[];
+  /** S11 (c): the stereo pairs of the output, from its channel count. */
+  pairs: readonly string[];
+  /** S12 (b): the decks of the last `liveFollow` answer, or null when there is none. */
+  playing?: readonly PreviewPlaying[] | null;
+}
+
+/**
+ * S13 (b): one list for the three cases — a calibration, the built-in Rane FOUR table, and the
+ * plain pairs of any other output. A stored calibration wins over the built-in table.
+ */
+export function destinationOptions(source: DestinationSource): DestinationOption[] {
+  const answer = source.playing ?? null;
+  if (source.calibration !== null) return calibrationDestinations(source.calibration, answer);
+  if (source.channels.length > 0) {
+    return channelOptions(source.channels, answer).map((channel) => ({ pair: channel.pair, text: channel.caption, kind: 'channel' as const }));
+  }
+  return source.pairs.map((pair) => ({ pair, text: pair, kind: 'pair' as const }));
+}
+
 /** S12 (d): a notice, never a block, for the chosen channel that Serato has a track on. */
 export function channelNotice(channels: readonly MixerChannel[], channel: number | null | undefined, playing: readonly PreviewPlaying[] | null | undefined): string {
   if (channel === null || channel === undefined) return '';
@@ -216,6 +372,7 @@ export class PreviewOutput implements PreviewOutputController {
   private system: PreviewAudioContext | null = null;
   private route: Route | null = null;
   private stopListening: (() => void) | null = null;
+  private calibrations: Calibration;
 
   constructor(deps: PreviewOutputDeps) {
     this.deps = deps;
@@ -223,6 +380,7 @@ export class PreviewOutput implements PreviewOutputController {
     this.chosen = stored.label;
     this.chosenPair = stored.pair;
     this.selectable = stored.label === null;
+    this.calibrations = storedCalibration(deps.storage);
     const listen = deps.listenDeviceChange;
     if (listen) this.stopListening = listen(() => { void this.refresh(); });
   }
@@ -231,13 +389,36 @@ export class PreviewOutput implements PreviewOutputController {
   get label(): string | null { return this.chosen; }
   get pair(): string { return this.chosenPair; }
   get pairs(): readonly string[] { return stereoPairs(this.channelCount); }
-  get channels(): readonly MixerChannel[] { return mixerChannels(this.chosen); }
+  /** S13 (b): a calibration's channels replace the built-in table of the Rane FOUR. */
+  get channels(): readonly MixerChannel[] {
+    const roles = this.calibration;
+    return roles === null ? mixerChannels(this.chosen) : calibrationChannels(roles);
+  }
   get channel(): number | null { return channelOfPair(this.channels, this.chosenPair); }
-  get available(): boolean { return this.selectable; }
-  /** S11 (e): only a chosen output that left the list has something to say. */
+  get calibration(): CalibrationRoles | null {
+    const label = this.chosen;
+    return label !== null && Object.hasOwn(this.calibrations, label) ? this.calibrations[label] : null;
+  }
+  get pairRole(): CalibrationRole | null { return this.calibration?.[this.chosenPair] ?? null; }
+  get destinationLabel(): string { return this.calibration === null ? '' : DESTINATION_LABEL; }
+  get available(): boolean {
+    if (!this.selectable) return false;
+    // S13 (b): a calibration that offers no pair at all disables the preview.
+    return this.calibration === null || calibrationDestinations(this.calibration, null).length > 0;
+  }
+  /**
+   * S11 (e): only a chosen output that left the list has something to say.
+   * S13 (b): a calibration with no usable pair says so instead.
+   */
   get message(): string {
-    return this.listed && this.chosen !== null && !this.selectable
-      ? `${this.chosen} no está conectado. La preescucha está deshabilitada.` : '';
+    if (!this.listed || this.chosen === null) return '';
+    if (!this.selectable) return `${this.chosen} no está conectado. La preescucha está deshabilitada.`;
+    return this.available ? '' : NO_DESTINATION_MESSAGE;
+  }
+
+  /** S13 (b): one list for the three cases, in the order the view renders it. */
+  destinations(playing?: readonly PreviewPlaying[] | null): readonly DestinationOption[] {
+    return destinationOptions({ calibration: this.calibration, channels: this.channels, pairs: this.pairs, playing: playing ?? null });
   }
 
   async refresh(): Promise<void> {
@@ -266,7 +447,35 @@ export class PreviewOutput implements PreviewOutputController {
     // other change, and every later Serato answer, leaves the chosen channel alone.
     const preset = picked ? mixerChannels(next).find((entry) => entry.number === PRESELECTED_CHANNEL) : undefined;
     if (preset) this.chosenPair = preset.pair;
+    // S13 (b): a calibration wins over that table, so picking the output chooses its first pair.
+    if (picked) this.chooseCalibratedPair();
     this.normalizePair();
+    this.persist();
+    this.notify();
+  }
+
+  /** S13 (a): stores the chosen output's calibration, validated and with taken roles resolved. */
+  saveCalibration(roles: Record<string, unknown>): void {
+    const label = this.chosen;
+    if (label === null) return;
+    this.calibrations[label] = calibrationRoles(roles);
+    this.writeCalibrations();
+    // S13 (b): the phones pair if there is one, else the lowest-numbered channel pair.
+    this.chooseCalibratedPair();
+    this.persist();
+    this.notify();
+  }
+
+  /** S13 (e): the output goes back to its pairs, or to the S12 table for the Rane FOUR. */
+  clearCalibration(): void {
+    const label = this.chosen;
+    if (label === null || !Object.hasOwn(this.calibrations, label)) return;
+    delete this.calibrations[label];
+    this.writeCalibrations();
+    const offered = this.destinations(null);
+    if (offered.length > 0 && !offered.some((option) => option.pair === this.chosenPair)) {
+      this.chosenPair = offered[0].pair;
+    }
     this.persist();
     this.notify();
   }
@@ -280,13 +489,13 @@ export class PreviewOutput implements PreviewOutputController {
 
   /** S12 (c): a channel is only another way to choose its pair. */
   selectChannel(channel: number): void {
-    const match = mixerChannels(this.chosen).find((entry) => entry.number === channel);
+    const match = this.channels.find((entry) => entry.number === channel);
     if (match) this.selectPair(match.pair);
   }
 
   /** S11 (d): true only when a playback may start; a chosen output never falls back. */
   async prepare(element: HTMLAudioElement): Promise<boolean> {
-    if (!this.selectable) return false;
+    if (!this.available) return false;
     try {
       // Before the element was ever routed, the system output needs no graph at all.
       if (this.chosen === null) { if (this.route !== null) await this.routeSystem(this.route); return true; }
@@ -298,7 +507,7 @@ export class PreviewOutput implements PreviewOutputController {
   /** S11 (c): a one-second quiet tone on exactly the chosen output and pair. */
   tone(): void {
     try {
-      if (this.chosen !== null && !this.selectable) return;
+      if (this.chosen !== null && !this.available) return;
       const context = this.chosen === null ? this.systemContext() : this.contextFor(this.chosen);
       if (context === null) return;
       const oscillator = context.createOscillator();
@@ -348,9 +557,25 @@ export class PreviewOutput implements PreviewOutputController {
     catch { /* a storage that refuses keeps the choice for this session only */ }
   }
 
+  private writeCalibrations(): void {
+    try { this.deps.storage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(this.calibrations)); }
+    catch { /* a storage that refuses keeps the calibration for this session only */ }
+  }
+
   private normalizePair(): void {
+    // S13 (b): the pairs the output offers are the ones the select shows, calibration included.
+    const offered = this.destinations(null).map((option) => option.pair);
+    if (offered.length > 0) { if (!offered.includes(this.chosenPair)) this.chosenPair = offered[0]; return; }
     const pairs = stereoPairs(this.channelCount);
     if (pairs.length > 0 && !pairs.includes(this.chosenPair)) this.chosenPair = pairs[0];
+  }
+
+  /** S13 (b): the pair a calibration offers first — `phones`, else the lowest channel. */
+  private chooseCalibratedPair(): void {
+    const roles = this.calibration;
+    if (roles === null) return;
+    const offered = calibrationDestinations(roles, null);
+    if (offered.length > 0) this.chosenPair = offered[0].pair;
   }
 
   private contextFor(label: string): PreviewAudioContext | null {

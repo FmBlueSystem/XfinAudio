@@ -546,6 +546,200 @@ test('S12 (a): another output still shows the pairs and the S11 line', async () 
   } finally { f.restore(); h.restore(); }
 });
 
+// ---- S13: the calibration for any controller ----
+
+const CALIBRATION_KEY = 'xfin.preview-calibration';
+const NO_DESTINATION = 'La calibración no encontró ninguna salida para la preescucha. Vuelve a calibrar.';
+const PHONES_LINE = 'La preescucha suena directo en los auriculares.';
+const calibrated = (label, roles) => ({ [CALIBRATION_KEY]: JSON.stringify({ [label]: roles }) });
+/** The list the view renders, as `[pair, text, kind]` triples. */
+const destinations = (controller, playing = null) => controller.destinations(playing).map((entry) => [entry.pair, entry.text, entry.kind]);
+
+async function calibratedSetting(saved) {
+  const h = harness({ devices: [DEFAULT_DEVICE, RANE_FOUR_DEVICE, WIDE], saved });
+  const f = viewFixture(h.controller);
+  await h.controller.refresh();
+  f.view.render();
+  return { h, f, restore: () => { f.restore(); h.restore(); } };
+}
+
+test('S13 (a): the stored calibration is read back and a malformed value counts as none', async () => {
+  const roles = { '1-2': 'room', '3-4': 'phones', '5-6': 'channel:1' };
+  const h = harness({ devices: [DEFAULT_DEVICE, RANE_FOUR_DEVICE], saved: calibrated(RANE_OUTPUT, roles) });
+  try {
+    await h.controller.refresh();
+    h.controller.select(RANE_OUTPUT);
+    assert.deepEqual(h.controller.calibration, roles);
+    // S13 (b): the saved phones pair is what the output starts on.
+    assert.equal(h.controller.pair, '3-4');
+  } finally { h.restore(); }
+  for (const value of ['not json', '[]', 'null', `{"${RANE_OUTPUT}":3}`, `{"${RANE_OUTPUT}":{"1-2":"loud"}}`]) {
+    const other = harness({ devices: [DEFAULT_DEVICE, RANE_FOUR_DEVICE], saved: { [CALIBRATION_KEY]: value } });
+    try {
+      await other.controller.refresh();
+      other.controller.select(RANE_OUTPUT);
+      assert.equal(other.controller.calibration, null, value);
+      assert.equal(other.saved.get(CALIBRATION_KEY), value, 'reading never rewrites the stored value');
+    } finally { other.restore(); }
+  }
+});
+
+test('S13 (a): a second phones or channel pair clears the earlier one to silent', async () => {
+  const stored = { '1-2': 'phones', '3-4': 'channel:1', '5-6': 'phones', '7-8': 'channel:1', '9-10': 'room' };
+  const h = harness({ devices: [DEFAULT_DEVICE, RANE_FOUR_DEVICE], saved: calibrated(RANE_OUTPUT, stored) });
+  try {
+    await h.controller.refresh();
+    h.controller.select(RANE_OUTPUT);
+    assert.deepEqual(h.controller.calibration, {
+      '1-2': 'silent', '3-4': 'silent', '5-6': 'phones', '7-8': 'channel:1', '9-10': 'room',
+    });
+    assert.deepEqual(destinations(h.controller), [
+      ['5-6', 'Auriculares', 'phones'],
+      ['7-8', 'Canal 1', 'channel'],
+    ]);
+  } finally { h.restore(); }
+});
+
+test('S13 (b): a calibrated output offers «Auriculares» first and its channels ascending, never room or silent', async () => {
+  const roles = { '1-2': 'room', '3-4': 'channel:2', '5-6': 'silent', '7-8': 'phones', '9-10': 'channel:1', '11-12': 'room' };
+  const { h, f, restore } = await calibratedSetting(calibrated(RANE_OUTPUT, roles));
+  try {
+    pickOutput(f, RANE_OUTPUT);
+    assert.equal(h.controller.destinationLabel, 'Destino de la preescucha');
+    assert.equal(byId(f.node, 'preview-output-pair-field').children[0].textContent, 'Destino de la preescucha');
+    assert.deepEqual(destinations(h.controller), [
+      ['7-8', 'Auriculares', 'phones'],
+      ['9-10', 'Canal 1', 'channel'],
+      ['3-4', 'Canal 2', 'channel'],
+    ]);
+    f.view.render([{ deck: 1, title: 'Uno' }, { deck: 2, title: 'Dos' }]);
+    assert.deepEqual(channelCaptions(f.node), ['Auriculares', 'Canal 1 · ocupado: Uno', 'Canal 2 · ocupado: Dos']);
+    assert.deepEqual(byId(f.node, 'preview-output-pair').children.map((option) => option.value), ['7-8', '9-10', '3-4']);
+    assert.equal(byId(f.node, 'preview-output-pair').value, '7-8');
+    assert.ok(!byId(f.node, 'preview-output-pair').children.some((option) => ['1-2', '5-6', '11-12'].includes(option.value)));
+  } finally { restore(); }
+});
+
+test('S13 (b): a calibration wins over the built-in Rane FOUR table', async () => {
+  const roles = { '1-2': 'phones', '3-4': 'channel:3', '9-10': 'channel:2', '5-6': 'room' };
+  const { h, f, restore } = await calibratedSetting(calibrated(RANE_OUTPUT, roles));
+  try {
+    pickOutput(f, RANE_OUTPUT);
+    // The built-in table maps 5-6 to «Canal 3» and never offers 9-10; the calibration decides.
+    assert.deepEqual(destinations(h.controller), [
+      ['1-2', 'Auriculares', 'phones'],
+      ['9-10', 'Canal 2', 'channel'],
+      ['3-4', 'Canal 3', 'channel'],
+    ]);
+    assert.deepEqual(h.controller.channels, [{ number: 2, pair: '9-10' }, { number: 3, pair: '3-4' }]);
+    assert.equal(h.controller.pair, '1-2');
+    assert.equal(h.controller.channel, null);
+    h.controller.selectChannel(3);
+    assert.equal(h.controller.pair, '3-4');
+    assert.equal(h.controller.channel, 3);
+  } finally { restore(); }
+});
+
+test('S13 (b): saving chooses the phones pair, else the lowest channel pair', async () => {
+  const h = harness({ devices: [DEFAULT_DEVICE, WIDE] });
+  try {
+    await h.controller.refresh();
+    h.controller.select('Interfaz USB');
+    h.controller.saveCalibration({ '1-2': 'room', '3-4': 'phones', '5-6': 'channel:2' });
+    assert.equal(h.controller.pair, '3-4');
+    assert.deepEqual(JSON.parse(h.saved.get(CALIBRATION_KEY)), {
+      'Interfaz USB': { '1-2': 'room', '3-4': 'phones', '5-6': 'channel:2' },
+    });
+    // The chosen pair is remembered like any other choice.
+    assert.deepEqual(JSON.parse(h.saved.get(STORAGE)), { label: 'Interfaz USB', pair: '3-4' });
+    // Without phones the lowest channel number wins, not the first pair.
+    h.controller.saveCalibration({ '1-2': 'room', '3-4': 'channel:2', '5-6': 'channel:1' });
+    assert.equal(h.controller.pair, '5-6');
+    assert.deepEqual(destinations(h.controller), [
+      ['5-6', 'Canal 1', 'channel'],
+      ['3-4', 'Canal 2', 'channel'],
+    ]);
+  } finally { h.restore(); }
+});
+
+test('S13 (b): a calibration with no usable pair disables the preview with the exact line', async () => {
+  const { h, f, restore } = await calibratedSetting({});
+  try {
+    pickOutput(f, 'Interfaz USB');
+    h.controller.saveCalibration({ '1-2': 'room', '3-4': 'silent' });
+    f.view.render();
+    assert.equal(h.controller.available, false);
+    assert.equal(h.controller.message, NO_DESTINATION);
+    assert.deepEqual(destinations(h.controller), []);
+    const opened = h.contexts.length;
+    assert.equal(await h.controller.prepare({ tagName: 'audio' }), false);
+    assert.equal(h.contexts.length, opened, 'nothing is opened when no pair is offered');
+    assert.equal(byId(f.node, 'preview-output-tone').disabled, true);
+    const message = byId(f.node, 'preview-output-message');
+    assert.equal(message.hidden, false);
+    assert.equal(message.textContent, NO_DESTINATION);
+    assert.equal(byId(f.node, 'preview-output-pair-field').hidden, true);
+  } finally { restore(); }
+});
+
+test('S13 (e): clearing the calibration returns to the pairs, and to S12 on the Rane FOUR', async () => {
+  const h = harness({ devices: [DEFAULT_DEVICE, WIDE] });
+  try {
+    await h.controller.refresh();
+    h.controller.select('Interfaz USB');
+    h.controller.saveCalibration({ '1-2': 'room', '3-4': 'phones', '5-6': 'channel:1' });
+    assert.equal(h.controller.pair, '3-4');
+    h.controller.clearCalibration();
+    assert.equal(h.controller.calibration, null);
+    assert.equal(h.controller.destinationLabel, '');
+    assert.deepEqual(destinations(h.controller).map((entry) => entry[0]),
+      ['1-2', '3-4', '5-6', '7-8', '9-10', '11-12', '13-14']);
+    assert.equal(h.controller.channel, null);
+    assert.deepEqual(JSON.parse(h.saved.get(CALIBRATION_KEY)), {});
+  } finally { h.restore(); }
+  const r = harness({ devices: [DEFAULT_DEVICE, RANE_FOUR_DEVICE] });
+  try {
+    await r.controller.refresh();
+    r.controller.select(RANE_OUTPUT);
+    r.controller.saveCalibration({ '1-2': 'phones', '9-10': 'channel:1', '3-4': 'channel:4' });
+    assert.equal(r.controller.pair, '1-2');
+    r.controller.clearCalibration();
+    assert.equal(r.controller.calibration, null);
+    assert.deepEqual(destinations(r.controller), [
+      ['5-6', 'Canal 3', 'channel'],
+      ['1-2', 'Canal 1', 'channel'],
+      ['3-4', 'Canal 2', 'channel'],
+      ['7-8', 'Canal 4', 'channel'],
+    ]);
+    assert.equal(r.controller.channel, 1);
+    // A pair the built-in table does not use goes back to its first channel.
+    r.controller.saveCalibration({ '9-10': 'phones' });
+    assert.equal(r.controller.pair, '9-10');
+    r.controller.clearCalibration();
+    assert.equal(r.controller.pair, '5-6');
+    assert.equal(r.controller.channel, 3);
+  } finally { r.restore(); }
+});
+
+test('S13 (c): a calibrated phones pair says the preview goes straight to the headphones', async () => {
+  const roles = { '1-2': 'phones', '3-4': 'channel:2', '5-6': 'room' };
+  const { h, f, restore } = await calibratedSetting(calibrated(RANE_OUTPUT, roles));
+  try {
+    pickOutput(f, RANE_OUTPUT);
+    assert.equal(h.controller.pair, '1-2');
+    f.view.render([{ deck: 2, title: 'Dos' }]);
+    assert.equal(byId(f.node, 'preview-output-hint').textContent, PHONES_LINE);
+    assert.equal(byId(f.node, 'preview-output-channel-notice').hidden, true);
+    pickPair(f, '3-4');
+    f.view.render([{ deck: 2, title: 'Dos' }]);
+    assert.equal(h.controller.channel, 2);
+    assert.equal(byId(f.node, 'preview-output-hint').textContent,
+      'Baja el fader del canal 2 y activa su CUE para oír la preescucha solo en los auriculares.');
+    assert.equal(byId(f.node, 'preview-output-channel-notice').textContent,
+      'El canal 2 tiene una pista cargada en Serato: al activar su CUE vas a oír las dos.');
+  } finally { restore(); }
+});
+
 // ---- the app player ----
 
 class PlayerElement extends EventTarget {
