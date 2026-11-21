@@ -14,6 +14,20 @@ export const TONE_SECONDS = 1;
 export const TONE_GAIN = 0.05;
 const DEFAULT_PAIR = '1-2';
 
+/** S12 (a): the Rane FOUR, by the name its device label carries. */
+export const RANE_FOUR_NAME = 'Rane FOUR';
+/** S12 (a): the mixer's channels in its physical order, left to right. */
+export const RANE_FOUR_CHANNELS: readonly number[] = [3, 1, 2, 4];
+/** S12 (c): the channel the Rane FOUR starts on when the user picks it. */
+export const PRESELECTED_CHANNEL = 3;
+
+export interface MixerChannel { number: number; pair: string; }
+
+/** S12 (b): a deck of the last `liveFollow` answer, reduced to what a mark needs. */
+export interface PreviewPlaying { deck: number | string; title?: string | null; }
+
+export interface MixerChannelOption extends MixerChannel { caption: string; occupied: boolean; }
+
 export interface PreviewOutputOption { label: string; deviceId: string; }
 
 export interface MediaDeviceLike { deviceId: string; kind: string; label: string; }
@@ -69,11 +83,17 @@ export interface PreviewOutputController {
   readonly label: string | null;
   readonly pair: string;
   readonly pairs: readonly string[];
+  /** S12 (a): «Canal 3», «Canal 1», «Canal 2», «Canal 4» for the Rane FOUR, none otherwise. */
+  readonly channels: readonly MixerChannel[];
+  /** S12: the channel the stored pair means on this output, or null when it is not one. */
+  readonly channel: number | null;
   readonly available: boolean;
   readonly message: string;
   refresh(): Promise<void>;
   select(label: string | null): void;
   selectPair(pair: string): void;
+  /** S12 (c): choosing a channel chooses its pair; the stored value stays `{label, pair}`. */
+  selectChannel(channel: number): void;
   prepare(element: HTMLAudioElement): Promise<boolean>;
   tone(): void;
   dispose(): void;
@@ -110,6 +130,52 @@ export function pairChannels(pair: string): [number, number] | null {
   return [left - 1, right - 1];
 }
 
+/** S12 (a): channel n takes the pair (2n-1)-(2n). */
+export function channelPair(channel: number): string | null {
+  if (!Number.isInteger(channel) || channel < 1) return null;
+  return `${channel * 2 - 1}-${channel * 2}`;
+}
+
+/** S12 (a): four channels for the Rane FOUR — never 9-10 to 13-14 — and none for any other output. */
+export function mixerChannels(label: string | null | undefined): readonly MixerChannel[] {
+  if (typeof label !== 'string' || !label.includes(RANE_FOUR_NAME)) return [];
+  return RANE_FOUR_CHANNELS.map((number) => ({ number, pair: channelPair(number) as string }));
+}
+
+/** S12: the channel a pair means, or null when no channel of this mixer uses it. */
+export function channelOfPair(channels: readonly MixerChannel[], pair: string): number | null {
+  return channels.find((entry) => entry.pair === pair)?.number ?? null;
+}
+
+const channelTitle = (entry: PreviewPlaying): string => typeof entry.title === 'string' && entry.title.trim() ? entry.title.trim() : 'Sin título';
+
+/**
+ * S12 (b): deck n is channel n. An answer marks every channel free or occupied; without an
+ * answer there is no mark, so the screen never claims what Serato did not say.
+ */
+export function channelOptions(channels: readonly MixerChannel[], playing: readonly PreviewPlaying[] | null | undefined): MixerChannelOption[] {
+  const answer = Array.isArray(playing) ? playing : null;
+  return channels.map((channel) => {
+    const name = `Canal ${channel.number}`;
+    if (answer === null) return { ...channel, caption: name, occupied: false };
+    const entry = answer.find((item) => String(item?.deck ?? '').trim() === String(channel.number));
+    if (!entry) return { ...channel, caption: `${name} · libre`, occupied: false };
+    return { ...channel, caption: `${name} · ocupado: ${channelTitle(entry)}`, occupied: true };
+  });
+}
+
+/** S12 (e): the Rane FOUR's own line, naming the chosen channel. */
+export function channelHint(channel: number): string {
+  return `Baja el fader del canal ${channel} y activa su CUE para oír la preescucha solo en los auriculares.`;
+}
+
+/** S12 (d): a notice, never a block, for the chosen channel that Serato has a track on. */
+export function channelNotice(channels: readonly MixerChannel[], channel: number | null | undefined, playing: readonly PreviewPlaying[] | null | undefined): string {
+  if (channel === null || channel === undefined) return '';
+  const option = channelOptions(channels, playing).find((entry) => entry.number === channel);
+  return option?.occupied ? `El canal ${channel} tiene una pista cargada en Serato: al activar su CUE vas a oír las dos.` : '';
+}
+
 function readStored(storage: PreviewOutputStorage): { label: string | null; pair: string } {
   const fallback = { label: null, pair: DEFAULT_PAIR };
   let parsed: unknown;
@@ -143,7 +209,7 @@ export class PreviewOutput implements PreviewOutputController {
   private options: PreviewOutputOption[] = [];
   private chosen: string | null = null;
   private chosenPair = DEFAULT_PAIR;
-  private channels = 0;
+  private channelCount = 0;
   private selectable = true;
   private listed = false;
   private readonly contexts = new Map<string, PreviewAudioContext>();
@@ -164,7 +230,9 @@ export class PreviewOutput implements PreviewOutputController {
   get outputs(): readonly PreviewOutputOption[] { return this.options; }
   get label(): string | null { return this.chosen; }
   get pair(): string { return this.chosenPair; }
-  get pairs(): readonly string[] { return stereoPairs(this.channels); }
+  get pairs(): readonly string[] { return stereoPairs(this.channelCount); }
+  get channels(): readonly MixerChannel[] { return mixerChannels(this.chosen); }
+  get channel(): number | null { return channelOfPair(this.channels, this.chosenPair); }
   get available(): boolean { return this.selectable; }
   /** S11 (e): only a chosen output that left the list has something to say. */
   get message(): string {
@@ -180,8 +248,8 @@ export class PreviewOutput implements PreviewOutputController {
     this.listed = true;
     const wasSelectable = this.selectable;
     this.selectable = this.chosen === null || this.options.some((option) => option.label === this.chosen);
-    if (this.selectable && this.chosen !== null) this.channels = this.channelCountOf(this.chosen);
-    else if (!this.selectable) this.channels = 0;
+    if (this.selectable && this.chosen !== null) this.channelCount = this.channelCountOf(this.chosen);
+    else if (!this.selectable) this.channelCount = 0;
     // S11 (f): the chosen output left while a preview may be playing: silence it at once.
     if (wasSelectable && !this.selectable) this.silence();
     this.normalizePair();
@@ -190,9 +258,14 @@ export class PreviewOutput implements PreviewOutputController {
 
   select(label: string | null): void {
     const next = !label || label === SYSTEM_OUTPUT ? null : label;
+    const picked = next !== this.chosen;
     this.chosen = next;
     this.selectable = next === null || this.options.some((option) => option.label === next);
-    this.channels = next === null || !this.selectable ? 0 : this.channelCountOf(next);
+    this.channelCount = next === null || !this.selectable ? 0 : this.channelCountOf(next);
+    // S12 (c): the one automatic choice. Picking the Rane FOUR preselects «Canal 3»; every
+    // other change, and every later Serato answer, leaves the chosen channel alone.
+    const preset = picked ? mixerChannels(next).find((entry) => entry.number === PRESELECTED_CHANNEL) : undefined;
+    if (preset) this.chosenPair = preset.pair;
     this.normalizePair();
     this.persist();
     this.notify();
@@ -203,6 +276,12 @@ export class PreviewOutput implements PreviewOutputController {
     this.chosenPair = pair;
     this.persist();
     this.notify();
+  }
+
+  /** S12 (c): a channel is only another way to choose its pair. */
+  selectChannel(channel: number): void {
+    const match = mixerChannels(this.chosen).find((entry) => entry.number === channel);
+    if (match) this.selectPair(match.pair);
   }
 
   /** S11 (d): true only when a playback may start; a chosen output never falls back. */
@@ -270,7 +349,7 @@ export class PreviewOutput implements PreviewOutputController {
   }
 
   private normalizePair(): void {
-    const pairs = stereoPairs(this.channels);
+    const pairs = stereoPairs(this.channelCount);
     if (pairs.length > 0 && !pairs.includes(this.chosenPair)) this.chosenPair = pairs[0];
   }
 

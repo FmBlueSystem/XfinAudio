@@ -32,12 +32,16 @@ class AudioContextFake {
   createGain() { const node = new MediaNode('gain'); node.gain = { value: 0 }; return this.record(node); }
   createOscillator() { return this.record(new Oscillator()); }
   async close() { this.closes += 1; }
-  async setSinkId(deviceId) { this.sinks.push(deviceId); this.destination.maxChannelCount = deviceId === 'rane' ? 14 : 2; }
+  async setSinkId(deviceId) { this.sinks.push(deviceId); this.destination.maxChannelCount = ['rane', 'wide'].includes(deviceId) ? 14 : 2; }
 }
 const device = (deviceId, label, kind = 'audiooutput') => ({ deviceId, label, kind });
 const DEFAULT_DEVICE = device('default', 'Predeterminado');
 const RANE = device('rane', 'Rane FOUR');
 const HEADPHONES = device('hp', 'Auriculares');
+/** S12: the label the real Rane FOUR reports, and a wide output that is not the mixer. */
+const RANE_OUTPUT = 'Rane FOUR (1cc5:0024)';
+const RANE_FOUR_DEVICE = device('rane', RANE_OUTPUT);
+const WIDE = device('wide', 'Interfaz USB');
 
 function harness(options = {}) {
   const contexts = []; const changes = []; const listeners = [];
@@ -89,7 +93,8 @@ test('the pairs come from the channel count of the chosen output', async () => {
     h.controller.select('Rane FOUR');
     assert.equal(h.contexts[0].options.sinkId, 'rane');
     assert.equal(h.controller.pairs.length, 7);
-    assert.equal(h.controller.pair, '1-2');
+    // S12 (c): the Rane FOUR starts on «Canal 3», whose pair is 5-6.
+    assert.equal(h.controller.pair, '5-6');
   } finally { h.restore(); }
 });
 
@@ -331,7 +336,7 @@ function viewFixture(controller) {
 }
 
 test('the setting offers the system output first, the labelled outputs and the pairs', async () => {
-  const h = harness();
+  const h = harness({ devices: [DEFAULT_DEVICE, HEADPHONES, RANE, WIDE] });
   const f = viewFixture(h.controller);
   try {
     await h.controller.refresh();
@@ -342,13 +347,14 @@ test('the setting offers the system output first, the labelled outputs and the p
       assert.ok(rendered.includes(expected), expected);
     }
     const select = byId(f.node, 'preview-output-select');
-    assert.deepEqual(select.children.map((option) => option.textContent), [SYSTEM_OUTPUT, 'Auriculares', 'Rane FOUR']);
-    assert.deepEqual(select.children.map((option) => option.value), ['', 'Auriculares', 'Rane FOUR']);
+    assert.deepEqual(select.children.map((option) => option.textContent), [SYSTEM_OUTPUT, 'Auriculares', 'Rane FOUR', 'Interfaz USB']);
+    assert.deepEqual(select.children.map((option) => option.value), ['', 'Auriculares', 'Rane FOUR', 'Interfaz USB']);
     assert.equal(select.value, '');
     assert.equal(byId(f.node, 'preview-output-pair-field').hidden, true);
-    select.value = 'Rane FOUR';
+    // S12 (a): an output that is not the mixer keeps the select of pairs.
+    select.value = 'Interfaz USB';
     select.dispatchEvent(new Event('change'));
-    assert.equal(h.controller.label, 'Rane FOUR');
+    assert.equal(h.controller.label, 'Interfaz USB');
     f.view.render();
     assert.deepEqual(byId(f.node, 'preview-output-pair').children.map((option) => option.value).slice(0, 2), ['1-2', '3-4']);
     assert.equal(byId(f.node, 'preview-output-pair-field').hidden, false);
@@ -379,6 +385,164 @@ test('an absent output disables «Probar» and shows the exact line in the setti
     assert.equal(byId(f.node, 'preview-output-message').hidden, true);
     assert.equal(byId(f.node, 'preview-output-message').textContent, '');
     assert.equal(byId(f.node, 'preview-output-tone').disabled, false);
+  } finally { f.restore(); h.restore(); }
+});
+
+// ---- S12: the mixer channel of the Rane FOUR ----
+
+/** The four captions of the channel select, marks included. */
+const channelCaptions = (root) => byId(root, 'preview-output-pair').children.map((option) => option.textContent);
+const pickOutput = (f, label) => {
+  const select = byId(f.node, 'preview-output-select');
+  select.value = label;
+  select.dispatchEvent(new Event('change'));
+  f.view.render();
+};
+const pickPair = (f, value) => {
+  const select = byId(f.node, 'preview-output-pair');
+  select.value = value;
+  select.dispatchEvent(new Event('change'));
+  f.view.render();
+};
+
+async function raneSetting(saved = {}) {
+  const h = harness({ devices: [DEFAULT_DEVICE, RANE_FOUR_DEVICE], saved });
+  const f = viewFixture(h.controller);
+  await h.controller.refresh();
+  f.view.render();
+  return { h, f, restore: () => { f.restore(); h.restore(); } };
+}
+
+test('S12 (a): the Rane FOUR offers «Canal del mezclador» with its four channels in physical order', async () => {
+  const { h, f, restore } = await raneSetting();
+  try {
+    // S11 (c) keeps the pairs select for every other output.
+    const field = byId(f.node, 'preview-output-pair-field');
+    assert.equal(field.hidden, true);
+    assert.equal(byId(f.node, 'preview-output-pair').attrs['aria-label'], 'Canales de la salida de preescucha');
+    pickOutput(f, RANE_OUTPUT);
+    assert.equal(h.controller.label, RANE_OUTPUT);
+    assert.equal(field.hidden, false);
+    assert.equal(field.children[0].textContent, 'Canal del mezclador');
+    assert.equal(byId(f.node, 'preview-output-pair').attrs['aria-label'], 'Canal del mezclador');
+    // S12 (b): without a Serato answer the options carry no mark.
+    assert.deepEqual(channelCaptions(f.node), ['Canal 3', 'Canal 1', 'Canal 2', 'Canal 4']);
+    const pairs = byId(f.node, 'preview-output-pair').children.map((option) => option.value);
+    assert.deepEqual(pairs, ['5-6', '1-2', '3-4', '7-8']);
+    assert.ok(pairs.every((pair) => pairChannels(pair) && pairChannels(pair)[1] <= 7), 'no pair above 7-8');
+    // S12 (c): the Rane FOUR preselects «Canal 3» when the user picks it.
+    assert.equal(byId(f.node, 'preview-output-pair').value, '5-6');
+    assert.equal(h.controller.channel, 3);
+    assert.equal(h.controller.pair, '5-6');
+  } finally { restore(); }
+});
+
+test('S12 (a): choosing «Canal 2» stores the pair 3-4', async () => {
+  const { h, f, restore } = await raneSetting();
+  try {
+    pickOutput(f, RANE_OUTPUT);
+    const canal2 = byId(f.node, 'preview-output-pair').children.find((option) => option.textContent === 'Canal 2');
+    pickPair(f, canal2.value);
+    assert.equal(h.controller.pair, '3-4');
+    assert.equal(h.controller.channel, 2);
+    // The stored value stays `{label, pair}`: the channel is only another way to choose it.
+    assert.deepEqual(JSON.parse(h.saved.get(STORAGE)), { label: RANE_OUTPUT, pair: '3-4' });
+    assert.equal(byId(f.node, 'preview-output-pair').value, '3-4');
+  } finally { restore(); }
+});
+
+test('S12 (b): every channel is marked free or occupied from the playing decks', async () => {
+  const { f, restore } = await raneSetting();
+  try {
+    pickOutput(f, RANE_OUTPUT);
+    f.view.render([{ deck: 1, title: 'Uno' }, { deck: '2', title: 'Dos' }]);
+    assert.deepEqual(channelCaptions(f.node), [
+      'Canal 3 · libre',
+      'Canal 1 · ocupado: Uno',
+      'Canal 2 · ocupado: Dos',
+      'Canal 4 · libre',
+    ]);
+    // A deck with no track loaded leaves its channel free.
+    f.view.render([{ deck: 4, title: 'Cuatro' }]);
+    assert.deepEqual(channelCaptions(f.node), [
+      'Canal 3 · libre', 'Canal 1 · libre', 'Canal 2 · libre', 'Canal 4 · ocupado: Cuatro',
+    ]);
+    // With no Serato answer there is no mark at all.
+    f.view.render(null);
+    assert.deepEqual(channelCaptions(f.node), ['Canal 3', 'Canal 1', 'Canal 2', 'Canal 4']);
+  } finally { restore(); }
+});
+
+test('S12 (c): a later answer never changes the chosen channel', async () => {
+  const { h, f, restore } = await raneSetting();
+  try {
+    pickOutput(f, RANE_OUTPUT);
+    pickPair(f, '7-8');
+    assert.equal(h.controller.channel, 4);
+    f.view.render([{ deck: 2, title: 'Dos' }]);
+    assert.equal(h.controller.pair, '7-8');
+    assert.equal(h.controller.channel, 4);
+    assert.equal(byId(f.node, 'preview-output-pair').value, '7-8');
+    assert.equal(channelCaptions(f.node)[2], 'Canal 2 · ocupado: Dos');
+    f.view.render(null);
+    assert.equal(h.controller.pair, '7-8');
+    assert.equal(byId(f.node, 'preview-output-pair').value, '7-8');
+  } finally { restore(); }
+});
+
+test('S12 (d): an occupied channel says so and the preview keeps working', async () => {
+  const { h, f, restore } = await raneSetting();
+  try {
+    pickOutput(f, RANE_OUTPUT);
+    pickPair(f, '3-4');
+    f.view.render([{ deck: 1, title: 'Uno' }, { deck: 2, title: 'Dos' }]);
+    const notice = byId(f.node, 'preview-output-channel-notice');
+    assert.equal(notice.hidden, false);
+    assert.equal(notice.textContent, 'El canal 2 tiene una pista cargada en Serato: al activar su CUE vas a oír las dos.');
+    assert.equal(h.controller.available, true);
+    assert.equal(byId(f.node, 'preview-output-tone').disabled, false);
+    assert.equal(await h.controller.prepare({ tagName: 'audio' }), true);
+    // The channel comes free: the notice goes away on the next answer.
+    f.view.render([{ deck: 2, title: '' }]);
+    assert.equal(notice.hidden, false);
+    assert.equal(notice.textContent, 'El canal 2 tiene una pista cargada en Serato: al activar su CUE vas a oír las dos.');
+    f.view.render([{ deck: 1, title: 'Uno' }]);
+    assert.equal(notice.hidden, true);
+    assert.equal(notice.textContent, '');
+    f.view.render(null);
+    assert.equal(notice.hidden, true);
+  } finally { restore(); }
+});
+
+test('S12 (e): under the select the line names the chosen channel', async () => {
+  const { f, restore } = await raneSetting();
+  try {
+    pickOutput(f, RANE_OUTPUT);
+    pickPair(f, '7-8');
+    assert.equal(byId(f.node, 'preview-output-hint').textContent,
+      'Baja el fader del canal 4 y activa su CUE para oír la preescucha solo en los auriculares.');
+    pickPair(f, '1-2');
+    assert.equal(byId(f.node, 'preview-output-hint').textContent,
+      'Baja el fader del canal 1 y activa su CUE para oír la preescucha solo en los auriculares.');
+  } finally { restore(); }
+});
+
+test('S12 (a): another output still shows the pairs and the S11 line', async () => {
+  const h = harness({ devices: [DEFAULT_DEVICE, WIDE] });
+  const f = viewFixture(h.controller);
+  try {
+    await h.controller.refresh();
+    f.view.render([{ deck: 1, title: 'Uno' }]);
+    pickOutput(f, 'Interfaz USB');
+    assert.equal(byId(f.node, 'preview-output-pair-field').children[0].textContent, 'Canales');
+    assert.equal(byId(f.node, 'preview-output-pair').attrs['aria-label'], 'Canales de la salida de preescucha');
+    assert.deepEqual(byId(f.node, 'preview-output-pair').children.map((option) => option.textContent),
+      ['1-2', '3-4', '5-6', '7-8', '9-10', '11-12', '13-14']);
+    assert.equal(h.controller.channel, null);
+    assert.equal(byId(f.node, 'preview-output-pair').value, '1-2');
+    assert.equal(byId(f.node, 'preview-output-hint').textContent,
+      'La preescucha suena por el canal del mezclador que recibe esos canales: deja su fader abajo y activa su CUE para oírla solo en los auriculares.');
+    assert.equal(byId(f.node, 'preview-output-channel-notice').hidden, true);
   } finally { f.restore(); h.restore(); }
 });
 
