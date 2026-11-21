@@ -320,6 +320,8 @@ const liveFollow = new LiveFollowController(api, {
 });
 const liveFollowView = createLiveFollowView(element('live-follow-container'), liveFollow, {
   play: track => { void player.select(track).catch(() => showStatus('No se puede abrir esta pista', 'Comprueba que siga disponible', true)); },
+  // S9: the rows ask the bridge for their own file; the path never comes back here.
+  api,
 });
 renderLiveFollow = liveFollowView.render;
 renderLiveFollow();

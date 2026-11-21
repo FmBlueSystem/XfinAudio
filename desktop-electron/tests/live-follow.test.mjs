@@ -15,6 +15,9 @@ const all = (node) => [node, ...node.children.flatMap(all)];
 const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const node = (root, id) => all(root).find((item) => item.id === id);
+/** The suggestion rows, in order: every `tr` that carries the suggestion's id. */
+const rows = (root) => all(root).filter((item) => item.tagName === 'tr' && item.dataset.liveFollowSuggestion !== undefined);
+const cellText = (cell) => text(cell).trim();
 
 const track = (id, extra = {}) => ({ id, title: `Título ${id}`, artist: `Artista ${id}`, bpm: 124, key: '8A', energy: 5, duration: 200, ...extra });
 const answer = (over = {}) => ({
@@ -127,7 +130,7 @@ function viewFixture(options = {}) {
   let index = 0;
   const clock = { every: (intervalMs, callback) => { const entry = { intervalMs, callback, cancelled: false }; timers.push(entry); return () => { entry.cancelled = true; }; } };
   const controller = new LiveFollowController({ liveFollow: () => { calls.push({}); return Promise.resolve(answers[Math.min(index++, answers.length - 1)]); } }, { canAct: () => true, changed: () => view.render() }, clock);
-  const view = createLiveFollowView(root, controller, { play: (track) => played.push(track) });
+  const view = createLiveFollowView(root, controller, { play: (track) => played.push(track), ...(options.api ? { api: options.api } : {}) });
   view.render();
   controller.start();
   return {
@@ -145,7 +148,7 @@ test('the section shows the switch, both Serato lists and the read-only line as 
       'Seguir a Serato', 'Seguir lo que suena en Serato',
       'Sonando en Serato', 'Deck 1: Título a — Artista a · 124 BPM · 8A · Actual',
       'Deck 2: Ajena — Otro · 126 BPM · 9A',
-      'Qué poner después', 'Título b', 'Artista b', '124 BPM', '8A', 'Energía 5', 'Buena · 81 %', 'Preescuchar',
+      'Qué poner después', 'Título b', 'Artista b', '8A', 'Buena · 81 %', 'Preescuchar',
       'Solo lectura: XfinAudio no controla Serato ni modifica su historial.',
     ]) assert.ok(rendered.includes(expected), expected);
     const toggle = all(f.root).find((item) => item.id === 'live-follow-switch');
@@ -178,7 +181,7 @@ test('every reason shows its exact line', async () => {
     try {
       await f.ready();
       assert.ok(text(f.root).includes(expected), `${reason}: ${expected}`);
-      assert.equal(node(f.root, 'live-follow-suggestions').children.length, 0);
+      assert.equal(rows(f.root).length, 0);
     } finally { f.restore(); }
   }
 });
@@ -218,13 +221,13 @@ test('the lists are redrawn only when the playing tracks change', async () => {
   const f = viewFixture({ answers: [answer(), answer(), answer({ playing: [{ deck: 1, startedAt: '2026-10-01T22:05:00Z', inLibrary: true, ...track('c') }], current: track('c'), suggestions: [{ ...track('d'), score: 0.42 }] })] });
   try {
     await f.ready();
-    const first = node(f.root, 'live-follow-suggestions').children[0];
+    const first = rows(f.root)[0];
     f.view.render();
-    assert.equal(node(f.root, 'live-follow-suggestions').children[0], first);
+    assert.equal(rows(f.root)[0], first);
     f.timers[0].callback(); await tick();
-    assert.equal(node(f.root, 'live-follow-suggestions').children[0], first);
+    assert.equal(rows(f.root)[0], first);
     f.timers[0].callback(); await tick();
-    assert.notEqual(node(f.root, 'live-follow-suggestions').children[0], first);
+    assert.notEqual(rows(f.root)[0], first);
     assert.ok(text(f.root).includes('Débil · 42 %'));
   } finally { f.restore(); }
 });
@@ -242,5 +245,72 @@ test('the switch in the section stops and resumes the polling', async () => {
     await tick();
     assert.equal(f.calls.length, 2);
     assert.equal(f.timers.length, 2);
+  } finally { f.restore(); }
+});
+
+const twoSuggestions = () => answer({ suggestions: [{ ...track('b'), score: 0.81 }, { ...track('c'), score: 0.42 }] });
+
+test('S8: «Qué poner después» is a table with the eight exact columns', async () => {
+  const f = viewFixture({ answers: [twoSuggestions()] }); try {
+    await f.ready();
+    const headers = all(f.root).filter((item) => item.tagName === 'th').map((item) => item.textContent);
+    assert.deepEqual(headers, ['#', 'Título', 'Artista', 'BPM', 'Tonalidad', 'Energía', 'Mezcla', 'Escuchar']);
+    const table = node(f.root, 'live-follow-suggestions');
+    assert.equal(table.tagName, 'table');
+    assert.equal(table.children.filter((item) => item.tagName === 'tbody').length, 1);
+  } finally { f.restore(); }
+});
+
+test('S8: one numbered row per suggestion, with the text and tone of «Mezcla»', async () => {
+  const f = viewFixture({ answers: [twoSuggestions()] }); try {
+    await f.ready();
+    const found = rows(f.root);
+    assert.equal(found.length, 2);
+    assert.deepEqual(found.map((row) => row.children.map(cellText)), [
+      ['1', 'Título b', 'Artista b', '124', '8A', '5', 'Buena · 81 %', 'Preescuchar'],
+      ['2', 'Título c', 'Artista c', '124', '8A', '5', 'Débil · 42 %', 'Preescuchar'],
+    ]);
+    assert.equal(found[0].children[6].className, 'transition-quality good');
+    assert.equal(found[1].children[6].className, 'transition-quality weak');
+  } finally { f.restore(); }
+});
+
+test('S9: a row is draggable and its dragstart cancels the browser drag and asks for that track only', async () => {
+  const dragged = [];
+  const f = viewFixture({ answers: [twoSuggestions()], api: { dragTrack: (input) => { dragged.push(input); return Promise.resolve({ started: true }); } } });
+  try {
+    await f.ready();
+    const found = rows(f.root);
+    assert.deepEqual(found.map((row) => row.draggable), [true, true]);
+    for (const [index, id] of [[1, 'c'], [0, 'b']]) {
+      const event = new Event('dragstart', { cancelable: true });
+      found[index].dispatchEvent(event);
+      assert.equal(event.defaultPrevented, true);
+      assert.deepEqual(dragged.at(-1), { trackId: id });
+      assert.deepEqual(Object.keys(dragged.at(-1)), ['trackId']);
+    }
+    assert.deepEqual(dragged, [{ trackId: 'c' }, { trackId: 'b' }]);
+  } finally { f.restore(); }
+});
+
+test('S9: without dragTrack in the bridge no row is draggable and no drag starts', async () => {
+  const empty = viewFixture({ answers: [twoSuggestions()], api: {} }); try {
+    await empty.ready();
+    const found = rows(empty.root);
+    assert.deepEqual(found.map((row) => row.draggable), [false, false]);
+    const event = new Event('dragstart', { cancelable: true });
+    found[0].dispatchEvent(event);
+    assert.equal(event.defaultPrevented, false);
+  } finally { empty.restore(); }
+  const absent = viewFixture({ answers: [twoSuggestions()] }); try {
+    await absent.ready();
+    assert.deepEqual(rows(absent.root).map((row) => row.draggable), [false, false]);
+  } finally { absent.restore(); }
+});
+
+test('S9: a line under the table explains the drag', async () => {
+  const f = viewFixture(); try {
+    await f.ready();
+    assert.ok(text(f.root).includes('Arrastra una fila a un deck o a un crate de Serato.'));
   } finally { f.restore(); }
 });
