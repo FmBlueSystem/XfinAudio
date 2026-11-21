@@ -19,6 +19,7 @@ from mutagen.flac import FLAC
 
 from tests.test_headless_backend import tagged_flac as _base_flac
 from tests.test_headless_protocol import messages, request
+from xfinaudio.headless import live_follow
 from xfinaudio.headless.backend import BackendError, HeadlessBackend
 from xfinaudio.headless.serato_live import (
     NO_SESSION,
@@ -101,6 +102,151 @@ def _scan(backend: HeadlessBackend, root: Path) -> dict[str, str]:
 
 def _follow(backend: HeadlessBackend) -> dict:
     return backend.execute("live.follow", {})
+
+
+def _counting(monkeypatch: pytest.MonkeyPatch) -> tuple[list[None], list[None]]:
+    """Count the library loads and the Serato reads every later answer costs."""
+    loads: list[None] = []
+    reads: list[None] = []
+    records = HeadlessBackend._records
+    snapshot = live_follow.read_serato_snapshot
+
+    def counted_records(self: HeadlessBackend, *, checked: frozenset[str] | None = None):
+        loads.append(None)
+        return records(self, checked=checked)
+
+    def counted_snapshot(path: Path | None = None):
+        reads.append(None)
+        return snapshot(path)
+
+    monkeypatch.setattr(HeadlessBackend, "_records", counted_records)
+    monkeypatch.setattr(live_follow, "read_serato_snapshot", counted_snapshot)
+    return loads, reads
+
+
+def _playing_library(tmp_path: Path) -> tuple[HeadlessBackend, Path]:
+    """A scanned library with one deck loaded, and the Serato database that plays it."""
+    root = tmp_path / "music"
+    tagged_flac(root / _CURRENT, title="It's Not Right but It's Okay", artist="Whitney Houston", bpm=129.2, key="5A")
+    tagged_flac(root / "House/Plain One.flac", title="Plain One", artist="Someone", bpm=129.0, key="5A")
+    backend = _backend(tmp_path)
+    _scan(backend, root)
+    database = tmp_path / "master.sqlite"
+    _database(database, [(7, 1_699_000_000, -1)], [_row(1, name="It's Not Right but It's Okay")])
+    backend.serato_database_path = database
+    return backend, database
+
+
+def test_a_second_follow_with_the_same_serato_state_returns_the_kept_answer(tmp_path: Path, monkeypatch) -> None:
+    backend, _ = _playing_library(tmp_path)
+    loads, reads = _counting(monkeypatch)
+
+    first = _follow(backend)
+    second = _follow(backend)
+
+    # Serato is read again every time, the library is not loaded again.
+    assert len(reads) == 2
+    assert len(loads) == 1
+    assert second == first
+    assert [suggestion["title"] for suggestion in second["suggestions"]] == ["Plain One"]
+
+
+def test_a_new_open_entry_makes_follow_compute_again(tmp_path: Path, monkeypatch) -> None:
+    backend, database = _playing_library(tmp_path)
+    loads, _ = _counting(monkeypatch)
+    assert _follow(backend)["current"]["title"] == "It's Not Right but It's Okay"
+    assert len(loads) == 1
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO history_entry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (2, 7, 2, 1, 1_700_000_500, -1, "Plain One", "Someone", 129.0, "5A", "House/Plain One.flac"),
+        )
+
+    answer = _follow(backend)
+
+    assert len(loads) == 2
+    assert [entry["deck"] for entry in answer["playing"]] == [2, 1]
+    assert answer["current"]["title"] == "Plain One"
+
+
+def test_a_new_ended_entry_makes_follow_compute_again(tmp_path: Path, monkeypatch) -> None:
+    backend, database = _playing_library(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO history_entry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (2, 7, 2, 1, 1_700_000_500, -1, "Plain One", "Someone", 129.0, "5A", "House/Plain One.flac"),
+        )
+    loads, _ = _counting(monkeypatch)
+    assert _follow(backend)["playedCount"] == 0
+    assert len(loads) == 1
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE history_entry SET end_time = ? WHERE id = 2", (1_700_000_900,))
+
+    answer = _follow(backend)
+
+    assert len(loads) == 2
+    assert answer["playedCount"] == 1
+    assert [entry["deck"] for entry in answer["playing"]] == [1]
+
+
+def test_a_rescanned_library_makes_follow_compute_again(tmp_path: Path, monkeypatch) -> None:
+    backend, _ = _playing_library(tmp_path)
+    loads, _ = _counting(monkeypatch)
+    assert [suggestion["title"] for suggestion in _follow(backend)["suggestions"]] == ["Plain One"]
+    tagged_flac(tmp_path / "music/House/Fresh One.flac", title="Fresh One", artist="Someone", bpm=129.4, key="5A")
+
+    backend.execute("library.rescan", {})
+    rescanned = len(loads)
+    answer = _follow(backend)
+
+    assert len(loads) == rescanned + 1
+    assert "Fresh One" in {suggestion["title"] for suggestion in answer["suggestions"]}
+
+
+def test_two_versions_of_one_song_never_both_appear_and_the_list_still_fills_ten(tmp_path: Path) -> None:
+    root = tmp_path / "music"
+    tagged_flac(root / _CURRENT, title="It's Not Right but It's Okay", artist="Whitney Houston", bpm=129.2, key="5A")
+    tagged_flac(
+        root / "House/In My Pocket (Part 2).flac",
+        title="In My Pocket (Part 2)",
+        artist="Marian Care",
+        bpm=129.0,
+        key="5A",
+    )
+    tagged_flac(
+        root / "House/In My Pocket (Part 2) (v2).flac",
+        title="In My Pocket (Part 2) (v2)",
+        artist="Marian Care",
+        bpm=129.0,
+        key="4B",
+        energy=1,
+    )
+    for index in range(9):
+        tagged_flac(
+            root / f"House/Filler {index:02d}.flac",
+            title=f"Filler {index:02d}",
+            artist=f"Artist {index:02d}",
+            bpm=145.0 + index,
+            key=["4B", "8A", "6A"][index % 3],
+            energy=3 + index % 6,
+        )
+    backend = _backend(tmp_path)
+    _scan(backend, root)
+    database = tmp_path / "master.sqlite"
+    _database(database, [(7, 1_699_000_000, -1)], [_row(1, name="It's Not Right but It's Okay")])
+    backend.serato_database_path = database
+
+    suggestions = _follow(backend)["suggestions"]
+
+    titles = [suggestion["title"] for suggestion in suggestions]
+    pockets = [suggestion for suggestion in suggestions if suggestion["title"].startswith("In My Pocket")]
+    # Both versions would make the top ten; only the better scored one stays and the
+    # tenth slot is filled with the candidate that was behind both of them.
+    assert len(suggestions) == 10
+    assert len(pockets) == 1
+    assert pockets[0]["title"] == "In My Pocket (Part 2)"
+    assert titles.count("In My Pocket (Part 2) (v2)") == 0
+    assert len([title for title in titles if title.startswith("Filler")]) == 9
 
 
 def test_an_absent_database_answers_serato_not_found(tmp_path: Path) -> None:

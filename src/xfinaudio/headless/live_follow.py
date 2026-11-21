@@ -11,6 +11,15 @@ restating them:
 * The exclusion is the same one the list extension applies: no track of the current
   Serato session (open or already played), and no other version of a song of that
   session (``_is_same_song``, the same-song rule ``review.extend`` uses).
+* Among the suggestions themselves two versions of one song never both appear: the
+  better scored one stays and the next candidates fill the list up to
+  ``MAX_SUGGESTIONS``.
+
+The Live screen asks again every few seconds, so an answer is kept in memory together
+with what it was computed from: the Serato database, the session id, the open entries,
+the number of ended entries and the library revision the backend tracks. Serato's two
+tables are read on every call, and a call that reads the same values returns the kept
+answer without loading or scoring a single library track.
 
 The method is read-only and answers while another job runs: it reads one snapshot of
 Serato's history, the library records, and nothing else. It never creates, changes or
@@ -25,6 +34,7 @@ or what plays is not in the library (``not_in_library``).
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, Any
 
 from xfinaudio.headless.common import BackendError, _public_track
@@ -133,7 +143,20 @@ def _suggestions(
     ]
     # The path only breaks ties, so the order is stable for a given library.
     scored.sort(key=lambda scored_track: (-scored_track[0], scored_track[1].path))
-    return [{**_public_track(record), "score": score} for score, record in scored[:MAX_SUGGESTIONS]]
+    # One version of a song per answer: the best scored one it reaches first stays and
+    # its later versions are skipped, so the list still fills up to MAX_SUGGESTIONS.
+    suggestions: list[dict[str, Any]] = []
+    kept: list[tuple[str, str]] = []
+    for score, record in scored:
+        if _is_same_song(record, kept):
+            continue
+        suggestions.append({**_public_track(record), "score": score})
+        key = _same_song_key(record)
+        if key is not None:
+            kept.append(key)
+        if len(suggestions) == MAX_SUGGESTIONS:
+            break
+    return suggestions
 
 
 def _score_transition(current: TrackRecord, candidate: TrackRecord) -> float:
@@ -147,6 +170,8 @@ class LiveFollow:
 
     def __init__(self, backend: HeadlessBackend) -> None:
         self.backend = backend
+        # The last answer and what it was computed from; lost with this process.
+        self._kept: tuple[tuple[Any, ...], dict[str, Any]] | None = None
 
     def execute(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if method not in LIVE_FOLLOW_FIELDS:
@@ -154,4 +179,20 @@ class LiveFollow:
         if params:
             raise BackendError("invalid_params", "Unexpected command parameters")
         snapshot = read_serato_snapshot(self.backend.serato_database_path)
-        return build_follow(self.backend._records(), snapshot)
+        key = self._key(snapshot)
+        if self._kept is not None and self._kept[0] == key:
+            return copy.deepcopy(self._kept[1])
+        answer = build_follow(self.backend._records(), snapshot)
+        self._kept = (key, copy.deepcopy(answer))
+        return answer
+
+    def _key(self, snapshot: SeratoSnapshot) -> tuple[Any, ...]:
+        """Everything the answer was computed from, cheap to compare on every poll."""
+        return (
+            str(self.backend.serato_database_path),
+            snapshot.session_id,
+            snapshot.reason,
+            tuple((entry.deck, entry.start_time) for entry in snapshot.playing),
+            len(snapshot.played),
+            self.backend.library_revision(),
+        )

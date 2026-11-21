@@ -197,6 +197,22 @@ class HeadlessBackend:
         self._track_paths = {str(_public_track(record)["id"]): record.path for record in records}
         return records
 
+    def library_revision(self) -> tuple[tuple[int, int], tuple[str, ...]]:
+        """A cheap identity of the stored library, without loading a single record.
+
+        Every writer — a scan, a rescan, a spectral or a loudness profile — commits to the
+        repository file, so its timestamp and size stand for the records themselves. The
+        authorized roots are part of the identity because they filter which records a
+        command sees. A caller that keeps an answer computed from the library holds this
+        value next to it and asks again only when it moved.
+        """
+        try:
+            stored = self.repository.db_path.stat()
+            stamp = (stored.st_mtime_ns, stored.st_size)
+        except OSError:
+            stamp = (0, 0)
+        return stamp, tuple(str(root) for root in self.roots)
+
     def _library(self) -> dict[str, Any]:
         records = self._records()
         complete = sum(track.metadata_status == "complete" for track in records)
