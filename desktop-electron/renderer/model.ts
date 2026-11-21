@@ -1,5 +1,5 @@
 import type { LiveApi } from './live.js';
-import type { LiveFollowAnswer } from './live-follow.js';
+import type { LiveFollowAnswer, LiveFollowInput } from './live-follow.js';
 import type { SeratoExportApi } from './serato-export.js';
 import type { SeratoQuickExportApi } from './serato-quick-export.js';
 import type { EditorApi } from './editor.js';
@@ -60,7 +60,7 @@ export interface ProgressEvent {
 }
 export interface XfinApi extends EditorApi, SeratoExportApi, SeratoQuickExportApi, LiveApi {
   /** S5: the read-only Serato follow answer; optional until the host ships the bridge route. */
-  liveFollow?(input: Record<string, never>): Promise<LiveFollowAnswer>;
+  liveFollow?(input: LiveFollowInput): Promise<LiveFollowAnswer>;
   /** S9: the one-way drag action, `{trackId}` in and nothing at all back; optional until the host ships it. */
   dragTrack?(input: { trackId: string }): Promise<unknown>;
   chooseLibrary(): Promise<LibraryResult | null>;

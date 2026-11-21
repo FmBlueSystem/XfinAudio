@@ -1,7 +1,7 @@
 /** S5 presentation of the follow-Serato section; the controller owns polling and identity. */
 import type { Track } from './model.js';
 import { transitionQuality } from './review-facts.js';
-import { followKey } from './live-follow.js';
+import { deckOf, followKey } from './live-follow.js';
 import type { LiveFollowAnswer, LiveFollowController, LiveFollowPlaying } from './live-follow.js';
 
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
@@ -36,6 +36,9 @@ export function createLiveFollowView(root: HTMLElement, controller: LiveFollowCo
   switchControl.addEventListener('change', () => { controller.setFollowing(switchControl.checked === true); });
   toggle.append(switchControl, make('span', 'Seguir lo que suena en Serato'));
   const message = identify(make('p', '', 'field-hint'), 'message'); message.setAttribute('role', 'status');
+  // S10: while a deck is chosen, «Automático» goes back to the newest open entry.
+  const automatic = identify(button('Automático', () => { controller.chooseDeck(null); }), 'automatic');
+  automatic.hidden = true;
   const playingBlock = make('section', '', 'live-follow-block');
   const playingList = identify(make('ol', '', 'editor-proposed-tracks'), 'playing');
   playingList.setAttribute('aria-label', 'Pistas sonando en Serato');
@@ -50,9 +53,10 @@ export function createLiveFollowView(root: HTMLElement, controller: LiveFollowCo
   const suggestionsBody = identify(make('tbody'), 'suggestion-rows');
   suggestionsTable.append(suggestionsHead, suggestionsBody);
   const suggestionsScroll = make('div', '', 'table-scroll'); suggestionsScroll.append(suggestionsTable);
-  suggestionsBlock.append(identify(make('h4', 'Qué poner después'), 'suggestions-heading'), suggestionsScroll,
+  const suggestionsHeading = identify(make('h4', 'Qué poner después'), 'suggestions-heading');
+  suggestionsBlock.append(suggestionsHeading, suggestionsScroll,
     identify(make('p', DRAG_HINT, 'field-hint'), 'drag-hint'));
-  section.append(identify(make('h3', 'Seguir a Serato'), 'heading'), toggle, message, playingBlock, suggestionsBlock,
+  section.append(identify(make('h3', 'Seguir a Serato'), 'heading'), toggle, message, automatic, playingBlock, suggestionsBlock,
     identify(make('p', 'Solo lectura: XfinAudio no controla Serato ni modifica su historial.', 'field-hint'), 'readonly'));
   root.replaceChildren(section);
 
@@ -63,13 +67,26 @@ export function createLiveFollowView(root: HTMLElement, controller: LiveFollowCo
     if (!answer) return;
     // S9: no bridge action means no draggable row: the table stays readable and inert.
     const dragTrack = typeof host.api?.dragTrack === 'function' ? host.api.dragTrack : null;
-    // S7 (e): «Actual» is the newest playing entry that is in the library, and `playing` arrives
-    // newest first, so it is the first in-library entry — the same track the core answers as `current`.
-    const currentIndex = answer.playing.findIndex((entry) => entry.inLibrary);
+    // S10: the marked line is the deck the answer calls current, else the deck the user chose,
+    // and without a choice the newest playing entry that is in the library (S7 e).
+    const chosen = controller.chosenDeck;
+    const target = chosen ?? deckOf(answer.currentDeck);
+    let currentIndex = target === null ? -1 : answer.playing.findIndex((entry) => deckOf(entry.deck) === target);
+    if (currentIndex < 0 && chosen === null) currentIndex = answer.playing.findIndex((entry) => entry.inLibrary);
+    // S10: each line is a button that asks for its own deck.
     for (const [index, entry] of answer.playing.entries()) {
-      const row = make('li', playingLine(entry, index === currentIndex), index === currentIndex ? 'live-follow-current' : '');
+      const current = index === currentIndex;
+      const row = make('li', '', current ? 'live-follow-current' : '');
+      const line = button(playingLine(entry, current), () => { controller.chooseDeck(entry.deck); });
+      line.className = `live-follow-deck${current ? ' is-current' : ''}`;
+      line.dataset.liveFollowDeck = deckOf(entry.deck) ?? String(entry.deck ?? '');
+      if (current) line.setAttribute('aria-current', 'true');
+      row.append(line);
       playingList.append(row);
     }
+    // S10: the heading names the track the suggestions are for.
+    const title = answer.current ? answer.current.title || 'Sin título' : '';
+    suggestionsHeading.textContent = title ? `Qué poner después de ${title}` : 'Qué poner después';
     for (const [index, suggestion] of answer.suggestions.entries()) {
       const quality = transitionQuality(suggestion.score);
       const row = make('tr');
@@ -103,11 +120,12 @@ export function createLiveFollowView(root: HTMLElement, controller: LiveFollowCo
     render(): void {
       if (disposed) return;
       switchControl.checked = controller.following;
+      automatic.hidden = controller.chosenDeck === null;
       const line = controller.message;
       message.hidden = !line; message.textContent = line;
-      const key = followKey(controller.answer, controller.reason);
-      // The redraw follows the playing tracks only: a new answer with the same decks keeps
-      // every list node, so a switch or a scroll is never reset by the three-second poll.
+      const key = followKey(controller.answer, controller.reason, controller.chosenDeck);
+      // The redraw follows the playing tracks and the chosen deck only: a new answer with the
+      // same decks keeps every list node, so a switch or a scroll is never reset by the poll.
       if (key === drawn) return;
       drawn = key;
       rebuild(controller.answer);
