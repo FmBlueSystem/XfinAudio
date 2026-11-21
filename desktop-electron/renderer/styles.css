@@ -222,6 +222,10 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 .live-follow-toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; font-weight: 600; }
 .live-follow-toggle input { width: 15px; height: 15px; accent-color: var(--cyan); }
 .live-follow-current { color: var(--cyan); }
+/* S10: each «Sonando en Serato» line is a button, and the chosen one reads as current. */
+.live-follow-deck { display: block; width: 100%; padding: 2px 4px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.live-follow-deck:hover, .live-follow-deck:focus-visible { background: rgba(255, 255, 255, .06); }
+.live-follow-deck.is-current { color: var(--cyan); font-weight: 600; }
 .live-follow-suggestions { table-layout: auto; }
 .live-follow-suggestions tr[draggable="true"] { cursor: grab; }
 
