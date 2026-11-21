@@ -10,16 +10,19 @@ reads it; ``scoring`` prices the resulting adjacency bonus.
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from collections.abc import Mapping
 
 from xfinaudio.library.duplicate_grouping import duplicate_representative_sort_key, playlist_duplicate_group_key
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.metadata.tempo import is_valid_bpm
 from xfinaudio.recommendation.camelot import score_camelot_transition
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
 from xfinaudio.recommendation.familiarity import FamiliaritySignal
 from xfinaudio.recommendation.scoring import TRIAD_TAG_PREFIX, normalized_bpm_pair, track_triad_identities
 
 _DEFAULT_LIMIT = 25
+_TEMPO_WINDOW_FRACTION = 0.06
 
 # Familiarity boost cap: transition scores live in [0, 1], so the opt-in
 # per-track boost is capped at 5% of that range. The pool's base ranking is
@@ -234,6 +237,79 @@ def _interleave_by_energy(tracks: list[TrackRecord], limit: int) -> list[TrackRe
     return interleaved
 
 
+def _valid_bpm(track: TrackRecord) -> float | None:
+    bpm = track.bpm
+    if bpm is not None and is_valid_bpm(bpm):
+        return bpm
+    return None
+
+
+def _valid_bpms(tracks: list[TrackRecord]) -> list[float]:
+    values: list[float] = []
+    for track in tracks:
+        bpm = _valid_bpm(track)
+        if bpm is not None:
+            values.append(bpm)
+    return values
+
+
+def _tempo_window(center: float) -> tuple[float, float]:
+    margin = center * _TEMPO_WINDOW_FRACTION
+    epsilon = abs(center) * 1e-12
+    return center - margin - epsilon, center + margin + epsilon
+
+
+def _densest_tempo_center(tracks: list[TrackRecord]) -> float | None:
+    bpms = sorted(_valid_bpms(tracks))
+    if not bpms:
+        return None
+
+    def membership_count(center: float) -> int:
+        low, high = _tempo_window(center)
+        return bisect_right(bpms, high) - bisect_left(bpms, low)
+
+    # Equal-sized neighbourhoods choose their lower BPM value.
+    return min(sorted(set(bpms)), key=lambda center: (-membership_count(center), center))
+
+
+def _tempo_distance_key(center: float, track: TrackRecord) -> tuple[float, float, str]:
+    bpm = _valid_bpm(track)
+    if bpm is None:
+        return float("inf"), float("inf"), track.path
+    return abs(bpm - center), bpm, track.path
+
+
+def _tempo_coherent_pool(
+    tracks: list[TrackRecord],
+    limit: int,
+    *,
+    spread_energy: bool,
+) -> list[TrackRecord]:
+    if limit <= 0:
+        return []
+    center = _densest_tempo_center(tracks)
+    if center is None:
+        if spread_energy:
+            return _interleave_by_energy(tracks, limit)
+        return tracks[:limit]
+
+    low, high = _tempo_window(center)
+    inside: list[TrackRecord] = []
+    outside: list[TrackRecord] = []
+    for track in tracks:
+        bpm = _valid_bpm(track)
+        if bpm is not None and low <= bpm <= high:
+            inside.append(track)
+        else:
+            outside.append(track)
+
+    pool = _interleave_by_energy(inside, limit)
+    if len(pool) < limit:
+        nearest = sorted(outside, key=lambda track: _tempo_distance_key(center, track))
+        pool.extend(nearest[: limit - len(pool)])
+    return pool[:limit]
+
+
 def build_recommendation_pool(
     scanned_records: list[TrackRecord],
     controls: DJControls | None,
@@ -250,6 +326,11 @@ def build_recommendation_pool(
     in turn rather than purely by similarity, so strategies that trace an arc
     have material at both ends of the range. Off by default: strategies that
     hold one level want the concentrated pool.
+
+    With no complete control track, the pool instead comes from the densest
+    ±6% BPM neighbourhood of the eligible tracks, interleaved by energy and
+    filled, when short, with the nearest BPM outliers. Pools with controls keep
+    their existing ranking.
 
     ``protected_path`` is a bound colour-gate anchor that must survive the
     cap. It is retained WITHOUT being promoted to a control (its playlist-order
@@ -326,10 +407,10 @@ def _build_recommendation_pool(
     remaining_slots = max(0, limit - len(priority_records))
     remaining_records = [r for r in complete_records if r.path not in priority_set]
 
-    if not priority_records or remaining_slots == 0:
-        if spread_energy and remaining_slots:
-            return [*priority_records, *_interleave_by_energy(remaining_records, remaining_slots)]
-        return [*priority_records, *remaining_records[:remaining_slots]]
+    if remaining_slots == 0:
+        return priority_records
+    if not priority_records:
+        return _tempo_coherent_pool(remaining_records, remaining_slots, spread_energy=spread_energy)
 
     anchor_terms = set().union(*(_track_vibe_terms(r) for r in priority_records))
     if not anchor_terms:
