@@ -4,7 +4,7 @@ import type { ListChatController } from './list-chat.js';
 /** S7's exact copy: the empty state and the three questions that only fill the box. */
 export const LIST_CHAT_EMPTY = 'Pregunta cómo mejorar esta lista. El asistente lee las pistas, las transiciones y los avisos.';
 export const LIST_CHAT_EXAMPLES = ['¿Qué transiciones son las más débiles?', '¿Qué pista quitarías y por qué?', '¿Cómo mejoro la curva de energía?'] as const;
-export const LIST_CHAT_DISCLOSURE = 'El asistente lee la lista y la conversación con Nan Builders: se comparten los títulos, artistas y metadatos de la lista, sus transiciones, la preparación y los avisos; nunca rutas de archivo ni identificadores de pista. La lista solo se lee: el asistente no la cambia.';
+export const LIST_CHAT_DISCLOSURE = 'El asistente lee la lista y la conversación con Nan Builders: se comparten los títulos, artistas y metadatos de la lista, sus transiciones, la preparación y los avisos; nunca rutas de archivo ni identificadores de pista. Los cambios se aplican en tu equipo y se pueden deshacer.';
 /** S2's batch action, offered only with two or more proposed changes. */
 export const LIST_CHAT_APPLY_ALL = 'Aplicar todo';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
@@ -17,11 +17,13 @@ const roleName: Record<'user' | 'assistant', string> = { user: 'Tú', assistant:
  * plus the disclosure of the last prepared turn and its read-only exact-body viewer. Every
  * value is set as text, never as markup.
  */
-export function createListChatView(root: HTMLElement, controller: ListChatController, options: { idPrefix?: string } = {}): () => void {
+export function createListChatView(root: HTMLElement, controller: ListChatController, options: { idPrefix?: string; hideHeading?: boolean } = {}): () => void {
   const prefix = options.idPrefix ?? 'list-chat';
   const identify = <T extends HTMLElement>(node: T, suffix: string): T => { node.id = `${prefix}-${suffix}`; return node; };
-  const section = make('section', '', 'surface prep-form list-chat'); section.setAttribute('aria-labelledby', `${prefix}-heading`);
+  const section = make('section', '', 'surface prep-form list-chat');
+  if (!options.hideHeading) section.setAttribute('aria-labelledby', `${prefix}-heading`);
   const heading = identify(make('h3', 'Asistente de lista'), 'heading');
+  if (options.hideHeading) heading.hidden = true;
   const error = identify(make('p', '', 'review-notice blocker'), 'error'); error.setAttribute('role', 'alert');
   const notice = identify(make('p', '', 'review-notice'), 'notice'); notice.setAttribute('role', 'status');
   // S15: what the last period change replaced and the tracks that are still out of period.
@@ -109,7 +111,7 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
     const busy = controller.pending !== null;
     const streaming = controller.pending === 'send';
     empty.hidden = controller.messages.length > 0 || streaming;
-    examples.hidden = !empty.hidden;
+    examples.hidden = empty.hidden;
     conversation.replaceChildren(...controller.messages.map((message, index) => {
       const turn = make('li', '', `list-chat-turn list-chat-${message.role}`);
       // The announcement belongs to the reply it describes, so it is the first text of that turn.

@@ -9,6 +9,11 @@ class Element extends EventTarget {
   append(...nodes) { this.children.push(...nodes); } replaceChildren(...nodes) { this.children = nodes; } closest() { return null; } focus() { this.focused = true; } pause() { this.paused = true; } load() {} async play() { this.paused = false; }
 }
 const all = (node) => [node, ...node.children.flatMap(all)]; const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
+const visibleTitles = (node, hidden = false) => {
+  const isHidden = hidden || node.hidden === true;
+  const own = !isHidden && node.textContent === 'Asistente de lista' ? [node] : [];
+  return [...own, ...node.children.flatMap((child) => visibleTitles(child, isHidden))];
+};
 const tick = () => new Promise((resolve) => setImmediate(resolve)); const settle = async () => { for (let i = 0; i < 5; i++) await tick(); };
 const prefs = (patch = {}) => ({ revision: 'a'.repeat(64), previewVolume: .25, watchLibrary: true, recoveryWarning: false, libraryLabels: ['DJ'], capabilities: { loudnessWriteback: false, providers: false, language: 'es' }, ...patch });
 const status = (patch = {}) => ({ revision: 1, changeState: 'restored', watchState: 'active', rootCount: 1, watchedCount: 1, ...patch });
@@ -647,5 +652,30 @@ test('the review assistant applies a whole reply at once with the switch on and 
     assert.ok(f.calls.some(([kind]) => kind === 'reviewRemove'));
     assert.equal(f.get('list-chat-undo-batch').hidden, true);
     assert.equal(f.get('list-chat-auto-applied').hidden, true);
+  } finally { f.restore(); }
+});
+test('S18(a): the assistant status says changes are applied locally and can be undone', async () => {
+  const f = await fixture();
+  try {
+    await f.generate();
+    f.click('bot-window-toggle'); await settle();
+    const draft = f.get('list-chat-request');
+    draft.value = '¿Qué transiciones son las más débiles?';
+    draft.dispatchEvent(new Event('input'));
+    f.click('list-chat-send'); await settle();
+    assert.equal(f.get('operation-label').textContent, 'Asistente de lista');
+    assert.equal(f.get('operation-detail').textContent, 'El asistente propone cambios y la app los aplica en tu equipo; puedes deshacerlos.');
+    assert.doesNotMatch(text(f.get('operation-status')), /solo lee|no cambia|no la cambia/);
+  } finally { f.restore(); }
+});
+test('S18(b): the floating window shows «Asistente de lista» once', async () => {
+  const f = await fixture();
+  try {
+    await f.generate();
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('bot-window').hidden, false);
+    assert.equal(visibleTitles(f.get('bot-window-root')).length, 1);
+    assert.equal(f.get('bot-window-heading').textContent, 'Asistente de lista');
+    assert.equal(f.get('list-chat-heading').hidden, true);
   } finally { f.restore(); }
 });

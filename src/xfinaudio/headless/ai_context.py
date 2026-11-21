@@ -369,7 +369,7 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
         revision_data.append([session.id, session.revision, session.source_revision, session.played, data["facts"]])
         disclosure = (
             "Candidatas anónimas, orden, puntuaciones y diferencias absolutas calculadas localmente.",
-            "No se envían títulos, rutas ni audio. La IA no cambia el orden ni controla Serato.",
+            "No se envían títulos, rutas ni audio. La IA no controla Serato.",
         )
     else:
         disclosure = ("Solo el mensaje técnico visible de prueba.", "No se envía ningún contenido de la biblioteca.")

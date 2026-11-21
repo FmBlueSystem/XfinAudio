@@ -423,7 +423,7 @@ listChat = listChatApi ? new ListChatController(listChatApi, {
   chooseVariant: (variant) => chooseAlternative(variant),
   perform: (label, task, apply, failure) => perform('ai-chat', label, task, (value, current) => {
     apply(value, current);
-    if (!listChat?.error) showStatus('Asistente de lista', listChat?.notice || 'El asistente solo lee la lista: no cambia pistas, orden ni metadatos.');
+    if (!listChat?.error) showStatus('Asistente de lista', listChat?.notice || 'El asistente propone cambios y la app los aplica en tu equipo; puedes deshacerlos.');
   }, false, failure),
 }) : undefined;
 /**
@@ -436,7 +436,7 @@ const botWindow = new BotWindowController({
   pending: () => listChat?.actions.length ?? 0,
 });
 renderBotWindow = createBotWindowView(element('bot-window-root'), botWindow, {
-  mount: (container) => { if (listChat) renderListChat = createListChatView(container, listChat, { idPrefix: 'list-chat' }); },
+  mount: (container) => { if (listChat) renderListChat = createListChatView(container, listChat, { idPrefix: 'list-chat', hideHeading: true }); },
 });
 function invalidateAiSource(): void { aiContextKey = ''; deferredAiApply = null; ai?.invalidate(); }
 /** Selected values of a carrier select: what it reports selected and what its options mark. */

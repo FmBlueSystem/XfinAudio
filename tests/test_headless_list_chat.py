@@ -89,6 +89,22 @@ def test_chat_prepare_discloses_the_list_and_marks_the_first_turn(chat_setup):
     assert "rutas" in disclosure and str(root) not in json.dumps(preview)
 
 
+def test_no_user_facing_disclosure_claims_the_assistant_cannot_change_the_list(chat_setup):
+    facade, transport, backend, selectors, _ = chat_setup
+    chat = prepare(facade, current_review_id(backend))
+    live = call(
+        facade,
+        "ai.prepare",
+        {"surface": "live", "request": "", "context": selectors["live"]},
+    )
+    assert transport.bodies == []
+    for disclosure in (" ".join(chat["disclosure"]), " ".join(live["disclosure"])):
+        assert "La lista solo se lee" not in disclosure
+        assert "no cambia el orden" not in disclosure
+        assert "no cambia pistas" not in disclosure
+    assert any("La IA no controla Serato." in item for item in live["disclosure"])
+
+
 def test_chat_run_sends_the_system_message_and_returns_the_whole_conversation(chat_setup):
     facade, transport, backend, _, root = chat_setup
     result = turn(facade, current_review_id(backend))["result"]

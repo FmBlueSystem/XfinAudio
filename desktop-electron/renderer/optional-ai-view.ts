@@ -11,9 +11,9 @@ const surfaceDisclosure: Record<AiSurface, string> = {
   saved: 'Se comparten identificadores anónimos y datos agregados de las playlists autorizadas; la comparación se realiza localmente.',
   review: 'Esta explicación comparte títulos, artistas, metadatos ordenados y hechos de calidad y preparación de la selección.',
   metadata: 'La explicación usa hechos y carencias de metadatos calculados localmente. No modifica etiquetas.',
-  live: 'La explicación usa opciones y puntuaciones ya calculadas localmente. No cambia el orden, las marcas ni la reproducción.',
+  live: 'La explicación usa opciones y puntuaciones ya calculadas localmente. Las marcas y la reproducción siguen siendo manuales.',
   connection: 'Prueba sintética sin datos de la biblioteca. Es una consulta explícita al proveedor y puede consumir cuota.',
-  chat: 'La conversación comparte títulos, artistas y metadatos de la lista, sus transiciones, la preparación y los avisos. Nunca rutas de archivo ni identificadores de pista; la lista solo se lee.',
+  chat: 'La conversación comparte títulos, artistas y metadatos de la lista, sus transiciones, la preparación y los avisos. Nunca rutas de archivo ni identificadores de pista. Los cambios se aplican en tu equipo y se pueden deshacer.',
 };
 // The improvement selector is a different authority than the legacy editor request: it
 // shares real titles, artists, and bounded metadata, and optionally a replacement pool.

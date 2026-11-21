@@ -15,7 +15,7 @@ const uuid = '12345678-1234-4123-8123-123456789012';
 async function fixture(surface = 'library', resultPatch = {}, contextPatch = null, snapshotPatch = {}) {
   const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; let online = true; let busy = false; const calls = []; const root = new Element(); let render = () => {};
   const snapshot = { revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'fixture.env', configured: true, autoAuthorize: false, recipient: AI_RECIPIENT, ...snapshotPatch };
-  const kinds = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection' };
+  const kinds = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection', chat: 'chat' };
   const api = { getAiStatus: async () => snapshot, saveAiSettings: async (input) => ({ ...snapshot, ...input }), chooseAiCredential: async () => snapshot, clearAiCredential: async () => ({ ...snapshot, configured: false, credentialLabel: null }), prepareAiRequest: async (input) => { calls.push(['prepare', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, disclosure: ['Datos autorizados de la pantalla, nunca audio'], requestPreview: '[ruta omitida] <img src=x>' }; }, runAiRequest: async (input) => { calls.push(['ask', input]); return { cancelled: false, result: { resultId: uuid, surface, kind: kinds[surface], title: '<script>modelo</script>', text: '<img src=x> Comentario externo', proposal: { genres: ['house'] }, canApply: true, ...resultPatch } }; }, applyAiSuggestion: async (input) => { calls.push(['apply', input]); return { surface, data: { genres: ['house'] } }; }, inspectAiPayload: async (input) => { calls.push(['aiPayload', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, request: 'house', body: '{"model":"deepseek","messages":[]}', bytes: 31, truncated: false }; } };
   const controller = new OptionalAiController(api, { canAct: () => online && !busy, changed: () => render(), dirtyChanged: () => {}, applied: () => {}, perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } } });
   render = createOptionalAiView(root, controller, { canAct: () => online && !busy, busy: () => busy }); controller.setContext(surface, contextPatch ?? (surface === 'review' ? { reviewId: uuid } : surface === 'editor' ? { editId: uuid } : surface === 'live' ? { sessionId: uuid, revision: 0 } : {}), 'local1'); await controller.load(); render();
@@ -233,4 +233,18 @@ test('the consent copy names the real authority: system dialog only when automat
     assert.match(text(autoPath.get('consent-hint')), /sin el diálogo del sistema/);
     assert.equal(autoPath.get('ask').disabled, false);
   } finally { autoPath.restore(); }
+});
+test('S18(a): AI panel chat and live disclosures no longer say the list is read-only or cannot be reordered', async () => {
+  const chat = await fixture('chat', {}, { reviewId: uuid });
+  try {
+    const copy = chat.get('surface-disclosure').textContent;
+    assert.match(copy, /Los cambios se aplican en tu equipo y se pueden deshacer\./);
+    assert.doesNotMatch(copy, /la lista solo se lee/);
+  } finally { chat.restore(); }
+  const live = await fixture('live');
+  try {
+    const copy = live.get('surface-disclosure').textContent;
+    assert.match(copy, /Las marcas y la reproducción siguen siendo manuales\./);
+    assert.doesNotMatch(copy, /No cambia el orden|no cambia el orden/);
+  } finally { live.restore(); }
 });

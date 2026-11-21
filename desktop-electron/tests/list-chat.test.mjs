@@ -582,11 +582,36 @@ test('S9: the batch undo disappears after use and undoes one step per applied ch
   await f.controller.send();
   assert.equal(f.controller.notice, 'Se aplicaron 2 cambios.');
   await f.controller.undoBatch();
+  assert.equal(f.controller.notice, 'Se deshicieron 2 cambios.');
   assert.deepEqual(undos, [{ reviewId: uuid2 }, { reviewId: uuid }], 'one undo per step, each on the review the previous one minted');
   assert.equal(f.controller.canUndoBatch, false);
   assert.equal(f.controller.error, '');
   await f.controller.undoBatch();
   assert.equal(undos.length, 2, 'a second click changes nothing');
+});
+async function batchUndoNotice(actions, expected) {
+  const undos = [];
+  const f = fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions }) }),
+    aiChatApply: async () => ({ review: appliedReview, actions: [] }),
+    reviewUndo: async (input) => { undos.push({ ...input }); return appliedReview; },
+  });
+  f.controller.setRequest(question);
+  await f.controller.send();
+  await f.controller.undoBatch();
+  assert.equal(f.controller.notice, expected);
+  assert.equal(undos.length, actions.length);
+  assert.equal(f.controller.canUndoBatch, false);
+}
+test('S18(d): a one-change batch undo says one change', async () => {
+  await batchUndoNotice([removeAction({ actionId: idOf(1) })], 'Se deshicieron 1 cambios.');
+});
+test('S18(d): a three-change batch undo says three changes', async () => {
+  await batchUndoNotice([
+    removeAction({ actionId: idOf(1) }),
+    addAction({ actionId: idOf(2) }),
+    reorderAction({ actionId: idOf(3) }),
+  ], 'Se deshicieron 3 cambios.');
 });
 // --- S15: fit the list to a period, card and report ---
 const periodAction = (patch = {}) => ({ actionId: idOf(8), type: 'period', yearMin: 1980, yearMax: 1999, outside: 7, reason: 'El DJ pidió solo los 80 y los 90', ...patch });

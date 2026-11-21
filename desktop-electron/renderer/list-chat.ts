@@ -37,6 +37,8 @@ export const LIST_CHAT_UNDOING = 'Deshaciendo estos cambios…';
 export const LIST_CHAT_UNDO_UNAVAILABLE = 'Actualiza la aplicación para deshacer cambios.';
 /** S9: the whole reply went through. The partial form is S2's `listChatAppliedAll`. */
 export const listChatAutoApplied = (applied: number): string => `Se aplicaron ${applied} cambios.`;
+/** S18: the batch undo's own result, with the number of steps it reverted. */
+export const listChatBatchUndone = (count: number): string => `Se deshicieron ${count} cambios.`;
 /** The line that explains the proposals the core refused to turn into an action. */
 export const listChatDropped = (count: number): string => `Se descartaron ${count} cambios que no se pueden aplicar.`;
 /** S2: the batch result, whether every shown change was applied or the batch stopped early. */
@@ -481,18 +483,21 @@ export class ListChatController {
     if (!undo) { this.error = LIST_CHAT_UNDO_UNAVAILABLE; this.host.changed(); return; }
     this.autoBatch = null;
     this.inBatch = true;
+    let undone = 0;
     try {
       for (let step = 0; step < batch.count; step++) {
         const reviewId = this.review;
-        let undone = false;
+        let stepped = false;
         await this.perform('undo', LIST_CHAT_UNDOING, () => undo({ reviewId }), (value) => {
           this.handOff(reviewCopy(value));
           this.notice = ''; this.error = '';
-          undone = true;
+          stepped = true;
         });
-        if (!undone) break;
+        if (!stepped) break;
+        undone++;
       }
     } finally { this.inBatch = false; }
+    this.notice = undone === batch.count ? listChatBatchUndone(undone) : '';
     this.host.changed();
   }
   /** Hands a minted review to the screen without letting that hand-off retire this chat's batch. */

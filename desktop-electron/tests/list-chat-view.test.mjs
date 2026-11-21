@@ -66,6 +66,31 @@ test('the panel names itself, explains the empty state with the three example qu
     assert.equal(f.calls.some(([kind]) => kind === 'prepare' || kind === 'run'), false);
   } finally { f.restore(); }
 });
+test('S18(a): the chat disclosure says changes are applied locally and can be undone', async () => {
+  const f = await fixture({}, []);
+  try {
+    const disclosure = 'El asistente lee la lista y la conversación con Nan Builders: se comparten los títulos, artistas y metadatos de la lista, sus transiciones, la preparación y los avisos; nunca rutas de archivo ni identificadores de pista. Los cambios se aplican en tu equipo y se pueden deshacer.';
+    assert.equal(f.get('disclosure').textContent, disclosure);
+    assert.doesNotMatch(text(f.root), /La lista solo se lee|el asistente no la cambia|no cambia pistas, orden ni metadatos/);
+  } finally { f.restore(); }
+});
+test('S18(c): the three example questions are shown only while the conversation is empty', async () => {
+  const blank = await fixture({}, []);
+  try {
+    assert.equal(blank.get('empty').hidden, false);
+    assert.equal(blank.get('examples').hidden, false);
+    assert.equal(all(blank.get('examples')).filter((node) => node.tagName === 'button').length, 3);
+    await blank.controller.newConversation(); blank.render();
+    assert.equal(blank.get('empty').hidden, false);
+    assert.equal(blank.get('examples').hidden, false);
+  } finally { blank.restore(); }
+  const stored = await fixture();
+  try {
+    assert.equal(stored.get('empty').hidden, true);
+    assert.equal(stored.get('examples').hidden, true);
+    assert.equal(all(stored.get('examples')).filter((node) => node.tagName === 'button').length, 3, 'the questions stay mounted, hidden');
+  } finally { stored.restore(); }
+});
 test('a turn renders the conversation oldest first as plain text and announces a re-read before the reply', async () => {
   const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ listChanged: true }) }) });
   try {
@@ -403,6 +428,8 @@ test('S9: «Deshacer estos cambios» undoes exactly the applied steps and then d
     f.get('undo-batch').dispatchEvent(new Event('click')); await tick();
     assert.deepEqual(undos, [{ reviewId: uuid2 }, { reviewId: uuid }], 'one undo per applied step, each on the review it minted');
     assert.equal(f.applied.length, 4, 'each undo is handed to the screen as a normal edit');
+    assert.equal(f.get('notice').hidden, false);
+    assert.equal(f.get('notice').textContent, 'Se deshicieron 2 cambios.');
     assert.equal(f.get('auto-applied').hidden, true);
     assert.equal(f.get('undo-batch').hidden, true);
     assert.equal(f.get('error').hidden, true);
@@ -446,6 +473,7 @@ test('S9: a batch undo without the undo bridge says the app must be updated and 
     await sendReply(f);
     f.get('undo-batch').dispatchEvent(new Event('click')); await tick();
     assert.equal(f.get('error').textContent, 'Actualiza la aplicación para deshacer cambios.');
+    assert.equal(f.get('notice').hidden, true, 'a missing undo bridge never claims success');
     assert.equal(f.calls.filter(([kind]) => kind === 'apply').length, 2);
   } finally { f.restore(); }
 });
