@@ -21,6 +21,9 @@ Open **Live** from the navigation; it no longer needs a generated list. With
   session, and other versions of them, are left out.
 - The screen asks Serato's history every 3 seconds and updates by itself when a
   deck changes.
+- The suggestions are a table (number, title, artist, BPM, key, energy,
+  transition, listen). **A row can be dragged out of XfinAudio and dropped on a
+  Serato deck or crate**: it travels as the track's audio file.
 
 The manual Live guide of a generated list is still available below.
 
@@ -52,3 +55,5 @@ binary session files are not read.
   the app takes the one whose BPM is closest to Serato's.
 - Checked on macOS with Serato DJ Pro 5.1 running; the Windows path was not
   exercised.
+- Dragging a row is covered by automated tests of the app side; dropping it on
+  Serato was not exercised by the automated checks.
