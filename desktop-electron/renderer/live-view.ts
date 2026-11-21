@@ -9,7 +9,7 @@ const identify = <T extends HTMLElement>(node: T, suffix: string): T => { node.i
 const button = (caption: string, action: () => void, primary = false): HTMLButtonElement => {
   const node = make('button', caption, `button ${primary ? 'primary' : 'subtle'}`); node.type = 'button'; node.addEventListener('click', action); return node;
 };
-export interface LiveViewHost { canAct(): boolean; isConnected?(): boolean; play(track: Track): void; }
+export interface LiveViewHost { canAct(): boolean; isConnected?(): boolean; /** S11 (e): false when the chosen preview output is not connected. */ previewEnabled?(): boolean; play(track: Track): void; }
 export interface LiveView { render(): void; dispose(): void; }
 
 export function createLiveView(root: HTMLElement, controller: LiveController, host: LiveViewHost): LiveView {
@@ -51,12 +51,13 @@ export function createLiveView(root: HTMLElement, controller: LiveController, ho
     render(): void {
       if (disposed) return;
       const snapshot = controller.snapshot; const blocked = !canAct(); const connected = host.isConnected ? host.isConnected() : host.canAct();
+      const previewOk = host.previewEnabled ? host.previewEnabled() : true;
       empty.hidden = Boolean(snapshot); content.hidden = !snapshot;
       error.hidden = !controller.error; error.textContent = controller.error;
       unavailable.hidden = connected && (!snapshot || controller.valid);
       unavailable.textContent = !connected ? 'Servicio local desconectado. El tiempo está pausado y esta sesión ya no está disponible; reinicia XfinAudio para continuar.' : 'La sesión mostrada no está vigente. Actualiza el estado o vuelve a abrir Live desde una selección revisada y lista.';
       refresh.disabled = clear.disabled = blocked || !snapshot;
-      currentPreview.disabled = blocked || !snapshot || !controller.valid;
+      currentPreview.disabled = blocked || !snapshot || !controller.valid || !previewOk;
       if (snapshot !== rendered) {
         rendered = snapshot; candidates.replaceChildren(); history.replaceChildren(); candidateButtons = [];
         if (snapshot) {
@@ -77,7 +78,8 @@ export function createLiveView(root: HTMLElement, controller: LiveController, ho
           historyEmpty.hidden = snapshot.history.length > 0;
         }
       }
-      for (const control of candidateButtons) control.disabled = blocked || !controller.valid || (Boolean(control.dataset.liveNext) && snapshot?.state !== 'active');
+      for (const control of candidateButtons) control.disabled = blocked || !controller.valid || (Boolean(control.dataset.liveNext) && snapshot?.state !== 'active')
+        || (Boolean(control.dataset.livePreview) && !previewOk);
       updateElapsed();
       if (snapshot && connected && controller.valid) { if (timer === null) timer = globalThis.setInterval(updateElapsed, 500); }
       else stopTimer();

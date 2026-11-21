@@ -3,6 +3,8 @@ import type { Track } from './model.js';
 import { transitionQuality } from './review-facts.js';
 import { deckOf, followKey } from './live-follow.js';
 import type { LiveFollowAnswer, LiveFollowController, LiveFollowPlaying } from './live-follow.js';
+import { createPreviewOutputView } from './preview-output-view.js';
+import type { PreviewOutputController } from './preview-output.js';
 
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
@@ -13,7 +15,7 @@ const button = (caption: string, action: () => void): HTMLButtonElement => {
 };
 const number = (value: number | null | undefined): string => typeof value === 'number' && Number.isFinite(value) ? String(value) : '—';
 
-export interface LiveFollowViewHost { play(track: Track): void; /** S9: the bridge, so a row can ask for its own file; absent until the host ships `dragTrack`. */ api?: LiveFollowDragApi; }
+export interface LiveFollowViewHost { play(track: Track): void; /** S9: the bridge, so a row can ask for its own file; absent until the host ships `dragTrack`. */ api?: LiveFollowDragApi; /** S11: the preview output and pair; absent means the setting is not offered. */ preview?: PreviewOutputController; }
 export interface LiveFollowDragApi { dragTrack?(input: { trackId: string }): unknown; }
 export interface LiveFollowView { render(): void; dispose(): void; }
 
@@ -28,6 +30,10 @@ export function playingLine(entry: LiveFollowPlaying, current: boolean): string 
 
 export function createLiveFollowView(root: HTMLElement, controller: LiveFollowController, host: LiveFollowViewHost): LiveFollowView {
   let disposed = false; let drawn = '';
+  const previewOutput = host.preview ?? null;
+  const previewSetting = previewOutput ? createPreviewOutputView(previewOutput) : null;
+  const previewEnabled = (): boolean => !previewOutput || previewOutput.available;
+  const previewButtons: HTMLButtonElement[] = [];
   const section = make('section', '', 'surface prep-form live-follow');
   section.setAttribute('aria-labelledby', 'live-follow-heading');
   const toggle = make('label', '', 'live-follow-toggle');
@@ -56,12 +62,13 @@ export function createLiveFollowView(root: HTMLElement, controller: LiveFollowCo
   const suggestionsHeading = identify(make('h4', 'Qué poner después'), 'suggestions-heading');
   suggestionsBlock.append(suggestionsHeading, suggestionsScroll,
     identify(make('p', DRAG_HINT, 'field-hint'), 'drag-hint'));
-  section.append(identify(make('h3', 'Seguir a Serato'), 'heading'), toggle, message, automatic, playingBlock, suggestionsBlock,
+  section.append(identify(make('h3', 'Seguir a Serato'), 'heading'), toggle, message, automatic,
+    ...(previewSetting ? [previewSetting.node] : []), playingBlock, suggestionsBlock,
     identify(make('p', 'Solo lectura: XfinAudio no controla Serato ni modifica su historial.', 'field-hint'), 'readonly'));
   root.replaceChildren(section);
 
   const rebuild = (answer: LiveFollowAnswer | null): void => {
-    playingList.replaceChildren(); suggestionsBody.replaceChildren();
+    playingList.replaceChildren(); suggestionsBody.replaceChildren(); previewButtons.length = 0;
     playingBlock.hidden = !answer || answer.playing.length === 0;
     suggestionsBlock.hidden = !answer || answer.suggestions.length === 0;
     if (!answer) return;
@@ -110,6 +117,8 @@ export function createLiveFollowView(root: HTMLElement, controller: LiveFollowCo
       const action = make('td');
       const preview = button('Preescuchar', () => { host.play(suggestion); });
       preview.dataset.liveFollowPreview = suggestion.id;
+      preview.disabled = !previewEnabled();
+      previewButtons.push(preview);
       preview.setAttribute('aria-label', `Preescuchar ${suggestion.title || 'la pista sugerida'}`);
       action.append(preview);
       row.append(action); suggestionsBody.append(row);
@@ -121,6 +130,9 @@ export function createLiveFollowView(root: HTMLElement, controller: LiveFollowCo
       if (disposed) return;
       switchControl.checked = controller.following;
       automatic.hidden = controller.chosenDeck === null;
+      previewSetting?.render();
+      // S11 (e): an output that left the device list disables every «Preescuchar» here.
+      for (const control of previewButtons) control.disabled = !previewEnabled();
       const line = controller.message;
       message.hidden = !line; message.textContent = line;
       const key = followKey(controller.answer, controller.reason, controller.chosenDeck);

@@ -55,6 +55,7 @@ import type { LibraryResult, MetadataFilter, PlaylistSummary, PrepFields, PrepSt
 import { renderMetadataPanel } from './metadata.js';
 import type { MetadataReport } from './metadata.js';
 import { createPlayer } from './player.js';
+import { createPreviewOutput } from './preview-output.js';
 import { createTrackSearchView } from './track-search-view.js';
 import { createTrackPicker } from './track-picker-view.js';
 
@@ -211,6 +212,21 @@ let activeKind = '';
 let activeJobId = '';
 let cancellable = false;
 const titles: Record<Route, string> = { library: 'Biblioteca', metadata: 'Metadatos', prep: 'Crear lista', review: 'Revisar y exportar', playlists: 'Playlists guardadas', editor: 'Editar playlist', serato: 'Exportar a Serato', live: 'Asistente Live', preferences: 'Ajustes', loudness: 'Sonoridad', ai: 'IA opcional' };
+// S11 (b)-(e): the browser reaches this module as arguments, so the routing itself is tested
+// with fakes. The choice is a form value with no core setting yet, so it lives in storage.
+const previewOutput = createPreviewOutput({
+  enumerateDevices: () => (navigator.mediaDevices ? navigator.mediaDevices.enumerateDevices() : Promise.resolve([])),
+  createAudioContext: (options) => new AudioContext(options as AudioContextOptions),
+  storage: window.localStorage,
+  listenDeviceChange: (listener) => {
+    const devices = navigator.mediaDevices;
+    if (!devices) return () => {};
+    devices.addEventListener('devicechange', listener);
+    return () => devices.removeEventListener('devicechange', listener);
+  },
+  changed: () => { renderLiveFollow(); renderLive(); },
+});
+void previewOutput.refresh();
 const player = createPlayer(() => {
   document.querySelectorAll<HTMLButtonElement>('[data-track-id]').forEach((button) => {
     const playing = player.isPlaying(button.dataset.trackId ?? '');
@@ -218,7 +234,7 @@ const player = createPlayer(() => {
     button.setAttribute('aria-label', `${playing ? 'Pausar' : 'Escuchar'} ${button.dataset.trackTitle ?? 'pista'}`);
     button.closest('tr')?.classList.toggle('playing', playing);
   });
-});
+}, previewOutput);
 
 let renderLive = (): void => {};
 let live: LiveController;
@@ -306,6 +322,7 @@ live = new LiveController(api, {
 const liveView = createLiveView(element('live-container'), live, {
   canAct: () => coreAvailable && !gate.busy,
   isConnected: () => coreAvailable,
+  previewEnabled: () => previewOutput.available,
   play: track => { void player.select(track).catch(() => showStatus('No se puede abrir esta pista', 'Comprueba que siga disponible', true)); },
 });
 renderLive = liveView.render;
@@ -322,6 +339,8 @@ const liveFollowView = createLiveFollowView(element('live-follow-container'), li
   play: track => { void player.select(track).catch(() => showStatus('No se puede abrir esta pista', 'Comprueba que siga disponible', true)); },
   // S9: the rows ask the bridge for their own file; the path never comes back here.
   api,
+  // S11 (c): the output setting lives under the follow section.
+  preview: previewOutput,
 });
 renderLiveFollow = liveFollowView.render;
 renderLiveFollow();
