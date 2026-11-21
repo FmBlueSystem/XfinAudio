@@ -124,6 +124,7 @@ def build_prep_copilot_plan(
     familiarity: Mapping[str, FamiliaritySignal] | None = None,
     familiarity_weight: float = 0.0,
     checkpoint: Callable[[str], None] | None = None,
+    variant_pools: Mapping[PrepVariantName, list[TrackRecord]] | None = None,
 ) -> PrepCopilotPlan:
     """Build safe, balanced, and adventurous playlist variants for one DJ set intent.
 
@@ -138,6 +139,10 @@ def build_prep_copilot_plan(
     DEFAULT: callers omit them (or pass weight 0) unless the Serato
     integration is enabled and actually yielded data. Familiarity only
     reorders the candidate pool; it never blocks a track.
+
+    ``variant_pools`` lets a caller supply an already-planned candidate pool per
+    variant, for example a genre-focused pool drawn from the whole library.
+    Variants without an entry keep the shared ``tracks`` pool.
     """
     from xfinaudio.quality.dj_readiness import DjReadinessReport  # noqa: F401
 
@@ -157,6 +162,7 @@ def build_prep_copilot_plan(
                 spectral_cohesion=spectral_cohesion,
                 familiarity=familiarity,
                 familiarity_weight=familiarity_weight,
+                variant_pools=variant_pools,
             )
         )
     if checkpoint is not None:
@@ -174,6 +180,7 @@ def _build_variant(
     spectral_cohesion: float = 0.0,
     familiarity: Mapping[str, FamiliaritySignal] | None = None,
     familiarity_weight: float = 0.0,
+    variant_pools: Mapping[PrepVariantName, list[TrackRecord]] | None = None,
 ) -> PrepCopilotVariant:
     """Build one prep variant from the intent.
 
@@ -190,8 +197,9 @@ def _build_variant(
     from xfinaudio.quality.dj_readiness import build_dj_readiness_report
     from xfinaudio.quality.recommendation_quality import build_quality_report
 
-    incoming_count = len(tracks)
-    variant_tracks, variant_warnings = _filter_tracks_for_variant(name, tracks, intent)
+    source_tracks = variant_pools.get(name, tracks) if variant_pools is not None else tracks
+    incoming_count = len(source_tracks)
+    variant_tracks, variant_warnings = _filter_tracks_for_variant(name, source_tracks, intent)
     controls = DJControls(
         start_path=intent.start_path,
         end_path=intent.end_path,
@@ -308,7 +316,9 @@ def _filter_tracks_for_variant(
 
     The release period (S16) narrows the candidates FIRST and for every variant:
     unlike the genre focus it is a hard scope the DJ asked for, not a preference
-    the adventurous variant may bridge out of.
+    the adventurous variant may bridge out of. ``tracks`` may be the full
+    eligible library when the caller builds a genre-focused pool before the
+    interactive cap; the same contract applies.
     """
     scoped = [track for track in tracks if period_keeps_track(intent, track)]
     if intent.genre_focus is None:
@@ -327,6 +337,17 @@ def _filter_tracks_for_variant(
     if not any(_matches(track) for track in scoped):
         return scoped, [f"No tracks match genre focus '{intent.genre_focus}'; keeping the full candidate pool"]
     return focused, []
+
+
+def variant_eligible_tracks(name: PrepVariantName, tracks: list[TrackRecord], intent: DJSetIntent) -> list[TrackRecord]:
+    """Return the full eligible library for one variant's genre and period contract.
+
+    Callers building a genre-focused candidate pool from the whole library use
+    this before the interactive cap, so the shared genre rule (including the
+    selected controls and zero-match fallback) stays in one place. Warnings are
+    left to `_build_variant`, which reports them to the DJ.
+    """
+    return _filter_tracks_for_variant(name, tracks, intent)[0]
 
 
 def _genre_filter_pool_note(name: PrepVariantName, intent: DJSetIntent, before: int, after: int) -> str:
@@ -451,6 +472,7 @@ __all__ = [
     "PrepVariantName",
     "build_prep_copilot_plan",
     "period_keeps_track",
+    "variant_eligible_tracks",
 ]
 
 

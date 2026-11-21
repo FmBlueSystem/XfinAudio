@@ -60,6 +60,7 @@ def plan_recommendation_candidates(
     limit: int,
     strategy_name: str | None = None,
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    protected_path: str | None = None,
 ) -> list[TrackRecord]:
     """Return the interactive recommendation candidate pool for desktop adapters.
 
@@ -71,6 +72,10 @@ def plan_recommendation_candidates(
     each BEFORE the interactive cap (`dedupe_recommendation_duplicates`), so
     the capped pool spends its slots on distinct versions instead of
     duplicates. Control tracks are never removed by this step.
+
+    ``protected_path`` carries an already-bound colour-gate anchor into a
+    narrower pool so it survives dedupe and the cap without being re-resolved.
+    It is inert for non-colour strategies and when unset.
     """
     if strategy_name in COLOR_FILTER_STRATEGIES:
         return plan_recommendation_candidate_context(
@@ -79,6 +84,7 @@ def plan_recommendation_candidates(
             limit=limit,
             strategy_name=strategy_name,
             loudness_band=loudness_band,
+            protected_path=protected_path,
         ).records
     pool_source = scanned_records
     if strategy_name is not None:
@@ -89,7 +95,7 @@ def plan_recommendation_candidates(
     # A strategy that traces an arc needs candidates at both ends of the energy
     # range; similarity ranking alone would hand it the anchor's own level.
     spread = traces_an_arc(strategy_name) if strategy_name is not None else False
-    return build_recommendation_pool(pool_source, controls, limit, spread_energy=spread)
+    return build_recommendation_pool(pool_source, controls, limit, spread_energy=spread, protected_path=protected_path)
 
 
 def plan_recommendation_candidate_context(
@@ -99,6 +105,7 @@ def plan_recommendation_candidate_context(
     limit: int,
     strategy_name: str,
     loudness_band: LoudnessBand = DEFAULT_LOUDNESS_BAND,
+    protected_path: str | None = None,
 ) -> RecommendationCandidateContext:
     """Plan a colour-strategy pool and bind an immutable anchor identity.
 
@@ -108,8 +115,13 @@ def plan_recommendation_candidate_context(
     exact path in final enforcement instead of re-resolving from the reshaped
     pool — which is what stops the second gate pass emptying a pool the first pass
     had already narrowed for a different anchor.
+
+    ``protected_path`` is an anchor already bound from a wider pool. It is used
+    verbatim so a genre-focused sibling pool cannot rebind a different one.
     """
-    anchor_path = resolve_color_anchor_path(scanned_records, strategy_name, controls, loudness_band=loudness_band)
+    anchor_path = protected_path
+    if anchor_path is None:
+        anchor_path = resolve_color_anchor_path(scanned_records, strategy_name, controls, loudness_band=loudness_band)
     pool_source = prefilter_strategy_candidates(scanned_records, strategy_name, controls, loudness_band=loudness_band)
     pool_source = dedupe_recommendation_duplicates(pool_source, controls, protected_path=anchor_path)
     spread = traces_an_arc(strategy_name)
