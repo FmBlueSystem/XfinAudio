@@ -13,7 +13,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 class MediaNode {
   constructor(name) { this.name = name; this.connections = []; this.disconnects = 0; }
   connect(target, output, input) { this.connections.push({ target, output, input }); return target; }
-  disconnect() { this.disconnects += 1; }
+  disconnect() { this.disconnects += 1; this.connections = []; }
 }
 class Destination extends MediaNode {
   constructor() { super('destination'); this.channelCount = 2; this.maxChannelCount = 14; this.channelCountMode = 'max'; this.channelInterpretation = 'speakers'; }
@@ -24,7 +24,7 @@ class Oscillator extends MediaNode {
   stop(when) { this.stopped.push(when); }
 }
 class AudioContextFake {
-  constructor(options) { this.options = options; this.destination = new Destination(); this.nodes = []; this.closes = 0; }
+  constructor(options) { this.options = options; this.destination = new Destination(); this.nodes = []; this.closes = 0; this.sinks = []; }
   record(node) { this.nodes.push(node); return node; }
   createMediaElementSource(element) { const node = new MediaNode('source'); node.element = element; return this.record(node); }
   createChannelSplitter(count) { const node = new MediaNode('splitter'); node.count = count; return this.record(node); }
@@ -32,6 +32,7 @@ class AudioContextFake {
   createGain() { const node = new MediaNode('gain'); node.gain = { value: 0 }; return this.record(node); }
   createOscillator() { return this.record(new Oscillator()); }
   async close() { this.closes += 1; }
+  async setSinkId(deviceId) { this.sinks.push(deviceId); this.destination.maxChannelCount = deviceId === 'rane' ? 14 : 2; }
 }
 const device = (deviceId, label, kind = 'audiooutput') => ({ deviceId, label, kind });
 const DEFAULT_DEVICE = device('default', 'Predeterminado');
@@ -237,6 +238,71 @@ test('with a chosen output the player prepares the route before it plays', async
     assert.equal(fixture.audio.src, 'xfin-audio://track/two');
     assert.equal(fixture.audio.plays, 1);
   } finally { fixture.restore(); h.restore(); }
+});
+
+test('S11 (f): back to the system output moves the same context to the default device, in stereo', async () => {
+  const h = harness();
+  try {
+    await h.controller.refresh();
+    h.controller.select('Rane FOUR');
+    const element = { tagName: 'audio' };
+    assert.equal(await h.controller.prepare(element), true);
+    const context = h.contexts.find((item) => item.nodes.some((node) => node.name === 'source'));
+    const [source, splitter, merger] = context.nodes;
+    h.controller.select(null);
+    assert.equal(await h.controller.prepare(element), true);
+    assert.deepEqual(context.sinks, ['']);
+    assert.deepEqual(source.connections.map((entry) => entry.target), [context.destination]);
+    assert.deepEqual(splitter.connections, []);
+    assert.deepEqual(merger.connections, []);
+    assert.equal(context.destination.channelCount, 2);
+    assert.equal(context.destination.channelInterpretation, 'speakers');
+    assert.equal(h.contexts.flatMap((item) => item.nodes).filter((node) => node.name === 'source').length, 1);
+  } finally { h.restore(); }
+});
+
+test('S11 (f): another output reuses the same context and source of the element', async () => {
+  const h = harness();
+  try {
+    await h.controller.refresh();
+    const element = { tagName: 'audio' };
+    assert.equal(await h.controller.prepare(element), true);
+    assert.equal(h.contexts.length, 0, 'the system output builds nothing before any route exists');
+    h.controller.select('Auriculares');
+    assert.equal(await h.controller.prepare(element), true);
+    const context = h.contexts.find((item) => item.nodes.some((node) => node.name === 'source'));
+    assert.deepEqual(context.options, { sinkId: 'hp' });
+    h.controller.select('Rane FOUR');
+    h.controller.selectPair('5-6');
+    assert.equal(await h.controller.prepare(element), true);
+    assert.deepEqual(context.sinks, ['rane']);
+    assert.equal(context.destination.channelCount, 14);
+    const sources = h.contexts.flatMap((item) => item.nodes).filter((node) => node.name === 'source');
+    assert.equal(sources.length, 1);
+    const merger = context.nodes.filter((node) => node.name === 'merger').at(-1);
+    assert.equal(merger.count, 14);
+    const splitter = context.nodes.find((node) => node.name === 'splitter');
+    assert.deepEqual(mergedInputs(splitter), [[0, 4], [1, 5]]);
+  } finally { h.restore(); }
+});
+
+test('S11 (f): the output disappears during a preview: it is silenced and paused at once', async () => {
+  const h = harness();
+  try {
+    await h.controller.refresh();
+    h.controller.select('Rane FOUR');
+    let pauses = 0;
+    const element = { tagName: 'audio', pause: () => { pauses += 1; } };
+    assert.equal(await h.controller.prepare(element), true);
+    const context = h.contexts.find((item) => item.nodes.some((node) => node.name === 'source'));
+    h.setDevices([DEFAULT_DEVICE, HEADPHONES]);
+    for (const listener of [...h.listeners]) listener();
+    await tick();
+    assert.equal(h.controller.available, false);
+    assert.equal(pauses, 1);
+    assert.deepEqual(context.nodes[0].connections, []);
+    assert.equal(await h.controller.prepare(element), false);
+  } finally { h.restore(); }
 });
 
 // ---- the setting under «Seguir a Serato» ----

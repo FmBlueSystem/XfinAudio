@@ -122,11 +122,19 @@ function readStored(storage: PreviewOutputStorage): { label: string | null; pair
   return { label, pair };
 }
 
+/**
+ * S11 (f): an audio element attached to Web Audio only sounds through that context, and it
+ * can be attached once. So the element has one context and one source for its whole life;
+ * changing the output changes the device of that context (`setSinkId`, `''` = system).
+ */
 interface Route {
+  element: { pause?: () => void };
   context: PreviewAudioContext;
   source: PreviewAudioNode;
   splitter: PreviewAudioNode;
-  merger: PreviewAudioNode;
+  merger: PreviewAudioNode | null;
+  /** The device the context plays on: a device id, or `''` for the system output. */
+  sink: string;
 }
 
 export class PreviewOutput implements PreviewOutputController {
@@ -169,9 +177,12 @@ export class PreviewOutput implements PreviewOutputController {
     catch { devices = []; }
     this.options = outputOptions(devices);
     this.listed = true;
+    const wasSelectable = this.selectable;
     this.selectable = this.chosen === null || this.options.some((option) => option.label === this.chosen);
     if (this.selectable && this.chosen !== null) this.channels = this.channelCountOf(this.chosen);
     else if (!this.selectable) this.channels = 0;
+    // S11 (f): the chosen output left while a preview may be playing: silence it at once.
+    if (wasSelectable && !this.selectable) this.silence();
     this.normalizePair();
     this.notify();
   }
@@ -195,10 +206,13 @@ export class PreviewOutput implements PreviewOutputController {
 
   /** S11 (d): true only when a playback may start; a chosen output never falls back. */
   async prepare(element: HTMLAudioElement): Promise<boolean> {
-    if (this.chosen === null) return true;
     if (!this.selectable) return false;
-    try { this.build(element); return true; }
-    catch { return false; }
+    try {
+      // Before the element was ever routed, the system output needs no graph at all.
+      if (this.chosen === null) { if (this.route !== null) await this.routeSystem(this.route); return true; }
+      await this.build(element);
+      return true;
+    } catch { this.silence(); return false; }
   }
 
   /** S11 (c): a one-second quiet tone on exactly the chosen output and pair. */
@@ -277,47 +291,74 @@ export class PreviewOutput implements PreviewOutputController {
   }
 
   /** Left to the first channel of the pair, right to the second, silence on every other one. */
-  private build(element: HTMLAudioElement): void {
-    const label = this.chosen;
-    if (label === null) return;
-    const context = this.contextFor(label);
-    if (context === null) throw new Error('preview output is not listed');
-    if (this.route !== null && this.route.context !== context) this.teardown();
+  private async build(element: HTMLAudioElement): Promise<void> {
+    const option = this.options.find((entry) => entry.label === this.chosen);
+    if (!option) throw new Error('preview output is not listed');
     if (this.route === null) {
-      const destination = context.destination;
-      destination.channelCount = destination.maxChannelCount;
-      destination.channelCountMode = 'explicit';
-      destination.channelInterpretation = 'discrete';
+      // The context already opened on this device to count its channels becomes the element's
+      // own; it leaves the per-device map because it may later move to another device.
+      const context = this.contexts.get(option.label) ?? this.deps.createAudioContext({ sinkId: option.deviceId });
+      this.contexts.delete(option.label);
       this.route = {
-        context,
+        element, context, sink: option.deviceId, merger: null,
         source: context.createMediaElementSource(element),
         splitter: context.createChannelSplitter(2),
-        merger: context.createChannelMerger(destination.maxChannelCount),
       };
     }
     const route = this.route;
+    this.disconnect(route);
+    if (route.sink !== option.deviceId) await this.moveTo(route, option.deviceId);
+    const destination = route.context.destination;
+    destination.channelCount = destination.maxChannelCount;
+    destination.channelCountMode = 'explicit';
+    destination.channelInterpretation = 'discrete';
+    if (route.merger === null) route.merger = route.context.createChannelMerger(destination.maxChannelCount);
     const [left, right] = pairChannels(this.chosenPair) ?? [0, 1];
-    route.splitter.disconnect();
-    route.merger.disconnect();
-    route.source.disconnect();
     route.source.connect(route.splitter);
     route.splitter.connect(route.merger, 0, left);
     route.splitter.connect(route.merger, 1, right);
-    route.merger.connect(context.destination);
+    route.merger.connect(destination);
+  }
+
+  /** S11 (f): back to the system output: the same context, moved to the default device, in stereo. */
+  private async routeSystem(route: Route): Promise<void> {
+    this.disconnect(route);
+    if (route.sink !== '') await this.moveTo(route, '');
+    const destination = route.context.destination;
+    destination.channelCount = Math.min(2, destination.maxChannelCount);
+    destination.channelCountMode = 'explicit';
+    destination.channelInterpretation = 'speakers';
+    route.source.connect(destination);
+  }
+
+  /** Nothing is connected while the device changes, so no sound reaches either device. */
+  private async moveTo(route: Route, sink: string): Promise<void> {
+    if (!route.context.setSinkId) throw new Error('the audio context cannot change its output');
+    await route.context.setSinkId(sink);
+    route.sink = sink;
+    route.merger = null;
+  }
+
+  private disconnect(route: Route): void {
+    route.source.disconnect();
+    route.splitter.disconnect();
+    route.merger?.disconnect();
+  }
+
+  /** Cut the sound of the routed element and pause it. */
+  private silence(): void {
+    const route = this.route;
+    if (!route) return;
+    this.disconnect(route);
+    try { route.element.pause?.(); } catch { /* an element that cannot pause is already silent */ }
   }
 
   private teardown(): void {
     const route = this.route;
     this.route = null;
     if (!route) return;
-    route.source.disconnect();
-    route.splitter.disconnect();
-    route.merger.disconnect();
-    for (const [label, context] of this.contexts) {
-      if (context !== route.context) continue;
-      this.contexts.delete(label);
-      void context.close?.();
-    }
+    this.disconnect(route);
+    void route.context.close?.();
   }
 }
 
