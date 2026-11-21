@@ -1,8 +1,11 @@
 import { audioUrl, formatDuration } from './model.js';
 import type { Track } from './model.js';
 
+/** S11 (d): the chosen preview output prepares the graph before any playback. */
+export interface PreviewRoute { prepare(element: HTMLAudioElement): Promise<boolean>; readonly message: string; }
+
 /** One audio element survives every page change; never create per-row players. */
-export function createPlayer(onStateChange: () => void) {
+export function createPlayer(onStateChange: () => void, preview: PreviewRoute | null = null) {
   const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
   const audio = element<HTMLAudioElement>('audio-player');
   const toggle = element<HTMLButtonElement>('player-toggle');
@@ -12,6 +15,9 @@ export function createPlayer(onStateChange: () => void) {
   const volume = element<HTMLInputElement>('player-volume');
   let volumeTouched = false;
   let initialVolumeApplied = false;
+  // S11 (a): the host lets this page read `xfin-audio:` across origins, so Web Audio can
+  // take the audio; without the attribute the source node stays silent.
+  audio.crossOrigin = 'anonymous';
   audio.volume = 0.7;
   volume.value = '0.7';
   const status = (message: string) => { element('player-status').textContent = message; };
@@ -41,6 +47,14 @@ export function createPlayer(onStateChange: () => void) {
     if (expected === revision) sync();
   };
   const select = async (track: Track) => {
+    // S11 (d)(e): with a chosen output the graph is prepared first, and an output that is
+    // gone refuses the playback instead of falling back to another one.
+    if (preview && !(await preview.prepare(audio))) {
+      revision += 1;
+      audio.pause();
+      status(preview.message);
+      return;
+    }
     if (current?.id === track.id) {
       if (audio.paused) await play(); else audio.pause();
       return;
