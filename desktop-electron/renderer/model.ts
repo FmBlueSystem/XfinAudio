@@ -61,6 +61,8 @@ export interface ProgressEvent {
 export interface XfinApi extends EditorApi, SeratoExportApi, SeratoQuickExportApi, LiveApi {
   /** S5: the read-only Serato follow answer; optional until the host ships the bridge route. */
   liveFollow?(input: Record<string, never>): Promise<LiveFollowAnswer>;
+  /** S9: the one-way drag action, `{trackId}` in and nothing at all back; optional until the host ships it. */
+  dragTrack?(input: { trackId: string }): Promise<unknown>;
   chooseLibrary(): Promise<LibraryResult | null>;
   listLibrary(): Promise<LibraryResult>;
   getMetadataReport(): Promise<MetadataReport>;
