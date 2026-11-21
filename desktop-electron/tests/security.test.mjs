@@ -26,6 +26,14 @@ test('following Serato is a parameterless read that can carry no path', () => {
   assert.deepEqual(validateRequest('liveFollow', {}), {});
   for(const request of [{path:'/Library/Application Support/Serato/Library/master.sqlite'},{sessionId:'11111111-1111-4111-8111-111111111111'},{follow:true}]) assert.throws(()=>validateRequest('liveFollow',request));
 });
+test('dragging a suggestion out carries one track identity and nothing else', () => {
+  const trackId = 'a'.repeat(64);
+  assert.deepEqual(validateRequest('dragTrack', {trackId}), {trackId});
+  for (const request of [
+    undefined, {}, {trackId: 'A'.repeat(64)}, {trackId: 'a'.repeat(63)}, {trackId: '../music/a.aiff'}, {trackId: 42},
+    {trackId, path: '/Users/someone/Music/a.aiff'}, {trackId, file: '/Users/someone/Music/a.aiff'}, {trackId, icon: 'x'},
+  ]) assert.throws(() => validateRequest('dragTrack', request), `dragTrack must reject ${JSON.stringify(request)}`);
+});
 test('IPC is origin gated and rejects extra fields, prototypes and malformed input', () => {
   assert.equal(isTrustedSender('xfin-app://ui/index.html'),true);
   assert.equal(isTrustedSender('xfin-app://ui/index.html#main-content'),true);
