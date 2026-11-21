@@ -73,6 +73,10 @@ _SHORTFALL_WARNING = re.compile(r"^Track count shortfall: selected (\d+) of (\d+
 # library, the remote tempos are the pairs the beatmatch gate would reject next.
 _EXTEND_BPM_NEIGHBOUR_LIMIT = 150
 
+# S2: an interior pair mends a weak stretch when the transition it breaks is
+# below this score and both of its replacement transitions reach it.
+_REPAIR_SCORE_THRESHOLD = 0.5
+
 
 @dataclass(frozen=True)
 class _ColorGate:
@@ -387,6 +391,12 @@ def recommendation_extended(
     candidates nearest in tempo to the list are priced at each stage, so a large
     library costs a bounded step. The tracks already in the list keep their
     relative order.
+
+    A step first looks for a repair: an allowed interior pair that breaks a
+    transition weaker than 0.5 while both of its new transitions reach 0.5.
+    When one exists, the best repair wins -- highest weakest new transition,
+    ties to the weakest broken transition -- so weak stretches are mended before
+    the set grows at its tail. Otherwise the pricing above applies unchanged.
 
     ``in_genre_paths`` names the candidates the current variant's genre filter
     allows. Those are used first; only when they run out does the rest of the
@@ -981,6 +991,13 @@ def _best_extension(
     better edit. Ties go to the pair that moves the list's transition sum the
     most in its favour -- the new transitions minus the one it breaks. ``None``
     when no candidate fits any allowed gap.
+
+    S2 gives weak stretches priority. An allowed interior pair is a repair when
+    the transition it breaks scores below ``_REPAIR_SCORE_THRESHOLD`` and both
+    of its new transitions reach it. When any repair exists the best repair wins
+    -- highest weakest new transition, ties to the weakest broken transition --
+    rather than the tail, whose single new transition otherwise nearly always
+    wins the old key. With no repair the rule above applies unchanged.
     """
     gaps = _allowed_gaps(ordered, preserved, manual_prefix_length)
     broken = {
@@ -989,6 +1006,7 @@ def _best_extension(
         if left is not None and right is not None
     }
     best: tuple[tuple[float, float], TrackRecord, int] | None = None
+    best_repair: tuple[tuple[float, float], TrackRecord, int] | None = None
     for candidate in _closest_in_bpm(candidates, ordered, _EXTEND_BPM_NEIGHBOUR_LIMIT):
         for gap, left, right in gaps:
             if not _beats_neighbours(candidate, (left, right)):
@@ -1001,6 +1019,15 @@ def _best_extension(
             key = (min(new), sum(new) - broken.get(gap, 0.0))
             if best is None or key > best[0]:
                 best = (key, candidate, gap)
+            # Only allowed interior gaps carry a broken transition, so this is
+            # exactly a (candidate, interior gap) pair.
+            is_repair = gap in broken and broken[gap] < _REPAIR_SCORE_THRESHOLD and min(new) >= _REPAIR_SCORE_THRESHOLD
+            if is_repair:
+                repair_key = (min(new), -broken[gap])
+                if best_repair is None or repair_key > best_repair[0]:
+                    best_repair = (repair_key, candidate, gap)
+    if best_repair is not None:
+        return best_repair[1], best_repair[2]
     if best is None:
         return None
     return best[1], best[2]
