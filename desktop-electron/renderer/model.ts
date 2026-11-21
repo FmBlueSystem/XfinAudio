@@ -66,6 +66,8 @@ export interface XfinApi extends EditorApi, SeratoExportApi, SeratoQuickExportAp
   selectPrepVariant(input: { planId: string; variant: PrepVariant }): Promise<ReviewResult>;
   reviewResume(): Promise<ReviewResume>;
   savePlaylist(input: { name: string; reviewId: string }): Promise<PlaylistSummary>;
+  /** S6: stores the edits of a saved list in that same playlist. Optional until the host ships it. */
+  savePlaylistReview?(input: { reviewId: string }): Promise<{ id: string; name: string; trackCount: number }>;
   listPlaylists(): Promise<PlaylistSummary[]>;
   openPlaylist(input: { playlistId: string }): Promise<ReviewResult>;
   renamePlaylist(input: { playlistId: string; name: string }): Promise<PlaylistSummary>;
@@ -86,9 +88,18 @@ export function isCoreRestored(event: Pick<ProgressEvent, 'operation' | 'phase'>
   return event.operation === 'core' && event.phase === 'restarted';
 }
 
-export function canSaveReview(review: ReviewResult | null): boolean {
-  return review !== null && ['safe', 'balanced', 'adventurous'].includes(review.variant) && review.canSave !== false
+function saveableReview(review: ReviewResult | null): boolean {
+  return review !== null && review.canSave !== false
     && review.readiness !== 'blocked' && review.blockers.length === 0 && review.tracks.length > 0 && Boolean(review.reviewId);
+}
+
+export function canSaveReview(review: ReviewResult | null): boolean {
+  return review !== null && saveableReview(review) && ['safe', 'balanced', 'adventurous'].includes(review.variant);
+}
+
+/** S6: a list that is already saved is offered as a new playlist from the same form. */
+export function canSaveAsNew(review: ReviewResult | null): boolean {
+  return saveableReview(review);
 }
 
 export function hasPrepMetadata(track: Track): boolean {

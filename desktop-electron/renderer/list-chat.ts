@@ -36,9 +36,9 @@ export const LIST_CHAT_UNDOING = 'Deshaciendo estos cambios…';
 /** Said when the host cannot undo at all; the same line the review panel uses. */
 export const LIST_CHAT_UNDO_UNAVAILABLE = 'Actualiza la aplicación para deshacer cambios.';
 /** S9: the whole reply went through. The partial form is S2's `listChatAppliedAll`. */
-export const listChatAutoApplied = (applied: number): string => `Se aplicaron ${applied} cambios.`;
+export const listChatAutoApplied = (applied: number): string => applied === 1 ? 'Se aplicó 1 cambio.' : `Se aplicaron ${applied} cambios.`;
 /** S18: the batch undo's own result, with the number of steps it reverted. */
-export const listChatBatchUndone = (count: number): string => `Se deshicieron ${count} cambios.`;
+export const listChatBatchUndone = (count: number): string => count === 1 ? 'Se deshizo 1 cambio.' : `Se deshicieron ${count} cambios.`;
 /** The line that explains the proposals the core refused to turn into an action. */
 export const listChatDropped = (count: number): string => `Se descartaron ${count} cambios que no se pueden aplicar.`;
 /** S2: the batch result, whether every shown change was applied or the batch stopped early. */
@@ -276,6 +276,8 @@ export class ListChatController {
   period: ListChatPeriodReport | null = null;
   /** True while the chat itself applies a batch or undoes one, so its own edits never retire it. */
   private inBatch = false;
+  /** True while the conversation reads a saved list, which has no plan alternative to offer. */
+  private saved = false;
   /** True while the chat hands a review it minted to the screen: that is not another edit. */
   private selfEdit = false;
   constructor(api: ListChatApi, host: ListChatHost) { this.api = api; this.host = host; }
@@ -305,16 +307,22 @@ export class ListChatController {
   /**
    * Publishes the review the conversation belongs to. Another review is another conversation
    * (the core discards it with the generated list), so the transcript is dropped and read again
-   * on demand; the question the user is typing survives.
+   * on demand; the question the user is typing survives. S6: a saved list is published as such,
+   * because it offers no plan alternative of its own.
    */
-  setReview(value: string | null): void {
+  setReview(value: string | null, saved = false): void {
     const next = uuid(value) ? value : '';
-    if (next === this.review) return;
+    const isSaved = next !== '' && saved === true;
+    if (next === this.review && isSaved === this.saved) return;
     this.generation++;
-    this.review = next; this.messages = []; this.preview = null; this.payload = null; this.readAgain = null;
+    this.review = next; this.saved = isSaved; this.messages = []; this.preview = null; this.payload = null; this.readAgain = null;
     this.actions = []; this.droppedActions = 0; this.autoBatch = null; this.period = null;
     this.error = ''; this.notice = ''; this.loaded = false;
     this.host.changed();
+  }
+  /** S6: a saved list has no plan behind it, so a proposed alternative is never shown for it. */
+  private storeActions(actions: AiChatAction[]): void {
+    this.actions = this.saved ? actions.filter((action) => action.type !== 'use_variant') : actions;
   }
   /** S9: the switch itself, kept as long as the app is open and across conversations. */
   setAutoApply(value: boolean): void {
@@ -361,7 +369,7 @@ export class ListChatController {
     if (this.pending || !this.host.canAct() || !this.review || this.loaded) return;
     await this.perform('load', 'Cargando la conversación…', () => this.api.aiChatHistory(), (value) => {
       this.messages = conversationCopy(value?.conversation);
-      this.actions = actionsCopy(value?.actions); this.droppedActions = 0;
+      this.storeActions(actionsCopy(value?.actions)); this.droppedActions = 0;
       this.loaded = true;
     });
   }
@@ -387,7 +395,7 @@ export class ListChatController {
     const actions = actionsCopy(result.actions);
     const droppedActions = result.droppedActions;
     if (!Number.isInteger(droppedActions) || (droppedActions as number) < 0 || (droppedActions as number) > CHAT_DROPPED_LIMIT) invalid();
-    this.messages = messages; this.actions = actions; this.droppedActions = droppedActions as number;
+    this.messages = messages; this.storeActions(actions); this.droppedActions = droppedActions as number;
     this.request = ''; this.notice = ''; this.period = null;
     const last = messages.at(-1);
     this.readAgain = result.listChanged && last?.role === 'assistant' ? messages.length - 1 : null;
@@ -436,7 +444,7 @@ export class ListChatController {
       // S15: the period answer carries what it replaced and the tracks it could not, which the
       // window reports beside the cards; it outlives its own batch step so the report still shows.
       const replaced = period && value && Object.hasOwn(value, 'period') ? periodCopy(value.period) : null;
-      this.actions = actions; this.droppedActions = 0;
+      this.storeActions(actions); this.droppedActions = 0;
       this.notice = extended ? extendedLine(extended) : replaced ? listChatPeriodNotice(replaced.replaced) : LIST_CHAT_APPLIED; this.error = '';
       if (period) this.period = replaced ? { notice: listChatPeriodNotice(replaced.replaced), kept: replaced.kept.map(listChatPeriodLine) } : null;
       // A single click is another way of editing the list, so it retires an earlier batch undo.
@@ -528,7 +536,7 @@ export class ListChatController {
     if (!this.canReset) return;
     await this.perform('reset', 'Empezando una conversación nueva…', () => this.api.aiChatReset(), (value) => {
       this.messages = conversationCopy(value?.conversation);
-      this.actions = actionsCopy(value?.actions); this.droppedActions = 0;
+      this.storeActions(actionsCopy(value?.actions)); this.droppedActions = 0;
       this.loaded = true;
       this.request = ''; this.readAgain = null; this.preview = null; this.payload = null; this.error = ''; this.notice = '';
       this.period = null;

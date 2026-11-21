@@ -412,7 +412,7 @@ test('S9: a use_variant is never applied automatically and stays as a card with 
     assert.equal(f.get('proposed').hidden, false);
     assert.deepEqual(f.get('proposed-actions').children.map((card) => card.children[0].textContent), ['Usar la alternativa exploratoria (20 pistas)']);
     assert.equal(f.get('apply-0').textContent, 'Aplicar');
-    assert.equal(f.get('auto-notice').textContent, 'Se aplicaron 1 cambios.');
+    assert.equal(f.get('auto-notice').textContent, 'Se aplicó 1 cambio.');
   } finally { f.restore(); }
 });
 test('S9: «Deshacer estos cambios» undoes exactly the applied steps and then disappears', async () => {

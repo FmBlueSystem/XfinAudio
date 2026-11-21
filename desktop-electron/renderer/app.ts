@@ -48,7 +48,7 @@ import { SeratoQuickExportController, createSeratoQuickExportView, quickExportAv
 import { errorCode,userErrorMessage } from './errors.js';
 import { SavedPlaylistEditor } from './editor.js';
 import { createEditorView } from './editor-view.js';
-import { buildPrepInput, canSaveReview, filterTracks, formatDuration, formatAudioFormat, formatBitrate, hasPrepMetadata, isCoreFailure, isCoreRestored, normalizePrepName, OperationGate } from './model.js';
+import { buildPrepInput, canSaveAsNew, canSaveReview, filterTracks, formatDuration, formatAudioFormat, formatBitrate, hasPrepMetadata, isCoreFailure, isCoreRestored, normalizePrepName, OperationGate } from './model.js';
 import type { LibraryResult, MetadataFilter, PlaylistSummary, PrepFields, PrepStrategy, PrepVariant, PrepVariantSummary, Readiness, ReviewResult, Route as ExistingRoute, Track, XfinApi } from './model.js';
 import { renderMetadataPanel } from './metadata.js';
 import type { MetadataReport } from './metadata.js';
@@ -535,7 +535,8 @@ function syncAiContext(): void {
   // it from its own floating window, while every other AI function stays in this panel.
   const chatReview = Boolean(listChat) && route === 'review' && Boolean(review?.reviewId);
   botWindow.setAvailable(chatReview);
-  listChat?.setReview(chatReview ? review?.reviewId ?? null : null);
+  // S6: a saved list gets the same assistant, and it never offers a plan alternative.
+  listChat?.setReview(chatReview ? review?.reviewId ?? null : null, review?.variant === 'saved');
   if (chatReview) { renderListChat(); loadChatIfOpen(); }
   element('context-ai').hidden = panel.hidden || route === 'ai';
   element('ai-panel-summary').textContent = route === 'ai' ? 'Configuración y prueba de IA' : `Ayuda IA · ${titles[route]}${aiDirty ? ' · ajustes sin guardar' : ''}`;
@@ -831,7 +832,19 @@ function showStatus(label: string, detail = '', error = false, tone: 'done' | 'n
   else operationStatus.done(label, detail);
 }
 function canSave(): boolean {
-  return canSaveReview(review);
+  const current = review;
+  if (!current) return false;
+  // S6: a saved list is offered as a new playlist from the same form; a generated one keeps its own rule.
+  return current.variant === 'saved' ? canSaveAsNew(current) : canSaveReview(current);
+}
+/**
+ * S6: a saved list the core has edited but not stored — its `reviewId` differs from the one it
+ * had when it was opened or last saved — is saved in place with «Guardar cambios en la playlist».
+ */
+function canSaveChanges(): boolean {
+  const current = review;
+  return current !== null && current.variant === 'saved' && Boolean(current.reviewId)
+    && discardGuard.edited(current) && typeof api?.savePlaylistReview === 'function';
 }
 function syncControls(): void {
   document.querySelectorAll<HTMLButtonElement>('[data-library-sort]').forEach(button=>{button.disabled=!offline||gate.busy||!coreAvailable;});
@@ -858,6 +871,8 @@ function syncControls(): void {
   }
   element<HTMLButtonElement>('export-review').disabled = gate.busy || !coreAvailable || !review || !(review.reviewId || review.savedPlaylistId);
   element<HTMLButtonElement>('save-playlist').disabled = gate.busy || !coreAvailable || !canSave();
+  element<HTMLButtonElement>('save-review-changes').hidden = !canSaveChanges();
+  element<HTMLButtonElement>('save-review-changes').disabled = gate.busy || !coreAvailable || !canSaveChanges();
   operationStatus.cancel.hidden = !gate.busy || !cancellable || !coreAvailable;
   operationStatus.cancel.disabled = gate.cancelled;
   operationStatus.cancel.textContent = gate.cancelled ? 'Cancelando…' : 'Cancelar';
@@ -1215,8 +1230,9 @@ function renderReview(): void {
   const notices = element('review-alerts');
   notices.replaceChildren();
   // S3: the notice fixes the short list through the S2 action. Without that contract the review
-  // keeps the translated warning it always showed instead of a button that cannot work.
-  const shortList = typeof api?.reviewExtend === 'function' ? shortListOf(review.warnings) : null;
+  // keeps the translated warning it always showed instead of a button that cannot work, and a
+  // saved list is never offered it: the list it came from is already what it is.
+  const shortList = typeof api?.reviewExtend === 'function' && review.variant !== 'saved' ? shortListOf(review.warnings) : null;
   for (const [messages, category] of [[review.blockers, 'blocker'], [review.warnings, 'warning']] as const) {
     // The notice carries the shortfall, so its generic translated line is not shown twice.
     const lines = category === 'warning' && shortList ? messages.filter((message) => !isShortListWarning(message)) : messages;
@@ -1260,7 +1276,11 @@ function renderReview(): void {
   }
   renderTable('review-table', review.tracks, transitionScoresOf(review));
   element<HTMLInputElement>('save-name').value = review.name || 'Mi sesión';
-  element('save-form').hidden = review.variant === 'saved' || review.canSave === false;
+  // S6: the same form stores a saved list as a new playlist of its own.
+  const saved = review.variant === 'saved';
+  element('review-save-summary').textContent = saved ? 'Guardar como playlist nueva' : 'Guardar esta lista en el equipo';
+  element<HTMLButtonElement>('save-playlist').textContent = saved ? 'Guardar como playlist nueva' : 'Guardar playlist';
+  element('save-form').hidden = review.canSave === false || (saved && !canSave());
   element('save-hint').textContent = review.blockers.length ? 'Resuelve los bloqueos antes de guardar esta selección' : 'Escucha y revisa los avisos; después guarda tu selección';
   syncControls();
 }
@@ -1555,6 +1575,26 @@ element('export-review').addEventListener('click', () => {
   if (review.savedPlaylistId) quickExportToSerato({ kind: 'saved', playlistId: review.savedPlaylistId }, review.name);
   else if (review.reviewId) quickExportToSerato({ kind: 'review', reviewId: review.reviewId }, review.name);
 });
+element('save-review-changes').addEventListener('click', () => {
+  const saveChanges = api?.savePlaylistReview; const current = review;
+  if (!saveChanges || !current || gate.busy || !coreAvailable || !canSaveChanges()) return;
+  const reviewId = current.reviewId;
+  void perform('save-changes', 'Guardando los cambios de la playlist…', () => saveChanges({ reviewId }).catch((error: unknown) => {
+    // S6: the core reports a list that changed elsewhere with `stale_edit`. This flow saves a
+    // saved list, not the editor's draft, so it words the refusal for the list in hand.
+    if (errorCode(error) === 'stale_edit') throw Object.assign(new Error('stale_saved_list'), { code: 'stale_saved_list' });
+    throw error;
+  }), (result) => {
+    review = { ...current, name: result.name, savedPlaylistId: result.id };
+    // The edits are stored now: this is the revision the next save compares itself with.
+    discardGuard.reset(current.reviewId);
+    playlists = playlists.map((playlist) => playlist.id === result.id ? { ...playlist, name: result.name, trackCount: result.trackCount } : playlist);
+    offline?.invalidateSaved();
+    renderReview();
+    renderPlaylists();
+    showStatus(`Playlist guardada: ${result.name}`);
+  });
+});
 element('save-form').addEventListener('submit', (event) => {
   event.preventDefault();
   if (gate.busy || !canSave() || !review) return;
@@ -1562,7 +1602,8 @@ element('save-form').addEventListener('submit', (event) => {
   if (!name) { showStatus('Ponle un nombre a la playlist', 'El nombre no puede quedar vacío', true); return; }
   const candidate = review;
   void perform('save', 'Guardando playlist…', () => api.savePlaylist({ name, reviewId: candidate.reviewId }), (result, currentRoute) => {
-    review = { ...candidate, name: result.name, savedPlaylistId: result.id, canSave: false };
+    // A saved list is stored as its own new playlist, so the one on screen keeps its identity.
+    review = candidate.variant === 'saved' ? { ...candidate, name: result.name } : { ...candidate, name: result.name, savedPlaylistId: result.id, canSave: false };
     serato.invalidatePreview();
     playlists = [result, ...playlists.filter((playlist) => playlist.id !== result.id)];offline?.invalidateSaved();
     renderReview();
@@ -1583,7 +1624,7 @@ element('cancel-operation').addEventListener('click', () => {
 /** The core method a host names when it announces the job it just started. */
 const startedKinds: Record<string, string> = {
   'library.scan': 'scan', 'library.rescan': 'scan', 'prep.generate': 'prep', 'prep.select': 'select',
-  'playlist.save': 'save', 'playlist.open': 'open', 'metadata.report': 'metadata', 'profiles.complete': 'profiles',
+  'playlist.save': 'save', 'playlist.save_review': 'save-changes', 'playlist.open': 'open', 'metadata.report': 'metadata', 'profiles.complete': 'profiles',
   'loudness.run': 'loudness', 'ai.run': 'ai',
 };
 /**

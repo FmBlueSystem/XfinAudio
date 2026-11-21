@@ -35,7 +35,9 @@ export class GeneratedReviewController {
   get canRedo(): boolean { return Boolean((this.snapshot as Partial<ReviewHistory> | null)?.canRedo); }
   get canReplace(): boolean { return Boolean(this.comparison?.replacement); }
   get details(): ReviewEvidence | null { const value = this.snapshot as Partial<DetailedReview> | null; return value && Array.isArray(value.transitions) && Array.isArray(value.readinessChecks) && typeof value.engineFacts === 'string' ? value as DetailedReview : null; }
-  get editable(): boolean { return Boolean(this.snapshot && this.snapshot.variant !== 'saved' && this.snapshot.reviewId); }
+  // S6: a saved list the core answers with a reviewId is edited like a generated one; the
+  // read-only fallback carries no reviewId, so it keeps every control away.
+  get editable(): boolean { return Boolean(this.snapshot && this.snapshot.reviewId); }
   private async run<T>(label: string, task: (review: ReviewResult) => Promise<T>, apply: (value: T) => void): Promise<void> {
     const current = this.snapshot;
     if (!current || !this.editable || this.pending || !this.host.canAct()) return;
