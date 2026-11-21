@@ -19,6 +19,7 @@ EXPECTED_INLINE_METHODS = frozenset(
         "ai.status",
         "library.list",
         "library.query",
+        "live.follow",
         "live.status",
         "loudness.status",
         "metadata.report",
