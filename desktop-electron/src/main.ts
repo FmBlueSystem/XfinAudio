@@ -8,7 +8,7 @@ import {PythonBridge} from './bridge';
 import {CoreSupervisor} from './core-supervisor';
 import {RotatingLog,revealLogFolder} from './log-file';
 import {coreEnvironment} from './core-environment';
-import {APP_URL,CSP,assetPath,isTrustedSender,validateRequest} from './security';
+import {APP_ORIGIN,APP_URL,CSP,assetPath,isTrustedSender,permissionCheckAllowed,validateRequest} from './security';
 import {savedPlaylistReview} from './review-security';
 import {audioResponse} from './audio';
 import {configureStorage} from './storage';
@@ -306,8 +306,10 @@ async function start() {
   });
   supervisor.start();
   const isolated=session.fromPartition('xfin-offline');
+  // S11a: the window may check that it can select an output device for preview playback,
+  // and only from the app's own page; granting any request would allow capture.
   isolated.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
-  isolated.setPermissionCheckHandler(()=>false);
+  isolated.setPermissionCheckHandler((_contents,permission,requestingOrigin)=>permissionCheckAllowed(permission,requestingOrigin,APP_ORIGIN));
   isolated.webRequest.onBeforeRequest((details,callback)=>{
     const url=new URL(details.url);callback({cancel:!['xfin-app:','xfin-audio:'].includes(url.protocol)});
   });

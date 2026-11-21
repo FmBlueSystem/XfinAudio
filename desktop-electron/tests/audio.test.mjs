@@ -36,3 +36,24 @@ test('rejects a file replaced after authorization with a symlink or different in
   const swapped=await audioResponse(new Request(url),async()=>identity);assert.equal(swapped.status,403);
  }finally{await rm(dir,{recursive:true});}
 });
+
+test('S11a: every audio response carries the app origin and never a wildcard',async()=>{
+ const dir=await realpath(await mkdtemp(join(tmpdir(),'xfin-cors-')));const path=dir+'/audio.flac';await writeFile(path,'0123456789');
+ const identity=await stat(path,{bigint:true});
+ const resolver=async()=>({path,mime:'audio/flac',identity:{device:String(identity.dev),inode:String(identity.ino),size:String(identity.size),mtimeNs:String(identity.mtimeNs)}});
+ try{
+  const responses=[
+   ['full',await audioResponse(new Request(url),resolver)],
+   ['range',await audioResponse(new Request(url,{headers:{range:'bytes=2-5'}}),resolver)],
+   ['head',await audioResponse(new Request(url,{method:'HEAD'}),resolver)],
+   ['416',await audioResponse(new Request(url,{headers:{range:'bytes=10-'}}),resolver)],
+   ['404',await audioResponse(new Request(url),async()=>{throw new Error('unknown track');})],
+   ['403',await audioResponse(new Request('https://evil.test/audio'),resolver)],
+  ];
+  for(const [label,response] of responses){
+   assert.equal(response.headers.get('access-control-allow-origin'),'xfin-app://ui',`${label} must carry the app origin`);
+   assert.notEqual(response.headers.get('access-control-allow-origin'),'*',`${label} must never allow any origin`);
+  }
+  assert.equal(responses[4][1].status,404);assert.equal(responses[5][1].status,403);assert.equal(responses[3][1].status,416);
+ }finally{await rm(dir,{recursive:true});}
+});
