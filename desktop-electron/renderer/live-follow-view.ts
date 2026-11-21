@@ -48,9 +48,9 @@ export function createLiveFollowView(root: HTMLElement, controller: LiveFollowCo
     playingBlock.hidden = !answer || answer.playing.length === 0;
     suggestionsBlock.hidden = !answer || answer.suggestions.length === 0;
     if (!answer) return;
-    // S3's `current` is the newest open entry in the library; the same entry is the one marked.
-    let currentIndex = -1;
-    answer.playing.forEach((entry, index) => { if (entry.inLibrary) currentIndex = index; });
+    // S7 (e): «Actual» is the newest playing entry that is in the library, and `playing` arrives
+    // newest first, so it is the first in-library entry — the same track the core answers as `current`.
+    const currentIndex = answer.playing.findIndex((entry) => entry.inLibrary);
     for (const [index, entry] of answer.playing.entries()) {
       const row = make('li', playingLine(entry, index === currentIndex), index === currentIndex ? 'live-follow-current' : '');
       playingList.append(row);

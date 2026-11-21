@@ -183,6 +183,37 @@ test('every reason shows its exact line', async () => {
   }
 });
 
+test('«Actual» marks the newest playing track that is in the library', async () => {
+  const both = viewFixture({ answers: [answer({
+    playing: [
+      { deck: 1, startedAt: '2026-10-01T22:06:00Z', inLibrary: true, ...track('e') },
+      { deck: 2, startedAt: '2026-10-01T22:00:00Z', inLibrary: true, ...track('f') },
+    ],
+    current: track('e'),
+  })] });
+  try {
+    await both.ready();
+    const lines = node(both.root, 'live-follow-playing').children.map(text);
+    assert.equal(lines.length, 2);
+    assert.ok(lines[0].includes('· Actual'), lines[0]);
+    assert.ok(!lines[1].includes('Actual'), lines[1]);
+  } finally { both.restore(); }
+  const second = viewFixture({ answers: [answer({
+    playing: [
+      { deck: 1, startedAt: '2026-10-01T22:06:00Z', inLibrary: false, title: 'Ajena', artist: 'Otro' },
+      { deck: 2, startedAt: '2026-10-01T22:00:00Z', inLibrary: true, ...track('g') },
+    ],
+    current: track('g'),
+  })] });
+  try {
+    await second.ready();
+    const lines = node(second.root, 'live-follow-playing').children.map(text);
+    assert.equal(lines.length, 2);
+    assert.ok(!lines[0].includes('Actual'), lines[0]);
+    assert.ok(lines[1].includes('· Actual'), lines[1]);
+  } finally { second.restore(); }
+});
+
 test('the lists are redrawn only when the playing tracks change', async () => {
   const f = viewFixture({ answers: [answer(), answer(), answer({ playing: [{ deck: 1, startedAt: '2026-10-01T22:05:00Z', inLibrary: true, ...track('c') }], current: track('c'), suggestions: [{ ...track('d'), score: 0.42 }] })] });
   try {
