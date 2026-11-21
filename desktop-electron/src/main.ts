@@ -35,7 +35,9 @@ const ownsInstance=app.requestSingleInstanceLock();
 if(!ownsInstance)app.quit();
 protocol.registerSchemesAsPrivileged([
   {scheme:'xfin-app',privileges:{standard:true,secure:true,supportFetchAPI:true}},
-  {scheme:'xfin-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}},
+  // corsEnabled: the app page reads the audio into Web Audio to route it to a channel pair (S11);
+  // audio.ts answers with Access-Control-Allow-Origin for the app origin only.
+  {scheme:'xfin-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true,corsEnabled:true}},
 ]);
 let window:BrowserWindowType|null=null;
 let dragTrack:DragTracks|null=null;
@@ -309,7 +311,7 @@ async function start() {
   // S11a: the window may check that it can select an output device for preview playback,
   // and only from the app's own page; granting any request would allow capture.
   isolated.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
-  isolated.setPermissionCheckHandler((_contents,permission,requestingOrigin)=>permissionCheckAllowed(permission,requestingOrigin,APP_ORIGIN));
+  isolated.setPermissionCheckHandler((_contents,permission,requestingOrigin,details)=>permissionCheckAllowed(permission,requestingOrigin,APP_ORIGIN,(details as {mediaType?:string}).mediaType));
   isolated.webRequest.onBeforeRequest((details,callback)=>{
     const url=new URL(details.url);callback({cancel:!['xfin-app:','xfin-audio:'].includes(url.protocol)});
   });
