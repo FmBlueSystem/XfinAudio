@@ -40,6 +40,7 @@ export interface PreviewGainNode extends PreviewAudioNode { gain: { value: numbe
 
 export interface PreviewAudioContext {
   destination: PreviewDestination;
+  readonly currentTime?: number;
   createMediaElementSource(element: unknown): PreviewAudioNode;
   createChannelSplitter(count: number): PreviewAudioNode;
   createChannelMerger(count: number): PreviewAudioNode;
@@ -228,19 +229,26 @@ export class PreviewOutput implements PreviewOutputController {
       oscillator.connect(gain);
       if (this.chosen === null) gain.connect(context.destination);
       else {
-        const splitter = context.createChannelSplitter(2);
-        const merger = context.createChannelMerger(context.destination.maxChannelCount);
+        // The destination must carry every channel of the device, discrete: with its default
+        // of two channels it folds the merger down and every pair sounds on 1-2.
+        const destination = context.destination;
+        destination.channelCount = destination.maxChannelCount;
+        destination.channelCountMode = 'explicit';
+        destination.channelInterpretation = 'discrete';
+        const merger = context.createChannelMerger(destination.maxChannelCount);
         const [left, right] = pairChannels(this.chosenPair) ?? [0, 1];
-        gain.connect(splitter);
-        splitter.connect(merger, 0, left);
-        splitter.connect(merger, 1, right);
-        merger.connect(context.destination);
+        // The tone is mono: the same signal to both channels of the pair.
+        gain.connect(merger, 0, left);
+        gain.connect(merger, 0, right);
+        merger.connect(destination);
       }
       // `onended` is not part of the routing subset, so it is set on the concrete node.
       const ended = oscillator as unknown as { onended: (() => void) | null };
       ended.onended = () => { oscillator.disconnect(); gain.disconnect(); };
-      oscillator.start(0);
-      oscillator.stop(TONE_SECONDS);
+      // Times are on the context's own clock, which runs from the moment it was opened.
+      const now = context.currentTime ?? 0;
+      oscillator.start(now);
+      oscillator.stop(now + TONE_SECONDS);
     } catch { /* a device that cannot be opened simply does not beep */ }
   }
 

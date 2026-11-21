@@ -24,7 +24,7 @@ class Oscillator extends MediaNode {
   stop(when) { this.stopped.push(when); }
 }
 class AudioContextFake {
-  constructor(options) { this.options = options; this.destination = new Destination(); this.nodes = []; this.closes = 0; this.sinks = []; }
+  constructor(options) { this.options = options; this.destination = new Destination(); this.nodes = []; this.closes = 0; this.sinks = []; this.currentTime = 0; }
   record(node) { this.nodes.push(node); return node; }
   createMediaElementSource(element) { const node = new MediaNode('source'); node.element = element; return this.record(node); }
   createChannelSplitter(count) { const node = new MediaNode('splitter'); node.count = count; return this.record(node); }
@@ -141,20 +141,24 @@ test('the tone plays on the chosen output and pair and stops after one second', 
     await h.controller.refresh();
     h.controller.select('Rane FOUR');
     h.controller.selectPair('5-6');
-    h.controller.tone();
     const [context] = h.contexts;
+    context.currentTime = 42;
+    h.controller.tone();
     const oscillator = context.nodes.find((node) => node.name === 'oscillator');
     const gain = context.nodes.find((node) => node.name === 'gain');
-    const splitter = context.nodes.find((node) => node.name === 'splitter');
     const merger = context.nodes.find((node) => node.name === 'merger');
     assert.equal(oscillator.frequency.value, 440);
     assert.ok(gain.gain.value > 0 && gain.gain.value <= 0.1);
-    assert.deepEqual(oscillator.started, [0]);
-    assert.deepEqual(oscillator.stopped, [1]);
+    // The stop time is on the context's clock, which has been running since it was opened.
+    assert.deepEqual(oscillator.started, [42]);
+    assert.deepEqual(oscillator.stopped, [43]);
+    // Without all the device's channels, discrete, the destination folds every pair into 1-2.
+    assert.equal(context.destination.channelCount, 14);
+    assert.equal(context.destination.channelCountMode, 'explicit');
+    assert.equal(context.destination.channelInterpretation, 'discrete');
     assert.deepEqual(oscillator.connections.map((entry) => entry.target), [gain]);
-    assert.deepEqual(gain.connections.map((entry) => entry.target), [splitter]);
     assert.equal(merger.count, 14);
-    assert.deepEqual(mergedInputs(splitter), [[0, 4], [1, 5]]);
+    assert.deepEqual(gain.connections.map((entry) => [entry.target, entry.output, entry.input]), [[merger, 0, 4], [merger, 0, 5]]);
     assert.deepEqual(merger.connections.map((entry) => entry.target), [context.destination]);
   } finally { h.restore(); }
 });
