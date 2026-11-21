@@ -159,6 +159,45 @@ test('saving a saved list review reaches playlist.save_review as one exclusive m
   }
 });
 
+// S4: following what Serato plays is a parameterless read-only action, so it answers
+// while a job runs and carries no renderer data of its own.
+test('live follow reaches live.follow as a parameterless read-only action', async () => {
+  const [main, preload] = await Promise.all([read('main.ts'), read('preload.ts')]);
+
+  assert.match(main, /case 'liveFollow':\{const answer=await core\.request\('live\.follow'\);void dragTrack\?\.remember\(answer\);return answer;\}/, 'liveFollow must reach live.follow with no renderer parameters, hand the answer to the drag cache and return it unchanged');
+  assert.doesNotMatch(main, /core\.request\('live\.follow',/, 'liveFollow must send no parameters');
+  assert.match(preload, /liveFollow:\(\)=>invoke\('liveFollow'\)/, 'liveFollow must be bridged as a parameterless action');
+
+  assert.deepEqual(validateRequest('liveFollow', undefined), {});
+  assert.deepEqual(validateRequest('liveFollow', {}), {});
+  for (const rejected of [{path: '/Volumes/dd/Library/master.sqlite'}, {sessionId: '11111111-1111-4111-8111-111111111111'}, {follow: true}, {deck: 1}])
+    assert.throws(() => validateRequest('liveFollow', rejected), `liveFollow must accept no parameter: ${JSON.stringify(rejected)}`);
+
+  assert.equal(reads.isAllowedWhileBusy('liveFollow'), true, 'following Serato is a busy-time read');
+  for (const source of EXCLUSIVE_SOURCES)
+    assert.doesNotThrow(() => reads.assertDispatchable('liveFollow', busyWith(source)), `liveFollow must answer while ${source} runs`);
+});
+
+// S9: dragging a suggestion out is one validated id the host resolves itself; it is a
+// one-way action whose answer carries nothing, so no path can cross to the renderer.
+test('dragging a suggestion out starts the host drag and answers nothing', async () => {
+  const [main, preload] = await Promise.all([read('main.ts'), read('preload.ts')]);
+  const trackId = 'a'.repeat(64);
+
+  assert.match(main, /case 'dragTrack':return dragTrack\?\.drag\(params\)\?\?null;/, 'dragTrack must hand the validated parameters to the host drag module');
+  assert.match(main, /startDrag:drag=>\{if\(window&&!window\.isDestroyed\(\)\)window\.webContents\.startDrag\(drag\);\}/, 'only the app window starts the drag');
+  assert.match(main, /request:run,/, 'the drag module resolves paths through the reviewed host request');
+  assert.match(preload, /dragTrack:\(params:unknown\)=>invoke\('dragTrack',params\)/, 'dragTrack must be bridged with its params');
+
+  assert.deepEqual(validateRequest('dragTrack', {trackId}), {trackId});
+  for (const rejected of [{}, {trackId: '../music/a.aiff'}, {trackId: 'A'.repeat(64)}, {trackId: 'a'.repeat(63)}, {trackId, path: '/Users/someone/Music/a.aiff'}])
+    assert.throws(() => validateRequest('dragTrack', rejected), `dragTrack must accept exactly one track id: ${JSON.stringify(rejected)}`);
+
+  assert.equal(reads.isAllowedWhileBusy('dragTrack'), false, 'a drag is not a busy-time read');
+  for (const source of EXCLUSIVE_SOURCES)
+    assert.throws(() => reads.assertDispatchable('dragTrack', busyWith(source)), (error) => error.message === '[busy] Another task is still running', `dragTrack must keep the exact busy refusal while ${source} runs`);
+});
+
 test('the chat conversation actions reach their exact core methods with no renderer parameters', async () => {
   const [main, preload] = await Promise.all([read('main.ts'), read('preload.ts')]);
   const routes = [['aiChatHistory', 'ai.chat.history'], ['aiChatReset', 'ai.chat.reset']];

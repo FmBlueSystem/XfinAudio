@@ -1,7 +1,8 @@
 import {app,BrowserWindow,dialog,ipcMain,protocol,session,shell} from './electron-shim';
-import type {BrowserWindow as BrowserWindowType} from 'electron';
+import {nativeImage} from 'electron';
+import type {BrowserWindow as BrowserWindowType,NativeImage} from 'electron';
 import path from 'node:path';
-import {readFile} from 'node:fs/promises';
+import {readFile,stat} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {PythonBridge} from './bridge';
 import {CoreSupervisor} from './core-supervisor';
@@ -23,6 +24,8 @@ import {ProfilesHost,profileProgress} from './profiles-host';
 import {LibraryHost} from './library-host';
 import {LibraryWatch} from './library-watch';
 import {createNativeWatchFactory} from './native-watch';
+import {createDragTracks} from './drag-track';
+import type {DragTracks} from './drag-track';
 app.setName('XfinAudio Next');
 const dataDir=configureStorage(app,process.env.XFIN_DATA_DIR);
 const log=new RotatingLog(path.join(dataDir,'logs'));
@@ -35,11 +38,24 @@ protocol.registerSchemesAsPrivileged([
   {scheme:'xfin-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}},
 ]);
 let window:BrowserWindowType|null=null;
+let dragTrack:DragTracks|null=null;
 let core:PythonBridge;
 let supervisor:CoreSupervisor<PythonBridge>|null=null;
 let current:{id:string;method:string}|null=null;
 let draftDirty=false;
 let dialogOpen=false;
+/**
+ * S9's drag image: a small accent disc, built here instead of shipping an image file.
+ * Serato only needs something under the cursor, so it is 16×16 and never album art.
+ */
+const dragIcon=():NativeImage=>{
+  const size=16,bitmap=Buffer.alloc(size*size*4);
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    const offset=(y*size+x)*4;
+    bitmap[offset]=230;bitmap[offset+1]=180;bitmap[offset+2]=40;bitmap[offset+3]=Math.hypot(x-7.5,y-7.5)<=7.5?255:0;
+  }
+  return nativeImage.createFromBitmap(bitmap,{width:size,height:size});
+};
 const libraryHost=new LibraryHost(new LibraryWatch(createNativeWatchFactory(dataDir),status=>{
   if(window&&!window.isDestroyed())window.webContents.send('xfin:library-status',status);
 }),run);
@@ -178,6 +194,8 @@ async function action(method:string,raw:unknown) {
     case 'rescanLibrary':return libraryHost.rescan();
     case 'openLive':return run('live.open',params);
     case 'getLiveStatus':return run('live.status',params);
+    case 'liveFollow':{const answer=await core.request('live.follow');void dragTrack?.remember(answer);return answer;}
+    case 'dragTrack':return dragTrack?.drag(params)??null;
     case 'advanceLive':return run('live.next',params);
     case 'clearLive':return run('live.clear',params);
     case 'chooseSeratoDestination':return serato.choose();
@@ -304,6 +322,12 @@ async function start() {
     }catch{return new Response(null,{status:404});}
   });
   isolated.protocol.handle('xfin-audio',request=>legacy.restartRequired||legacy.busy?new Response(null,{status:409}):audioResponse(request,id=>core.request('track.resolve',{trackId:id}))); 
+  dragTrack=createDragTracks<NativeImage>({
+    request:run,
+    startDrag:drag=>{if(window&&!window.isDestroyed())window.webContents.startDrag(drag);},
+    fileExists:async file=>{try{return (await stat(file)).isFile();}catch{return false;}},
+    icon:dragIcon(),
+  });
   window=new BrowserWindow({width:1440,height:940,minWidth:900,minHeight:650,backgroundColor:'#10151b',show:false,webPreferences:{
     preload:path.join(__dirname,'preload.js'),session:isolated,nodeIntegration:false,contextIsolation:true,sandbox:true,
     webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,devTools:!app.isPackaged,

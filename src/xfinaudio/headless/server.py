@@ -42,6 +42,7 @@ INLINE_METHODS = frozenset(
         "profiles.settings.get",
         "loudness.status",
         "ai.status",
+        "live.follow",
         "live.status",
     }
 )

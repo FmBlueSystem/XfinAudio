@@ -24,6 +24,7 @@ from xfinaudio.headless.generated_review import REVIEW_FIELDS, GeneratedReview
 from xfinaudio.headless.genres import GENRE_FIELDS, GenreCatalog
 from xfinaudio.headless.legacy_import import LEGACY_FIELDS, LegacyImport, recover_legacy_import
 from xfinaudio.headless.library_browse import BROWSE_FIELDS, LibraryBrowser
+from xfinaudio.headless.live_follow import LIVE_FOLLOW_FIELDS, LiveFollow
 from xfinaudio.headless.live_session import LIVE_FIELDS, LiveGuidance
 from xfinaudio.headless.loudness import LOUDNESS_FIELDS, LoudnessWorkflow
 from xfinaudio.headless.metadata_report import build_metadata_report
@@ -34,6 +35,7 @@ from xfinaudio.headless.prep_settings import PREP_SETTINGS_FIELDS, PrepSettings
 from xfinaudio.headless.profiles import PROFILE_FIELDS, ProfileCompletion, current_records
 from xfinaudio.headless.saved_browser import SAVED_FIELDS, SavedBrowser
 from xfinaudio.headless.serato_export import SERATO_FIELDS, SeratoExporter
+from xfinaudio.headless.serato_live import default_database_path
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.library.playlist_repository import PlaylistRepository
 from xfinaudio.library.scan_planning import SUPPORTED_AUDIO_EXTENSIONS
@@ -133,6 +135,9 @@ class HeadlessBackend:
         self.saved_browser = SavedBrowser(self)
         self.serato = SeratoExporter(self)
         self.live = LiveGuidance(self)
+        self.live_follow = LiveFollow(self)
+        # Read-only and injectable: tests point it at their own SQLite file, the app at Serato's.
+        self.serato_database_path: Path = default_database_path()
         self.preferences = PreferencesService(self)
         self.loudness = LoudnessWorkflow(self)
         self.profiles = ProfileCompletion(self)
@@ -192,6 +197,22 @@ class HeadlessBackend:
         self._track_paths = {str(_public_track(record)["id"]): record.path for record in records}
         return records
 
+    def library_revision(self) -> tuple[tuple[int, int], tuple[str, ...]]:
+        """A cheap identity of the stored library, without loading a single record.
+
+        Every writer — a scan, a rescan, a spectral or a loudness profile — commits to the
+        repository file, so its timestamp and size stand for the records themselves. The
+        authorized roots are part of the identity because they filter which records a
+        command sees. A caller that keeps an answer computed from the library holds this
+        value next to it and asks again only when it moved.
+        """
+        try:
+            stored = self.repository.db_path.stat()
+            stamp = (stored.st_mtime_ns, stored.st_size)
+        except OSError:
+            stamp = (0, 0)
+        return stamp, tuple(str(root) for root in self.roots)
+
     def _library(self) -> dict[str, Any]:
         records = self._records()
         complete = sum(track.metadata_status == "complete" for track in records)
@@ -244,6 +265,7 @@ class HeadlessBackend:
             **EDIT_FIELDS,
             **SERATO_FIELDS,
             **LIVE_FIELDS,
+            **LIVE_FOLLOW_FIELDS,
             **SETTINGS_FIELDS,
             **LOUDNESS_FIELDS,
             **AI_FIELDS,
@@ -304,6 +326,8 @@ class HeadlessBackend:
             return self.preferences.execute(method, params)
         if method in LIVE_FIELDS:
             return self.live.execute(method, params)
+        if method in LIVE_FOLLOW_FIELDS:
+            return self.live_follow.execute(method, params)
         if method in SERATO_FIELDS:
             return self.serato.execute(method, params)
         if method in EDIT_FIELDS:

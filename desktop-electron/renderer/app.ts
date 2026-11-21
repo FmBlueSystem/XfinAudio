@@ -41,6 +41,8 @@ import type { LibraryStatus } from './library-status.js';
 import { createOperationStatus } from './operation-status.js';
 import { LiveController } from './live.js';
 import { createLiveView } from './live-view.js';
+import { LiveFollowController } from './live-follow.js';
+import { createLiveFollowView } from './live-follow-view.js';
 import { SeratoExportController } from './serato-export.js';
 import type { SeratoExportSource } from './serato-export.js';
 import { createSeratoExportView } from './serato-export-view.js';
@@ -309,6 +311,21 @@ const liveView = createLiveView(element('live-container'), live, {
 renderLive = liveView.render;
 renderLive();
 window.addEventListener('beforeunload', () => liveView.dispose(), { once: true });
+// S5: the follow-Serato section lives on the same Live screen and opens without a generated
+// list. It polls the read-only `liveFollow` answer every 3 seconds while the screen is open.
+let renderLiveFollow = (): void => {};
+const liveFollow = new LiveFollowController(api, {
+  canAct: () => coreAvailable && !gate.busy,
+  changed: () => renderLiveFollow(),
+});
+const liveFollowView = createLiveFollowView(element('live-follow-container'), liveFollow, {
+  play: track => { void player.select(track).catch(() => showStatus('No se puede abrir esta pista', 'Comprueba que siga disponible', true)); },
+  // S9: the rows ask the bridge for their own file; the path never comes back here.
+  api,
+});
+renderLiveFollow = liveFollowView.render;
+renderLiveFollow();
+window.addEventListener('beforeunload', () => liveFollowView.dispose(), { once: true });
 let renderPreferences = (): void => {};
 const preferencesAvailable = (): boolean => typeof api?.getPreferences === 'function' && typeof api?.savePreferences === 'function';
 const preferences = new PreferencesController(api, {
@@ -880,6 +897,7 @@ function syncControls(): void {
   renderSerato();
   renderSeratoQuick();
   renderLive();
+  renderLiveFollow();
   renderPreferences();
   renderProfileSettings();renderProfiles();renderGeneratedReview();renderPrepSettings();renderLegacyImport();offline?.sync();
   renderLoudness();
@@ -913,6 +931,9 @@ function navigate(next: Route, load = true, rememberOrigin = true, preservePrevi
   back.textContent = `← Volver a ${titles[toolOrigins.back(next) as Route]}`;
   element('page-title').textContent = titles[next];
   document.title = `XfinAudio · ${titles[next]}`;
+  // S5: the polling belongs to the Live screen, so entering starts it and any other route
+  // stops it instead of leaving a request running behind another screen.
+  if (next === 'live') liveFollow.start(); else liveFollow.stop();
   if (!preservePreviews) editor.invalidatePreview();
   if(next==='prep')ensureTrackChoices();
   // The core's single job worker cannot refresh a screen while an exclusive task owns
