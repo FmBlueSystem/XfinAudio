@@ -159,6 +159,24 @@ test('saving a saved list review reaches playlist.save_review as one exclusive m
   }
 });
 
+// S4: following what Serato plays is a parameterless read-only action, so it answers
+// while a job runs and carries no renderer data of its own.
+test('live follow reaches live.follow as a parameterless read-only action', async () => {
+  const [main, preload] = await Promise.all([read('main.ts'), read('preload.ts')]);
+
+  assert.match(main, /case 'liveFollow':return core\.request\('live\.follow'\);/, 'liveFollow must reach live.follow with no renderer parameters');
+  assert.match(preload, /liveFollow:\(\)=>invoke\('liveFollow'\)/, 'liveFollow must be bridged as a parameterless action');
+
+  assert.deepEqual(validateRequest('liveFollow', undefined), {});
+  assert.deepEqual(validateRequest('liveFollow', {}), {});
+  for (const rejected of [{path: '/Volumes/dd/Library/master.sqlite'}, {sessionId: '11111111-1111-4111-8111-111111111111'}, {follow: true}, {deck: 1}])
+    assert.throws(() => validateRequest('liveFollow', rejected), `liveFollow must accept no parameter: ${JSON.stringify(rejected)}`);
+
+  assert.equal(reads.isAllowedWhileBusy('liveFollow'), true, 'following Serato is a busy-time read');
+  for (const source of EXCLUSIVE_SOURCES)
+    assert.doesNotThrow(() => reads.assertDispatchable('liveFollow', busyWith(source)), `liveFollow must answer while ${source} runs`);
+});
+
 test('the chat conversation actions reach their exact core methods with no renderer parameters', async () => {
   const [main, preload] = await Promise.all([read('main.ts'), read('preload.ts')]);
   const routes = [['aiChatHistory', 'ai.chat.history'], ['aiChatReset', 'ai.chat.reset']];

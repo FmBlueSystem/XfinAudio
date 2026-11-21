@@ -16,19 +16,19 @@ const readServer = () => readFile(new URL('../../src/xfinaudio/headless/server.p
 const ALLOWED_ACTIONS = [
   'cancelCurrent', 'comparePlaylists', 'getAiStatus', 'getLibraryStatus', 'getLiveStatus', 'getLoudnessStatus',
   'getMetadataReport', 'getPreferences', 'getPrepCatalog', 'getProfileSettings', 'getProfileStatus',
-  'listDeletedPlaylists', 'listLibrary', 'listPlaylists', 'openPlaylist', 'prepGenres', 'prepSettings',
+  'listDeletedPlaylists', 'listLibrary', 'listPlaylists', 'liveFollow', 'openPlaylist', 'prepGenres', 'prepSettings',
   'queryLibrary', 'searchPlaylists', 'setDraftDirty',
 ];
 // The same set without the two always-allowed local actions.
 const READ_ONLY_ACTIONS = [
   'comparePlaylists', 'getAiStatus', 'getLibraryStatus', 'getLiveStatus', 'getLoudnessStatus',
   'getMetadataReport', 'getPreferences', 'getPrepCatalog', 'getProfileSettings', 'getProfileStatus',
-  'listDeletedPlaylists', 'listLibrary', 'listPlaylists', 'openPlaylist', 'prepGenres', 'prepSettings',
+  'listDeletedPlaylists', 'listLibrary', 'listPlaylists', 'liveFollow', 'openPlaylist', 'prepGenres', 'prepSettings',
   'queryLibrary', 'searchPlaylists',
 ];
 // The core methods `JsonlServer.process_line` answers inline while its single worker runs.
 const INLINE_CORE_METHODS = [
-  'ai.status', 'library.list', 'library.query', 'live.status', 'loudness.status', 'metadata.report',
+  'ai.status', 'library.list', 'library.query', 'live.follow', 'live.status', 'loudness.status', 'metadata.report',
   'playlist.compare', 'playlist.deleted.list', 'playlist.list', 'playlist.open', 'playlist.search',
   'prep.catalog', 'prep.genres', 'prep.settings.get', 'profiles.settings.get', 'profiles.status', 'settings.get',
   'track.resolve',
