@@ -41,7 +41,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],aiChatHistory:[],aiChatReset:[],aiChatApply:['actionId'],
     getLoudnessStatus:[],revealLoudnessBackups:[],revealLogs:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
-    openLive:['reviewId'],getLiveStatus:['sessionId'],liveFollow:[],dragTrack:['trackId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
+    openLive:['reviewId'],getLiveStatus:['sessionId'],liveFollow:['deck'],dragTrack:['trackId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
     chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
     chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],prepGenres:['startTrackId','genre'],selectPrepVariant:['planId','variant'],
     generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds','yearMin','yearMax'],
@@ -153,6 +153,12 @@ function validateSeratoRequest(method:string,params:Record<string,unknown>):void
 }
 
 function validateLiveRequest(method:string,params:Record<string,unknown>):void {
+  // S10: choosing the deck is one optional deck name, 1 to 8 letters or digits, and
+  // nothing else; without it the answer keeps following the newest open entry.
+  if(method==='liveFollow') {
+    if('deck' in params && (typeof params.deck!=='string'||!/^[A-Za-z0-9]{1,8}$/.test(params.deck)))throw new Error('Invalid Live deck');
+    return;
+  }
   // S9: dragging a row out carries the public identity alone, so the host owns the file.
   if(method==='dragTrack')return assertTrackId(params.trackId);
   if(!['openLive','getLiveStatus','advanceLive','clearLive'].includes(method))return;
