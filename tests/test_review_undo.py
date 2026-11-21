@@ -67,12 +67,13 @@ def test_undo_and_redo_restore_order_and_mint_a_new_review_id(tmp_path: Path) ->
         backend.execute("playlist.save", {"reviewId": undone["reviewId"], "name": "Anterior"})
     assert error.value.code == "stale_review"
     saved = backend.execute("playlist.save", {"reviewId": redone["reviewId"], "name": "Rehecho"})
-    assert [track["id"] for track in backend.execute("playlist.open", {"playlistId": saved["id"]})["tracks"]] == (
-        original[::-1]
-    )
     with pytest.raises(BackendError) as error:
         backend.execute("review.redo", {"reviewId": redone["reviewId"]})
     assert error.value.code == "nothing_to_undo"
+    # Opening the saved playlist replaces the list in progress, so its order is read last.
+    assert [track["id"] for track in backend.execute("playlist.open", {"playlistId": saved["id"]})["tracks"]] == (
+        original[::-1]
+    )
 
 
 def test_nothing_to_undo_or_redo_fails_closed_without_changing_the_review(tmp_path: Path) -> None:
