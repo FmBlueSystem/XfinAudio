@@ -32,6 +32,7 @@ const messages:Record<string,string>={
   export_failed:'No se pudo verificar la exportación. Revisa el destino y cualquier copia de seguridad o recuperación antes de volver a intentarlo.',
 
   stale_edit:'La playlist cambió. Tu borrador se conserva; descarta los cambios para recargar la versión guardada.',
+  stale_saved_list:'La playlist cambió en otro lugar. Ábrela de nuevo para no perder cambios.',
   stale_review:'Esta selección ya no está vigente. Genera y revisa una nueva antes de guardar.',
   stale_plan:'Las alternativas ya no están vigentes. Vuelve a generar la selección.',
   stale_export:'La selección o la carpeta cambiaron. Prepara una nueva vista previa antes de exportar.',

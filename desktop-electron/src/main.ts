@@ -8,6 +8,7 @@ import {CoreSupervisor} from './core-supervisor';
 import {RotatingLog,revealLogFolder} from './log-file';
 import {coreEnvironment} from './core-environment';
 import {APP_URL,CSP,assetPath,isTrustedSender,validateRequest} from './security';
+import {savedPlaylistReview} from './review-security';
 import {audioResponse} from './audio';
 import {configureStorage} from './storage';
 import {CloseFlow} from './close-flow';
@@ -210,9 +211,11 @@ async function action(method:string,raw:unknown) {
     case 'generatePrep':return run('prep.generate',params);
     case 'savePlaylist':return summaries([await run('playlist.save',params)])[0];
     case 'listPlaylists':return summaries((await core.request('playlist.list')).playlists);
+    case 'savePlaylistReview':return run('playlist.save_review',params);
     case 'openPlaylist': {
-      const result=await run('playlist.open',{playlistId:Number(params.playlistId)});
-      return {...result,savedPlaylistId:String(result.id),reviewId:'',variant:'saved',canSave:false,warnings:result.missingTrackCount?[`${result.missingTrackCount} pistas no disponibles`]:[],blockers:[],readiness:'needs_review'};
+      // The core answers the review a saved list now has; only a legacy answer without a review
+      // identity gets the read-only fallback the host used to fabricate for every saved list.
+      return savedPlaylistReview(await run('playlist.open',{playlistId:Number(params.playlistId)}));
     }
     case 'cancelCurrent':if(profiles.busy)return profiles.cancel();if(optionalAi.asking)return optionalAi.cancel();if(loudness.busy)return loudness.cancel();return current&&['library.scan','library.rescan','prep.generate','prep.select'].includes(current.method)?core.request('cancel',{jobId:current.id}):{cancelled:false};
     default:throw new Error('Unsupported action');

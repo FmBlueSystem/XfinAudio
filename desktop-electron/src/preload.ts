@@ -39,7 +39,7 @@ contextBridge.exposeInMainWorld('xfin',Object.freeze({
   openPlaylistEditor:(params:unknown)=>invoke('openPlaylistEditor',params),previewPlaylistEdit:(params:unknown)=>invoke('previewPlaylistEdit',params),
   savePlaylistEdit:(params:unknown)=>invoke('savePlaylistEdit',params),savePlaylistImprovement:(params:unknown)=>invoke('savePlaylistImprovement',params),discardPlaylistEdit:(params:unknown)=>invoke('discardPlaylistEdit',params),
   setDraftDirty:(dirty:boolean)=>invoke('setDraftDirty',{dirty}),
-  listPlaylists:()=>invoke('listPlaylists'),openPlaylist:(params:unknown)=>invoke('openPlaylist',params),
+  listPlaylists:()=>invoke('listPlaylists'),openPlaylist:(params:unknown)=>invoke('openPlaylist',params),savePlaylistReview:(params:unknown)=>invoke('savePlaylistReview',params),
   cancelCurrent:()=>invoke('cancelCurrent'),
   onProgress:(callback:(value:unknown)=>void)=>{
     if(typeof callback!=='function')throw new Error('Callback required');

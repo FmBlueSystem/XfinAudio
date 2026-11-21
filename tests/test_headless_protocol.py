@@ -52,6 +52,7 @@ EXPECTED_REFUSED_METHODS = (
     "playlist.rename",
     "playlist.restore",
     "playlist.save",
+    "playlist.save_review",
     "prep.generate",
     "prep.select",
     "profiles.complete",

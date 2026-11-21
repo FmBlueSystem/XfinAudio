@@ -79,6 +79,7 @@ def test_generate_select_and_save_use_real_variants_and_fresh_review(tmp_path: P
     assert result["variant"] == "balanced"
     assert [s["name"] for s in result["variants"]] == ["safe", "balanced", "adventurous"]
     previous_id = result["reviewId"]
+    saved_sets: list[tuple[int, list[dict]]] = []
     for variant in expected.variants:
         selected = backend.execute("prep.select", {"planId": result["planId"], "variant": variant.name})
         assert selected["reviewId"] != previous_id
@@ -103,8 +104,12 @@ def test_generate_select_and_save_use_real_variants_and_fresh_review(tmp_path: P
             backend.execute("playlist.save", {"name": "Old", "reviewId": previous_id})
         assert stale.value.code == "stale_review"
         saved = backend.execute("playlist.save", {"name": "Selected", "reviewId": selected["reviewId"]})
-        assert backend.execute("playlist.open", {"playlistId": saved["id"]})["tracks"] == selected["tracks"]
+        # Opening a saved playlist replaces the list in progress, so the order it holds is
+        # read after the loop that keeps selecting variants of this same plan.
+        saved_sets.append((saved["id"], selected["tracks"]))
         previous_id = selected["reviewId"]
+    for playlist_id, saved_tracks in saved_sets:
+        assert backend.execute("playlist.open", {"playlistId": playlist_id})["tracks"] == saved_tracks
     assert str(tmp_path) not in json.dumps(result)
 
 
