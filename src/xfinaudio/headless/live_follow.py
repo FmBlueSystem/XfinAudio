@@ -30,6 +30,17 @@ The method is read-only and answers while another job runs: it reads one snapsho
 Serato's history, the library records, and nothing else. It never creates, changes or
 discards a list in progress, and no part of its answer carries a file path.
 
+The screen can pick the deck (S10): the parameters are ``{}`` or exactly ``{deck}`` with
+``deck`` a string of one to eight letters or digits, the way Serato numbers its decks.
+With ``deck`` the answer follows the open entry of that deck — ``current`` is its track
+when the library knows it, and the suggestions are for it — and ``currentDeck`` echoes
+the requested deck; without ``deck`` the newest open entry in the library stays current,
+as before. A kept answer belongs to the deck it was computed for, so asking for another
+deck computes again.
+
+``currentDeck`` is the requested deck, or the deck of ``current``, as the same string
+form ``deck`` is given in, or ``null`` when there is no deck to name.
+
 ``reason`` names the only situations in which the answer has no suggestions, and is
 ``null`` otherwise: Serato cannot be read (``serato_not_found``, ``serato_busy``,
 ``serato_unreadable``), its history has no session (``no_session``), no track is
@@ -40,6 +51,7 @@ or what plays is not in the library (``not_in_library``).
 from __future__ import annotations
 
 import copy
+import re
 from typing import TYPE_CHECKING, Any
 
 from xfinaudio.headless.common import BackendError, _public_track
@@ -56,7 +68,10 @@ if TYPE_CHECKING:
     from xfinaudio.headless.backend import HeadlessBackend
     from xfinaudio.library.models import TrackRecord
 
-LIVE_FOLLOW_FIELDS = {"live.follow": set()}
+LIVE_FOLLOW_FIELDS = {"live.follow": {"deck"}}
+
+#: A deck as the screen names it: one to eight letters or digits.
+_DECK = re.compile(r"[A-Za-z0-9]{1,8}")
 
 #: The two reasons of this method; the others belong to reading Serato (S1).
 NOTHING_PLAYING = "nothing_playing"
@@ -69,8 +84,8 @@ MAX_SUGGESTIONS = 10
 BPM_NEIGHBOURHOOD = 200
 
 
-def build_follow(records: list[TrackRecord], snapshot: SeratoSnapshot) -> dict[str, Any]:
-    """The answer of ``live.follow``: what Serato plays and what to play after it."""
+def build_follow(records: list[TrackRecord], snapshot: SeratoSnapshot, deck: str | None = None) -> dict[str, Any]:
+    """The answer of ``live.follow``: what the chosen deck plays and what to play after it."""
     library_paths = [record.path for record in records]
     by_path = {record.path: record for record in records}
     playing_pairs = [(entry, _record_for(entry, by_path, library_paths)) for entry in snapshot.playing]
@@ -78,19 +93,46 @@ def build_follow(records: list[TrackRecord], snapshot: SeratoSnapshot) -> dict[s
     session.extend(
         record for record in (_record_for(entry, by_path, library_paths) for entry in snapshot.played) if record
     )
-    # ``playing`` is already newest start first, so the first match is the newest loaded
-    # track the library knows: the one suggestions continue from.
-    current = next((record for _, record in playing_pairs if record is not None), None)
+    # ``playing`` is already newest start first: without a deck the first in-library pair is
+    # the newest loaded track the library knows, the one suggestions continue from; with a
+    # deck it is that deck's open entry, in the library or not (S10).
+    chosen = _chosen(playing_pairs, deck)
+    current = None if chosen is None else chosen[1]
+    # Without a deck any open entry can be the one the library does not know.
+    entry_found = bool(snapshot.playing) if deck is None else chosen is not None
     suggestions = [] if current is None else _suggestions(records, current, session)
     return {
         "available": snapshot.available,
-        "reason": _reason(snapshot, current, suggestions),
+        "reason": _reason(snapshot, current, suggestions, entry_found=entry_found),
         "sessionStartedAt": snapshot.session_started_at,
         "playing": [_playing(entry, record) for entry, record in playing_pairs],
         "current": None if current is None else _public_track(current),
+        "currentDeck": _current_deck(snapshot, deck, chosen),
         "suggestions": suggestions,
         "playedCount": len(snapshot.played),
     }
+
+
+def _chosen(
+    playing_pairs: list[tuple[SeratoEntry, TrackRecord | None]], deck: str | None
+) -> tuple[SeratoEntry, TrackRecord | None] | None:
+    """The open entry the answer follows: the requested deck's, or the newest in the library."""
+    if deck is None:
+        return next(((entry, record) for entry, record in playing_pairs if record is not None), None)
+    return next(((entry, record) for entry, record in playing_pairs if str(entry.deck) == deck), None)
+
+
+def _current_deck(
+    snapshot: SeratoSnapshot, deck: str | None, chosen: tuple[SeratoEntry, TrackRecord | None] | None
+) -> str | None:
+    """The requested deck, or the deck of ``current``, in the string form ``deck`` is given in."""
+    if not snapshot.available:
+        return None
+    if deck is not None:
+        return deck
+    if chosen is None or chosen[1] is None:
+        return None
+    return str(chosen[0].deck)
 
 
 def _record_for(entry: SeratoEntry, by_path: dict[str, TrackRecord], library_paths: list[str]) -> TrackRecord | None:
@@ -130,13 +172,20 @@ def _playing(entry: SeratoEntry, record: TrackRecord | None) -> dict[str, Any]:
     }
 
 
-def _reason(snapshot: SeratoSnapshot, current: TrackRecord | None, suggestions: list[dict[str, Any]]) -> str | None:
+def _reason(
+    snapshot: SeratoSnapshot,
+    current: TrackRecord | None,
+    suggestions: list[dict[str, Any]],
+    *,
+    entry_found: bool,
+) -> str | None:
     """Why the answer carries no suggestions; ``None`` as soon as it carries one."""
     if not snapshot.available:
         return snapshot.reason
     if suggestions:
         return None
-    if not snapshot.playing:
+    # No open entry at all, or none on the requested deck (S10).
+    if not entry_found:
         return NOTHING_PLAYING
     if current is None:
         return NOT_IN_LIBRARY
@@ -198,20 +247,25 @@ class LiveFollow:
     def execute(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if method not in LIVE_FOLLOW_FIELDS:
             raise BackendError("unknown_method", "Unknown command")
-        if params:
+        if set(params) - LIVE_FOLLOW_FIELDS[method]:
             raise BackendError("invalid_params", "Unexpected command parameters")
+        requested = "deck" in params
+        deck = params["deck"] if requested else None
+        if requested and (not isinstance(deck, str) or not _DECK.fullmatch(deck)):
+            raise BackendError("invalid_params", "Invalid deck")
         snapshot = read_serato_snapshot(self.backend.serato_database_path)
-        key = self._key(snapshot)
+        key = self._key(snapshot, deck)
         if self._kept is not None and self._kept[0] == key:
             return copy.deepcopy(self._kept[1])
-        answer = build_follow(self.backend._records(), snapshot)
+        answer = build_follow(self.backend._records(), snapshot, deck)
         self._kept = (key, copy.deepcopy(answer))
         return answer
 
-    def _key(self, snapshot: SeratoSnapshot) -> tuple[Any, ...]:
+    def _key(self, snapshot: SeratoSnapshot, deck: str | None) -> tuple[Any, ...]:
         """Everything the answer was computed from, cheap to compare on every poll."""
         return (
             str(self.backend.serato_database_path),
+            deck,
             snapshot.session_id,
             snapshot.reason,
             tuple((entry.deck, entry.start_time) for entry in snapshot.playing),
