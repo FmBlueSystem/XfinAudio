@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -17,6 +18,7 @@ from xfinaudio.headless.review_evidence import evidence
 from xfinaudio.headless.review_store import VERSION, clear_review, read_review, write_review
 from xfinaudio.headless.serato_safety import opaque_id, source_identity
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.scan_service import read_mutagen_tags
 from xfinaudio.quality.dj_readiness import DjReadinessReport, build_dj_readiness_report
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
@@ -76,6 +78,9 @@ MIN_REVIEW_TRACK_COUNT = 2
 # The calendar years a period edit may name, both ends included.
 MIN_PERIOD_YEAR = 1900
 MAX_PERIOD_YEAR = 2100
+# A tag write keeps the recording's duration; this is the tolerance the library allows.
+MAX_TAG_WRITE_DURATION_DELTA = 2.0
+TAG_WRITE_ACCEPTED = "A tag rewrite kept the same recording; the review source identity was refreshed"
 ReviewState = tuple[PrepCopilotVariantApplicationResult, frozenset[str], dict[str, Any]]
 
 
@@ -104,6 +109,8 @@ class GeneratedReview:
         self._scope_depth = 0
         # True only when a stored review existed but the library no longer matched it.
         self.dropped = False
+        # Paths accepted as the same recording after an external tag write (S20).
+        self._rewritten: set[str] = set()
 
     def _policy(self) -> tuple[object, ...]:
         return self.backend.preferences.spectral_cohesion(), self.backend.preferences.loudness_band()
@@ -189,10 +196,65 @@ class GeneratedReview:
                     elif unread:
                         result[track.path] = track, None
                     continue
-                result[track.path] = track, source_identity(path)
+                identity = source_identity(path)
+                entry: SourceEntry = (track, identity)
+                if self.backend.review is not None:
+                    healed = self._recording_entry(track, identity, path)
+                    if healed is not None:
+                        entry = healed
+                result[track.path] = entry
             except (OSError, RuntimeError):
                 pass
         return result
+
+    def _recording_entry(self, track: TrackRecord, identity: tuple[object, ...], path: Path) -> SourceEntry | None:
+        """Keep the recorded entry when a tag write changed only the file identity.
+
+        The library's own audio reader confirms the file is still readable audio of the
+        same duration at the same path, so the review keeps the metadata it recorded and
+        refreshes that identity. A file that fails the check keeps behaving as before.
+        """
+        recorded = self.sources.get(track.path)
+        if recorded is None or recorded[1] is None:
+            return None
+        if recorded[1] != identity:
+            if not self._same_recording(recorded[0], path):
+                return None
+            self.sources[track.path] = (recorded[0], identity)
+            self._rewritten.add(track.path)
+            LOGGER.info(TAG_WRITE_ACCEPTED)
+            return (recorded[0], identity)
+        # The library still records the older identity, so its freshly read record has
+        # lost the profiles this review recorded; the accepted file keeps that record.
+        if track.path in self._rewritten:
+            return (recorded[0], identity)
+        return None
+
+    @staticmethod
+    def _same_recording(record: TrackRecord, path: Path) -> bool:
+        """Whether the library's own reader still finds the same recording at ``path``."""
+        expected = record.duration
+        if expected is None:
+            return False
+        try:
+            tags = read_mutagen_tags(path)
+        except Exception:
+            # A missing, moved or unreadable file fails closed, exactly as before.
+            return False
+        if tags is None:
+            return False
+        duration = tags.get("__duration__")
+        return (
+            isinstance(duration, (int, float))
+            and not isinstance(duration, bool)
+            and math.isfinite(duration)
+            and abs(duration - expected) <= MAX_TAG_WRITE_DURATION_DELTA
+        )
+
+    def _tag_written(self, path: str, identity: tuple[object, ...]) -> bool:
+        """Whether the library recorded a different identity for this exact path."""
+        recorded = self.backend.repository.load_scan_file_identities([path]).get(path)
+        return recorded is not None and (recorded[0], recorded[1]) != (identity[4], identity[3])
 
     @staticmethod
     def _same(recorded: SourceEntry | None, current: SourceEntry | None) -> bool:
@@ -260,6 +322,7 @@ class GeneratedReview:
         assert self.plan_binding is not None
         self.sources, self.policy = dict(self.plan_binding[0]), self.plan_binding[1]
         self.removed = frozenset()
+        self._rewritten.clear()
         self.history.clear()
         self.future.clear()
         self.offers.clear()
@@ -319,6 +382,19 @@ class GeneratedReview:
             clear_review(self.backend.data_dir)
             return
         sources = self._build_sources(self._paths(review), unread=True)
+        # An external tag write changes only the file identity: the reader it invalidated
+        # drops the recorded profiles from the freshly read record. When the library's own
+        # audio reader confirms the same recording at the same path, the stored list keeps
+        # its metadata and binds to the identity the file has now (S20).
+        self._rewritten.clear()
+        for track in review.recommendation.ordered_tracks:
+            current = sources.get(track.path)
+            if current is None or current[0] == track or current[1] is None:
+                continue
+            if self._tag_written(track.path, current[1]) and self._same_recording(track, Path(track.path)):
+                sources[track.path] = (track, current[1])
+                self._rewritten.add(track.path)
+                LOGGER.info(TAG_WRITE_ACCEPTED)
         # Restore only when every reviewed track is still the exact library record it was saved with.
         if any(sources.get(track.path, (None,))[0] != track for track in review.recommendation.ordered_tracks):
             LOGGER.warning("The list in progress was dropped because the library changed")
