@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
@@ -15,9 +16,11 @@ from xfinaudio.headless.ai_conversation import applied_changes
 from xfinaudio.headless.common import BackendError, _inside, _public_track
 from xfinaudio.headless.profiles import same_recording
 from xfinaudio.headless.review_evidence import evidence
-from xfinaudio.headless.review_store import VERSION, clear_review, read_review, write_review
+from xfinaudio.headless.review_store import SAVED_FIELD, VERSION, clear_review, read_review, write_review
+from xfinaudio.headless.saved_review import SAVED_VARIANT, build_saved_list
 from xfinaudio.headless.serato_safety import opaque_id, source_identity
 from xfinaudio.library.models import TrackRecord
+from xfinaudio.library.playlist_models import Playlist
 from xfinaudio.quality.dj_readiness import DjReadinessReport, build_dj_readiness_report
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
@@ -93,6 +96,9 @@ class GeneratedReview:
         self.removed: frozenset[str] = frozenset()
         self.plan_id: str | None = None
         self.plan_binding: PlanBinding | None = None
+        # The playlist a saved list was opened from, as it was when this review bound it:
+        # only ``playlist.save_review`` writes back, and only while it still matches.
+        self.saved_playlist: Playlist | None = None
         self.history: list[ReviewState] = []
         self.future: list[ReviewState] = []
         # The replacement each comparison offered, per track, for this exact revision.
@@ -321,8 +327,12 @@ class GeneratedReview:
         ):
             raise BackendError("stale_plan", "The generation context changed; generate a current plan")
 
-    def bind(self, snapshot: dict[str, Any]) -> dict[str, Any]:
-        """Bind immediately after selecting a generated variant, before publication."""
+    def bind(self, snapshot: dict[str, Any], *, saved: Playlist | None = None) -> dict[str, Any]:
+        """Bind immediately after selecting a generated variant, before publication.
+
+        ``saved`` is the playlist an opened saved list stays tied to (S3), and unlike a
+        generated one it is stored with the review, so the list comes back after a restart.
+        """
         self.review_id = self.backend.review_id
         self.base = dict(snapshot)
         assert self.backend.plan_id is not None
@@ -334,6 +344,8 @@ class GeneratedReview:
             raise
         assert self.plan_binding is not None
         self.sources, self.policy = dict(self.plan_binding[0]), self.plan_binding[1]
+        # A generated list is never written back to a playlist it was not opened from.
+        self.saved_playlist = saved
         self.removed = frozenset()
         self._rewritten.clear()
         self.history.clear()
@@ -341,6 +353,69 @@ class GeneratedReview:
         self.offers.clear()
         self._persist()
         return self.details()
+
+    def bind_saved(self, playlist: Playlist, tracks: list[TrackRecord]) -> dict[str, Any]:
+        """Open a saved playlist as the list in progress: the review a generation binds (S3).
+
+        The engine scores the saved order and the list is bound to a synthetic plan
+        with no controls, so the first and the last track stay editable. The list owns
+        its own source snapshot: only the tracks it holds are read from disk.
+        """
+        saved = build_saved_list(playlist.name, tracks)
+        # Opening another list discards the one in progress, including its stored copy.
+        self.backend.invalidate_review()
+        self.saved_playlist = None
+        self.sources = {}
+        plan_id, review_id = str(uuid4()), str(uuid4())
+        self.backend.plan, self.backend.plan_id = saved.plan, plan_id
+        self.backend.review, self.backend.review_id = saved.review, review_id
+        self.backend.review_blocked = bool(saved.blockers) or not saved.review.recommendation.ordered_tracks
+        binding: PlanBinding = (
+            self._build_sources(self._paths(saved.review), unread=True),
+            self._policy(),
+            frozenset(),
+        )
+        self.bind_plan(plan_id, binding)
+        review = saved.review
+        result = self.bind(
+            {
+                "planId": plan_id,
+                "variants": [saved.variant_summary()],
+                "reviewId": review_id,
+                "name": playlist.name,
+                "variant": SAVED_VARIANT,
+                "savedPlaylistId": playlist.id,
+                "editable": True,
+                "tracks": [_public_track(track) for track in review.recommendation.ordered_tracks],
+                "warnings": list(review.recommendation.warnings),
+                "blockers": saved.blockers,
+                "qualityScore": review.quality_report.average_transition_score,
+                "readiness": review.readiness_report.status,
+            },
+            saved=playlist,
+        )
+        return result
+
+    def save_review(self, review_id: Any) -> dict[str, Any]:
+        """Write the list in progress back to the playlist it was opened from (S3, S6).
+
+        The order goes to the same playlist through the compare-and-update every save
+        uses, so a playlist renamed or saved elsewhere meanwhile is refused with
+        ``stale_edit``. The review keeps its identity: nothing about the list changed,
+        only the saved version it is compared against -- and the stored copy follows, so a
+        restart before the next edit still saves into the playlist it just wrote.
+        """
+        review = self.verify(review_id)
+        playlist = self.saved_playlist
+        if playlist is None:
+            raise BackendError("stale_review", "Open a saved playlist before saving its order back")
+        paths = [track.path for track in review.recommendation.ordered_tracks]
+        saved = self.backend.playlists.compare_and_update(playlist, name=playlist.name, track_paths=paths)
+        if saved is None:
+            raise BackendError("stale_edit", "The saved playlist changed; open it again before saving")
+        self.saved_playlist = saved
+        self._persist()
+        return {"id": saved.id, "name": saved.name, "trackCount": len(saved.track_paths)}
 
     @staticmethod
     def _paths(review: PrepCopilotVariantApplicationResult) -> frozenset[str]:
@@ -381,7 +456,13 @@ class GeneratedReview:
         return {"available": False, "review": None, "dropped": self.dropped}
 
     def restore(self) -> None:
-        """Rebind the review a previous process stored, or drop it honestly."""
+        """Rebind the review a previous process stored, or drop it honestly.
+
+        A saved list comes back exactly like a generated one, and with the playlist it
+        was opened from (S3): the stored version is the one the next save is compared
+        against, so a playlist deleted or changed meanwhile still restores the list but
+        refuses to write it back.
+        """
         payload = read_review(self.backend.data_dir)
         if payload is None:
             return
@@ -390,6 +471,8 @@ class GeneratedReview:
             plan = PrepCopilotPlan.model_validate(payload["plan"])
             if payload["variant"] != review.variant_name:
                 raise ValueError("Stored variant does not describe the stored review")
+            stored_playlist = payload.get(SAVED_FIELD)
+            saved_playlist = None if stored_playlist is None else self._playlist(stored_playlist)
         except (KeyError, TypeError, ValueError):
             LOGGER.warning("The stored list in progress could not be decoded; it is dropped")
             clear_review(self.backend.data_dir)
@@ -416,6 +499,7 @@ class GeneratedReview:
             return
         self.backend.plan, self.backend.plan_id = plan, payload["planId"]
         self.sources, self.policy = sources, self._policy()
+        self.saved_playlist = saved_playlist
         # A restored review must compare like the in-memory one: same object as its plan variant.
         variant = next((item for item in plan.variants if item.recommendation == review.recommendation), None)
         if variant is not None:
@@ -438,6 +522,10 @@ class GeneratedReview:
             "qualityScore": review.quality_report.average_transition_score,
             "readiness": review.readiness_report.status,
         }
+        if saved_playlist is not None:
+            # A restored saved list answers the payload it was opened with (S3).
+            self.base["savedPlaylistId"] = saved_playlist.id
+            self.base["editable"] = True
         self.history.clear()
         self.future.clear()
         self.offers.clear()
@@ -462,7 +550,7 @@ class GeneratedReview:
         review, plan = self.backend.review, self.backend.plan
         assert review is not None and plan is not None
         assert self.review_id is not None and self.backend.plan_id is not None
-        return {
+        payload: dict[str, Any] = {
             "version": VERSION,
             "reviewId": self.review_id,
             "planId": self.backend.plan_id,
@@ -480,6 +568,33 @@ class GeneratedReview:
             "plan": plan.model_dump(mode="json"),
             "removed": sorted(self.removed),
         }
+        if self.saved_playlist is not None:
+            # A saved list stays tied to its playlist across a restart (S3).
+            payload[SAVED_FIELD] = self._saved(stored=self.saved_playlist)
+        return payload
+
+    @staticmethod
+    def _saved(*, stored: Playlist) -> dict[str, Any]:
+        """Store the playlist exactly as this review last saw it, never a later state."""
+        assert stored.id is not None
+        return {
+            "id": stored.id,
+            "name": stored.name,
+            "createdAt": stored.created_at.isoformat(),
+            "updatedAt": stored.updated_at.isoformat(),
+            "trackPaths": list(stored.track_paths),
+        }
+
+    @staticmethod
+    def _playlist(stored: dict[str, Any]) -> Playlist:
+        """Rebuild the playlist snapshot a stored review is compared against."""
+        return Playlist(
+            id=stored["id"],
+            name=stored["name"],
+            created_at=datetime.fromisoformat(stored["createdAt"]),
+            updated_at=datetime.fromisoformat(stored["updatedAt"]),
+            track_paths=list(stored["trackPaths"]),
+        )
 
     def _persist(self) -> None:
         """Store the review after every change; a refused write never fails the edit it follows."""
@@ -491,6 +606,8 @@ class GeneratedReview:
     def clear_stored(self) -> None:
         """Forget the stored review when the backend discards the active one."""
         clear_review(self.backend.data_dir)
+        # A discarded list no longer writes back to the playlist it was opened from.
+        self.saved_playlist = None
         self.dropped = False
 
     def _state(self) -> ReviewState:

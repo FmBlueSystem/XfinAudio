@@ -30,7 +30,9 @@ if TYPE_CHECKING:
     from xfinaudio.quality.dj_readiness import DjReadinessCheck, DjReadinessReport  # noqa: F401
     from xfinaudio.quality.recommendation_quality import RecommendationQualityReport  # noqa: F401
 
-PrepVariantName = Literal["safe", "balanced", "adventurous"]
+# ``saved`` is not a generated variant: it names the single variant of the synthetic
+# plan a saved playlist is bound to when it is opened as a list in progress (S3).
+PrepVariantName = Literal["safe", "balanced", "adventurous", "saved"]
 # How long each track is on air before the mix moves on, matching the desktop
 # Build screen's slot sizing (``DESKTOP_PLAYED_SECONDS_PER_TRACK`` in
 # ``desktop/recommendation_service.py``). A DJ plays a segment, not the whole
@@ -462,6 +464,7 @@ def _variant_description(name: PrepVariantName) -> str:
         "safe": "Strictest option: stays close to the requested genre focus and hard gates.",
         "balanced": "Middle option: allows tagged bridges while preserving the set intent.",
         "adventurous": "Exploratory option: allows broader bridges but keeps readiness checks visible.",
+        "saved": "Saved playlist: the order it was saved with, scored by the same engine.",
     }[name]
 
 
