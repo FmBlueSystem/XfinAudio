@@ -18,6 +18,9 @@ const node = (root, id) => all(root).find((item) => item.id === id);
 /** The suggestion rows, in order: every `tr` that carries the suggestion's id. */
 const rows = (root) => all(root).filter((item) => item.tagName === 'tr' && item.dataset.liveFollowSuggestion !== undefined);
 const cellText = (cell) => text(cell).trim();
+/** The button of one «Sonando en Serato» line, by the deck it asks for. */
+const deckButton = (root, deck) => all(root).find((item) => item.dataset.liveFollowDeck === deck);
+const playingLines = (root) => node(root, 'live-follow-playing').children.map(text);
 
 const track = (id, extra = {}) => ({ id, title: `Título ${id}`, artist: `Artista ${id}`, bpm: 124, key: '8A', energy: 5, duration: 200, ...extra });
 const answer = (over = {}) => ({
@@ -129,7 +132,7 @@ function viewFixture(options = {}) {
   const answers = options.answers ?? [answer()];
   let index = 0;
   const clock = { every: (intervalMs, callback) => { const entry = { intervalMs, callback, cancelled: false }; timers.push(entry); return () => { entry.cancelled = true; }; } };
-  const controller = new LiveFollowController({ liveFollow: () => { calls.push({}); return Promise.resolve(answers[Math.min(index++, answers.length - 1)]); } }, { canAct: () => true, changed: () => view.render() }, clock);
+  const controller = new LiveFollowController({ liveFollow: (input) => { calls.push(input); return Promise.resolve(answers[Math.min(index++, answers.length - 1)]); } }, { canAct: () => true, changed: () => view.render() }, clock);
   const view = createLiveFollowView(root, controller, { play: (track) => played.push(track), ...(options.api ? { api: options.api } : {}) });
   view.render();
   controller.start();
@@ -312,5 +315,84 @@ test('S9: a line under the table explains the drag', async () => {
   const f = viewFixture(); try {
     await f.ready();
     assert.ok(text(f.root).includes('Arrastra una fila a un deck o a un crate de Serato.'));
+  } finally { f.restore(); }
+});
+
+/** S10: two decks, both in the library, so a chosen deck really changes what is current. */
+const twoDecks = (over = {}) => answer({
+  currentDeck: '1',
+  current: track('a'),
+  playing: [
+    { deck: 1, startedAt: '2026-10-01T22:00:00Z', inLibrary: true, ...track('a') },
+    { deck: 2, startedAt: '2026-10-01T22:03:00Z', inLibrary: true, ...track('f') },
+  ],
+  ...over,
+});
+
+test('S10: clicking a deck line asks at once for that deck and every later poll keeps it', async () => {
+  const f = viewFixture({ answers: [twoDecks()] }); try {
+    await f.ready();
+    assert.deepEqual(f.calls, [{}]);
+    const second = deckButton(f.root, '2');
+    assert.ok(second, 'each line of «Sonando en Serato» is a button');
+    assert.equal(second.tagName, 'button');
+    second.dispatchEvent(new Event('click'));
+    await tick();
+    assert.deepEqual(f.calls, [{}, { deck: '2' }]);
+    f.timers[0].callback(); await tick();
+    assert.deepEqual(f.calls.at(-1), { deck: '2' });
+    assert.equal(f.calls.length, 3);
+    assert.equal(f.timers.length, 1);
+  } finally { f.restore(); }
+});
+
+test('S10: the chosen line is marked «Actual» and the heading names the current track', async () => {
+  const f = viewFixture({ answers: [twoDecks(), twoDecks({ currentDeck: 2, current: track('f') })] }); try {
+    await f.ready();
+    assert.equal(node(f.root, 'live-follow-suggestions-heading').textContent, 'Qué poner después de Título a');
+    const before = playingLines(f.root);
+    assert.ok(before[0].includes('· Actual'), before[0]);
+    assert.ok(!before[1].includes('Actual'), before[1]);
+    deckButton(f.root, '2').dispatchEvent(new Event('click'));
+    await tick();
+    const after = playingLines(f.root);
+    assert.ok(!after[0].includes('Actual'), after[0]);
+    assert.ok(after[1].includes('· Actual'), after[1]);
+    assert.equal(node(f.root, 'live-follow-suggestions-heading').textContent, 'Qué poner después de Título f');
+  } finally { f.restore(); }
+});
+
+test('S10: «Automático» appears only while a deck is chosen and returns to the polls without deck', async () => {
+  const f = viewFixture({ answers: [twoDecks()] }); try {
+    await f.ready();
+    assert.equal(node(f.root, 'live-follow-automatic').textContent, 'Automático');
+    assert.equal(node(f.root, 'live-follow-automatic').hidden, true);
+    deckButton(f.root, '2').dispatchEvent(new Event('click'));
+    await tick();
+    assert.equal(node(f.root, 'live-follow-automatic').hidden, false);
+    node(f.root, 'live-follow-automatic').dispatchEvent(new Event('click'));
+    await tick();
+    assert.deepEqual(f.calls.at(-1), {});
+    assert.equal(node(f.root, 'live-follow-automatic').hidden, true);
+    f.timers[0].callback(); await tick();
+    assert.deepEqual(f.calls.at(-1), {});
+    assert.ok(playingLines(f.root)[0].includes('· Actual'), playingLines(f.root)[0]);
+  } finally { f.restore(); }
+});
+
+test('S10: the lines are redrawn when the playing tracks or the chosen deck change', async () => {
+  const f = viewFixture({ answers: [twoDecks()] }); try {
+    await f.ready();
+    const first = node(f.root, 'live-follow-playing').children[0];
+    f.timers[0].callback(); await tick();
+    assert.equal(node(f.root, 'live-follow-playing').children[0], first);
+    deckButton(f.root, '2').dispatchEvent(new Event('click'));
+    await tick();
+    const redrawn = node(f.root, 'live-follow-playing').children[0];
+    assert.notEqual(redrawn, first);
+    f.timers[0].callback(); await tick();
+    assert.equal(node(f.root, 'live-follow-playing').children[0], redrawn);
+    assert.notEqual(followKey(twoDecks(), null, '2'), followKey(twoDecks(), null, null));
+    assert.notEqual(followKey(null, null, '2'), followKey(null, null, null));
   } finally { f.restore(); }
 });
