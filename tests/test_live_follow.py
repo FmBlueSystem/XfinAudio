@@ -124,6 +124,28 @@ def _counting(monkeypatch: pytest.MonkeyPatch) -> tuple[list[None], list[None]]:
     return loads, reads
 
 
+def _two_playing_decks(tmp_path: Path) -> tuple[HeadlessBackend, Path]:
+    """Two decks loaded, each with one library track that only suits it (S10)."""
+    root = tmp_path / "music"
+    tagged_flac(root / _CURRENT, title="It's Not Right but It's Okay", artist="Whitney Houston", bpm=129.2, key="5A")
+    tagged_flac(root / _PLAYED, title="I Like It", artist="Enrique Iglesias", bpm=100.0, key="12B")
+    tagged_flac(root / "House/Five A.flac", title="Five A", artist="Someone", bpm=129.4, key="5A")
+    tagged_flac(root / "House/Twelve B.flac", title="Twelve B", artist="Someone", bpm=100.4, key="12B")
+    backend = _backend(tmp_path)
+    _scan(backend, root)
+    database = tmp_path / "master.sqlite"
+    _database(
+        database,
+        [(7, 1_699_000_000, -1)],
+        [
+            _row(1, deck=1, start_time=1_700_000_300, name="It's Not Right but It's Okay"),
+            _row(2, deck=2, start_time=1_700_000_100, name="I Like It", bpm=100.0, key="12B", portable_id=_PLAYED),
+        ],
+    )
+    backend.serato_database_path = database
+    return backend, database
+
+
 def _playing_library(tmp_path: Path) -> tuple[HeadlessBackend, Path]:
     """A scanned library with one deck loaded, and the Serato database that plays it."""
     root = tmp_path / "music"
@@ -340,6 +362,7 @@ def test_an_absent_database_answers_serato_not_found(tmp_path: Path) -> None:
         "sessionStartedAt": None,
         "playing": [],
         "current": None,
+        "currentDeck": None,
         "suggestions": [],
         "playedCount": 0,
     }
@@ -403,6 +426,7 @@ def test_a_session_without_open_entries_answers_nothing_playing(tmp_path: Path) 
     assert answer["sessionStartedAt"] == 1_699_000_000
     assert answer["playing"] == []
     assert answer["current"] is None
+    assert answer["currentDeck"] is None
     assert answer["suggestions"] == []
     assert answer["playedCount"] == 1
 
@@ -587,6 +611,103 @@ def test_follow_takes_no_parameters(tmp_path: Path) -> None:
     assert error.value.code == "invalid_params"
 
 
+def test_without_a_deck_the_newest_open_track_is_current_and_names_its_deck(tmp_path: Path) -> None:
+    backend, _ = _two_playing_decks(tmp_path)
+
+    answer = _follow(backend)
+
+    assert [entry["deck"] for entry in answer["playing"]] == [1, 2]
+    assert answer["current"]["title"] == "It's Not Right but It's Okay"
+    assert answer["currentDeck"] == "1"
+    assert answer["reason"] is None
+    assert [suggestion["title"] for suggestion in answer["suggestions"]] == ["Five A", "Twelve B"]
+
+
+def test_a_chosen_deck_makes_its_own_track_current_with_its_own_suggestions(tmp_path: Path) -> None:
+    backend, _ = _two_playing_decks(tmp_path)
+
+    chosen = backend.execute("live.follow", {"deck": "2"})
+    first = backend.execute("live.follow", {"deck": "1"})
+
+    assert chosen["available"] is True
+    assert chosen["currentDeck"] == "2"
+    assert chosen["current"]["title"] == "I Like It"
+    assert chosen["reason"] is None
+    assert chosen["suggestions"][0]["title"] == "Twelve B"
+    assert [entry["deck"] for entry in chosen["playing"]] == [1, 2]
+    assert first["currentDeck"] == "1"
+    assert first["current"]["title"] == "It's Not Right but It's Okay"
+    assert first["suggestions"][0]["title"] == "Five A"
+    # The other deck stays listed, and neither deck's own track is ever suggested.
+    assert "It's Not Right but It's Okay" not in {suggestion["title"] for suggestion in chosen["suggestions"]}
+    assert "I Like It" not in {suggestion["title"] for suggestion in first["suggestions"]}
+
+
+def test_another_deck_computes_again_because_the_kept_answer_depends_on_it(tmp_path: Path, monkeypatch) -> None:
+    backend, _ = _two_playing_decks(tmp_path)
+    loads, reads = _counting(monkeypatch)
+
+    one = backend.execute("live.follow", {"deck": "1"})
+    two = backend.execute("live.follow", {"deck": "2"})
+    again = backend.execute("live.follow", {"deck": "2"})
+
+    # Serato is read for every call; the library is loaded once per requested deck.
+    assert len(reads) == 3
+    assert len(loads) == 2
+    assert one["current"]["title"] != two["current"]["title"]
+    assert again == two
+
+
+def test_a_deck_with_no_open_entry_answers_nothing_playing(tmp_path: Path) -> None:
+    backend, _ = _two_playing_decks(tmp_path)
+
+    answer = backend.execute("live.follow", {"deck": "3"})
+
+    assert answer["available"] is True
+    assert answer["reason"] == "nothing_playing"
+    assert answer["current"] is None
+    assert answer["currentDeck"] == "3"
+    assert answer["suggestions"] == []
+    assert [entry["deck"] for entry in answer["playing"]] == [1, 2]
+
+
+def test_a_chosen_deck_outside_the_library_answers_not_in_library(tmp_path: Path) -> None:
+    backend, database = _two_playing_decks(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE history_entry SET portable_id = ? WHERE id = 2", ("Other/Unknown One.flac",))
+
+    answer = backend.execute("live.follow", {"deck": "2"})
+
+    assert answer["reason"] == "not_in_library"
+    assert answer["current"] is None
+    assert answer["currentDeck"] == "2"
+    assert answer["suggestions"] == []
+    assert [entry["inLibrary"] for entry in answer["playing"]] == [True, False]
+    # Without a deck the newest open track the library knows is still current.
+    assert _follow(backend)["current"]["title"] == "It's Not Right but It's Okay"
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"deck": ""},
+        {"deck": "123456789"},
+        {"deck": 1},
+        {"deck": None},
+        {"deck": "1 2"},
+        {"deck": "A-1"},
+        {"deck": "1", "database": "/somewhere/master.sqlite"},
+    ],
+)
+def test_a_malformed_deck_or_an_extra_parameter_is_invalid_params(tmp_path: Path, params: dict) -> None:
+    backend = _backend(tmp_path)
+
+    with pytest.raises(BackendError) as error:
+        backend.execute("live.follow", params)
+
+    assert error.value.code == "invalid_params"
+
+
 def test_follow_leaves_the_list_in_progress_untouched(tmp_path: Path) -> None:
     root = tmp_path / "music"
     tagged_flac(root / _CURRENT, title="It's Not Right but It's Okay", artist="Whitney Houston", bpm=129.2)
@@ -635,6 +756,7 @@ def test_follow_answers_inline_while_another_job_runs(tmp_path: Path) -> None:
         answer = messages(output)[0]
         assert answer["ok"] is True
         assert answer["result"]["current"]["title"] == "It's Not Right but It's Okay"
+        assert answer["result"]["currentDeck"] == "1"
         assert [suggestion["title"] for suggestion in answer["result"]["suggestions"]] == ["Plain One"]
     finally:
         release.set()
