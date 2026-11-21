@@ -189,6 +189,46 @@ def test_a_new_ended_entry_makes_follow_compute_again(tmp_path: Path, monkeypatc
     assert [entry["deck"] for entry in answer["playing"]] == [1]
 
 
+def test_a_new_ended_entry_after_fifty_have_ended_makes_follow_compute_again(tmp_path: Path, monkeypatch) -> None:
+    backend, database = _playing_library(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.executemany(
+            "INSERT INTO history_entry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                _row(
+                    index,
+                    deck=2,
+                    start_time=1_700_000_000 + index,
+                    end_time=1_700_000_300 + index,
+                    name=f"Played {index}",
+                    portable_id=f"House/Played {index}.flac",
+                )
+                for index in range(2, 53)
+            ],
+        )
+    loads, _ = _counting(monkeypatch)
+    assert _follow(backend)["playedCount"] == 50
+    assert len(loads) == 1
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO history_entry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            _row(
+                100,
+                deck=2,
+                start_time=1_700_000_900,
+                end_time=1_700_000_950,
+                name="Played 100",
+                portable_id="House/Played 100.flac",
+            ),
+        )
+
+    answer = _follow(backend)
+
+    # The capped list still carries fifty entries, but the newest ended one moved.
+    assert len(loads) == 2
+    assert answer["playedCount"] == 50
+
+
 def test_a_rescanned_library_makes_follow_compute_again(tmp_path: Path, monkeypatch) -> None:
     backend, _ = _playing_library(tmp_path)
     loads, _ = _counting(monkeypatch)
@@ -247,6 +287,45 @@ def test_two_versions_of_one_song_never_both_appear_and_the_list_still_fills_ten
     assert pockets[0]["title"] == "In My Pocket (Part 2)"
     assert titles.count("In My Pocket (Part 2) (v2)") == 0
     assert len([title for title in titles if title.startswith("Filler")]) == 9
+
+
+def test_the_matching_track_closest_to_seratos_bpm_is_current(tmp_path: Path) -> None:
+    root = tmp_path / "music"
+    tagged_flac(root / "House/Tie.flac", title="Tie", artist="Far", bpm=140.0, key="5A")
+    tagged_flac(root / "Old/Tie.flac", title="Tie", artist="Near", bpm=128.4, key="5A")
+    backend = _backend(tmp_path)
+    _scan(backend, root)
+    database = tmp_path / "master.sqlite"
+    _database(
+        database,
+        [(7, 1_699_000_000, -1)],
+        [_row(1, name="Tie", artist="Near", bpm=128.0, portable_id="Tie.flac")],
+    )
+    backend.serato_database_path = database
+
+    answer = _follow(backend)
+
+    assert answer["current"]["bpm"] == 128.4
+    assert answer["playing"][0]["bpm"] == 128.4
+
+
+def test_a_bpm_tie_keeps_the_first_matching_track(tmp_path: Path) -> None:
+    root = tmp_path / "music"
+    tagged_flac(root / "House/Tie.flac", title="Tie", artist="First", bpm=127.0, key="5A")
+    tagged_flac(root / "Old/Tie.flac", title="Tie", artist="Second", bpm=129.0, key="5A")
+    backend = _backend(tmp_path)
+    _scan(backend, root)
+    database = tmp_path / "master.sqlite"
+    _database(
+        database,
+        [(7, 1_699_000_000, -1)],
+        [_row(1, name="Tie", artist="First", bpm=128.0, portable_id="Tie.flac")],
+    )
+    backend.serato_database_path = database
+
+    answer = _follow(backend)
+
+    assert answer["current"]["artist"] == "First"
 
 
 def test_an_absent_database_answers_serato_not_found(tmp_path: Path) -> None:

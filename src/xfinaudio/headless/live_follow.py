@@ -17,9 +17,14 @@ restating them:
 
 The Live screen asks again every few seconds, so an answer is kept in memory together
 with what it was computed from: the Serato database, the session id, the open entries,
-the number of ended entries and the library revision the backend tracks. Serato's two
-tables are read on every call, and a call that reads the same values returns the kept
-answer without loading or scoring a single library track.
+the highest id among the ended entries and the library revision the backend tracks.
+Serato's two tables are read on every call, and a call that reads the same values
+returns the kept answer without loading or scoring a single library track. The ended
+entries are compared by their highest id rather than by their capped count, so the
+fifty-first ended entry still invalidates the answered one (S7 c).
+
+A Serato entry can match several library tracks; the one whose BPM is closest to the
+BPM Serato records for that entry is the match, and the first one wins a tie (S7 d).
 
 The method is read-only and answers while another job runs: it reads one snapshot of
 Serato's history, the library records, and nothing else. It never creates, changes or
@@ -41,7 +46,7 @@ from xfinaudio.headless.common import BackendError, _public_track
 from xfinaudio.headless.serato_live import (
     SeratoEntry,
     SeratoSnapshot,
-    match_library_path,
+    match_library_paths,
     read_serato_snapshot,
 )
 from xfinaudio.recommendation.playlist_service import _closest_in_bpm, _is_same_song, _same_song_key
@@ -89,8 +94,25 @@ def build_follow(records: list[TrackRecord], snapshot: SeratoSnapshot) -> dict[s
 
 
 def _record_for(entry: SeratoEntry, by_path: dict[str, TrackRecord], library_paths: list[str]) -> TrackRecord | None:
-    path = match_library_path(entry, library_paths)
-    return None if path is None else by_path.get(path)
+    records = [by_path[path] for path in match_library_paths(entry, library_paths) if path in by_path]
+    return _nearest_bpm(entry, records)
+
+
+def _nearest_bpm(entry: SeratoEntry, records: list[TrackRecord]) -> TrackRecord | None:
+    """The match whose BPM is closest to Serato's for this entry; the first one on a tie (S7 d)."""
+    if not records:
+        return None
+    if entry.bpm is None:
+        return records[0]
+    best = records[0]
+    best_distance: float | None = None
+    for record in records:
+        if record.bpm is None:
+            continue
+        distance = abs(record.bpm - entry.bpm)
+        if best_distance is None or distance < best_distance:
+            best, best_distance = record, distance
+    return best
 
 
 def _playing(entry: SeratoEntry, record: TrackRecord | None) -> dict[str, Any]:
@@ -193,6 +215,6 @@ class LiveFollow:
             snapshot.session_id,
             snapshot.reason,
             tuple((entry.deck, entry.start_time) for entry in snapshot.playing),
-            len(snapshot.played),
+            snapshot.last_played_id,
             self.backend.library_revision(),
         )

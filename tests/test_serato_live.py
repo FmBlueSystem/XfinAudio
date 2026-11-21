@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
 
 from xfinaudio.headless.serato_live import (
     MAX_PLAYED_ENTRIES,
+    MAX_READ_SECONDS,
     NO_SESSION,
     SERATO_BUSY,
     SERATO_NOT_FOUND,
@@ -183,6 +185,108 @@ def test_no_session_is_reported_without_raising(tmp_path: Path) -> None:
     assert snapshot.session_id is None
 
 
+def _listing(folder: Path) -> list[str]:
+    return sorted(path.name for path in folder.iterdir())
+
+
+def _digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _to_write_ahead_log(database: Path) -> None:
+    """Switch a built database to the write-ahead log and close it cleanly, so no side file stays."""
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_a_write_ahead_log_database_without_side_files_creates_no_file(tmp_path: Path) -> None:
+    database = tmp_path / "master.sqlite"
+    _build_database(database, [(7, 1_699_000_000, -1)], [_entry(1, name="Loaded")])
+    _to_write_ahead_log(database)
+    assert _listing(tmp_path) == ["master.sqlite"]
+    before = _digest(database)
+
+    snapshot = read_serato_snapshot(database)
+
+    assert snapshot.available is True
+    assert [entry.title for entry in snapshot.playing] == ["Loaded"]
+    assert _listing(tmp_path) == ["master.sqlite"]
+    assert _digest(database) == before
+
+
+def test_a_write_ahead_log_database_with_both_side_files_creates_no_file(tmp_path: Path) -> None:
+    database = tmp_path / "master.sqlite"
+    _build_database(database, [], [])
+    builder = sqlite3.connect(database)
+    try:
+        assert builder.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        # Written inside the log: only a reader that reads the -wal file sees these rows.
+        builder.execute("INSERT INTO history_session VALUES (7, ?, -1)", (1_699_000_000,))
+        builder.execute(
+            "INSERT INTO history_entry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            _entry(1, name="Loaded"),
+        )
+        builder.commit()
+        side_files = ["master.sqlite", "master.sqlite-shm", "master.sqlite-wal"]
+        assert _listing(tmp_path) == side_files
+        before = _digest(database)
+
+        snapshot = read_serato_snapshot(database)
+
+        assert snapshot.available is True
+        assert [entry.title for entry in snapshot.playing] == ["Loaded"]
+        assert _listing(tmp_path) == side_files
+        assert _digest(database) == before
+    finally:
+        builder.close()
+
+
+def test_a_rollback_journal_database_creates_no_side_file(tmp_path: Path) -> None:
+    database = tmp_path / "master.sqlite"
+    _build_database(database, [(7, 1_699_000_000, -1)], [_entry(1, name="Loaded")])
+    assert _listing(tmp_path) == ["master.sqlite"]
+    before = _digest(database)
+
+    snapshot = read_serato_snapshot(database)
+
+    assert snapshot.available is True
+    assert [entry.title for entry in snapshot.playing] == ["Loaded"]
+    assert _listing(tmp_path) == ["master.sqlite"]
+    assert _digest(database) == before
+
+
+_SLOW_HISTORY_VIEW = (
+    "CREATE VIEW history_entry AS SELECT 1 AS id, 7 AS session_id, 1 AS deck, 1 AS start_time, -1 AS end_time, "
+    "'Slow' AS name, 'Slow' AS artist, 128.0 AS bpm, '8A' AS key, 'Slow.flac' AS portable_id "
+    "FROM (WITH RECURSIVE n(i) AS ("
+    # One row out, seconds of work in: the read has to be cut short, not awaited.
+    "SELECT 1 UNION ALL SELECT i + 1 + 0 * length(randomblob(200)) FROM n WHERE i < 8000000"
+    ") SELECT count(*) FROM n)"
+)
+
+
+def test_a_statement_that_runs_too_long_is_interrupted(tmp_path: Path) -> None:
+    database = tmp_path / "master.sqlite"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE history_session (id INTEGER PRIMARY KEY, start_time INTEGER)")
+        connection.execute("INSERT INTO history_session VALUES (7, 1_699_000_000)")
+        connection.execute(_SLOW_HISTORY_VIEW)
+    started = time.monotonic()
+
+    snapshot = read_serato_snapshot(database)
+
+    elapsed = time.monotonic() - started
+    assert snapshot.available is False
+    assert snapshot.reason == SERATO_BUSY
+    assert snapshot.playing == () and snapshot.played == ()
+    # The statement really did outlive the budget: what answered is the deadline.
+    assert MAX_READ_SECONDS / 2 < elapsed < 2 * MAX_READ_SECONDS, f"took {elapsed:.2f}s"
+
+
 def test_reading_leaves_the_database_byte_identical(tmp_path: Path) -> None:
     database = tmp_path / "master.sqlite"
     _build_database(
@@ -197,6 +301,17 @@ def test_reading_leaves_the_database_byte_identical(tmp_path: Path) -> None:
     assert snapshot.available is True
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
     assert sorted(path.name for path in tmp_path.iterdir()) == ["master.sqlite"]
+
+
+def test_an_entry_played_after_fifty_ended_ones_moves_the_snapshot_mark(tmp_path: Path) -> None:
+    database = tmp_path / "master.sqlite"
+    ended = [_entry(index, end_time=index + 1, start_time=index) for index in range(2, 53)]
+    _build_database(database, [(7, 1_699_000_000, -1)], ended)
+
+    first = read_serato_snapshot(database)
+
+    assert len(first.played) == MAX_PLAYED_ENTRIES
+    assert first.last_played_id == 52
 
 
 def test_the_public_shape_carries_serato_fields_and_never_a_path(tmp_path: Path) -> None:
