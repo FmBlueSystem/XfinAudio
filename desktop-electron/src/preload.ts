@@ -5,7 +5,7 @@ import {contextBridge,ipcRenderer} from 'electron';
 const invoke = (method:string,params?:unknown)=>ipcRenderer.invoke('xfin:action',method,params);
 contextBridge.exposeInMainWorld('xfin',Object.freeze({
   previewLegacyImport:()=>invoke('previewLegacyImport'),applyLegacyImport:(params:unknown)=>invoke('applyLegacyImport',params),discardLegacyImport:(params:unknown)=>invoke('discardLegacyImport',params),
-  reviewDetails:(params:unknown)=>invoke('reviewDetails',params),reviewCompare:(params:unknown)=>invoke('reviewCompare',params),reviewRemove:(params:unknown)=>invoke('reviewRemove',params),reviewReorder:(params:unknown)=>invoke('reviewReorder',params),
+  reviewDetails:(params:unknown)=>invoke('reviewDetails',params),reviewCompare:(params:unknown)=>invoke('reviewCompare',params),reviewRemove:(params:unknown)=>invoke('reviewRemove',params),reviewReplace:(params:unknown)=>invoke('reviewReplace',params),reviewExtend:(params:unknown)=>invoke('reviewExtend',params),reviewReorder:(params:unknown)=>invoke('reviewReorder',params),reviewUndo:(params:unknown)=>invoke('reviewUndo',params),reviewRedo:(params:unknown)=>invoke('reviewRedo',params),reviewResume:()=>invoke('reviewResume'),
   prepSettings:()=>invoke('prepSettings'),savePrepSettings:(params:unknown)=>invoke('savePrepSettings',params),
   queryLibrary:(params:unknown)=>invoke('queryLibrary',params),searchPlaylists:(params:unknown)=>invoke('searchPlaylists',params),comparePlaylists:(params:unknown)=>invoke('comparePlaylists',params),
   deletePlaylist:(params:unknown)=>invoke('deletePlaylist',params),listDeletedPlaylists:()=>invoke('listDeletedPlaylists'),restorePlaylist:(params:unknown)=>invoke('restorePlaylist',params),
@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('xfin',Object.freeze({
   getAiStatus:()=>invoke('getAiStatus'),saveAiSettings:(params:unknown)=>invoke('saveAiSettings',params),
   chooseAiCredential:(params:unknown)=>invoke('chooseAiCredential',params),clearAiCredential:(params:unknown)=>invoke('clearAiCredential',params),
   prepareAiRequest:(params:unknown)=>invoke('prepareAiRequest',params),inspectAiPayload:(params:unknown)=>invoke('inspectAiPayload',params),runAiRequest:(params:unknown)=>invoke('runAiRequest',params),applyAiSuggestion:(params:unknown)=>invoke('applyAiSuggestion',params),
+  aiChatHistory:()=>invoke('aiChatHistory'),aiChatReset:()=>invoke('aiChatReset'),aiChatApply:(params:unknown)=>invoke('aiChatApply',params),
   revealLoudnessBackups:()=>invoke('revealLoudnessBackups'),
   revealLogs:()=>invoke('revealLogs'),
   getLoudnessStatus:()=>invoke('getLoudnessStatus'),saveLoudnessSettings:(params:unknown)=>invoke('saveLoudnessSettings',params),

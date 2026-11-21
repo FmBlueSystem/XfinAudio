@@ -118,8 +118,16 @@ h3 { font-weight: 550; font-size: 18px; letter-spacing: -.35px; }
 .review-summary h3 { margin: 9px 0; font-size: 22px; }.review-summary p { color: #909aa7; font-size: 11px; margin: 0; }
 .readiness-pill { color: #b7d7ca; background: #2a4238; padding: 8px 12px; border-radius: 5px; font-size: 10px; }
 .readiness-pill.needs_review { background: #473e2c; color: #d9c59b; }.readiness-pill.blocked { background: #492e32; color: #e3a8b0; }
+/* Transition quality per row: green, amber and red, never colour alone — the label carries it. */
+.transition-quality { white-space: nowrap; }.transition-quality.good { color: #b7d7ca; }.transition-quality.fair { color: #d9c59b; }.transition-quality.weak { color: #e3a8b0; }
+.review-fixes li { margin-top: 6px; }.review-fixes .field-hint { margin: 4px 0; }
 .review-notice { border: 1px solid #594b31; background: #29251e; border-radius: 6px; padding: 14px 18px; margin-bottom: 16px; color: #cbbc9f; font-size: 11px; line-height: 1.7; }
 .review-notice ul { margin: 8px 0 0; padding-left: 19px; }.review-notice.blocker { border-color: #633b42; background: #2c1f24; color: #d4a0a8; }
+/* S4: the discard question is modal, so the review behind it stays exactly as it was. */
+#discard-guard { border: 1px solid #594b31; background: #29251e; color: #dfd6c4; border-radius: 8px; padding: 22px 24px; max-width: 440px; font: inherit; font-size: 12px; line-height: 1.7; }
+#discard-guard::backdrop { background: rgba(6, 8, 10, .74); }
+#discard-guard .discard-guard-message { margin: 0; }
+#discard-guard .editor-actions { margin: 18px 0 0; }
 .library-recovery { display: flex; align-items: center; gap: 18px; margin-top: 16px; }
 .library-window { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 0 16px 16px; }
 .library-window .field-hint { margin: 0; }
@@ -176,6 +184,14 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 .track-result-title { color: #e7e9ec; overflow-wrap: anywhere; }
 .track-result-artist { color: #b9bec6; font-size: 10px; overflow-wrap: anywhere; }
 .track-result-meta { grid-row: 1 / span 2; grid-column: 2; align-self: center; color: #7d8794; font-size: 10px; white-space: nowrap; }
+.track-chips { display: flex; flex-direction: column; gap: 6px; margin: 0 0 9px; padding: 0; list-style: none; }
+.track-chip { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: #1d1f24; border: 1px solid #33363c; border-radius: 5px; font-size: 11px; }
+.track-chip[data-state="unavailable"] { border-color: #b4553f; }
+.track-chip-body { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.track-chip-label { color: #e7e9ec; overflow-wrap: anywhere; }
+.track-chip-meta { color: #7d8794; font-size: 10px; }
+.track-chip .text-button { margin-left: auto; }
+.track-chip-empty { padding: 8px 10px; background: #1d1f24; border: 1px solid #33363c; border-radius: 5px; color: #7d8794; font-size: 11px; }
 #catalog-retry { margin-top: 9px; }
 .prep-variants { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 24px; }
 .prep-variant { display: flex; flex-direction: column; padding: 18px; min-width: 0; }.prep-variant h3 { margin: 0 0 10px; }.prep-variant p { color: #a4acb7; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }.prep-variant .readiness-pill { align-self: flex-start; }.prep-variant .button { margin-top: auto; white-space: normal; }.prep-variant [aria-pressed=true] { border-color: var(--cyan); color: var(--cyan); }
@@ -247,6 +263,43 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 #optional-ai-settings-link { margin: 12px 0; }
 #optional-ai-config { margin: 14px 0; }
 #optional-ai-container textarea { width: 100%; background: #14161a; color: #e7e9ec; border: 1px solid #373b42; border-radius: 5px; padding: 12px; font: inherit; }
+/* The list assistant: a conversation over the generated list, never a control over it. */
+#list-chat-container { margin-bottom: 0; }
+/* S1: a round bot button fixed at the bottom right and a non-modal floating window. */
+.bot-window-root { position: fixed; right: 24px; bottom: 104px; z-index: 60; display: flex; flex-direction: column-reverse; align-items: flex-end; gap: 12px; }
+.bot-window-root[hidden] { display: none; }
+.bot-button { position: relative; width: 56px; height: 56px; border-radius: 50%; border: 1px solid #3b4650; background: #1a1d21; color: #c4ded7; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); }
+.bot-button:hover { border-color: #4b8bbf; color: #e7e9ec; }
+.bot-button:focus-visible { outline: 2px solid #4b8bbf; outline-offset: 2px; }
+.bot-badge { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #b4472f; color: #fff; font-size: 11px; line-height: 20px; text-align: center; }
+.bot-badge[hidden] { display: none; }
+.bot-window { width: min(440px, calc(100vw - 48px)); max-height: min(70vh, 640px); overflow: auto; padding: 16px 18px; background: #16181c; border: 1px solid #33373e; border-radius: 10px; box-shadow: 0 18px 40px rgba(0, 0, 0, .45); }
+.bot-window[hidden] { display: none; }
+.bot-window-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.bot-window-header h3 { margin: 0; font-size: 15px; }
+@media (max-width: 700px) {
+  .bot-window-root { right: 12px; bottom: 96px; }
+  .bot-window { width: calc(100vw - 24px); }
+}
+.list-chat { padding: 0; }
+.list-chat-conversation { list-style: none; margin: 14px 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.list-chat-turn { border: 1px solid #33373e; border-radius: 6px; padding: 10px 14px; background: #1a1d21; }
+.list-chat-turn.list-chat-user { border-color: #3b4650; }
+.list-chat-role { margin: 0 0 4px; color: #b6bec8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.list-chat-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.list-chat-read-again { margin: 0 0 8px; }
+.list-chat textarea { width: 100%; background: #14161a; color: #e7e9ec; border: 1px solid #373b42; border-radius: 5px; padding: 12px; font: inherit; }
+.list-chat > label { display: block; margin: 14px 0 6px; font-size: 12px; }
+/* The proposals of the last reply: one card each, applied only by an explicit click. */
+#list-chat-proposed { margin: 0 0 14px; }
+#list-chat-proposed-heading { margin: 0 0 8px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: #b6bec8; }
+.list-chat-actions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.list-chat-action { border: 1px solid #33373e; border-left: 3px solid #4b8bbf; border-radius: 6px; padding: 10px 14px; background: #1a1d21; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.list-chat-action-title { margin: 0; }
+#list-chat-dropped { margin: 8px 0 0; }
+/* S15: what the last period change replaced, and the tracks that stayed out of the period. */
+#list-chat-period { margin: 0 0 14px; }
+.list-chat-period-kept { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; color: #c3c7ce; font-size: 11px; }
 
 .session-resume { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin: 24px 12px 0; }
 

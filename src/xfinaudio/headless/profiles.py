@@ -57,19 +57,33 @@ def _identity(path: Path, roots: list[Path]) -> tuple[object, ...] | None:
     return None
 
 
-def current_records(repository: TrackRepository, records: list[TrackRecord], roots: list[Path]) -> list[TrackRecord]:
-    """Reject stale versions/identities for both display counts and domain consumers."""
+def current_records(
+    repository: TrackRepository,
+    records: list[TrackRecord],
+    roots: list[Path],
+    *,
+    checked: frozenset[str] | None = None,
+) -> list[TrackRecord]:
+    """Reject stale versions/identities for both display counts and domain consumers.
+
+    ``checked`` names the tracks whose on-disk identity this caller acts on: only those
+    are read from disk, and every other record keeps the profile the scan stored, so a
+    caller that edits part of the library does not re-check the rest of it.
+    """
     paths = [record.path for record in records]
     caches = {field: getattr(repository, f"load_{field}_cache")(paths) for _, field, _, _ in STAGES}
     result = []
     for record in records:
-        identity = _identity(Path(record.path), roots)
+        on_disk = checked is None or record.path in checked
+        identity = _identity(Path(record.path), roots) if on_disk else None
         updates = {}
         for _, field, version, _ in STAGES:
             entry = caches[field].get(record.path)
             # Original cache contract: mtime_ns, size_bytes, profile. Identity's
             # lineage and regular-file checks additionally reject path escapes.
-            valid = identity is not None and entry is not None and (entry[0], entry[1]) == (identity[4], identity[3])
+            valid = entry is not None and (
+                identity is not None and (entry[0], entry[1]) == (identity[4], identity[3]) if on_disk else True
+            )
             updates[field] = entry[2] if valid and entry is not None and entry[2].analysis_version == version else None
         result.append(record.model_copy(update=updates))
     return result

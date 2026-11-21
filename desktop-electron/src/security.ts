@@ -38,13 +38,13 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     ...OFFLINE_FIELDS,...REVIEW_CONTROL_FIELDS,
     previewLegacyImport:[],applyLegacyImport:['previewId'],discardLegacyImport:['previewId'],
     getProfileStatus:[],completeProfiles:[],getProfileSettings:[],saveProfileSettings:['revision','spectralCohesion'],
-    getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],
+    getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],aiChatHistory:[],aiChatReset:[],aiChatApply:['actionId'],
     getLoudnessStatus:[],revealLoudnessBackups:[],revealLogs:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
     chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
     chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],prepGenres:['startTrackId','genre'],selectPrepVariant:['planId','variant'],
-    generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds'],
+    generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds','yearMin','yearMax'],
     savePlaylist:['name','reviewId'],listPlaylists:[],renamePlaylist:['playlistId','name'],duplicatePlaylist:['playlistId'],openPlaylistEditor:['playlistId'],
     previewPlaylistEdit:['editId','trackIds','request'],savePlaylistEdit:['editId','name','trackIds'],savePlaylistImprovement:['editId','name','proposalId','digest','draftIds'],discardPlaylistEdit:['editId'],setDraftDirty:['dirty'],openPlaylist:['playlistId'],cancelCurrent:[],
   };
@@ -78,6 +78,13 @@ function validatePrepIntent(params:Record<string,unknown>):void {
   if('targetMinutes' in params && (typeof params.targetMinutes!=='number'||!Number.isFinite(params.targetMinutes)||params.targetMinutes<=0||params.targetMinutes>600))throw new Error('Choose a duration greater than zero and at most 600 minutes');
   if('slotRole' in params && params.slotRole!==null && (typeof params.slotRole!=='string'||!['warmup','peak_time','chill'].includes(params.slotRole)))throw new Error('Invalid slot role');
   if('genreFocus' in params && (typeof params.genreFocus!=='string'||params.genreFocus.length>100||/[\x00-\x1f]/.test(params.genreFocus)))throw new Error('Invalid genre');
+  // S16: the optional release period. Whole years only, and a bound that arrives alone
+  // is an open range, so nothing is defaulted here.
+  for(const name of ['yearMin','yearMax'])if(name in params){
+    const value=params[name];
+    if(!Number.isInteger(value)||Number(value)<1900||Number(value)>2100)throw new Error('Invalid release year');
+  }
+  if(Number.isInteger(params.yearMin)&&Number.isInteger(params.yearMax)&&Number(params.yearMin)>Number(params.yearMax))throw new Error('The initial year cannot be greater than the final year');
   for(const name of ['startTrackId','endTrackId'])if(name in params)assertTrackId(params[name]);
   for(const name of ['requiredTrackIds','excludedTrackIds']) {
     if(!(name in params))continue;
@@ -174,13 +181,18 @@ function validateAiRequest(method:string,params:Record<string,unknown>):void {
   if(method==='saveAiSettings'&&'autoAuthorize' in params&&typeof params.autoAuthorize!=='boolean')throw new Error('Invalid optional AI setting');
   if(['runAiRequest','inspectAiPayload'].includes(method)&&(typeof params.previewId!=='string'||!uuid.test(params.previewId)))throw new Error('Invalid AI preview');
   if(method==='applyAiSuggestion'&&(typeof params.resultId!=='string'||!uuid.test(params.resultId)))throw new Error('Invalid AI result');
+  // A proposed change is applied by its opaque action id alone; the core owns the position,
+  // the type and the replacement, so the renderer can neither supply nor widen them.
+  if(method==='aiChatApply'&&(typeof params.actionId!=='string'||!uuid.test(params.actionId)))throw new Error('Invalid AI action');
   if(method!=='prepareAiRequest')return;
   const {surface,request,context}=params;
-  if(typeof surface!=='string'||!['library','prep','review','saved','editor','metadata','live','connection'].includes(surface)||typeof request!=='string'||request.length>2000||request.includes('\0')||!context||typeof context!=='object'||Array.isArray(context))throw new Error('Invalid AI request');
+  if(typeof surface!=='string'||!['library','prep','review','chat','saved','editor','metadata','live','connection'].includes(surface)||typeof request!=='string'||request.length>2000||request.includes('\0')||!context||typeof context!=='object'||Array.isArray(context))throw new Error('Invalid AI request');
   const item=context as Record<string,unknown>,keys=Object.keys(item).sort().join(',');
   const token=(value:unknown)=>typeof value==='string'&&uuid.test(value);
   if(['library','prep','metadata','connection'].includes(surface)&&keys)throw new Error('Unexpected AI context');
-  if(surface==='review'&&(keys!=='reviewId'||!token(item.reviewId)))throw new Error('Invalid review context');
+  // A chat turn selects the current generated review exactly as its commentary does, and
+  // differs only in carrying the user's message instead of the fixed empty request.
+  if(['review','chat'].includes(surface)&&(keys!=='reviewId'||!token(item.reviewId)))throw new Error('Invalid review context');
   if(surface==='editor') {
     const improvement=keys==='draftIds,editId,includeReplacements';
     if(keys!=='editId'&&!improvement)throw new Error('Invalid editor context');
@@ -194,5 +206,5 @@ function validateAiRequest(method:string,params:Record<string,unknown>):void {
   }
   if(surface==='live'&&(keys!=='revision,sessionId'||!token(item.sessionId)||!Number.isInteger(item.revision)||Number(item.revision)<0||Number(item.revision)>500))throw new Error('Invalid Live context');
   if(surface==='saved'&&keys){const ids=item.playlistIds;if(keys!=='playlistIds'||!Array.isArray(ids)||ids.length<1||ids.length>200||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!/^[1-9]\d{0,14}$/.test(id)))throw new Error('Invalid saved-set scope');}
-  if(['library','prep','editor','saved'].includes(surface)?!request.trim():request!==(surface==='connection'?'Reply with OK. XfinAudio connection test.':''))throw new Error('Invalid request text for this surface');
+  if(['library','prep','editor','saved','chat'].includes(surface)?!request.trim():request!==(surface==='connection'?'Reply with OK. XfinAudio connection test.':''))throw new Error('Invalid request text for this surface');
 }

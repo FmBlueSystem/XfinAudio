@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.recommendation import candidate_pool
@@ -66,11 +66,25 @@ class DJSetIntent(BaseModel):
     required_paths: list[str] = Field(default_factory=list)
     excluded_paths: set[str] = Field(default_factory=set)
     genre_focus: str | None = None
+    # S16: the optional release period the DJ typed into the Prep form. With a
+    # period, only library tracks whose release year is inside it are candidates;
+    # the chosen opening, closing and required tracks stay whatever their year.
+    # Either bound alone is an open range and both empty means no limit, so older
+    # serialized intents stay valid.
+    year_min: int | None = Field(default=None, ge=1900, le=2100)
+    year_max: int | None = Field(default=None, ge=1900, le=2100)
     # Diagnostics preamble recorded by the caller BEFORE the plan ran (e.g. a
     # desktop genre prefilter), prepended to every variant's pool notes so the
     # Tracks tooltip explains shrink steps upstream of the incoming pool.
     # Optional so older serialized intents stay valid.
     pool_note_preamble: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_period(self) -> DJSetIntent:
+        """A period that ends before it starts is not a period the form accepts."""
+        if self.year_min is not None and self.year_max is not None and self.year_min > self.year_max:
+            raise ValueError("The initial year cannot be greater than the final year")
+        return self
 
 
 class PrepCopilotVariant(BaseModel):
@@ -261,6 +275,25 @@ def _build_variant(
     )
 
 
+def period_keeps_track(intent: DJSetIntent, track: TrackRecord) -> bool:
+    """S16: with a period, only in-period tracks are candidates.
+
+    The opening, closing and required tracks the DJ chose are kept whatever their
+    year, exactly like the genre focus keeps its protected paths. A track whose
+    release year is unknown is never inside a named period, so it stops being a
+    candidate (the same rule the year-limited library search follows). No period
+    at all keeps every track, so an older request plans exactly as it did before.
+    """
+    if intent.year_min is None and intent.year_max is None:
+        return True
+    if track.path in _protected_paths(intent):
+        return True
+    year = track.release_year
+    if year is None:
+        return False
+    return (intent.year_min is None or year >= intent.year_min) and (intent.year_max is None or year <= intent.year_max)
+
+
 def _filter_tracks_for_variant(
     name: PrepVariantName, tracks: list[TrackRecord], intent: DJSetIntent
 ) -> tuple[list[TrackRecord], list[str]]:
@@ -272,11 +305,16 @@ def _filter_tracks_for_variant(
     zero-match focus falls back to the incoming pool WITH a warning instead of
     silently shrinking the pool to the protected paths (the anchor when nothing
     else was selected) -- that silent shrink was the 1-track variant bug.
+
+    The release period (S16) narrows the candidates FIRST and for every variant:
+    unlike the genre focus it is a hard scope the DJ asked for, not a preference
+    the adventurous variant may bridge out of.
     """
+    scoped = [track for track in tracks if period_keeps_track(intent, track)]
     if intent.genre_focus is None:
-        return tracks, []
+        return scoped, []
     if name == "adventurous":
-        return tracks, [f"adventurous variant may bridge outside genre focus: {intent.genre_focus}"]
+        return scoped, [f"adventurous variant may bridge outside genre focus: {intent.genre_focus}"]
     protected = _protected_paths(intent)
     balanced = name == "balanced"
 
@@ -285,9 +323,9 @@ def _filter_tracks_for_variant(
             balanced and matches_requested_genre_tag(track.tags, intent.genre_focus)
         )
 
-    focused = [track for track in tracks if track.path in protected or _matches(track)]
-    if not any(_matches(track) for track in tracks):
-        return tracks, [f"No tracks match genre focus '{intent.genre_focus}'; keeping the full candidate pool"]
+    focused = [track for track in scoped if track.path in protected or _matches(track)]
+    if not any(_matches(track) for track in scoped):
+        return scoped, [f"No tracks match genre focus '{intent.genre_focus}'; keeping the full candidate pool"]
     return focused, []
 
 
@@ -412,6 +450,7 @@ __all__ = [
     "PrepCopilotVariant",
     "PrepVariantName",
     "build_prep_copilot_plan",
+    "period_keeps_track",
 ]
 
 

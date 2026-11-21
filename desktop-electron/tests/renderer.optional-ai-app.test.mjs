@@ -9,6 +9,11 @@ class Element extends EventTarget {
   append(...nodes) { this.children.push(...nodes); } replaceChildren(...nodes) { this.children = nodes; } closest() { return null; } focus() { this.focused = true; } pause() { this.paused = true; } load() {} async play() { this.paused = false; }
 }
 const all = (node) => [node, ...node.children.flatMap(all)]; const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
+const visibleTitles = (node, hidden = false) => {
+  const isHidden = hidden || node.hidden === true;
+  const own = !isHidden && node.textContent === 'Asistente de lista' ? [node] : [];
+  return [...own, ...node.children.flatMap((child) => visibleTitles(child, isHidden))];
+};
 const tick = () => new Promise((resolve) => setImmediate(resolve)); const settle = async () => { for (let i = 0; i < 5; i++) await tick(); };
 const prefs = (patch = {}) => ({ revision: 'a'.repeat(64), previewVolume: .25, watchLibrary: true, recoveryWarning: false, libraryLabels: ['DJ'], capabilities: { loudnessWriteback: false, providers: false, language: 'es' }, ...patch });
 const status = (patch = {}) => ({ revision: 1, changeState: 'restored', watchState: 'active', rootCount: 1, watchedCount: 1, ...patch });
@@ -22,12 +27,20 @@ async function fixture(overrides = {}) {
   const previousDocument = globalThis.document; const previousWindow = globalThis.window; const elements = new Map(); const calls = []; let onStatus; let progress; let statusUnsubscribed = false;
   const nodes = () => [...elements.values()].flatMap(all); const get = (id) => { const dynamic = nodes().find((node) => node.id === id); if (dynamic) return dynamic; if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); };
   const routes = ['library', 'preferences', 'loudness', 'ai', 'prep', 'metadata', 'playlists', 'editor', 'review', 'live', 'serato'].map((route) => { const button = new Element('button'); button.dataset.route = route; return button; });
-  let aiSurface = 'library'; const aiKinds = { library:'filters', prep:'intent', editor:'editor_request', saved:'saved_selection', review:'commentary', metadata:'commentary', live:'commentary', connection:'connection' };
+  let aiSurface = 'library'; const aiKinds = { library:'filters', prep:'intent', editor:'editor_request', saved:'saved_selection', review:'commentary', metadata:'commentary', live:'commentary', connection:'connection', chat:'chat' };
+  // The list assistant keeps one conversation in the core: the bridge exposes the two
+  // no-param methods the chat panel calls, and a chat turn returns the stored list.
+  let chatConversation = [];
+  // The pending proposals the fake core holds for this conversation.
+  let chatActions = [];
   const api = {
+    aiChatHistory: async () => { calls.push(['aiChatHistory']); return { conversation: chatConversation.map((item) => ({ ...item })), actions: chatActions.map((item) => ({ ...item })) }; },
+    aiChatReset: async () => { calls.push(['aiChatReset']); chatConversation = []; chatActions = []; return { conversation: [], actions: [] }; },
+    aiChatApply: async (input) => { calls.push(['aiChatApply', input]); throw new Error('unreachable'); },
     getAiStatus: async () => { calls.push(['aiStatus']); return aiStatus; }, saveAiSettings: async (input) => { calls.push(['aiSave',input]); return {...aiStatus,...input}; }, chooseAiCredential: async () => aiStatus, clearAiCredential: async () => ({...aiStatus,configured:false,credentialLabel:null}),
-    prepareAiRequest: async (input) => { calls.push(['aiPrepare',input]); aiSurface=input.surface; return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,disclosure:['Datos autorizados'],requestPreview:input.request}; },
+    prepareAiRequest: async (input) => { calls.push(['aiPrepare',input]); aiSurface=input.surface; return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,disclosure:['Datos autorizados'],requestPreview:input.request,firstTurn:chatConversation.length===0}; },
     inspectAiPayload: async (input) => { calls.push(['aiPayload',input]); return {previewId:aiUuid,surface:aiSurface,recipient:aiStatus.recipient,request:'',body:'{"model":"deepseek","messages":[]}',bytes:31,truncated:false}; },
-    runAiRequest: async (input) => { calls.push(['aiRun',input]); return {cancelled:false,result:{resultId:aiUuid,surface:aiSurface,kind:aiKinds[aiSurface],title:'Propuesta IA',text:'Revisión local',proposal:{summary:'sugerencia'},canApply:true}}; },
+    runAiRequest: async (input) => { calls.push(['aiRun',input]); if (aiSurface === 'chat') { chatConversation = [...chatConversation, { role: 'user', text: 'Pregunta de la lista' }, { role: 'assistant', text: 'Pista sugerida: la segunda.' }]; return {cancelled:false,result:{resultId:aiUuid,surface:'chat',kind:'chat',title:'Asistente de lista',text:'Pista sugerida: la segunda.',proposal:null,canApply:false,conversation:chatConversation.map((item)=>({...item})),listChanged:true,actions:chatActions.map((item)=>({...item})),droppedActions:0}}; } return {cancelled:false,result:{resultId:aiUuid,surface:aiSurface,kind:aiKinds[aiSurface],title:'Propuesta IA',text:'Revisión local',proposal:{summary:'sugerencia'},canApply:true}}; },
     applyAiSuggestion: async (input) => { calls.push(['aiApply',input]); return {surface:aiSurface,data:aiSurface==='library'?{filters:{genres:['house']},trackIds:[tracks[0].id]}:aiSurface==='prep'?{targetTrackCount:2,name:'Sesión propuesta',targetMinutes:30}:aiSurface==='editor'?{request:'acorta a 2 temas'}:{action:'compare',playlistIds:['1'],comparison:'Comparación local <img src=x>',names:['Set']}}; },
     getLoudnessStatus: async () => { calls.push(['loudness']); return loudness(); },
     saveLoudnessSettings: async (input) => { calls.push(['saveLoudness', input]); return loudness({ ...input, revision: 'b'.repeat(64) }); },
@@ -49,7 +62,7 @@ async function fixture(overrides = {}) {
   globalThis.window = Object.assign(new EventTarget(), { xfin: api }); get('metadata-filter').value = 'all'; get('prep-count').value = '2';
   await import(`../.out/renderer/app.js?optionalAiApp=${++sequence}`); await settle();
   const click = (id) => get(id).dispatchEvent(new Event('click')); const navigate = async (route) => { routes.find((button) => button.dataset.route === route).dispatchEvent(new Event('click')); await settle(); };
-  return { get, calls, nodes, click, navigate, openAi: async () => { get('ai-panel').open = true; get('ai-panel').dispatchEvent(new Event('toggle')); await settle(); }, progress: (event) => progress(event), event: (value) => { assert.equal(typeof onStatus, 'function'); onStatus(value); }, offline: () => progress({ operation: 'core', phase: 'error', message: '/private/core' }), statusUnsubscribed: () => statusUnsubscribed, generate: async () => { get('prep-form').dispatchEvent(new Event('submit', { cancelable: true })); await settle(); }, restore: () => { window.dispatchEvent(new Event('beforeunload')); globalThis.document = previousDocument; globalThis.window = previousWindow; } };
+  return { get, calls, nodes, click, chatActions: (value) => { chatActions = value; }, navigate, openAi: async () => { get('ai-panel').open = true; get('ai-panel').dispatchEvent(new Event('toggle')); await settle(); }, progress: (event) => progress(event), event: (value) => { assert.equal(typeof onStatus, 'function'); onStatus(value); }, offline: () => progress({ operation: 'core', phase: 'error', message: '/private/core' }), statusUnsubscribed: () => statusUnsubscribed, generate: async () => { get('prep-form').dispatchEvent(new Event('submit', { cancelable: true })); await settle(); }, restore: () => { window.dispatchEvent(new Event('beforeunload')); globalThis.document = previousDocument; globalThis.window = previousWindow; } };
 }
 async function aiReady(f, route = 'library', request = 'Busca house') { await f.navigate(route); await f.openAi(); f.get('optional-ai-request').value = request; f.get('optional-ai-request').dispatchEvent(new Event('input')); f.click('optional-ai-prepare'); await settle(); f.get('optional-ai-consent').checked = true; f.get('optional-ai-consent').dispatchEvent(new Event('change')); }
 async function aiResult(f, route = 'library') { await aiReady(f, route); f.click('optional-ai-ask'); await settle(); }
@@ -463,5 +476,206 @@ test('the editor CTA re-renders with a save-or-discard hint when the AI draft be
     await settle();
     assert.equal(f.get('editor-improve').disabled, true);
     assert.match(f.get('editor-improve-hint').textContent, /cambios de IA/);
+  } finally { f.restore(); }
+});
+
+test('the review screen offers the bot button, and the floating «Asistente de lista» keeps the whole chat with history on open, a turn, a reset and the untouched review commentary', async () => {
+  const f = await fixture();
+  try {
+    await f.generate();
+    assert.equal(f.get('bot-window-root').hidden, false);
+    assert.equal(f.get('bot-window').hidden, true);
+    assert.equal(f.get('bot-window-toggle').attrs['aria-label'], 'Abrir asistente de lista');
+    assert.ok(!all(f.get('ai-panel')).some((node) => node.id === 'list-chat-container'), 'the list chat left the AI panel');
+    assert.equal(f.calls.some(([kind]) => kind === 'aiChatHistory'), false);
+    // Opening the existing AI panel no longer loads the list conversation.
+    await f.openAi();
+    assert.equal(f.calls.some(([kind]) => kind === 'aiChatHistory'), false);
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('bot-window').hidden, false);
+    assert.equal(f.get('bot-window-heading').textContent, 'Asistente de lista');
+    assert.equal(f.calls.filter(([kind]) => kind === 'aiChatHistory').length, 1);
+    assert.match(text(f.get('list-chat-empty')), /Pregunta cómo mejorar esta lista/);
+    const draft = f.get('list-chat-request');
+    draft.value = '¿Qué transiciones son las más débiles?';
+    draft.dispatchEvent(new Event('input'));
+    f.click('list-chat-send'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], { surface: 'chat', request: '¿Qué transiciones son las más débiles?', context: { reviewId: aiUuid } });
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiRun')[1], { previewId: aiUuid });
+    assert.match(text(f.get('list-chat-conversation')), /Pista sugerida: la segunda\./);
+    assert.equal(f.get('list-chat-request').value, '');
+    assert.equal(f.get('list-chat-pending').hidden, true);
+    // Minimizar hides the window and keeps the conversation; the button reopens it.
+    f.click('bot-window-minimize'); await settle();
+    assert.equal(f.get('bot-window').hidden, true);
+    assert.match(text(f.get('list-chat-conversation')), /Pista sugerida: la segunda\./);
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('bot-window').hidden, false);
+    f.click('list-chat-reset'); await settle();
+    assert.equal(f.calls.some(([kind]) => kind === 'aiChatReset'), true);
+    assert.equal(f.get('list-chat-conversation').children.length, 0);
+    assert.equal(f.get('list-chat-empty').hidden, false);
+    // The existing review commentary keeps working beside the chat.
+    f.click('optional-ai-prepare'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiPrepare')[1], { surface: 'review', request: '', context: { reviewId: aiUuid } });
+    await f.navigate('library');
+    assert.equal(f.get('bot-window-root').hidden, true);
+    assert.equal(f.get('bot-window').hidden, true);
+  } finally { f.restore(); }
+});
+test('the bot badge counts the proposed changes and clears once they are applied, and Escape minimizes the window', async () => {
+  const f = await fixture({ aiChatApply: async (input) => { f.calls.push(['aiChatApply', input]); return { review: appliedChatReview, actions: [] }; } });
+  try {
+    await f.generate();
+    f.chatActions([chatMove]);
+    assert.equal(f.get('bot-window-badge').hidden, true, 'nothing pending before the window reads the conversation');
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('bot-window-badge').hidden, false);
+    assert.equal(f.get('bot-window-badge').textContent, '1');
+    f.click('list-chat-apply-0'); await settle();
+    assert.equal(f.get('bot-window-badge').hidden, true);
+    assert.equal(f.get('bot-window').hidden, false);
+    window.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Escape' }));
+    await settle();
+    assert.equal(f.get('bot-window').hidden, true);
+    assert.equal(f.get('list-chat-empty').hidden, false, 'the chat stays mounted while minimised');
+  } finally { f.restore(); }
+});
+const chatMove = { actionId: '33333333-3333-4333-8333-333333333333', type: 'move', position: 1, to: 2, title: 'a', artist: 'DJ', reason: 'Sube la energía del inicio' };
+const appliedChatReview = { reviewId: '22222222-2222-4222-8222-222222222222', tracks: [{ ...tracks[0], title: 'Cambio aplicado' }, tracks[1]], warnings: [], blockers: [], name: 'Set', variant: 'balanced', readiness: 'ready' };
+test('the review assistant shows the pending actions from history and one click applies a change on screen', async () => {
+  const f = await fixture({ aiChatApply: async (input) => { f.calls.push(['aiChatApply', input]); return { review: appliedChatReview, actions: [] }; } });
+  try {
+    await f.generate();
+    f.chatActions([chatMove]);
+    f.click('bot-window-toggle'); await settle();
+    // S9 is off for this turn: the cards stay and one click applies one change.
+    f.get('list-chat-auto-toggle').checked = false;
+    f.get('list-chat-auto-toggle').dispatchEvent(new Event('change'));
+    assert.equal(f.get('list-chat-proposed').hidden, false);
+    assert.match(text(f.get('list-chat-proposed')), /Cambios propuestos/);
+    assert.equal(f.get('list-chat-proposed-actions').children[0].children[0].textContent, 'Mover 1. a a la posición 2');
+    const draft = f.get('list-chat-request');
+    draft.value = '¿Qué pistas cambio?';
+    draft.dispatchEvent(new Event('input'));
+    f.click('list-chat-send'); await settle();
+    assert.ok(text(f.get('list-chat-conversation')).includes('Pista sugerida: la segunda.'));
+    f.click('list-chat-apply-0'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiChatApply')[1], { actionId: chatMove.actionId });
+    assert.ok(text(f.get('review-table')).includes('Cambio aplicado'));
+    assert.equal(f.get('list-chat-notice').textContent, 'Cambio aplicado. Puedes deshacerlo con Deshacer.');
+    assert.equal(f.get('list-chat-proposed').hidden, true);
+    // The edit minted a new review, but this conversation and its cards keep their place.
+    assert.ok(text(f.get('list-chat-conversation')).includes('Pista sugerida: la segunda.'));
+    assert.equal(f.get('list-chat-pending').hidden, true);
+  } finally { f.restore(); }
+});
+test('a stale assistant action shows the existing Spanish error and removes the cards', async () => {
+  const f = await fixture({ aiChatApply: async () => { throw Object.assign(new Error('gone'), { code: 'stale_ai' }); } });
+  try {
+    await f.generate();
+    f.chatActions([chatMove]);
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('list-chat-proposed').hidden, false);
+    f.click('list-chat-apply-0'); await settle();
+    assert.equal(f.get('list-chat-error').hidden, false);
+    assert.equal(f.get('list-chat-error').textContent, 'El contexto o la solicitud cambió. Prepara otra vista previa y revisa de nuevo el consentimiento.');
+    assert.equal(f.get('list-chat-proposed').hidden, true);
+    assert.ok(!text(f.get('review-table')).includes('Cambio aplicado'));
+  } finally { f.restore(); }
+});
+const chatExtend = { actionId: '44444444-4444-4444-8444-444444444444', type: 'extend', to: 20, reason: 'Faltaron pistas para la sesión' };
+const chatVariant = { actionId: '55555555-5555-4555-8555-555555555555', type: 'use_variant', variant: 'adventurous', trackCount: 20, reason: 'La exploratoria entra sin perder el orden' };
+const chatPlan = () => [['safe', 4], ['balanced', 4], ['adventurous', 20]].map(([name, trackCount]) => ({ name, description: `Motor ${name}`, trackCount, warnings: [], blockers: [], readiness: 'ready', qualityScore: .8 }));
+test('the assistant extend card grows the list and shows the added count', async () => {
+  const f = await fixture({ aiChatApply: async (input) => { f.calls.push(['aiChatApply', input]); return { review: appliedChatReview, actions: [], extended: { requested: 18, added: 18, outsideGenre: 0 } }; } });
+  try {
+    await f.generate();
+    f.chatActions([chatExtend]);
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('list-chat-proposed-actions').children[0].children[0].textContent, 'Ampliar la lista a 20 pistas');
+    f.click('list-chat-apply-0'); await settle();
+    assert.deepEqual(f.calls.findLast(([kind]) => kind === 'aiChatApply')[1], { actionId: chatExtend.actionId });
+    assert.ok(text(f.get('review-table')).includes('Cambio aplicado'));
+    assert.equal(f.get('list-chat-notice').textContent, 'Se agregaron 18 pistas.');
+  } finally { f.restore(); }
+});
+test('choosing the proposed alternative opens that variant and starts a new conversation', async () => {
+  const f = await fixture({
+    generatePrep: async (input) => { f.calls.push(['generate', input]); return { reviewId: aiUuid, planId: 'plan', variants: chatPlan(), name: 'Set', variant: 'balanced', readiness: 'ready', tracks, warnings: [], blockers: [] }; },
+    selectPrepVariant: async (input) => { f.calls.push(['select', input]); return { reviewId: '66666666-6666-4666-8666-666666666666', name: 'Set', variant: input.variant, readiness: 'ready', tracks: [...tracks, tracks[0]], warnings: [], blockers: [] }; },
+  });
+  try {
+    await f.generate();
+    f.chatActions([chatVariant]);
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('list-chat-proposed-actions').children[0].children[0].textContent, 'Usar la alternativa exploratoria (20 pistas)');
+    f.click('list-chat-apply-0'); await settle();
+    assert.deepEqual(f.calls.find(([kind]) => kind === 'select')[1], { planId: 'plan', variant: 'adventurous' });
+    assert.equal(f.get('review-variant').textContent, 'SELECCIÓN AVENTURERA');
+    assert.equal(f.get('list-chat-notice').textContent, 'Se cambió la alternativa. La conversación empieza de nuevo.');
+    assert.equal(f.get('list-chat-conversation').children.length, 0);
+  } finally { f.restore(); }
+});
+// --- S9: automatic apply with one batch undo ---
+const chatRemove = { actionId: '77777777-7777-4777-8777-777777777777', type: 'remove', position: 1, title: 'a', artist: 'DJ', reason: 'Choca de tonalidad con la segunda' };
+const chatReorder = { actionId: '88888888-8888-4888-8888-888888888888', type: 'reorder', moved: 2, reason: 'La curva de energía sube antes' };
+const manualReview = { ...appliedChatReview, reviewId: '99999999-9999-4999-8999-999999999999' };
+test('the review assistant applies a whole reply at once with the switch on and one manual edit retires the batch undo', async () => {
+  const applied = [];
+  const f = await fixture({
+    reviewDetails: async () => ({ ...appliedChatReview, transitions: [], readinessChecks: [], readinessSummary: '', engineFacts: '' }),
+    reviewCompare: async () => ({ reviewId: aiUuid, available: false, replacement: null, original: {}, proposed: {}, message: '' }),
+    reviewRemove: async (input) => { f.calls.push(['reviewRemove', input]); return manualReview; },
+    reviewReorder: async (input) => { f.calls.push(['reviewReorder', input]); return manualReview; },
+    reviewUndo: async (input) => { f.calls.push(['reviewUndo', input]); return manualReview; },
+    aiChatApply: async (input) => { applied.push(input.actionId); return { review: appliedChatReview, actions: input.actionId === chatRemove.actionId ? [chatReorder] : [] }; },
+  });
+  try {
+    await f.generate();
+    f.chatActions([chatRemove, chatReorder]);
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('list-chat-auto-toggle').checked, true, 'the switch is on by default');
+    const draft = f.get('list-chat-request');
+    draft.value = 'Quita la primera y reordena'; draft.dispatchEvent(new Event('input'));
+    f.click('list-chat-send'); await settle();
+    assert.deepEqual(applied, [chatRemove.actionId, chatReorder.actionId], 'the whole reply is applied in order');
+    assert.equal(f.get('list-chat-auto-applied').hidden, false);
+    assert.equal(f.get('list-chat-auto-notice').textContent, 'Se aplicaron 2 cambios.');
+    assert.deepEqual(f.get('list-chat-auto-list').children.map((node) => node.textContent), ['Quitar 1. a', 'Reordenar la lista (2 pistas cambian de lugar)']);
+    assert.equal(f.get('list-chat-undo-batch').textContent, 'Deshacer estos cambios');
+    assert.equal(f.get('list-chat-undo-batch').hidden, false);
+    assert.equal(f.get('list-chat-proposed').hidden, true, 'no card was left to approve');
+    assert.ok(text(f.get('review-table')).includes('Cambio aplicado'));
+    // A manual edit of the same list retires the batch undo.
+    f.click('review-remove-0'); await settle();
+    assert.ok(f.calls.some(([kind]) => kind === 'reviewRemove'));
+    assert.equal(f.get('list-chat-undo-batch').hidden, true);
+    assert.equal(f.get('list-chat-auto-applied').hidden, true);
+  } finally { f.restore(); }
+});
+test('S18(a): the assistant status says changes are applied locally and can be undone', async () => {
+  const f = await fixture();
+  try {
+    await f.generate();
+    f.click('bot-window-toggle'); await settle();
+    const draft = f.get('list-chat-request');
+    draft.value = '¿Qué transiciones son las más débiles?';
+    draft.dispatchEvent(new Event('input'));
+    f.click('list-chat-send'); await settle();
+    assert.equal(f.get('operation-label').textContent, 'Asistente de lista');
+    assert.equal(f.get('operation-detail').textContent, 'El asistente propone cambios y la app los aplica en tu equipo; puedes deshacerlos.');
+    assert.doesNotMatch(text(f.get('operation-status')), /solo lee|no cambia|no la cambia/);
+  } finally { f.restore(); }
+});
+test('S18(b): the floating window shows «Asistente de lista» once', async () => {
+  const f = await fixture();
+  try {
+    await f.generate();
+    f.click('bot-window-toggle'); await settle();
+    assert.equal(f.get('bot-window').hidden, false);
+    assert.equal(visibleTitles(f.get('bot-window-root')).length, 1);
+    assert.equal(f.get('bot-window-heading').textContent, 'Asistente de lista');
+    assert.equal(f.get('list-chat-heading').hidden, true);
   } finally { f.restore(); }
 });

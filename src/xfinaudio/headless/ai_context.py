@@ -9,6 +9,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from xfinaudio.ai.connection_test import PROBE_MESSAGE
+from xfinaudio.ai.list_chat import (
+    MAX_CHAT_TRACKS,
+    conversation_state,
+    list_facts,
+    protected_numbers,
+    protected_positions,
+)
 from xfinaudio.ai.privacy import redact_paths
 from xfinaudio.ai.saved_assists import anonymize_saved_request, build_saved_descriptors
 from xfinaudio.application.playlist_improvement import (
@@ -16,7 +23,8 @@ from xfinaudio.application.playlist_improvement import (
     MIN_IMPROVEMENT_TRACKS,
     ImprovementCandidateSet,
 )
-from xfinaudio.headless.common import BackendError
+from xfinaudio.headless.common import BackendError, _public_track
+from xfinaudio.headless.library_search import public_result
 from xfinaudio.headless.serato_safety import source_identity
 from xfinaudio.headless.serato_source import load_source
 from xfinaudio.metadata.metadata_gaps import build_metadata_gap_report
@@ -24,10 +32,14 @@ from xfinaudio.metadata.tempo import is_valid_bpm
 from xfinaudio.recommendation.scoring import bpm_difference_percent, effective_energy_delta
 
 if TYPE_CHECKING:
-    from xfinaudio.headless.backend import HeadlessBackend
+    from collections.abc import Sequence
 
-SURFACES = frozenset({"library", "prep", "review", "saved", "editor", "metadata", "live", "connection"})
-FREE_TEXT = frozenset({"library", "prep", "saved", "editor"})
+    from xfinaudio.headless.ai_conversation import ConversationStore
+    from xfinaudio.headless.backend import HeadlessBackend
+    from xfinaudio.library.models import TrackRecord
+
+SURFACES = frozenset({"library", "prep", "review", "chat", "saved", "editor", "metadata", "live", "connection"})
+FREE_TEXT = frozenset({"library", "prep", "saved", "editor", "chat"})
 
 # A distinct, explicit improvement selector for the editor surface. The legacy
 # ``{editId}`` selector keeps the four-operation behavior and its disclosure; the
@@ -104,6 +116,24 @@ def _improvement_disclosure(candidates: ImprovementCandidateSet, include_replace
     )
 
 
+def _found_tracks(
+    store: ConversationStore, records: Sequence[TrackRecord], listed: frozenset[str]
+) -> list[dict[str, Any]]:
+    """The tracks earlier searches of this conversation found and can still offer.
+
+    A track the conversation already showed stays named by the same reference, and the
+    most recently found one comes first. Only a track that is still in the library and
+    not in the current list is offered: one the DJ already added is in the list above.
+    """
+    by_id = {_public_track(record)["id"]: record for record in records}
+    found: list[dict[str, Any]] = []
+    for reference, track_id in store.references():
+        record = by_id.get(track_id)
+        if record is not None and record.path not in listed:
+            found.append(public_result(reference, record))
+    return found
+
+
 def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, Any], request: str) -> AssistContext:
     if (
         not isinstance(surface, str)
@@ -120,6 +150,7 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
         raise BackendError("invalid_params", "This explanation uses only its disclosed fixed request")
     expected = {
         "review": {"reviewId"},
+        "chat": {"reviewId"},
         "editor": {"editId"},
         "live": {"sessionId", "revision"},
         "saved": {"playlistIds"},
@@ -127,7 +158,14 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
     is_improvement_editor = surface == "editor" and set(selector) == _IMPROVEMENT_SELECTOR_FIELDS
     if set(selector) != expected and not (surface == "saved" and not selector) and not is_improvement_editor:
         raise BackendError("invalid_params", "Unexpected assistance context fields")
-    records = backend._records() if surface != "connection" else []
+    # The chat surface reads the disk identity of the tracks its list holds and of no other
+    # library track: the revision it uses for staleness still changes when one of them does.
+    listed = (
+        frozenset(track.path for track in backend.review.recommendation.ordered_tracks)
+        if surface == "chat" and backend.review is not None
+        else None
+    )
+    records = backend._records(checked=listed) if surface != "connection" else []
     if not records and surface != "connection":
         raise BackendError("ai_context_unavailable", "Scan an authorized library first")
     paths = [record.path for record in records]
@@ -135,7 +173,7 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
     identities = []
     for record in records:
         try:
-            identity = source_identity(Path(record.path))
+            identity = source_identity(Path(record.path)) if listed is None or record.path in listed else None
         except (OSError, ValueError):
             identity = None
         identities.append([record.path, identity])
@@ -167,6 +205,75 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
             "Títulos y artistas de la selección en su orden revisado.",
             "BPM, tonalidad, energía, transiciones y datos locales de calidad y preparación.",
             "No se envían rutas ni archivos de audio.",
+        )
+    elif surface == "chat":
+        # The conversation reads the same current review the commentary does, rebuilt
+        # on every turn, so an edit between turns is what the assistant reads next.
+        source = load_source(backend, {"kind": "review", "reviewId": selector["reviewId"]}, checked=listed)
+        if backend.review is None:
+            raise BackendError("ai_context_unavailable", "Prepare a current review first")
+        recommendation = backend.review.recommendation.model_copy(deep=True)
+        readiness = backend.review.readiness_report.model_copy(deep=True)
+        if len(recommendation.ordered_tracks) > MAX_CHAT_TRACKS:
+            raise BackendError(
+                "invalid_params",
+                f"This list has more than {MAX_CHAT_TRACKS} tracks; nothing was prepared for the conversation",
+            )
+        required = backend.plan.intent.required_paths if backend.plan is not None else []
+        protected = protected_positions(recommendation, required)
+        # The generation that produced the list, exactly as the review publishes it: the
+        # assistant may restate why the list came out short and which alternatives exist.
+        stored = backend.review_actions.base
+        stored_variants, stored_warnings = stored.get("variants"), stored.get("warnings")
+        variants = stored_variants if isinstance(stored_variants, list) else []
+        warnings = stored_warnings if isinstance(stored_warnings, list) else []
+        facts = list_facts(
+            recommendation,
+            readiness,
+            protected,
+            requested=backend.plan.intent.target_track_count if backend.plan is not None else None,
+            warnings=[item for item in warnings if isinstance(item, str)],
+            current_variant=backend.review.variant_name,
+            alternatives=[item for item in variants if isinstance(item, dict)],
+        )
+        conversation = backend.ai_conversation.prompt()
+        # What the DJ changed since the previous answer, and the tracks earlier searches
+        # found: both stay in memory with the conversation, and the system message states
+        # that the list above is the list as it is now.
+        state = conversation_state(
+            backend.ai_conversation.applied_since_turn(),
+            _found_tracks(
+                backend.ai_conversation,
+                records,
+                frozenset(track.path for track in recommendation.ordered_tracks),
+            ),
+        )
+        data.update(
+            facts=facts,
+            state=state,
+            listFingerprint=_fingerprint(facts),
+            conversation=conversation,
+            firstTurn=backend.ai_conversation.first_turn,
+            # The parser needs the list length and the protected positions to drop
+            # a proposal that could not apply, without ever sending either to the model.
+            trackCount=len(recommendation.ordered_tracks),
+            protectedPositions=protected_numbers(protected),
+        )
+        revision_data.extend([source.revision, conversation])
+        disclosure = (
+            "Posiciones, títulos, artistas, géneros, BPM, tonalidad, energía, duración y año de "
+            "lanzamiento de la lista revisada.",
+            "Transiciones con su puntuación, explicaciones y avisos, y la preparación con sus bloqueos.",
+            (
+                "Las pistas solicitadas, los avisos del motor y las otras alternativas con su cantidad y "
+                "calidad, y que la biblioteca tiene más pistas que la lista no muestra."
+            ),
+            "Tu pregunta y la conversación de esta charla, que se guarda solo en memoria.",
+            (
+                "Si el asistente pide una búsqueda, también se envían sus resultados: referencia, título, "
+                "artista, género, BPM, tonalidad, energía, duración y año de las pistas encontradas."
+            ),
+            "No se envían rutas de archivos, identificadores de pistas, audio ni credenciales.",
         )
     elif surface == "editor":
         session = backend.editor._current(selector["editId"])
@@ -262,7 +369,7 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
         revision_data.append([session.id, session.revision, session.source_revision, session.played, data["facts"]])
         disclosure = (
             "Candidatas anónimas, orden, puntuaciones y diferencias absolutas calculadas localmente.",
-            "No se envían títulos, rutas ni audio. La IA no cambia el orden ni controla Serato.",
+            "No se envían títulos, rutas ni audio. La IA no controla Serato.",
         )
     else:
         disclosure = ("Solo el mensaje técnico visible de prueba.", "No se envía ningún contenido de la biblioteca.")

@@ -1,12 +1,16 @@
 import {prepSummaries,localizeReviewNotice,prepErrorField,revealControl,workflowStep,ToolOrigins} from './workflow.js';
+import {localizeStrategy} from './strategy-labels.js';
+import {pendingReviewChecks,transitionQuality,transitionScoresOf} from './review-facts.js';
+import { SHORT_LIST_NO_CANDIDATES, SHORT_LIST_WITHOUT_GENRE, alternativeLabel, extendLabel, extendedLine, isShortListWarning, largerAlternative, shortListGenre, shortListOf, shortListTitle } from './short-list-notice.js';
+import type { ShortListFact } from './short-list-notice.js';
 import {LegacyImportController} from './legacy-import.js';
 import type {LegacyImportApi} from './legacy-import.js';
 import {createLegacyImportView} from './legacy-import-view.js';
 import {GeneratedReviewController} from './generated-review.js';
-import type {GeneratedReviewApi} from './generated-review.js';
+import type {DetailedReview, GeneratedReviewApi} from './generated-review.js';
 import {createGeneratedReviewView} from './generated-review-view.js';
 import {PrepSettingsController} from './prep-settings.js';
-import type {PrepSettingsApi} from './prep-settings.js';
+import type {PrepFormSnapshot, PrepSettingsApi} from './prep-settings.js';
 import {createPrepSettingsView} from './prep-settings-view.js';
 import {OfflineBrowseView,LIBRARY_COLUMNS} from './offline-browse.js';
 import type {OfflineBrowseApi} from './offline-browse.js';
@@ -15,16 +19,23 @@ import type {ProfilesApi,ProfileStatus} from './profiles.js';
 import {ProfileSettingsController,createProfileSettingsView} from './profile-settings.js';
 import { draftMessage } from './draft-notice.js';
 import type { DraftBlocker } from './draft-notice.js';
+import { createDiscardGuard, createDiscardPrompt } from './discard-guard.js';
 import type {ProfileSettingsApi} from './profile-settings.js';
 import { OptionalAiController } from './optional-ai.js';
 import type { OptionalAiApi, AiSurface, AiContext } from './optional-ai.js';
 import { createOptionalAiView } from './optional-ai-view.js';
+import { ListChatController } from './list-chat.js';
+import type { ListChatApi } from './list-chat.js';
+import { createListChatView } from './list-chat-view.js';
+import { BotWindowController } from './bot-window.js';
+import { createBotWindowView } from './bot-window-view.js';
 import { PreferencesController } from './preferences.js';
 import { LoudnessController } from './loudness.js';
 import type { LoudnessApi } from './loudness.js';
 import { createLoudnessView } from './loudness-view.js';
 import type { PreferencesApi } from './preferences.js';
 import { createPreferencesView } from './preferences-view.js';
+import { createLeftOutNotice } from './left-out-notice.js';
 import { createLibraryStatusView } from './library-status.js';
 import type { LibraryStatus } from './library-status.js';
 import { createOperationStatus } from './operation-status.js';
@@ -43,9 +54,10 @@ import { renderMetadataPanel } from './metadata.js';
 import type { MetadataReport } from './metadata.js';
 import { createPlayer } from './player.js';
 import { createTrackSearchView } from './track-search-view.js';
+import { createTrackPicker } from './track-picker-view.js';
 
 type Route = ExistingRoute | 'preferences' | 'loudness' | 'ai';
-type AppApi = XfinApi & LegacyImportApi & GeneratedReviewApi & PrepSettingsApi & OfflineBrowseApi & ProfilesApi & ProfileSettingsApi & PreferencesApi & LoudnessApi & OptionalAiApi & { getLibraryStatus(): Promise<LibraryStatus>; rescanLibrary(): Promise<LibraryResult>; onLibraryStatus(callback: (status: LibraryStatus) => void): () => void; };
+type AppApi = XfinApi & LegacyImportApi & GeneratedReviewApi & PrepSettingsApi & OfflineBrowseApi & ProfilesApi & ProfileSettingsApi & PreferencesApi & LoudnessApi & OptionalAiApi & Partial<ListChatApi> & { getLibraryStatus(): Promise<LibraryStatus>; rescanLibrary(): Promise<LibraryResult>; onLibraryStatus(callback: (status: LibraryStatus) => void): () => void; };
 declare global { interface Window { xfin: AppApi; } }
 const api = window.xfin;
 let coreAvailable = Boolean(api);
@@ -60,9 +72,29 @@ const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', classNam
   return node;
 };
 const gate = new OperationGate();
+// The session bar offers the list the core kept in progress after every change. The
+// control is created here so the recovered list needs no new page markup, and it holds
+// only the opaque payload the review page always renders.
+const resumeReview = document.createElement('button');
+resumeReview.id = 'resume-review';
+resumeReview.type = 'button';
+resumeReview.className = 'text-button';
+resumeReview.hidden = true;
+resumeReview.textContent = 'Continuar con la lista en curso';
+element('session-resume').append(resumeReview);
 // One global status region: it owns whether the app is working, where it is inside the work,
 // and how the last operation ended.
 const operationStatus = createOperationStatus(element('operation-status'));
+// The generated review counts as edited once its reviewId differs from the one it had when it
+// was generated, chosen as a variant or opened: the three actions that replace it ask first.
+const discardGuard = createDiscardGuard();
+const discardPrompt = createDiscardPrompt(element('main-content'), { canAct: () => coreAvailable && !gate.busy });
+// Only an edited review turns an action into a question; without edits the action runs
+// synchronously, exactly as it did before the guard existed.
+const unlessEditsWouldBeLost = (action: () => void): void => {
+  if (!discardGuard.edited(review)) { action(); return; }
+  void discardPrompt.ask().then((discard) => { if (discard) action(); });
+};
 let operationTrigger: HTMLElement | null = null;
 let operationFinishing = false;
 // Chained work is one job with numbered steps: a scan that hands over to automatic profile
@@ -80,11 +112,24 @@ if (typeof document.addEventListener === 'function') document.addEventListener('
   // A click that started nothing must never mark an unrelated control during the next job.
   void Promise.resolve().then(() => { if (!gate.busy) operationTrigger = null; });
 }, true);
+// The core remembers the last form it generated with, but a form the user already
+// changed always wins over that memory.
+let prepFormEdited = false;
+let rememberedStrategy: string | null = null;
 // The opening track is chosen with a searchable combobox. The picker keeps the selected
 // opaque id in #prep-start, so PrepFields, its validations and startTrackId are unchanged.
 const trackSearch = createTrackSearchView({
-  changed: () => { renderPrepSummaries(); element('prep-validation').hidden = true; syncAiContext(); },
+  changed: () => { prepFormEdited = true; renderPrepSummaries(); element('prep-validation').hidden = true; syncAiContext(); },
 });
+// Closing, required and excluded tracks are chosen with the same searchable picker as the
+// opening track. Each picker writes only into its existing select, so the generate request,
+// the saved controls and the remembered form keep reading the very same values.
+const pickerChanged = (settings: boolean): void => { prepFormEdited = true; if (settings) prepSettings?.edited(); renderPrepSummaries(); element('prep-validation').hidden = true; syncAiContext(); };
+const endPicker = createTrackPicker({ id: 'end', kind: 'end', multiple: false, changed: () => pickerChanged(false) });
+const requiredPicker = createTrackPicker({ id: 'required', kind: 'required', multiple: true, changed: () => pickerChanged(true) });
+const excludedPicker = createTrackPicker({ id: 'excluded', kind: 'excluded', multiple: true, changed: () => pickerChanged(true) });
+const trackPickers = [endPicker, requiredPicker, excludedPicker];
+const syncTrackPickers = (): void => { for (const picker of trackPickers) picker.sync(); };
 // An improvement preview can only be persisted through the dedicated proposal-bound
 // route. Without that bridge the editor improvement surface is disabled rather than
 // producing a bound draft that could not be saved safely.
@@ -124,6 +169,11 @@ const profilesAvailable=():boolean=>typeof api?.getProfileStatus==='function'&&t
 const profileSettingsAvailable=():boolean=>typeof api?.getProfileSettings==='function'&&typeof api?.saveProfileSettings==='function';
 let libraryBootstrapped = false;
 let libraryBootError: string | null = null;
+// The core stores the generated review it had after every change and rebinds it at
+// start; this start-screen offer is the only way back to it, and it holds the same
+// opaque payload the review page always renders — never a path.
+let recoveredReview: ReviewResult | null = null;
+let reviewResumePending = typeof api?.reviewResume === 'function';
 let preferencesBootstrapPending = typeof api?.getPreferences === 'function' && typeof api?.savePreferences === 'function';
 let statusBootstrapPending = Boolean(api?.getLibraryStatus);
 let editorDirty = false;
@@ -133,6 +183,9 @@ let loudnessDirty = false;
 let aiDirty = false;
 let ai: OptionalAiController | undefined;
 let renderAi = (): void => {};
+let listChat: ListChatController | undefined;
+let renderListChat = (): void => {};
+let renderBotWindow = (): void => {};
 let aiContextKey = '';
 let deferredAiApply: (() => void) | null = null;
 let aiLibraryFilter: Set<string> | null = null;
@@ -144,6 +197,10 @@ let review: ReviewResult | null = null;
 let strategies: PrepStrategy[] = [];
 let catalogLoaded = false;
 let prepPlan: { id: string; variants: PrepVariantSummary[] } | null = null;
+/** The genre the current generation used: the prep genre field at that moment, empty if none. */
+let generationGenre = '';
+/** The line the last extension of the review in hand answered; empty until one runs. */
+let shortListResult = '';
 const variantNames: Record<PrepVariant, string> = { safe: 'Segura', balanced: 'Equilibrada', adventurous: 'Aventurera' };
 const readinessNames: Record<Readiness, string> = { ready: 'Lista para revisar', needs_review: 'Revisión recomendada', blocked: 'Necesita atención' };
 let playlists: PlaylistSummary[] = [];
@@ -321,11 +378,77 @@ ai = new OptionalAiController(api, {
 });
 renderAi = createOptionalAiView(element('optional-ai-container'), ai, { canAct: () => coreAvailable && !gate.busy && aiAvailable(), busy: () => coreAvailable && gate.busy, openSettings: () => {navigate('ai');revealControl(element('optional-ai-enabled'));} });
 renderAi();
+// The list assistant is a second panel over the review screen: it reads the same generated
+// list, keeps its own conversation and never changes the selection on its own. Its bridge
+// methods are optional until the host ships them, so the panel stays hidden instead of half-working.
+/**
+ * The one place a review the core just returned replaces the one on screen: the same hand-off
+ * whether a manual edit or an applied assistant proposal produced it. The list assistant adopts
+ * the minted reviewId first, so this never turns its own conversation into another one.
+ */
+function applyReview(value: DetailedReview): void {
+  const previous = review?.reviewId;
+  // The review is published before anything reacts to the change: every listener that re-syncs
+  // the screen reads this one, so it must already be the review the edit minted.
+  review = value;
+  if (previous !== value.reviewId) {
+    // A review nobody has extended yet has no extension line to show.
+    shortListResult = '';
+    if (serato.source?.kind === 'review') serato.setSource(null);
+    live.invalidate(); invalidateAiSource();
+  }
+  // S9: any edit that is not the assistant's own batch retires its «Deshacer estos cambios».
+  listChat?.reviewReplaced();
+  renderVariants(); renderReview();
+}
+const listChatApi: ListChatApi | null = (() => {
+  const history = api?.aiChatHistory; const reset = api?.aiChatReset;
+  const prepare = api?.prepareAiRequest; const run = api?.runAiRequest; const inspect = api?.inspectAiPayload;
+  const apply = api?.aiChatApply; const undo = api?.reviewUndo;
+  if (typeof history !== 'function' || typeof reset !== 'function' || typeof prepare !== 'function' || typeof run !== 'function' || typeof inspect !== 'function' || typeof apply !== 'function') return null;
+  return {
+    aiChatHistory: () => history(), aiChatReset: () => reset(),
+    prepareAiRequest: (input) => prepare(input), runAiRequest: (input) => run(input), inspectAiPayload: (input) => inspect(input),
+    aiChatApply: (input) => apply(input),
+    // S9's batch undo goes through the same core command; an older host simply keeps it off.
+    ...(typeof undo === 'function' ? { reviewUndo: (input: { reviewId: string }) => undo(input) } : {}),
+  };
+})();
+listChat = listChatApi ? new ListChatController(listChatApi, {
+  canAct: () => coreAvailable && !gate.busy,
+  // The badge counts the proposals the reply still holds, so the bot button follows them.
+  changed: () => { renderListChat(); renderBotWindow(); },
+  applied: (value) => applyReview(value),
+  // S6: a proposed alternative is chosen by this screen, never applied in the core.
+  chooseVariant: (variant) => chooseAlternative(variant),
+  perform: (label, task, apply, failure) => perform('ai-chat', label, task, (value, current) => {
+    apply(value, current);
+    if (!listChat?.error) showStatus('Asistente de lista', listChat?.notice || 'El asistente propone cambios y la app los aplica en tu equipo; puedes deshacerlos.');
+  }, false, failure),
+}) : undefined;
+/**
+ * S1: the list chat is a bot button with a floating window on the review screen, not a section
+ * of the AI panel. The window owns only its own visibility; the chat keeps its conversation.
+ */
+const botWindow = new BotWindowController({
+  canAct: () => coreAvailable && !gate.busy,
+  changed: () => { renderBotWindow(); if (botWindow.open) loadChatIfOpen(); },
+  pending: () => listChat?.actions.length ?? 0,
+});
+renderBotWindow = createBotWindowView(element('bot-window-root'), botWindow, {
+  mount: (container) => { if (listChat) renderListChat = createListChatView(container, listChat, { idPrefix: 'list-chat', hideHeading: true }); },
+});
 function invalidateAiSource(): void { aiContextKey = ''; deferredAiApply = null; ai?.invalidate(); }
+/** Selected values of a carrier select: what it reports selected and what its options mark. */
+function selectedPrepValues(id: string): string[] {
+  const select = element<HTMLSelectElement>(`prep-${id}`);
+  const values = Array.from(select.selectedOptions ?? [], (item) => item.value).filter(Boolean);
+  for (const item of Array.from(select.options ?? [])) if (item.selected && item.value && !values.includes(item.value)) values.push(item.value);
+  return values;
+}
 function prepFields(): PrepFields {
   const value = (id: string): string => element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value;
-  const selected = (id: string): string[] => Array.from(element<HTMLSelectElement>(`prep-${id}`).selectedOptions ?? [], (option) => option.value);
-  return { name: value('name'), count: value('count'), strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selected('required'), excluded: selected('excluded') };
+  return { name: value('name'), count: value('count'), strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selectedPrepValues('required'), excluded: selectedPrepValues('excluded'), yearMin: value('year-min'), yearMax: value('year-max') };
 }
 function renderPrepSummaries(): void {
   const fields=prepFields();const summaries=prepSummaries(fields, prepSettingsDirty);
@@ -335,16 +458,49 @@ function renderPrepSummaries(): void {
   element('prep-tracks-summary').textContent=summaries.tracks;
   element('prep-saved-summary').textContent=summaries.saved;
 }
+/** A remembered choice that left the library stays visible and selected as unavailable. */
+function keepMissingChoice(select: HTMLSelectElement, id: string): void {
+  if (Array.from(select.options ?? []).some((item) => item.value === id)) return;
+  const missing = option(id, `No disponible: ${id.slice(0, 8)}`);
+  missing.disabled = true; missing.selected = true; select.append(missing);
+}
+/** Show the form the core accepted in the last generation, unless the user changed it. */
+function restorePrepForm(form: PrepFormSnapshot): void {
+  if (prepFormEdited) return;
+  const scalar = (id: string, value: string | null): void => { if (value !== null) element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value = value; };
+  scalar('name', form.name);
+  scalar('count', form.targetTrackCount === null ? null : String(form.targetTrackCount));
+  scalar('minutes', form.targetMinutes === null ? null : String(form.targetMinutes));
+  scalar('role', form.slotRole);
+  scalar('year-min', form.yearMin === undefined || form.yearMin === null ? null : String(form.yearMin));
+  scalar('year-max', form.yearMax === undefined || form.yearMax === null ? null : String(form.yearMax));
+  if (form.endTrackId !== null) endPicker.setSelected([form.endTrackId]);
+  if (form.startTrackId !== null) trackSearch.setSelected(form.startTrackId);
+  rememberedStrategy = form.strategy;
+  applyRememberedStrategy();
+  renderPrepSummaries(); syncAiContext();
+}
+/** The catalog owns the strategy options, so a remembered strategy waits for it. */
+function applyRememberedStrategy(): void {
+  if (rememberedStrategy === null || !catalogLoaded) return;
+  element<HTMLSelectElement>('prep-strategy').value = rememberedStrategy;
+  renderStrategyHint();
+}
 function renderSettingsSummaries(): void {
   const settings=preferences.snapshot;
   element('settings-playback-summary').textContent=settings ? `${Math.round(settings.previewVolume*100)} % · vigilancia ${settings.watchLibrary?'activada':'desactivada'}${preferencesDirty?' · cambios sin guardar':''}` : 'Volumen inicial y cambios de biblioteca';
   element('settings-cohesion-summary').textContent=profileSettings.snapshot ? `${Math.round(profileSettings.snapshot.spectralCohesion*100)} %${profileSettingsDirty?' · cambios sin guardar':''}` : 'Peso de la cohesión al seleccionar pistas';
   element('settings-ai-summary').textContent=aiDirty ? 'Cambios de IA sin guardar' : 'Proveedor, credenciales y prueba sintética';
 }
+// Every picker keeps the value in a hidden carrier, so its search box is the visible control.
+const pickerControls: Record<string,string> = { 'prep-start': 'prep-start-search', 'prep-end': 'prep-end-search', 'prep-required': 'prep-required-search', 'prep-excluded': 'prep-excluded-search' };
+function visiblePrepControl(input: HTMLElement): HTMLElement {
+  for (const [carrier, search] of Object.entries(pickerControls)) if (input === element(carrier)) return element(search);
+  return input;
+}
 function showPrepValidation(input: HTMLElement, message: string): void {
   const notice=element('prep-validation'); notice.textContent=message; notice.hidden=false;
-  // The opaque id lives in a hidden input; the actionable control is the visible combobox.
-  revealControl(input === element('prep-start') ? element('prep-start-search') : input); showStatus('Revisa la configuración de la sesión', message, true);
+  revealControl(visiblePrepControl(input)); showStatus('Revisa la configuración de la sesión', message, true);
 }
 function syncAiContext(): void {
   if (!ai) return;
@@ -375,6 +531,12 @@ function syncAiContext(): void {
     revision = [libraryGeneration, playlists.map((item) => [item.id, item.name, item.trackCount, item.createdAt]), [...aiSavedScope]];
   } else if (route === 'ai') { surface = 'connection'; revision = 'synthetic'; }
   panel.hidden = !aiAvailable() || !surface;
+  // The chat belongs to the review screen only: it reads this generated list and speaks about
+  // it from its own floating window, while every other AI function stays in this panel.
+  const chatReview = Boolean(listChat) && route === 'review' && Boolean(review?.reviewId);
+  botWindow.setAvailable(chatReview);
+  listChat?.setReview(chatReview ? review?.reviewId ?? null : null);
+  if (chatReview) { renderListChat(); loadChatIfOpen(); }
   element('context-ai').hidden = panel.hidden || route === 'ai';
   element('ai-panel-summary').textContent = route === 'ai' ? 'Configuración y prueba de IA' : `Ayuda IA · ${titles[route]}${aiDirty ? ' · ajustes sin guardar' : ''}`;
   if (!coreAvailable) return;
@@ -390,6 +552,12 @@ function syncAiContext(): void {
 function loadAiIfOpen(): boolean {
   if (!ai || !coreAvailable || gate.busy || !aiAvailable() || ai.snapshot || ai.pending || ai.dirty || element('ai-panel').hidden || !element<HTMLDetailsElement>('ai-panel').open) return false;
   void ai.load(); return true;
+}
+/** The bot window reads the stored conversation the first time it is opened on the review screen. */
+function loadChatIfOpen(): boolean {
+  if (!listChat || !coreAvailable || gate.busy || !listChat.reviewId || listChat.pending || listChat.loaded) return false;
+  if (!botWindow.open) return false;
+  void listChat.load(); return true;
 }
 function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => void {
   const invalid = (): never => { throw Object.assign(new Error('Invalid local suggestion'), { code: 'invalid_ai_response' }); };
@@ -420,6 +588,7 @@ function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => v
       for (const key of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end'] as const) element<HTMLInputElement | HTMLSelectElement>(`prep-${key}`).value = fields[key];
       trackSearch.setSelected(fields.start);
       for (const key of ['required', 'excluded'] as const) for (const option of element<HTMLSelectElement>(`prep-${key}`).options) option.selected = fields[key].includes(option.value);
+      syncTrackPickers();
       renderStrategyHint(); syncAiContext();
     };
   }
@@ -460,10 +629,13 @@ function planAiApply(surface: AiSurface, data: Record<string, unknown>): () => v
   return invalid();
 }
 const renderLibraryStatus = createLibraryStatusView(element('library-status-container'), { canAct: () => coreAvailable && !gate.busy && Boolean(api?.rescanLibrary), rescan: () => scan(true) });
+const renderLeftOutNotice = createLeftOutNotice(element('prep-left-out'), { canAct: () => coreAvailable && !gate.busy, openMetadata: () => navigate('metadata') });
 if(['reviewDetails','reviewCompare','reviewRemove','reviewReorder'].every(key=>typeof api?.[key as keyof AppApi]==='function')){
   const generatedReview=new GeneratedReviewController(api,{
     current:()=>review,canAct:()=>coreAvailable&&!gate.busy,changed:()=>renderGeneratedReview(),
-    applied:value=>{if(review?.reviewId!==value.reviewId){if(serato.source?.kind==='review')serato.setSource(null);live.invalidate();invalidateAiSource();prepPlan=null;}review=value;renderVariants();renderReview();},
+    // An edit mints a new reviewId and retires the Live/Serato context, but the plan stays: the
+    // alternative cards describe the plan, and choosing one discards the edits after S4 asks.
+    applied:value=>applyReview(value),
     perform:(label,task,apply,failure)=>perform('review-edit',label,task,value=>{apply(value);showStatus('Revisión local actualizada');},false,failure),
   });
   renderGeneratedReview=createGeneratedReviewView(element('generated-review-container'),generatedReview,{canAct:()=>coreAvailable&&!gate.busy});
@@ -472,7 +644,8 @@ if(prepSettingsAvailable()){
   prepSettings=new PrepSettingsController(api,{
     canAct:()=>coreAvailable&&!gate.busy,
     read:()=>{const fields=prepFields();return {requiredTrackIds:fields.required,excludedTrackIds:fields.excluded,genreFocus:fields.genre};},
-    restore:value=>{ensureTrackChoices();for(const [key,ids] of [['required',value.requiredTrackIds],['excluded',value.excludedTrackIds]] as const)for(const option of element<HTMLSelectElement>(`prep-${key}`).options??[])option.selected=ids.includes(option.value);element<HTMLInputElement>('prep-genre').value=value.genreFocus;invalidatePrep();},
+    restore:value=>{ensureTrackChoices();for(const [key,ids] of [['required',value.requiredTrackIds],['excluded',value.excludedTrackIds]] as const)for(const option of element<HTMLSelectElement>(`prep-${key}`).options??[])option.selected=ids.includes(option.value);syncTrackPickers();element<HTMLInputElement>('prep-genre').value=value.genreFocus;invalidatePrep();},
+    remembered:form=>restorePrepForm(form),
     changed:()=>{prepSettingsDirty=prepSettings?.dirty??false;renderPrepSettings();syncDraftDirty();},saved:()=>{invalidateAiSource();invalidatePrep();},
     perform:(label,task,apply,failure)=>perform('prep-settings',label,task,value=>{apply(value);showStatus('Ajustes de preparación guardados', 'Se aplican a la próxima generación de listas.');},false,failure),
   });
@@ -554,6 +727,19 @@ function acceptLibraryStatus(status: LibraryStatus): void {
   renderLibraryStatus(libraryStatus);
   renderContextStatus(); refreshPreferenceLabelsIfNeeded();
 }
+/**
+ * Ask the core once whether it recovered the list in progress. A dropped list is
+ * reported with the exact notice; a plain absence says nothing at all.
+ */
+function loadReviewResume(): Promise<void> {
+  reviewResumePending = false;
+  if (!api?.reviewResume) return Promise.resolve();
+  return perform('review-recovery', 'Comprobando la lista en curso…', () => api.reviewResume(), (result) => {
+    recoveredReview = result.available ? result.review : null;
+    if (result.dropped) showStatus('La lista en curso ya no se puede recuperar porque la biblioteca cambió', 'La biblioteca cambió desde que se guardó la lista; prepara una selección nueva.', false, 'notice');
+    else operationStatus.hide();
+  }, false, () => { recoveredReview = null; });
+}
 function loadLibraryStatus(): Promise<void> {
   return perform('library-status', 'Consultando estado de la biblioteca…', () => api.getLibraryStatus(), acceptLibraryStatus);
 }
@@ -587,12 +773,17 @@ function continueIdleWork(kind: string): void {
   if (libraryBootstrapped && statusBootstrapPending) { statusBootstrapPending = false; void loadLibraryStatus(); return; }
   if(libraryBootstrapped&&profileBootstrapPending){profileBootstrapPending=false;void loadProfiles();return;}
   if(libraryBootstrapped&&prepSettingsBootstrapPending&&prepSettings&&!prepSettings.pending&&!prepSettings.dirty&&kind!=='prep-settings'){prepSettingsBootstrapPending=false;void prepSettings.load();return;}
+  // The deferred Prep restore invalidates the Prep view. Ask for the stored list only after
+  // every bootstrap read, so none of them can clear the offer before it is shown (S19).
+  if (libraryBootstrapped && reviewResumePending) { reviewResumePending = false; void loadReviewResume(); return; }
   if(route==='preferences'&&kind!=='profile-settings'&&!profileSettingsAttempted&&profileSettingsAvailable()){profileSettingsAttempted=true;void profileSettings.load();return;}
   if (route === 'playlists' && !playlistsLoaded && kind !== 'playlists') { void loadPlaylists(); return; }
   if (route === 'metadata' && !metadataReport && kind !== 'metadata') { void loadMetadata(); return; }
   if (route === 'preferences' && kind !== 'preferences' && !preferences.snapshot && !preferences.pending && preferencesAvailable()) { void preferences.load(); return; }
   if (route === 'loudness' && kind !== 'loudness-settings' && kind !== 'loudness' && !loudness.statusFresh && !loudness.dirty && !loudness.pending && loudnessAvailable()) { void loudness.load(); return; }
   if (kind !== 'ai-settings' && kind !== 'ai' && kind !== 'ai-apply' && loadAiIfOpen()) return;
+  // A chat load that lost the gate to another read starts as soon as the app is idle again.
+  if (loadChatIfOpen()) return;
   if (kind.startsWith('ai')||kind==='offline') return;
   if (route === 'playlists' && kind !== 'playlists') void loadPlaylists();
 }
@@ -649,16 +840,20 @@ function syncControls(): void {
   document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-prep-control]').forEach((control) => { control.disabled = gate.busy || !coreAvailable; });
   element<HTMLSelectElement>('prep-strategy').disabled = gate.busy || !coreAvailable || !catalogLoaded;
   element<HTMLButtonElement>('export-library-worklist').disabled=gate.busy||!coreAvailable||!libraryWorklist||libraryStatus?.changeState==='changed';
-  element<HTMLButtonElement>('generate-prep').disabled = gate.busy || !coreAvailable || library.length < 2;
+  // Tracks the pool will skip are named before generating; two complete tracks are the hard floor.
+  element<HTMLButtonElement>('generate-prep').disabled = gate.busy || !coreAvailable || !renderLeftOutNotice(library).canGenerate;
   const liveButton = element<HTMLButtonElement>('start-live');
   liveButton.disabled = gate.busy || !coreAvailable || !canStartLive();
   const liveHint = element<HTMLElement>('start-live-hint');
   if (liveHint) {
+    const pendingChecks = review ? pendingReviewChecks(review) : [];
     liveHint.hidden = !liveButton.disabled;
     liveHint.textContent = !coreAvailable ? 'El motor local no está conectado.'
       : gate.busy ? 'Espera a que termine la operación actual.'
       : !review || !review.reviewId || review.variant === 'saved' ? 'Abre la guía desde una revisión activa.'
       : review.readiness === 'blocked' || review.blockers.length > 0 ? 'Resuelve los bloqueos de la selección.'
+      // The gate itself is unchanged; only the hint names what is still pending.
+      : pendingChecks.length ? `Resuelve estos avisos para abrir la guía: ${pendingChecks.map(check => check.label).join(', ')}.`
       : 'Resuelve los avisos de revisión para abrir la guía.';
   }
   element<HTMLButtonElement>('export-review').disabled = gate.busy || !coreAvailable || !review || !(review.reviewId || review.savedPlaylistId);
@@ -680,7 +875,9 @@ function syncControls(): void {
   element('resume-last-export').hidden = !serato.receipt;
   element('resume-editor').hidden = !editor.draft;
   element('resume-editor').textContent = coreAvailable ? 'Continuar edición' : 'Ver borrador';
-  element('session-resume').hidden = !serato.receipt && !editor.draft;
+  const offerList = recoveredReview !== null && review === null;
+  resumeReview.hidden = !offerList;
+  element('session-resume').hidden = !serato.receipt && !editor.draft && !offerList;
   element('prep-availability').textContent = library.length ? `${library.length} pistas en la biblioteca · ${library.filter(hasPrepMetadata).length} con metadatos completos` : 'Añade una carpeta de música para empezar';
 }
 function navigate(next: Route, load = true, rememberOrigin = true, preservePreviews = false): void {
@@ -716,6 +913,7 @@ function navigate(next: Route, load = true, rememberOrigin = true, preservePrevi
   if (next === 'metadata' && load && !metadataReport && readyToRead()) void loadMetadata();
   if (next === 'playlists' && load && readyToRead()) void loadPlaylists();
   if (load) loadAiIfOpen();
+  if (load) loadChatIfOpen();
   if (deferredReads.length) explainDeferredRead(deferredReads[0]);
 }
 /** An exclusive task owns the core, so a read-only screen cannot refresh yet. Keep naming
@@ -724,13 +922,15 @@ function explainDeferredRead(next: Route): void {
   const label = element('operation-label').textContent.trim() || 'Operación en curso';
   showStatus(label, `La pantalla «${titles[next]}» se actualizará cuando termine la operación en curso. Los datos ya cargados siguen disponibles; los controles que modifican datos permanecen desactivados mientras tanto.`);
 }
-function renderTable(target: string, tracks: Track[]): void {
+/** `transitions` is the per-transition score of a review; without it (a core that sends none) the table is unchanged. */
+function renderTable(target: string, tracks: Track[], transitions: number[] | null = null): void {
   const isLibrary=target==='library-table';
   const table = make('table','',isLibrary?'library-grid':'');
   table.setAttribute('aria-label', target === 'library-table' ? 'Pistas de la biblioteca' : 'Pistas de la selección');
   const head = make('thead');
   const headers = make('tr');
-  const columns:readonly (readonly string[])[]=isLibrary?[['','#'],...LIBRARY_COLUMNS,['','ESCUCHAR']]:['#','PISTA / ARTISTA','BPM','TONALIDAD','ENERGÍA','DURACIÓN','ESCUCHAR'].map(title=>['',title]);
+  const reviewTitles=['#','PISTA / ARTISTA','BPM','TONALIDAD','ENERGÍA','DURACIÓN',...(transitions?['MEZCLA']:[]),'ESCUCHAR'];
+  const columns:readonly (readonly string[])[]=isLibrary?[['','#'],...LIBRARY_COLUMNS,['','ESCUCHAR']]:reviewTitles.map(title=>['',title]);
   for(const [field,title] of columns){
     const th=make('th');th.scope='col';
     if(field){
@@ -759,6 +959,11 @@ function renderTable(target: string, tracks: Track[]): void {
     energy.append(make('span', track.energy === null ? '—' : String(track.energy), 'energy-value'));
     row.append(energy, make('td', formatDuration(track.duration), 'numeric muted'));
     if(isLibrary)row.append(make('td',formatAudioFormat(track)),make('td',formatBitrate(track),'numeric'));
+    if(transitions){
+      const next = index < tracks.length - 1 ? transitions[index] : undefined;
+      const quality = typeof next === 'number' ? transitionQuality(next) : null;
+      row.append(make('td', quality?.text ?? '—', quality ? `transition-quality ${quality.tone}` : 'transition-quality muted'));
+    }
     const action = make('td');
     const button = make('button', player.isPlaying(track.id) ? 'Ⅱ' : '▶', 'track-play');
     button.type = 'button';
@@ -809,6 +1014,7 @@ function applyLibrary(result: LibraryResult): void {
   const controlsDirty=prepSettings?.dirty??false;prepSettings?.libraryChanged();if(prepSettings&&!controlsDirty)prepSettingsBootstrapPending=true;
   library = result.tracks;
   trackSearch.setLibrary(library);
+  for (const picker of trackPickers) picker.setLibrary(library);
   libraryRevision++; visibleRevision++;
   offline?.invalidateLibrary();offline?.invalidateSaved();
   aiLibraryFilter = null; aiFilterRevision++;
@@ -823,24 +1029,29 @@ function option(value: string, label: string): HTMLOptionElement {
 function renderTrackChoices(): void {
   for (const id of ['end', 'required', 'excluded']) {
     const select = element<HTMLSelectElement>(`prep-${id}`);
-    const selected=new Set(Array.from(select.selectedOptions??[],item=>item.value));const scalar=id==='end';if(scalar&&select.value)selected.add(select.value);
+    const selected=new Set(selectedPrepValues(id));const scalar=id==='end';if(scalar&&select.value)selected.add(select.value);
     select.replaceChildren();
     if(scalar)select.append(option('', 'Sin preferencia'));
     for(const track of library){const item=option(track.id,`${track.title||'Sin título'} · ${track.artist||'Artista desconocido'}`);item.selected=selected.has(track.id);select.append(item);}
-    if(!scalar&&prepSettingsDirty)for(const value of selected)if(!library.some(track=>track.id===value)){const missing=option(value,`No disponible: ${value.slice(0,8)}`);missing.disabled=true;missing.selected=true;select.append(missing);}
-    if(scalar)select.value=library.some(track=>selected.has(track.id))?[...selected][0]:'';
+    const missing=[...selected].filter(value=>!library.some(track=>track.id===value));
+    // The closing select keeps a remembered track that left the library, like the
+    // locked lists keep their missing choices while their explicit controls are dirty.
+    if(scalar)for(const value of missing)keepMissingChoice(select,value);
+    else if(prepSettingsDirty)for(const value of missing)keepMissingChoice(select,value);
+    if(scalar)select.value=[...selected].find(value=>library.some(track=>track.id===value))??[...selected][0]??'';
   }
 }
 /** Full Prep option lists are built lazily; a large library must not pay for them at boot. */
 function ensureTrackChoices(): void {
   trackSearch.sync();
+  syncTrackPickers();
   if (renderedTrackChoicesRevision === libraryRevision) return;
   renderTrackChoices();
   renderedTrackChoicesRevision = libraryRevision;
 }
 function renderStrategyHint(): void {
   const strategy = strategies.find((item) => item.name === element<HTMLSelectElement>('prep-strategy').value);
-  element('strategy-hint').textContent = strategy ? `${strategy.description}${strategy.requiresVibeMetadata ? ' Requiere metadatos vibe existentes; los datos ausentes no se inventan.' : ''}` : 'Sin preferencia: se conserva la estrategia predeterminada del motor.';
+  element('strategy-hint').textContent = strategy ? `${localizeStrategy(strategy).description}${strategy.requiresVibeMetadata ? ' Requiere metadatos de ambiente existentes; los datos ausentes no se inventan.' : ''}` : 'Sin preferencia: se conserva la estrategia predeterminada del motor.';
 }
 async function loadCatalog(): Promise<void> {
   element('catalog-retry').hidden = true;
@@ -852,7 +1063,7 @@ async function loadCatalog(): Promise<void> {
     if (!coreAvailable) return;
     strategies = result.strategies;
     catalogLoaded = true;
-    element<HTMLSelectElement>('prep-strategy').replaceChildren(option('', 'Predeterminada del motor'), ...strategies.map((strategy) => option(strategy.name, strategy.displayName)));
+    element<HTMLSelectElement>('prep-strategy').replaceChildren(option('', 'Predeterminada del motor'), ...strategies.map((strategy) => option(strategy.name, localizeStrategy(strategy).label)));
     renderStrategyHint();
   } catch {
     if (coreAvailable) {
@@ -860,6 +1071,7 @@ async function loadCatalog(): Promise<void> {
       element('catalog-retry').hidden = false;
     }
   }
+  applyRememberedStrategy();
   syncControls();
 }
 function invalidatePrep(options: { preserveLive?: boolean } = {}): void {
@@ -867,8 +1079,104 @@ function invalidatePrep(options: { preserveLive?: boolean } = {}): void {
   if (serato.source?.kind === 'review') serato.setSource(null);
   prepPlan = null;
   review = null;
+  recoveredReview = null;
+  generationGenre = '';
+  shortListResult = '';
+  discardGuard.reset(null);
   renderVariants();
   renderReview();
+}
+/**
+ * The one alternative choice of the screen: the comparison cards and the short-list notice both
+ * come here, so the discard question and the plan check are never written twice.
+ */
+async function chooseAlternative(name: PrepVariant, from = ''): Promise<boolean> {
+  const plan = prepPlan;
+  // A card drawn for an older plan changes nothing: the author of the click says which plan it
+  // spoke about, and the assistant passes none because it always speaks about the current one.
+  if (!plan || (from !== '' && from !== plan.id)) return false;
+  if (!plan.variants.some((item) => item.name === name)) return false;
+  if (discardGuard.edited(review) && !(await discardPrompt.ask())) return false;
+  if (gate.busy || !coreAvailable || prepPlan !== plan) return false;
+  if (serato.source?.kind === 'review') serato.setSource(null);
+  live.invalidate();
+  review = null;
+  discardGuard.reset(null);
+  shortListResult = '';
+  renderReview();
+  await perform('select', 'Abriendo la alternativa para revisión…', () => api.selectPrepVariant({ planId: plan.id, variant: name }), (result, currentRoute) => {
+    if (prepPlan !== plan) return;
+    review = result;
+    discardGuard.reset(result.reviewId);
+    renderVariants();
+    renderReview();
+    showStatus('Alternativa preparada para revisar', 'Comprueba las pistas, los avisos y el estado antes de guardar');
+    if (currentRoute) navigate('review', false);
+  }, true);
+  return review !== null;
+}
+/**
+ * S3's notice: a list that came out shorter than requested says so with the fixes it has.
+ * The copy is fixed in `short-list-notice.ts`; here the screen only runs those fixes.
+ */
+function renderShortListNotice(notices: HTMLElement, shortList: ShortListFact): void {
+  const section = make('section', '', 'review-notice review-short-list');
+  section.id = 'review-short-list';
+  section.append(make('strong', shortListTitle(shortList)));
+  if (generationGenre) section.append(make('p', shortListGenre(generationGenre)));
+  const actions = make('div', '', 'editor-actions');
+  const extend = make('button', extendLabel(shortList.requested), 'button primary');
+  extend.type = 'button'; extend.id = 'short-list-extend'; extend.dataset.mutation = '';
+  extend.disabled = gate.busy || !coreAvailable;
+  extend.addEventListener('click', () => { if (!extend.disabled) void extendShortList(shortList.requested); });
+  actions.append(extend);
+  // Another alternative with more tracks than this list is one click away, through the same
+  // choice the comparison panel offers; K is the largest of them.
+  const planId = prepPlan?.id ?? '';
+  const alternative = largerAlternative(prepPlan?.variants, review?.variant ?? '', review?.tracks.length ?? 0);
+  if (alternative) {
+    const pick = make('button', alternativeLabel(alternative.trackCount), 'button subtle');
+    pick.type = 'button'; pick.id = 'short-list-alternative'; pick.dataset.mutation = '';
+    pick.disabled = gate.busy || !coreAvailable;
+    pick.addEventListener('click', () => { if (!pick.disabled) void chooseAlternative(alternative.variant, planId); });
+    actions.append(pick);
+  }
+  if (generationGenre) {
+    const withoutGenre = make('button', SHORT_LIST_WITHOUT_GENRE, 'button subtle');
+    withoutGenre.type = 'button'; withoutGenre.id = 'short-list-without-genre'; withoutGenre.dataset.mutation = '';
+    withoutGenre.disabled = gate.busy || !coreAvailable;
+    withoutGenre.addEventListener('click', () => { if (!withoutGenre.disabled) generateWithoutGenre(); });
+    actions.append(withoutGenre);
+  }
+  section.append(actions);
+  notices.append(section);
+}
+/** S2's action, applied like any other review edit: the list it answers replaces the one on screen. */
+async function extendShortList(target: number): Promise<void> {
+  const current = review; const extend = api?.reviewExtend;
+  if (!current?.reviewId || typeof extend !== 'function' || gate.busy || !coreAvailable) return;
+  const reviewId = current.reviewId;
+  shortListResult = ''; renderReview();
+  await perform('review-extend', 'Ampliando la lista…', () => extend({ reviewId, targetTrackCount: target }), (value) => {
+    applyReview(value);
+    shortListResult = value.extended ? extendedLine(value.extended) : '';
+    renderReview();
+    showStatus('Lista ampliada', value.extended ? `${value.extended.added} pistas nuevas` : '');
+  }, false, (error) => {
+    // Nothing left to add is an answer the notice shows, not a failed operation.
+    if (errorCode(error) === 'no_candidates') { shortListResult = SHORT_LIST_NO_CANDIDATES; renderReview(); }
+  });
+}
+/** «Generar sin género» clears the prep genre and generates again through the same form submit. */
+function generateWithoutGenre(): void {
+  if (gate.busy || !coreAvailable) return;
+  const genre = element<HTMLInputElement>('prep-genre');
+  genre.value = '';
+  // The picker mirrors this hidden carrier through the listeners the form already has, so its
+  // label, the draft flag and the summaries follow without a second copy of that logic.
+  genre.dispatchEvent(new Event('input'));
+  genre.dispatchEvent(new Event('change'));
+  element('prep-form').dispatchEvent(new Event('submit', { cancelable: true }));
 }
 function renderVariants(): void {
   const container = element('prep-variants');
@@ -881,28 +1189,14 @@ function renderVariants(): void {
     const readiness = make('span', readinessNames[variant.readiness], `readiness-pill ${variant.readiness}`);
     const descriptions:Record<PrepVariant,string>={safe:'Prioriza la cercanía al género solicitado y los límites de preparación.',balanced:'Equilibra la intención de la sesión con conexiones entre géneros etiquetados.',adventurous:'Explora conexiones más amplias conservando las comprobaciones de preparación.'};
     card.append(make('h3', variantNames[variant.name]), make('p', descriptions[variant.name]), readiness);
-    const original=make('details');original.append(make('summary','Descripción original del motor'),make('p',variant.description));card.append(original);
+    const original=make('details');original.append(make('summary','Descripción del motor'),make('p',localizeReviewNotice(variant.description)));card.append(original);
     card.append(make('p', `${variant.trackCount} pistas · ${variant.warnings.length} avisos · ${variant.blockers.length} bloqueos`));
     card.append(make('p', `Puntuación del motor: ${Number.isFinite(variant.qualityScore) ? variant.qualityScore.toLocaleString('es', { maximumFractionDigits: 2 }) : '—'}`, 'field-hint'));
     const button = make('button', review?.variant === variant.name ? 'Volver a revisar' : 'Revisar alternativa', 'button subtle full-width');
     button.type = 'button'; button.dataset.mutation = ''; button.dataset.variant = variant.name;
     button.setAttribute('aria-label', `Revisar alternativa ${variantNames[variant.name].toLocaleLowerCase('es')}`);
     button.setAttribute('aria-pressed', String(review?.variant === variant.name));
-    button.addEventListener('click', () => {
-      if (gate.busy || !coreAvailable || prepPlan !== plan) return;
-      if (serato.source?.kind === 'review') serato.setSource(null);
-      live.invalidate();
-      review = null;
-      renderReview();
-      void perform('select', 'Abriendo la alternativa para revisión…', () => api.selectPrepVariant({ planId: plan.id, variant: variant.name }), (result, currentRoute) => {
-        if (prepPlan !== plan) return;
-        review = result;
-        renderVariants();
-        renderReview();
-        showStatus('Alternativa preparada para revisar', 'Comprueba las pistas, los avisos y el estado antes de guardar');
-        if (currentRoute) navigate('review', false);
-      }, true);
-    });
+    button.addEventListener('click', () => { void chooseAlternative(variant.name, plan.id); });
     card.append(button);
     container.append(card);
   }
@@ -920,16 +1214,51 @@ function renderReview(): void {
   readiness.className = `readiness-pill ${review.readiness}`;
   const notices = element('review-alerts');
   notices.replaceChildren();
+  // S3: the notice fixes the short list through the S2 action. Without that contract the review
+  // keeps the translated warning it always showed instead of a button that cannot work.
+  const shortList = typeof api?.reviewExtend === 'function' ? shortListOf(review.warnings) : null;
   for (const [messages, category] of [[review.blockers, 'blocker'], [review.warnings, 'warning']] as const) {
-    if (!messages.length) continue;
+    // The notice carries the shortfall, so its generic translated line is not shown twice.
+    const lines = category === 'warning' && shortList ? messages.filter((message) => !isShortListWarning(message)) : messages;
+    if (!lines.length) continue;
     const notice = make('section', '', `review-notice ${category}`);
     notice.append(make('strong', category === 'blocker' ? 'Antes de guardar' : 'Ten en cuenta'));
     const list = make('ul');
-    for (const message of messages) list.append(make('li', localizeReviewNotice(message)));
+    for (const message of lines) list.append(make('li', localizeReviewNotice(message)));
     notice.append(list);
     notices.append(notice);
   }
-  renderTable('review-table', review.tracks);
+  if (shortList) renderShortListNotice(notices, shortList);
+  // The answer of the last extension stays visible even when the list is no longer short.
+  if (shortListResult) {
+    const result = make('p', shortListResult, 'review-notice');
+    result.id = 'review-short-list-result';
+    result.setAttribute('role', 'status');
+    notices.append(result);
+  }
+  // One line per readiness check that is not ready, each with the fix the user can apply.
+  const pending = pendingReviewChecks(review);
+  if (pending.length) {
+    const section = make('section', '', 'review-notice review-fixes');
+    section.id = 'review-fixes';
+    section.append(make('strong', 'Qué revisar'));
+    const list = make('ul');
+    for (const check of pending) {
+      const item = make('li');
+      item.append(make('span', localizeReviewNotice(check.detail)));
+      if (check.fix) item.append(make('p', check.fix, 'field-hint'));
+      if (check.action === 'metadata') {
+        const open = make('button', 'Completar metadatos', 'button subtle');
+        open.type = 'button'; open.id = 'review-fixes-metadata';
+        open.addEventListener('click', () => { if (coreAvailable && !gate.busy) navigate('metadata', false); });
+        item.append(open);
+      }
+      list.append(item);
+    }
+    section.append(list);
+    notices.append(section);
+  }
+  renderTable('review-table', review.tracks, transitionScoresOf(review));
   element<HTMLInputElement>('save-name').value = review.name || 'Mi sesión';
   element('save-form').hidden = review.variant === 'saved' || review.canSave === false;
   element('save-hint').textContent = review.blockers.length ? 'Resuelve los bloqueos antes de guardar esta selección' : 'Escucha y revisa los avisos; después guarda tu selección';
@@ -996,14 +1325,18 @@ function renderPlaylists(): void {
     const button = make('button', 'Abrir playlist →', 'button subtle');
     button.dataset.mutation = '';
     button.addEventListener('click', () => {
-      if (gate.busy || !coreAvailable) return;
-      invalidatePrep();
-      void perform('open', 'Abriendo playlist…', () => api.openPlaylist({ playlistId: playlist.id }), (result, currentRoute) => {
-      review = result;
-      renderReview();
-      showStatus('Playlist abierta', result.name);
-      if (currentRoute) navigate('review', false);
-    }); });
+      unlessEditsWouldBeLost(() => {
+        if (gate.busy || !coreAvailable) return;
+        invalidatePrep();
+        void perform('open', 'Abriendo playlist…', () => api.openPlaylist({ playlistId: playlist.id }), (result, currentRoute) => {
+          review = result;
+          discardGuard.reset(result.reviewId);
+          renderReview();
+          showStatus('Playlist abierta', result.name);
+          if (currentRoute) navigate('review', false);
+        });
+      });
+    });
     card.append(button);
     renderPlaylistActions(card, playlist);offline?.addPlaylistActions(card,playlist);
     container.append(card);
@@ -1131,7 +1464,24 @@ element('resume-editor').addEventListener('click', () => {
   if(!editor.draft)return;
   navigate('editor',false,true,true);const draft=element('editor-container');draft.tabIndex=-1;revealControl(draft);draft.scrollIntoView?.({block:'start'});
 });
-element('context-ai').addEventListener('click', () => { const panel=element<HTMLDetailsElement>('ai-panel'); if(panel.hidden)return;panel.open=true;loadAiIfOpen();const content=element('optional-ai-container');content.tabIndex=-1;revealControl(content);content.scrollIntoView?.({block:'start',behavior:'auto'}); });
+resumeReview.addEventListener('click', () => openRecoveredReview());
+function openRecoveredReview(): void {
+  if (!recoveredReview || gate.busy || !coreAvailable) return;
+  const recovered = recoveredReview;
+  recoveredReview = null;
+  review = recovered;
+  discardGuard.reset(recovered.reviewId);
+  prepPlan = recovered.planId && recovered.variants ? { id: recovered.planId, variants: recovered.variants } : null;
+  renderVariants();
+  renderReview();
+  showStatus('Lista en curso abierta', 'Revisa las pistas y el orden antes de guardar o exportar');
+  navigate('review', false);
+  const content = element('review-content');
+  content.tabIndex = -1;
+  revealControl(content);
+  content.scrollIntoView?.({ block: 'start' });
+}
+element('context-ai').addEventListener('click', () => { const panel=element<HTMLDetailsElement>('ai-panel'); if(panel.hidden)return;panel.open=true;loadAiIfOpen();loadChatIfOpen();const content=element('optional-ai-container');content.tabIndex=-1;revealControl(content);content.scrollIntoView?.({block:'start',behavior:'auto'}); });
 element('context-status-open').addEventListener('click', () => {navigate('library',false);element<HTMLDetailsElement>('library-tools').open=true;revealControl(element('choose-library'));});
 element('tool-back').addEventListener('click', () => {
   const trigger=toolTriggers.get(route); navigate(toolOrigins.back(route) as Route, false, false);
@@ -1149,8 +1499,8 @@ element('library-search').addEventListener('input', renderLibrary);
 element('library-show-more').addEventListener('click', () => { libraryVisibleLimit += LIBRARY_WINDOW; renderLibrary(); });
 element('clear-ai-library-filter').addEventListener('click', () => { aiLibraryFilter = null; aiFilterRevision++; renderLibrary(); });
 element('ai-panel').addEventListener('toggle', () => { syncAiContext(); loadAiIfOpen(); });
-for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
-for (const id of ['name','count','strategy','minutes','role','genre','end','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
+for (const id of ['name', 'count', 'strategy', 'minutes', 'role', 'genre', 'end', 'year-min', 'year-max', 'required', 'excluded']) for (const event of ['input', 'change']) element(`prep-${id}`).addEventListener(event,()=>{prepFormEdited=true;if(['required','excluded','genre'].includes(id))prepSettings?.edited();renderPrepSummaries(); element('prep-validation').hidden=true; syncAiContext();});
+for (const id of ['name','count','strategy','minutes','role','genre','end','year-min','year-max','required','excluded']) element(`prep-${id}`).addEventListener('invalid', event => {
   event.preventDefault(); const input=element<HTMLInputElement>(`prep-${id}`);
   showPrepValidation(input, input.validationMessage || 'Revisa este valor antes de generar.');
 });
@@ -1165,28 +1515,36 @@ element('prep-form').addEventListener('submit', (event) => {
   ensureTrackChoices();
   const name = normalizePrepName(element<HTMLInputElement>('prep-name').value);
   const value = (id: string) => element<HTMLInputElement | HTMLSelectElement>(`prep-${id}`).value;
-  const selected = (id: string) => Array.from(element<HTMLSelectElement>(`prep-${id}`).selectedOptions ?? [], (option) => option.value);
   let input;
   try {
-    input = buildPrepInput({ count: value('count'), name, strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selected('required'), excluded: selected('excluded') }, library, strategies);
+    input = buildPrepInput({ count: value('count'), name, strategy: value('strategy'), minutes: value('minutes'), role: value('role'), genre: value('genre'), start: value('start'), end: value('end'), required: selectedPrepValues('required'), excluded: selectedPrepValues('excluded'), yearMin: value('year-min'), yearMax: value('year-max') }, library, strategies);
   } catch (error) {
     const message=error instanceof Error ? error.message : String(error);
-    let field=prepErrorField(message,prepFields());
-    if(message.includes('biblioteca actual')) {const ids=new Set(library.map(track=>track.id));field=['start','end','required','excluded'].map(key=>[`prep-${key}`,['required','excluded'].includes(key)?selected(key):[value(key)]] as const).find(([,values])=>values.some(id=>id&&!ids.has(id)))?.[0]??field;}
+    // The period owns its own refusal, so the notice focuses the first year field
+    // instead of falling through to the required-track picker.
+    let field = message === 'El año inicial no puede ser mayor que el final.' || /entre 1900 y 2100/.test(message) ? 'prep-year-min' : prepErrorField(message,prepFields());
+    if(message.includes('biblioteca actual')) {const ids=new Set(library.map(track=>track.id));field=['start','end','required','excluded'].map(key=>[`prep-${key}`,['required','excluded'].includes(key)?selectedPrepValues(key):[value(key)]] as const).find(([,values])=>values.some(id=>id&&!ids.has(id)))?.[0]??field;}
     showPrepValidation(element(field), message); return;
   }
   element('prep-validation').hidden=true;
-  invalidatePrep();
-  // Enter inside the form starts the same operation as the button, so mark that button.
-  operationTrigger = element('generate-prep');
-  void perform('prep', 'Preparando alternativas para tu sesión…', () => api.generatePrep(input), (result, currentRoute) => {
-    review = result;
-    prepPlan = result.planId && result.variants ? { id: result.planId, variants: result.variants } : null;
-    renderVariants();
-    renderReview();
-    showStatus('Selección preparada', 'Compara las alternativas y revisa las pistas antes de guardar');
-    if (currentRoute) navigate('review', false);
-  }, true);
+  unlessEditsWouldBeLost(() => {
+    if (gate.busy || !coreAvailable) return;
+    invalidatePrep();
+    // Enter inside the form starts the same operation as the button, so mark that button.
+    operationTrigger = element('generate-prep');
+    void perform('prep', 'Preparando alternativas para tu sesión…', () => api.generatePrep(input), (result, currentRoute) => {
+      review = result;
+      discardGuard.reset(result.reviewId);
+      // The genre the notice names is the one this generation ran with, not the field later.
+      generationGenre = typeof input.genreFocus === 'string' ? input.genreFocus.trim() : '';
+      shortListResult = '';
+      prepPlan = result.planId && result.variants ? { id: result.planId, variants: result.variants } : null;
+      renderVariants();
+      renderReview();
+      showStatus('Selección preparada', 'Compara las alternativas y revisa las pistas antes de guardar');
+      if (currentRoute) navigate('review', false);
+    }, true);
+  });
 });
 element('start-live').addEventListener('click', () => {
   if (!coreAvailable || gate.busy || !canStartLive() || !review) return;
@@ -1279,6 +1637,8 @@ if (api) {
       if (!restartRequired) {
         coreAvailable = true; coreFailure = ''; profilesError = ''; libraryBootError = null;
         showStatus('Servicio local disponible', 'XfinAudio volvió a conectar con tu biblioteca después del reinicio automático.', false, 'notice');
+        reviewResumePending = typeof api?.reviewResume === 'function';
+        if (reviewResumePending && !gate.busy) void loadReviewResume();
         syncControls();
       }
       return;

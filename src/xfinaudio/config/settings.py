@@ -136,6 +136,33 @@ class BuildSessionSettings(BaseModel):
     genre_focus: str | None = None
 
 
+class PrepFormSettings(BaseModel):
+    """Last Prep form the core accepted, shown again on the next start.
+
+    Stored as library paths, like ``BuildSessionSettings``, and projected to
+    opaque public identities at the command boundary; a remembered track that
+    left the library therefore survives as an unavailable identity. It has its
+    own app-owned file under the data directory, so remembering it never
+    rewrites the settings file or moves the preferences revision. The explicit
+    saved controls (genre, required and excluded tracks) are separate and are
+    not repeated here.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    target_track_count: int | None = Field(default=None, ge=2, le=100)
+    target_minutes: float | None = Field(default=None, gt=0, le=600)
+    strategy: str | None = Field(default=None, max_length=50)
+    slot_role: Literal["warmup", "peak_time", "chill"] | None = None
+    name: str | None = Field(default=None, max_length=200)
+    start_track_path: str | None = None
+    end_track_path: str | None = None
+    # S16: the optional release period the form carried, so the next start offers the
+    # same epoch. Either bound alone is an open range; both empty means no limit.
+    year_min: int | None = Field(default=None, ge=1900, le=2100)
+    year_max: int | None = Field(default=None, ge=1900, le=2100)
+
+
 class AppSettings(BaseModel):
     """Versioned root settings model for XfinAudio."""
 
@@ -176,6 +203,7 @@ __all__ = [
     "LibrarySettings",
     "LoudnessSettings",
     "OptimizerSettings",
+    "PrepFormSettings",
     "ScanSettings",
     "ScoringSettings",
     "SeratoIntegrationSettings",

@@ -305,7 +305,9 @@ def test_invalid_timeouts_never_reach_transport(tmp_path, timeout):
     assert error.value.code == "ai_request_failed" and not fake.requests
 
 
-@pytest.mark.parametrize("surface,limit", [("library", 30), ("prep", 60), ("review", 120), ("connection", 10)])
+@pytest.mark.parametrize(
+    "surface,limit", [("library", 30), ("prep", 60), ("review", 120), ("chat", 120), ("connection", 10)]
+)
 def test_trusted_surface_timeout_is_bounded_and_preserves_original_policy(tmp_path, surface, limit):
     from xfinaudio.headless.ai_transport import provider_request
 

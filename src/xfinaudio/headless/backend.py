@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import stat
 from collections.abc import Callable
 from pathlib import Path
@@ -16,6 +17,7 @@ from xfinaudio.application.prep_copilot import (
     build_prep_copilot_variant_application,
 )
 from xfinaudio.application.saved_playlists import SavedPlaylistService
+from xfinaudio.headless.ai_conversation import ConversationStore
 from xfinaudio.headless.ai_protocol import AI_FIELDS
 from xfinaudio.headless.common import BackendError, _inside, _public_track, _text
 from xfinaudio.headless.generated_review import REVIEW_FIELDS, GeneratedReview
@@ -50,6 +52,7 @@ if TYPE_CHECKING:
     from xfinaudio.headless.optional_ai import OptionalAI
 
 Progress = Callable[[dict[str, Any]], None]
+LOGGER = logging.getLogger(__name__)
 MIME_TYPES = {
     ".flac": "audio/flac",
     ".mp3": "audio/mpeg",
@@ -137,6 +140,12 @@ class HeadlessBackend:
         self.prep_settings = PrepSettings(self)
         self.legacy_import = LegacyImport(self)
         self._optional_ai: OptionalAI | None = None
+        # One conversation about the list, in memory only: it dies with this process and
+        # is never written to the app-owned directory.
+        self.ai_conversation = ConversationStore()
+        # The list in progress belongs to the previous process; rebind it from the
+        # app-owned file before any command can observe an empty review.
+        self.review_actions.restore()
 
     @property
     def optional_ai(self) -> OptionalAI:
@@ -166,14 +175,19 @@ class HeadlessBackend:
         self.review = None
         self.review_id = None
         self.review_blocked = True
+        # A conversation is about the list in progress, so a discarded list ends it.
+        self.ai_conversation.reset()
+        # A discarded review must not come back after the next start.
+        self.review_actions.clear_stored()
 
-    def _records(self) -> list[TrackRecord]:
+    def _records(self, *, checked: frozenset[str] | None = None) -> list[TrackRecord]:
+        """The library records; only the ``checked`` tracks have their disk identity read."""
         records = [
             record
             for record in self.repository.list_display_tracks()
             if any(Path(record.path).is_relative_to(root) for root in self.roots)
         ]
-        records = current_records(self.repository, records, self.roots)
+        records = current_records(self.repository, records, self.roots, checked=checked)
         # Publish a new snapshot; never mutate the mapping read by concurrent previews.
         self._track_paths = {str(_public_track(record)["id"]): record.path for record in records}
         return records
@@ -188,6 +202,22 @@ class HeadlessBackend:
         }
 
     def execute(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        cancellation_token: ScanCancellationToken | None = None,
+        progress: Progress | None = None,
+    ) -> dict[str, Any]:
+        # The review and assistance commands read the library sources once, plus the one
+        # refresh their own final check asks for, and only for the tracks they act on;
+        # every other command reads them as before.
+        if isinstance(method, str) and (method in REVIEW_FIELDS or method in AI_FIELDS):
+            with self.review_actions.snapshot_scope():
+                return self._execute(method, params, cancellation_token=cancellation_token, progress=progress)
+        return self._execute(method, params, cancellation_token=cancellation_token, progress=progress)
+
+    def _execute(
         self,
         method: str,
         params: dict[str, Any],
@@ -235,6 +265,9 @@ class HeadlessBackend:
             self.invalidate_review()
         elif method == "prep.select":
             self._clear_review()
+        elif method in ("playlist.open", "playlist.edit.open"):
+            # Opening another saved list leaves the generated list the conversation is about.
+            self.ai_conversation.reset()
         if not isinstance(params, dict) or set(params) - allowed[method]:
             raise BackendError("invalid_params", "Unexpected command parameters")
         if method in LEGACY_FIELDS:
@@ -451,7 +484,15 @@ class HeadlessBackend:
         plan_id = str(uuid4())
         self.review_actions.bind_plan(plan_id, generation_binding)
         self.plan, self.plan_id = plan, plan_id
-        return self._select({"planId": self.plan_id, "variant": "balanced"}, token)
+        result = self._select({"planId": self.plan_id, "variant": "balanced"}, token)
+        # The form the core accepted is remembered only after the generation fully
+        # succeeded, so a refused or cancelled attempt never replaces it. A refused
+        # write must not discard a set that was generated, so it only warns.
+        try:
+            self.prep_settings.remember(intent)
+        except BackendError as error:
+            LOGGER.warning("Prep set generated but the form was not remembered (%s)", error)
+        return result
 
     def _select(self, params: dict[str, Any], token: ScanCancellationToken) -> dict[str, Any]:
         plan_id, variant_name = params.get("planId"), params.get("variant")

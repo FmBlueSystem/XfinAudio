@@ -8,7 +8,15 @@ if TYPE_CHECKING:
     from xfinaudio.recommendation.camelot import CamelotKey, parse_camelot_key, score_camelot_transition
     from xfinaudio.recommendation.controls import AppliedControls, DJControls, apply_controls
     from xfinaudio.recommendation.optimizer import SequenceRecommendation, recommend_sequence
-    from xfinaudio.recommendation.playlist_service import PlaylistRecommendation, recommend_playlist
+    from xfinaudio.recommendation.playlist_service import (
+        PlaylistRecommendation,
+        in_year_range,
+        known_release_year,
+        recommend_playlist,
+        recommendation_extended,
+        recommendation_fitted,
+        rewrite_shortfall_warnings,
+    )
     from xfinaudio.recommendation.prep_copilot import (
         DJSetIntent,
         PrepCopilotPlan,
@@ -62,6 +70,14 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "normalized_bpm_pair": ("xfinaudio.recommendation.scoring", "normalized_bpm_pair"),
     "parse_camelot_key": ("xfinaudio.recommendation.camelot", "parse_camelot_key"),
     "recommend_playlist": ("xfinaudio.recommendation.playlist_service", "recommend_playlist"),
+    "in_year_range": ("xfinaudio.recommendation.playlist_service", "in_year_range"),
+    "known_release_year": ("xfinaudio.recommendation.playlist_service", "known_release_year"),
+    "recommendation_extended": ("xfinaudio.recommendation.playlist_service", "recommendation_extended"),
+    "recommendation_fitted": ("xfinaudio.recommendation.playlist_service", "recommendation_fitted"),
+    "rewrite_shortfall_warnings": (
+        "xfinaudio.recommendation.playlist_service",
+        "rewrite_shortfall_warnings",
+    ),
     "recommend_sequence": ("xfinaudio.recommendation.optimizer", "recommend_sequence"),
     "score_camelot_transition": ("xfinaudio.recommendation.camelot", "score_camelot_transition"),
     "score_transition": ("xfinaudio.recommendation.scoring", "score_transition"),
@@ -91,10 +107,15 @@ __all__ = [
     "available_strategies",
     "default_strategy_registry",
     "get_strategy",
+    "in_year_range",
+    "known_release_year",
     "normalized_bpm_pair",
     "parse_camelot_key",
     "recommend_playlist",
     "recommend_sequence",
+    "recommendation_extended",
+    "recommendation_fitted",
+    "rewrite_shortfall_warnings",
     "score_camelot_transition",
     "score_transition",
 ]

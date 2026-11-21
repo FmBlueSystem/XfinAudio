@@ -26,6 +26,10 @@ test('improvement and oversize AI context failures explain the exact retry path'
  }
  assert.notEqual(userErrorMessage({code:'invalid_improvement'}),userErrorMessage({code:'ai_context_too_large'}));
 });
+test('undo with nothing to undo explains the exact Spanish recovery (S1/S2)',()=>{
+ assert.equal(userErrorMessage({code:'nothing_to_undo'}),'No hay cambios para deshacer.');
+ assert.equal(userErrorMessage(new Error('[nothing_to_undo] Nothing to undo in this review')),'No hay cambios para deshacer.');
+});
 test('a Serato export refused because Serato DJ is open tells the user to close it and confirm again (S13)',()=>{
  assert.equal(userErrorMessage(new Error("Error invoking remote method 'xfin:action': [serato_running] Close Serato DJ before exporting")),'Cierra Serato DJ antes de exportar. Si Serato está abierto, al cerrarse borra los crates nuevos. Ciérralo y vuelve a confirmar.');
 });

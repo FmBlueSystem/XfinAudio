@@ -34,6 +34,8 @@ async function fixture(overrides = {}) {
     generatePrep: async (input) => {calls.push(['generate',input]);return detailed();},
     prepSettings: async()=>{calls.push(['prepSettings']);return prepSettings();},savePrepSettings:async(input)=>{calls.push(['savePrepSettings',input]);return prepSettings({...input,revision:'b'.repeat(64)});},
     reviewDetails:async(input)=>{calls.push(['reviewDetails',input]);return detailed();},reviewCompare:async(input)=>{calls.push(['reviewCompare',input]);return {reviewId:input.reviewId,available:true,replacement:tracks[1],original:detailed(),proposed:detailed(),message:'Preview only'};},reviewRemove:async(input)=>{calls.push(['reviewRemove',input]);return detailed({reviewId:'edited',tracks:[tracks[1]]});},reviewReorder:async(input)=>{calls.push(['reviewReorder',input]);return detailed({reviewId:'edited',tracks:[...tracks].reverse()});},
+    selectPrepVariant: async (input) => { calls.push(['select', input]); return detailed({ reviewId: `variant-${input.variant}`, variant: input.variant }); },
+    openPlaylist: async (input) => { calls.push(['open', input]); return detailed({ reviewId: 'opened', variant: 'saved', name: 'Set' }); },
     openLive: async () => ({ sessionId: 'live', revision: 0, sourceReviewId: 'review', state: 'active', current: tracks[0], history: [], candidates: [{ track: tracks[1], score: 1, alerts: [] }], elapsedSeconds: 0 }),
     chooseSeratoDestination: async () => ({ destinationId: 'dest', label: '_Serato_' }), previewSeratoExport: async () => ({ previewId: 'preview', sourceRevision: 'r', filename: 'Set.crate', destinationLabel: '_Serato_', trackCount: 2, readiness: 'ready', warnings: [], blockers: [], canCommit: true, tracks, backup: { required: false } }), ...overrides,
   };
@@ -178,4 +180,238 @@ test('a name typed on the Serato page is used unchanged',async()=>{
   assert.deepEqual(previews,[{source:{kind:'review',reviewId:'review'},destinationId:'dest',name:'Viernes 14-nov'}]);
   assert.match(text(f.get('serato-export-proposal')),/Viernes 14-nov\.crate/);
  }finally{f.restore();}
+});
+const discardQuestion='Vas a descartar los cambios de esta lista. ¿Continuar?';
+const variantButton=(f,name)=>f.nodes().find(node=>node.tagName==='button'&&node.dataset.variant===name);
+const openPlaylistButton=(f)=>f.nodes().find(node=>node.tagName==='button'&&node.textContent==='Abrir playlist →');
+const editReview=async(f)=>{selectReviewTrack(f,1);f.click('review-remove-1');await settle();assert.equal(f.get('review-track-count').textContent,'1 pistas · 2:00');};
+const plan=()=>({planId:'plan',variants:['safe','balanced','adventurous'].map((name)=>({name,description:`Motor ${name}`,trackCount:2,warnings:[],blockers:[],readiness:'ready',qualityScore:.8}))});
+test('an edited review asks before generating again and «Seguir editando» changes nothing',async()=>{
+ const f=await fixture();
+ try{
+  await f.generate();
+  assert.equal(f.get('discard-guard').open,false,'a fresh review needs no question');
+  await editReview(f);
+  const route=document.title;const calls=f.calls.length;
+  await f.generate();
+  assert.equal(f.calls.filter(([kind])=>kind==='generate').length,1,'nothing is generated while the question is open');
+  const dialog=f.get('discard-guard');
+  assert.equal(dialog.open,true);
+  assert.equal(f.get('discard-guard-message').textContent,discardQuestion);
+  assert.equal(f.get('discard-guard-confirm').textContent,'Descartar cambios');
+  assert.equal(f.get('discard-guard-cancel').textContent,'Seguir editando');
+  f.click('discard-guard-cancel');await settle();
+  assert.equal(dialog.open,false);
+  assert.equal(f.calls.length,calls,'«Seguir editando» calls nothing');
+  assert.equal(document.title,route,'the route is unchanged');
+  assert.equal(f.get('review-track-count').textContent,'1 pistas · 2:00','the edited review is untouched');
+  await f.generate();
+  assert.equal(dialog.open,true);
+  assert.equal(f.calls.filter(([kind])=>kind==='generate').length,1);
+  f.click('discard-guard-confirm');await settle();
+  assert.equal(dialog.open,false);
+  assert.equal(f.calls.filter(([kind])=>kind==='generate').length,2,'«Descartar cambios» generates');
+  await f.generate();
+  assert.equal(dialog.open,false,'the generated review is the new baseline');
+  assert.equal(f.calls.filter(([kind])=>kind==='generate').length,3);
+ }finally{f.restore();}
+});
+test('an edited review asks before another variant and «Seguir editando» keeps it',async()=>{
+ const f=await fixture({generatePrep:async(input)=>{f.calls.push(['generate',input]);return detailed(plan());}});
+ try{
+  await f.generate();
+  await editReview(f);
+  variantButton(f,'safe').dispatchEvent(new Event('click'));await settle();
+  assert.equal(f.get('discard-guard').open,true);
+  assert.equal(f.get('discard-guard-message').textContent,discardQuestion);
+  assert.equal(f.calls.some(([kind])=>kind==='select'),false,'no variant is opened while the question is open');
+  f.click('discard-guard-cancel');await settle();
+  assert.equal(f.calls.some(([kind])=>kind==='select'),false);
+  assert.equal(f.get('review-track-count').textContent,'1 pistas · 2:00');
+  variantButton(f,'safe').dispatchEvent(new Event('click'));await settle();
+  f.click('discard-guard-confirm');await settle();
+  assert.deepEqual(f.calls.find(([kind])=>kind==='select')[1],{planId:'plan',variant:'safe'});
+  assert.equal(f.get('review-variant').textContent,'SELECCIÓN SEGURA');
+  variantButton(f,'adventurous').dispatchEvent(new Event('click'));await settle();
+  assert.equal(f.get('discard-guard').open,false,'the chosen variant is the new baseline');
+ }finally{f.restore();}
+});
+test('an edited review asks before opening a saved playlist and discards only when confirmed',async()=>{
+ const f=await fixture();
+ try{
+  await f.generate();
+  await editReview(f);
+  await f.navigate('playlists');
+  const route=document.title;
+  openPlaylistButton(f).dispatchEvent(new Event('click'));await settle();
+  assert.equal(f.get('discard-guard').open,true);
+  assert.equal(f.get('discard-guard-message').textContent,discardQuestion);
+  assert.equal(f.calls.some(([kind])=>kind==='open'),false,'no playlist is opened while the question is open');
+  f.click('discard-guard-cancel');await settle();
+  assert.equal(f.calls.some(([kind])=>kind==='open'),false);
+  assert.equal(document.title,route,'the route stays on the saved playlists');
+  assert.equal(f.get('review-track-count').textContent,'1 pistas · 2:00');
+  openPlaylistButton(f).dispatchEvent(new Event('click'));await settle();
+  f.click('discard-guard-confirm');await settle();
+  assert.deepEqual(f.calls.find(([kind])=>kind==='open')[1],{playlistId:'1'});
+  assert.equal(document.title,'XfinAudio · Revisar y exportar');
+  assert.equal(f.get('review-track-count').textContent,'2 pistas · 4:00','the opened playlist replaces the edited review');
+ }finally{f.restore();}
+});
+const third={...tracks[1],id:'c'.repeat(64),title:'c'};
+const thirdTrack=third;
+test('the review table labels every transition and «Qué revisar» gives each pending check its fix',async()=>{
+ const f=await fixture({generatePrep:async()=>detailed({tracks:[...tracks,thirdTrack],transitionScores:[.8,.42],readinessChecks:[
+  {label:'Metadatos requeridos',status:'blocked',detail:'1 pista(s) necesita(n) metadatos de BPM, tonalidad o energía'},
+  {label:'Continuidad de BPM',status:'needs_review',detail:'Salto máximo entre BPM vecinos: 7.50%'},
+  {label:'Pistas repetidas',status:'ready',detail:'Sin pistas repetidas detectadas'}]})});
+ try{
+  await f.generate();
+  const table=text(f.get('review-table'));
+  assert.match(table,/MEZCLA/,'the review table gains the Mezcla column');
+  assert.match(table,/Buena · 80 %/);
+  assert.match(table,/Débil · 42 %/);
+  assert.equal((table.match(/—/g)||[]).length,1,'only the last track has no transition into a next one');
+  const fixes=text(f.get('review-fixes'));
+  assert.match(fixes,/Qué revisar/);
+  assert.match(fixes,/1 pista\(s\) necesita\(n\) metadatos de BPM, tonalidad o energía/);
+  assert.match(fixes,/Completar metadatos/);
+  assert.match(fixes,/Mira la columna Mezcla: reemplaza o mueve una pista de las transiciones débiles\./);
+  assert.doesNotMatch(fixes,/Sin pistas repetidas detectadas/,'a ready check is not a pending fix');
+  f.click('review-fixes-metadata');await settle();
+  assert.equal(document.title,'XfinAudio · Metadatos','the metadata fix opens the metadata route');
+ }finally{f.restore();}
+});
+test('the disabled Live hint names the pending checks instead of the generic text',async()=>{
+ const f=await fixture({generatePrep:async()=>detailed({readiness:'needs_review',transitionScores:[.8],readinessChecks:[{label:'Continuidad de BPM',status:'needs_review',detail:'Salto 7.50%'},{label:'Avisos de transición',status:'needs_review',detail:'1 aviso'}]})});
+ try{
+  await f.generate();
+  assert.equal(f.get('start-live').disabled,true);
+  assert.match(f.get('start-live-hint').textContent,/Continuidad de BPM, Avisos de transición/);
+  assert.doesNotMatch(f.get('start-live-hint').textContent,/avisos de revisión para abrir la guía/);
+ }finally{f.restore();}
+});
+test('a payload without transition scores or checks renders the review exactly as before',async()=>{
+ const f=await fixture({generatePrep:async()=>{const value=detailed({readiness:'needs_review'});delete value.transitionScores;delete value.readinessChecks;return value;}});
+ try{
+  await f.generate();
+  assert.doesNotMatch(text(f.get('review-table')),/MEZCLA/,'no column for an older core');
+  assert.doesNotMatch(text(f.get('review-alerts')),/Qué revisar/,'no fixes section for an older core');
+  assert.equal(f.get('start-live').disabled,true);
+  assert.match(f.get('start-live-hint').textContent,/avisos de revisión para abrir la guía/);
+ }finally{f.restore();}
+});
+const shortfall = 'Track count shortfall: selected 4 of 20 requested tracks';
+const shortReview = (patch = {}) => detailed({ warnings: [shortfall], readiness: 'needs_review', ...patch });
+const planVariants = () => [['safe', 4], ['balanced', 4], ['adventurous', 20]].map(([name, trackCount]) => ({ name, description: `Motor ${name}`, trackCount, warnings: [], blockers: [], readiness: 'ready', qualityScore: .8 }));
+test('a short list says so with its fixes and extends it in place through the S2 action', async () => {
+  const f = await fixture({
+    generatePrep: async (input) => { f.calls.push(['generate', input]); return shortReview(); },
+    reviewExtend: async (input) => { f.calls.push(['reviewExtend', input]); return detailed({ reviewId: 'extended', tracks: [...tracks, thirdTrack], warnings: [], extended: { requested: 16, added: 15, outsideGenre: 3 } }); },
+  });
+  try {
+    await f.navigate('prep');
+    f.get('prep-genre').value = 'Synth Pop & New Wave';
+    f.get('prep-genre').dispatchEvent(new Event('input'));
+    await f.generate();
+    const alerts = text(f.get('review-alerts'));
+    assert.match(alerts, /Salieron 4 de 20 pistas\./);
+    assert.match(alerts, /El género «Synth Pop & New Wave» y las reglas de mezcla dejaron pocas candidatas\./);
+    assert.doesNotMatch(alerts, /Se seleccionaron 4 de las 20 pistas solicitadas/, 'the generic translated line is not shown twice');
+    assert.equal(f.get('short-list-extend').textContent, 'Ampliar a 20 pistas');
+    assert.equal(f.get('short-list-without-genre').textContent, 'Generar sin género');
+    f.click('short-list-extend'); await settle();
+    assert.deepEqual(f.calls.find(([kind]) => kind === 'reviewExtend')[1], { reviewId: 'review', targetTrackCount: 20 });
+    assert.match(f.get('review-track-count').textContent, /3 pistas/);
+    assert.equal(f.get('review-short-list-result').textContent, 'Se agregaron 15 pistas. 3 son de otros géneros.');
+  } finally { f.restore(); }
+});
+test('a short list without a genre keeps the second line out and says how many tracks were added', async () => {
+  // No genre was used: the app's saved Prep controls are empty too, so the second line stays out.
+  const f = await fixture({
+    prepSettings: async () => prepSettings({ genreFocus: '' }),
+    generatePrep: async () => shortReview(),
+    reviewExtend: async () => detailed({ reviewId: 'extended', tracks: [...tracks, thirdTrack], warnings: [shortfall], extended: { requested: 16, added: 1, outsideGenre: 0 } }),
+  });
+  try {
+    await f.generate();
+    assert.doesNotMatch(text(f.get('review-alerts')), /El género/);
+    assert.equal(f.nodes().some((node) => node.id === 'short-list-without-genre'), false, 'nothing to clear: no genre was used');
+    f.click('short-list-extend'); await settle();
+    assert.equal(f.get('review-short-list-result').textContent, 'Se agregaron 1 pistas.');
+    assert.match(text(f.get('review-alerts')), /Salieron 4 de 20 pistas\./, 'the list is still short, so the notice stays');
+  } finally { f.restore(); }
+});
+test('an extension with nothing left to add says the exact line and changes nothing', async () => {
+  const f = await fixture({
+    generatePrep: async () => shortReview(),
+    reviewExtend: async () => { throw Object.assign(new Error('nothing'), { code: 'no_candidates' }); },
+  });
+  try {
+    await f.generate();
+    f.click('short-list-extend'); await settle();
+    assert.equal(f.get('review-short-list-result').textContent, 'No hay más pistas que mezclen con esta lista.');
+    assert.equal(f.get('review-track-count').textContent, '2 pistas · 4:00');
+    assert.equal(f.get('short-list-extend').disabled, false, 'the offer stays for a retry');
+  } finally { f.restore(); }
+});
+test('a short list offers the longer alternative and choosing it opens that variant', async () => {
+  const f = await fixture({
+    generatePrep: async () => shortReview({ planId: 'plan', variants: planVariants() }),
+    reviewExtend: async (input) => { f.calls.push(['reviewExtend', input]); return detailed({ reviewId: 'extended', tracks: [...tracks, thirdTrack] }); },
+  });
+  try {
+    await f.generate();
+    assert.equal(f.get('short-list-alternative').textContent, 'Usar la alternativa de 20 pistas');
+    f.click('short-list-alternative'); await settle();
+    assert.deepEqual(f.calls.find(([kind]) => kind === 'select')[1], { planId: 'plan', variant: 'adventurous' });
+    assert.equal(f.get('review-variant').textContent, 'SELECCIÓN AVENTURERA');
+  } finally { f.restore(); }
+});
+test('the alternative of a short list still asks before discarding the edits', async () => {
+  const f = await fixture({
+    generatePrep: async () => shortReview({ planId: 'plan', variants: planVariants() }),
+    reviewExtend: async () => detailed({ reviewId: 'extended' }),
+    reviewRemove: async (input) => { f.calls.push(['reviewRemove', input]); return detailed({ reviewId: 'edited', tracks: [tracks[1]], warnings: [shortfall], planId: 'plan', variants: planVariants() }); },
+  });
+  try {
+    await f.generate();
+    selectReviewTrack(f, 1); f.click('review-remove-1'); await settle();
+    f.click('short-list-alternative'); await settle();
+    assert.equal(f.get('discard-guard').open, true);
+    assert.equal(f.get('discard-guard-message').textContent, discardQuestion);
+    assert.equal(f.calls.some(([kind]) => kind === 'select'), false, 'no alternative is opened while the question is open');
+    f.click('discard-guard-cancel'); await settle();
+    assert.equal(f.calls.some(([kind]) => kind === 'select'), false);
+    assert.equal(f.get('review-track-count').textContent, '1 pistas · 2:00');
+    f.click('short-list-alternative'); await settle();
+    f.click('discard-guard-confirm'); await settle();
+    assert.deepEqual(f.calls.find(([kind]) => kind === 'select')[1], { planId: 'plan', variant: 'adventurous' });
+  } finally { f.restore(); }
+});
+test('a short list generated with a genre can generate again without it', async () => {
+  const f = await fixture({
+    generatePrep: async (input) => { f.calls.push(['generate', input]); return shortReview(); },
+    reviewExtend: async (input) => { f.calls.push(['reviewExtend', input]); return detailed({ reviewId: 'extended' }); },
+  });
+  try {
+    await f.navigate('prep');
+    f.get('prep-genre').value = 'House';
+    f.get('prep-genre').dispatchEvent(new Event('input'));
+    await f.generate();
+    assert.equal(f.calls.filter(([kind]) => kind === 'generate')[0][1].genreFocus, 'House');
+    f.click('short-list-without-genre'); await settle();
+    assert.equal(f.get('prep-genre').value, '');
+    const generated = f.calls.filter(([kind]) => kind === 'generate');
+    assert.equal(generated.length, 2);
+    assert.equal(generated[1][1].genreFocus, undefined);
+  } finally { f.restore(); }
+});
+test('a bridge without the extension action keeps the translated line and offers no notice', async () => {
+  const f = await fixture({ generatePrep: async () => shortReview() });
+  try {
+    await f.generate();
+    assert.match(text(f.get('review-alerts')), /Se seleccionaron 4 de las 20 pistas solicitadas/);
+    assert.equal(f.nodes().some((node) => node.id === 'short-list-extend'), false);
+  } finally { f.restore(); }
 });

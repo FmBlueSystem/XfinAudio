@@ -136,7 +136,12 @@ async function action(method:string,raw:unknown) {
     case 'reviewDetails':return run('review.details',params);
     case 'reviewCompare':return run('review.compare',params);
     case 'reviewRemove':return run('review.remove',params);
+    case 'reviewReplace':return run('review.replace',params);
+    case 'reviewExtend':return run('review.extend',params);
     case 'reviewReorder':return run('review.reorder',params);
+    case 'reviewUndo':return run('review.undo',params);
+    case 'reviewRedo':return run('review.redo',params);
+    case 'reviewResume':return run('review.resume',params);
     case 'prepSettings':return run('prep.settings.get');
     case 'savePrepSettings':return run('prep.settings.update',params);
     case 'queryLibrary':return offline.query(params);
@@ -156,6 +161,9 @@ async function action(method:string,raw:unknown) {
     case 'prepareAiRequest':return optionalAi.prepare(params);
     case 'inspectAiPayload':return run('ai.payload',params);
     case 'runAiRequest':return optionalAi.ask(params.previewId as string);
+    case 'aiChatHistory':return run('ai.chat.history');
+    case 'aiChatReset':return run('ai.chat.reset');
+    case 'aiChatApply':return run('ai.chat.apply',params);
     case 'applyAiSuggestion':return run('ai.apply',params);
     case 'revealLoudnessBackups':return revealLoudnessBackups(dataDir,filename=>shell.showItemInFolder(filename));
     case 'revealLogs':return revealLogFolder(dataDir,filename=>shell.showItemInFolder(filename));

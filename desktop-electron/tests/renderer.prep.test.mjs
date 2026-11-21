@@ -5,7 +5,7 @@ import * as model from '../renderer/model.ts';
 
 const tracks = ['a', 'b', 'c'].map((letter, index) => ({ id: letter.repeat(64), title: letter, artist: 'Artist', bpm: 120 + index, key: '8A', energy: 5, duration: 180 }));
 const strategies = [{ name: 'balanced', displayName: 'Equilibrada', description: 'Continuidad', requiresVibeMetadata: false }, { name: 'color', displayName: 'Color', description: 'Color existente', requiresVibeMetadata: true }];
-const fields = { count: '2', name: '', strategy: '', minutes: '', role: '', genre: '', start: '', end: '', required: [], excluded: [] };
+const fields = { count: '2', name: '', strategy: '', minutes: '', role: '', genre: '', start: '', end: '', required: [], excluded: [], yearMin: '', yearMax: '' };
 const planId = 'e80f5eca-8a03-4ed3-b832-c05e9be6566c';
 const variants = ['safe', 'balanced', 'adventurous'].map((name) => ({ name, description: `${name} real`, trackCount: 2, readiness: 'ready', warnings: [], blockers: [], qualityScore: 0.8 }));
 const review = (variant = 'balanced', id = 'fresh') => ({ reviewId: id, planId, variants, tracks: tracks.slice(0, 2), warnings: [], blockers: [], name: 'Sesión equilibrada', variant, readiness: 'ready' });
@@ -24,6 +24,16 @@ test('Prep rejects conflicting, duplicate and excessive requested tracks', () =>
   assert.equal(typeof model.buildPrepInput, 'function');
   for (const patch of [{ start: tracks[0].id, end: tracks[0].id }, { required: [tracks[0].id], excluded: [tracks[0].id] }, { start: tracks[0].id, excluded: [tracks[0].id] }, { end: tracks[0].id, excluded: [tracks[0].id] }, { required: [tracks[0].id, tracks[0].id] }, { required: tracks.map((track) => track.id) }, { start: tracks[0].id, end: tracks[1].id, required: [tracks[2].id] }]) assert.throws(() => model.buildPrepInput({ ...fields, ...patch }, tracks, strategies));
 });
+test('the optional period travels as two bounds, alone or together, and a backwards range is refused', () => {
+  const base = { targetTrackCount: 2, name: 'Sesión equilibrada' };
+  assert.deepEqual(model.buildPrepInput(fields, tracks, strategies), base, 'both empty sends no period at all');
+  assert.deepEqual(model.buildPrepInput({ ...fields, yearMin: '1980', yearMax: '1989' }, tracks, strategies), { ...base, yearMin: 1980, yearMax: 1989 });
+  assert.deepEqual(model.buildPrepInput({ ...fields, yearMin: ' 1980 ' }, tracks, strategies), { ...base, yearMin: 1980 }, 'one year alone is an open range');
+  assert.deepEqual(model.buildPrepInput({ ...fields, yearMax: '1989' }, tracks, strategies), { ...base, yearMax: 1989 });
+  assert.deepEqual(model.buildPrepInput({ ...fields, yearMin: '1980', yearMax: '1980' }, tracks, strategies), { ...base, yearMin: 1980, yearMax: 1980 });
+  assert.throws(() => model.buildPrepInput({ ...fields, yearMin: '1990', yearMax: '1980' }, tracks, strategies), (error) => error.message === 'El año inicial no puede ser mayor que el final.');
+  for (const patch of [{ yearMin: '1899' }, { yearMax: '2101' }, { yearMin: '1985.5' }, { yearMin: 'abc' }, { yearMax: '-1' }, { yearMin: '0' }]) assert.throws(() => model.buildPrepInput({ ...fields, ...patch }, tracks, strategies), /entre 1900 y 2100/);
+});
 test('all real variants require a current, nonempty, unblocked, unsaved review before saving', () => {
   for (const variant of ['safe', 'balanced', 'adventurous']) {
     assert.equal(model.canSaveReview(review(variant)), true);
@@ -35,6 +45,7 @@ test('all real variants require a current, nonempty, unblocked, unsaved review b
 
 class Element extends EventTarget {
   textContent = ''; value = ''; disabled = false; hidden = false; dataset = {}; children = []; attrs = {}; classes = new Set(); selectedOptions = [];
+  get options() { return this.children; }
   classList = { toggle: (name, enabled) => { if (enabled) this.classes.add(name); else this.classes.delete(name); }, contains: (name) => this.classes.has(name) };
   setAttribute(name, value) { this.attrs[name] = value; }
   removeAttribute(name) { delete this.attrs[name]; }
@@ -43,7 +54,10 @@ class Element extends EventTarget {
   closest() { return null; }
   focus() { document.activeElement=this; }
 }
+const lastForm = (patch = {}) => ({ targetTrackCount: null, targetMinutes: null, strategy: null, slotRole: null, name: null, startTrackId: null, endTrackId: null, yearMin: null, yearMax: null, ...patch });
+const prepSettings = (patch = {}) => ({ revision: 'a'.repeat(64), requiredTrackIds: [], excludedTrackIds: [], genreFocus: '', unavailableRequiredCount: 0, unavailableExcludedCount: 0, lastForm: lastForm(), ...patch });
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+const settle = async (count = 8) => { for (let index = 0; index < count; index++) await tick(); };
 const descendants = (element) => [element, ...element.children.flatMap(descendants)];
 const text = (node) => [node.textContent, ...node.children.map(text)].join(' ').replace(/\s+/g, ' ').trim();
 const keydown = (node, key) => { const event = new Event('keydown', { cancelable: true }); event.key = key; node.dispatchEvent(event); return event; };
@@ -71,7 +85,7 @@ test('catalog loads independently of initial library and exposes prerequisite te
     assert.equal(f.get('prep-strategy').disabled, false);
     assert.equal(f.get('prep-strategy').children.length, 3);
     f.get('prep-strategy').value = 'color'; f.get('prep-strategy').dispatchEvent(new Event('change'));
-    assert.match(f.get('strategy-hint').textContent, /metadatos.*vibe|vibe.*metadatos/i);
+    assert.match(f.get('strategy-hint').textContent, /metadatos de ambiente/);
     assert.equal(f.get('audio-player').children.length, 0);
   } finally { f.restore(); }
 });
@@ -118,7 +132,7 @@ test('navigation and core disconnect suppress late variant navigation and mutati
 });
 test('Prep controls and variant comparison have Spanish accessible labels and an expandable advanced panel', async () => {
   const html = await readFile(new URL('../renderer/index.html', import.meta.url), 'utf8');
-  for (const name of ['strategy', 'minutes', 'role', 'end', 'required', 'excluded']) { assert.match(html, new RegExp(`id="prep-${name}"`)); assert.match(html, new RegExp(`for="prep-${name}"`)); }
+  for (const name of ['strategy', 'minutes', 'role']) { assert.match(html, new RegExp(`id="prep-${name}"`)); assert.match(html, new RegExp(`for="prep-${name}"`)); }
   // The free-text genre input became a list picker: the visible field is #prep-genre-search and
   // #prep-genre keeps carrying the value as genreFocus.
   assert.match(html, /id="prep-genre" type="hidden"/);
@@ -136,9 +150,42 @@ test('Prep controls and variant comparison have Spanish accessible labels and an
   assert.match(html, /id="prep-start-clear"[^>]*>Quitar</);
   assert.match(html, /id="prep-start" type="hidden"/);
   assert.doesNotMatch(html, /<select id="prep-start"/);
+  // The closing, required and excluded picks use the same searchable picker: the visible label
+  // names the search box while the existing select stays in the page as the hidden carrier.
+  for (const name of ['end', 'required', 'excluded']) {
+    assert.match(html, new RegExp(`<label for="prep-${name}-search">`));
+    assert.match(html, new RegExp(`id="prep-${name}-search"[^>]*role="combobox"`));
+    assert.match(html, new RegExp(`id="prep-${name}-search"[^>]*aria-expanded="false"`));
+    assert.match(html, new RegExp(`id="prep-${name}-search"[^>]*aria-controls="prep-${name}-results"`));
+    assert.match(html, new RegExp(`id="prep-${name}-results"[^>]*role="listbox"[^>]*hidden`));
+    assert.match(html, new RegExp(`id="prep-${name}-status"[^>]*aria-live="polite"`));
+    assert.match(html, new RegExp(`id="prep-${name}-chips"[^>]*class="track-chips"`));
+    assert.match(html, new RegExp(`<select id="prep-${name}"[^>]*hidden`), 'the select stays mounted as the value carrier');
+    assert.match(html, new RegExp(`id="prep-${name}"[^>]*(multiple )?hidden`));
+  }
+  assert.match(html, /<select id="prep-end" hidden[^>]*><option value="">Sin preferencia<\/option><\/select>/);
+  assert.match(html, /<select id="prep-required" multiple hidden/);
+  assert.match(html, /<select id="prep-excluded" multiple hidden/);
   assert.match(html, /<details[^>]*id="prep-advanced"/); assert.match(html, /id="prep-variants"/); assert.match(html, /no.*(?:inventa|fabrican|generan)/i);
+  const advanced = html.slice(html.indexOf('id="prep-advanced"'), html.indexOf('id="prep-track-options"'));
+  assert.match(advanced, /Época \(opcional\)/, 'the period lives inside «Afinar selección»');
+  assert.match(advanced, /<label for="prep-year-min">Desde<\/label>/);
+  assert.match(advanced, /<label for="prep-year-max">Hasta<\/label>/);
+  for (const id of ['prep-year-min', 'prep-year-max']) assert.match(advanced, new RegExp(`id="${id}" type="number" min="1900" max="2100"[^>]*data-prep-control`));
 });
 
+test('a catalog strategy with a known stable name shows its Spanish name and description, and keeps its name as the submitted value', async () => {
+  const known = [{ name: 'chill', displayName: 'Chill', description: 'Prefer lower energy and lower BPM selections.', requiresVibeMetadata: false }];
+  const f = await fixture({ getPrepCatalog: async () => ({ strategies: known }) });
+  try {
+    const option = f.get('prep-strategy').children[1];
+    assert.equal(option.textContent, 'Relax'); assert.equal(option.value, 'chill');
+    assert.match(f.get('strategy-hint').textContent, /predeterminada/i);
+    f.get('prep-strategy').value = 'chill'; f.get('prep-strategy').dispatchEvent(new Event('change'));
+    assert.equal(f.get('strategy-hint').textContent, 'Prefiere pistas de energía y BPM más bajos.');
+    await f.submit(); assert.equal(f.generated[0].strategy, 'chill');
+  } finally { f.restore(); }
+});
 test('catalog failure remains local, retries successfully, and cannot hide a core disconnect', async () => {
   let calls = 0; let resolveCatalog; const f = await fixture({ getPrepCatalog: () => ++calls === 1 ? Promise.reject(new Error('Unavailable')) : new Promise((resolve) => { resolveCatalog = resolve; }) });
   try {
@@ -178,8 +225,8 @@ test('current review enters Serato with its exact review identity and new genera
 for(const scope of ['required','excluded','both'])test(`101 distinct ${scope} controls reveal the offending list before any generate call`,async()=>{
  const many=Array.from({length:101},(_,index)=>({...tracks[0],id:index.toString(16).padStart(64,'0')}));const f=await fixture({listLibrary:async()=>({tracks:many,count:many.length})});try{
   f.get('prep-count').value='100';const group=f.get('prep-track-options');group.tagName='DETAILS';group.open=false;
-  for(const field of ['required','excluded']){const input=f.get('prep-'+field);input.parentElement=group;input.selectedOptions=scope===field||scope==='both'?many.map(track=>({value:track.id})):[];}
-  await f.submit();assert.equal(f.generated.length,0);assert.equal(document.activeElement,f.get(scope==='excluded'?'prep-excluded':'prep-required'));assert.equal(group.open,true);assert.match(f.get('prep-validation').textContent,/100 pistas distintas/);
+  for(const field of ['required','excluded']){const input=f.get('prep-'+field);input.selectedOptions=scope===field||scope==='both'?many.map(track=>({value:track.id})):[];f.get('prep-'+field+'-search').parentElement=group;}
+  await f.submit();assert.equal(f.generated.length,0);assert.equal(document.activeElement,f.get(scope==='excluded'?'prep-excluded-search':'prep-required-search'),'the visible search box of the offending picker takes the focus');assert.equal(group.open,true);assert.match(f.get('prep-validation').textContent,/100 pistas distintas/);
  }finally{f.restore();}
 });
 test('a large library keeps the opening search usable without building one option per track',async()=>{
@@ -273,5 +320,198 @@ test('the opening and closing tracks still cannot be the same track', async () =
     await f.submit();
     assert.equal(f.generated.length, 0);
     assert.match(f.get('prep-validation').textContent, /La apertura y el cierre deben ser pistas distintas/);
+  } finally { f.restore(); }
+});
+test('the last generated form is shown again on the next start and reaches the next request', async () => {
+  const remembered = lastForm({ targetTrackCount: 12, targetMinutes: 90, strategy: 'color', slotRole: 'warmup', name: 'Viernes', startTrackId: tracks[0].id, endTrackId: tracks[1].id });
+  const f = await fixture({ prepSettings: async () => prepSettings({ lastForm: remembered }), savePrepSettings: async (input) => prepSettings({ ...input, revision: 'b'.repeat(64) }) });
+  try {
+    await settle();
+    assert.equal(f.get('prep-name').value, 'Viernes');
+    assert.equal(f.get('prep-count').value, '12');
+    assert.equal(f.get('prep-minutes').value, '90');
+    assert.equal(f.get('prep-role').value, 'warmup');
+    assert.equal(f.get('prep-strategy').value, 'color');
+    assert.equal(f.get('prep-start').value, tracks[0].id);
+    assert.equal(f.get('prep-start-selected-label').textContent, 'a · Artist');
+    assert.equal(f.get('prep-end').value, tracks[1].id);
+    await f.submit();
+    assert.deepEqual(f.generated[0], { targetTrackCount: 12, name: 'Viernes', strategy: 'color', targetMinutes: 90, slotRole: 'warmup', startTrackId: tracks[0].id, endTrackId: tracks[1].id });
+  } finally { f.restore(); }
+});
+test('the period fields reach the request and a backwards range is refused in the form', async () => {
+  const f = await fixture();
+  try {
+    f.get('prep-year-min').value = '1980'; f.get('prep-year-max').value = '1989';
+    f.get('prep-year-min').dispatchEvent(new Event('input'));
+    await f.submit();
+    assert.deepEqual(f.generated[0], { targetTrackCount: 2, name: 'Sesión equilibrada', yearMin: 1980, yearMax: 1989 });
+    f.get('prep-year-min').value = '1990'; f.get('prep-year-max').value = '1980';
+    f.get('prep-year-max').dispatchEvent(new Event('input'));
+    await f.submit();
+    assert.equal(f.generated.length, 1, 'a backwards range never reaches the core');
+    assert.equal(f.get('prep-validation').hidden, false);
+    assert.equal(f.get('prep-validation').textContent, 'El año inicial no puede ser mayor que el final.');
+  } finally { f.restore(); }
+});
+test('the remembered form brings the period back and it reaches the next request', async () => {
+  const remembered = lastForm({ targetTrackCount: 12, name: 'Viernes', yearMin: 1980, yearMax: 1989 });
+  const f = await fixture({ prepSettings: async () => prepSettings({ lastForm: remembered }), savePrepSettings: async (input) => prepSettings({ ...input, revision: 'b'.repeat(64) }) });
+  try {
+    await settle();
+    assert.equal(f.get('prep-year-min').value, '1980');
+    assert.equal(f.get('prep-year-max').value, '1989');
+    await f.submit();
+    assert.equal(f.generated[0].yearMin, 1980);
+    assert.equal(f.generated[0].yearMax, 1989);
+  } finally { f.restore(); }
+});
+test('a remembered track that left the library stays visible as unavailable and blocks generation', async () => {
+  const goneStart = 'f'.repeat(64), goneEnd = 'e'.repeat(64);
+  const f = await fixture({ prepSettings: async () => prepSettings({ lastForm: lastForm({ startTrackId: goneStart, endTrackId: goneEnd }) }), savePrepSettings: async (input) => prepSettings({ ...input, revision: 'b'.repeat(64) }) });
+  try {
+    await settle();
+    assert.equal(f.get('prep-start').value, goneStart);
+    assert.equal(f.get('prep-start-selected-label').textContent, 'No disponible: ffffffff');
+    assert.equal(f.get('prep-start-selection').attrs['data-state'], 'unavailable');
+    assert.equal(f.get('prep-end').value, goneEnd);
+    const missing = f.get('prep-end').children.find((option) => option.value === goneEnd);
+    assert.ok(missing, 'the closing select keeps the remembered identity instead of dropping it');
+    assert.equal(missing.disabled, true);
+    assert.equal(missing.selected, true);
+    assert.match(missing.textContent, /No disponible/);
+    assert.equal(f.get('prep-end-chips').children.length, 1);
+    assert.equal(f.get('prep-end-chips').children[0].attrs['data-state'], 'unavailable');
+    assert.match(text(f.get('prep-end-chips')), /No disponible: eeeeeeee/);
+    await f.submit();
+    assert.equal(f.generated.length, 0, 'an unavailable remembered track is never silently dropped');
+    assert.match(f.get('prep-validation').textContent, /biblioteca actual/);
+  } finally { f.restore(); }
+});
+test('a form value the user already changed is not replaced by the remembered form after a library refresh', async () => {
+  const f = await fixture({
+    prepSettings: async () => prepSettings({ lastForm: lastForm({ targetTrackCount: 12, name: 'Viernes' }) }),
+    savePrepSettings: async (input) => prepSettings({ ...input, revision: 'b'.repeat(64) }),
+    rescanLibrary: async () => ({ tracks, count: tracks.length }),
+  });
+  try {
+    await settle();
+    assert.equal(f.get('prep-count').value, '12');
+    f.get('prep-count').value = '25';
+    f.get('prep-count').dispatchEvent(new Event('input'));
+    f.get('library-status-rescan').dispatchEvent(new Event('click'));
+    await settle(20);
+    assert.equal(f.get('prep-count').value, '25');
+    assert.equal(f.get('prep-name').value, 'Viernes');
+  } finally { f.restore(); }
+});
+test('prep warns above Generate how many library tracks stay out and why', async () => {
+  const incomplete = { id: 'd'.repeat(64), title: 'd', artist: 'Artist', bpm: null, key: '8A', energy: 5, duration: 180, status: 'incomplete', missingFields: ['bpm'] };
+  const f = await fixture({ listLibrary: async () => ({ tracks: [...tracks, incomplete], count: 4 }) });
+  try {
+    const html = await readFile(new URL('../renderer/index.html', import.meta.url), 'utf8');
+    assert.ok(html.indexOf('id="prep-left-out"') < html.indexOf('id="generate-prep"'), 'the notice sits above the generate button');
+    // The notice builds its own children, so read them from the container.
+    const notice = f.get('prep-left-out');
+    assert.equal(notice.hidden, false);
+    assert.equal(notice.children[0].textContent, '1 de 4 pistas no entran en la lista porque les falta BPM.');
+    assert.equal(notice.children[1].textContent, 'Completar metadatos');
+    assert.equal(notice.children[1].hidden, false);
+    assert.equal(f.get('generate-prep').disabled, false);
+  } finally { f.restore(); }
+});
+test('prep blocks generating with fewer than two complete tracks and says what is missing', async () => {
+  const only = [tracks[0], { ...tracks[1], bpm: null, key: null, energy: null, status: 'incomplete', missingFields: ['bpm', 'camelot_key', 'energy_level'] }];
+  const f = await fixture({ listLibrary: async () => ({ tracks: only, count: 2 }) });
+  try {
+    assert.equal(f.get('prep-left-out').hidden, false);
+    assert.equal(f.get('prep-left-out').children[0].textContent, 'Necesitas al menos dos pistas con BPM, key y energía para generar una lista.');
+    assert.equal(f.get('generate-prep').disabled, true);
+  } finally { f.restore(); }
+});
+test('prep hides the left-out notice when every library track is complete', async () => {
+  const f = await fixture();
+  try {
+    assert.equal(f.get('prep-left-out').hidden, true);
+    assert.equal(f.get('prep-left-out').children[0].textContent, '');
+    assert.equal(f.get('generate-prep').disabled, false);
+  } finally { f.restore(); }
+});
+test('the closing track is chosen with a search picker that keeps #prep-end as the value carrier', async () => {
+  const f = await fixture();
+  try {
+    const search = f.get('prep-end-search'); const list = f.get('prep-end-results'); const chips = f.get('prep-end-chips');
+    assert.equal(list.hidden, true); assert.equal(text(chips), 'Sin preferencia');
+    search.value = 'ARTIST'; search.dispatchEvent(new Event('input'));
+    assert.equal(list.hidden, false); assert.equal(search.attrs['aria-expanded'], 'true');
+    assert.equal(list.children.length, 3, 'matching tracks appear while typing');
+    assert.match(text(list.children[0]), /a Artist 120 BPM · 8A/);
+    assert.equal(search.attrs['aria-activedescendant'], 'prep-end-option-0');
+    assert.equal(list.children[0].attrs['aria-selected'], 'true');
+    assert.equal(f.get('prep-end-status').textContent, '3 coincidencias. Usa las flechas para moverte y Enter para elegir.');
+    keydown(search, 'ArrowDown');
+    assert.equal(search.attrs['aria-activedescendant'], 'prep-end-option-1');
+    keydown(search, 'Enter');
+    assert.equal(f.get('prep-end').value, tracks[1].id, 'the hidden select holds the chosen id');
+    assert.equal(list.hidden, true); assert.equal(search.value, ''); assert.equal(search.attrs['aria-expanded'], 'false');
+    assert.equal(chips.children.length, 1);
+    assert.match(text(chips), /b · Artist 121 BPM · 8A Quitar/);
+    assert.equal(f.get('prep-end-status').textContent, 'Pista de cierre: b · Artist.');
+    await f.submit();
+    assert.equal(f.generated[0].endTrackId, tracks[1].id);
+  } finally { f.restore(); }
+});
+test('the closing picker holds one track and Quitar clears it without leaving a value', async () => {
+  const f = await fixture();
+  try {
+    const search = f.get('prep-end-search'); const chips = f.get('prep-end-chips');
+    const pick = (query) => { search.value = query; search.dispatchEvent(new Event('input')); return f.get('prep-end-results').children[0]; };
+    pick('b').dispatchEvent(new Event('click'));
+    assert.equal(f.get('prep-end').value, tracks[1].id);
+    pick('c').dispatchEvent(new Event('click'));
+    assert.equal(f.get('prep-end').value, tracks[2].id, 'a second choice replaces the first');
+    assert.equal(chips.children.length, 1, 'the closing picker never holds two tracks');
+    assert.match(text(chips), /c · Artist/);
+    const remove = descendants(chips.children[0]).find((node) => node.textContent === 'Quitar');
+    assert.ok(remove, 'each chosen track is removed with «Quitar»');
+    remove.dispatchEvent(new Event('click'));
+    assert.equal(f.get('prep-end').value, '', 'Quitar leaves no closing track in the carrier');
+    assert.equal(text(chips), 'Sin preferencia');
+    assert.equal(f.get('prep-end-status').textContent, 'Sin preferencia de cierre.');
+    await f.submit();
+    assert.equal('endTrackId' in f.generated[0], false);
+  } finally { f.restore(); }
+});
+test('required and excluded pickers hold several tracks and reach the request in the chosen order', async () => {
+  const f = await fixture();
+  try {
+    const pick = (id, query) => { const search = f.get(`prep-${id}-search`); search.value = query; search.dispatchEvent(new Event('input')); f.get(`prep-${id}-results`).children[0].dispatchEvent(new Event('click')); };
+    pick('required', 'c'); pick('required', 'a');
+    assert.equal(f.get('prep-required-chips').children.length, 2);
+    assert.match(text(f.get('prep-required-chips').children[0]), /c · Artist 122 BPM · 8A Quitar/);
+    assert.equal(f.get('prep-required-status').textContent, 'Pista obligatoria: a · Artist.');
+    pick('excluded', 'b');
+    assert.equal(f.get('prep-excluded-status').textContent, 'Pista excluida: b · Artist.');
+    assert.match(text(f.get('prep-excluded-chips')), /b · Artist/);
+    const remove = descendants(f.get('prep-required-chips').children[0]).find((node) => node.textContent === 'Quitar');
+    remove.dispatchEvent(new Event('click'));
+    assert.equal(f.get('prep-required-chips').children.length, 1);
+    assert.equal(f.get('prep-required-status').textContent, 'Quitada: c · Artist.');
+    await f.submit();
+    assert.deepEqual(f.generated[0].requiredTrackIds, [tracks[0].id]);
+    assert.deepEqual(f.generated[0].excludedTrackIds, [tracks[1].id]);
+  } finally { f.restore(); }
+});
+test('saved required, excluded and closing choices still ride the same selects and now show as chips', async () => {
+  const f = await fixture({ prepSettings: async () => prepSettings({ requiredTrackIds: [tracks[0].id], excludedTrackIds: [tracks[1].id], lastForm: lastForm({ endTrackId: tracks[2].id }) }), savePrepSettings: async (input) => prepSettings({ ...input, revision: 'b'.repeat(64) }) });
+  try {
+    await settle();
+    assert.match(text(f.get('prep-required-chips')), /a · Artist/);
+    assert.match(text(f.get('prep-excluded-chips')), /b · Artist/);
+    assert.match(text(f.get('prep-end-chips')), /c · Artist/);
+    await f.submit();
+    assert.deepEqual(f.generated[0].requiredTrackIds, [tracks[0].id]);
+    assert.deepEqual(f.generated[0].excludedTrackIds, [tracks[1].id]);
+    assert.equal(f.generated[0].endTrackId, tracks[2].id);
   } finally { f.restore(); }
 });

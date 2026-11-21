@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
+from xfinaudio.ai.list_chat import ACTION_TYPES, MAX_ACTIONS, MAX_SEARCHES, VARIANTS
 from xfinaudio.ai.nan_client import DEFAULT_ENDPOINT, Transport, request_context
 from xfinaudio.config.settings import AiSettings
+from xfinaudio.headless.ai_actions import apply_action, propose_actions, public_actions
 from xfinaudio.headless.ai_context import AssistContext, build_context
 from xfinaudio.headless.ai_execution import apply_context, execute_context
 from xfinaudio.headless.ai_protocol import AI_FIELDS
@@ -21,6 +23,7 @@ from xfinaudio.headless.ai_transport import (
     bind_credential,
     provider_request,
 )
+from xfinaudio.headless.chat_log import ChatLog, chat_log_enabled
 from xfinaudio.headless.common import BackendError
 from xfinaudio.library.scan_service import ScanCancellationToken
 
@@ -68,7 +71,7 @@ class _PayloadPreviewed(Exception):
     """Private abort raised once one provider body has been built and captured."""
 
 
-def _serialized_body(context: AssistContext) -> bytes:
+def _serialized_body(context: AssistContext, backend: HeadlessBackend) -> bytes:
     """Build the exact provider body for ``context`` with no network, key, or credential access.
 
     The surface builders run unchanged through the ordinary execution path with a capture
@@ -87,7 +90,7 @@ def _serialized_body(context: AssistContext) -> bytes:
 
     try:
         with request_context(enabled=True, key_provider=lambda: _UNUSED_PREVIEW_KEY):
-            execute_context(context, capture)
+            execute_context(context, capture, backend)
     except _PayloadPreviewed:
         pass
     except BackendError:
@@ -99,6 +102,105 @@ def _serialized_body(context: AssistContext) -> bytes:
     return captured[0]
 
 
+def _parsed_chat_answer(answer: dict[str, Any]) -> bool:
+    """The chat answer may also carry the proposals the parser kept, and nothing else."""
+    actions = answer["actions"]
+    if not isinstance(actions, list) or type(answer["droppedActions"]) is not int or answer["droppedActions"] < 0:
+        return False
+    if not isinstance(answer["rawText"], str):
+        return False
+    dropped = answer["droppedItems"]
+    if not isinstance(dropped, list) or answer["droppedActions"] < len(dropped):
+        return False
+    for item in dropped:
+        if not isinstance(item, dict) or set(item) != {"raw", "reason"} or not isinstance(item["reason"], str):
+            return False
+    if not _parsed_searches(answer["searches"]):
+        return False
+    if not _parsed_ignored_searches(answer["ignoredSearches"]):
+        return False
+    if len(actions) > MAX_ACTIONS:
+        return False
+    for item in actions:
+        if not isinstance(item, dict) or item.get("type") not in ACTION_TYPES:
+            return False
+        if not isinstance(item["reason"], str):
+            return False
+        kind = item["type"]
+        if kind in ("replace", "remove", "replace_with"):
+            expected = {"type", "position", "reason"}
+            if kind == "replace_with":
+                expected |= {"ref"}
+            if set(item) != expected or type(item["position"]) is not int:
+                return False
+            if "ref" in item and not isinstance(item["ref"], str):
+                return False
+        elif kind == "add":
+            if (
+                set(item) != {"type", "ref", "position", "reason"}
+                or type(item["position"]) is not int
+                or not isinstance(item["ref"], str)
+            ):
+                return False
+        elif kind == "move":
+            if (
+                set(item) != {"type", "position", "to", "reason"}
+                or type(item["position"]) is not int
+                or type(item["to"]) is not int
+            ):
+                return False
+        elif kind == "reorder":
+            order = item["order"]
+            if set(item) != {"type", "order", "reason"} or not isinstance(order, list):
+                return False
+            if any(type(position) is not int for position in order):
+                return False
+        elif kind == "extend":
+            if set(item) != {"type", "to", "reason"} or type(item["to"]) is not int:
+                return False
+        elif kind == "use_variant":
+            if set(item) != {"type", "variant", "reason"} or item["variant"] not in VARIANTS:
+                return False
+        elif kind == "period":
+            if set(item) != {"type", "yearMin", "yearMax", "reason"}:
+                return False
+            if type(item["yearMin"]) is not int or type(item["yearMax"]) is not int:
+                return False
+        elif set(item) != {"type", "reason"}:
+            return False
+    return True
+
+
+def _parsed_searches(searches: Any) -> bool:
+    """The local searches one answer asked for, in the shape the parser publishes."""
+    if not isinstance(searches, list) or len(searches) > MAX_SEARCHES:
+        return False
+    for item in searches:
+        if not isinstance(item, dict) or "query" not in item or not isinstance(item["query"], str):
+            return False
+        if "genre" in item and not isinstance(item["genre"], str):
+            return False
+        if "key" in item and not isinstance(item["key"], str):
+            return False
+        for field in ("bpmMin", "bpmMax"):
+            if field in item and type(item[field]) not in (int, float):
+                return False
+        for field in ("yearMin", "yearMax"):
+            if field in item and type(item[field]) is not int:
+                return False
+    return True
+
+
+def _parsed_ignored_searches(searches: Any) -> bool:
+    """The searches the parser ignored, each with the reason the opt-in log repeats."""
+    if not isinstance(searches, list):
+        return False
+    for item in searches:
+        if not isinstance(item, dict) or set(item) != {"raw", "reason"} or not isinstance(item["reason"], str):
+            return False
+    return True
+
+
 def _identity(value: Any) -> str:
     try:
         if not isinstance(value, str) or str(UUID(value)) != value:
@@ -108,12 +210,27 @@ def _identity(value: Any) -> str:
         raise BackendError("invalid_params", "Invalid assistance identity") from None
 
 
+def _published(answer: dict[str, Any]) -> dict[str, Any]:
+    """The part of one answer the DJ receives; the log diagnostics stay out of the ceiling."""
+    return {key: value for key, value in answer.items() if key not in _DIAGNOSTIC_FIELDS}
+
+
+#: The fields one chat turn carries for the opt-in log only; never published to the DJ.
+_DIAGNOSTIC_FIELDS = ("actions", "droppedActions", "droppedItems", "rawText", "searches", "ignoredSearches")
+
+
 class OptionalAI:
     def __init__(self, backend: HeadlessBackend, transport: Transport | None = None) -> None:
         self.backend, self.transport = backend, transport
         self.preview: _Pending | None = None
         self.results: dict[str, _Completed] = {}
+        # Off unless the DJ started the core with XFINAUDIO_CHAT_LOG=1.
+        self.chat_log = ChatLog(backend.data_dir)
         self._epoch = 0
+
+    def _log(self, event: str, **fields: Any) -> None:
+        """Write one diagnostic line when the DJ opted in; a failure never fails the turn."""
+        self.chat_log.write(event, **fields)
 
     def invalidate(self) -> None:
         """Discard pending consent and cached proposals after explicit context changes."""
@@ -122,6 +239,14 @@ class OptionalAI:
         self._epoch += 1
 
     def execute(
+        self, method: str, params: dict[str, Any], token: ScanCancellationToken, emit: Callable[[dict[str, Any]], None]
+    ) -> dict[str, Any]:
+        # One assistance command reads the library sources once, plus the one refresh its
+        # own review guards ask for, exactly like the core command that carries it.
+        with self.backend.review_actions.snapshot_scope():
+            return self._execute(method, params, token, emit)
+
+    def _execute(
         self, method: str, params: dict[str, Any], token: ScanCancellationToken, emit: Callable[[dict[str, Any]], None]
     ) -> dict[str, Any]:
         if method not in AI_FIELDS:
@@ -141,8 +266,9 @@ class OptionalAI:
             if method == "ai.status":
                 return {**self.backend.preferences.get_ai(), "recipient": DEFAULT_ENDPOINT}
             if method == "ai.settings.update":
+                previous_revision = self.backend.preferences.revision
                 result = self.backend.preferences.update_ai(params)
-                self.invalidate()
+                self._configuration_changed(previous_revision)
                 return {**result, "recipient": DEFAULT_ENDPOINT}
             if method == "ai.credential.set":
                 path = params["path"]
@@ -150,8 +276,9 @@ class OptionalAI:
                     if not isinstance(path, str) or not path or len(path) > 4096 or "\x00" in path:
                         raise BackendError("invalid_params", "Choose a bounded credential file path")
                     path = bind_credential(Path(path)).path
+                previous_revision = self.backend.preferences.revision
                 result = self.backend.preferences.set_ai_credential({"revision": params["revision"], "path": path})
-                self.invalidate()
+                self._configuration_changed(previous_revision)
                 return {**result, "recipient": DEFAULT_ENDPOINT}
             if method == "ai.prepare":
                 preview = self._prepare(params)
@@ -173,6 +300,29 @@ class OptionalAI:
                 return self._public_preview(pending)
             if method == "ai.payload":
                 return self.inspect_payload(params)
+            if method in ("ai.chat.history", "ai.chat.reset"):
+                return self._conversation(method)
+            if method == "ai.chat.apply":
+                action_id = params["actionId"]
+                if not isinstance(action_id, str) or not 0 < len(action_id) <= 64:
+                    raise BackendError("invalid_params", "Apply a change by its identity")
+                shown = self._shown_action(action_id) if chat_log_enabled() else None
+                try:
+                    result = apply_action(self.backend, action_id)
+                except BackendError as error:
+                    self._log("apply_failed", actionId=action_id, errorCode=error.code)
+                    raise
+                if chat_log_enabled():
+                    self._log(
+                        "apply",
+                        action=shown,
+                        order=[
+                            {"position": position, "title": track["title"]}
+                            for position, track in enumerate(result["review"]["tracks"], start=1)
+                        ],
+                        **({"period": result["period"]} if "period" in result else {}),
+                    )
+                return result
             if method == "ai.run":
                 return self._run(params, token, emit)
             result_id = _identity(params["resultId"])
@@ -232,7 +382,7 @@ class OptionalAI:
         """
         pending = self._pending(params["previewId"])
         self._fresh(pending.reference)
-        body = _serialized_body(pending.context)
+        body = _serialized_body(pending.context, self.backend)
         truncated = len(body) > MAX_PAYLOAD_PREVIEW_BYTES
         text = body[:MAX_PAYLOAD_PREVIEW_BYTES].decode("utf-8", errors="ignore") if truncated else body.decode("utf-8")
         return {
@@ -247,13 +397,43 @@ class OptionalAI:
 
     @staticmethod
     def _public_preview(pending: _Pending) -> dict[str, Any]:
-        return {
+        preview = {
             "previewId": pending.id,
             "surface": pending.context.surface,
             "recipient": DEFAULT_ENDPOINT,
             "disclosure": list(pending.disclosure),
             "requestPreview": pending.context.request,
         }
+        # Consent for a conversation is asked once: only the first turn is a first turn.
+        if pending.context.surface == "chat":
+            preview["firstTurn"] = bool(pending.context.data["firstTurn"])
+        return preview
+
+    def _configuration_changed(self, previous_revision: str) -> None:
+        """End pending consent and, on a real configuration change, the conversation.
+
+        Consent is asked once per conversation, so a changed provider configuration
+        (settings or credential) starts a new conversation and discloses it again.
+        """
+        self.invalidate()
+        if self.backend.preferences.revision != previous_revision:
+            self.backend.ai_conversation.reset()
+
+    def _conversation(self, method: str) -> dict[str, Any]:
+        """Return or clear the single in-memory conversation and its pending changes."""
+        store = self.backend.ai_conversation
+        if method == "ai.chat.reset":
+            snapshot = store.reset()
+            self._log("reset")
+            return {"conversation": snapshot}
+        return {"conversation": store.snapshot(), "actions": public_actions(self.backend, store.actions())}
+
+    def _shown_action(self, action_id: str) -> dict[str, Any] | None:
+        """The pending change exactly as the DJ sees it now, for the diagnostic log."""
+        action = self.backend.ai_conversation.action(action_id)
+        if action is None:
+            return None
+        return next((item for item in public_actions(self.backend, (action,)) if item["actionId"] == action.id), None)
 
     def _pending(self, preview_id: Any) -> _Pending:
         if self.preview is None or self.preview.id != _identity(preview_id):
@@ -281,10 +461,12 @@ class OptionalAI:
         return context
 
     @staticmethod
-    def _answer(context: AssistContext, transport: Transport) -> dict[str, Any]:
+    def _answer(context: AssistContext, transport: Transport, backend: HeadlessBackend) -> dict[str, Any]:
         try:
-            answer = execute_context(context, transport)
+            answer = execute_context(context, transport, backend)
             expected = {"surface", "kind", "title", "text", "proposal", "canApply"}
+            if context.surface == "chat":
+                expected |= {"actions", "droppedActions", "droppedItems", "rawText", "searches", "ignoredSearches"}
             if (
                 not isinstance(answer, dict)
                 or set(answer) != expected
@@ -293,8 +475,11 @@ class OptionalAI:
                 or type(answer["canApply"]) is not bool
                 or not (answer["proposal"] is None or isinstance(answer["proposal"], dict))
                 or answer["canApply"] != (answer["proposal"] is not None)
-                or len(json.dumps(answer, allow_nan=False).encode("utf-8")) > 64 * 1024
+                # The diagnostics of the opt-in log are not part of what this ceiling bounds.
+                or len(json.dumps(_published(answer), allow_nan=False).encode("utf-8")) > 64 * 1024
             ):
+                raise ValueError
+            if context.surface == "chat" and not _parsed_chat_answer(answer):
                 raise ValueError
             return answer
         except (ValueError, TypeError, KeyError):
@@ -314,22 +499,59 @@ class OptionalAI:
         emit({"phase": "ai", "processedCount": 0, "totalCount": 1})
         if token.is_cancelled:
             return cancelled
-        answer = provider_request(
-            pending.reference.settings,
-            pending.reference.binding,
-            lambda send: self._answer(pending.context, send),
-            transport=self.transport,
-            surface=pending.context.surface,
-        )
+        try:
+            answer = provider_request(
+                pending.reference.settings,
+                pending.reference.binding,
+                lambda send: self._answer(pending.context, send, self.backend),
+                transport=self.transport,
+                surface=pending.context.surface,
+            )
+        except BackendError as error:
+            self._log("turn_failed", message=pending.context.request, errorCode=error.code)
+            raise
         if token.is_cancelled:
             return cancelled
         if pending.epoch != self._epoch:
             self._stale()
-        self._fresh(pending.reference)
+        context = self._fresh(pending.reference)
         if token.is_cancelled:
             return cancelled
+        # A successful chat turn is the only writer of the in-memory conversation and of
+        # the changes the assistant proposed; a failed, refused or cancelled turn never
+        # reaches this point.
+        published = _published(answer)
+        memory: dict[str, Any] = {}
+        if context.surface == "chat":
+            store = self.backend.ai_conversation
+            changed = store.list_changed(context.data["listFingerprint"])
+            actions, dropped_items = propose_actions(self.backend, context.selector["reviewId"], answer["actions"])
+            store.record_actions(actions)
+            shown = public_actions(self.backend, actions)
+            memory = {
+                "conversation": store.record(context.data["listFingerprint"], context.request, answer["text"]),
+                "listChanged": changed,
+                "actions": shown,
+                "droppedActions": answer["droppedActions"] + len(dropped_items),
+            }
+            self._log(
+                "turn",
+                message=context.request,
+                rawText=answer["rawText"],
+                reply=answer["text"],
+                actions=shown,
+                droppedActions=memory["droppedActions"],
+                droppedItems=[
+                    *answer["droppedItems"],
+                    *({"raw": item, "reason": reason} for item, reason in dropped_items),
+                ],
+                listChanged=changed,
+                trackCount=context.data["trackCount"],
+                searches=answer["searches"],
+                ignoredSearches=answer["ignoredSearches"],
+            )
         result_id = str(uuid4())
-        self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(answer))
+        self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(published))
         while len(self.results) > 16:
             self.results.pop(next(iter(self.results)))
-        return {"cancelled": False, "result": {"resultId": result_id, **copy.deepcopy(answer)}}
+        return {"cancelled": False, "result": {"resultId": result_id, **copy.deepcopy(published), **memory}}

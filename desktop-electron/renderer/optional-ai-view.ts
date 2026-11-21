@@ -3,7 +3,7 @@ import type { AiSurface, OptionalAiController } from './optional-ai.js';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
 };
-const surfaceNames: Record<AiSurface, string> = { library: 'Biblioteca', prep: 'Preparación', review: 'Revisión', saved: 'Playlists guardadas', editor: 'Editor', metadata: 'Metadatos', live: 'Live', connection: 'Prueba de conexión' };
+const surfaceNames: Record<AiSurface, string> = { library: 'Biblioteca', prep: 'Preparación', review: 'Revisión', saved: 'Playlists guardadas', editor: 'Editor', metadata: 'Metadatos', live: 'Live', connection: 'Prueba de conexión', chat: 'Asistente de lista' };
 const surfaceDisclosure: Record<AiSurface, string> = {
   library: 'Se comparte la petición y el vocabulario de géneros para proponer filtros locales.',
   prep: 'Se comparte la petición y el vocabulario de géneros y estrategias. La selección y el orden se deciden con los motores locales.',
@@ -11,8 +11,9 @@ const surfaceDisclosure: Record<AiSurface, string> = {
   saved: 'Se comparten identificadores anónimos y datos agregados de las playlists autorizadas; la comparación se realiza localmente.',
   review: 'Esta explicación comparte títulos, artistas, metadatos ordenados y hechos de calidad y preparación de la selección.',
   metadata: 'La explicación usa hechos y carencias de metadatos calculados localmente. No modifica etiquetas.',
-  live: 'La explicación usa opciones y puntuaciones ya calculadas localmente. No cambia el orden, las marcas ni la reproducción.',
+  live: 'La explicación usa opciones y puntuaciones ya calculadas localmente. Las marcas y la reproducción siguen siendo manuales.',
   connection: 'Prueba sintética sin datos de la biblioteca. Es una consulta explícita al proveedor y puede consumir cuota.',
+  chat: 'La conversación comparte títulos, artistas y metadatos de la lista, sus transiciones, la preparación y los avisos. Nunca rutas de archivo ni identificadores de pista. Los cambios se aplican en tu equipo y se pueden deshacer.',
 };
 // The improvement selector is a different authority than the legacy editor request: it
 // shares real titles, artists, and bounded metadata, and optionally a replacement pool.
