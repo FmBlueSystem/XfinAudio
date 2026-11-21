@@ -1,4 +1,5 @@
 import type { LiveApi } from './live.js';
+import type { LiveFollowAnswer } from './live-follow.js';
 import type { SeratoExportApi } from './serato-export.js';
 import type { SeratoQuickExportApi } from './serato-quick-export.js';
 import type { EditorApi } from './editor.js';
@@ -58,6 +59,8 @@ export interface ProgressEvent {
   stage?: string; readyCount?: number; failedCount?: number;
 }
 export interface XfinApi extends EditorApi, SeratoExportApi, SeratoQuickExportApi, LiveApi {
+  /** S5: the read-only Serato follow answer; optional until the host ships the bridge route. */
+  liveFollow?(input: Record<string, never>): Promise<LiveFollowAnswer>;
   chooseLibrary(): Promise<LibraryResult | null>;
   listLibrary(): Promise<LibraryResult>;
   getMetadataReport(): Promise<MetadataReport>;

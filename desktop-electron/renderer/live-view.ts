@@ -30,7 +30,7 @@ export function createLiveView(root: HTMLElement, controller: LiveController, ho
   const clear = identify(button('Finalizar y limpiar Live', () => { if (canAct() && controller.snapshot) void controller.clear(); }), 'clear');
   const actions = make('div', '', 'editor-actions'); actions.append(currentPreview, refresh, clear);
   summary.append(make('span', 'PISTA MARCADA COMO ACTUAL', 'eyebrow'), currentTitle, currentDetails, timeLabel, actions,
-    make('p', 'Live es una guía manual. El tiempo y el historial reflejan tus marcas, no la reproducción detectada. Preescuchar y marcar la siguiente pista son acciones separadas; no se controlan decks de Serato.', 'field-hint'));
+    make('p', 'Live es una guía manual: el tiempo y el historial reflejan tus marcas. Preescuchar y marcar la siguiente pista son acciones separadas; no se controlan decks de Serato.', 'field-hint'));
   const choices = make('section', '', 'surface prep-form editor-proposal'); choices.setAttribute('aria-labelledby', 'live-candidates-heading');
   const complete = identify(make('p', '', 'field-hint'), 'complete');
   const candidates = identify(make('ol', '', 'editor-proposed-tracks'), 'candidates'); candidates.setAttribute('aria-label', 'Siguientes pistas clasificadas por el motor');

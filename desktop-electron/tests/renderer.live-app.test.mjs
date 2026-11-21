@@ -30,3 +30,26 @@ test('needs-review selection cannot start Live and scan invalidates an active sn
 test('disconnect during Live advance retains an unavailable snapshot and ignores late success',async()=>{
  let finish;const f=await fixture({advanceLive:()=>new Promise(resolve=>{finish=resolve;})});try{await f.generate();click(f.get('start-live'));await tick();const current=f.get('live-current-heading').textContent;click(f.nodes().find(n=>n.dataset.liveNext));f.progress({operation:'core',phase:'error',message:'Raw private /path'});assert.equal(f.get('live-content').hidden,false);assert.equal(f.get('live-current-preview').disabled,true);assert.match(f.get('live-unavailable').textContent,/desconectado/);finish({sessionId:'session',revision:1,sourceReviewId:'review',state:'complete',current:{id:'new',title:'Late'},history:[],candidates:[],elapsedSeconds:0});await tick();assert.equal(f.get('live-current-heading').textContent,current);assert.doesNotMatch(f.get('operation-detail').textContent,/private|\/path/);}finally{f.restore();}
 });
+const textOf=n=>[n.textContent,...n.children.map(textOf)].join(' ');
+test('Live opens from the navigation without a list and follows Serato every three seconds',async()=>{
+ const interval=globalThis.setInterval,clear=globalThis.clearInterval,timers=[];
+ globalThis.setInterval=(fn,ms)=>{timers.push({fn,ms,cleared:false});return timers.length;};globalThis.clearInterval=id=>{const timer=timers[id-1];if(timer)timer.cleared=true;};
+ const followCalls=[];let hold=false,pending=null;const playing={id:'a'.repeat(64),title:'a',artist:'Artist',bpm:120,key:'8A',energy:5,duration:60};
+ const following={available:true,reason:null,sessionStartedAt:'2026-10-01T22:00:00Z',playing:[{deck:1,startedAt:'2026-10-01T22:00:00Z',inLibrary:true,...playing}],current:playing,suggestions:[{id:'b'.repeat(64),title:'b',artist:'Artist',bpm:121,key:'9A',energy:6,duration:60,score:.81}],playedCount:0};
+ const f=await fixture({liveFollow:input=>{followCalls.push(input);return hold?new Promise(resolve=>{pending=resolve;}):Promise.resolve(following);}});
+ try{
+  f.navigate('live');await tick();await tick();
+  assert.equal(followCalls.length,1);assert.deepEqual(followCalls[0],{});
+  const rendered=textOf(f.get('live-follow-container'));
+  for(const expected of ['Seguir a Serato','Seguir lo que suena en Serato','Sonando en Serato','Deck 1: a — Artist · 120 BPM · 8A · Actual','Qué poner después','Buena · 81 %','Preescuchar','Solo lectura: XfinAudio no controla Serato ni modifica su historial.'])assert.ok(rendered.includes(expected),expected);
+  assert.equal(f.get('live-follow-switch').checked,true);
+  const poll=timers.find(timer=>timer.ms===3000);assert.ok(poll);
+  hold=true;poll.fn();poll.fn();await tick();assert.equal(followCalls.length,2);
+  pending(following);await tick();hold=false;
+  const toggle=f.get('live-follow-switch');toggle.checked=false;toggle.dispatchEvent(new Event('change'));
+  poll.fn();await tick();assert.equal(followCalls.length,2);assert.equal(poll.cleared,true);
+  toggle.checked=true;toggle.dispatchEvent(new Event('change'));await tick();
+  assert.equal(followCalls.length,3);const resumed=timers.filter(timer=>timer.ms===3000).at(-1);assert.equal(resumed.cleared,false);
+  f.navigate('library');assert.equal(resumed.cleared,true);resumed.fn();await tick();assert.equal(followCalls.length,3);
+ }finally{f.restore();globalThis.setInterval=interval;globalThis.clearInterval=clear;}
+});
