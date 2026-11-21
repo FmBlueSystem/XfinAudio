@@ -178,6 +178,7 @@ async function action(method:string,raw:unknown) {
     case 'rescanLibrary':return libraryHost.rescan();
     case 'openLive':return run('live.open',params);
     case 'getLiveStatus':return run('live.status',params);
+    case 'liveFollow':return core.request('live.follow');
     case 'advanceLive':return run('live.next',params);
     case 'clearLive':return run('live.clear',params);
     case 'chooseSeratoDestination':return serato.choose();
