@@ -26,7 +26,7 @@ contextBridge.exposeInMainWorld('xfin',Object.freeze({
     const listener=(_event:Electron.IpcRendererEvent,value:unknown)=>callback(value);
     ipcRenderer.on('xfin:library-status',listener);return()=>ipcRenderer.removeListener('xfin:library-status',listener);
   },
-  openLive:(params:unknown)=>invoke('openLive',params),getLiveStatus:(params:unknown)=>invoke('getLiveStatus',params),liveFollow:()=>invoke('liveFollow'),
+  openLive:(params:unknown)=>invoke('openLive',params),getLiveStatus:(params:unknown)=>invoke('getLiveStatus',params),liveFollow:()=>invoke('liveFollow'),dragTrack:(params:unknown)=>invoke('dragTrack',params),
   advanceLive:(params:unknown)=>invoke('advanceLive',params),clearLive:(params:unknown)=>invoke('clearLive',params),
   chooseSeratoDestination:()=>invoke('chooseSeratoDestination'),detectSeratoDestination:()=>invoke('detectSeratoDestination'),previewSeratoExport:(params:unknown)=>invoke('previewSeratoExport',params),quickSeratoExport:(params:unknown)=>invoke('quickSeratoExport',params),
   commitSeratoExport:(params:unknown)=>invoke('commitSeratoExport',params),revealSeratoExport:(params:unknown)=>invoke('revealSeratoExport',params),
