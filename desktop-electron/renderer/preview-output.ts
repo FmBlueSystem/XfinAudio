@@ -133,6 +133,8 @@ export interface PreviewOutputController {
   /** S13 (b): the one list the view renders for the three cases. */
   destinations(playing?: readonly PreviewPlaying[] | null): readonly DestinationOption[];
   refresh(): Promise<void>;
+  /** S14 (b): reapplies the stored setup once the host has answered, keeping the routing. */
+  reload(): void;
   select(label: string | null): void;
   selectPair(pair: string): void;
   /** S12 (c): choosing a channel chooses its pair; the stored value stays `{label, pair}`. */
@@ -450,6 +452,21 @@ export class PreviewOutput implements PreviewOutputController {
     else if (!this.selectable) this.channelCount = 0;
     // S11 (f): the chosen output left while a preview may be playing: silence it at once.
     if (wasSelectable && !this.selectable) this.silence();
+    this.normalizePair();
+    this.notify();
+  }
+
+  /**
+   * S14 (b): the host answered after the controller was built, so the remembered output, pair
+   * and calibration are applied here. The routing is untouched: only the choice changes.
+   */
+  reload(): void {
+    const stored = readStored(this.deps.storage);
+    this.calibrations = storedCalibration(this.deps.storage);
+    this.chosen = stored.label;
+    this.chosenPair = stored.pair;
+    this.selectable = stored.label === null || this.options.some((option) => option.label === stored.label);
+    this.channelCount = stored.label === null || !this.selectable ? 0 : this.channelCountOf(stored.label);
     this.normalizePair();
     this.notify();
   }

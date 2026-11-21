@@ -58,7 +58,18 @@ export interface ProgressEvent {
   message?: string;
   stage?: string; readyCount?: number; failedCount?: number;
 }
+/** S14 (a): the remembered preview output, or `null` for the system output. */
+export interface PreviewSetupOutput { label: string | null; pair: string; }
+/** S14 (a): the whole preview setup, in the shape both bridge actions carry. */
+export interface PreviewSetup {
+  output: PreviewSetupOutput | null;
+  /** S14 (a): each output label's calibration, pair → role. */
+  calibration: Record<string, Record<string, string>>;
+}
 export interface XfinApi extends EditorApi, SeratoExportApi, SeratoQuickExportApi, LiveApi {
+  /** S14 (a): the preview setup the host keeps; optional until the host ships the bridge route. */
+  getPreviewSetup?(): Promise<PreviewSetup>;
+  savePreviewSetup?(input: PreviewSetup): Promise<unknown>;
   /** S5: the read-only Serato follow answer; optional until the host ships the bridge route. */
   liveFollow?(input: LiveFollowInput): Promise<LiveFollowAnswer>;
   /** S9: the one-way drag action, `{trackId}` in and nothing at all back; optional until the host ships it. */
