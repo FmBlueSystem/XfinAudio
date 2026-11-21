@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import math
 import os
 import threading
 from collections.abc import Callable
@@ -17,7 +18,7 @@ from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, CURRENT_E
 from xfinaudio.headless.common import BackendError, _inside
 from xfinaudio.headless.serato_safety import source_identity
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.library.scan_service import ScanCancellationToken
+from xfinaudio.library.scan_service import ScanCancellationToken, read_mutagen_tags
 from xfinaudio.library.track_repository import TrackRepository
 
 if TYPE_CHECKING:
@@ -35,6 +36,8 @@ STAGES = (
     ("danceability", "danceability_profile", CURRENT_DANCEABILITY_VERSION, LibrosaDanceabilityAnalyzer),
     ("edge", "edge_spectral_profile", CURRENT_EDGE_ANALYSIS_VERSION, LibrosaEdgeSpectralAnalyzer),
 )
+# A tag write keeps the recording's duration; this is the tolerance the library allows.
+MAX_TAG_WRITE_DURATION_DELTA = 2.0
 
 
 def dependencies_available() -> bool:
@@ -57,6 +60,27 @@ def _identity(path: Path, roots: list[Path]) -> tuple[object, ...] | None:
     return None
 
 
+def same_recording(record: TrackRecord, path: Path) -> bool:
+    """Whether the library's own reader still finds the same recording at ``path``."""
+    expected = record.duration
+    if expected is None:
+        return False
+    try:
+        tags = read_mutagen_tags(path)
+    except Exception:
+        # A missing, moved or unreadable file fails closed, exactly as before.
+        return False
+    if tags is None:
+        return False
+    duration = tags.get("__duration__")
+    return (
+        isinstance(duration, (int, float))
+        and not isinstance(duration, bool)
+        and math.isfinite(duration)
+        and abs(duration - expected) <= MAX_TAG_WRITE_DURATION_DELTA
+    )
+
+
 def current_records(
     repository: TrackRepository,
     records: list[TrackRecord],
@@ -68,7 +92,9 @@ def current_records(
 
     ``checked`` names the tracks whose on-disk identity this caller acts on: only those
     are read from disk, and every other record keeps the profile the scan stored, so a
-    caller that edits part of the library does not re-check the rest of it.
+    caller that edits part of the library does not re-check the rest of it. A tag-only
+    rewrite keeps the remembered profiles: the audio reader confirms the recording is
+    the same one the library scanned (S20, S5).
     """
     paths = [record.path for record in records]
     caches = {field: getattr(repository, f"load_{field}_cache")(paths) for _, field, _, _ in STAGES}
@@ -76,13 +102,22 @@ def current_records(
     for record in records:
         on_disk = checked is None or record.path in checked
         identity = _identity(Path(record.path), roots) if on_disk else None
+        healed = False
+        if identity is not None:
+            for _, field, _, _ in STAGES:
+                entry = caches[field].get(record.path)
+                if entry is not None and (entry[0], entry[1]) != (identity[4], identity[3]):
+                    healed = same_recording(record, Path(record.path))
+                    break
         updates = {}
         for _, field, version, _ in STAGES:
             entry = caches[field].get(record.path)
             # Original cache contract: mtime_ns, size_bytes, profile. Identity's
             # lineage and regular-file checks additionally reject path escapes.
             valid = entry is not None and (
-                identity is not None and (entry[0], entry[1]) == (identity[4], identity[3]) if on_disk else True
+                identity is not None and ((entry[0], entry[1]) == (identity[4], identity[3]) or healed)
+                if on_disk
+                else True
             )
             updates[field] = entry[2] if valid and entry is not None and entry[2].analysis_version == version else None
         result.append(record.model_copy(update=updates))

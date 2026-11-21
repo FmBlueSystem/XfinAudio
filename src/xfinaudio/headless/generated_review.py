@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -14,11 +13,11 @@ from xfinaudio.application.prep_copilot import PrepCopilotVariantApplicationResu
 from xfinaudio.exporting.explainability import PlaylistExplanation, build_playlist_explanation
 from xfinaudio.headless.ai_conversation import applied_changes
 from xfinaudio.headless.common import BackendError, _inside, _public_track
+from xfinaudio.headless.profiles import same_recording
 from xfinaudio.headless.review_evidence import evidence
 from xfinaudio.headless.review_store import VERSION, clear_review, read_review, write_review
 from xfinaudio.headless.serato_safety import opaque_id, source_identity
 from xfinaudio.library.models import TrackRecord
-from xfinaudio.library.scan_service import read_mutagen_tags
 from xfinaudio.quality.dj_readiness import DjReadinessReport, build_dj_readiness_report
 from xfinaudio.quality.recommendation_quality import RecommendationQualityReport, build_quality_report
 from xfinaudio.recommendation.controls import DJControls, preserved_control_paths
@@ -52,7 +51,9 @@ LOGGER = logging.getLogger(__name__)
 
 SourceEntry = tuple[TrackRecord, tuple[object, ...] | None]
 SourceSnapshot = dict[str, SourceEntry]
-PlanBinding = tuple[SourceSnapshot, tuple[object, ...]]
+# The sources, the policy, and the paths that were already unusable when the plan
+# was captured: those stay out of the plan but do not invalidate its own binding.
+PlanBinding = tuple[SourceSnapshot, tuple[object, ...], frozenset[str]]
 
 REVIEW_FIELDS = {
     "review.details": {"reviewId"},
@@ -78,8 +79,6 @@ MIN_REVIEW_TRACK_COUNT = 2
 # The calendar years a period edit may name, both ends included.
 MIN_PERIOD_YEAR = 1900
 MAX_PERIOD_YEAR = 2100
-# A tag write keeps the recording's duration; this is the tolerance the library allows.
-MAX_TAG_WRITE_DURATION_DELTA = 2.0
 TAG_WRITE_ACCEPTED = "A tag rewrite kept the same recording; the review source identity was refreshed"
 ReviewState = tuple[PrepCopilotVariantApplicationResult, frozenset[str], dict[str, Any]]
 
@@ -181,10 +180,13 @@ class GeneratedReview:
         ``unread`` keeps every unlisted library track even before this review recorded
         anything about it, with its stored record and no identity: that is the whole
         library a restart restores, without reading the disk of the tracks it does not
-        list.
+        list. A path whose file identity changed into a different recording, an
+        unreadable file or a replacement leaves the snapshot entirely (S5).
         """
         result = {}
-        for track in self.backend._records(checked=checked):
+        tracks = self.backend._records(checked=checked)
+        stored_identities = self.backend.repository.load_scan_file_identities([track.path for track in tracks])
+        for track in tracks:
             path = Path(track.path)
             try:
                 if not any(_inside(path, root) for root in self.backend.roots):
@@ -197,6 +199,14 @@ class GeneratedReview:
                         result[track.path] = track, None
                     continue
                 identity = source_identity(path)
+                recorded = stored_identities.get(track.path)
+                if (
+                    recorded is not None
+                    and None not in recorded
+                    and (recorded[0], recorded[1]) != (identity[4], identity[3])
+                    and not same_recording(track, path)
+                ):
+                    continue
                 entry: SourceEntry = (track, identity)
                 if self.backend.review is not None:
                     healed = self._recording_entry(track, identity, path)
@@ -218,7 +228,7 @@ class GeneratedReview:
         if recorded is None or recorded[1] is None:
             return None
         if recorded[1] != identity:
-            if not self._same_recording(recorded[0], path):
+            if not same_recording(recorded[0], path):
                 return None
             self.sources[track.path] = (recorded[0], identity)
             self._rewritten.add(track.path)
@@ -230,31 +240,12 @@ class GeneratedReview:
             return (recorded[0], identity)
         return None
 
-    @staticmethod
-    def _same_recording(record: TrackRecord, path: Path) -> bool:
-        """Whether the library's own reader still finds the same recording at ``path``."""
-        expected = record.duration
-        if expected is None:
-            return False
-        try:
-            tags = read_mutagen_tags(path)
-        except Exception:
-            # A missing, moved or unreadable file fails closed, exactly as before.
-            return False
-        if tags is None:
-            return False
-        duration = tags.get("__duration__")
-        return (
-            isinstance(duration, (int, float))
-            and not isinstance(duration, bool)
-            and math.isfinite(duration)
-            and abs(duration - expected) <= MAX_TAG_WRITE_DURATION_DELTA
-        )
-
     def _tag_written(self, path: str, identity: tuple[object, ...]) -> bool:
         """Whether the library recorded a different identity for this exact path."""
         recorded = self.backend.repository.load_scan_file_identities([path]).get(path)
-        return recorded is not None and (recorded[0], recorded[1]) != (identity[4], identity[3])
+        return (
+            recorded is not None and None not in recorded and (recorded[0], recorded[1]) != (identity[4], identity[3])
+        )
 
     @staticmethod
     def _same(recorded: SourceEntry | None, current: SourceEntry | None) -> bool:
@@ -269,10 +260,27 @@ class GeneratedReview:
             return False
         return recorded[0] == current[0] and (recorded[1] is None or recorded[1] == current[1])
 
-    @classmethod
-    def _unchanged(cls, recorded: SourceSnapshot, current: SourceSnapshot) -> bool:
-        """Whether every recorded track is still what it was, and no track left the library."""
-        return set(recorded) == set(current) and all(cls._same(recorded[path], current[path]) for path in recorded)
+    def _unchanged(self, binding: PlanBinding, current: SourceSnapshot) -> bool:
+        """Whether every recorded track is still what it was, and no track left the library.
+
+        A tag-only rewrite changes just the file identity: the plan binding accepts it
+        with the refreshed identity, as S20 accepts it for a review (S5). A path that
+        was already unusable at capture time stays outside both sides of the check; a
+        source that changed afterwards is still a change.
+        """
+        recorded, _, excluded = binding
+        return set(recorded) | excluded == set(current) | excluded and all(
+            self._binding_same(recorded[path], current.get(path)) for path in recorded
+        )
+
+    def _binding_same(self, recorded: SourceEntry | None, current: SourceEntry | None) -> bool:
+        if recorded is None or current is None:
+            return False
+        if recorded[0] != current[0]:
+            return False
+        if recorded[1] is None or recorded[1] == current[1]:
+            return True
+        return current[1] is not None and same_recording(recorded[0], Path(recorded[0].path))
 
     def _reverify(self, recorded: SourceSnapshot) -> SourceSnapshot:
         """Re-read a snapshot the way it was recorded: only where it recorded an identity.
@@ -290,11 +298,16 @@ class GeneratedReview:
         sources = self._sources()
         if any(sources[track.path][0] != track for track in records if track.path in sources):
             raise BackendError("stale_plan", "Library metadata changed before preparation; regenerate")
-        return sources, self._policy()
+        # This generation owns its snapshot from now on: an earlier review's recorded
+        # metadata must not heal the plan's own sources when the plan is bound.
+        self.sources = dict(sources)
+        self._rewritten.clear()
+        excluded = frozenset(track.path for track in records if track.path not in sources)
+        return sources, self._policy(), excluded
 
     def bind_plan(self, plan_id: str, binding: PlanBinding) -> None:
         """Publish only a plan whose complete candidate context is still current."""
-        if not self._unchanged(binding[0], self._reverify(binding[0])) or self._policy() != binding[1]:
+        if not self._unchanged(binding, self._reverify(binding[0])) or self._policy() != binding[1]:
             raise BackendError("stale_plan", "Library sources or settings changed during preparation; regenerate")
         self.plan_id, self.plan_binding = plan_id, binding
 
@@ -303,7 +316,7 @@ class GeneratedReview:
         if (
             self.plan_id != plan_id
             or binding is None
-            or not self._unchanged(binding[0], self._reverify(binding[0]))
+            or not self._unchanged(binding, self._reverify(binding[0]))
             or self._policy() != binding[1]
         ):
             raise BackendError("stale_plan", "The generation context changed; generate a current plan")
@@ -389,9 +402,9 @@ class GeneratedReview:
         self._rewritten.clear()
         for track in review.recommendation.ordered_tracks:
             current = sources.get(track.path)
-            if current is None or current[0] == track or current[1] is None:
+            if current is None or current[1] is None:
                 continue
-            if self._tag_written(track.path, current[1]) and self._same_recording(track, Path(track.path)):
+            if self._tag_written(track.path, current[1]) and same_recording(track, Path(track.path)):
                 sources[track.path] = (track, current[1])
                 self._rewritten.add(track.path)
                 LOGGER.info(TAG_WRITE_ACCEPTED)
@@ -431,7 +444,7 @@ class GeneratedReview:
         # Bind against the library as it is now, so every later edit keeps the stale-source
         # checks. The binding re-reads the tracks the list holds and no other one, so a
         # change made while restoring is still refused.
-        self.bind_plan(payload["planId"], (self.sources, self.policy))
+        self.bind_plan(payload["planId"], (self.sources, self.policy, frozenset()))
 
     @staticmethod
     def _decode(stored: dict[str, Any]) -> PrepCopilotVariantApplicationResult:

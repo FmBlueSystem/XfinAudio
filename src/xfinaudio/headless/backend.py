@@ -453,6 +453,12 @@ class HeadlessBackend:
         name = _text(params.get("name", "Prepared set"), "playlist name")
         self.invalidate_review()
         records = self._records()
+        generation_binding = self.review_actions.capture_plan(records)
+        # Only a track whose file is still the recording the library scanned may
+        # enter a generated list. A tag-only rewrite stays in the snapshot; a
+        # missing, moved, unreadable or different-length file does not (S5).
+        available = generation_binding[0]
+        records = [record for record in records if record.path in available]
         try:
             intent = make_intent(params, name, self._track_paths, records)
         except ValueError as exc:
@@ -471,7 +477,6 @@ class HeadlessBackend:
                 }
             )
 
-        generation_binding = self.review_actions.capture_plan(records)
         plan = generate_plan(
             records,
             intent,
