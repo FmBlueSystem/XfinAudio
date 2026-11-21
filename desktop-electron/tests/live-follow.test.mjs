@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { LIVE_FOLLOW_INTERVAL_MS, LiveFollowController, followKey } from '../.out/renderer/live-follow.js';
 import { createLiveFollowView } from '../.out/renderer/live-follow-view.js';
+import { PreviewOutput } from '../.out/renderer/preview-output.js';
 
 class Element extends EventTarget {
   constructor(tag = 'div') { super(); this.tagName = tag; }
@@ -133,7 +134,7 @@ function viewFixture(options = {}) {
   let index = 0;
   const clock = { every: (intervalMs, callback) => { const entry = { intervalMs, callback, cancelled: false }; timers.push(entry); return () => { entry.cancelled = true; }; } };
   const controller = new LiveFollowController({ liveFollow: (input) => { calls.push(input); return Promise.resolve(answers[Math.min(index++, answers.length - 1)]); } }, { canAct: () => true, changed: () => view.render() }, clock);
-  const view = createLiveFollowView(root, controller, { play: (track) => played.push(track), ...(options.api ? { api: options.api } : {}) });
+  const view = createLiveFollowView(root, controller, { play: (track) => played.push(track), ...(options.api ? { api: options.api } : {}), ...(options.preview ? { preview: options.preview } : {}) });
   view.render();
   controller.start();
   return {
@@ -319,6 +320,52 @@ test('S9: a line under the table explains the drag', async () => {
 });
 
 /** S10: two decks, both in the library, so a chosen deck really changes what is current. */
+test('S12: every answer marks the mixer channels and never moves the chosen one', async () => {
+  const preview = raneFourOutput();
+  await preview.refresh();
+  const f = viewFixture({
+    answers: [answer(), answer({ playing: [{ deck: 2, startedAt: '2026-10-01T22:09:00Z', inLibrary: true, ...track('h') }], current: track('h') })],
+    preview,
+  });
+  try {
+    await f.ready();
+    const output = node(f.root, 'preview-output-select');
+    output.value = 'Rane FOUR (1cc5:0024)';
+    output.dispatchEvent(new Event('change'));
+    f.view.render();
+    const select = node(f.root, 'preview-output-pair');
+    assert.deepEqual(select.children.map((item) => item.textContent), [
+      'Canal 3 · libre', 'Canal 1 · ocupado: Título a', 'Canal 2 · ocupado: Ajena', 'Canal 4 · libre',
+    ]);
+    assert.equal(select.value, '5-6');
+    select.value = '1-2';
+    select.dispatchEvent(new Event('change'));
+    f.view.render();
+    assert.equal(preview.pair, '1-2');
+    assert.equal(node(f.root, 'preview-output-channel-notice').textContent,
+      'El canal 1 tiene una pista cargada en Serato: al activar su CUE vas a oír las dos.');
+    // The next answer redraws the marks and the notice, and leaves the channel alone.
+    f.timers[0].callback();
+    await tick();
+    f.view.render();
+    assert.equal(preview.pair, '1-2');
+    assert.deepEqual(node(f.root, 'preview-output-pair').children.map((item) => item.textContent), [
+      'Canal 3 · libre', 'Canal 1 · libre', 'Canal 2 · ocupado: Título h', 'Canal 4 · libre',
+    ]);
+    assert.equal(node(f.root, 'preview-output-channel-notice').hidden, true);
+  } finally { f.restore(); preview.dispose(); }
+});
+
+/** S12: the real preview output, with the Rane FOUR and no audio context beyond its channels. */
+function raneFourOutput() {
+  const saved = new Map();
+  return new PreviewOutput({
+    enumerateDevices: () => Promise.resolve([{ deviceId: 'rane', kind: 'audiooutput', label: 'Rane FOUR (1cc5:0024)' }]),
+    createAudioContext: () => ({ destination: { channelCount: 2, maxChannelCount: 14, channelCountMode: 'max', channelInterpretation: 'speakers' } }),
+    storage: { getItem: (key) => saved.get(key) ?? null, setItem: (key, value) => { saved.set(key, value); } },
+  });
+}
+
 const twoDecks = (over = {}) => answer({
   currentDeck: '1',
   current: track('a'),

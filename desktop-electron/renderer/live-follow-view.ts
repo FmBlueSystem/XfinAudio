@@ -130,7 +130,7 @@ export function createLiveFollowView(root: HTMLElement, controller: LiveFollowCo
       if (disposed) return;
       switchControl.checked = controller.following;
       automatic.hidden = controller.chosenDeck === null;
-      previewSetting?.render();
+      previewSetting?.render(controller.answer?.playing ?? null);
       // S11 (e): an output that left the device list disables every «Preescuchar» here.
       for (const control of previewButtons) control.disabled = !previewEnabled();
       const line = controller.message;
