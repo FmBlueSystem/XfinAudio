@@ -21,10 +21,14 @@ test('opaque identities and assets cannot expose arbitrary files', () => {
   assert.equal(assetPath('xfin-app://ui/index.html','/tmp/ui'),'/tmp/ui/index.html');
   for(const url of ['https://ui/index.html','xfin-app://other/index.html','xfin-app://ui/%2e%2e%2fsecret','xfin-app://ui/a.json','xfin-app://ui/index.html?q=x']) assert.throws(()=>assetPath(url,'/tmp/ui'));
 });
-test('following Serato is a parameterless read that can carry no path', () => {
+test('following Serato is a read that carries at most one deck name', () => {
   assert.deepEqual(validateRequest('liveFollow', undefined), {});
   assert.deepEqual(validateRequest('liveFollow', {}), {});
+  assert.deepEqual(validateRequest('liveFollow', {deck:'2'}), {deck:'2'});
   for(const request of [{path:'/Library/Application Support/Serato/Library/master.sqlite'},{sessionId:'11111111-1111-4111-8111-111111111111'},{follow:true}]) assert.throws(()=>validateRequest('liveFollow',request));
+  // S10: a deck is 1 to 8 letters or digits, and nothing else may travel with it.
+  for(const request of [{deck:'123456789'},{deck:'deck 1'},{deck:'d#1'},{deck:'deck_1'},{deck:''},{deck:2},{deck:null},{deck:['2']},{deck:'2',follow:true},{deck:'2',path:'/Volumes/dd/a.aiff'}])
+    assert.throws(()=>validateRequest('liveFollow',request),`liveFollow must reject ${JSON.stringify(request)}`);
 });
 test('dragging a suggestion out carries one track identity and nothing else', () => {
   const trackId = 'a'.repeat(64);

@@ -194,7 +194,7 @@ async function action(method:string,raw:unknown) {
     case 'rescanLibrary':return libraryHost.rescan();
     case 'openLive':return run('live.open',params);
     case 'getLiveStatus':return run('live.status',params);
-    case 'liveFollow':{const answer=await core.request('live.follow');void dragTrack?.remember(answer);return answer;}
+    case 'liveFollow':{const answer=await core.request('live.follow',params);void dragTrack?.remember(answer);return answer;}
     case 'dragTrack':return dragTrack?.drag(params)??null;
     case 'advanceLive':return run('live.next',params);
     case 'clearLive':return run('live.clear',params);

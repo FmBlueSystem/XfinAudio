@@ -161,17 +161,18 @@ test('saving a saved list review reaches playlist.save_review as one exclusive m
 
 // S4: following what Serato plays is a parameterless read-only action, so it answers
 // while a job runs and carries no renderer data of its own.
-test('live follow reaches live.follow as a parameterless read-only action', async () => {
+test('live follow reaches live.follow as a read-only action carrying only the optional deck', async () => {
   const [main, preload] = await Promise.all([read('main.ts'), read('preload.ts')]);
 
-  assert.match(main, /case 'liveFollow':\{const answer=await core\.request\('live\.follow'\);void dragTrack\?\.remember\(answer\);return answer;\}/, 'liveFollow must reach live.follow with no renderer parameters, hand the answer to the drag cache and return it unchanged');
-  assert.doesNotMatch(main, /core\.request\('live\.follow',/, 'liveFollow must send no parameters');
-  assert.match(preload, /liveFollow:\(\)=>invoke\('liveFollow'\)/, 'liveFollow must be bridged as a parameterless action');
+  assert.match(main, /case 'liveFollow':\{const answer=await core\.request\('live\.follow',params\);void dragTrack\?\.remember\(answer\);return answer;\}/, 'liveFollow must reach live.follow with the validated parameters, hand the answer to the drag cache and return it unchanged');
+  assert.doesNotMatch(main, /case 'liveFollow'[^\n]*deck/, 'liveFollow must forward the deck untouched instead of building it');
+  assert.match(preload, /liveFollow:\(params\?:unknown\)=>invoke\('liveFollow',params\)/, 'liveFollow must be bridged with its optional parameters');
 
   assert.deepEqual(validateRequest('liveFollow', undefined), {});
   assert.deepEqual(validateRequest('liveFollow', {}), {});
-  for (const rejected of [{path: '/Volumes/dd/Library/master.sqlite'}, {sessionId: '11111111-1111-4111-8111-111111111111'}, {follow: true}, {deck: 1}])
-    assert.throws(() => validateRequest('liveFollow', rejected), `liveFollow must accept no parameter: ${JSON.stringify(rejected)}`);
+  assert.deepEqual(validateRequest('liveFollow', {deck: '2'}), {deck: '2'});
+  for (const rejected of [{path: '/Volumes/dd/Library/master.sqlite'}, {sessionId: '11111111-1111-4111-8111-111111111111'}, {follow: true}, {deck: 1}, {deck: '123456789'}, {deck: 'deck 1'}, {deck: 'd#1'}, {deck: ''}, {deck: '2', follow: true}])
+    assert.throws(() => validateRequest('liveFollow', rejected), `liveFollow must accept at most one deck name: ${JSON.stringify(rejected)}`);
 
   assert.equal(reads.isAllowedWhileBusy('liveFollow'), true, 'following Serato is a busy-time read');
   for (const source of EXCLUSIVE_SOURCES)
