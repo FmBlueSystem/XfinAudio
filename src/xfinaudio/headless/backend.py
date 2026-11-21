@@ -237,6 +237,7 @@ class HeadlessBackend:
             "prep.generate": GENERATE_FIELDS,
             "prep.select": {"planId", "variant"},
             "playlist.save": {"name", "reviewId"},
+            "playlist.save_review": {"reviewId"},
             "playlist.list": set(),
             "playlist.open": {"playlistId"},
             "track.resolve": {"trackId"},
@@ -274,6 +275,9 @@ class HeadlessBackend:
             return self.legacy_import.execute(method, params)
         if method in REVIEW_FIELDS:
             return self.review_actions.execute(method, params)
+        if method == "playlist.save_review":
+            # The list in progress is written back to the playlist it was opened from (S3).
+            return self.review_actions.save_review(params.get("reviewId"))
         if method in PREP_SETTINGS_FIELDS:
             return self.prep_settings.execute(method, params)
         if method in BROWSE_FIELDS:
@@ -377,7 +381,7 @@ class HeadlessBackend:
                 return read_only()
             try:
                 # An opened playlist is a real review: the same edits work on it (S3).
-                return self.review_actions.bind_saved(playlist_id, playlist.name, tracks)
+                return self.review_actions.bind_saved(playlist, tracks)
             except ValueError:
                 return read_only()
         track_id = _text(params.get("trackId"), "track identity", 64)
