@@ -16,6 +16,7 @@ from xfinaudio.headless.common import BackendError, _inside, _public_track
 from xfinaudio.headless.profiles import same_recording
 from xfinaudio.headless.review_evidence import evidence
 from xfinaudio.headless.review_store import VERSION, clear_review, read_review, write_review
+from xfinaudio.headless.saved_review import SAVED_VARIANT, build_saved_list
 from xfinaudio.headless.serato_safety import opaque_id, source_identity
 from xfinaudio.library.models import TrackRecord
 from xfinaudio.quality.dj_readiness import DjReadinessReport, build_dj_readiness_report
@@ -342,6 +343,45 @@ class GeneratedReview:
         self._persist()
         return self.details()
 
+    def bind_saved(self, playlist_id: int, name: str, tracks: list[TrackRecord]) -> dict[str, Any]:
+        """Open a saved playlist as the list in progress: the review a generation binds (S3).
+
+        The engine scores the saved order and the list is bound to a synthetic plan
+        with no controls, so the first and the last track stay editable. The list owns
+        its own source snapshot: only the tracks it holds are read from disk.
+        """
+        saved = build_saved_list(name, tracks)
+        # Opening another list discards the one in progress, including its stored copy.
+        self.backend.invalidate_review()
+        self.sources = {}
+        plan_id, review_id = str(uuid4()), str(uuid4())
+        self.backend.plan, self.backend.plan_id = saved.plan, plan_id
+        self.backend.review, self.backend.review_id = saved.review, review_id
+        self.backend.review_blocked = bool(saved.blockers) or not saved.review.recommendation.ordered_tracks
+        binding: PlanBinding = (
+            self._build_sources(self._paths(saved.review), unread=True),
+            self._policy(),
+            frozenset(),
+        )
+        self.bind_plan(plan_id, binding)
+        review = saved.review
+        return self.bind(
+            {
+                "planId": plan_id,
+                "variants": [saved.variant_summary()],
+                "reviewId": review_id,
+                "name": name,
+                "variant": SAVED_VARIANT,
+                "savedPlaylistId": playlist_id,
+                "editable": True,
+                "tracks": [_public_track(track) for track in review.recommendation.ordered_tracks],
+                "warnings": list(review.recommendation.warnings),
+                "blockers": saved.blockers,
+                "qualityScore": review.quality_report.average_transition_score,
+                "readiness": review.readiness_report.status,
+            }
+        )
+
     @staticmethod
     def _paths(review: PrepCopilotVariantApplicationResult) -> frozenset[str]:
         """The tracks this review's list holds: the ones every edit acts on."""
@@ -483,6 +523,10 @@ class GeneratedReview:
 
     def _persist(self) -> None:
         """Store the review after every change; a refused write never fails the edit it follows."""
+        if self.backend.review is not None and self.backend.review.variant_name == SAVED_VARIANT:
+            # A saved list is not a generated review: its recovery store, tied to its
+            # playlist, arrives with the rest of S3 (T3d), so it is never written as one.
+            return
         try:
             write_review(self.backend.data_dir, self._payload())
         except (OSError, TypeError, ValueError):
