@@ -131,10 +131,13 @@ test('opening a saved list keeps only the legacy fallback the host still owns', 
   // The read-only fallback has no review of its own and keeps exactly today's three additions.
   assert.deepEqual(
     savedPlaylistReview({id: 7, name: 'Set', tracks: [], missingTrackCount: 2, editable: false}),
-    {id: 7, name: 'Set', tracks: [], missingTrackCount: 2, editable: false, reviewId: '', variant: 'saved', canSave: false},
-    'the read-only fallback must gain exactly reviewId, variant and canSave',
+    {id: 7, name: 'Set', tracks: [], missingTrackCount: 2, editable: false, savedPlaylistId: '7', reviewId: '', variant: 'saved', canSave: false, warnings: ['2 pistas no disponibles'], blockers: [], readiness: 'needs_review'},
+    'the read-only fallback must gain the review fields the screen reads',
   );
-  assert.deepEqual(savedPlaylistReview({id: 7, reviewId: ''}), {id: 7, reviewId: '', variant: 'saved', canSave: false}, 'an empty review identity is no review');
+  assert.deepEqual(savedPlaylistReview({id: 7, reviewId: ''}), {id: 7, savedPlaylistId: '7', reviewId: '', variant: 'saved', canSave: false, warnings: [], blockers: [], readiness: 'needs_review'}, 'an empty review identity is no review');
+  // The screen reads warnings, blockers and readiness of every saved list; without them it throws.
+  const readOnly = savedPlaylistReview({id: 9, name: 'Set', tracks: [], missingTrackCount: 2, editable: false});
+  assert.deepEqual(readOnly.warnings, ['2 pistas no disponibles']); assert.deepEqual(readOnly.blockers, []); assert.equal(readOnly.readiness, 'needs_review'); assert.equal(readOnly.savedPlaylistId, '9');
 });
 
 // S6: saving a saved list's edits is a mutation like reviewReplace — one review uuid, no dialog,

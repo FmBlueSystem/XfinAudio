@@ -14,7 +14,13 @@ const id = (value: unknown): boolean => typeof value === 'string' && /^[a-f0-9]{
 export function savedPlaylistReview(result: Record<string, unknown>): Record<string, unknown> {
   const reviewId = result.reviewId;
   if (typeof reviewId === 'string' && reviewId !== '') return result;
-  return {...result, reviewId: '', variant: 'saved', canSave: false};
+  // The read-only answer carries none of the review fields the screen reads, so the host
+  // supplies them, as it always did for a saved list.
+  const missing = Number(result.missingTrackCount) || 0;
+  return {
+    ...result, savedPlaylistId: String(result.id), reviewId: '', variant: 'saved', canSave: false,
+    warnings: missing ? [`${missing} pistas no disponibles`] : [], blockers: [], readiness: 'needs_review',
+  };
 }
 const ids = (value: unknown): value is string[] => Array.isArray(value) && value.length <= 100 && value.every(id) && new Set(value).size === value.length;
 export function validateReviewControlRequest(method: string, params: Record<string, unknown>): void {
