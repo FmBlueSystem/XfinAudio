@@ -58,7 +58,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],liveFollow:['deck'],dragTrack:['trackId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
     getPreviewSetup:[],savePreviewSetup:['output','calibration'],
-    chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
+    chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name','segmentSize'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
     chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],prepGenres:['startTrackId','genre'],selectPrepVariant:['planId','variant'],
     generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds','yearMin','yearMax'],
     savePlaylist:['name','reviewId'],listPlaylists:[],renamePlaylist:['playlistId','name'],duplicatePlaylist:['playlistId'],openPlaylistEditor:['playlistId'],
@@ -150,6 +150,12 @@ function validateSeratoRequest(method:string,params:Record<string,unknown>):void
   // crate name, and main picks the destination, so a path or a confirmation flag can never pass.
   if(method!=='previewSeratoExport'&&method!=='quickSeratoExport')return;
   if(method==='previewSeratoExport'&&!validToken(params.destinationId))throw new Error('Invalid Serato destination');
+  // S1: the split is a whole number of tracks the core can really split; anything else,
+  // including an explicit null, is refused here so no shape but a valid one reaches the core.
+  if(method==='previewSeratoExport'&&'segmentSize' in params){
+    const size=params.segmentSize;
+    if(!Number.isInteger(size)||Number(size)<2||Number(size)>50)throw new Error('Segment size must be 2-50 tracks');
+  }
   const source=params.source;
   // A refusal names its own code, so the screen explains it next to the export button (S2).
   if(!source||typeof source!=='object'||Array.isArray(source))throw new Error('[invalid_source] Invalid export source');

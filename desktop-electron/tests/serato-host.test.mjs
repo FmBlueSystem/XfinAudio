@@ -326,3 +326,57 @@ test('a commit is never retried, not even when the core forgot the preview it be
   assert.equal(f.calls.filter(c=>c[0]==='serato.suggestDestination').length,1,'nothing is detected again for a commit');
  }finally{await f.clean();}
 });
+
+test('a tramo size reaches the core unchanged and no split sends exactly today\'s preview (S1)',async()=>{
+ const f=await fixture();try{
+  await f.host.choose();await f.host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set'});
+  assert.equal('segmentSize' in f.calls.find(c=>c[0]==='serato.preview')[1],false,'no split keeps the preview request unchanged');
+  await f.host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set',segmentSize:5});
+  assert.equal(f.calls.at(-1)[1].segmentSize,5,'the host forwards the size it was given');
+  await f.host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'});
+  assert.equal('segmentSize' in f.calls.filter(c=>c[0]==='serato.preview').at(-1)[1],false,'a quick export keeps one crate');
+ }finally{await f.clean();}
+});
+test('the native confirmation lists every crate of the tree with its count and action (S4)',async()=>{
+ const parent='XfinAudio%%Sesión 14-nov.crate';
+ const crates=[
+  {name:parent,trackCount:12,action:'create'},
+  {name:'XfinAudio%%Sesión 14-nov%%1 (1-5).crate',trackCount:5,action:'create'},
+  {name:'XfinAudio%%Sesión 14-nov%%3 (11-12).crate',trackCount:2,action:'replace'},
+ ];
+ const f=await fixture();
+ const summary={...f.summary,filename:parent,trackCount:12,crates,destinationPath:f.root};
+ try{
+  f.host.dependencies.request=async(method,params)=>{f.calls.push([method,params]);
+   if(method==='serato.suggestDestination')return {suggestion:f.root};
+   if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_'};
+   if(method==='serato.preview'||method==='serato.confirmation')return summary;
+   if(method==='serato.commit')return f.receipt;throw new Error(method);};
+  await f.host.choose();await f.host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set',segmentSize:5});await f.host.commit('preview');
+  const dialog=f.calls.find(c=>c[0]==='dialog')[1];
+  assert.deepEqual(dialog.crates,crates,'the host forwards the crate list it was given');
+  const detail=confirmationDetail(dialog);
+  assert.match(detail,/Se escribirán 3 crates:/);
+  for(const [label,count,action] of [['XfinAudio › Sesión 14-nov',12,'se crea'],['XfinAudio › Sesión 14-nov › 1 (1-5)',5,'se crea'],['XfinAudio › Sesión 14-nov › 3 (11-12)',2,'se reemplaza']])
+   assert.ok(detail.includes(`· «${label}» · ${count} pistas · ${action}`),`${label} must carry its count and action`);
+  assert.ok(detail.indexOf('Sesión 14-nov» ·')<detail.indexOf('1 (1-5)» ·'),'the parent is listed before its children');
+  assert.equal(confirmationDetail({...summary,crates:[]}),confirmationDetail({...summary,crates:undefined}),'an empty tree list adds nothing');
+ }finally{await f.clean();}
+});
+test('a tree receipt still reveals the parent crate file (S6)',async()=>{
+ const parent='XfinAudio%%Sesión 14-nov.crate';
+ const f=await fixture();try{
+  const summary={...f.summary,filename:parent,trackCount:12,crates:[{name:parent,trackCount:12,action:'create'},{name:'XfinAudio%%Sesión 14-nov%%1 (1-5).crate',trackCount:5,action:'create'}]};
+  const tree={...f.receipt,filename:parent,files:[{name:parent,trackCount:12},{name:'XfinAudio%%Sesión 14-nov%%1 (1-5).crate',trackCount:5}]};
+  f.host.dependencies.request=async(method,params)=>{f.calls.push([method,params]);
+   if(method==='serato.suggestDestination')return {suggestion:f.root};
+   if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_'};
+   if(method==='serato.preview'||method==='serato.confirmation')return summary;
+   if(method==='serato.commit')return tree;
+   if(method==='serato.receipt.resolve')return {path:path.join(f.root,'Subcrates',parent)};throw new Error(method);};
+  await f.host.choose();await f.host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set',segmentSize:5});await f.host.commit('preview');
+  await writeFile(path.join(f.root,'Subcrates',parent),'fixture');
+  await f.host.reveal(tree.receiptId);
+  assert.deepEqual(f.calls.at(-1),['reveal',path.join(f.root,'Subcrates',parent)],'reveal keeps the parent path of the tree');
+ }finally{await f.clean();}
+});

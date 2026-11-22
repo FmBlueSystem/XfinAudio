@@ -7,14 +7,52 @@ function copySource(source: SeratoExportSource): SeratoExportSource {
   return source.kind === 'review' ? {kind: 'review', reviewId: source.reviewId} : {kind: 'saved', playlistId: source.playlistId};
 }
 export interface SeratoDestination { destinationId: string; label: string; }
+/** One crate a split export will create or replace, as the core planned it; the parent comes first. */
+export interface SeratoExportCrate { name: string; trackCount: number; action: 'create' | 'replace'; }
+/** One crate file a split export wrote; the parent comes first. */
+export interface SeratoExportFile { name: string; trackCount: number; }
 export interface SeratoExportPreview {
   previewId: string; sourceRevision: string; filename: string; destinationLabel: string; trackCount: number;
   readiness: Readiness; warnings: string[]; blockers: string[]; canCommit: boolean;
   tracks: (Track & { missing?: boolean })[]; parentsToCreate: string[]; backup: { required: boolean };
+  /** Present only for a split: every crate of the tree, parent first. */
+  crates?: SeratoExportCrate[];
 }
-export interface SeratoExportReceipt { receiptId: string; filename: string; destinationLabel: string; trackCount: number; validated: true; backupCreated: boolean; parentsCreated: string[]; }
+export interface SeratoExportReceipt { receiptId: string; filename: string; destinationLabel: string; trackCount: number; validated: true; backupCreated: boolean; parentsCreated: string[]; files?: SeratoExportFile[]; }
 /** `%%` is Serato's nesting separator; the user reads a nested ancestor as «XfinAudio › Metadata». */
 export function parentCrateLabel(name: string): string { return name.split('%%').join(' › '); }
+/** A crate file name as the DJ reads it: no extension, and nesting shown as «XfinAudio › Set». */
+export function crateTreeLabel(name: string): string { return parentCrateLabel(name.replace(/\.crate$/i, '')); }
+/** The tramo size is a whole number of tracks; below two there is nothing to split. */
+export const SPLIT_MIN_TRACKS = 2;
+export const SPLIT_MAX_TRACKS = 50;
+export const SPLIT_DEFAULT_TRACKS = 5;
+export function validSegmentSize(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= SPLIT_MIN_TRACKS && value <= SPLIT_MAX_TRACKS;
+}
+/**
+ * One line per crate of a split export, parent first, in the exact wording the native
+ * confirmation uses; empty for today's single crate so nothing new is said.
+ */
+export function crateTreeLines(crates: readonly SeratoExportCrate[] | undefined): string[] {
+  if (!crates?.length) return [];
+  return [
+    `Se escribirán ${crates.length} ${crates.length === 1 ? 'crate' : 'crates'}:`,
+    ...crates.map((crate) => `· «${crateTreeLabel(crate.name)}» · ${crate.trackCount} ${crate.trackCount === 1 ? 'pista' : 'pistas'} · ${crate.action === 'replace' ? 'se reemplaza' : 'se crea'}`),
+  ];
+}
+/** The receipt names every crate a split export wrote; empty for a single crate. */
+export function receiptCrateLines(files: readonly SeratoExportFile[] | undefined): string[] {
+  if (!files?.length) return [];
+  return [`Crates escritos: ${files.length}`, ...files.map((file) => `· «${crateTreeLabel(file.name)}» · ${file.trackCount} ${file.trackCount === 1 ? 'pista' : 'pistas'}`)];
+}
+/** The status after a confirmed export: a tree says how many crates were written at once. */
+export function receiptNotice(receipt: { filename: string; files?: readonly SeratoExportFile[] }): string {
+  const count = receipt.files?.length ?? 0;
+  return count
+    ? `Árbol exportado a Serato: ${count} ${count === 1 ? 'crate' : 'crates'}`
+    : `Crate exportado y validado: ${receipt.filename}`;
+}
 /** One Spanish sentence about the ancestor crates a confirmed commit will create; empty when there are none. */
 export function parentCratesLine(names: string[]): string {
   const shown = names.map(parentCrateLabel); if (!shown.length) return '';
@@ -25,7 +63,7 @@ export interface SeratoExportApi {
   /** Runs the same discovery as the picker with no native dialog, so the screen needs no folder step. */
   detectSeratoDestination(): Promise<SeratoDestination | null>;
   /** A generated set sends no name: the core proposes «<style> <day>-<month>» itself. */
-  previewSeratoExport(input: { source: SeratoExportSource; destinationId: string; name?: string }): Promise<SeratoExportPreview>;
+  previewSeratoExport(input: { source: SeratoExportSource; destinationId: string; name?: string; segmentSize?: number }): Promise<SeratoExportPreview>;
   commitSeratoExport(input: { previewId: string }): Promise<SeratoExportReceipt | { cancelled: true }>;
   revealSeratoExport(input: { receiptId: string }): Promise<void>;
 }
@@ -49,6 +87,8 @@ export class SeratoExportController {
   /** Detection ran and found nothing on the music drive; the manual choice is the way forward. */
   detectionMissed = false;
   name = '';
+  /** The tramo size of this export only; null is today's single crate. */
+  segmentSize: number | null = null;
   preview: SeratoExportPreview | null = null;
   receipt: SeratoExportReceipt | null = null;
   pending: 'destination' | 'detect' | 'preview' | 'commit' | 'reveal' | null = null;
@@ -81,6 +121,8 @@ export class SeratoExportController {
   }
   setSource(source: SeratoExportSource | null, suggestedName?: string): void {
     this.source = source ? copySource(source) : null;
+    // A new export starts with today's single crate; the split is never remembered.
+    this.segmentSize = null;
     if (suggestedName !== undefined) this.name = suggestedName;
     this.error = '';
     if (this.pending !== 'commit') this.status = '';
@@ -94,6 +136,13 @@ export class SeratoExportController {
   setName(value: string): void {
     if (this.name === value) return;
     this.name = value; this.error = ''; this.invalidatePreview();
+  }
+  /** `null` means «No dividir»; anything but a whole 2-50 tracks is refused, never rounded. */
+  setSegmentSize(value: number | null): void {
+    // A metadata worklist is not a set: the core refuses a tramo size for it, so the choice is never held.
+    if (value !== null && (!validSegmentSize(value) || this.source?.kind === 'metadata')) return;
+    if (this.segmentSize === value) return;
+    this.segmentSize = value; this.error = ''; this.invalidatePreview();
   }
   private async run<T>(kind: NonNullable<SeratoExportController['pending']>, label: string, task: () => Promise<T>, apply: (value: T, current: boolean) => void, failure: (error: unknown) => void): Promise<void> {
     if (this.pending || !this.host.canAct()) return;
@@ -135,12 +184,14 @@ export class SeratoExportController {
     if (!this.canPreview || !this.source || !this.destination || !this.host.canAct()) return;
     this.invalidatePreview(); this.status = '';
     const generation = this.generation;
-    const input: { source: SeratoExportSource; destinationId: string; name?: string } = {
+    const input: { source: SeratoExportSource; destinationId: string; name?: string; segmentSize?: number } = {
       source: copySource(this.source),
       destinationId: this.destination.destinationId,
     };
     // An empty name is not sent at all: the core owns the automatic name and its collision suffix.
     if (!this.automaticName) input.name = this.name.trim();
+    // No split sends no size at all, so today's single crate keeps the same request.
+    if (this.segmentSize !== null) input.segmentSize = this.segmentSize;
     await this.run('preview', 'Preparando vista previa de Serato…', () => this.api.previewSeratoExport(input), (preview, current) => {
       if (!current || generation !== this.generation) return;
       this.preview = preview; this.status = 'Vista previa preparada. Revisa las pistas y los avisos antes de exportar.'; this.host.changed();
@@ -160,7 +211,9 @@ export class SeratoExportController {
     await this.run('commit', 'Confirmando exportación a Serato…', () => this.api.commitSeratoExport({ previewId }), (result) => {
       if ('cancelled' in result) { this.status = 'Exportación cancelada antes de escribir. Puedes revisar la vista previa y volver a confirmar.'; return; }
       // Publication may already have finished; navigation or a different selection must never discard its receipt.
-      this.receipt = result; this.status = `Crate exportado y validado: ${result.filename}`; this.invalidatePreview();
+      this.receipt = result; this.status = receiptNotice(result);
+      // The split belongs to the export that just finished, never to the next one.
+      this.segmentSize = null; this.invalidatePreview();
     }, (error) => {
       // Serato DJ was open and nothing was written: the same preview can be confirmed once it is closed (S13).
       if (errorCode(error) === 'serato_running') { this.status = ''; this.fail(error); return; }
