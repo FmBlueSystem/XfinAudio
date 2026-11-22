@@ -168,6 +168,32 @@ test('a quick export mentions the parent crate briefly and says nothing extra ot
   const h = fixture(); await h.controller.export(source, 'Mi sesión');
   assert.equal(h.controller.detail, 'Mi sesión.crate · _Serato_ · dd · 2 pistas', 'a receipt without created parents reads exactly as before');
 });
+test('a refused export request still says next to the button that it did not start (S2)', async () => {
+  const refused = "Error invoking remote method 'xfin:action': [invalid_source] Invalid export source";
+  const f = fixture({ quickSeratoExport: async () => { throw new Error(refused); } });
+  await f.controller.export({ kind: 'saved', playlistId: '1' }, 'Mi sesión');
+  assert.equal(f.controller.tone, 'blocked');
+  assert.equal(f.controller.notice, 'No se pudo iniciar la exportación a Serato');
+  assert.equal(f.controller.detail, 'La selección no está disponible para esta exportación. Vuelve a abrirla y revisar sus pistas.');
+  assert.equal(f.controller.receipt, null);
+  assert.deepEqual(f.controller.request, { source: { kind: 'saved', playlistId: '1' }, name: 'Mi sesión' }, 'the request survives so the button can be retried');
+});
+test('an uncoded refusal answers in Spanish too, never only the generic bar (S2)', async () => {
+  const f = fixture({ quickSeratoExport: async () => { throw new Error('Invalid export source'); } });
+  await f.controller.export(source, 'Mi sesión');
+  assert.equal(f.controller.tone, 'blocked');
+  assert.equal(f.controller.notice, 'No se pudo iniciar la exportación a Serato');
+  assert.equal(f.controller.detail, 'No se pudo completar la operación. Actualiza la información y vuelve a intentarlo.');
+  assert.equal(f.controller.receipt, null);
+});
+test('a failed reveal keeps its own answer and never claims the export did not start', async () => {
+  const f = fixture({ revealSeratoExport: async () => { throw new Error('[invalid_preview] Receipt not found'); } });
+  await f.controller.export(source, 'Mi sesión');
+  assert.deepEqual(f.controller.receipt, receipt);
+  await f.controller.reveal();
+  assert.equal(f.controller.notice, '');
+  assert.equal(f.controller.tone, 'quiet');
+});
 test('an export refused because Serato DJ is open says so next to the button and nothing was written (S13)', async () => {
   let open = true;
   const f = fixture({ quickSeratoExport: async (input) => { f.calls.push(['export', input]); if (open) throw new Error("Error invoking remote method 'xfin:action': [serato_running] Close Serato DJ"); return exported; } });

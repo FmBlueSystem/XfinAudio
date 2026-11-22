@@ -151,14 +151,15 @@ function validateSeratoRequest(method:string,params:Record<string,unknown>):void
   if(method!=='previewSeratoExport'&&method!=='quickSeratoExport')return;
   if(method==='previewSeratoExport'&&!validToken(params.destinationId))throw new Error('Invalid Serato destination');
   const source=params.source;
-  if(!source||typeof source!=='object'||Array.isArray(source))throw new Error('Invalid export source');
+  // A refusal names its own code, so the screen explains it next to the export button (S2).
+  if(!source||typeof source!=='object'||Array.isArray(source))throw new Error('[invalid_source] Invalid export source');
   const item=source as Record<string,unknown>;
   const fields=item.kind==='review'?['kind','reviewId']:item.kind==='saved'?['kind','playlistId']:item.kind==='metadata'?['kind','status','missingField','trackIds']:[];
-  if(!fields.length||Object.keys(item).length!==fields.length||Object.keys(item).some(key=>!fields.includes(key)))throw new Error('Invalid export source');
+  if(!fields.length||Object.keys(item).length!==fields.length||Object.keys(item).some(key=>!fields.includes(key)))throw new Error('[invalid_source] Invalid export source');
   if(item.kind==='metadata'){
     if(!['complete','incomplete'].includes(String(item.status))||(item.missingField!==null&&!['bpm','camelot_key','energy_level'].includes(String(item.missingField)))||(item.status==='complete'&&item.missingField!==null)||!Array.isArray(item.trackIds)||item.trackIds.length<1||item.trackIds.length>500||new Set(item.trackIds).size!==item.trackIds.length)throw new Error('Invalid metadata worklist');
     item.trackIds.forEach(assertTrackId);
-  }else if(item.kind==='review'?!validToken(item.reviewId):typeof item.playlistId!=='string'||!/^[1-9]\d{0,14}$/.test(item.playlistId))throw new Error('Invalid export source');
+  }else if(item.kind==='review'?!validToken(item.reviewId):typeof item.playlistId!=='string'||!/^[1-9]\d{0,14}$/.test(item.playlistId))throw new Error('[invalid_source] Invalid export source');
   const name=params.name;
   // A generated set carries no crate name: the core proposes one from the strategy and the date.
   // Every other source keeps requiring exactly the same valid name as before.

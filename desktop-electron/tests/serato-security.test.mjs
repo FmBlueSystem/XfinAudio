@@ -29,6 +29,13 @@ test('quick export rejects paths, confirmation, destinations and unknown keys ex
  for(const name of ['  ','.','..','../Set','a/b','a\\b','A\nB','x'.repeat(201)])assert.throws(()=>validateRequest('quickSeratoExport',{...valid,name}));
  for(const params of [{},{name:'Set'},{source:valid.source,name:'Set',seratoRoot:'/tmp'}])assert.throws(()=>validateRequest('quickSeratoExport',params));
 });
+test('a refused export source names its code so the screen can explain it in Spanish (S2)',()=>{
+ const saved={kind:'saved',playlistId:1};
+ assert.throws(()=>validateRequest('quickSeratoExport',{source:saved,name:'Set'}),/\[invalid_source\] Invalid export source/);
+ assert.throws(()=>validateRequest('previewSeratoExport',{source:saved,destinationId:id,name:'Set'}),/\[invalid_source\] Invalid export source/);
+ for(const source of [{kind:'review',reviewId:id,path:'/tmp/x'},{kind:'path',path:'/tmp/a'},{kind:'review'}])assert.throws(()=>validateRequest('quickSeratoExport',{source,name:'Set'}),/\[invalid_source\]/);
+ assert.throws(()=>validateRequest('quickSeratoExport',{name:'Set'}),/\[invalid_source\]/);
+});
 test('a generated set may leave the crate name to the core and nothing else may',()=>{
  const review={kind:'review',reviewId:id};
  assert.deepEqual(validateRequest('previewSeratoExport',{source:review,destinationId:id}),{source:review,destinationId:id});

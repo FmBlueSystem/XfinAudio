@@ -1625,7 +1625,8 @@ element('start-live').addEventListener('click', () => {
 });
 element('export-review').addEventListener('click', () => {
   if (!review) return;
-  if (review.savedPlaylistId) quickExportToSerato({ kind: 'saved', playlistId: review.savedPlaylistId }, review.name);
+  // The core sends the playlist id as a number; the shell only accepts the decimal string.
+  if (review.savedPlaylistId) quickExportToSerato({ kind: 'saved', playlistId: String(review.savedPlaylistId) }, review.name);
   else if (review.reviewId) quickExportToSerato({ kind: 'review', reviewId: review.reviewId }, review.name);
 });
 element('save-review-changes').addEventListener('click', () => {
@@ -1638,7 +1639,7 @@ element('save-review-changes').addEventListener('click', () => {
     if (errorCode(error) === 'stale_edit') throw Object.assign(new Error('stale_saved_list'), { code: 'stale_saved_list' });
     throw error;
   }), (result) => {
-    review = { ...current, name: result.name, savedPlaylistId: result.id };
+    review = { ...current, name: result.name, savedPlaylistId: String(result.id) };
     // The edits are stored now: this is the revision the next save compares itself with.
     discardGuard.reset(current.reviewId);
     playlists = playlists.map((playlist) => playlist.id === result.id ? { ...playlist, name: result.name, trackCount: result.trackCount } : playlist);
