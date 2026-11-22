@@ -73,3 +73,21 @@ test('a one-click quick export accepts no tramo size, so it keeps today\'s singl
  assert.deepEqual(validateRequest('quickSeratoExport',p),p);
  assert.throws(()=>validateRequest('quickSeratoExport',{...p,segmentSize:5}));
 });
+
+test('the typed-name cap counts the XfinAudio parent crate the core writes, so an over-long file is refused at the boundary (S1)',()=>{
+ const review={kind:'review',reviewId:id},saved={kind:'saved',playlistId:'1'};
+ // 'ñ' is two UTF-8 bytes, so the character cap leaves the 240-byte file cap in charge.
+ const entries=[{method:'previewSeratoExport',params:{source:review,destinationId:id}},{method:'quickSeratoExport',params:{source:saved}}];
+ for(const {method,params} of entries){
+  // Nested as `XfinAudio%%<name>.crate`: 11 + 222 + 6 = 239 bytes fit, one more character does not.
+  assert.deepEqual(validateRequest(method,{...params,name:'ñ'.repeat(111)}),{...params,name:'ñ'.repeat(111)});
+  assert.throws(()=>validateRequest(method,{...params,name:'ñ'.repeat(112)}),/Invalid crate name/);
+  // The prefix is really counted: this name fits a bare `<name>.crate` but not the file the core writes.
+  assert.equal(Buffer.byteLength('ñ'.repeat(115)+'.crate','utf8')<=240,true,'it used to fit without the parent crate');
+  assert.throws(()=>validateRequest(method,{...params,name:'ñ'.repeat(115)}),/Invalid crate name/);
+  // A name that already carries the prefix is not doubled, so it keeps the whole budget.
+  const nested=`XfinAudio%%${'ñ'.repeat(111)}`;
+  assert.deepEqual(validateRequest(method,{...params,name:nested}),{...params,name:nested});
+  assert.throws(()=>validateRequest(method,{...params,name:`${nested}ñ`}),/Invalid crate name/);
+ }
+});

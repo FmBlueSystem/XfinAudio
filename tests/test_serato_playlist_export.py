@@ -86,9 +86,9 @@ def test_plan_serato_playlist_export_builds_confirmed_writable_crate_for_recomme
         [str(tmp_path / "dd" / "_Lossless" / "A.flac"), str(tmp_path / "dd" / "_Lossless" / "B.flac")]
     )
 
-    plan = plan_serato_playlist_export("XfinAudio Recommended", recommendation, serato_folder)
+    plan = plan_serato_playlist_export("Warmup", recommendation, serato_folder)
 
-    assert plan.target_path == serato_folder / "Subcrates" / "XfinAudio Recommended.crate"
+    assert plan.target_path == serato_folder / "Subcrates" / "XfinAudio%%Warmup.crate"
     assert plan.relative_paths == ("_Lossless/A.flac", "_Lossless/B.flac")
     assert plan.preview()["will_write"] is False
 
@@ -169,6 +169,35 @@ def test_generated_short_name_spells_the_export_month_in_spanish_without_a_leadi
     ]
 
     assert names == [f"XfinAudio%%Build 5-{month}" for month in months]
+
+
+def test_a_saved_playlist_name_lives_under_the_xfinaudio_parent_crate(tmp_path: Path) -> None:
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    root_crate = serato_folder / "Subcrates" / "22 nov.crate"
+    root_crate.write_bytes(b"a crate the DJ made at the Serato root")
+    recommendation = _recommendation([str(tmp_path / "dd" / "_Lossless" / "Track.flac")])
+
+    plan = plan_serato_playlist_export("22 nov", recommendation, serato_folder)
+
+    # A saved playlist shares the one XfinAudio parent crate instead of landing on the root.
+    assert plan.crate_name == "XfinAudio%%22 nov"
+    assert plan.target_path == serato_folder / "Subcrates" / "XfinAudio%%22 nov.crate"
+    assert plan.backup_path == serato_folder / "Subcrates" / "XfinAudio%%22 nov.crate.bak"
+    # Planning writes nothing, and the crate at the root stays exactly as it was.
+    assert not plan.target_path.exists()
+    assert root_crate.read_bytes() == b"a crate the DJ made at the Serato root"
+
+
+def test_a_typed_name_that_already_carries_the_parent_is_not_doubled(tmp_path: Path) -> None:
+    serato_folder = tmp_path / "dd" / "_Serato_"
+    (serato_folder / "Subcrates").mkdir(parents=True)
+    recommendation = _recommendation([str(tmp_path / "dd" / "_Lossless" / "Track.flac")])
+
+    plan = plan_serato_playlist_export("XfinAudio%%22 nov", recommendation, serato_folder)
+
+    assert plan.crate_name == "XfinAudio%%22 nov"
+    assert plan.target_path == serato_folder / "Subcrates" / "XfinAudio%%22 nov.crate"
 
 
 def test_a_typed_or_saved_playlist_name_is_used_unchanged_even_when_it_looks_automatic(tmp_path: Path) -> None:

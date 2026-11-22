@@ -173,7 +173,13 @@ function validateSeratoRequest(method:string,params:Record<string,unknown>):void
     if(item.kind==='review')return;
     throw new Error('Invalid crate name');
   }
-  if(typeof name!=='string'||!name.trim()||['.','..'].includes(name.trim())||name.length>200||/[\/\\:\p{C}]/u.test(name)||Buffer.byteLength(name.trim()+'.crate','utf8')>240)throw new Error('Invalid crate name');
+  if(typeof name!=='string'||!name.trim()||['.','..'].includes(name.trim())||name.length>200||/[\/\\:\p{C}]/u.test(name))throw new Error('Invalid crate name');
+  // S1: the core nests every typed or saved name under the XfinAudio parent crate, so the
+  // 240-byte file-name cap applies to the crate file the export will really write. A name
+  // that already carries that prefix is not doubled, so it keeps the whole budget.
+  const typedName=name.trim();
+  const crateFile=typedName.startsWith('XfinAudio%%')?`${typedName}.crate`:`XfinAudio%%${typedName}.crate`;
+  if(Buffer.byteLength(crateFile,'utf8')>240)throw new Error('Invalid crate name');
 }
 
 function validateLiveRequest(method:string,params:Record<string,unknown>):void {
