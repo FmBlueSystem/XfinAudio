@@ -84,7 +84,46 @@ MIN_REVIEW_TRACK_COUNT = 2
 MIN_PERIOD_YEAR = 1900
 MAX_PERIOD_YEAR = 2100
 TAG_WRITE_ACCEPTED = "A tag rewrite kept the same recording; the review source identity was refreshed"
+# The library derives these from the audio itself: a later analysis pass rewrites them
+# without the file, its tags or the recording identity the scan bound changing (S1).
+ANALYSIS_PROFILE_FIELDS = (
+    "spectral_profile",
+    "danceability_profile",
+    "edge_spectral_profile",
+    "loudness_profile",
+    "tonal_profile",
+)
 ReviewState = tuple[PrepCopilotVariantApplicationResult, frozenset[str], dict[str, Any]]
+
+
+def _same_listed_track(recorded: TrackRecord, current: TrackRecord) -> bool:
+    """Whether both records describe the same track, ignoring derived analysis data (S1).
+
+    A later analysis pass rewrites only the spectral, danceability, edge, loudness and
+    tonal profiles; the file, its tags and the recording the library scanned stay the same.
+    """
+    derived: dict[str, Any] = dict.fromkeys(ANALYSIS_PROFILE_FIELDS)
+    return recorded.model_copy(update=derived) == current.model_copy(update=derived)
+
+
+def _root_accessible(root: Path) -> bool:
+    """Whether one authorized library root is readable now, as a real directory.
+
+    An external drive that is not mounted, or a root the user moved away, is not: that
+    says nothing about the files a stored list holds (S2).
+    """
+    try:
+        return root.is_dir() and not root.is_symlink() and root.resolve(strict=True) == root
+    except (OSError, RuntimeError):
+        return False
+
+
+def _renewed(recommendation: PlaylistRecommendation, records: dict[str, TrackRecord]) -> PlaylistRecommendation:
+    """The recommendation carrying the library's current record of every track it lists (S1)."""
+    tracks = [records.get(track.path, track) for track in recommendation.ordered_tracks]
+    if tracks == recommendation.ordered_tracks:
+        return recommendation
+    return recommendation.model_copy(update={"ordered_tracks": tracks})
 
 
 class GeneratedReview:
@@ -121,6 +160,11 @@ class GeneratedReview:
     def _policy(self) -> tuple[object, ...]:
         return self.backend.preferences.spectral_cohesion(), self.backend.preferences.loudness_band()
 
+    @property
+    def in_command(self) -> bool:
+        """Whether one core command is running, so its guards share one library read (S3)."""
+        return bool(self._scope_depth)
+
     @contextmanager
     def snapshot_scope(self) -> Iterator[None]:
         """Share one library source snapshot for the length of one core command.
@@ -137,6 +181,9 @@ class GeneratedReview:
             self._scope_depth -= 1
             if not self._scope_depth:
                 self._snapshot, self._fresh, self._refreshed = None, None, False
+                # The library rows one command read are not kept past it, so nothing stale
+                # and no second copy of a large library outlives the command (S3).
+                self.backend._forget_library_rows()
 
     def _sources(self, checked: frozenset[str] | None = None, *, final: bool = False) -> SourceSnapshot:
         """The library source snapshot, built at most twice inside one command.
@@ -176,25 +223,48 @@ class GeneratedReview:
         self._refreshed = self._refreshed or final
         return self._snapshot
 
-    def _build_sources(self, checked: frozenset[str] | None, *, unread: bool = False) -> SourceSnapshot:
+    def _build_sources(
+        self, checked: frozenset[str] | None, *, unread: bool = False, listed_only: bool = False
+    ) -> SourceSnapshot:
         """Read the library sources exactly as they are now, for the ``checked`` paths.
 
-        Only the ``checked`` paths are read from disk; every other library track
-        contributes its stored record and the identity the generation recorded, so a
-        review command never re-checks a track it does not act on. The result belongs to
-        the caller: one command copies the entries it asked for into its own snapshot.
+        Every library track is checked on disk, and the ``checked`` paths are the ones the
+        caller acts on: every other track contributes its stored record and the identity
+        the generation recorded, so a review command never re-reads a track it does not
+        act on. The result belongs to the caller: one command copies the entries it asked
+        for into its own snapshot.
+
+        ``listed_only`` is the assistant context's own mode (S3): a track outside
+        ``checked`` then keeps its stored record and identity behind a single lexical root
+        test instead of an existence check, so one prepared turn resolves tens of paths
+        and not every library file. Every other caller keeps the existence check, so a
+        deleted library track still leaves the snapshot -- and the candidate pools built
+        from it -- exactly as it always did.
 
         ``unread`` keeps every unlisted library track even before this review recorded
         anything about it, with its stored record and no identity: that is the whole
         library a restart restores, without reading the disk of the tracks it does not
-        list. A path whose file identity changed into a different recording, an
+        list. A checked path whose file identity changed into a different recording, an
         unreadable file or a replacement leaves the snapshot entirely (S5).
         """
         result = {}
         tracks = self.backend._records(checked=checked)
-        stored_identities = self.backend.repository.load_scan_file_identities([track.path for track in tracks])
+        read_paths = [track.path for track in tracks if checked is None or track.path in checked]
+        stored_identities = self.backend.repository.load_scan_file_identities(read_paths)
         for track in tracks:
             path = Path(track.path)
+            if listed_only and checked is not None and track.path not in checked:
+                # Decided before anything touches the disk: this turn never acts on the
+                # track, and a lexical test is all that decides whether it still belongs to
+                # an authorized root (S3).
+                if not any(path.is_relative_to(root) for root in self.backend.roots):
+                    continue
+                stored = self.sources.get(track.path)
+                if stored is not None:
+                    result[track.path] = track, stored[1]
+                elif unread:
+                    result[track.path] = track, None
+                continue
             try:
                 if not any(_inside(path, root) for root in self.backend.roots):
                     continue
@@ -483,12 +553,20 @@ class GeneratedReview:
         """The tracks this review's list holds: the ones every edit acts on."""
         return frozenset(track.path for track in review.recommendation.ordered_tracks)
 
-    def verify(self, review_id: Any) -> PrepCopilotVariantApplicationResult:
+    def verify(self, review_id: Any, *, listed_only: bool = False) -> PrepCopilotVariantApplicationResult:
+        """Verify this review, checking every library track on disk unless ``listed_only``.
+
+        ``listed_only`` is the assistant context's own mode (S3): the tracks outside the
+        list keep their stored record and identity, so one prepared turn never walks the
+        whole library on disk. It builds its own snapshot instead of filling the command's,
+        so a review edit made later in the same command still sees every library file.
+        """
         opaque_id(review_id)
         review = self.backend.review
         if review is None or review_id != self.backend.review_id or review_id != self.review_id:
             raise BackendError("stale_review", "Open a current generated review before continuing")
-        current = self._sources(self._paths(review))
+        paths = self._paths(review)
+        current = self._build_sources(paths, listed_only=True) if listed_only else self._sources(paths)
         if self._policy() != self.policy or any(
             not self._same(self.sources.get(track.path), current.get(track.path))
             or current.get(track.path, (None,))[0] != track
@@ -552,12 +630,44 @@ class GeneratedReview:
                 sources[track.path] = (track, current[1])
                 self._rewritten.add(track.path)
                 LOGGER.info(TAG_WRITE_ACCEPTED)
-        # Restore only when every reviewed track is still the exact library record it was saved with.
-        if any(sources.get(track.path, (None,))[0] != track for track in review.recommendation.ordered_tracks):
+        listed = review.recommendation.ordered_tracks
+        # A listed track the library can read now but no longer describes as the track it
+        # recorded is a real library change.
+        changed = [
+            track for track in listed if track.path in sources and not _same_listed_track(track, sources[track.path][0])
+        ]
+        unverified = [track for track in listed if track.path not in sources]
+        # A listed path the library cannot read is a file that left the library for good
+        # while its root is still there; only a root the core cannot read -- a drive that
+        # is not mounted yet -- leaves the file unverified and the list stored (S2).
+        removed = [track for track in unverified if self._root_ready(track.path)]
+        if changed or removed:
             LOGGER.warning("The list in progress was dropped because the library changed")
             clear_review(self.backend.data_dir)
             self.dropped = True
             return
+        if unverified:
+            # The stored copy is never deleted because this start could not verify a
+            # track: the next start, with the drive mounted, still recovers the list (S2).
+            LOGGER.warning(
+                "The list in progress could not be verified because its drive is not reachable (%s); it is kept",
+                unverified[0].path,
+            )
+            self.dropped = True
+            return
+        # A later analysis pass rewrites only derived profile data, and the list comes
+        # back over the library's current records, which every later edit compares (S1).
+        renewed = {path: entry[0] for path, entry in sources.items()}
+        if any(track != renewed[track.path] for track in listed):
+            review = replace(review, recommendation=_renewed(review.recommendation, renewed))
+            plan = plan.model_copy(
+                update={
+                    "variants": [
+                        variant.model_copy(update={"recommendation": _renewed(variant.recommendation, renewed)})
+                        for variant in plan.variants
+                    ]
+                }
+            )
         self.backend.plan, self.backend.plan_id = plan, payload["planId"]
         self.sources, self.policy = sources, self._policy()
         self.saved_playlist = saved_playlist
@@ -594,6 +704,17 @@ class GeneratedReview:
         # checks. The binding re-reads the tracks the list holds and no other one, so a
         # change made while restoring is still refused.
         self.bind_plan(payload["planId"], (self.sources, self.policy, frozenset()))
+
+    def _root_ready(self, path: str) -> bool:
+        """Whether the authorized roots that hold this path are readable now (S2).
+
+        A listed file missing under a root the core can read was removed from the library
+        for good. A root that is not there is a drive that is not mounted yet, which says
+        nothing about the file. A path no configured root holds any more belongs to no
+        library this start could ever restore, so it is treated as removed too.
+        """
+        target = Path(path)
+        return all(_root_accessible(root) for root in self.backend.roots if target.is_relative_to(root))
 
     @staticmethod
     def _decode(stored: dict[str, Any]) -> PrepCopilotVariantApplicationResult:

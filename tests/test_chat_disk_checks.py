@@ -1,8 +1,9 @@
-"""The chat reads the disk identity only of the tracks its list holds (S4).
+"""The chat reads the disk identity only of the tracks its list holds (S3, S4, S5).
 
 A chat turn must still notice a track of the list changing on disk; every other library
 track contributes its stored record without the disk being read, so one prepared chat
-request on a large library costs tens of identity reads instead of one per track.
+request on a large library resolves tens of paths and reads the library table once
+instead of walking every library file per guard.
 """
 
 from __future__ import annotations
@@ -22,11 +23,15 @@ from xfinaudio.headless import profiles as profiles_module
 from xfinaudio.headless import serato_source as serato_source_module
 from xfinaudio.headless.common import BackendError
 from xfinaudio.headless.optional_ai import OptionalAI
+from xfinaudio.library.track_repository import TrackRepository
 
 chat_setup = _chat_setup
 
-# S4: one chat request on a 200-track library with a 10-track list reads at most this many.
+# S3, S4: one chat request on a 200-track library with a 10-track list reads at most this many.
 MAX_CHAT_IDENTITY_READS = 60
+# S3: one prepared turn resolves this many paths on disk and reads the library table once.
+MAX_CHAT_DISK_RESOLVES = 60
+MAX_CHAT_LIBRARY_READS = 1
 TRACKS_IN_LIBRARY = 200
 TRACKS_IN_LIST = 10
 
@@ -45,6 +50,35 @@ def identity_reads(monkeypatch):
             return _read(path)
 
         monkeypatch.setattr(module, "source_identity", counting)
+    return reads
+
+
+@pytest.fixture
+def disk_resolves(monkeypatch):
+    """Count every path checked against the authorized roots while a command runs (S3)."""
+    resolves: list[str] = []
+    for module in (generated_review_module, profiles_module, serato_source_module):
+        inside = module._inside
+
+        def counting(path, root, _inside=inside):
+            resolves.append(str(path))
+            return _inside(path, root)
+
+        monkeypatch.setattr(module, "_inside", counting)
+    return resolves
+
+
+@pytest.fixture
+def library_reads(monkeypatch):
+    """Count every whole-library read, wherever it comes from (S3)."""
+    reads: list[int] = []
+    listed = TrackRepository.list_display_tracks
+
+    def counting(self):
+        reads.append(1)
+        return listed(self)
+
+    monkeypatch.setattr(TrackRepository, "list_display_tracks", counting)
     return reads
 
 
@@ -82,6 +116,40 @@ def test_one_chat_request_reads_the_disk_identity_only_of_the_tracks_in_the_list
     # The list, and not the other library tracks: one entry per track of the list.
     assert set(identity_reads) <= listed
     assert len(identity_reads) <= MAX_CHAT_IDENTITY_READS
+
+
+def test_one_prepared_chat_request_reads_the_library_once_and_resolves_only_its_tracks(
+    tmp_path: Path, disk_resolves, library_reads, monkeypatch
+) -> None:
+    facade, backend, result = chat(tmp_path, monkeypatch)
+    assert len(result["tracks"]) == TRACKS_IN_LIST
+    listed = {track.path for track in backend.review.recommendation.ordered_tracks}
+    del disk_resolves[:]
+    del library_reads[:]
+
+    prepared = call(
+        facade,
+        "ai.prepare",
+        {"surface": "chat", "request": QUESTION, "context": {"reviewId": result["reviewId"]}},
+    )
+
+    assert prepared["surface"] == "chat"
+    # The list, and no other library track, is checked against the authorized roots.
+    assert set(disk_resolves) <= listed
+    assert len(disk_resolves) <= MAX_CHAT_DISK_RESOLVES
+    # One command reads the stored library once instead of once per guard.
+    assert len(library_reads) == MAX_CHAT_LIBRARY_READS
+
+
+def test_a_generation_still_checks_every_library_track_on_disk(tmp_path: Path, disk_resolves) -> None:
+    """PRESERVE: the shared source builder keeps checking what a generation acts on (S3)."""
+    backend, records = seeded(tmp_path, TRACKS_IN_LIBRARY)
+    del disk_resolves[:]
+
+    result = backend.execute("prep.generate", {"targetTrackCount": TRACKS_IN_LIST})
+
+    assert len(result["tracks"]) == TRACKS_IN_LIST
+    assert {record.path for record in records} <= set(disk_resolves)
 
 
 @pytest.mark.parametrize("mutation", MUTATIONS)

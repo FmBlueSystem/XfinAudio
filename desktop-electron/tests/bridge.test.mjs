@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
-const {CANCELLABLE_JOB_METHODS,PythonBridge,REQUEST_TIMEOUT_MS,requestDeadline}=require('../.out/main/bridge.js');
+const {CANCELLABLE_JOB_METHODS,PythonBridge,REQUEST_TIMEOUT_MS,UNDEADLINED_METHODS,requestDeadline}=require('../.out/main/bridge.js');
 test('bridge preserves split UTF8 and correlates responses, progress, shutdown',async()=>{
  const code=`let b='';process.stdin.on('data',d=>{b+=d;let i;while((i=b.indexOf('\\n'))>=0){const m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='shutdown'){process.stdout.write(JSON.stringify({id:m.id,ok:true,result:{shutdown:true}})+'\\n');process.exit(0);}process.stdout.write(JSON.stringify({event:'progress',jobId:m.id,data:{phase:'scan'}})+'\\n');const out=Buffer.from(JSON.stringify({id:m.id,ok:true,result:{title:'Música'}})+'\\n');const n=out.indexOf(Buffer.from('ú'))+1;process.stdout.write(out.subarray(0,n));setTimeout(()=>process.stdout.write(out.subarray(n)),10);}});`;
  const core=new PythonBridge(process.execPath,['-e',code],process.env);let progress=0;core.on('progress',()=>progress++);
@@ -39,6 +39,12 @@ test('the deadline is per method and long cancellable jobs never carry one',()=>
  for(const method of ['library.list','review.details','prep.generate.confirm','shutdown'])assert.equal(requestDeadline(method),REQUEST_TIMEOUT_MS,`${method} is bounded by the default deadline`);
  assert.equal(requestDeadline('library.list',0),null,'a disabled budget never kills a method');
 });
+test('preparing an assistant turn owns its lifetime like a cancellable job (S4)',()=>{
+ assert.deepEqual([...UNDEADLINED_METHODS].sort(),['ai.prepare','ai.run','library.rescan','library.scan','loudness.run','prep.generate','prep.select','profiles.complete']);
+ assert.equal(requestDeadline('ai.prepare'),null,'preparing a turn walks the library on disk and must not be killed as a hang');
+ assert.equal(CANCELLABLE_JOB_METHODS.has('ai.prepare'),false,'preparing is not a cancellable job: nothing cancels it');
+ for(const method of CANCELLABLE_JOB_METHODS)assert.equal(UNDEADLINED_METHODS.has(method),true,`${method} keeps its existing exemption`);
+});
 test('a core that never answers hits its deadline, is killed and releases the slot',{timeout:15000},async()=>{
  const logged=[];
  const core=new PythonBridge(process.execPath,['-e',silentCore],process.env,{requestTimeoutMs:120,log:(line)=>logged.push(line)});
@@ -57,7 +63,7 @@ test('long cancellable jobs outlive the short request deadline',{timeout:20000},
  const code=`let b='';process.stdin.on('data',d=>{b+=d;let i;while((i=b.indexOf('\\n'))>=0){const m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='shutdown')process.exit(0);setTimeout(()=>{process.stdout.write(JSON.stringify({id:m.id,ok:true,result:{cancelled:false}})+'\\n');},120);}});`;
  const core=new PythonBridge(process.execPath,['-e',code],process.env,{requestTimeoutMs:40});
  try{
-  for(const method of CANCELLABLE_JOB_METHODS)assert.deepEqual(await core.request(method),{cancelled:false},`${method} must not be killed by a short deadline`);
+  for(const method of UNDEADLINED_METHODS)assert.deepEqual(await core.request(method),{cancelled:false},`${method} must not be killed by a short deadline`);
  }finally{await core.close();}
 });
 test('an error frame with a null id is logged and ignored while another malformed frame still stops the core',async()=>{
