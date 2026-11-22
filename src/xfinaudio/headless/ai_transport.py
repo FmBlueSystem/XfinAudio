@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from xfinaudio.ai import nan_client
-from xfinaudio.ai.nan_client import DEFAULT_ENDPOINT, DEFAULT_MODEL, Transport, request_context
-from xfinaudio.config.settings import AiSettings
+from xfinaudio.ai.nan_client import DEFAULT_ENDPOINT, Transport, request_context
+from xfinaudio.config.settings import AI_MODELS, AiSettings
 from xfinaudio.headless.ai_protocol import AI_REQUEST_TIMEOUT_SECONDS
 from xfinaudio.headless.common import BackendError
 from xfinaudio.headless.serato_safety import open_directory, source_identity
@@ -243,10 +243,14 @@ def provider_request(
         raise BackendError("ai_unconfigured", "Select a credential file before making a request")
     if not isinstance(binding, CredentialBinding) or settings.env_file != binding.path:
         raise BackendError("stale_credential", "The selected credential file changed; review the request again")
+    # S11: the endpoint stays pinned and only the model id varies, never outside the allowlist.
+    # A settings object built without validation cannot smuggle another model past this gate.
+    if settings.model not in AI_MODELS:
+        raise BackendError("ai_request_failed", "The provider request exceeds the permitted scope")
     _current(binding)
     try:
         with request_context(
-            enabled=True, key_provider=lambda: _read_key(binding), endpoint=DEFAULT_ENDPOINT, model=DEFAULT_MODEL
+            enabled=True, key_provider=lambda: _read_key(binding), endpoint=DEFAULT_ENDPOINT, model=settings.model
         ):
             return callback(_bounded_transport(transport, AI_REQUEST_TIMEOUT_SECONDS[surface], register_drain))
     except BackendError:

@@ -42,16 +42,18 @@ class _Reference:
     binding: CredentialBinding | None
 
 
-def _asked(settings: AiSettings) -> tuple[bool, str, Path | None]:
+def _asked(settings: AiSettings) -> tuple[bool, str, str, Path | None]:
     """The part of the AI configuration a confirmed request is actually sent with.
 
     ``enabled`` and the provider configuration decide whether and to whom a turn is
-    sent, so a change there ends pending consent. The persisted approval switch
-    (``auto_authorize``) decides only whether the system dialog is asked first: it is
-    consent bookkeeping, never part of the request, so ticking it — as the dialog's own
-    «No volver a preguntar» does — must not revoke the turn the DJ just approved.
+    sent, so a change there ends pending consent. The chosen model (S11) travels in the
+    request body, so changing it changes what is sent and ends pending consent too. The
+    persisted approval switch (``auto_authorize``) decides only whether the system dialog
+    is asked first: it is consent bookkeeping, never part of the request, so ticking it —
+    as the dialog's own «No volver a preguntar» does — must not revoke the turn the DJ just
+    approved.
     """
-    return settings.enabled, settings.provider, settings.env_file
+    return settings.enabled, settings.provider, settings.model, settings.env_file
 
 
 def _grants_approval(previous: AiSettings, current: AiSettings) -> bool:
@@ -93,11 +95,12 @@ class _PayloadPreviewed(Exception):
     """Private abort raised once one provider body has been built and captured."""
 
 
-def _serialized_body(context: AssistContext, backend: HeadlessBackend) -> bytes:
+def _serialized_body(context: AssistContext, backend: HeadlessBackend, model: str) -> bytes:
     """Build the exact provider body for ``context`` with no network, key, or credential access.
 
     The surface builders run unchanged through the ordinary execution path with a capture
     transport, so the preview is the provider's real body rather than a re-derived copy. The
+    request context names the model the DJ chose (S11), so the preview shows it too. The
     captured request object is discarded: only its JSON body leaves this function, never the
     authorization header.
     """
@@ -111,7 +114,7 @@ def _serialized_body(context: AssistContext, backend: HeadlessBackend) -> bytes:
         raise _PayloadPreviewed
 
     try:
-        with request_context(enabled=True, key_provider=lambda: _UNUSED_PREVIEW_KEY):
+        with request_context(enabled=True, key_provider=lambda: _UNUSED_PREVIEW_KEY, model=model):
             execute_context(context, capture, backend)
     except _PayloadPreviewed:
         pass
@@ -298,7 +301,7 @@ class OptionalAI:
         # Fail-closed shapes: no unknown keys, and every required key present.
         # Only autoAuthorize (ai.settings.update) is optional, so older callers
         # that only send revision/enabled keep working.
-        required = AI_FIELDS[method] - {"autoAuthorize"}
+        required = AI_FIELDS[method] - {"autoAuthorize", "model"}
         if not isinstance(params, dict) or not set(params) <= AI_FIELDS[method] or not required <= set(params):
             raise BackendError("invalid_params", "Missing or unexpected optional assistance fields")
         try:
@@ -405,6 +408,8 @@ class OptionalAI:
             binding,
         )
         disclosure = context.disclosure
+        # S11: the confirmation names the model this request actually carries, not a default.
+        disclosure = (*disclosure, f"Modelo: {public['model']}")
         if public["credentialLabel"] is not None:
             disclosure = (*disclosure, f"Credencial seleccionada: {public['credentialLabel']}")
         self.preview = _Pending(str(uuid4()), reference, context, disclosure, self._epoch)
@@ -421,7 +426,7 @@ class OptionalAI:
         """
         pending = self._pending(params["previewId"])
         self._fresh(pending.reference)
-        body = _serialized_body(pending.context, self.backend)
+        body = _serialized_body(pending.context, self.backend, pending.reference.settings.model)
         truncated = len(body) > MAX_PAYLOAD_PREVIEW_BYTES
         text = body[:MAX_PAYLOAD_PREVIEW_BYTES].decode("utf-8", errors="ignore") if truncated else body.decode("utf-8")
         return {

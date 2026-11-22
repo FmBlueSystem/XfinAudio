@@ -1,4 +1,4 @@
-import { AI_CONNECTION_REQUEST, AI_RECIPIENT } from './optional-ai.js';
+import { AI_CONNECTION_REQUEST, AI_MODELS, AI_RECIPIENT } from './optional-ai.js';
 import type { AiSurface, OptionalAiController } from './optional-ai.js';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
@@ -38,6 +38,11 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const enabledLabel = make('label', 'Permitir solicitudes explícitas de asistencia IA'); enabledLabel.setAttribute('for', enabled.id);
   const autoAuthorize = identify(make('input'), 'auto-authorize'); autoAuthorize.type = 'checkbox';
   const autoAuthorizeLabel = make('label', 'No volver a preguntar en cada consulta (autorización automática)'); autoAuthorizeLabel.setAttribute('for', autoAuthorize.id);
+  // S11: a selector over the fixed allowlist only. The endpoint stays pinned, so the panel
+  // never offers a destination or a free-form model name.
+  const model = identify(make('select'), 'model');
+  const modelLabel = make('label', 'Modelo de Nan Builders'); modelLabel.setAttribute('for', model.id);
+  for (const choice of AI_MODELS) { const option = make('option', choice.label); option.value = choice.id; model.append(option); }
   const dirty = identify(make('p', '', 'field-hint'), 'dirty'); dirty.setAttribute('aria-live', 'polite');
   const action = (id: string, caption: string, callback: () => void, primary = false): HTMLButtonElement => {
     const button = identify(make('button', caption, `button ${primary ? 'primary' : 'subtle'}`), id); button.type = 'button';
@@ -51,8 +56,9 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
   const clear = action('clear', 'Quitar fuente de credenciales', () => { void controller.clearCredential(); });
   enabled.addEventListener('change', () => { if (canAct()) controller.setEnabled(enabled.checked); });
   autoAuthorize.addEventListener('change', () => { if (canAct()) controller.setAutoAuthorize(autoAuthorize.checked); });
+  model.addEventListener('change', () => { if (canAct()) controller.setModel(model.value); });
   const configActions = make('div', '', 'editor-actions'); configActions.append(save, discard, refresh, choose, clear);
-  config.append(enabled, enabledLabel, autoAuthorize, autoAuthorizeLabel, identify(make('p', 'Con la autorización automática, cada consulta preparada se envía sin el diálogo del sistema. Puedes revertirla aquí en cualquier momento.', 'field-hint'), 'auto-authorize-hint'),
+  config.append(enabled, enabledLabel, modelLabel, model, identify(make('p', 'El destino sigue fijado a Nan Builders: solo cambia el modelo. Cambiarlo invalida la vista previa pendiente y reinicia la conversación, porque cambia lo que se envía.', 'field-hint'), 'model-hint'), autoAuthorize, autoAuthorizeLabel, identify(make('p', 'Con la autorización automática, cada consulta preparada se envía sin el diálogo del sistema. Puedes revertirla aquí en cualquier momento.', 'field-hint'), 'auto-authorize-hint'),
     make('p', 'El proveedor es Nan Builders. Estos ajustes guardan la fuente elegida, sin leer claves ni probar la conexión. Guarda o descarta el borrador antes de cambiar esa fuente. No pegues claves en la petición.', 'field-hint'), dirty, configActions);
   const recipient = identify(make('p', `Destinatario: Nan Builders · ${AI_RECIPIENT}`, 'review-notice'), 'recipient');
   const disclosure = identify(make('p', '', 'field-hint'), 'surface-disclosure');
@@ -109,6 +115,8 @@ export function createOptionalAiView(root: HTMLElement, controller: OptionalAiCo
     status.textContent = !snapshot ? 'Carga los ajustes para conocer el estado de la asistencia.'
       : `${snapshot.enabled ? 'Asistencia activada solo para solicitudes explícitas.' : 'Asistencia desactivada.'} ${snapshot.configured ? `Fuente seleccionada: ${snapshot.credentialLabel ?? 'archivo autorizado'}. ${controller.result?.kind === 'connection' ? 'Consulta el resultado de la prueba; seleccionar una fuente no garantiza la conexión.' : 'No se ha comprobado la conexión.'}` : 'No hay una fuente de credenciales seleccionada.'}`;
     enabled.checked = snapshot?.enabled ?? false; enabled.disabled = blocked || !snapshot;
+    const chosenModel = snapshot?.model ?? AI_MODELS[0].id; if (model.value !== chosenModel) model.value = chosenModel;
+    model.disabled = blocked || !snapshot;
     autoAuthorize.checked = snapshot?.autoAuthorize ?? false; autoAuthorize.disabled = blocked || !snapshot;
     dirty.textContent = controller.dirty ? 'Cambios de IA sin guardar. Se conservan al navegar.' : 'Sin ajustes de IA pendientes.';
     save.disabled = blocked || !controller.canSave; discard.disabled = blocked || !controller.dirty; refresh.disabled = blocked;

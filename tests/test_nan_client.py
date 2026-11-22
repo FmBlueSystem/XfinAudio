@@ -426,6 +426,21 @@ def test_chat_model_parameter_beats_the_nan_model_env(monkeypatch: pytest.Monkey
     assert payload_of(transport)["model"] == "glm5.3-flash"
 
 
+def test_chat_model_comes_from_the_explicit_request_context(monkeypatch: pytest.MonkeyPatch, ai_env: None) -> None:
+    """S11: the app binds the chosen model explicitly, and it beats NAN_MODEL and the argument."""
+    from xfinaudio.ai.nan_client import request_context
+
+    monkeypatch.setenv("NAN_MODEL", "mimo-v2.5")
+    for model in ("deepseek-v4-flash", "glm5.3-flash", "qwen3.6"):
+        transport = FakeTransport(completion_body("ok"))
+
+        with request_context(enabled=True, key_provider=lambda: API_KEY, model=model):
+            chat("hi", model="mimo-v2.5", transport=transport)
+
+        assert payload_of(transport)["model"] == model
+        assert transport.request.full_url == OFFICIAL_ENDPOINT
+
+
 def write_env_file(tmp_path: Path, content: str, name: str = "apiIA.env") -> Path:
     path = tmp_path / name
     path.write_text(content, encoding="utf-8")

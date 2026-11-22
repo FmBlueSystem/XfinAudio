@@ -923,3 +923,83 @@ def test_cancelling_during_the_provider_call_ends_the_turn_as_cancelled(fixture,
     assert response.closed, "the running provider call is closed instead of being left to finish"
     assert not facade.results
     assert call(facade, "ai.chat.history")["conversation"] == []
+
+
+def test_the_model_choice_is_public_persisted_and_named_in_the_disclosure(fixture):
+    """S11: the panel can read and save the model, and the confirmation names the real one."""
+    facade, _, backend, _, root = fixture
+    status = call(facade, "ai.status")
+    assert status["model"] == "deepseek-v4-flash"
+    assert any("deepseek-v4-flash" in line for line in prepare(facade)["disclosure"])
+
+    updated = call(
+        facade,
+        "ai.settings.update",
+        {"revision": status["revision"], "enabled": status["enabled"], "model": "qwen3.6"},
+    )
+    assert updated["model"] == "qwen3.6" and updated["enabled"] == status["enabled"]
+    preview = prepare(facade)
+    assert any("qwen3.6" in line for line in preview["disclosure"])
+    assert not any("deepseek-v4-flash" in line for line in preview["disclosure"])
+    stored = json.loads((backend.data_dir / "settings.json").read_text(encoding="utf-8"))
+    assert stored["ai"]["model"] == "qwen3.6"
+
+
+@pytest.mark.parametrize("model", ["gpt-4o", "", None, 3, ["qwen3.6"]])
+def test_an_unknown_model_is_refused_and_nothing_is_stored(fixture, model):
+    """S11: only the fixed allowlist is accepted, and a refusal never writes the settings file."""
+    facade, _, backend, _, _ = fixture
+    status = call(facade, "ai.status")
+    with pytest.raises(BackendError) as failure:
+        call(facade, "ai.settings.update", {"revision": status["revision"], "enabled": True, "model": model})
+    assert failure.value.code == "invalid_params"
+    stored = backend.data_dir / "settings.json"
+    assert not stored.exists() or "model" not in json.loads(stored.read_text(encoding="utf-8"))["ai"]
+    assert call(facade, "ai.status")["model"] == "deepseek-v4-flash"
+
+
+def test_changing_the_model_revokes_the_pending_preview_and_the_cached_answer(fixture):
+    """S11: the model changes what is sent, so pending consent cannot outlive the change."""
+    facade, transport, _, _, root = fixture
+    configure(facade, root)
+    answer = run(facade, prepare(facade))["result"]
+    preview = prepare(facade)
+    status = call(facade, "ai.status")
+    call(facade, "ai.settings.update", {"revision": status["revision"], "enabled": True, "model": "glm5.3-flash"})
+    assert facade.preview is None
+    for method, params in [
+        ("ai.run", {"previewId": preview["previewId"], "confirmed": True}),
+        ("ai.apply", {"resultId": answer["resultId"]}),
+    ]:
+        with pytest.raises(BackendError) as failure:
+            call(facade, method, params)
+        assert failure.value.code == "stale_ai"
+    assert len(transport.requests) == 1
+
+
+def test_the_approval_switch_alone_keeps_the_prepared_preview(fixture):
+    """S11 keeps T2's rule: only the model/provider change revokes, never the approval switch."""
+    facade, transport, _, _, root = fixture
+    configure(facade, root)
+    preview = prepare(facade)
+    status = call(facade, "ai.status")
+    switched = call(
+        facade,
+        "ai.settings.update",
+        {"revision": status["revision"], "enabled": True, "autoAuthorize": True},
+    )
+    assert switched["autoAuthorize"] is True and switched["model"] == "deepseek-v4-flash"
+    assert facade.preview is not None and facade.preview.id == preview["previewId"]
+    assert call(facade, "ai.confirmation", {"previewId": preview["previewId"]})["previewId"] == preview["previewId"]
+    assert transport.requests == []
+
+
+def test_the_payload_preview_carries_the_selected_model(fixture):
+    """S11: the exact retained body shows the model that request would carry."""
+    facade, transport, _, _, _ = fixture
+    status = call(facade, "ai.status")
+    call(facade, "ai.settings.update", {"revision": status["revision"], "enabled": True, "model": "qwen3.6"})
+    preview = prepare(facade, request="House bpm 120-130")
+    inspected = call(facade, "ai.payload", {"previewId": preview["previewId"]})
+    assert json.loads(inspected["body"])["model"] == "qwen3.6"
+    assert inspected["recipient"] == nan_client.DEFAULT_ENDPOINT and transport.requests == []

@@ -14,7 +14,7 @@ const all = (node) => [node, ...node.children.flatMap(all)]; const text = (node)
 const uuid = '12345678-1234-4123-8123-123456789012';
 async function fixture(surface = 'library', resultPatch = {}, contextPatch = null, snapshotPatch = {}) {
   const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; let online = true; let busy = false; const calls = []; const root = new Element(); let render = () => {};
-  const snapshot = { revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'fixture.env', configured: true, autoAuthorize: false, recipient: AI_RECIPIENT, ...snapshotPatch };
+  const snapshot = { revision: 'a'.repeat(64), enabled: true, provider: 'nan', model: 'deepseek-v4-flash', credentialLabel: 'fixture.env', configured: true, autoAuthorize: false, recipient: AI_RECIPIENT, ...snapshotPatch };
   const kinds = { library: 'filters', prep: 'intent', editor: 'editor_request', saved: 'saved_selection', review: 'commentary', metadata: 'commentary', live: 'commentary', connection: 'connection', chat: 'chat' };
   const api = { getAiStatus: async () => snapshot, saveAiSettings: async (input) => ({ ...snapshot, ...input }), chooseAiCredential: async () => snapshot, clearAiCredential: async () => ({ ...snapshot, configured: false, credentialLabel: null }), prepareAiRequest: async (input) => { calls.push(['prepare', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, disclosure: ['Datos autorizados de la pantalla, nunca audio'], requestPreview: '[ruta omitida] <img src=x>' }; }, runAiRequest: async (input) => { calls.push(['ask', input]); return { cancelled: false, result: { resultId: uuid, surface, kind: kinds[surface], title: '<script>modelo</script>', text: '<img src=x> Comentario externo', proposal: { genres: ['house'] }, canApply: true, ...resultPatch } }; }, applyAiSuggestion: async (input) => { calls.push(['apply', input]); return { surface, data: { genres: ['house'] } }; }, inspectAiPayload: async (input) => { calls.push(['aiPayload', input]); return { previewId: uuid, surface, recipient: AI_RECIPIENT, request: 'house', body: '{"model":"deepseek","messages":[]}', bytes: 31, truncated: false }; } };
   const controller = new OptionalAiController(api, { canAct: () => online && !busy, changed: () => render(), dirtyChanged: () => {}, applied: () => {}, perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } } });
@@ -247,4 +247,23 @@ test('S18(a): AI panel chat and live disclosures no longer say the list is read-
     assert.match(copy, /Las marcas y la reproducción siguen siendo manuales\./);
     assert.doesNotMatch(copy, /No cambia el orden|no cambia el orden/);
   } finally { live.restore(); }
+});
+test('the AI settings offer only the three allowed models and save the chosen one', async () => {
+  const f = await fixture('connection'); try {
+    const select = f.get('model');
+    assert.ok(select); assert.equal(select.tagName, 'select');
+    const options = select.children.filter((node) => node.tagName === 'option');
+    assert.deepEqual(options.map((node) => node.value), ['deepseek-v4-flash', 'glm5.3-flash', 'qwen3.6']);
+    assert.match(text(select), /DeepSeek V4 Flash \(recomendado\)/);
+    assert.match(text(select), /GLM 5\.3 Flash/); assert.match(text(select), /Qwen 3\.6/);
+    assert.equal(select.value, 'deepseek-v4-flash');
+    assert.match(text(f.root), /solo cambia el modelo/i);
+    assert.ok(!all(f.root).some((node) => node.tagName === 'input' && ['text', 'url'].includes(node.type) && /modelo/i.test(node.id ?? '')));
+    select.value = 'glm5.3-flash'; select.dispatchEvent(new Event('change'));
+    assert.equal(f.controller.snapshot.model, 'glm5.3-flash'); assert.equal(f.controller.dirty, true);
+    f.render(); assert.equal(f.get('model').value, 'glm5.3-flash');
+    f.get('save').dispatchEvent(new Event('click'));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(f.controller.snapshot.model, 'glm5.3-flash'); assert.equal(f.controller.dirty, false);
+  } finally { f.restore(); }
 });

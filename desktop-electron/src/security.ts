@@ -53,7 +53,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     ...OFFLINE_FIELDS,...REVIEW_CONTROL_FIELDS,
     previewLegacyImport:[],applyLegacyImport:['previewId'],discardLegacyImport:['previewId'],
     getProfileStatus:[],completeProfiles:[],getProfileSettings:[],saveProfileSettings:['revision','spectralCohesion'],
-    getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],aiChatHistory:[],aiChatReset:[],aiChatApply:['actionId'],
+    getAiStatus:[],saveAiSettings:['revision','enabled','autoAuthorize','model'],chooseAiCredential:['revision'],clearAiCredential:['revision'],prepareAiRequest:['surface','request','context'],inspectAiPayload:['previewId'],runAiRequest:['previewId'],applyAiSuggestion:['resultId'],aiChatHistory:[],aiChatReset:[],aiChatApply:['actionId'],
     getLoudnessStatus:[],revealLoudnessBackups:[],revealLogs:[],saveLoudnessSettings:['revision','enabled','targetLufs','toleranceLu'],previewLoudness:['trackIds','force'],runLoudness:['previewId'],
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],liveFollow:['deck'],dragTrack:['trackId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
@@ -210,6 +210,8 @@ function validateAiRequest(method:string,params:Record<string,unknown>):void {
   if(['saveAiSettings','chooseAiCredential','clearAiCredential'].includes(method)&&(typeof params.revision!=='string'||!/^[a-f0-9]{64}$/.test(params.revision)))throw new Error('Invalid settings revision');
   if(method==='saveAiSettings'&&typeof params.enabled!=='boolean')throw new Error('Invalid optional AI setting');
   if(method==='saveAiSettings'&&'autoAuthorize' in params&&typeof params.autoAuthorize!=='boolean')throw new Error('Invalid optional AI setting');
+  // S11: the model is a fixed allowlist id, never a free-form name; the endpoint is not a parameter.
+  if(method==='saveAiSettings'&&'model' in params&&!['deepseek-v4-flash','glm5.3-flash','qwen3.6'].includes(params.model as string))throw new Error('Invalid optional AI model');
   if(['runAiRequest','inspectAiPayload'].includes(method)&&(typeof params.previewId!=='string'||!uuid.test(params.previewId)))throw new Error('Invalid AI preview');
   if(method==='applyAiSuggestion'&&(typeof params.resultId!=='string'||!uuid.test(params.resultId)))throw new Error('Invalid AI result');
   // A proposed change is applied by its opaque action id alone; the core owns the position,
