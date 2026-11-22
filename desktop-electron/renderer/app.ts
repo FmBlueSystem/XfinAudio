@@ -854,6 +854,19 @@ function openSerato(source: SeratoExportSource, name: string): void {
   }
   serato.setSource(source, proposedCrateName(source, name)); navigate('serato', false);
 }
+/**
+ * S2: the one source the review screen exports. An opened saved list keeps its decimal id and
+ * name; a generated list keeps its review and lets the core propose the name. The one-click
+ * export and the export options screen both start from this same request.
+ */
+function reviewSeratoRequest(): { source: SeratoExportSource; name: string } | null {
+  const current = review;
+  if (!current) return null;
+  // The core sends the playlist id as a number; the shell only accepts the decimal string.
+  if (current.savedPlaylistId) return { source: { kind: 'saved', playlistId: String(current.savedPlaylistId) }, name: current.name };
+  if (current.reviewId) return { source: { kind: 'review', reviewId: current.reviewId }, name: current.name };
+  return null;
+}
 /** The short path: one click exports from wherever the user is, or keeps the page flow on an older bridge. */
 function quickExportToSerato(source: SeratoExportSource, name: string): void {
   if (!coreAvailable || gate.busy) return;
@@ -918,7 +931,10 @@ function syncControls(): void {
       : pendingChecks.length ? `Resuelve estos avisos para abrir la guía: ${pendingChecks.map(check => check.label).join(', ')}.`
       : 'Resuelve los avisos de revisión para abrir la guía.';
   }
-  element<HTMLButtonElement>('export-review').disabled = gate.busy || !coreAvailable || !review || !(review.reviewId || review.savedPlaylistId);
+  // S2: opening the export options is a route, not an export, so it answers to the same gates.
+  const reviewExportDisabled = gate.busy || !coreAvailable || !review || !(review.reviewId || review.savedPlaylistId);
+  element<HTMLButtonElement>('export-review').disabled = reviewExportDisabled;
+  element<HTMLButtonElement>('export-review-options').disabled = reviewExportDisabled;
   element<HTMLButtonElement>('save-playlist').disabled = gate.busy || !coreAvailable || !canSave();
   element<HTMLButtonElement>('save-review-changes').hidden = !canSaveChanges();
   element<HTMLButtonElement>('save-review-changes').disabled = gate.busy || !coreAvailable || !canSaveChanges();
@@ -1358,6 +1374,8 @@ function renderPlaylistActions(card: HTMLElement, playlist: PlaylistSummary): vo
   });
   for (const [caption, action] of [
     ['Exportar a Serato', () => { quickExportToSerato({ kind: 'saved', playlistId: playlist.id }, playlist.name); }],
+    // S2: the options screen is one click away, with the same source the quick export would send.
+    ['Opciones de exportación', () => { openSerato({ kind: 'saved', playlistId: String(playlist.id) }, playlist.name); }],
     ['Editar', () => { void editor.open(playlist.id); }],
     ['Renombrar', () => {
       if (editor.draft?.id === playlist.id) { void editor.open(playlist.id).then(() => element<HTMLInputElement>('editor-name').focus()); return; }
@@ -1624,10 +1642,13 @@ element('start-live').addEventListener('click', () => {
   void live.start(review.reviewId); navigate('live', false);
 });
 element('export-review').addEventListener('click', () => {
-  if (!review) return;
-  // The core sends the playlist id as a number; the shell only accepts the decimal string.
-  if (review.savedPlaylistId) quickExportToSerato({ kind: 'saved', playlistId: String(review.savedPlaylistId) }, review.name);
-  else if (review.reviewId) quickExportToSerato({ kind: 'review', reviewId: review.reviewId }, review.name);
+  const request = reviewSeratoRequest();
+  if (request) quickExportToSerato(request.source, request.name);
+});
+// S2: the same request opens the export options screen without starting a quick export first.
+element('export-review-options').addEventListener('click', () => {
+  const request = reviewSeratoRequest();
+  if (request) openSerato(request.source, request.name);
 });
 element('save-review-changes').addEventListener('click', () => {
   const saveChanges = api?.savePlaylistReview; const current = review;
