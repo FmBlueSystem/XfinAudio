@@ -363,6 +363,29 @@ test('the native confirmation lists every crate of the tree with its count and a
   assert.equal(confirmationDetail({...summary,crates:[]}),confirmationDetail({...summary,crates:undefined}),'an empty tree list adds nothing');
  }finally{await f.clean();}
 });
+test('a phases split reaches the core unchanged and the confirmation lists its phase crates (S4, S6)',async()=>{
+ const parent='XfinAudio%%Sesión 14-nov.crate',child='XfinAudio%%Sesión 14-nov%%1 Apertura (1-2).crate';
+ const crates=[{name:parent,trackCount:12,action:'create'},{name:child,trackCount:2,action:'create'}];
+ const f=await fixture();
+ try{
+  f.host.dependencies.request=async(method,params)=>{f.calls.push([method,params]);
+   if(method==='serato.suggestDestination')return {suggestion:f.root};
+   if(method==='serato.registerDestination')return {destinationId:'dest',label:'_Serato_'};
+   if(method==='serato.preview'||method==='serato.confirmation')return {...f.summary,filename:parent,trackCount:12,crates};
+   if(method==='serato.commit')return {...f.receipt,filename:parent,files:crates.map(crate=>({name:crate.name,trackCount:crate.trackCount}))};
+   throw new Error(method);};
+  await f.host.choose();await f.host.preview({source:{kind:'review',reviewId:'r'},destinationId:'dest',name:'Set',splitMode:'phases'});
+  assert.equal(f.calls.at(-1)[1].splitMode,'phases','the host forwards the split mode it was given');
+  assert.equal('segmentSize' in f.calls.at(-1)[1],false,'a phase split carries no tramo size');
+  await f.host.commit('preview');
+  const detail=confirmationDetail(f.calls.find(c=>c[0]==='dialog')[1]);
+  assert.match(detail,/Se escribirán 2 crates:/);
+  assert.ok(detail.includes('· «XfinAudio › Sesión 14-nov» · 12 pistas · se crea'));
+  assert.ok(detail.includes('· «XfinAudio › Sesión 14-nov › 1 Apertura (1-2)» · 2 pistas · se crea'),'the phase crates are listed exactly like segments');
+  await f.host.quickExport({source:{kind:'review',reviewId:'r'},name:'Set'});
+  assert.equal('splitMode' in f.calls.filter(c=>c[0]==='serato.preview').at(-1)[1],false,'a one-click export never splits by phases');
+ }finally{await f.clean();}
+});
 test('a tree receipt still reveals the parent crate file (S6)',async()=>{
  const parent='XfinAudio%%Sesión 14-nov.crate';
  const f=await fixture();try{

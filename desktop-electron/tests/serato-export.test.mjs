@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
-import { SeratoExportController, crateTreeLines, parentCrateLabel } from '../.out/renderer/serato-export.js';
+import { SeratoExportController, crateTreeLines, parentCrateLabel, phaseReasonLine } from '../.out/renderer/serato-export.js';
 const require = createRequire(import.meta.url);
 const source = { kind: 'review', reviewId: 'review-1' };
 const destination = { destinationId: 'destination-1', label: 'Subcrates · Disco DJ' };
@@ -178,6 +178,40 @@ test('a split travels as segmentSize for that one export and is forgotten afterw
   assert.equal(f.controller.segmentSize, null, 'the split applies to that export only');
   f.controller.setSegmentSize(4); f.controller.setSource({ kind: 'saved', playlistId: '2' }, 'Otra');
   assert.equal(f.controller.segmentSize, null, 'a new export starts with today\'s single crate');
+});
+test('phases travel as splitMode for that one export, ignoring and then forgetting the tramo size (S4)', async () => {
+  const f = fixture(); await f.ready();
+  f.controller.setSplitMode('phases');
+  assert.equal(f.controller.splitMode, 'phases');
+  assert.equal(f.controller.preview, null, 'choosing phases invalidates the preview');
+  await f.controller.requestPreview();
+  assert.deepEqual(f.calls.at(-1), ['preview', { source, destinationId: destination.destinationId, name: 'Mi sesión', splitMode: 'phases' }], 'phases send only the mode, never a tramo size');
+  f.controller.setSegmentSize(5); await f.controller.requestPreview();
+  assert.deepEqual(f.calls.at(-1), ['preview', { source, destinationId: destination.destinationId, name: 'Mi sesión', segmentSize: 5 }], 'going back to every N tracks sends the size alone, exactly as before');
+  f.controller.setSplitMode('phases'); await f.controller.requestPreview();
+  assert.deepEqual(f.calls.at(-1)[1].splitMode, 'phases');
+  assert.equal('segmentSize' in f.calls.at(-1)[1], false, 'the tramo size typed earlier is not sent in phases mode');
+  await f.controller.commit();
+  assert.equal(f.controller.splitMode, 'none', 'the choice belongs to that export only');
+  assert.equal(f.controller.segmentSize, null);
+  f.controller.setSplitMode('phases'); f.controller.setSource({ kind: 'saved', playlistId: '2' }, 'Otra');
+  assert.equal(f.controller.splitMode, 'none', 'a new export starts on today\'s single crate');
+  f.controller.setSplitMode('phases'); f.controller.setSplitMode('none');
+  assert.equal(f.controller.splitMode, 'none', 'no dividir is available again');
+});
+test('a metadata worklist never holds a phases split', async () => {
+  const f = fixture();
+  f.controller.setSource({ kind: 'metadata', status: 'incomplete', missingField: 'bpm', trackIds: ['a'.repeat(64)] }, 'Reparar BPM');
+  await f.controller.chooseDestination();
+  f.controller.setSplitMode('phases');
+  assert.equal(f.controller.splitMode, 'none', 'the core refuses phases with a metadata worklist');
+  await f.controller.requestPreview();
+  assert.equal('splitMode' in f.calls.at(-1)[1], false);
+});
+test('a reason the screen does not know is never invented', () => {
+  assert.equal(phaseReasonLine(undefined), '');
+  assert.equal(phaseReasonLine('flat'), 'La energía de la lista es casi pareja; no hay fases claras y se exportará sin dividir.');
+  assert.equal(phaseReasonLine('unknown_from_a_newer_core'), '');
 });
 test('a tree receipt status says how many crates were written (S6)', async () => {
   const files = [{ name: 'XfinAudio%%Sesión 14-nov.crate', trackCount: 12 }, { name: 'XfinAudio%%Sesión 14-nov%%1 (1-5).crate', trackCount: 5 }, { name: 'XfinAudio%%Sesión 14-nov%%3 (11-12).crate', trackCount: 2 }];

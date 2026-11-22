@@ -13,7 +13,7 @@ const all = (node) => [node, ...node.children.flatMap(all)];
 const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
 function fixture() {
   const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; const root = new Element(); const calls = []; let available = true;
-  const controller = { source: { kind: 'saved', playlistId: 'saved-1' }, name: 'Sesión', destination: { destinationId: 'destination-1', label: 'Subcrates' }, destinationDetected: false, detectionMissed: false, preview: null, receipt: null, pending: null, canPreview: true, canCommit: false, error: '', status: '', segmentSize: null, setName: (value) => calls.push(['name', value]), setSegmentSize: (value) => { calls.push(['split', value]); controller.segmentSize = value; }, chooseDestination: async () => calls.push(['choose']), requestPreview: async () => calls.push(['preview']), commit: async () => calls.push(['commit']), reveal: async () => calls.push(['reveal']) };
+  const controller = { source: { kind: 'saved', playlistId: 'saved-1' }, name: 'Sesión', destination: { destinationId: 'destination-1', label: 'Subcrates' }, destinationDetected: false, detectionMissed: false, preview: null, receipt: null, pending: null, canPreview: true, canCommit: false, error: '', status: '', segmentSize: null, splitMode: 'none', setName: (value) => calls.push(['name', value]), setSegmentSize: (value) => { calls.push(['split', value]); controller.segmentSize = value; controller.splitMode = value === null ? 'none' : 'every'; }, setSplitMode: (value) => { calls.push(['mode', value]); controller.splitMode = value; }, chooseDestination: async () => calls.push(['choose']), requestPreview: async () => calls.push(['preview']), commit: async () => calls.push(['commit']), reveal: async () => calls.push(['reveal']) };
   const render = createSeratoExportView(root, controller, { canAct: () => available }); render();
   return { root, controller, calls, render, get: (id) => all(root).find((node) => node.id === `serato-export-${id}`), block: () => { available = false; render(); }, restore: () => { globalThis.document = previous; } };
 }
@@ -91,7 +91,7 @@ test('the options screen offers «Dividir en tramos» with today\'s single crate
     assert.equal(label.attrs.for, 'serato-export-split');
     const split = f.get('split'); assert.ok(split, 'the split choice needs its own control');
     assert.deepEqual(split.children.filter((node) => node.tagName === 'option').map((node) => [node.value, node.textContent]),
-      [['no', 'No dividir'], ['every', 'Cada N pistas']], 'the two choices are no split and every N tracks');
+      [['no', 'No dividir'], ['every', 'Cada N pistas'], ['phases', 'Por fases de energía']], 'the three choices are no split, every N tracks and the set\'s own energy phases');
     assert.equal(split.value, 'no', 'no split is the default, exactly today\'s single crate');
     const size = f.get('split-size'); assert.ok(size, 'the tramo size needs its own number input');
     assert.equal(size.value, '5', 'five tracks per tramo by default');
@@ -175,5 +175,54 @@ test('a metadata worklist export offers no split, because the core refuses one w
     assert.equal(f.get('split-size').disabled, true);
     f.controller.segmentSize = 5; f.render(); assert.equal(f.get('split').disabled, true);
     assert.deepEqual(f.calls, [], 'showing a worklist never changes the split by itself');
+  } finally { f.restore(); }
+});
+test('«Por fases de energía» disables the tramo size and explains what the phases are (S4)', () => {
+  const f = fixture(); try {
+    const split = f.get('split'), size = () => f.get('split-size');
+    assert.match(f.get('split-hint').textContent, /Por fases de energía/, 'the hint must explain the third choice');
+    assert.match(f.get('split-hint').textContent, /Apertura/, 'the hint names the phases the core writes');
+    assert.match(f.get('split-hint').textContent, /8 pistas/, 'the hint states the minimum the core really splits');
+    split.value = 'phases'; split.dispatchEvent(new Event('change'));
+    assert.deepEqual(f.calls, [['mode', 'phases']], 'phases are their own choice, never a tramo size');
+    f.render();
+    assert.equal(split.value, 'phases', 'the control shows the phase choice');
+    assert.equal(size().disabled, true, 'the phase split has no fixed number of tracks');
+    f.controller.segmentSize = 5; f.render();
+    assert.equal(split.value, 'phases'); assert.equal(size().disabled, true, 'a remembered tramo size cannot enable the input in phases mode');
+    split.value = 'every'; split.dispatchEvent(new Event('change'));
+    assert.deepEqual(f.calls.at(-1), ['split', 5], 'changing back to every N tracks keeps the size it had');
+  } finally { f.restore(); }
+});
+test('a phases preview lists its phase crates like segments and explains a set it cannot split (S4, S5)', () => {
+  const f = fixture(); try {
+    const parent = 'XfinAudio%%Sesión 14-nov.crate';
+    const base = { previewId: 'p', filename: parent, destinationLabel: 'Subcrates', trackCount: 12, readiness: 'ready', warnings: [], blockers: [], canCommit: true, backup: { required: false }, parentsToCreate: ['XfinAudio'], tracks: [{ title: 'Uno', artist: 'A' }] };
+    f.controller.preview = { ...base, crates: [
+      { name: parent, trackCount: 12, action: 'create' },
+      { name: 'XfinAudio%%Sesión 14-nov%%1 Apertura (1-2).crate', trackCount: 2, action: 'create' },
+      { name: 'XfinAudio%%Sesión 14-nov%%4 Cierre (11-12).crate', trackCount: 2, action: 'replace' },
+    ] }; f.render();
+    const list = f.get('crates'); assert.ok(list, 'a phase tree is listed exactly like a segment tree');
+    assert.deepEqual(list.children.map((node) => node.textContent), [
+      '«XfinAudio › Sesión 14-nov» · 12 pistas · se crea',
+      '«XfinAudio › Sesión 14-nov › 1 Apertura (1-2)» · 2 pistas · se crea',
+      '«XfinAudio › Sesión 14-nov › 4 Cierre (11-12)» · 2 pistas · se reemplaza',
+    ]);
+    const messages = {
+      too_few_tracks: 'La lista es muy corta para dividirla por fases (mínimo 8 pistas); se exportará sin dividir.',
+      too_few_energies: 'Faltan datos de energía en la lista; se exportará sin dividir.',
+      flat: 'La energía de la lista es casi pareja; no hay fases claras y se exportará sin dividir.',
+      single_phase: 'La energía de la lista forma una sola fase; se exportará sin dividir.',
+    };
+    for (const [reason, message] of Object.entries(messages)) {
+      f.controller.preview = { ...base, phaseReason: reason }; f.render();
+      assert.ok(text(f.get('proposal')).includes(message), `${reason} must be explained in that exact Spanish sentence`);
+      assert.equal(f.get('proposal').children.some((node) => node.id === 'serato-export-crates'), false, 'the parent alone lists no phase crates');
+    }
+    f.controller.preview = { ...base }; f.render();
+    assert.doesNotMatch(text(f.get('proposal')), /sin dividir/, 'a preview without a reason adds no line');
+    f.controller.preview = { ...base, phaseReason: 'unknown_from_a_newer_core' }; f.render();
+    assert.doesNotMatch(text(f.get('proposal')), /sin dividir/, 'a reason this screen does not know is never invented');
   } finally { f.restore(); }
 });

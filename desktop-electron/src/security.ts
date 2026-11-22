@@ -58,7 +58,7 @@ export function validateRequest(method:string, value:unknown): Record<string,unk
     getPreferences:[],savePreferences:['revision','previewVolume','watchLibrary'],getLibraryStatus:[],rescanLibrary:[],
     openLive:['reviewId'],getLiveStatus:['sessionId'],liveFollow:['deck'],dragTrack:['trackId'],advanceLive:['sessionId','revision','trackId'],clearLive:['sessionId'],
     getPreviewSetup:[],savePreviewSetup:['output','calibration'],
-    chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name','segmentSize'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
+    chooseSeratoDestination:[],detectSeratoDestination:[],previewSeratoExport:['source','destinationId','name','segmentSize','splitMode'],quickSeratoExport:['source','name'],commitSeratoExport:['previewId'],revealSeratoExport:['receiptId'],
     chooseLibrary:[],listLibrary:[],getMetadataReport:[],getPrepCatalog:[],prepGenres:['startTrackId','genre'],selectPrepVariant:['planId','variant'],
     generatePrep:['targetTrackCount','name','strategy','targetMinutes','slotRole','genreFocus','startTrackId','endTrackId','requiredTrackIds','excludedTrackIds','yearMin','yearMax'],
     savePlaylist:['name','reviewId'],listPlaylists:[],renamePlaylist:['playlistId','name'],duplicatePlaylist:['playlistId'],openPlaylistEditor:['playlistId'],
@@ -155,6 +155,12 @@ function validateSeratoRequest(method:string,params:Record<string,unknown>):void
   if(method==='previewSeratoExport'&&'segmentSize' in params){
     const size=params.segmentSize;
     if(!Number.isInteger(size)||Number(size)<2||Number(size)>50)throw new Error('Segment size must be 2-50 tracks');
+  }
+  // S4: the third split choice is a closed vocabulary the screen offers; a phase split
+  // carries no tramo size, so only these three words (and no other shape) pass.
+  if(method==='previewSeratoExport'&&'splitMode' in params){
+    const mode=params.splitMode;
+    if(typeof mode!=='string'||!['none','every','phases'].includes(mode))throw new Error('Split mode must be none, every or phases');
   }
   const source=params.source;
   // A refusal names its own code, so the screen explains it next to the export button (S2).

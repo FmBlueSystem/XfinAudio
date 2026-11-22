@@ -74,6 +74,21 @@ test('a one-click quick export accepts no tramo size, so it keeps today\'s singl
  assert.throws(()=>validateRequest('quickSeratoExport',{...p,segmentSize:5}));
 });
 
+test('the preview accepts a split mode as one of three words and nothing else (S4)',()=>{
+ const valid={source:{kind:'review',reviewId:id},destinationId:id,name:'Set'};
+ for(const splitMode of ['none','every','phases']){
+  const p={...valid,splitMode};
+  assert.deepEqual(validateRequest('previewSeratoExport',p),p,`${splitMode} is the only shape the core accepts`);
+ }
+ assert.deepEqual(validateRequest('previewSeratoExport',{...valid,splitMode:'phases',segmentSize:5}),{...valid,splitMode:'phases',segmentSize:5},'the core ignores the tramo size in phases mode');
+ assert.deepEqual(validateRequest('previewSeratoExport',valid),valid,'no split mode keeps today\'s contract');
+ for(const splitMode of ['segments','Segments','PHASES','phase','','phases ','none ',5,true,['phases'],{mode:'phases'},null])assert.throws(()=>validateRequest('previewSeratoExport',{...valid,splitMode}),/Split mode/);
+});
+test('a one-click quick export accepts no split mode, so it keeps today\'s single crate (S6)',()=>{
+ const p={source:{kind:'review',reviewId:id},name:'Set'};
+ for(const splitMode of ['none','every','phases'])assert.throws(()=>validateRequest('quickSeratoExport',{...p,splitMode}));
+});
+
 test('the typed-name cap counts the XfinAudio parent crate the core writes, so an over-long file is refused at the boundary (S1)',()=>{
  const review={kind:'review',reviewId:id},saved={kind:'saved',playlistId:'1'};
  // 'ñ' is two UTF-8 bytes, so the character cap leaves the 240-byte file cap in charge.

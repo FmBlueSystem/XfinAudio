@@ -1,6 +1,6 @@
 import type { Readiness } from './model.js';
 import type { SeratoExportController } from './serato-export.js';
-import { SPLIT_DEFAULT_TRACKS, SPLIT_MAX_TRACKS, SPLIT_MIN_TRACKS, crateTreeLines, parentCratesLine, receiptCrateLines, validSegmentSize, validSeratoName } from './serato-export.js';
+import { SPLIT_DEFAULT_TRACKS, SPLIT_MAX_TRACKS, SPLIT_MIN_TRACKS, crateTreeLines, parentCratesLine, phaseReasonLine, receiptCrateLines, validSegmentSize, validSeratoName } from './serato-export.js';
 import { SERATO_NOT_FOUND_MESSAGE } from './serato-quick-export.js';
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
@@ -26,8 +26,12 @@ export function createSeratoExportView(root: HTMLElement, controller: SeratoExpo
   const split = identify(make('select'), 'split'); split.setAttribute('aria-describedby', 'serato-export-split-hint');
   const noSplit = make('option', 'No dividir'); noSplit.value = 'no';
   const everySplit = make('option', 'Cada N pistas'); everySplit.value = 'every';
-  split.append(noSplit, everySplit);
-  split.addEventListener('change', () => controller.setSegmentSize(split.value === 'every' ? controller.segmentSize ?? SPLIT_DEFAULT_TRACKS : null));
+  const phasesSplit = make('option', 'Por fases de energía'); phasesSplit.value = 'phases';
+  split.append(noSplit, everySplit, phasesSplit);
+  split.addEventListener('change', () => {
+    if (split.value === 'phases') controller.setSplitMode('phases');
+    else controller.setSegmentSize(split.value === 'every' ? controller.segmentSize ?? SPLIT_DEFAULT_TRACKS : null);
+  });
   const splitSizeLabel = make('label', 'Pistas por tramo'); splitSizeLabel.setAttribute('for', 'serato-export-split-size');
   const splitSize = identify(make('input'), 'split-size'); splitSize.type = 'number';
   splitSize.setAttribute('min', String(SPLIT_MIN_TRACKS)); splitSize.setAttribute('max', String(SPLIT_MAX_TRACKS)); splitSize.setAttribute('step', '1');
@@ -37,7 +41,7 @@ export function createSeratoExportView(root: HTMLElement, controller: SeratoExpo
     splitSize.setAttribute('aria-invalid', String(!valid));
     if (valid) controller.setSegmentSize(size);
   });
-  const splitHint = identify(make('p', `Sin dividir se escribe un solo crate. Cada N pistas escribe el crate completo y un crate hijo por tramo de ${SPLIT_MIN_TRACKS} a ${SPLIT_MAX_TRACKS} pistas; la elección vale solo para esta exportación.`, 'field-hint'), 'split-hint');
+  const splitHint = identify(make('p', `Sin dividir se escribe un solo crate. Cada N pistas escribe el crate completo y un crate hijo por tramo de ${SPLIT_MIN_TRACKS} a ${SPLIT_MAX_TRACKS} pistas. Por fases de energía escribe un crate hijo por fase (Apertura, Subida, Pico y Cierre) según la energía de las pistas, con al menos 8 pistas; si la lista no se puede dividir, se exporta sin dividir. La elección vale solo para esta exportación.`, 'field-hint'), 'split-hint');
   const destination = identify(make('p', '', 'field-hint'), 'destination'); destination.setAttribute('aria-live', 'polite');
   const notFound = identify(make('p', SERATO_NOT_FOUND_MESSAGE, 'review-notice'), 'not-found'); notFound.setAttribute('role', 'status'); notFound.setAttribute('aria-live', 'polite'); notFound.hidden = true;
   const choose = button('choose', 'Elegir carpeta _Serato_', () => { void controller.chooseDestination(); });
@@ -63,13 +67,14 @@ export function createSeratoExportView(root: HTMLElement, controller: SeratoExpo
     source.textContent = controller.source?.kind === 'review' ? 'Origen: selección revisada actual' : controller.source?.kind === 'saved' ? 'Origen: playlist guardada completa. Los cambios sin guardar del editor no se incluyen.' : controller.source?.kind === 'metadata' ? 'Origen: lista de trabajo de metadatos para reparación. No certifica una selección lista para DJ.' : 'Elige una selección revisada, una lista de metadatos o una playlist guardada para exportar.';
     if (name.value !== controller.name) name.value = controller.name;
     name.disabled = blocked || !controller.source; name.setAttribute('aria-invalid', String(Boolean(controller.name) && !validSeratoName(controller.name)));
-    const splitChoice = controller.segmentSize === null ? 'no' : 'every';
+    const splitChoice = controller.splitMode === 'phases' ? 'phases' : controller.segmentSize === null ? 'no' : 'every';
     if (split.value !== splitChoice) split.value = splitChoice;
     // A metadata worklist keeps its own naming: the core refuses a tramo size with it.
     const splitBlocked = controller.source?.kind === 'metadata';
     split.disabled = blocked || !controller.source || splitBlocked;
     splitSize.value = String(controller.segmentSize ?? SPLIT_DEFAULT_TRACKS);
-    splitSize.disabled = blocked || !controller.source || controller.segmentSize === null || splitBlocked;
+    // Only «Cada N pistas» has a number: phases decide their own runs and no split has none.
+    splitSize.disabled = blocked || !controller.source || controller.splitMode !== 'every' || controller.segmentSize === null || splitBlocked;
     splitSize.setAttribute('aria-invalid', 'false');
     destination.textContent = controller.destination ? `${controller.destinationDetected ? 'Destino detectado automáticamente' : 'Destino seleccionado'}: ${controller.destination.label}` : 'Todavía no has elegido una carpeta de destino.';
     notFound.hidden = !controller.detectionMissed || Boolean(controller.destination);
@@ -96,6 +101,9 @@ export function createSeratoExportView(root: HTMLElement, controller: SeratoExpo
           for (const [index, line] of tree.slice(1).entries()) list.append(make('li', line.replace(/^· /, ''), index === 0 ? 'crate-parent' : 'crate-child'));
           assessment.append(list);
         }
+        // S5: a set with no phases is exported as the parent alone, and the preview says why.
+        const phaseReason = phaseReasonLine(preview.phaseReason);
+        if (phaseReason) assessment.append(make('p', phaseReason, 'field-hint'));
         for (const [messages, heading, className] of [[preview.blockers, 'Bloqueos que impiden exportar', 'review-notice blocker'], [preview.warnings, 'Avisos para revisar', 'review-notice']] as const) {
           if (!messages.length) continue;
           const notice = make('section', '', className); const list = make('ul'); for (const message of messages) list.append(make('li', message)); notice.append(make('strong', heading), list); assessment.append(notice);

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mutagen.flac import FLAC
 
 from tests.test_headless_backend import tagged_flac
 from xfinaudio.exporting.serato_crate import (
@@ -33,21 +34,46 @@ CHILD_1 = f"{PARENT}%%1 (1-5)"
 CHILD_2 = f"{PARENT}%%2 (6-10)"
 CHILD_3 = f"{PARENT}%%3 (11-12)"
 SEGMENT_ERROR = "segment size must be an integer between 2 and 50 tracks"
+SPLIT_MODE_ERROR = "split mode must be none, every or phases"
+PHASES_METADATA_ERROR = "Energy phases apply to a set export, not a metadata worklist"
+# A twelve-track climb: its own energies split it into 1-2, 3-8, 9-10 and 11-12.
+JOURNEY = (4, 4, 4, 5, 6, 7, 8, 9, 10, 10, 9, 8)
+# A nine-track set the reviewed order smooths into one band: 2, 1, 5, 5, 2, 9, 6, 6, 9.
+SINGLE_BAND = (2, 5, 9, 6, 5, 1, 6, 9, 2)
+PHASE_1 = f"{PARENT}%%1 Apertura (1-2)"
+PHASE_2 = f"{PARENT}%%2 Subida (3-8)"
+PHASE_3 = f"{PARENT}%%3 Pico (9-10)"
+PHASE_4 = f"{PARENT}%%4 Cierre (11-12)"
 
 
-def _fixture(tmp_path: Path) -> tuple[HeadlessBackend, dict[str, object], str, Path]:
-    """A scanned library of twelve tracks, a twelve-track review and a registered destination."""
+def _tagged_flac(path: Path, index: int, energy: int) -> None:
+    """A metadata-only fixture carrying the exact energy the DJ reads as 1-10."""
+    tagged_flac(path, index)
+    tags = FLAC(path)
+    tags["energylevel"] = str(energy)
+    tags.save()
+
+
+def _review_with_energies(
+    tmp_path: Path, energies: tuple[int, ...]
+) -> tuple[HeadlessBackend, dict[str, object], str, Path]:
+    """A scanned library of those exact energies, its review and a registered destination."""
     music = tmp_path / "music"
-    for index in range(12):
-        tagged_flac(music / f"{index}.flac", index)
+    for index, energy in enumerate(energies):
+        _tagged_flac(music / f"{index}.flac", index, energy)
     serato = tmp_path / "_Serato_"
     subcrates = serato / "Subcrates"
     subcrates.mkdir(parents=True)
     backend = HeadlessBackend(tmp_path / "data")
     backend.execute("library.scan", {"root": str(music)})
-    review = backend.execute("prep.generate", {"targetTrackCount": 12})
+    review = backend.execute("prep.generate", {"targetTrackCount": len(energies)})
     destination = backend.execute("serato.registerDestination", {"seratoRoot": str(serato)})
     return backend, {"kind": "review", "reviewId": review["reviewId"]}, destination["destinationId"], subcrates
+
+
+def _fixture(tmp_path: Path) -> tuple[HeadlessBackend, dict[str, object], str, Path]:
+    """A scanned library of twelve tracks, a twelve-track review and a registered destination."""
+    return _review_with_energies(tmp_path, (5,) * 12)
 
 
 def _preview(
@@ -241,6 +267,170 @@ def test_a_split_is_refused_for_a_metadata_worklist(tmp_path: Path) -> None:
 
     assert failure.value.code == "invalid_params"
     assert _crates(subcrates) == []
+
+
+def test_a_phases_preview_lists_the_parent_and_one_crate_per_energy_phase(tmp_path: Path) -> None:
+    backend, source, destination_id, subcrates = _review_with_energies(tmp_path, JOURNEY)
+
+    preview = _preview(backend, source, destination_id, name=PARENT, splitMode="phases")
+
+    # The parent comes first and holds the whole set; one child follows per energy phase (S4).
+    assert preview["crates"] == [
+        {"name": f"{PARENT}.crate", "trackCount": 12, "action": "create"},
+        {"name": f"{PHASE_1}.crate", "trackCount": 2, "action": "create"},
+        {"name": f"{PHASE_2}.crate", "trackCount": 6, "action": "create"},
+        {"name": f"{PHASE_3}.crate", "trackCount": 2, "action": "create"},
+        {"name": f"{PHASE_4}.crate", "trackCount": 2, "action": "create"},
+    ]
+    assert preview["filename"] == f"{PARENT}.crate"
+    assert preview["trackCount"] == 12
+    assert preview["canCommit"] is True
+    # A set with phases carries no reason, and nothing is written before the confirmation.
+    assert "phaseReason" not in preview
+    assert _crates(subcrates) == []
+
+
+def test_a_confirmed_phases_export_writes_each_phase_with_its_own_tracks(tmp_path: Path) -> None:
+    backend, source, destination_id, subcrates = _review_with_energies(tmp_path, JOURNEY)
+    preview = _preview(backend, source, destination_id, name=PARENT, splitMode="phases")
+
+    receipt = _commit(backend, preview)
+
+    phases = [_paths(subcrates, name) for name in (PHASE_1, PHASE_2, PHASE_3, PHASE_4)]
+    assert [len(phase) for phase in phases] == [2, 6, 2, 2]
+    # The parent holds the whole set in the reviewed order; each child its own phase.
+    parent = _paths(subcrates, PARENT)
+    assert len(parent) == 12
+    assert parent == tuple(path for phase in phases for path in phase)
+    assert receipt["filename"] == f"{PARENT}.crate"
+    assert receipt["files"] == [
+        {"name": f"{PARENT}.crate", "trackCount": 12},
+        {"name": f"{PHASE_1}.crate", "trackCount": 2},
+        {"name": f"{PHASE_2}.crate", "trackCount": 6},
+        {"name": f"{PHASE_3}.crate", "trackCount": 2},
+        {"name": f"{PHASE_4}.crate", "trackCount": 2},
+    ]
+    resolved = backend.execute("serato.receipt.resolve", {"receiptId": receipt["receiptId"]})
+    assert resolved["path"] == str(subcrates / f"{PARENT}.crate")
+
+
+def test_a_phases_export_ignores_the_tramo_size(tmp_path: Path) -> None:
+    backend, source, destination_id, _subcrates = _review_with_energies(tmp_path, JOURNEY)
+
+    # The screen keeps the last tramo size while the DJ tries phases; it must not split by it.
+    preview = _preview(backend, source, destination_id, name=PARENT, splitMode="phases", segmentSize=5)
+
+    assert preview["crates"] == [
+        {"name": f"{PARENT}.crate", "trackCount": 12, "action": "create"},
+        {"name": f"{PHASE_1}.crate", "trackCount": 2, "action": "create"},
+        {"name": f"{PHASE_2}.crate", "trackCount": 6, "action": "create"},
+        {"name": f"{PHASE_3}.crate", "trackCount": 2, "action": "create"},
+        {"name": f"{PHASE_4}.crate", "trackCount": 2, "action": "create"},
+    ], "the phase children are the split, never the tramo size"
+
+
+@pytest.mark.parametrize(
+    ("energies", "reason"),
+    [
+        ((5,) * 5, "too_few_tracks"),
+        ((5,) * 12, "flat"),
+        (SINGLE_BAND, "single_phase"),
+    ],
+)
+# `too_few_energies` is not reachable through a review: a track whose energy is unknown is
+# metadata-incomplete, so `prep.generate` leaves it out. The code is covered where it is
+# produced, by the `plan_energy_phases` tests; here one reason proves the preview forwards it.
+def test_a_set_that_cannot_split_by_phases_exports_the_parent_only_and_says_why(
+    tmp_path: Path, energies: tuple[int, ...], reason: str
+) -> None:
+    backend, source, destination_id, subcrates = _review_with_energies(tmp_path, energies)
+
+    preview = _preview(backend, source, destination_id, name=PARENT, splitMode="phases")
+
+    # S5: no phases are invented, the parent is exported alone and the preview names the reason.
+    assert preview["phaseReason"] == reason
+    assert "crates" not in preview
+    assert preview["filename"] == f"{PARENT}.crate"
+    assert preview["canCommit"] is True
+
+    receipt = _commit(backend, preview)
+
+    assert receipt["filename"] == f"{PARENT}.crate"
+    assert "files" not in receipt
+    assert _crates(subcrates) == sorted(["XfinAudio.crate", f"{PARENT}.crate"])
+
+
+def test_phases_are_refused_for_a_metadata_worklist(tmp_path: Path) -> None:
+    music = tmp_path / "music"
+    for index in range(12):
+        _tagged_flac(music / f"{index}.flac", index, JOURNEY[index])
+    serato = tmp_path / "_Serato_"
+    subcrates = serato / "Subcrates"
+    subcrates.mkdir(parents=True)
+    backend = HeadlessBackend(tmp_path / "data")
+    rows = backend.execute("library.scan", {"root": str(music)})["tracks"]
+    source: dict[str, object] = {
+        "kind": "metadata",
+        "status": "complete",
+        "missingField": None,
+        "trackIds": [row["id"] for row in rows],
+    }
+    destination_id = backend.execute("serato.registerDestination", {"seratoRoot": str(serato)})["destinationId"]
+
+    with pytest.raises(BackendError) as failure:
+        _preview(backend, source, destination_id, splitMode="phases")
+
+    assert failure.value.code == "invalid_params"
+    assert str(failure.value) == PHASES_METADATA_ERROR
+    assert _crates(subcrates) == []
+
+
+@pytest.mark.parametrize("split_mode", ["segments", "phase", "PHASES", "", 5, True, ["phases"], {"mode": "phases"}])
+def test_a_split_mode_that_is_not_one_of_the_three_words_is_refused(tmp_path: Path, split_mode: object) -> None:
+    backend, source, destination_id, subcrates = _review_with_energies(tmp_path, JOURNEY)
+
+    with pytest.raises(BackendError) as failure:
+        _preview(backend, source, destination_id, name=PARENT, splitMode=split_mode)
+
+    assert failure.value.code == "invalid_params"
+    assert str(failure.value) == SPLIT_MODE_ERROR
+    assert _crates(subcrates) == []
+
+
+def test_split_mode_none_keeps_todays_single_crate_even_with_a_size(tmp_path: Path) -> None:
+    backend, source, destination_id, subcrates = _review_with_energies(tmp_path, JOURNEY)
+
+    preview = _preview(backend, source, destination_id, name=PARENT, splitMode="none", segmentSize=5)
+
+    assert "crates" not in preview
+    assert preview["filename"] == f"{PARENT}.crate"
+    assert _commit(backend, preview)["filename"] == f"{PARENT}.crate"
+    assert _crates(subcrates) == sorted(["XfinAudio.crate", f"{PARENT}.crate"])
+
+
+def test_an_explicit_every_split_mode_previews_the_same_tree_as_a_size_alone(tmp_path: Path) -> None:
+    backend, source, destination_id, _subcrates = _review_with_energies(tmp_path, JOURNEY)
+
+    without_mode = _preview(backend, source, destination_id, name=PARENT, segmentSize=5)
+    with_mode = _preview(backend, source, destination_id, name=PARENT, segmentSize=5, splitMode="every")
+
+    assert set(with_mode) == set(without_mode)
+    for field in ("filename", "trackCount", "parentsToCreate", "backup", "crates", "canCommit"):
+        assert with_mode[field] == without_mode[field]
+
+
+def test_a_null_split_mode_keeps_todays_segment_behaviour(tmp_path: Path) -> None:
+    backend, source, destination_id, _subcrates = _review_with_energies(tmp_path, JOURNEY)
+
+    # A shell that serializes "no choice" as null gets today's preview, not a refusal.
+    preview = _preview(backend, source, destination_id, name=PARENT, segmentSize=5, splitMode=None)
+
+    assert preview["crates"] == [
+        {"name": f"{PARENT}.crate", "trackCount": 12, "action": "create"},
+        {"name": f"{CHILD_1}.crate", "trackCount": 5, "action": "create"},
+        {"name": f"{CHILD_2}.crate", "trackCount": 5, "action": "create"},
+        {"name": f"{CHILD_3}.crate", "trackCount": 2, "action": "create"},
+    ]
 
 
 def test_a_null_segment_size_keeps_todays_single_crate(tmp_path: Path) -> None:

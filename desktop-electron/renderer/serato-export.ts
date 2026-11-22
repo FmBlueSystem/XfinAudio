@@ -11,12 +11,29 @@ export interface SeratoDestination { destinationId: string; label: string; }
 export interface SeratoExportCrate { name: string; trackCount: number; action: 'create' | 'replace'; }
 /** One crate file a split export wrote; the parent comes first. */
 export interface SeratoExportFile { name: string; trackCount: number; }
+/** The three split choices the export screen offers; `none` is today's single crate. */
+export type SeratoSplitMode = 'none' | 'every' | 'phases';
+/** Why the core could not split a set by its own energy; the preview explains it in Spanish (S5). */
+export type SeratoPhaseSkipReason = 'too_few_tracks' | 'too_few_energies' | 'flat' | 'single_phase';
+/** The exact sentence the DJ reads for each reason the core can give, in its own vocabulary. */
+export const PHASE_REASON_MESSAGES: Record<SeratoPhaseSkipReason, string> = {
+  too_few_tracks: 'La lista es muy corta para dividirla por fases (mínimo 8 pistas); se exportará sin dividir.',
+  too_few_energies: 'Faltan datos de energía en la lista; se exportará sin dividir.',
+  flat: 'La energía de la lista es casi pareja; no hay fases claras y se exportará sin dividir.',
+  single_phase: 'La energía de la lista forma una sola fase; se exportará sin dividir.',
+};
+/** One Spanish sentence for a reason; empty when the set has phases or the code is newer than this screen. */
+export function phaseReasonLine(reason: string | undefined): string {
+  return reason && Object.hasOwn(PHASE_REASON_MESSAGES, reason) ? PHASE_REASON_MESSAGES[reason as SeratoPhaseSkipReason] : '';
+}
 export interface SeratoExportPreview {
   previewId: string; sourceRevision: string; filename: string; destinationLabel: string; trackCount: number;
   readiness: Readiness; warnings: string[]; blockers: string[]; canCommit: boolean;
   tracks: (Track & { missing?: boolean })[]; parentsToCreate: string[]; backup: { required: boolean };
   /** Present only for a split: every crate of the tree, parent first. */
   crates?: SeratoExportCrate[];
+  /** Present only when the set could not be split by phases: the parent is exported alone (S5). */
+  phaseReason?: SeratoPhaseSkipReason;
 }
 export interface SeratoExportReceipt { receiptId: string; filename: string; destinationLabel: string; trackCount: number; validated: true; backupCreated: boolean; parentsCreated: string[]; files?: SeratoExportFile[]; }
 /** `%%` is Serato's nesting separator; the user reads a nested ancestor as «XfinAudio › Metadata». */
@@ -63,7 +80,7 @@ export interface SeratoExportApi {
   /** Runs the same discovery as the picker with no native dialog, so the screen needs no folder step. */
   detectSeratoDestination(): Promise<SeratoDestination | null>;
   /** A generated set sends no name: the core proposes «<style> <day>-<month>» itself. */
-  previewSeratoExport(input: { source: SeratoExportSource; destinationId: string; name?: string; segmentSize?: number }): Promise<SeratoExportPreview>;
+  previewSeratoExport(input: { source: SeratoExportSource; destinationId: string; name?: string; segmentSize?: number; splitMode?: SeratoSplitMode }): Promise<SeratoExportPreview>;
   commitSeratoExport(input: { previewId: string }): Promise<SeratoExportReceipt | { cancelled: true }>;
   revealSeratoExport(input: { receiptId: string }): Promise<void>;
 }
@@ -97,6 +114,8 @@ export class SeratoExportController {
   name = '';
   /** The tramo size of this export only; null is today's single crate. */
   segmentSize: number | null = null;
+  /** «Dividir en tramos»: the set's own energy phases, `every` N tracks, or no split at all. */
+  splitMode: SeratoSplitMode = 'none';
   preview: SeratoExportPreview | null = null;
   receipt: SeratoExportReceipt | null = null;
   pending: 'destination' | 'detect' | 'preview' | 'commit' | 'reveal' | null = null;
@@ -130,7 +149,7 @@ export class SeratoExportController {
   setSource(source: SeratoExportSource | null, suggestedName?: string): void {
     this.source = source ? copySource(source) : null;
     // A new export starts with today's single crate; the split is never remembered.
-    this.segmentSize = null;
+    this.segmentSize = null; this.splitMode = 'none';
     if (suggestedName !== undefined) this.name = suggestedName;
     this.error = '';
     if (this.pending !== 'commit') this.status = '';
@@ -149,8 +168,19 @@ export class SeratoExportController {
   setSegmentSize(value: number | null): void {
     // A metadata worklist is not a set: the core refuses a tramo size for it, so the choice is never held.
     if (value !== null && (!validSegmentSize(value) || this.source?.kind === 'metadata')) return;
-    if (this.segmentSize === value) return;
-    this.segmentSize = value; this.error = ''; this.invalidatePreview();
+    const mode: SeratoSplitMode = value === null ? 'none' : 'every';
+    if (this.segmentSize === value && this.splitMode === mode) return;
+    this.segmentSize = value; this.splitMode = mode; this.error = ''; this.invalidatePreview();
+  }
+  /**
+   * «Por fases de energía» splits by the set's own energy (S4). The tramo size stays on the
+   * controller but is never sent, so «Cada N pistas» keeps the number the DJ typed before.
+   */
+  setSplitMode(mode: 'none' | 'phases'): void {
+    // A metadata worklist is not a set: the core refuses any split for it, so it is never held.
+    if (mode !== 'none' && this.source?.kind === 'metadata') return;
+    if (this.splitMode === mode) return;
+    this.splitMode = mode; this.error = ''; this.invalidatePreview();
   }
   private async run<T>(kind: NonNullable<SeratoExportController['pending']>, label: string, task: () => Promise<T>, apply: (value: T, current: boolean) => void, failure: (error: unknown) => void): Promise<void> {
     if (this.pending || !this.host.canAct()) return;
@@ -192,14 +222,16 @@ export class SeratoExportController {
     if (!this.canPreview || !this.source || !this.destination || !this.host.canAct()) return;
     this.invalidatePreview(); this.status = '';
     const generation = this.generation;
-    const input: { source: SeratoExportSource; destinationId: string; name?: string; segmentSize?: number } = {
+    const input: { source: SeratoExportSource; destinationId: string; name?: string; segmentSize?: number; splitMode?: SeratoSplitMode } = {
       source: copySource(this.source),
       destinationId: this.destination.destinationId,
     };
     // An empty name is not sent at all: the core owns the automatic name and its collision suffix.
     if (!this.automaticName) input.name = this.name.trim();
+    // A phase split sends only the mode: the tramo size on screen plays no part in it (S4).
+    if (this.splitMode === 'phases') input.splitMode = 'phases';
     // No split sends no size at all, so today's single crate keeps the same request.
-    if (this.segmentSize !== null) input.segmentSize = this.segmentSize;
+    else if (this.segmentSize !== null) input.segmentSize = this.segmentSize;
     await this.run('preview', 'Preparando vista previa de Serato…', () => this.api.previewSeratoExport(input), (preview, current) => {
       if (!current || generation !== this.generation) return;
       this.preview = preview; this.status = 'Vista previa preparada. Revisa las pistas y los avisos antes de exportar.'; this.host.changed();
@@ -221,7 +253,7 @@ export class SeratoExportController {
       // Publication may already have finished; navigation or a different selection must never discard its receipt.
       this.receipt = result; this.status = receiptNotice(result);
       // The split belongs to the export that just finished, never to the next one.
-      this.segmentSize = null; this.invalidatePreview();
+      this.segmentSize = null; this.splitMode = 'none'; this.invalidatePreview();
     }, (error) => {
       // Serato DJ was open and nothing was written: the same preview can be confirmed once it is closed (S13).
       if (errorCode(error) === 'serato_running') { this.status = ''; this.fail(error); return; }
