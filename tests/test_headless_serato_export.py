@@ -86,7 +86,7 @@ def _rewritten_by_serato(serato: Path) -> None:
 
 def test_a_crate_folder_rewritten_by_serato_still_previews(tmp_path: Path) -> None:
     backend, source, destination, serato = _fixture(tmp_path)
-    (serato / "Subcrates" / "Warmup.crate").write_bytes(b"an earlier export")
+    (serato / "Subcrates" / "XfinAudio%%Warmup.crate").write_bytes(b"an earlier export")
 
     _rewritten_by_serato(serato)
     preview = backend.execute(
@@ -94,7 +94,7 @@ def test_a_crate_folder_rewritten_by_serato_still_previews(tmp_path: Path) -> No
         {"source": source, "destinationId": destination["destinationId"], "name": "Warmup"},
     )
 
-    assert preview["filename"] == "Warmup.crate"
+    assert preview["filename"] == "XfinAudio%%Warmup.crate"
     assert preview["canCommit"]
     assert preview["backup"] == {"required": True}
 
@@ -179,7 +179,7 @@ def test_an_empty_name_leaves_the_generated_name_to_the_core(tmp_path: Path) -> 
     assert preview["filename"] in _short_name_candidates(backend, before, datetime.now())
 
 
-def test_a_name_the_user_typed_reaches_the_preview_unchanged(tmp_path: Path) -> None:
+def test_a_name_the_user_typed_is_nested_under_the_parent_crate(tmp_path: Path) -> None:
     backend, review, destination_id, _serato = _generated_fixture(tmp_path)
 
     preview = backend.execute(
@@ -191,4 +191,21 @@ def test_a_name_the_user_typed_reaches_the_preview_unchanged(tmp_path: Path) -> 
         },
     )
 
-    assert preview["filename"] == "Sábado 14-nov.crate"
+    # A typed name is used exactly as typed, under the one XfinAudio parent crate.
+    assert preview["filename"] == "XfinAudio%%Sábado 14-nov.crate"
+    assert preview["parentsToCreate"] == ["XfinAudio"]
+
+
+def test_a_typed_name_that_already_carries_the_parent_is_not_doubled(tmp_path: Path) -> None:
+    backend, review, destination_id, _serato = _generated_fixture(tmp_path)
+
+    preview = backend.execute(
+        "serato.preview",
+        {
+            "source": {"kind": "review", "reviewId": review["reviewId"]},
+            "destinationId": destination_id,
+            "name": "XfinAudio%%Sábado 14-nov",
+        },
+    )
+
+    assert preview["filename"] == "XfinAudio%%Sábado 14-nov.crate"

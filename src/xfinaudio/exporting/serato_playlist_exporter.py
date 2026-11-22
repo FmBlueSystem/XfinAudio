@@ -137,7 +137,7 @@ def plan_serato_playlist_export(
     relative_paths = tuple(
         _to_serato_crate_path_for_library(Path(track.path), library) for track in recommendation.ordered_tracks
     )
-    safe_crate_name = _validate_crate_name(crate_name)
+    safe_crate_name = nest_under_root_crate(crate_name)
     target_path = folder / SERATO_SUBCRATES_DIR / f"{safe_crate_name}.crate"
     return SeratoExportPlan(
         crate_name=safe_crate_name,
@@ -347,8 +347,9 @@ def plan_serato_crate_tree(
             target_folder, _generated_crate_name(recommendation, generated_at=generated_at), leaf_names
         ).stem
     else:
-        # A typed or saved name keeps today's exact-name semantics; its children follow it.
-        parent_name = _validate_crate_name(crate_name)
+        # A typed or saved name keeps its exact-name semantics under the XfinAudio parent
+        # crate; its children follow it.
+        parent_name = nest_under_root_crate(crate_name)
     parent = _crate_plan(parent_name, relative_paths, folder)
     children = tuple(
         _crate_plan(f"{parent_name}%%{leaf_name}", relative_paths[first - 1 : last], folder)
@@ -562,6 +563,18 @@ def _sanitize_name(value: str) -> str:
     return sanitized
 
 
+def nest_under_root_crate(crate_name: str) -> str:
+    """Validate a saved or typed crate name and nest it under the `XfinAudio` parent crate.
+
+    Every crate XfinAudio writes lives under that one parent crate, so a saved playlist
+    name or a name typed on the options screen becomes `XfinAudio%%<name>`. A name that
+    already carries the prefix is kept as it is: the export never doubles it.
+    """
+    safe_name = _validate_crate_name(crate_name)
+    prefix = f"{GENERATED_CRATE_ROOT}%%"
+    return safe_name if safe_name.startswith(prefix) else f"{prefix}{safe_name}"
+
+
 def parent_crate_names(crate_name: str) -> tuple[str, ...]:
     """Ancestors of a nested crate name, outermost first (`A%%B%%C` needs `A` and `A%%B`).
 
@@ -585,6 +598,7 @@ __all__ = [
     "plan_metadata_status_serato_export",
     "plan_serato_crate_tree",
     "plan_serato_playlist_export",
+    "nest_under_root_crate",
     "parent_crate_names",
     "select_serato_library_for_tracks",
     "to_serato_crate_path",

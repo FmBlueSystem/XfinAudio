@@ -51,8 +51,8 @@ def test_preview_serato_playlist_export_returns_plan_without_writing(tmp_path: P
         generated_at=datetime(2024, 3, 10, 8, 0, 0),
     )
 
-    assert result.plan.crate_name == "Warmup"
-    assert result.plan.target_path == serato_folder / "Subcrates" / "Warmup.crate"
+    assert result.plan.crate_name == "XfinAudio%%Warmup"
+    assert result.plan.target_path == serato_folder / "Subcrates" / "XfinAudio%%Warmup.crate"
     assert result.library.serato_folder == serato_folder
     assert not result.plan.target_path.exists()
 
@@ -82,6 +82,6 @@ def test_export_serato_playlist_confirms_write_through_injected_writer(tmp_path:
         writer=write_crate,
     )
 
-    assert result.plan.crate_name == "Warmup"
-    assert result.write_result.written_path == serato_folder / "Subcrates" / "Warmup.crate"
+    assert result.plan.crate_name == "XfinAudio%%Warmup"
+    assert result.write_result.written_path == serato_folder / "Subcrates" / "XfinAudio%%Warmup.crate"
     assert calls == [(result.plan, True)]

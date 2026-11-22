@@ -145,7 +145,7 @@ def test_a_orphan_child_of_the_next_number_moves_the_whole_tree_further(tmp_path
     assert plan.children[0].crate_name == f"{numbered}%%1 (1-5)"
 
 
-def test_a_typed_name_keeps_its_exact_parent_name_and_its_children_follow_it(tmp_path: Path) -> None:
+def test_a_typed_name_nests_the_whole_tree_under_the_parent_and_its_children_follow_it(tmp_path: Path) -> None:
     subcrates, library = _subcrates(tmp_path)
     existing = subcrates / "Sesión del viernes.crate"
     existing.write_bytes(b"an earlier export the DJ named")
@@ -159,15 +159,18 @@ def test_a_typed_name_keeps_its_exact_parent_name_and_its_children_follow_it(tmp
         generated_at=GENERATED_AT,
     )
 
-    # A typed or saved name keeps today's exact-name semantics: a confirmed export
-    # replaces the parent it names and keeps the backup copy instead.
-    assert plan.parent.crate_name == "Sesión del viernes"
-    assert plan.parent.target_path == existing
-    assert plan.parent.backup_path == existing.with_name(f"{existing.name}.bak")
+    # A typed or saved name lives under the XfinAudio parent crate and keeps the exact-name
+    # semantics there: a confirmed export replaces the parent it names and keeps the backup.
+    assert plan.parent.crate_name == "XfinAudio%%Sesión del viernes"
+    assert plan.parent.target_path == subcrates / "XfinAudio%%Sesión del viernes.crate"
+    assert plan.parent.backup_path == subcrates / "XfinAudio%%Sesión del viernes.crate.bak"
+    # The crate already at the Serato root is another crate: it is neither the target nor touched.
+    assert plan.parent.target_path != existing
+    assert existing.read_bytes() == b"an earlier export the DJ named"
     assert [child.crate_name for child in plan.children] == [
-        "Sesión del viernes%%1 (1-2)",
-        "Sesión del viernes%%2 (3-4)",
-        "Sesión del viernes%%3 (5-6)",
+        "XfinAudio%%Sesión del viernes%%1 (1-2)",
+        "XfinAudio%%Sesión del viernes%%2 (3-4)",
+        "XfinAudio%%Sesión del viernes%%3 (5-6)",
     ]
 
 
@@ -235,8 +238,9 @@ def test_the_plan_names_the_ancestors_of_the_parent_it_still_needs(tmp_path: Pat
     assert missing.missing_ancestor_names == ("XfinAudio",)
     assert present.ancestor_names == ("XfinAudio",)
     assert present.missing_ancestor_names == ()
-    # A flat typed name nests under nothing, exactly as today.
-    assert flat.ancestor_names == ()
+    # A typed name nests under the XfinAudio parent crate like any other export, and this
+    # test's folder already holds that parent.
+    assert flat.ancestor_names == ("XfinAudio",)
     assert flat.missing_ancestor_names == ()
 
 

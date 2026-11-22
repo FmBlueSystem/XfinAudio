@@ -25,6 +25,7 @@ from xfinaudio.exporting.serato_crate import (
 from xfinaudio.exporting.serato_playlist_exporter import (
     SeratoCrateTreePlan,
     SeratoLibrary,
+    nest_under_root_crate,
     parent_crate_names,
     plan_copilot_variant_serato_playlist_export,
     plan_generated_serato_playlist_export,
@@ -308,10 +309,13 @@ class SeratoExporter:
                                 source.metadata_records, source.selector["status"], library
                             )
                         if name is not None:
-                            target_path = destination.folder / f"{name}.crate"
+                            # A typed name is a set's name, not a worklist leaf: it lives
+                            # under the XfinAudio parent crate like every other typed name.
+                            typed_name = nest_under_root_crate(name)
+                            target_path = destination.folder / f"{typed_name}.crate"
                             plan = plan.model_copy(
                                 update={
-                                    "crate_name": name,
+                                    "crate_name": typed_name,
                                     "target_path": target_path,
                                     "backup_path": target_path.with_name(f"{target_path.name}.bak"),
                                 }
@@ -350,10 +354,17 @@ class SeratoExporter:
         if load_source(self.backend, source.selector).revision != source.revision:
             raise BackendError("stale_source", "The source changed; preview the export again")
         preview_id = str(uuid4())
+        if plan is not None:
+            filename = plan.target_path.name
+        elif name is not None:
+            # A blocked preview still names the crate that export would write.
+            filename = f"{nest_under_root_crate(name)}.crate"
+        else:
+            filename = "XfinAudio.crate"
         summary: dict[str, Any] = {
             "previewId": preview_id,
             "sourceRevision": source.revision,
-            "filename": plan.target_path.name if plan else f"{name or 'XfinAudio'}.crate",
+            "filename": filename,
             "destinationLabel": destination.label,
             "trackCount": len(source.paths),
             "readiness": "blocked" if blockers else source.readiness,

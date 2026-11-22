@@ -241,13 +241,92 @@ def test_a_parent_that_would_leave_subcrates_is_refused(tmp_path: Path) -> None:
     assert sorted(path.name for path in serato.iterdir()) == ["Subcrates"]
 
 
-def test_an_export_without_nested_names_is_unchanged(tmp_path: Path) -> None:
+def test_a_name_already_nested_is_not_doubled_and_reuses_the_parent_it_created(tmp_path: Path) -> None:
     backend, source, destination_id, subcrates = _metadata_fixture(tmp_path)
-    preview = _preview(backend, source, destination_id, name="Reparación de BPM")
+    preview = _preview(backend, source, destination_id, name="XfinAudio%%Reparación de BPM")
 
     receipt = _commit(backend, preview)
 
-    # No parent crate is planned, created or reported for a flat crate name.
-    assert preview["parentsToCreate"] == []
+    # A name that already carries the parent prefix is kept exactly as it is.
+    assert preview["filename"] == "XfinAudio%%Reparación de BPM.crate"
+    assert receipt["parentsCreated"] == ["XfinAudio"]
+    assert _crate_names(subcrates) == ["XfinAudio%%Reparación de BPM.crate", "XfinAudio.crate"]
+
+    # The second export of the same name finds the parent already there.
+    again = _preview(backend, source, destination_id, name="XfinAudio%%Reparación de BPM")
+
+    assert again["filename"] == "XfinAudio%%Reparación de BPM.crate"
+    assert again["parentsToCreate"] == []
+
+
+def _saved_playlist_fixture(tmp_path: Path) -> tuple[HeadlessBackend, dict[str, object], str, Path]:
+    """A scanned library, one saved playlist named «22 nov» and a registered destination."""
+    backend, review, destination_id, subcrates = _generated_fixture(tmp_path)
+    saved = backend.execute("playlist.save", {"reviewId": review["reviewId"], "name": "22 nov"})
+    return backend, {"kind": "saved", "playlistId": saved["id"]}, destination_id, subcrates
+
+
+def test_a_saved_playlist_export_lives_under_the_xfinaudio_parent_crate(tmp_path: Path) -> None:
+    backend, source, destination_id, subcrates = _saved_playlist_fixture(tmp_path)
+
+    preview = _preview(backend, source, destination_id, name="22 nov")
+
+    # The saved name is used as it is, under the one XfinAudio parent crate.
+    assert preview["filename"] == "XfinAudio%%22 nov.crate"
+    assert preview["parentsToCreate"] == ["XfinAudio"]
+    assert _crate_names(subcrates) == []
+
+    receipt = _commit(backend, preview)
+
+    assert receipt["filename"] == "XfinAudio%%22 nov.crate"
+    assert receipt["parentsCreated"] == ["XfinAudio"]
+    assert receipt["validated"] is True
+    assert _crate_names(subcrates) == ["XfinAudio%%22 nov.crate", "XfinAudio.crate"]
+    parent = parse_serato_crate_bytes((subcrates / "XfinAudio.crate").read_bytes())
+    assert parent.paths == ()
+    child = parse_serato_crate_bytes((subcrates / "XfinAudio%%22 nov.crate").read_bytes())
+    assert len(child.paths) == preview["trackCount"]
+    resolved = backend.execute("serato.receipt.resolve", {"receiptId": receipt["receiptId"]})
+    assert resolved["path"] == str(subcrates / "XfinAudio%%22 nov.crate")
+
+
+def test_a_crate_the_dj_keeps_at_the_serato_root_is_never_touched(tmp_path: Path) -> None:
+    backend, source, destination_id, subcrates = _saved_playlist_fixture(tmp_path)
+    root_crate = subcrates / "22 nov.crate"
+    root_crate.write_bytes(b"a crate the DJ made at the Serato root")
+    existing_parent = subcrates / "XfinAudio.crate"
+    existing_parent.write_bytes(b"an earlier parent crate")
+
+    receipt = _commit(backend, _preview(backend, source, destination_id, name="22 nov"))
+
+    # The export writes its own nested crate and leaves the root crate and the parent alone.
+    assert receipt["filename"] == "XfinAudio%%22 nov.crate"
     assert receipt["parentsCreated"] == []
-    assert _crate_names(subcrates) == ["Reparación de BPM.crate"]
+    assert root_crate.read_bytes() == b"a crate the DJ made at the Serato root"
+    assert existing_parent.read_bytes() == b"an earlier parent crate"
+    assert not root_crate.with_name(f"{root_crate.name}.bak").exists()
+    assert _crate_names(subcrates) == ["22 nov.crate", "XfinAudio%%22 nov.crate", "XfinAudio.crate"]
+
+
+def test_re_exporting_a_saved_playlist_replaces_its_crate_and_keeps_a_backup(tmp_path: Path) -> None:
+    backend, source, destination_id, subcrates = _saved_playlist_fixture(tmp_path)
+    first = _commit(backend, _preview(backend, source, destination_id, name="22 nov"))
+    assert first["backupCreated"] is False
+    before = (subcrates / "XfinAudio%%22 nov.crate").read_bytes()
+
+    second_preview = _preview(backend, source, destination_id, name="22 nov")
+
+    assert second_preview["filename"] == "XfinAudio%%22 nov.crate"
+    assert second_preview["backup"] == {"required": True}
+
+    second = _commit(backend, second_preview)
+
+    # The exact name is replaced, with a backup copy of the crate it replaced.
+    assert second["backupCreated"] is True
+    assert second["parentsCreated"] == []
+    assert (subcrates / "XfinAudio%%22 nov.crate.bak").read_bytes() == before
+    assert _crate_names(subcrates) == [
+        "XfinAudio%%22 nov.crate",
+        "XfinAudio%%22 nov.crate.bak",
+        "XfinAudio.crate",
+    ]
