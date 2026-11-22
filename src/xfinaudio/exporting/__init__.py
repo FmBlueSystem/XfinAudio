@@ -29,6 +29,11 @@ if TYPE_CHECKING:
         plan_serato_crate_export,
         write_serato_crate,
     )
+    from xfinaudio.exporting.serato_crate_phases import (
+        EnergyPhase,
+        EnergyPhasePlan,
+        plan_energy_phases,
+    )
     from xfinaudio.exporting.serato_playlist_exporter import (
         SeratoCrateTreePlan,
         SeratoLibrary,
@@ -42,9 +47,12 @@ if TYPE_CHECKING:
         plan_serato_playlist_export,
         select_serato_library_for_tracks,
         to_serato_crate_path,
+        validate_split_mode,
     )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "EnergyPhase": ("xfinaudio.exporting.serato_crate_phases", "EnergyPhase"),
+    "EnergyPhasePlan": ("xfinaudio.exporting.serato_crate_phases", "EnergyPhasePlan"),
     "ExporterRegistry": ("xfinaudio.exporting.playlist_exporters", "ExporterRegistry"),
     "PlaylistExplanation": ("xfinaudio.exporting.explainability", "PlaylistExplanation"),
     "PlaylistExporter": ("xfinaudio.exporting.playlist_exporters", "PlaylistExporter"),
@@ -81,6 +89,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "plan_serato_crate_export": ("xfinaudio.exporting.serato_crate", "plan_serato_crate_export"),
     "plan_serato_crate_tree": ("xfinaudio.exporting.serato_playlist_exporter", "plan_serato_crate_tree"),
     "plan_serato_playlist_export": ("xfinaudio.exporting.serato_playlist_exporter", "plan_serato_playlist_export"),
+    "plan_energy_phases": ("xfinaudio.exporting.serato_crate_phases", "plan_energy_phases"),
     "select_serato_library_for_tracks": (
         "xfinaudio.exporting.serato_playlist_exporter",
         "select_serato_library_for_tracks",
@@ -90,9 +99,12 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "write_playlist_json": ("xfinaudio.exporting.playlist_exporters", "write_playlist_json"),
     "write_playlist_m3u": ("xfinaudio.exporting.playlist_exporters", "write_playlist_m3u"),
     "write_serato_crate": ("xfinaudio.exporting.serato_crate", "write_serato_crate"),
+    "validate_split_mode": ("xfinaudio.exporting.serato_playlist_exporter", "validate_split_mode"),
 }
 
 __all__ = [
+    "EnergyPhase",
+    "EnergyPhasePlan",
     "ExporterRegistry",
     "PlaylistExplanation",
     "PlaylistExporter",
@@ -111,6 +123,7 @@ __all__ = [
     "export_playlist_m3u",
     "export_quality_report_json",
     "plan_copilot_variant_serato_playlist_export",
+    "plan_energy_phases",
     "plan_generated_serato_playlist_export",
     "plan_metadata_missing_field_serato_export",
     "plan_metadata_status_serato_export",
@@ -119,6 +132,7 @@ __all__ = [
     "plan_serato_playlist_export",
     "select_serato_library_for_tracks",
     "to_serato_crate_path",
+    "validate_split_mode",
     "write_playlist_csv",
     "write_playlist_json",
     "write_playlist_m3u",
