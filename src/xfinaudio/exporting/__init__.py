@@ -30,6 +30,7 @@ if TYPE_CHECKING:
         write_serato_crate,
     )
     from xfinaudio.exporting.serato_playlist_exporter import (
+        SeratoCrateTreePlan,
         SeratoLibrary,
         SeratoLibraryNotFoundError,
         discover_serato_libraries,
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
         plan_generated_serato_playlist_export,
         plan_metadata_missing_field_serato_export,
         plan_metadata_status_serato_export,
+        plan_serato_crate_tree,
         plan_serato_playlist_export,
         select_serato_library_for_tracks,
         to_serato_crate_path,
@@ -46,6 +48,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ExporterRegistry": ("xfinaudio.exporting.playlist_exporters", "ExporterRegistry"),
     "PlaylistExplanation": ("xfinaudio.exporting.explainability", "PlaylistExplanation"),
     "PlaylistExporter": ("xfinaudio.exporting.playlist_exporters", "PlaylistExporter"),
+    "SeratoCrateTreePlan": ("xfinaudio.exporting.serato_playlist_exporter", "SeratoCrateTreePlan"),
     "SeratoExportPlan": ("xfinaudio.exporting.serato_crate", "SeratoExportPlan"),
     "SeratoLibrary": ("xfinaudio.exporting.serato_playlist_exporter", "SeratoLibrary"),
     "SeratoLibraryNotFoundError": ("xfinaudio.exporting.serato_playlist_exporter", "SeratoLibraryNotFoundError"),
@@ -76,6 +79,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "plan_metadata_status_serato_export",
     ),
     "plan_serato_crate_export": ("xfinaudio.exporting.serato_crate", "plan_serato_crate_export"),
+    "plan_serato_crate_tree": ("xfinaudio.exporting.serato_playlist_exporter", "plan_serato_crate_tree"),
     "plan_serato_playlist_export": ("xfinaudio.exporting.serato_playlist_exporter", "plan_serato_playlist_export"),
     "select_serato_library_for_tracks": (
         "xfinaudio.exporting.serato_playlist_exporter",
@@ -92,6 +96,7 @@ __all__ = [
     "ExporterRegistry",
     "PlaylistExplanation",
     "PlaylistExporter",
+    "SeratoCrateTreePlan",
     "SeratoExportPlan",
     "SeratoLibrary",
     "SeratoLibraryNotFoundError",
@@ -110,6 +115,7 @@ __all__ = [
     "plan_metadata_missing_field_serato_export",
     "plan_metadata_status_serato_export",
     "plan_serato_crate_export",
+    "plan_serato_crate_tree",
     "plan_serato_playlist_export",
     "select_serato_library_for_tracks",
     "to_serato_crate_path",
