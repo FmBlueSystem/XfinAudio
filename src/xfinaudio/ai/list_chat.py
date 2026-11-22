@@ -21,7 +21,7 @@ import json
 import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from xfinaudio.ai.nan_client import ENABLED_ENV, NanConfigError, Transport, chat, is_ai_enabled
@@ -36,6 +36,11 @@ from xfinaudio.recommendation.scoring import TransitionScore
 MAX_CHAT_TRACKS = 100
 #: The reply is bounded so one turn always fits the local conversation display.
 MAX_REPLY_CHARS = 4000
+#: The most provider calls one chat turn spends: its answer, one repair, the search
+#: round's answer and that answer's own repair, each with its own bounded wait (S2).
+MAX_CHAT_CALLS = 4
+#: The low temperature the list chat asks for: the answer is structured, not creative (S9a).
+JSON_ANSWER_TEMPERATURE = 0.2
 #: Every turn is a reasoning call over the whole list, exactly like the review commentary.
 DEFAULT_CHAT_TIMEOUT_SECONDS = 120.0
 #: The most changes one answer may propose; the rest are dropped and counted.
@@ -251,6 +256,7 @@ class ChatAnswer:
     searches: tuple[SearchQuery, ...] = ()
     # Diagnostics for the opt-in log: the searches that were ignored, and why.
     ignored_searches: tuple[DroppedSearch, ...] = field(default=(), compare=False, repr=False)
+    repairs: tuple[str, ...] = field(default=(), compare=False, repr=False)
 
 
 def parse_answer(raw: str, track_count: int, protected: Sequence[int] = ()) -> ChatAnswer:
@@ -575,6 +581,38 @@ _REFERENCE_RULE = "referencias válidas en esta conversación, de la más recien
 #: What the applied proposals of this conversation mean, stated beside the applied changes.
 _CONFIRMED_RULE = "propuestas tuyas que ya están en la lista: no las propongas otra vez ni digas que no las ves"
 
+@dataclass
+class CallBudget:
+    """How many provider calls one chat turn may still make; never unbounded."""
+
+    remaining: int = MAX_CHAT_CALLS
+
+    def take(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+
+#: The short answers the instructions show; each one is a whole provider answer.
+INSTRUCTION_EXAMPLES: tuple[str, ...] = (
+    '{"reply": "Quito la pista 2: rompe la curva de energía.", "actions": [{"type": "replace", '
+    '"position": 2, "reason": "Rompe la curva de energía"}]}',
+    '{"reply": "Muevo la pista 3 al primer lugar para abrir más suave.", "actions": [{"type": "move", '
+    '"position": 3, "to": 1, "reason": "Abre más suave"}]}',
+    '{"reply": "La lista no necesita cambios ahora.", "actions": []}',
+)
+#: The one extra message a turn sends when the answer carried no JSON at all (S9b).
+REPAIR_MESSAGE = (
+    "Tu respuesta anterior no era el objeto JSON pedido y no se pudo leer. Responde ahora solo con un "
+    'objeto JSON de esta forma, sin nada fuera de él: {"reply": string, "actions": [cambio, ...], '
+    '"searches": [búsqueda, ...]}.'
+)
+#: What the DJ reads when even the second answer carries no readable JSON (S9b).
+UNFORMATTED_NOTICE = (
+    "No pude leer la respuesta del asistente en el formato pedido, así que no se propone ningún cambio."
+)
+
 _INSTRUCTIONS = (
     "Eres el asistente de lista de XfinAudio. Lees la lista que el DJ está armando y charlas "
     "con él para mejorarla.\n"
@@ -650,6 +688,9 @@ _INSTRUCTIONS = (
     "\n"
     "23. Un cambio period solo aplica si reemplaza al menos una pista que hoy queda fuera del "
     "período: si todas las pistas de la lista ya están dentro del rango, no propongas un period."
+    "\n"
+    "24. Ejemplos de respuestas válidas; cada uno es el objeto completo de una respuesta:"
+    "\n" + "\n".join(INSTRUCTION_EXAMPLES)
 )
 
 
@@ -781,6 +822,7 @@ def chat_with_list(
     model: str | None = None,
     timeout: float = DEFAULT_CHAT_TIMEOUT_SECONDS,
     transport: Transport | None = None,
+    budget: CallBudget | None = None,
 ) -> ChatAnswer:
     """Send one turn: the system instructions with the list, the conversation, the question.
 
@@ -790,9 +832,17 @@ def chat_with_list(
     searches it asked for. The reply keeps its 1 to 4000 character rule: an empty or
     oversized one is a ``ValueError`` so the caller reports its usual invalid-response
     failure, and nothing is applied.
+
+    The request asks for one JSON object at a low temperature (S9a). When the answer
+    carries no JSON at all — prose only, or an object cut short — the turn asks the
+    model once more, with one extra message stating the required shape, and reads that
+    answer instead (S9b). A second unreadable answer keeps the prose as the reply and
+    adds a short notice, so the DJ is never left with a silent empty turn. Every
+    provider call a turn spends comes out of ``budget``, so the repair is counted.
     """
     if not is_ai_enabled():
         raise NanConfigError(f"AI is disabled: set {ENABLED_ENV}=1 in the environment before starting a conversation.")
+    calls = budget if budget is not None else CallBudget()
     counted = f"N = {track_count} pistas en la lista de abajo."
     system = f"{_INSTRUCTIONS}\n\n{counted}\n\n{facts}"
     if state:
@@ -802,11 +852,60 @@ def chat_with_list(
     messages.append({"role": "user", "content": request})
     if search_results:
         messages.append({"role": "user", "content": search_message(search_results)})
-    reply = chat(request, messages=messages, model=model, timeout=timeout, transport=transport)
+    if not calls.take():
+        raise ValueError("The assistant turn already used every provider call it is allowed.")
+    reply = _answer_text(messages, model, timeout, transport)
     answer = parse_answer(reply, track_count, protected)
+    repairs: tuple[str, ...] = ()
+    if _needs_repair(reply):
+        # One repair per turn, and only out of the turn's own call budget: a spent budget
+        # still tells the DJ the answer could not be read instead of staying silent.
+        if calls.take():
+            repairs = (reply,)
+            messages.append({"role": "user", "content": REPAIR_MESSAGE})
+            reply = _answer_text(messages, model, timeout, transport)
+            answer = parse_answer(reply, track_count, protected)
+        if _json_object(reply) is None and answer.reply.strip():
+            answer = replace(answer, reply=_with_notice(answer.reply))
+    answer = replace(answer, repairs=repairs)
+    answer = replace(answer, repairs=repairs)
     if not answer.reply.strip() or len(answer.reply) > MAX_REPLY_CHARS:
         raise ValueError("The assistant reply was empty or exceeded the conversation limit. Please retry.")
     return answer
+
+
+def _answer_text(
+    messages: Sequence[dict[str, str]], model: str | None, timeout: float, transport: Transport | None
+) -> str:
+    """One provider call: the whole conversation, one JSON object asked for at a low temperature."""
+    return chat(
+        messages[-1]["content"],
+        messages=messages,
+        model=model,
+        timeout=timeout,
+        transport=transport,
+        json_object=True,
+        temperature=JSON_ANSWER_TEMPERATURE,
+    )
+
+
+def _needs_repair(raw: str) -> bool:
+    """Whether an answer carried no JSON at all: prose, or an object cut short.
+
+    A blank answer is a broken response rather than prose, so it keeps the turn's own
+    invalid-response failure instead of costing a second provider call.
+    """
+    return bool(raw.strip()) and _json_object(raw) is None
+
+
+def _with_notice(reply: str) -> str:
+    """The prose the DJ reads, followed by the notice.
+
+    The reply keeps its own 1 to 4000 character rule: prose long enough that the notice
+    no longer fits still ends the turn with the invalid-response failure it always had,
+    so the DJ never reads a silently shortened answer.
+    """
+    return f"{reply.strip()}\n\n{UNFORMATTED_NOTICE}"
 
 
 def search_message(results: Sequence[Mapping[str, Any]]) -> str:
@@ -921,7 +1020,10 @@ def _positions(values: Sequence[int] | None) -> str:
 __all__ = [
     "ACTION_TYPES",
     "DEFAULT_CHAT_TIMEOUT_SECONDS",
+    "INSTRUCTION_EXAMPLES",
+    "JSON_ANSWER_TEMPERATURE",
     "MAX_ACTIONS",
+    "MAX_CHAT_CALLS",
     "MAX_CHAT_TRACKS",
     "MAX_FOUND_TRACKS",
     "MAX_REASON_CHARS",
@@ -929,7 +1031,10 @@ __all__ = [
     "MAX_SEARCHES",
     "MAX_SEARCH_TEXT_CHARS",
     "MAX_TARGET_TRACK_COUNT",
+    "REPAIR_MESSAGE",
+    "UNFORMATTED_NOTICE",
     "VARIANTS",
+    "CallBudget",
     "ChatAnswer",
     "DroppedAction",
     "DroppedSearch",

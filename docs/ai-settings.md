@@ -122,7 +122,7 @@ demás acciones). Si se agota, el turno termina con el aviso
 «El proveedor no respondió a tiempo…» y no se aplica nada; el servicio local
 sigue funcionando y se puede reintentar cuando quieras. Un turno nunca espera
 más que ese límite por cada llamada que hace, incluida la segunda consulta de
-una búsqueda.
+una búsqueda, y nunca hace más de cuatro llamadas.
 
 El chat también dice, en español, lo que antes se perdía en silencio: cuando la
 aplicación automática no pudo aplicar ningún cambio de la respuesta, cuando el
@@ -140,6 +140,23 @@ de alternativas de la pantalla y va al final, porque reemplaza la lista entera. 
 turno siguiente recibe, además de los cambios aplicados desde la respuesta
 anterior, las propuestas de esa conversación que ya están en la lista, para no
 volver a proponerlas ni decir que no las ve.
+
+## Asistente de lista: respuestas legibles y diagnóstico
+
+Cada turno del Asistente de lista pide al proveedor una respuesta en JSON con una
+temperatura baja (0,2), y las instrucciones incluyen tres respuestas de ejemplo
+con la forma exacta que se espera. Si la respuesta llega en prosa o cortada, el
+turno pide una sola vez más que se responda en el formato pedido y lee esa
+respuesta; si tampoco se puede leer, el chat muestra el texto recibido y un aviso
+corto, y no propone ningún cambio. Una petición que el proveedor rechace por el
+campo de formato JSON se repite una sola vez sin ese campo.
+
+Con `XFINAUDIO_CHAT_LOG=1` el registro de diagnóstico del chat
+(`logs/list-chat.log`, dentro del directorio de datos y legible solo por tu
+usuario) guarda además los turnos fallidos, cancelados y repetidos, y cada cambio
+descartado con su motivo, para poder medir la calidad del asistente. El registro
+nunca incluye la credencial, rutas de archivo ni identidades de pistas, y no se
+escribe nada si la variable no está activada.
 
 Estas instrucciones describen el comportamiento implementado. La verificación
 actual usa credenciales sintéticas y transportes inyectados; no certifica una

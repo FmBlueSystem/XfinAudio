@@ -141,6 +141,8 @@ def _parsed_chat_answer(answer: dict[str, Any]) -> bool:
         return False
     if not _parsed_ignored_searches(answer["ignoredSearches"]):
         return False
+    if not _parsed_repairs(answer["repairs"]):
+        return False
     if len(actions) > MAX_ACTIONS:
         return False
     for item in actions:
@@ -223,6 +225,13 @@ def _parsed_ignored_searches(searches: Any) -> bool:
     return True
 
 
+def _parsed_repairs(repairs: Any) -> bool:
+    """The answers the turn asked again for: at most one per request, each the provider text."""
+    if not isinstance(repairs, list) or len(repairs) > 2:
+        return False
+    return all(isinstance(item, str) for item in repairs)
+
+
 def _identity(value: Any) -> str:
     try:
         if not isinstance(value, str) or str(UUID(value)) != value:
@@ -238,7 +247,15 @@ def _published(answer: dict[str, Any]) -> dict[str, Any]:
 
 
 #: The fields one chat turn carries for the opt-in log only; never published to the DJ.
-_DIAGNOSTIC_FIELDS = ("actions", "droppedActions", "droppedItems", "rawText", "searches", "ignoredSearches")
+_DIAGNOSTIC_FIELDS = (
+    "actions",
+    "droppedActions",
+    "droppedItems",
+    "rawText",
+    "searches",
+    "ignoredSearches",
+    "repairs",
+)
 
 
 class OptionalAI:
@@ -514,7 +531,15 @@ class OptionalAI:
             answer = execute_context(context, transport, backend)
             expected = {"surface", "kind", "title", "text", "proposal", "canApply"}
             if context.surface == "chat":
-                expected |= {"actions", "droppedActions", "droppedItems", "rawText", "searches", "ignoredSearches"}
+                expected |= {
+                    "actions",
+                    "droppedActions",
+                    "droppedItems",
+                    "rawText",
+                    "searches",
+                    "ignoredSearches",
+                    "repairs",
+                }
             if (
                 not isinstance(answer, dict)
                 or set(answer) != expected
@@ -540,13 +565,18 @@ class OptionalAI:
             raise BackendError("confirmation_required", "Confirm this disclosed request before sending")
         pending = self._pending(params["previewId"])
         self.preview = None
-        cancelled = {"cancelled": True, "result": None}
+
+        def cancelled(phase: str) -> dict[str, Any]:
+            """S10: a cancelled turn is measurable too, so the log names where it ended."""
+            self._log("turn_cancelled", message=pending.context.request, surface=pending.context.surface, phase=phase)
+            return {"cancelled": True, "result": None}
+
         if token.is_cancelled:
-            return cancelled
+            return cancelled("before_send")
         self._fresh(pending.reference)
         emit({"phase": "ai", "processedCount": 0, "totalCount": 1})
         if token.is_cancelled:
-            return cancelled
+            return cancelled("before_send")
         # S1: cancelling a turn closes the call in flight, so the turn ends as cancelled and
         # nothing of the late answer that arrives after it is ever published.
         drains: list[Callable[[], None]] = []
@@ -572,19 +602,19 @@ class OptionalAI:
             )
         except BackendError as error:
             if token.is_cancelled:
-                return cancelled
+                return cancelled("during_send")
             self._log("turn_failed", message=pending.context.request, errorCode=error.code)
             raise
         finally:
             if unsubscribe is not None:
                 unsubscribe()
         if token.is_cancelled:
-            return cancelled
+            return cancelled("after_send")
         if pending.epoch != self._epoch:
             self._stale()
         context = self._fresh(pending.reference)
         if token.is_cancelled:
-            return cancelled
+            return cancelled("before_publish")
         # A successful chat turn is the only writer of the in-memory conversation and of
         # the changes the assistant proposed; a failed, refused or cancelled turn never
         # reaches this point.
@@ -617,6 +647,8 @@ class OptionalAI:
                 trackCount=context.data["trackCount"],
                 searches=answer["searches"],
                 ignoredSearches=answer["ignoredSearches"],
+                # S10: the answers a turn had to ask again for are measurable as well.
+                repairs=answer["repairs"],
             )
         result_id = str(uuid4())
         self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(published))
