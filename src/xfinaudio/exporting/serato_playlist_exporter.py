@@ -332,7 +332,7 @@ def plan_serato_crate_tree(
             missing_ancestor_names=_missing_ancestor_names(parent.serato_root, parent.crate_name),
         )
 
-    size = _validate_segment_size(segment_size)
+    size = validate_segment_size(segment_size)
     library, folder = _serato_library_and_folder(serato_folder)
     relative_paths = tuple(
         _to_serato_crate_path_for_library(Path(track.path), library) for track in recommendation.ordered_tracks
@@ -377,7 +377,8 @@ def _serato_library_and_folder(serato_folder: SeratoLibrary | str | Path) -> tup
     return library, folder
 
 
-def _validate_segment_size(segment_size: object) -> int:
+def validate_segment_size(segment_size: object) -> int:
+    """Refuse a split size the options screen cannot offer: an integer of 2 to 50 tracks."""
     if isinstance(segment_size, bool) or not isinstance(segment_size, int):
         raise ValueError(_SEGMENT_SIZE_ERROR)
     if not _MIN_SEGMENT_SIZE <= segment_size <= _MAX_SEGMENT_SIZE:
@@ -587,4 +588,5 @@ __all__ = [
     "parent_crate_names",
     "select_serato_library_for_tracks",
     "to_serato_crate_path",
+    "validate_segment_size",
 ]
