@@ -581,6 +581,7 @@ _REFERENCE_RULE = "referencias válidas en esta conversación, de la más recien
 #: What the applied proposals of this conversation mean, stated beside the applied changes.
 _CONFIRMED_RULE = "propuestas tuyas que ya están en la lista: no las propongas otra vez ni digas que no las ves"
 
+
 @dataclass
 class CallBudget:
     """How many provider calls one chat turn may still make; never unbounded."""
