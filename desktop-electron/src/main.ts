@@ -113,8 +113,11 @@ const optionalAi=new OptionalAiHost({
     if(result.response!==1)return false;
     if(!result.checkboxChecked)return true;
     // S4: «No volver a preguntar» is stored after the approved turn runs, so the save can never
-    // revoke the turn the DJ just approved; S3 says in the chat when it could not be stored.
-    return {confirmed:true,storePreference:async()=>{const status=await run('ai.status',{});await run('ai.settings.update',{revision:status.revision,enabled:true,autoAuthorize:true});}};
+    // revoke the turn the DJ just approved. It turns that switch on and nothing else: the enabled
+    // state and revision come from the settings the host read right before, so a deferred save
+    // never re-enables an AI the DJ turned off, and the chosen model is kept. S3 says in the chat
+    // when it could not be stored.
+    return {confirmed:true,storePreference:async status=>{await run('ai.settings.update',{revision:status.revision,enabled:status.enabled,autoAuthorize:true});}};
   },
   autoAuthorize:async()=>{try{const status=await run('ai.status',{});return status.autoAuthorize===true;}catch{optionalAi.note('auto_authorize_unavailable');return false;}},
   cancel:()=>current?.method==='ai.run'?core.request('cancel',{jobId:current.id}):Promise.resolve({cancelled:false}),

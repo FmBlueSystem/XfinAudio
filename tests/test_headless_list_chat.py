@@ -303,6 +303,23 @@ def test_the_approval_switch_alone_keeps_the_conversation_and_its_consent(chat_s
     assert len(transport.bodies) == 1
 
 
+def test_taking_the_approval_switch_off_revokes_the_pending_consent(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    review = current_review_id(backend)
+    turn(facade, review)
+    pending = prepare(facade, review, request="¿Y ahora?")
+    status = call(facade, "ai.status")
+    call(facade, "ai.settings.update", {"revision": status["revision"], "enabled": True, "autoAuthorize": False})
+    # Only granting the approval switch is exempt: taking it away is a consent change, so the
+    # prepared turn is stale and the conversation asks for consent again.
+    with pytest.raises(BackendError) as failure:
+        call(facade, "ai.confirmation", {"previewId": pending["previewId"]})
+    assert failure.value.code == "stale_ai"
+    assert history(facade) == {"conversation": [], "actions": []}
+    assert prepare(facade, review, request="¿Y la tercera?")["firstTurn"] is True
+    assert len(transport.bodies) == 1
+
+
 def test_a_change_of_the_ai_configuration_clears_the_conversation_and_asks_consent_again(chat_setup):
     facade, transport, backend, _, _ = chat_setup
     review = current_review_id(backend)

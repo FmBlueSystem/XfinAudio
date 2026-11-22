@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {mkdtemp,realpath,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';
 const require=createRequire(import.meta.url),{OptionalAiHost}=require('../.out/main/optional-ai-host.js'),{validateRequest}=require('../.out/main/security.js'),{PythonBridge}=require('../.out/main/bridge.js'),{ListChatController,listChatActionText,listChatPeriodKept,listChatPeriodLine,listChatPeriodNotice}=require('../.out/renderer/list-chat.js'),{SHORT_LIST_NO_CANDIDATES}=require('../.out/renderer/short-list-notice.js');
 const id='11111111-1111-4111-8111-111111111111',rev='a'.repeat(64),recipient='https://api.nan.builders/v1/chat/completions',deferred=()=>{let resolve;return {promise:new Promise(r=>resolve=r),resolve:v=>resolve(v)}},python=process.env.XFIN_PYTHON,coreRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
-function fixture(){const calls=[];let choose=async()=>null,confirm=async()=>true,closing=false,endpoint=recipient,auto=false,firstTurn=true,prepared='editor',runAnswer=async()=>({cancelled:false,result:{resultId:id}});const host=new OptionalAiHost({request:async(method,params)=>{calls.push([method,params]);if(method==='ai.prepare'){prepared=String(params.surface);return {previewId:id,surface:prepared,firstTurn,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};}if(method==='ai.confirmation')return {previewId:id,surface:prepared,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};if(method==='ai.run')return runAnswer();return {revision:rev};},choose:()=>choose(),confirm:summary=>{calls.push(['dialog',summary]);return confirm();},cancel:async()=>{calls.push(['cancel']);return {cancelled:true};},autoAuthorize:async()=>auto,isClosing:()=>closing});return {host,calls,setChoose:v=>choose=v,setConfirm:v=>confirm=v,setAuto:v=>auto=v,setFirstTurn:v=>firstTurn=v,setRun:v=>{runAnswer=v;},close:()=>closing=true,badEndpoint:()=>endpoint='https://elsewhere.example'};}
+function fixture(){const calls=[];let choose=async()=>null,confirm=async()=>true,closing=false,endpoint=recipient,auto=false,firstTurn=true,prepared='editor',ai={revision:rev,enabled:true,autoAuthorize:false},runAnswer=async()=>({cancelled:false,result:{resultId:id}});const host=new OptionalAiHost({request:async(method,params)=>{calls.push([method,params]);if(method==='ai.prepare'){prepared=String(params.surface);return {previewId:id,surface:prepared,firstTurn,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};}if(method==='ai.confirmation')return {previewId:id,surface:prepared,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};if(method==='ai.run')return runAnswer();if(method==='ai.status'){if(ai===null)throw new Error('settings unavailable');return {...ai};}return {revision:rev};},choose:()=>choose(),confirm:summary=>{calls.push(['dialog',summary]);return confirm();},cancel:async()=>{calls.push(['cancel']);return {cancelled:true};},autoAuthorize:async()=>auto,isClosing:()=>closing});return {host,calls,setChoose:v=>choose=v,setConfirm:v=>confirm=v,setAuto:v=>auto=v,setFirstTurn:v=>firstTurn=v,setRun:v=>{runAnswer=v;},setAi:patch=>{ai=patch===null?null:{...ai,...patch};},ai:()=>ai===null?null:{...ai},close:()=>closing=true,badEndpoint:()=>endpoint='https://elsewhere.example'};}
 test('prepare and declined native AI confirmation cannot send a provider request',async()=>{const f=fixture();await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});f.setConfirm(async()=>false);assert.deepEqual(await f.host.ask(id),{cancelled:true,result:null});assert.ok(!f.calls.some(([m])=>m==='ai.run'));});
 test('only an owned preview and fixed disclosed recipient can receive confirmed authority',async()=>{const f=fixture();await assert.rejects(f.host.ask(id));await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});await f.host.ask(id);assert.deepEqual(f.calls.find(([m])=>m==='ai.run'),['ai.run',{previewId:id,confirmed:true}]);const g=fixture();await g.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});g.badEndpoint();await assert.rejects(g.host.ask(id));assert.ok(!g.calls.some(([m])=>m==='ai.run'));});
 test('cancel or close while confirmation waits cannot turn a later yes into a request',async()=>{for(const close of [false,true]){const f=fixture(),wait=deferred();f.setConfirm(()=>wait.promise);await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});const asking=f.host.ask(id);await new Promise(r=>setImmediate(r));if(close)f.close();else assert.deepEqual(await f.host.cancel(),{cancelled:true});wait.resolve(true);if(close)await assert.rejects(asking);else assert.deepEqual(await asking,{cancelled:true,result:null});assert.ok(!f.calls.some(([m])=>m==='ai.run'));}});
@@ -461,7 +461,7 @@ test('S4: the dialog preference is stored after the approved turn runs, never be
   f.setConfirm(async()=>({confirmed:true,storePreference:async()=>{stored.push(f.calls.filter(([method])=>method==='ai.run').length);}}));
   assert.deepEqual(await f.host.ask(id),{cancelled:false,result:{resultId:id}});
   assert.deepEqual(stored,[1],'the preference is stored once the approved turn has run');
-  assert.deepEqual(f.calls.map(([method])=>method).filter((method)=>!['dialog','ai.prepare'].includes(method)),['ai.confirmation','ai.run'],'the save never precedes the turn it accompanies');
+  assert.deepEqual(f.calls.map(([method])=>method).filter((method)=>!['dialog','ai.prepare'].includes(method)),['ai.confirmation','ai.run','ai.status'],'the status the deferred save respects is read after the turn, never before it');
 });
 test('S4: a preference that could not be stored says so beside the answer it accompanied',async()=>{
   const f=fixture();
@@ -477,6 +477,49 @@ test('S4: a declined dialog stores nothing, and a plain yes still stores nothing
     await f.host.ask(id);
     assert.equal(f.calls.some(([method])=>method==='ai.run'),answer===true,'only a confirmed answer reaches the provider');
   }
+});
+test('S4/Risk 2: a deferred preference is never stored while the DJ has the AI disabled',async()=>{
+  const f=fixture(),wait=deferred(),stored=[];
+  f.setRun(()=>wait.promise);
+  await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});
+  f.setConfirm(async()=>({confirmed:true,storePreference:async(status)=>{stored.push(status);}}));
+  const asking=f.host.ask(id);
+  // The DJ disables the AI in Ajustes while the approved turn is still running.
+  f.setAi({enabled:false,revision:'b'.repeat(64)});
+  wait.resolve({cancelled:false,result:{resultId:id}});
+  assert.deepEqual(await asking,{cancelled:false,result:{resultId:id}},'the approved turn still ends with its own answer');
+  assert.deepEqual(stored,[],'the deferred save never runs, so nothing turns the AI back on');
+  assert.deepEqual(f.ai(),{revision:'b'.repeat(64),enabled:false,autoAuthorize:false},'the AI stays disabled');
+  assert.equal(f.calls.some(([method])=>method==='ai.settings.update'),false);
+});
+test('S4/Risk 2: the deferred save receives only the approval switch to turn on, with the state it saw',async()=>{
+  const f=fixture(),stored=[];
+  f.setAi({revision:'c'.repeat(64),enabled:true,autoAuthorize:false});
+  await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});
+  f.setConfirm(async()=>({confirmed:true,storePreference:async(status)=>{stored.push(status);}}));
+  await f.host.ask(id);
+  assert.deepEqual(stored,[{revision:'c'.repeat(64),enabled:true}],'the save carries the current revision and the enabled state, never a promise to enable');
+});
+test('S4/Risk 2: a status that could not be read stores nothing and says so',async()=>{
+  const f=fixture(),stored=[];
+  await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});
+  f.setConfirm(async()=>({confirmed:true,storePreference:async(status)=>{stored.push(status);}}));
+  f.setRun(async()=>({cancelled:false,result:{resultId:id}}));
+  f.setAi(null);
+  const reading=f.host.ask(id);
+  assert.deepEqual(await reading,{cancelled:false,result:{resultId:id},notes:['dialog_preference_not_saved']},'the settings it must respect are part of storing it');
+  assert.deepEqual(stored,[]);
+});
+test('S4/Risk 2: the deferred save in main.ts never writes the enabled flag or the model',async()=>{
+  const main=await readFile(path.join(coreRoot,'desktop-electron/src/main.ts'),'utf8');
+  const at=main.indexOf('storePreference');
+  assert.notEqual(at,-1,'main.ts still hands the dialog preference to the host');
+  const store=main.slice(at,main.indexOf('\n',at));
+  assert.match(store,/revision:status\.revision/);
+  assert.match(store,/enabled:status\.enabled/, 'the enabled state is passed through, never invented');
+  assert.match(store,/autoAuthorize:true/);
+  assert.equal(/enabled:true/.test(store),false,'a deferred save never re-enables the AI');
+  assert.equal(/model:/.test(store),false,'a deferred save never chooses a model');
 });
 test('S3: an answer without notes keeps exactly the shape it had',async()=>{
   const f=fixture();

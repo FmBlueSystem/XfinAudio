@@ -54,6 +54,16 @@ def _asked(settings: AiSettings) -> tuple[bool, str, Path | None]:
     return settings.enabled, settings.provider, settings.env_file
 
 
+def _grants_approval(previous: AiSettings, current: AiSettings) -> bool:
+    """True only for the dialog's own consent grant: the approval switch going off to on.
+
+    Nothing a turn is sent with may change at the same time, and the switch must be the one
+    being granted. Every other save — including taking that switch away — changes consent, so
+    it revokes the retained preview and answers like any other configuration change.
+    """
+    return not previous.auto_authorize and current.auto_authorize and _asked(current) == _asked(previous)
+
+
 @dataclass(frozen=True)
 class _Pending:
     id: str
@@ -425,12 +435,15 @@ class OptionalAI:
         """End pending consent and, on a real configuration change, the conversation.
 
         Consent is asked once per conversation, so a changed provider configuration
-        (settings or credential) starts a new conversation and discloses it again. The
-        dialog's own approval switch is not what a turn is sent with: saving it re-stamps
-        the retained preview and answers instead of revoking the turn it just approved.
+        (settings or credential) starts a new conversation and discloses it again. Only the
+        dialog's own grant — the approval switch going from off to on while nothing a turn is
+        sent with changed — is exempt: it re-stamps the retained preview and answers instead
+        of revoking the turn it just approved. Taking that switch away revokes them exactly
+        like any other configuration change, because it withdraws the consent the saved turn
+        was granted under.
         """
         current = self.backend.preferences.ai_settings()
-        if _asked(current) == _asked(previous):
+        if _grants_approval(previous, current):
             self._restamp(current)
             return
         self.invalidate()
