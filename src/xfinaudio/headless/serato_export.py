@@ -15,6 +15,7 @@ from uuid import uuid4
 from xfinaudio.exporting.serato_crate import (
     MAX_ANCHORED_CRATE_BYTES,
     SeratoExportPlan,
+    SeratoWriteResult,
     plan_empty_serato_parent_crate,
     remove_created_serato_crate,
     rollback_serato_crate_write,
@@ -22,13 +23,16 @@ from xfinaudio.exporting.serato_crate import (
     write_serato_crate,
 )
 from xfinaudio.exporting.serato_playlist_exporter import (
+    SeratoCrateTreePlan,
     SeratoLibrary,
     parent_crate_names,
     plan_copilot_variant_serato_playlist_export,
     plan_generated_serato_playlist_export,
     plan_metadata_missing_field_serato_export,
     plan_metadata_status_serato_export,
+    plan_serato_crate_tree,
     plan_serato_playlist_export,
+    validate_segment_size,
 )
 from xfinaudio.headless.common import BackendError
 from xfinaudio.headless.serato_discovery import suggest_destination
@@ -52,10 +56,12 @@ if TYPE_CHECKING:
     from xfinaudio.headless.backend import HeadlessBackend
 
 LOGGER = logging.getLogger(__name__)
+# Every crate of a tree is bounded like the source: the same 500 track references.
+MAX_CRATE_TRACK_REFERENCES = 500
 SERATO_FIELDS = {
     "serato.registerDestination": {"seratoRoot"},
     "serato.suggestDestination": set(),
-    "serato.preview": {"source", "destinationId", "name"},
+    "serato.preview": {"source", "destinationId", "name", "segmentSize"},
     "serato.confirmation": {"previewId"},
     "serato.commit": {"previewId", "confirmed"},
     "serato.receipt.resolve": {"receiptId"},
@@ -82,6 +88,14 @@ class Destination:
 
 
 @dataclass(frozen=True)
+class PreviewCrate:
+    """One crate a preview approved, with the target state it bound."""
+
+    plan: SeratoExportPlan
+    target: tuple[FileIdentity | None, str | None]
+
+
+@dataclass(frozen=True)
 class Preview:
     source: ExportSource
     destination: Destination
@@ -90,6 +104,27 @@ class Preview:
     target: tuple[FileIdentity | None, str | None]
     summary: dict[str, Any]
     parents: tuple[Path, ...] = ()
+    # The whole tree of a split export, parent first; empty when the export writes one crate.
+    crates: tuple[PreviewCrate, ...] = ()
+
+
+def _approved_crate(plan: SeratoExportPlan, destination: Destination) -> PreviewCrate:
+    """Apply every crate rule to one planned crate and bind the target state it has now.
+
+    The parent and each child go through the same name, containment, byte,
+    track-reference and payload checks: a tree is no weaker than a single crate.
+    """
+    if len(plan.crate_bytes) > MAX_ANCHORED_CRATE_BYTES:
+        raise OSError("Crate exceeds the supported byte limit")
+    crate_name(plan.crate_name)
+    if plan.target_path.parent != destination.folder:
+        raise OSError("Invalid target containment")
+    if plan.track_count > MAX_CRATE_TRACK_REFERENCES:
+        raise OSError("Crate exceeds the supported track-reference limit")
+    if not validate_serato_crate_bytes(plan.crate_bytes, plan.relative_paths).valid:
+        raise OSError("Invalid crate bytes")
+    target = target_state(plan.target_path)
+    return PreviewCrate(plan.model_copy(update={"backup_path": backup_target(plan.target_path)}), target)
 
 
 def _missing_parent_crates(plan: SeratoExportPlan, destination: Destination) -> tuple[Path, ...]:
@@ -159,7 +194,8 @@ class SeratoExporter:
         mapping[key] = value
 
     def execute(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        required = SERATO_FIELDS[method] - ({"name"} if method == "serato.preview" else set())
+        optional = {"name", "segmentSize"} if method == "serato.preview" else set()
+        required = SERATO_FIELDS[method] - optional
         if not required <= set(params):
             raise BackendError("invalid_params", "Missing export parameters")
         if method == "serato.registerDestination":
@@ -230,6 +266,17 @@ class SeratoExporter:
         # An absent or empty name means the app names the crate: a generated set is named
         # from its strategy and the export date, inside the destination folder it writes to.
         name = crate_name(params["name"]) if params.get("name") else None
+        # A split size is only present when the DJ chose one on the options screen; absent
+        # or null keeps today's single crate. An invalid size is refused before any work.
+        segment_size = None
+        if params.get("segmentSize") is not None:
+            try:
+                segment_size = validate_segment_size(params["segmentSize"])
+            except ValueError as error:
+                raise BackendError("invalid_params", str(error)) from error
+            if isinstance(params["source"], dict) and params["source"].get("kind") == "metadata":
+                # A metadata worklist keeps its own naming: it is a worklist, not a set.
+                raise BackendError("invalid_params", "Segment size applies to a set export, not a metadata worklist")
         source = load_source(self.backend, params["source"])
         destination = self.destinations.get(opaque_id(params["destinationId"]))
         if destination is None:
@@ -238,6 +285,8 @@ class SeratoExporter:
             raise BackendError("unknown_destination", "Select a Serato destination first")
         blockers = list(source.blockers)
         plan, source_volume = None, None
+        tree: SeratoCrateTreePlan | None = None
+        crates: tuple[PreviewCrate, ...] = ()
         parents: tuple[Path, ...] = ()
         target: tuple[FileIdentity | None, str | None] = (None, None)
         try:
@@ -267,6 +316,14 @@ class SeratoExporter:
                                     "backup_path": target_path.with_name(f"{target_path.name}.bak"),
                                 }
                             )
+                    elif segment_size is not None:
+                        # One confirmation covers the tree: the parent with every track,
+                        # then one child per segment in the same reviewed order.
+                        assert source.recommendation is not None
+                        tree = plan_serato_crate_tree(
+                            source.recommendation, library, crate_name=name, segment_size=segment_size
+                        )
+                        plan = tree.parent
                     elif name is not None:
                         assert source.recommendation is not None
                         plan = plan_serato_playlist_export(name, source.recommendation, library)
@@ -278,17 +335,12 @@ class SeratoExporter:
                     else:
                         assert source.recommendation is not None
                         plan = plan_generated_serato_playlist_export(source.recommendation, library)
-                    if len(plan.crate_bytes) > MAX_ANCHORED_CRATE_BYTES:
-                        raise OSError("Crate exceeds the supported byte limit")
-                    crate_name(plan.crate_name)
-                    if plan.target_path.parent != destination.folder:
-                        raise OSError("Invalid target containment")
-                    if not validate_serato_crate_bytes(plan.crate_bytes, plan.relative_paths).valid:
-                        raise OSError("Invalid crate bytes")
+                    assert plan is not None
+                    planned = tree.plans if tree is not None else (plan,)
+                    crates = tuple(_approved_crate(crate, destination) for crate in planned)
+                    plan, target = crates[0].plan, crates[0].target
                     if tuple(source_volume / path for path in plan.relative_paths) != source.paths:
                         blockers.append("A Serato track reference does not resolve to its exact scanned source")
-                    target = target_state(plan.target_path)
-                    plan = plan.model_copy(update={"backup_path": backup_target(plan.target_path)})
                     parents = _missing_parent_crates(plan, destination)
             self._destination_current(destination)
         except (OSError, ValueError, RuntimeError) as error:
@@ -298,7 +350,7 @@ class SeratoExporter:
         if load_source(self.backend, source.selector).revision != source.revision:
             raise BackendError("stale_source", "The source changed; preview the export again")
         preview_id = str(uuid4())
-        summary = {
+        summary: dict[str, Any] = {
             "previewId": preview_id,
             "sourceRevision": source.revision,
             "filename": plan.target_path.name if plan else f"{name or 'XfinAudio'}.crate",
@@ -310,12 +362,32 @@ class SeratoExporter:
             "canCommit": not blockers and plan is not None,
             "tracks": source.tracks,
             "parentsToCreate": [path.stem for path in parents],
-            "backup": {"required": target[0] is not None},
+            "backup": {"required": any(crate.target[0] is not None for crate in crates)},
         }
+        if segment_size is not None:
+            # A split export names every crate to create or replace, parent first.
+            summary["crates"] = [
+                {
+                    "name": crate.plan.target_path.name,
+                    "trackCount": crate.plan.track_count,
+                    "action": "replace" if crate.target[0] is not None else "create",
+                }
+                for crate in crates
+            ]
         self._retain(
-            self.previews, preview_id, Preview(source, destination, source_volume, plan, target, summary, parents)
+            self.previews,
+            preview_id,
+            Preview(source, destination, source_volume, plan, target, summary, parents, crates),
         )
         return copy.deepcopy(summary)
+
+    @staticmethod
+    def _planned_crates(preview: Preview) -> tuple[PreviewCrate, ...]:
+        """Every crate the preview approved: the parent first, then its children in order."""
+        if preview.crates:
+            return preview.crates
+        assert preview.plan is not None
+        return (PreviewCrate(preview.plan, preview.target),)
 
     def _recheck(self, preview: Preview, *, target: bool = True) -> None:
         if not preview.summary["canCommit"] or preview.plan is None:
@@ -328,13 +400,34 @@ class SeratoExporter:
             raise BackendError("stale_source", "The source changed; preview the export again")
         try:
             self._destination_current(preview.destination)
-            if target and (
-                target_state(preview.plan.target_path) != preview.target
-                or file_identity(preview.plan.backup_path) is not None
-            ):
-                raise OSError("Planned target or backup changed")
+            if target:
+                # Every crate of the tree keeps the stale-preview rule of a single crate.
+                for crate in self._planned_crates(preview):
+                    if (
+                        target_state(crate.plan.target_path) != crate.target
+                        or file_identity(crate.plan.backup_path) is not None
+                    ):
+                        raise OSError("Planned target or backup changed")
         except (OSError, RuntimeError) as error:
             raise BackendError("stale_destination", "The destination changed; preview the export again") from error
+
+    @staticmethod
+    def _roll_back_tree(
+        written: list[tuple[SeratoWriteResult, FileIdentity]],
+        created: list[tuple[Path, FileIdentity]],
+        descriptor: int,
+    ) -> None:
+        """Undo one failed tree export in reverse: crates this export wrote, then its ancestors.
+
+        A crate that cannot be restored is kept and logged, so every other crate of the
+        tree is still put back and the DJ is never told more than the folder shows.
+        """
+        for result, identity in reversed(written):
+            try:
+                rollback_serato_crate_write(result, directory_fd=descriptor, expected_target_identity=identity)
+            except OSError:
+                LOGGER.warning("Retained the Serato crate this export wrote: %s", result.written_path, exc_info=True)
+        _remove_created_parent_crates(created, descriptor)
 
     def _commit(self, preview_id: str, preview: Preview) -> dict[str, Any]:
         self._recheck(preview)
@@ -346,6 +439,9 @@ class SeratoExporter:
                 "serato_running", "Close Serato DJ before exporting; it rewrites its crates when it quits"
             )
         failure_code = "export_failed"
+        # The parent first, then its children in order: one confirmation, one destination.
+        crates = self._planned_crates(preview)
+        written: list[tuple[SeratoWriteResult, FileIdentity]] = []
 
         def guard() -> None:
             nonlocal failure_code
@@ -355,36 +451,34 @@ class SeratoExporter:
                 failure_code = error.code
                 raise OSError("Export binding changed") from error
 
+        created: list[tuple[Path, FileIdentity]] = []
         try:
             with open_destination(preview.destination.root) as (descriptor, lineage, folder_device):
                 if lineage != preview.destination.lineage or folder_device != lineage[-1][0]:
                     raise BackendError("stale_destination", "The destination changed; preview the export again")
-                created: list[tuple[Path, FileIdentity]] = []
                 try:
                     _create_parent_crates(preview.parents, descriptor, guard, created)
-                    result = write_serato_crate(
-                        preview.plan,
-                        confirm=True,
-                        directory_fd=descriptor,
-                        expected_target_identity=preview.target[0],
-                        expected_target_digest=preview.target[1],
-                        guard=guard,
-                    )
-                    published = os.stat(preview.plan.target_path.name, dir_fd=descriptor, follow_symlinks=False)
-                    identity = (published.st_dev, published.st_ino, published.st_mtime_ns, published.st_size)
-                    try:
+                    for crate in crates:
+                        result = write_serato_crate(
+                            crate.plan,
+                            confirm=True,
+                            directory_fd=descriptor,
+                            expected_target_identity=crate.target[0],
+                            expected_target_digest=crate.target[1],
+                            guard=guard,
+                        )
+                        published = os.stat(crate.plan.target_path.name, dir_fd=descriptor, follow_symlinks=False)
+                        identity = (published.st_dev, published.st_ino, published.st_mtime_ns, published.st_size)
+                        written.append((result, identity))
                         guard()
-                        round_trip = validate_serato_round_trip(preview.plan, volume_root=preview.source_volume)
+                        round_trip = validate_serato_round_trip(crate.plan, volume_root=preview.source_volume)
                         if round_trip.status != "ready":
                             raise OSError("Crate round-trip validation failed")
                         guard()
-                    except OSError:
-                        rollback_serato_crate_write(result, directory_fd=descriptor, expected_target_identity=identity)
-                        raise
                 except OSError:
-                    # A failed commit leaves the folder as it found it: the parents it
-                    # created go, and the ancestors that were already there stay.
-                    _remove_created_parent_crates(created, descriptor)
+                    # All or nothing: a failed commit leaves the folder as it found it, so
+                    # every crate this export wrote goes back and the ancestors it created go.
+                    self._roll_back_tree(written, created, descriptor)
                     raise
         except OSError as error:
             LOGGER.exception("Confirmed Serato export failed")
@@ -392,15 +486,21 @@ class SeratoExporter:
                 failure_code, "The crate could not be exported safely; inspect local diagnostics before retrying"
             ) from error
         receipt_id = str(uuid4())
-        receipt = {
+        receipt: dict[str, Any] = {
             "receiptId": receipt_id,
             "filename": preview.plan.target_path.name,
             "destinationLabel": preview.destination.label,
             "trackCount": preview.plan.track_count,
-            "validated": result.validated,
-            "backupCreated": result.backup_path is not None,
+            "validated": all(result.validated for result, _identity in written),
+            "backupCreated": any(result.backup_path is not None for result, _identity in written),
             "parentsCreated": [path.stem for path, _identity in created],
         }
-        self.receipts[receipt_id] = (receipt, preview, identity)
+        if "crates" in preview.summary:
+            # A split export names every crate it wrote; the parent stays `filename` so
+            # «Mostrar en Finder» and the receipt path resolve exactly as before.
+            receipt["files"] = [
+                {"name": crate.plan.target_path.name, "trackCount": crate.plan.track_count} for crate in crates
+            ]
+        self.receipts[receipt_id] = (receipt, preview, written[0][1])
         self.completed[preview_id] = receipt_id
         return copy.deepcopy(receipt)
