@@ -121,7 +121,10 @@ def _read_key(binding: CredentialBinding) -> str:
 
 
 def _timeout_message(timeout: float) -> str:
-    return f"The provider did not answer within the {timeout:g}s this call is allowed; the turn ended without applying anything"
+    return (
+        f"The provider did not answer within the {timeout:g}s this call is allowed; "
+        "the turn ended without applying anything"
+    )
 
 
 class _BoundedResponse:
@@ -156,9 +159,7 @@ class _BufferedResponse:
 Drain = Callable[[Callable[[], None]], Callable[[], None]]
 
 
-def _bounded_transport(
-    transport: Transport | None, maximum_timeout: int, register: Drain | None = None
-) -> Transport:
+def _bounded_transport(transport: Transport | None, maximum_timeout: int, register: Drain | None = None) -> Transport:
     """Wrap one provider call with the app's own bound (S2).
 
     The transport is entered and its body read in a worker thread so the deadline belongs to
