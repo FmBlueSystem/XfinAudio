@@ -318,6 +318,10 @@ export class ListChatController {
   period: ListChatPeriodReport | null = null;
   /** True while the chat itself applies a batch or undoes one, so its own edits never retire it. */
   private inBatch = false;
+  /** S5: the card the panel is applying now, so one refusal narrows the list to the others. */
+  private applying: string | null = null;
+  /** S5: the card the core just refused as stale; only that one leaves the list. */
+  private stale: string | null = null;
   /** True while the conversation reads a saved list, which has no plan alternative to offer. */
   private saved = false;
   /** True while the chat hands a review it minted to the screen: that is not another edit. */
@@ -404,8 +408,11 @@ export class ListChatController {
     if (code === 'no_candidates') { this.error = ''; this.notice = SHORT_LIST_NO_CANDIDATES; this.host.changed(); return; }
     this.error = aiErrorMessage(error);
     // The core no longer holds these proposals (or the list they belong to), so a retry can only
-    // fail again: the cards go instead of staying as a promise the app cannot keep.
-    if (code === 'stale_ai') { this.actions = []; this.droppedActions = 0; }
+    // fail again: the cards go instead of staying as a promise the app cannot keep. S5: one card
+    // the core refuses is not the whole reply, so only that card goes and the rest is re-read
+    // from the core below, where it stays applicable against the list as it is now.
+    if (code === 'stale_ai' && this.applying !== null) { this.stale = this.applying; this.actions = this.actions.filter((item) => item.actionId !== this.applying); this.droppedActions = 0; }
+    else if (code === 'stale_ai') { this.actions = []; this.droppedActions = 0; }
     this.host.changed();
   }
   /** One long operation of the panel; S1's phase and its starting instant last exactly as long as it runs. */
@@ -499,20 +506,43 @@ export class ListChatController {
     await this.applyAction(action);
   }
   /**
-   * S2: applies the shown changes one after another in that order, stops at the first failure
-   * and reports how many of them were applied. A proposed alternative is the screen's own
-   * choice, never a batch edit, so the batch stops before it instead of guessing.
+   * S5: re-reads the changes the core still offers after one of them could no longer apply, so
+   * the rest of the reply keeps applying against the list as it is now instead of disappearing.
+   * ``refused`` is the card the core just rejected: it is never offered again, because a retry
+   * could only fail the same way.
+   */
+  private async refresh(refused: string): Promise<void> {
+    try {
+      const value = await this.api.aiChatHistory();
+      this.storeActions(actionsCopy(value?.actions).filter((item) => item.actionId !== refused));
+      this.droppedActions = 0;
+    } catch {
+      // The card the core refused already left the list and the error says why; a refresh that
+      // cannot answer leaves the other cards as they were instead of inventing a state.
+    }
+    this.host.changed();
+  }
+  /**
+   * S6: «Aplicar todo» applies the shown changes one after another in that order and stops at
+   * the first failure, then reports how many of them were applied. A proposed alternative is
+   * chosen through the screen's own variant route, exactly like its card does, and it replaces
+   * the whole list, so it goes last: the steps bound to this list apply before it, and it is
+   * only chosen when all of them went through.
    */
   async applyAll(): Promise<void> {
     if (!this.canApplyAll) return;
     const batch = [...this.actions];
+    const alternative = batch.find((action) => action.type === 'use_variant');
+    const steps = batch.filter((action) => action.type !== 'use_variant');
     let applied = 0;
-    for (const action of batch) {
-      if (action.type === 'use_variant') break;
+    for (const action of steps) {
       if (!(await this.applyAction(action))) break;
       applied++;
     }
-    this.notice = listChatAppliedAll(applied, batch.length);
+    const chosen = applied === steps.length && alternative !== undefined && (await this.applyVariant(alternative.variant));
+    if (chosen) applied++;
+    const reported = listChatAppliedAll(applied, batch.length);
+    this.notice = chosen ? `${reported} ${LIST_CHAT_VARIANT_CHANGED}` : reported;
     this.host.changed();
   }
   /** One proposal through the core; true only when the core answered with the new review. */
@@ -522,21 +552,27 @@ export class ListChatController {
     const extend = action.type === 'extend';
     const period = action.type === 'period';
     let applied = false;
-    await this.perform('apply', LIST_CHAT_APPLYING, () => this.api.aiChatApply({ actionId: action.actionId }), (value) => {
-      const review = reviewCopy(value?.review);
-      const actions = actionsCopy(value?.actions);
-      const extended = extend && value && Object.hasOwn(value, 'extended') ? extendedCopy(value.extended) : null;
-      // S15: the period answer carries what it replaced and the tracks it could not, which the
-      // window reports beside the cards; it outlives its own batch step so the report still shows.
-      const replaced = period && value && Object.hasOwn(value, 'period') ? periodCopy(value.period) : null;
-      this.storeActions(actions); this.droppedActions = 0;
-      this.notice = extended ? extendedLine(extended) : replaced ? listChatPeriodNotice(replaced.replaced) : LIST_CHAT_APPLIED; this.error = '';
-      if (period) this.period = replaced ? { notice: listChatPeriodNotice(replaced.replaced), kept: replaced.kept.map(listChatPeriodLine) } : null;
-      // A single click is another way of editing the list, so it retires an earlier batch undo.
-      if (!this.inBatch) this.autoBatch = null;
-      this.handOff(review);
-      applied = true;
-    }, 'applying');
+    this.applying = action.actionId;
+    try {
+      await this.perform('apply', LIST_CHAT_APPLYING, () => this.api.aiChatApply({ actionId: action.actionId }), (value) => {
+        const review = reviewCopy(value?.review);
+        const actions = actionsCopy(value?.actions);
+        const extended = extend && value && Object.hasOwn(value, 'extended') ? extendedCopy(value.extended) : null;
+        // S15: the period answer carries what it replaced and the tracks it could not, which the
+        // window reports beside the cards; it outlives its own batch step so the report still shows.
+        const replaced = period && value && Object.hasOwn(value, 'period') ? periodCopy(value.period) : null;
+        this.storeActions(actions); this.droppedActions = 0;
+        this.notice = extended ? extendedLine(extended) : replaced ? listChatPeriodNotice(replaced.replaced) : LIST_CHAT_APPLIED; this.error = '';
+        if (period) this.period = replaced ? { notice: listChatPeriodNotice(replaced.replaced), kept: replaced.kept.map(listChatPeriodLine) } : null;
+        // A single click is another way of editing the list, so it retires an earlier batch undo.
+        if (!this.inBatch) this.autoBatch = null;
+        this.handOff(review);
+        applied = true;
+      }, 'applying');
+    } finally { this.applying = null; }
+    // S5: the refused card already left the list; asking the core what it still offers keeps
+    // the other cards applicable instead of leaving them behind as a promise that cannot hold.
+    if (this.stale === action.actionId) { this.stale = null; await this.refresh(action.actionId); }
     return applied;
   }
   /**
@@ -603,12 +639,13 @@ export class ListChatController {
   /**
    * A proposed alternative is chosen by the screen, which owns the plan, the discard question and
    * the new conversation: the core reports it as `stale_ai` because it is no longer its decision.
-   * The note is set after that reset so it is not mistaken for the conversation it replaced.
+   * The note is set after that reset so it is not mistaken for the conversation it replaced. True
+   * only when the screen chose it, so a batch can count it like any other applied change.
    */
-  private async applyVariant(variant: PrepVariant): Promise<void> {
-    if (this.pending || !this.host.canAct()) return;
+  private async applyVariant(variant: PrepVariant): Promise<boolean> {
+    if (this.pending || !this.host.canAct()) return false;
     const choose = this.host.chooseVariant;
-    if (!choose) { this.error = LIST_CHAT_VARIANT_UNAVAILABLE; this.host.changed(); return; }
+    if (!choose) { this.error = LIST_CHAT_VARIANT_UNAVAILABLE; this.host.changed(); return false; }
     this.pending = 'apply'; this.error = ''; this.notice = ''; this.host.changed();
     let chosen = false;
     try { chosen = await choose(variant); }
@@ -616,6 +653,7 @@ export class ListChatController {
     finally { this.pending = null; }
     if (chosen) { this.notice = LIST_CHAT_VARIANT_CHANGED; this.actions = []; this.droppedActions = 0; }
     this.host.changed();
+    return chosen;
   }
   /** Starts a new conversation: the core forgets the stored one and the panel empties. */
   async newConversation(): Promise<void> {

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from xfinaudio.ai.list_chat import MAX_TARGET_TRACK_COUNT
-from xfinaudio.headless.ai_conversation import ChatAction, ConversationStore
+from xfinaudio.headless.ai_conversation import ChatAction, ConversationStore, applied_changes
 from xfinaudio.headless.common import BackendError, _public_track
 from xfinaudio.recommendation.playlist_service import in_year_range, insertion_positions
 
@@ -326,6 +326,7 @@ def apply_action(backend: HeadlessBackend, action_id: str) -> dict[str, Any]:
     action = store.action(action_id)
     if action is None:
         raise BackendError("stale_ai", _STALE)
+    before = backend.review
     extended: dict[str, Any] | None = None
     period: dict[str, Any] | None = None
     try:
@@ -414,6 +415,13 @@ def apply_action(backend: HeadlessBackend, action_id: str) -> dict[str, Any]:
             raise
         raise BackendError("stale_ai", _STALE) from None
     answer: dict[str, Any] = {"review": review, "actions": public_actions(backend, store.applied(action.id))}
+    # S7: the conversation remembers what its own applied proposal did to the list, so the
+    # next answer reads it as already applied instead of proposing it again. The lines are
+    # the ones every applied edit already reads: positions, titles and artists, no path.
+    if before is not None and backend.review is not None:
+        store.note_confirmed(
+            applied_changes(before.recommendation.ordered_tracks, backend.review.recommendation.ordered_tracks)
+        )
     if extended is not None:
         answer["extended"] = extended
     if period is not None:

@@ -247,6 +247,7 @@ def build_context(backend: HeadlessBackend, surface: str, selector: dict[str, An
                 records,
                 frozenset(track.path for track in recommendation.ordered_tracks),
             ),
+            backend.ai_conversation.confirmed(),
         )
         data.update(
             facts=facts,

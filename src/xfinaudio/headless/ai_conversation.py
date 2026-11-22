@@ -112,12 +112,16 @@ def _order_line(before: Sequence[TrackRecord], after: Sequence[TrackRecord]) -> 
 
 
 def _single_move(before: Sequence[TrackRecord], after: Sequence[TrackRecord]) -> tuple[TrackRecord, int, int] | None:
-    """The one track a pure move took out and put back elsewhere, or nothing."""
+    """The one track a pure move took out and put back elsewhere, or nothing.
+
+    Only a list that holds the same tracks in another order can be a move, so the search
+    below runs only then; anything else is a wider reorder.
+    """
     paths = [track.path for track in after]
+    if sorted(paths) != sorted(track.path for track in before):
+        return None
     for origin, track in enumerate(before, start=1):
         rest = [item.path for index, item in enumerate(before, start=1) if index != origin]
-        if sorted(rest) != sorted(paths):
-            continue
         for destination in range(1, len(before) + 1):
             if rest[: destination - 1] + [track.path] + rest[destination - 1 :] == paths:
                 return track, origin, destination
@@ -155,6 +159,10 @@ class ConversationStore:
         # What the DJ changed in the list since the previous successful turn, oldest
         # first, as short lines that name positions and titles and never an identity.
         self._applied: list[str] = []
+        # The changes this conversation's own proposals made to the list, kept across
+        # turns: a later answer must be able to see that what it proposed is already in
+        # the list instead of proposing it again or denying it can see it.
+        self._confirmed: list[str] = []
 
     @property
     def first_turn(self) -> bool:
@@ -231,6 +239,21 @@ class ConversationStore:
         """The changes applied since the previous successful turn, oldest first."""
         return tuple(self._applied)
 
+    def note_confirmed(self, lines: Iterable[str]) -> tuple[str, ...]:
+        """Keep, across turns, what this conversation's applied proposals did to the list.
+
+        ``note_applied`` reports one edit once and forgets it; these lines outlive the
+        answer that reports them, so a later turn can state that its own proposal is
+        already applied. They are the same short lines: positions, titles and artists.
+        """
+        self._confirmed.extend(lines)
+        del self._confirmed[:-APPLIED_LIMIT]
+        return self.confirmed()
+
+    def confirmed(self) -> tuple[str, ...]:
+        """The applied proposals this conversation still remembers, oldest first."""
+        return tuple(self._confirmed)
+
     def record(self, fingerprint: str, request: str, reply: str) -> list[dict[str, str]]:
         """Store one successful turn and return the whole conversation, oldest first."""
         self._messages.extend((Message("user", request), Message("assistant", reply)))
@@ -252,6 +275,7 @@ class ConversationStore:
         self._named.clear()
         self._recent.clear()
         self._applied.clear()
+        self._confirmed.clear()
         return []
 
 
