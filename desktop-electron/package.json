@@ -1,6 +1,6 @@
 {
   "name": "xfinaudio-desktop-next",
-  "version": "2.29.0",
+  "version": "2.29.1",
   "private": true,
   "description": "Qt-free XfinAudio desktop migration preview",
   "author": "BlueSystemAudio",
