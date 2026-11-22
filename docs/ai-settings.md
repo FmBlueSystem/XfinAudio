@@ -22,7 +22,7 @@ Environment credentials take precedence over file credentials. Existing launcher
 
 The panel displays the effective initial enable/file overrides. **Guardar ajustes de IA** explicitly persists the selected preference and changes subsequent runtime requests immediately. A later relaunch still respects explicit launch overrides. Failed saves preserve prior preferences. No restart is required for AI changes; changing UI language retains its existing restart requirement.
 
-The panel also offers **No volver a preguntar en cada consulta** — persisted automatic authorization, off by default. With it on, an already prepared query is sent without the per-send native confirmation dialog; turn it off in the panel to restore the dialog. Preparing a query still shows its disclosure first, and every other explicit action (connection test, credential changes, save/export) keeps its own confirmation. The native confirm dialog itself offers the same checkbox; ticking it and confirming persists the preference best-effort, and only after the approved query has run, so the save never revokes the query it accompanies.
+The panel also offers **No volver a preguntar en cada consulta** — persisted automatic authorization, off by default. With it on, an already prepared query is sent without the per-send native confirmation dialog; turn it off in the panel to restore the dialog. Preparing a query still shows its disclosure first, and every other explicit action (connection test, credential changes, save/export) keeps its own confirmation. The native confirm dialog itself offers the same checkbox; ticking it and confirming persists the preference best-effort, and only after the approved query has run, so the save never revokes the query it accompanies. That deferred save only turns the switch on: it keeps the enabled state and the chosen model it finds right before saving, never stores anything while the AI is disabled, and turning the switch off instead revokes the prepared query and starts a new conversation, because withdrawing consent is a real configuration change.
 
 A list conversation asks its own consent once, independently of that setting: the native dialog appears on the first turn of a conversation and later turns of the same conversation are sent without it, because each turn discloses the same class of data. The conversation is kept in memory only. Saving different AI settings or choosing a different credential file starts a new conversation, so consent is asked again; the same applies to **Nueva conversación**, to discarding the generated list and to restarting the app.
 
@@ -89,7 +89,11 @@ y las demás acciones explícitas (prueba de conexión, cambios de credencial,
 guardar/exportar) conservan sus confirmaciones. El diálogo nativo de confirmación
 ofrece la misma casilla; márcala y confirma para persistir la preferencia de
 forma best-effort, y solo después de ejecutar la consulta aprobada, así el
-guardado nunca revoca la consulta que acompaña. La conversación de la lista no
+guardado nunca revoca la consulta que acompaña. Ese guardado diferido solo activa la
+casilla: conserva el estado de activación y el modelo que encuentra justo antes de
+guardar, nunca escribe nada mientras la IA está desactivada, y desactivar la casilla
+sí revoca la consulta preparada y empieza una conversación nueva, porque retirar el
+consentimiento es un cambio real de configuración. La conversación de la lista no
 depende de esta casilla: pide consentimiento en su primer turno y lo omite en los
 siguientes de esa conversación, porque cada turno envía la misma clase de datos.
 
