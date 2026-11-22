@@ -640,9 +640,7 @@ def test_chat_error_text_never_carries_a_key_loaded_from_the_env_file(
 
 def http_bad_request(detail: str) -> urllib.error.HTTPError:
     headers: Message[str, str] = Message()
-    return urllib.error.HTTPError(
-        CONFIGURED_ENDPOINT, 400, "Bad Request", headers, io.BytesIO(detail.encode("utf-8"))
-    )
+    return urllib.error.HTTPError(CONFIGURED_ENDPOINT, 400, "Bad Request", headers, io.BytesIO(detail.encode("utf-8")))
 
 
 class SequenceTransport:
@@ -729,9 +727,7 @@ def test_a_second_rejection_of_the_json_object_ends_the_call_after_one_retry(ai_
 
 def test_a_rejection_without_a_readable_body_is_not_retried(ai_env: None) -> None:
     headers: Message[str, str] = Message()
-    transport = SequenceTransport(
-        urllib.error.HTTPError(CONFIGURED_ENDPOINT, 400, "Bad Request", headers, None)
-    )
+    transport = SequenceTransport(urllib.error.HTTPError(CONFIGURED_ENDPOINT, 400, "Bad Request", headers, None))
 
     with pytest.raises(NanRequestError) as excinfo:
         chat("hi", json_object=True, transport=transport)

@@ -1202,9 +1202,7 @@ def facts_of(backend) -> str:
 
 def one_turn(facts: str, transport, *, request: str = "Cambia algo de la lista.", budget=None):
     with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
-        return list_chat.chat_with_list(
-            facts, request, [], track_count=4, transport=transport, budget=budget
-        )
+        return list_chat.chat_with_list(facts, request, [], track_count=4, transport=transport, budget=budget)
 
 
 def test_chat_asks_the_provider_for_a_json_object_with_a_low_temperature(setup):
