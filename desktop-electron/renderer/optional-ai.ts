@@ -2,9 +2,22 @@ import { errorCode, userErrorMessage } from './errors.js';
 import type { PrepVariant } from './model.js';
 export const AI_RECIPIENT = 'https://api.nan.builders/v1/chat/completions';
 export const AI_CONNECTION_REQUEST = 'Reply with OK. XfinAudio connection test.';
+/**
+ * S11: the fixed allowlist of Nan models the panel may send. The endpoint stays pinned; only
+ * this id varies, and only within this list, so neither the draft nor a stored status can
+ * name a model the core would refuse.
+ */
+export const AI_MODELS = [
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash (recomendado)' },
+  { id: 'glm5.3-flash', label: 'GLM 5.3 Flash' },
+  { id: 'qwen3.6', label: 'Qwen 3.6' },
+] as const;
+export type AiModel = typeof AI_MODELS[number]['id'];
+const AI_MODEL_IDS: readonly string[] = AI_MODELS.map((model) => model.id);
+export const isAiModel = (value: unknown): value is AiModel => typeof value === 'string' && AI_MODEL_IDS.includes(value);
 export type AiSurface = 'library' | 'prep' | 'review' | 'saved' | 'editor' | 'metadata' | 'live' | 'connection' | 'chat';
 export type AiContext = Record<string, string | number | boolean | string[]>;
-export interface AiStatus { revision: string; enabled: boolean; autoAuthorize: boolean; provider: 'nan'; credentialLabel: string | null; configured: boolean; recipient: typeof AI_RECIPIENT; }
+export interface AiStatus { revision: string; enabled: boolean; autoAuthorize: boolean; provider: 'nan'; model: AiModel; credentialLabel: string | null; configured: boolean; recipient: typeof AI_RECIPIENT; }
 export interface AiPreview { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; disclosure: string[]; requestPreview: string; firstTurn?: boolean; }
 /** The exact retained provider body for one current preview: read-only, never sent by inspecting it. */
 export interface AiPayload { previewId: string; surface: AiSurface; recipient: typeof AI_RECIPIENT; request: string; body: string; bytes: number; truncated: boolean; }
@@ -44,7 +57,7 @@ export interface AiChatHistory { conversation: AiChatMessage[]; actions: AiChatA
 export interface AiResult { resultId: string; surface: AiSurface; kind: 'filters' | 'intent' | 'editor_request' | 'improvement' | 'saved_selection' | 'commentary' | 'connection' | 'chat'; title: string; text: string; proposal: Record<string, unknown> | null; canApply: boolean; conversation?: AiChatMessage[]; listChanged?: boolean; actions?: AiChatAction[]; droppedActions?: number; }
 export interface OptionalAiApi {
   getAiStatus(): Promise<AiStatus>;
-  saveAiSettings(input: { revision: string; enabled: boolean; autoAuthorize: boolean }): Promise<AiStatus>;
+  saveAiSettings(input: { revision: string; enabled: boolean; autoAuthorize: boolean; model: AiModel }): Promise<AiStatus>;
   chooseAiCredential(input: { revision: string }): Promise<AiStatus>;
   clearAiCredential(input: { revision: string }): Promise<AiStatus>;
   prepareAiRequest(input: { surface: AiSurface; request: string; context: AiContext }): Promise<AiPreview>;
@@ -100,8 +113,8 @@ function localApplyCopy(surface: AiSurface, value: unknown, improvement = false)
 }
 function statusCopy(value: AiStatus): AiStatus {
   if (!value || !/^[a-f0-9]{64}$/.test(value.revision) || typeof value.enabled !== 'boolean' || typeof value.autoAuthorize !== 'boolean' || value.provider !== 'nan'
-    || value.recipient !== AI_RECIPIENT || typeof value.configured !== 'boolean' || (value.credentialLabel !== null && (!text(value.credentialLabel, 200) || /[\\/\p{C}]/u.test(value.credentialLabel)))) bad();
-  return { revision: value.revision, enabled: value.enabled, autoAuthorize: value.autoAuthorize, provider: 'nan', recipient: AI_RECIPIENT, configured: value.configured, credentialLabel: value.credentialLabel };
+    || !isAiModel(value.model) || value.recipient !== AI_RECIPIENT || typeof value.configured !== 'boolean' || (value.credentialLabel !== null && (!text(value.credentialLabel, 200) || /[\\/\p{C}]/u.test(value.credentialLabel)))) bad();
+  return { revision: value.revision, enabled: value.enabled, autoAuthorize: value.autoAuthorize, provider: 'nan', model: value.model, recipient: AI_RECIPIENT, configured: value.configured, credentialLabel: value.credentialLabel };
 }
 function contextCopy(surface: AiSurface, context: AiContext): AiContext {
   if (!Object.hasOwn(kinds, surface) || !isRecord(context)) bad();
@@ -189,7 +202,8 @@ export class OptionalAiController {
   get snapshot(): AiStatus | null { return this.draft; }
   /** True only for the exact AI improvement selector on the editor surface. */
   get improvementEditor(): boolean { return this.surface === 'editor' && this.improvement; }
-  get dirty(): boolean { return Boolean(this.base && this.draft && (this.base.enabled !== this.draft.enabled || this.base.autoAuthorize !== this.draft.autoAuthorize)); }
+  /** A changed model is a changed request body, so the draft is dirty and the choice is local. */
+  get dirty(): boolean { return Boolean(this.base && this.draft && (this.base.enabled !== this.draft.enabled || this.base.autoAuthorize !== this.draft.autoAuthorize || this.base.model !== this.draft.model)); }
   get requestEditable(): boolean { return editable.has(this.surface); }
   get canSave(): boolean { return !this.pending && !this.conflict && this.dirty; }
   get canPrepare(): boolean { return !this.pending && !this.conflict && !this.dirty && Boolean(this.context && this.draft?.enabled && this.draft.configured) && (!this.requestEditable || Boolean(this.request.trim()) && this.request.length <= 2000); }
@@ -245,6 +259,15 @@ export class OptionalAiController {
     if (!this.draft || this.pending || !this.host.canAct() || typeof value !== 'boolean' || this.draft.autoAuthorize === value) return;
     this.reset(); this.draft = { ...this.draft, autoAuthorize: value }; this.notice = ''; if (!this.conflict) this.error = ''; this.notify();
   }
+  /**
+   * S11: only an id from the fixed allowlist can be drafted. Changing it changes what the next
+   * request carries, so any prepared disclosure and its consent are revoked; the saved value
+   * stays in force until the DJ saves the new one.
+   */
+  setModel(value: string): void {
+    if (!this.draft || this.pending || !this.host.canAct() || !isAiModel(value) || this.draft.model === value) return;
+    this.reset(); this.draft = { ...this.draft, model: value }; this.notice = ''; if (!this.conflict) this.error = ''; this.notify();
+  }
   discard(): void {
     if (!this.base || this.pending || !this.host.canAct()) return;
     this.reset(); this.draft = { ...this.base }; this.error = this.conflict ? 'Borrador descartado. Pulsa Actualizar para cargar los ajustes vigentes.' : ''; this.notify();
@@ -270,8 +293,8 @@ export class OptionalAiController {
   }
   async save(): Promise<void> {
     if (!this.canSave || !this.draft || !this.host.canAct()) return;
-    this.reset(); const { revision, enabled, autoAuthorize } = this.draft;
-    await this.perform('save', 'Guardando ajustes de IA…', () => this.api.saveAiSettings({ revision, enabled, autoAuthorize }), (value) => this.accept(value));
+    this.reset(); const { revision, enabled, autoAuthorize, model } = this.draft;
+    await this.perform('save', 'Guardando ajustes de IA…', () => this.api.saveAiSettings({ revision, enabled, autoAuthorize, model }), (value) => this.accept(value));
   }
   private async credential(kind: 'choose' | 'clear'): Promise<void> {
     if (!this.draft || this.pending || !this.host.canAct()) return;

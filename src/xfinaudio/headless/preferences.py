@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from xfinaudio.config.settings import AiSettings, AppSettings
+from xfinaudio.config.settings import AI_MODELS, AiSettings, AppSettings
 from xfinaudio.config.settings_repository import InvalidSettingsError, SettingsRepository, SettingsRepositoryError
 from xfinaudio.headless.common import BackendError
 from xfinaudio.recommendation.loudness_policy import LoudnessBand
@@ -255,8 +255,8 @@ class PreferencesService:
             raise BackendError("invalid_params", "Invalid AI preference fields or revision")
 
     def update_ai(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Persist the explicit enable choice and optional automatic authorization."""
-        allowed = {"revision", "enabled", "autoAuthorize"}
+        """Persist the explicit enable choice, automatic authorization and chosen model."""
+        allowed = {"revision", "enabled", "autoAuthorize", "model"}
         if (
             not isinstance(params, dict)
             or not set(params) <= allowed
@@ -269,6 +269,10 @@ class PreferencesService:
             raise BackendError("invalid_params", "Invalid AI enabled preference")
         if "autoAuthorize" in params and type(params["autoAuthorize"]) is not bool:
             raise BackendError("invalid_params", "Invalid AI automatic-authorization preference")
+        # S11: the model comes from the fixed allowlist, so an unknown id is refused here and
+        # never reaches the settings file or a provider request.
+        if "model" in params and params["model"] not in AI_MODELS:
+            raise BackendError("invalid_params", "Choose a supported AI model")
         return self._ai_access(params)[0]
 
     def set_ai_credential(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -302,8 +306,10 @@ class PreferencesService:
                         changes = {
                             "enabled": params["enabled"],
                             # Model field name is snake_case; the protocol key is
-                            # camelCase (autoAuthorize) and maps here.
+                            # camelCase (autoAuthorize) and maps here. Both optional
+                            # keys keep their persisted value when the save omits them.
                             "auto_authorize": params.get("autoAuthorize", self.settings.ai.auto_authorize),
+                            "model": params.get("model", self.settings.ai.model),
                         }
                     self._save(self.settings.model_copy(update={"ai": self.settings.ai.model_copy(update=changes)}))
                 settings = self.settings.ai
@@ -319,6 +325,7 @@ class PreferencesService:
                         "enabled": settings.enabled,
                         "autoAuthorize": settings.auto_authorize,
                         "provider": settings.provider,
+                        "model": settings.model,
                         "credentialLabel": label,
                         "configured": settings.env_file is not None,
                     },

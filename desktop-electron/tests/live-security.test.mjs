@@ -18,3 +18,9 @@ test('saveAiSettings accepts an optional boolean autoAuthorize and rejects other
   assert.doesNotThrow(()=>validateRequest('saveAiSettings',{revision:track,enabled:true,autoAuthorize:false}));
   for(const bad of ['true',1,null,{}])assert.throws(()=>validateRequest('saveAiSettings',{revision:track,enabled:true,autoAuthorize:bad}));
 });
+
+test('saveAiSettings accepts only the fixed model allowlist and nothing else',()=>{
+  assert.deepEqual(validateRequest('saveAiSettings',{revision:track,enabled:true,model:'qwen3.6'}),{revision:track,enabled:true,model:'qwen3.6'});
+  for(const model of ['glm5.3-flash','deepseek-v4-flash'])assert.doesNotThrow(()=>validateRequest('saveAiSettings',{revision:track,enabled:true,model}));
+  for(const model of ['gpt-4o','','Qwen3.6',null,3,{}])assert.throws(()=>validateRequest('saveAiSettings',{revision:track,enabled:true,model}));
+});

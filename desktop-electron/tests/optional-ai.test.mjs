@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { OptionalAiController, AI_RECIPIENT, AI_CONNECTION_REQUEST } from '../.out/renderer/optional-ai.js';
 const uuid = '12345678-1234-4123-8123-123456789012';
-const status = (patch = {}) => ({ revision: 'a'.repeat(64), enabled: true, provider: 'nan', credentialLabel: 'apiIA.env', configured: true, autoAuthorize: false, recipient: AI_RECIPIENT, ...patch });
+const status = (patch = {}) => ({ revision: 'a'.repeat(64), enabled: true, provider: 'nan', model: 'deepseek-v4-flash', credentialLabel: 'apiIA.env', configured: true, autoAuthorize: false, recipient: AI_RECIPIENT, ...patch });
 const preview = (patch = {}) => ({ previewId: uuid, surface: 'library', recipient: AI_RECIPIENT, disclosure: ['Se enviará la petición y el vocabulario de géneros. No se envía audio.'], requestPreview: 'Busca house [ruta omitida]', ...patch });
 const result = (patch = {}) => ({ resultId: uuid, surface: 'library', kind: 'filters', title: 'Filtros sugeridos', text: 'Propuesta pendiente de revisión local', proposal: { genres: ['house'] }, canApply: true, ...patch });
 function fixture(overrides = {}) {
@@ -15,7 +15,7 @@ function fixture(overrides = {}) {
 }
 async function prepared(f) { await f.controller.load(); f.controller.setRequest('Busca house /Users/private'); await f.controller.prepare(); }
 test('status and configuration are local only, dirty draft survives navigation until save or discard', async () => {
-  const f = fixture(); await f.controller.load(); assert.deepEqual(f.calls, [['status']]); f.controller.setEnabled(false); assert.equal(f.controller.dirty, true); f.leave(); await f.controller.load(); assert.equal(f.calls.length, 1); assert.match(f.controller.error, /descarta/i); f.controller.discard(); assert.equal(f.controller.snapshot.enabled, true); assert.equal(f.controller.dirty, false); f.controller.setEnabled(false); await f.controller.save(); assert.deepEqual(f.calls.at(-1), ['save', { revision: 'a'.repeat(64), enabled: false, autoAuthorize: false }]); assert.equal(f.controller.dirty, false); assert.equal(f.applied.length, 0);
+  const f = fixture(); await f.controller.load(); assert.deepEqual(f.calls, [['status']]); f.controller.setEnabled(false); assert.equal(f.controller.dirty, true); f.leave(); await f.controller.load(); assert.equal(f.calls.length, 1); assert.match(f.controller.error, /descarta/i); f.controller.discard(); assert.equal(f.controller.snapshot.enabled, true); assert.equal(f.controller.dirty, false); f.controller.setEnabled(false); await f.controller.save(); assert.deepEqual(f.calls.at(-1), ['save', { revision: 'a'.repeat(64), enabled: false, autoAuthorize: false, model: 'deepseek-v4-flash' }]); assert.equal(f.controller.dirty, false); assert.equal(f.applied.length, 0);
 });
 test('credential source picker and removal use only current revision and never request provider data', async () => {
   const f = fixture(); await f.controller.load(); await f.controller.chooseCredential(); assert.deepEqual(f.calls.at(-1), ['choose', { revision: 'a'.repeat(64) }]); assert.equal(f.controller.snapshot.credentialLabel, 'seleccionado.env'); await f.controller.clearCredential(); assert.deepEqual(f.calls.at(-1), ['clear', { revision: 'b'.repeat(64) }]); assert.equal(f.controller.snapshot.configured, false); assert.equal(f.controller.canPrepare, false); assert.ok(!f.calls.some(([kind]) => kind === 'run'));
@@ -354,4 +354,25 @@ test('a core response without autoAuthorize is rejected fail-closed', async () =
   const f = fixture({ getAiStatus: async () => { const s = status(); delete s.autoAuthorize; return s; } });
   await f.controller.load();
   assert.equal(f.controller.base, null); assert.ok(f.controller.error);
+});
+test('the model is chosen from the fixed allowlist, saved with the settings and revokes a pending preview', async () => {
+  const f = fixture(); await f.controller.load();
+  assert.equal(f.controller.snapshot.model, 'deepseek-v4-flash');
+  // Nothing outside the allowlist can be drafted, not even by a mistyped value.
+  f.controller.setModel('gpt-4o'); assert.equal(f.controller.snapshot.model, 'deepseek-v4-flash'); assert.equal(f.controller.dirty, false);
+  await prepared(f); f.controller.setConsent(true); assert.ok(f.controller.preview);
+  f.controller.setModel('qwen3.6');
+  assert.equal(f.controller.snapshot.model, 'qwen3.6'); assert.equal(f.controller.dirty, true);
+  assert.equal(f.controller.preview, null); assert.equal(f.controller.consent, false);
+  await f.controller.save();
+  assert.deepEqual(f.calls.at(-1), ['save', { revision: 'a'.repeat(64), enabled: true, autoAuthorize: false, model: 'qwen3.6' }]);
+  assert.equal(f.controller.dirty, false); assert.equal(f.controller.snapshot.model, 'qwen3.6');
+  await f.controller.prepare(); f.controller.setModel('qwen3.6'); assert.ok(f.controller.preview);
+});
+
+test('a status naming a model outside the allowlist is refused instead of trusted', async () => {
+  const f = fixture({ getAiStatus: async () => status({ model: 'gpt-4o' }) });
+  await f.controller.load();
+  assert.equal(f.controller.snapshot, null);
+  assert.ok(f.controller.error);
 });

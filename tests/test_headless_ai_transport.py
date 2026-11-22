@@ -454,3 +454,58 @@ def test_a_transport_timeout_ends_the_call_with_its_own_spanish_facing_code(tmp_
             transport=timed_out,
         )
     assert failure.value.code == "ai_timeout"
+
+
+@pytest.mark.parametrize("model", ["deepseek-v4-flash", "glm5.3-flash", "qwen3.6"])
+def test_the_configured_model_travels_in_the_body_and_the_endpoint_stays_pinned(tmp_path, model):
+    """S11: only the model id varies, within the allowlist, and the recipient never does."""
+    from xfinaudio.headless.ai_transport import provider_request
+
+    path, binding = credential(tmp_path)
+    fake = FakeTransport()
+    provider_request(
+        AiSettings(enabled=True, env_file=path, model=model),
+        binding,
+        lambda send: client.chat("Synthetic prompt", transport=send),
+        transport=fake,
+    )
+    request = fake.requests[0]
+    assert json.loads(request.data)["model"] == model
+    assert request.full_url == client.DEFAULT_ENDPOINT
+
+
+def test_a_model_outside_the_allowlist_is_refused_before_any_transfer(tmp_path, monkeypatch):
+    """S11: a settings object built without validation cannot name another provider model."""
+    from xfinaudio.headless.ai_transport import provider_request
+
+    path, binding = credential(tmp_path)
+    widened = AiSettings(enabled=True, env_file=path).model_copy(update={"model": "gpt-4o"})
+    fake = FakeTransport()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("An unlisted model must not reach the credential or the network")
+
+    with monkeypatch.context() as block:
+        block.setattr(os, "read", forbidden)
+        with pytest.raises(BackendError) as failure:
+            provider_request(
+                widened, binding, lambda send: client.chat("Synthetic prompt", transport=send), transport=fake
+            )
+    assert failure.value.code == "ai_request_failed"
+    assert fake.requests == []
+
+
+def test_the_request_body_never_names_an_environment_model_inside_the_app(tmp_path, monkeypatch):
+    """S11: with an explicit request context the adapter sends the app's model, not NAN_MODEL."""
+    from xfinaudio.headless.ai_transport import provider_request
+
+    monkeypatch.setenv(client.MODEL_ENV, "mimo-v2.5")
+    path, binding = credential(tmp_path)
+    fake = FakeTransport()
+    provider_request(
+        AiSettings(enabled=True, env_file=path, model="glm5.3-flash"),
+        binding,
+        lambda send: client.chat("Synthetic prompt", transport=send),
+        transport=fake,
+    )
+    assert json.loads(fake.requests[0].data)["model"] == "glm5.3-flash"

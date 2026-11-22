@@ -18,13 +18,19 @@ Environment credentials take precedence over file credentials. Existing launcher
 - `XFINAUDIO_AI_ENABLED` controls the initial enable override
 - `XFINAUDIO_AI_ENV_FILE` controls the initial file override
 - `NAN_API_BASE` selects an absolute HTTPS endpoint; credential-bearing redirects are rejected
-- `NAN_MODEL` selects the provider model
+- `NAN_MODEL` selects the provider model for a core started outside the app; the packaged app removes it from the core environment, so the panel selector governs there
 
 The panel displays the effective initial enable/file overrides. **Guardar ajustes de IA** explicitly persists the selected preference and changes subsequent runtime requests immediately. A later relaunch still respects explicit launch overrides. Failed saves preserve prior preferences. No restart is required for AI changes; changing UI language retains its existing restart requirement.
 
 The panel also offers **No volver a preguntar en cada consulta** — persisted automatic authorization, off by default. With it on, an already prepared query is sent without the per-send native confirmation dialog; turn it off in the panel to restore the dialog. Preparing a query still shows its disclosure first, and every other explicit action (connection test, credential changes, save/export) keeps its own confirmation. The native confirm dialog itself offers the same checkbox; ticking it and confirming persists the preference best-effort, and only after the approved query has run, so the save never revokes the query it accompanies. That deferred save only turns the switch on: it keeps the enabled state and the chosen model it finds right before saving, never stores anything while the AI is disabled, and turning the switch off instead revokes the prepared query and starts a new conversation, because withdrawing consent is a real configuration change.
 
 A list conversation asks its own consent once, independently of that setting: the native dialog appears on the first turn of a conversation and later turns of the same conversation are sent without it, because each turn discloses the same class of data. The conversation is kept in memory only. Saving different AI settings or choosing a different credential file starts a new conversation, so consent is asked again; the same applies to **Nueva conversación**, to discarding the generated list and to restarting the app.
+
+## Choosing the model
+
+The panel offers **Modelo de Nan Builders**: a fixed list of the three models this app supports — **DeepSeek V4 Flash (recomendado)**, the default, **GLM 5.3 Flash** and **Qwen 3.6**. Only that model id varies; the recipient stays pinned to `https://api.nan.builders/v1/chat/completions`, so the panel offers no destination field. The choice is persisted with **Guardar ajustes de IA**, survives restarts and is used by every assistant request, including the connection test and every list-chat turn. The disclosure shown before a request names the model that request will carry.
+
+Changing the model changes what is sent, so it revokes a prepared preview and starts a new list conversation: consent is asked again. Toggling **No volver a preguntar en cada consulta** is not a request change and never revokes the turn it approves. A settings value naming any other model is refused with `invalid_params` and nothing is sent, so an unknown model is never transmitted.
 
 ## What is sent
 
@@ -96,6 +102,25 @@ sí revoca la consulta preparada y empieza una conversación nueva, porque retir
 consentimiento es un cambio real de configuración. La conversación de la lista no
 depende de esta casilla: pide consentimiento en su primer turno y lo omite en los
 siguientes de esa conversación, porque cada turno envía la misma clase de datos.
+
+El panel ofrece además **Modelo de Nan Builders**, una lista fija con los tres
+modelos admitidos: **DeepSeek V4 Flash (recomendado)** —el predeterminado—,
+**GLM 5.3 Flash** y **Qwen 3.6**. Solo cambia el identificador del modelo: el
+destinatario sigue fijado en `https://api.nan.builders/v1/chat/completions`, así
+que el panel no ofrece ningún campo de destino ni un nombre de modelo libre. La
+elección se guarda con **Guardar ajustes de IA**, se conserva al reiniciar y la
+usan todas las solicitudes del asistente, incluida la prueba de conexión y cada
+turno del Asistente de lista. El aviso previo a cada envío nombra el modelo que
+llevará esa solicitud.
+
+Cambiar el modelo cambia lo que se envía: revoca la vista previa preparada e
+inicia una conversación nueva, así que el consentimiento se pide de nuevo.
+Marcar **No volver a preguntar en cada consulta** no cambia la solicitud y nunca
+revoca el turno que aprueba. Un archivo de ajustes con cualquier otro modelo se
+rechaza con `invalid_params` y no se envía nada. `NAN_MODEL` sigue eligiendo el
+modelo cuando el núcleo se ejecuta fuera de la app; la app empaquetada lo elimina
+del entorno del núcleo, de modo que allí el selector es el único control del
+modelo.
 
 La clave del entorno tiene prioridad sobre la del archivo. `XFINAUDIO_AI_ENABLED`
 y `XFINAUDIO_AI_ENV_FILE` pueden establecer preferencias al iniciar;

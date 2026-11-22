@@ -280,3 +280,47 @@ def test_settings_file_never_persists_the_ai_key_value(tmp_path: Path) -> None:
     persisted = (tmp_path / "settings.json").read_text(encoding="utf-8")
     assert secret not in persisted
     assert str(env_file) in persisted
+
+
+def test_ai_settings_default_to_the_subscription_default_model() -> None:
+    # S11: the default is the model the app already used, pinned to the adapter's own default.
+    from xfinaudio.ai.nan_client import DEFAULT_MODEL
+
+    assert AiSettings().model == "deepseek-v4-flash"
+    assert AiSettings().model == DEFAULT_MODEL
+
+
+@pytest.mark.parametrize("model", ["deepseek-v4-flash", "glm5.3-flash", "qwen3.6"])
+def test_ai_settings_accepts_only_the_documented_allowlist(model: str) -> None:
+    assert AiSettings(model=model).model == model
+
+
+@pytest.mark.parametrize("model", ["gpt-4o", "deepseek-v4-flash ", "", "DEEPSEEK-V4-FLASH", "deepseek"])
+def test_ai_settings_refuses_a_model_outside_the_allowlist(model: str) -> None:
+    with pytest.raises(ValidationError, match="Unsupported AI model"):
+        AiSettings(model=model)
+
+
+def test_ai_settings_without_model_in_the_payload_load_the_default() -> None:
+    # An older settings file has no `model` key: it loads with the default instead of failing.
+    restored = AppSettings.model_validate(
+        {"settings_version": 1, "ai": {"enabled": True, "provider": "nan", "env_file": None}}
+    )
+
+    assert restored.ai.model == "deepseek-v4-flash"
+    assert restored.ai.enabled is True
+
+
+def test_ai_settings_refuse_an_unknown_model_in_a_settings_file() -> None:
+    with pytest.raises(ValidationError, match="Unsupported AI model"):
+        AppSettings.model_validate({"settings_version": 1, "ai": {"enabled": True, "model": "gpt-4o"}})
+
+
+def test_ai_model_choice_round_trips_through_the_repository(tmp_path: Path) -> None:
+    repository = SettingsRepository(tmp_path / "settings.json")
+    settings = AppSettings(ai=AiSettings(enabled=True, model="qwen3.6"))
+
+    repository.save(settings)
+
+    assert repository.load() == settings
+    assert '"model": "qwen3.6"' in (tmp_path / "settings.json").read_text(encoding="utf-8")
