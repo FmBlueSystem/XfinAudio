@@ -266,15 +266,19 @@ class GeneratedReview:
             return False
         return recorded[0] == current[0] and (recorded[1] is None or recorded[1] == current[1])
 
-    def _unchanged(self, binding: PlanBinding, current: SourceSnapshot) -> bool:
+    def _unchanged(self, binding: PlanBinding, current: SourceSnapshot, checked: frozenset[str] | None = None) -> bool:
         """Whether every recorded track is still what it was, and no track left the library.
 
-        A tag-only rewrite changes just the file identity: the plan binding accepts it
+        ``checked`` names the tracks the command acts on: only those decide, so a library
+        track that is in no variant may change without invalidating the plan (S15). A
+        tag-only rewrite changes just the file identity: the plan binding accepts it
         with the refreshed identity, as S20 accepts it for a review (S5). A path that
         was already unusable at capture time stays outside both sides of the check; a
         source that changed afterwards is still a change.
         """
         recorded, _, excluded = binding
+        if checked is not None:
+            return all(self._binding_same(recorded.get(path), current.get(path)) for path in checked)
         return set(recorded) | excluded == set(current) | excluded and all(
             self._binding_same(recorded[path], current.get(path)) for path in recorded
         )
@@ -288,16 +292,45 @@ class GeneratedReview:
             return True
         return current[1] is not None and same_recording(recorded[0], Path(recorded[0].path))
 
-    def _reverify(self, recorded: SourceSnapshot) -> SourceSnapshot:
+    def _reverify(self, recorded: SourceSnapshot, checked: frozenset[str] | None = None) -> SourceSnapshot:
         """Re-read a snapshot the way it was recorded: only where it recorded an identity.
 
         A generation snapshot covers the whole library, so its verification reads the whole
         library, and a track that appeared since is still a change. A restart records
         identities only for the tracks its list holds, so its verification reads those and
-        keeps every other library track with the record the scan stored.
+        keeps every other library track with the record the scan stored. ``checked`` names
+        the tracks the command acts on -- the tracks of the plan's variants -- so a
+        generation neither reads nor refuses anything over the rest of the library (S15).
         """
-        checked = frozenset(path for path, entry in recorded.items() if entry[1] is not None)
-        return self._build_sources(checked, unread=True)
+        read = frozenset(path for path, entry in recorded.items() if entry[1] is not None)
+        if checked is not None:
+            read &= checked
+        return self._reread(read)
+
+    def _reread(self, paths: frozenset[str]) -> SourceSnapshot:
+        """Read these identities from disk now, whatever the command already read (S15).
+
+        A plan guard must notice a file that changed after the command started, so unlike
+        the guards that reuse what the command already read, this one always reads the disk.
+        Inside a command it fills that command's snapshot path by path, so nothing else in
+        the command pays for those tracks again; outside one it is a plain read of them.
+        """
+        if not self._scope_depth:
+            return self._build_sources(paths, unread=True)
+        if self._snapshot is None:
+            self._snapshot = self._build_sources(paths, unread=True)
+            self._fresh = set(paths)
+            return self._snapshot
+        current = self._build_sources(paths)
+        for path in paths:
+            if path in current:
+                self._snapshot[path] = current[path]
+            else:
+                # A moved, deleted or unreadable source is absent, never trusted.
+                self._snapshot.pop(path, None)
+        if self._fresh is not None:
+            self._fresh |= paths
+        return self._snapshot
 
     def capture_plan(self, records: list[TrackRecord]) -> PlanBinding:
         """Capture the inputs before the engine runs, never on later selection."""
@@ -309,45 +342,72 @@ class GeneratedReview:
         self.sources = dict(sources)
         self._rewritten.clear()
         excluded = frozenset(track.path for track in records if track.path not in sources)
-        return sources, self._policy(), excluded
+        # The binding is captured as it is: the command's snapshot keeps being filled with
+        # the identities its guards read, and that must never rewrite what was captured.
+        return dict(sources), self._policy(), excluded
 
-    def bind_plan(self, plan_id: str, binding: PlanBinding) -> None:
-        """Publish only a plan whose complete candidate context is still current."""
-        if not self._unchanged(binding, self._reverify(binding[0])) or self._policy() != binding[1]:
+    def bind_plan(self, plan_id: str, binding: PlanBinding, checked: frozenset[str] | None = None) -> None:
+        """Publish only a plan whose complete candidate context is still current.
+
+        ``checked`` names the tracks the plan's variants list, so the publication reads and
+        compares those and not the whole library (S15).
+        """
+        if not self._unchanged(binding, self._reverify(binding[0], checked), checked) or self._policy() != binding[1]:
             raise BackendError("stale_plan", "Library sources or settings changed during preparation; regenerate")
         self.plan_id, self.plan_binding = plan_id, binding
 
-    def verify_plan(self, plan_id: str) -> None:
+    def verify_plan(self, plan_id: str, checked: frozenset[str] | None = None) -> None:
+        """Refuse a plan whose own tracks or settings changed, reading only ``checked``."""
         binding = self.plan_binding
         if (
             self.plan_id != plan_id
             or binding is None
-            or not self._unchanged(binding, self._reverify(binding[0]))
+            or not self._unchanged(binding, self._reverify(binding[0], checked), checked)
             or self._policy() != binding[1]
         ):
             raise BackendError("stale_plan", "The generation context changed; generate a current plan")
 
-    def bind(self, snapshot: dict[str, Any], *, saved: Playlist | None = None) -> dict[str, Any]:
+    def bind(
+        self,
+        snapshot: dict[str, Any],
+        *,
+        saved: Playlist | None = None,
+        checked: frozenset[str] | None = None,
+    ) -> dict[str, Any]:
         """Bind immediately after selecting a generated variant, before publication.
 
         ``saved`` is the playlist an opened saved list stays tied to (S3), and unlike a
         generated one it is stored with the review, so the list comes back after a restart.
+        ``checked`` is the variant this command chose: the final check reads those tracks
+        and nothing else (S15).
         """
         self.review_id = self.backend.review_id
         self.base = dict(snapshot)
         assert self.backend.plan_id is not None
         try:
-            self.verify_plan(self.backend.plan_id)
+            self.verify_plan(self.backend.plan_id, checked)
         except BackendError:
             self.backend._clear_review()
             self.review_id = None
             raise
         assert self.plan_binding is not None
-        self.sources, self.policy = dict(self.plan_binding[0]), self.plan_binding[1]
+        recorded, policy, _ = self.plan_binding
+        self.sources, self.policy = dict(recorded), policy
         # A generated list is never written back to a playlist it was not opened from.
         self.saved_playlist = saved
         self.removed = frozenset()
         self._rewritten.clear()
+        # The final check just read these tracks: the review records the identities it
+        # confirmed, and a file a tag write changed only in identity keeps the metadata
+        # this review recorded for it, exactly as the healing read of an edit would (S20).
+        for path in checked or frozenset():
+            confirmed = (self._snapshot or {}).get(path)
+            before = recorded.get(path)
+            if confirmed is None or before is None:
+                continue
+            if before[1] is not None and before[1] != confirmed[1]:
+                self._rewritten.add(path)
+            self.sources[path] = confirmed
         self.history.clear()
         self.future.clear()
         self.offers.clear()

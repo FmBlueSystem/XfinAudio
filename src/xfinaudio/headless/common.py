@@ -18,10 +18,17 @@ class BackendError(Exception):
 
 
 def _inside(path: Path, root: Path) -> bool:
+    """Whether ``path`` is an existing, canonical file path under ``root``.
+
+    The path is resolved once for both questions -- it stays under the root, and it is
+    already canonical -- because resolving costs a filesystem walk per call and the answer
+    is the same one (S15).
+    """
     try:
-        return path.resolve(strict=True).is_relative_to(root) and path.resolve(strict=True) == path
+        resolved = path.resolve(strict=True)
     except (OSError, RuntimeError):
         return False
+    return resolved.is_relative_to(root) and resolved == path
 
 
 def _public_track(track: TrackRecord) -> dict[str, Any]:

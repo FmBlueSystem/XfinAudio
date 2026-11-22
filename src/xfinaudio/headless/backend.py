@@ -55,6 +55,8 @@ if TYPE_CHECKING:
 
 Progress = Callable[[dict[str, Any]], None]
 LOGGER = logging.getLogger(__name__)
+# The commands that read the whole library once and only their own tracks after that (S15).
+SNAPSHOT_METHODS = frozenset({"prep.generate", "prep.select"})
 MIME_TYPES = {
     ".flac": "audio/flac",
     ".mp3": "audio/mpeg",
@@ -230,10 +232,10 @@ class HeadlessBackend:
         cancellation_token: ScanCancellationToken | None = None,
         progress: Progress | None = None,
     ) -> dict[str, Any]:
-        # The review and assistance commands read the library sources once, plus the one
-        # refresh their own final check asks for, and only for the tracks they act on;
+        # The review, assistance and generation commands read the library sources once,
+        # plus the one final check they act on, and only for the tracks they act on;
         # every other command reads them as before.
-        if isinstance(method, str) and (method in REVIEW_FIELDS or method in AI_FIELDS):
+        if isinstance(method, str) and (method in REVIEW_FIELDS or method in AI_FIELDS or method in SNAPSHOT_METHODS):
             with self.review_actions.snapshot_scope():
                 return self._execute(method, params, cancellation_token=cancellation_token, progress=progress)
         return self._execute(method, params, cancellation_token=cancellation_token, progress=progress)
@@ -527,9 +529,11 @@ class HeadlessBackend:
         if token.is_cancelled:
             raise BackendError("cancelled", "Preparation cancelled")
         plan_id = str(uuid4())
-        self.review_actions.bind_plan(plan_id, generation_binding)
+        self.review_actions.bind_plan(plan_id, generation_binding, self._variant_paths(plan))
         self.plan, self.plan_id = plan, plan_id
-        result = self._select({"planId": self.plan_id, "variant": "balanced"}, token)
+        # Every variant this generation publishes was computed from the same capture, so the
+        # selection that ends the command re-reads the tracks of all of them (S15).
+        result = self._select({"planId": self.plan_id, "variant": "balanced"}, token, every_variant=True)
         # The form the core accepted is remembered only after the generation fully
         # succeeded, so a refused or cancelled attempt never replaces it. A refused
         # write must not discard a set that was generated, so it only warns.
@@ -539,7 +543,28 @@ class HeadlessBackend:
             LOGGER.warning("Prep set generated but the form was not remembered (%s)", error)
         return result
 
-    def _select(self, params: dict[str, Any], token: ScanCancellationToken) -> dict[str, Any]:
+    @staticmethod
+    def _variant_paths(plan: PrepCopilotPlan, *, only: str | None = None) -> frozenset[str]:
+        """The library tracks the plan's variants list: the only ones a final check reads.
+
+        ``only`` names a single variant, for a selection that publishes just that one; without
+        it every variant counts, for a generation whose payload publishes all of them (S15).
+        """
+        return frozenset(
+            track.path
+            for variant in plan.variants
+            if only is None or variant.name == only
+            for track in variant.recommendation.ordered_tracks
+        )
+
+    def _select(
+        self, params: dict[str, Any], token: ScanCancellationToken, *, every_variant: bool = False
+    ) -> dict[str, Any]:
+        """Bind one variant of the current plan, reading only the tracks a command acts on.
+
+        ``every_variant`` is a generation's own last step: its payload publishes every
+        variant, so its final check reads the tracks of all of them (S15).
+        """
         plan_id, variant_name = params.get("planId"), params.get("variant")
         try:
             if not isinstance(plan_id, str) or str(UUID(plan_id)) != plan_id:
@@ -553,8 +578,10 @@ class HeadlessBackend:
         if token.is_cancelled:
             self.invalidate_review()
             raise BackendError("cancelled", "Preparation cancelled")
-        self.review_actions.verify_plan(plan_id)
         variant = next(item for item in self.plan.variants if item.name == variant_name)
+        # Only the tracks this command can put in the list decide whether the plan is stale.
+        checked = self._variant_paths(self.plan, only=None if every_variant else variant_name)
+        self.review_actions.verify_plan(plan_id, checked)
         applications = {
             item.name: build_prep_copilot_variant_application(cast(PrepCopilotVariantLike, item))
             for item in self.plan.variants
@@ -585,5 +612,6 @@ class HeadlessBackend:
                 "blockers": variant.blockers,
                 "qualityScore": self.review.quality_report.average_transition_score,
                 "readiness": self.review.readiness_report.status,
-            }
+            },
+            checked=checked,
         )
