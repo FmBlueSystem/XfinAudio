@@ -70,8 +70,13 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
   const actions = identify(make('div', '', 'editor-actions'), 'actions');
   const send = action('send', 'Enviar', () => { void controller.send(); }, true);
   const reset = action('reset', 'Nueva conversación', () => { void controller.newConversation(); });
-  actions.append(send, reset);
+  // S1: the turn's own way out. It is offered only while the chat is sending and stops exactly that turn.
+  const cancel = action('cancel', 'Cancelar', () => controller.cancel());
+  actions.append(send, reset, cancel);
   const pending = identify(make('p', '', 'review-notice'), 'pending'); pending.setAttribute('role', 'status');
+  // S3: what the system could not store about this turn, in plain Spanish.
+  const warnings = identify(make('ul', '', 'review-notice list-chat-warnings'), 'warnings');
+  warnings.setAttribute('role', 'status');
   const disclosure = identify(make('p', LIST_CHAT_DISCLOSURE, 'field-hint'), 'disclosure');
   // The disclosure of the turn that is already prepared, and the exact body on demand: both
   // read-only, and inspecting them never sends anything.
@@ -85,8 +90,11 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
   payload.append(payloadSummary, payloadBody, payloadHint);
   payload.addEventListener('toggle', () => { if (payload.open) void controller.inspectPayload(); });
   prepared.append(previewRecipient, previewLines, payload);
-  section.append(heading, error, notice, periodReport, auto, autoApplied, empty, examples, conversation, proposed, requestField, actions, pending, disclosure, prepared);
+  section.append(heading, error, notice, periodReport, auto, autoApplied, empty, examples, conversation, proposed, requestField, actions, pending, warnings, disclosure, prepared);
   root.replaceChildren(section);
+  // The elapsed seconds belong to a running turn, so the panel owns the timer that reads them.
+  let turnTimer: ReturnType<typeof globalThis.setInterval> | null = null;
+  const stopTurnTimer = (): void => { if (turnTimer !== null) globalThis.clearInterval(turnTimer); turnTimer = null; };
   const render = (): void => {
     error.hidden = !controller.error; error.textContent = controller.error;
     // After a batch the summary is the batch region's own line, and a period run says its own, so
@@ -122,6 +130,10 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
     request.disabled = !controller.requestEditable;
     if (request.value !== controller.request) request.value = controller.request;
     send.disabled = !controller.canSend; reset.disabled = !controller.canReset;
+    // S1: Cancelar exists only for a running turn; while it is ending it says so instead.
+    cancel.hidden = !controller.canCancelTurn;
+    cancel.disabled = !controller.canCancelTurn;
+    cancel.textContent = controller.cancelling ? 'Cancelando…' : 'Cancelar';
     proposed.hidden = controller.actions.length === 0 && controller.droppedActions === 0;
     proposedCards.replaceChildren(...controller.actions.map((item, index) => {
       const card = make('li', '', 'list-chat-action');
@@ -138,6 +150,16 @@ export function createListChatView(root: HTMLElement, controller: ListChatContro
     applyAll.hidden = controller.actions.length < 2;
     applyAll.disabled = !controller.canApplyAll;
     pending.hidden = !busy; pending.textContent = controller.pendingText;
+    // S1: while a turn runs the line names its phase and how long it has taken, and a timer
+    // redraws it every second; without a turn there is nothing to count and no timer to keep.
+    const seconds = controller.elapsedSeconds(Date.now());
+    const phase = controller.phaseText;
+    pending.textContent = phase === '' ? controller.pendingText : `${phase} · ${seconds ?? 0} s`;
+    if (seconds !== null) { if (turnTimer === null) turnTimer = globalThis.setInterval(render, 1000); }
+    else stopTurnTimer();
+    // S3: the host's notes are drawn as text, never as markup, and never claim a change.
+    warnings.hidden = controller.warnings.length === 0;
+    warnings.replaceChildren(...controller.warnings.map((line) => make('li', line)));
     prepared.hidden = !controller.preview;
     previewLines.replaceChildren();
     if (controller.preview) for (const line of controller.preview.disclosure) previewLines.append(make('li', line));

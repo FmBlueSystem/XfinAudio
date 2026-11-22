@@ -49,7 +49,7 @@ export interface OptionalAiApi {
   clearAiCredential(input: { revision: string }): Promise<AiStatus>;
   prepareAiRequest(input: { surface: AiSurface; request: string; context: AiContext }): Promise<AiPreview>;
   inspectAiPayload(input: { previewId: string }): Promise<AiPayload>;
-  runAiRequest(input: { previewId: string }): Promise<{ cancelled: boolean; result: AiResult | null }>;
+  runAiRequest(input: { previewId: string }): Promise<{ cancelled: boolean; result: AiResult | null; notes?: unknown }>;
   applyAiSuggestion(input: { resultId: string }): Promise<{ surface: AiSurface; data: Record<string, unknown> }>;
 }
 export interface OptionalAiHost {
@@ -136,6 +136,8 @@ const errors: Record<string, string> = {
   ai_credential_permissions: 'El archivo de credenciales permite acceso a otros usuarios. Restringe sus permisos con chmod 600 y vuelve a intentarlo.',
   ai_request_failed: 'No se pudo completar la consulta al proveedor. Los datos ya enviados no se pueden recuperar.',
   stale_ai: 'El contexto o la solicitud cambió. Prepara otra vista previa y revisa de nuevo el consentimiento.',
+  // S2: an expired provider call is its own outcome, never a generic failure or a silent hang.
+  ai_timeout: 'El proveedor no respondió a tiempo. La consulta terminó sin cambios en la lista; puedes reintentarla.',
   invalid_ai_response: 'La respuesta no cumple los límites esperados. No se ha aplicado ninguna propuesta.',
   ai_context_unavailable: 'Este contexto ya no está disponible. Vuelve a abrir la selección o pantalla de origen.',
   ai_context_too_large: 'El contexto supera el límite de esta consulta. Reduce la selección antes de continuar.',

@@ -466,6 +466,14 @@ listChat = listChatApi ? new ListChatController(listChatApi, {
     apply(value, current);
     if (!listChat?.error) showStatus('Asistente de lista', listChat?.notice || 'El asistente propone cambios y la app los aplica en tu equipo; puedes deshacerlos.');
   }, false, failure),
+  // S1: the panel's own Cancelar uses the app's routing; the host decides whether the running
+  // provider call can be stopped, so a turn that already left cannot be "cancelled" on paper.
+  cancel: () => {
+    gate.requestCancel();
+    operationStatus.describe(null, 'Consulta cancelada. Los datos ya enviados no se pueden recuperar.');
+    syncControls();
+    void api.cancelCurrent().catch(() => showStatus('No se pudo solicitar la cancelación', 'Espera a que termine la operación antes de intentarlo de nuevo', true));
+  },
 }) : undefined;
 /**
  * S1: the list chat is a bot button with a floating window on the review screen, not a section
@@ -1448,7 +1456,7 @@ async function perform<T>(kind: string, label: string, task: () => Promise<T>, a
         try { applyLibrary(await api.listLibrary()); }
         catch { showStatus('Escaneo cancelado', 'No se pudo actualizar la biblioteca; vuelve a elegir la carpeta para sincronizarla', true); }
       }
-      if (kind !== 'loudness' && kind !== 'profiles' && operationStatus.phase === 'running') showStatus('Operación cancelada', kind === 'ai' ? 'Los datos ya enviados no se pueden recuperar.' : kind === 'scan' ? 'Se conservan las pistas leídas hasta la cancelación' : 'Puedes volver a intentarlo cuando quieras', false, 'cancelled');
+      if (kind !== 'loudness' && kind !== 'profiles' && operationStatus.phase === 'running') showStatus(kind === 'ai-chat' ? 'Consulta cancelada' : 'Operación cancelada', kind === 'ai' ? 'Los datos ya enviados no se pueden recuperar.' : kind === 'ai-chat' ? 'La lista no cambió y la pregunta sigue en el campo para reintentarla.' : kind === 'scan' ? 'Se conservan las pistas leídas hasta la cancelación' : 'Puedes volver a intentarlo cuando quieras', false, 'cancelled');
     }
     gate.finish(token);
     const localApply = deferredAiApply; deferredAiApply = null;
@@ -1730,6 +1738,9 @@ if (api) {
       return;
     }
     if (!coreAvailable) return;
+    // S1: a chat turn has its own phases. The host announces the provider job after the system
+    // dialog is answered, and that announcement is what moves the panel to «esperando la IA».
+    if (activeKind === 'ai-chat' && event.operation === 'ai.run') { listChat?.askStarted(); return; }
     if (event.phase === 'started') {
       // The host announces the job the moment it starts. The running state already exists, so
       // this only adopts the job identity and keeps the bar honest until counts arrive.

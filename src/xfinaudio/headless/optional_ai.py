@@ -499,6 +499,20 @@ class OptionalAI:
         emit({"phase": "ai", "processedCount": 0, "totalCount": 1})
         if token.is_cancelled:
             return cancelled
+        # S1: cancelling a turn closes the call in flight, so the turn ends as cancelled and
+        # nothing of the late answer that arrives after it is ever published.
+        drains: list[Callable[[], None]] = []
+
+        def register_drain(close: Callable[[], None]) -> Callable[[], None]:
+            drains.append(close)
+            return lambda: drains.remove(close) if close in drains else None
+
+        def drain_all() -> None:
+            for close in tuple(drains):
+                close()
+
+        subscribe = getattr(token, "subscribe", None)
+        unsubscribe = subscribe(drain_all) if callable(subscribe) else None
         try:
             answer = provider_request(
                 pending.reference.settings,
@@ -506,10 +520,16 @@ class OptionalAI:
                 lambda send: self._answer(pending.context, send, self.backend),
                 transport=self.transport,
                 surface=pending.context.surface,
+                register_drain=register_drain,
             )
         except BackendError as error:
+            if token.is_cancelled:
+                return cancelled
             self._log("turn_failed", message=pending.context.request, errorCode=error.code)
             raise
+        finally:
+            if unsubscribe is not None:
+                unsubscribe()
         if token.is_cancelled:
             return cancelled
         if pending.epoch != self._epoch:

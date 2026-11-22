@@ -114,12 +114,13 @@ const optionalAi=new OptionalAiHost({
     if(result.checkboxChecked){
       // Best-effort persistence of the explicit opt-out chosen in the dialog.
       // A stale revision only means Ajustes must save it again; the current
-      // confirmed send proceeds either way.
-      try{const status=await run('ai.status',{});await run('ai.settings.update',{revision:status.revision,enabled:true,autoAuthorize:true});}catch{/* Ajustes remains the reliable path. */}
+      // confirmed send proceeds either way, and S3 says in the chat what was
+      // not stored instead of swallowing the failure.
+      try{const status=await run('ai.status',{});await run('ai.settings.update',{revision:status.revision,enabled:true,autoAuthorize:true});}catch{optionalAi.note('dialog_preference_not_saved');/* Ajustes remains the reliable path. */}
     }
     return true;
   },
-  autoAuthorize:async()=>{try{const status=await run('ai.status',{});return status.autoAuthorize===true;}catch{return false;}},
+  autoAuthorize:async()=>{try{const status=await run('ai.status',{});return status.autoAuthorize===true;}catch{optionalAi.note('auto_authorize_unavailable');return false;}},
   cancel:()=>current?.method==='ai.run'?core.request('cancel',{jobId:current.id}):Promise.resolve({cancelled:false}),
   isClosing:()=>closeFlow.isClosing,
 });

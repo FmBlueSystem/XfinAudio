@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextvars
 import math
 import os
 import stat
+import threading
 import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -21,6 +23,8 @@ from xfinaudio.headless.serato_safety import open_directory, source_identity
 
 MAX_CREDENTIAL_BYTES = MAX_REQUEST_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
+#: The code a call reaches the app with when its own budget expired (S2).
+AI_TIMEOUT_CODE = "ai_timeout"
 
 #: Group or other permission bits. A credential file that grants any of them is
 #: readable (or writable) by another local account, so it is refused unread.
@@ -116,6 +120,13 @@ def _read_key(binding: CredentialBinding) -> str:
         ) from None
 
 
+def _timeout_message(timeout: float) -> str:
+    return (
+        f"The provider did not answer within the {timeout:g}s this call is allowed; "
+        "the turn ended without applying anything"
+    )
+
+
 class _BoundedResponse:
     def __init__(self, response: Any) -> None:
         self._response = response
@@ -130,9 +141,35 @@ class _BoundedResponse:
         return data
 
 
-def _bounded_transport(transport: Transport | None, maximum_timeout: int) -> Transport:
+class _BufferedResponse:
+    """The bounded body of one call, served after the call's own deadline was enforced."""
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+        self._offset = 0
+
+    def read(self, size: int = -1) -> bytes:
+        end = len(self._body) if size < 0 else min(len(self._body), self._offset + size)
+        data = self._body[self._offset : end]
+        self._offset = end
+        return data
+
+
+#: A drain listener receives the way to close the call in flight and returns how to retire it.
+Drain = Callable[[Callable[[], None]], Callable[[], None]]
+
+
+def _bounded_transport(transport: Transport | None, maximum_timeout: int, register: Drain | None = None) -> Transport:
+    """Wrap one provider call with the app's own bound (S2).
+
+    The transport is entered and its body read in a worker thread so the deadline belongs to
+    this app: a transport that ignores the ``timeout`` it is given (a hung socket, a provider that
+    drips bytes) is cut at the budget instead of holding the turn forever. The thread is a daemon
+    and the response is closed by the cancellation drain, so neither outlives the turn.
+    """
+
     @contextmanager
-    def send(request: urllib.request.Request, *, timeout: float) -> Iterator[_BoundedResponse]:
+    def send(request: urllib.request.Request, *, timeout: float) -> Iterator[_BufferedResponse]:
         if (
             not isinstance(request, urllib.request.Request)
             or request.full_url != DEFAULT_ENDPOINT
@@ -144,8 +181,46 @@ def _bounded_transport(transport: Transport | None, maximum_timeout: int) -> Tra
             or not math.isfinite(timeout)
         ):
             raise BackendError("ai_request_failed", "The provider request exceeds the permitted scope")
-        with (transport or nan_client._urlopen)(request, timeout=timeout) as response:
-            yield _BoundedResponse(response)
+        outcome: list[object] = []
+        in_flight: list[Any] = []
+
+        def close() -> None:
+            response = in_flight[0] if in_flight else None
+            if response is not None:
+                response.close()
+
+        def call() -> None:
+            try:
+                with (transport or nan_client._urlopen)(request, timeout=timeout) as response:
+                    in_flight.append(response)
+                    outcome.append(_BoundedResponse(response).read())
+            except BaseException as failure:  # re-raised in the caller's thread, never lost
+                outcome.append(failure)
+
+        retire = register(close) if register is not None else (lambda: None)
+        try:
+            # The request context is a ContextVar, and a plain thread starts without it: the
+            # worker must run inside a copy, or the pinned endpoint and credential provider
+            # would be missing from the very call they authorize.
+            worker = threading.Thread(
+                target=contextvars.copy_context().run, args=(call,), name="xfinaudio-provider-call", daemon=True
+            )
+            worker.start()
+            worker.join(timeout)
+            if worker.is_alive():
+                raise BackendError(AI_TIMEOUT_CODE, _timeout_message(timeout))
+        finally:
+            retire()
+        if not outcome:
+            raise BackendError("ai_request_failed", "The provider request ended without a response")
+        result = outcome[0]
+        if isinstance(result, TimeoutError):
+            raise BackendError(AI_TIMEOUT_CODE, _timeout_message(timeout))
+        if isinstance(result, BaseException):
+            raise result
+        if not isinstance(result, bytes):
+            raise BackendError("ai_request_failed", "The provider response could not be read")
+        yield _BufferedResponse(result)
 
     return send
 
@@ -157,6 +232,7 @@ def provider_request(
     transport: Transport | None = None,
     *,
     surface: str = "library",
+    register_drain: Drain | None = None,
 ) -> _Result:
     """Run one confirmed callback using only its explicit settings and fixed recipient."""
     if not isinstance(surface, str) or surface not in AI_REQUEST_TIMEOUT_SECONDS:
@@ -172,7 +248,7 @@ def provider_request(
         with request_context(
             enabled=True, key_provider=lambda: _read_key(binding), endpoint=DEFAULT_ENDPOINT, model=DEFAULT_MODEL
         ):
-            return callback(_bounded_transport(transport, AI_REQUEST_TIMEOUT_SECONDS[surface]))
+            return callback(_bounded_transport(transport, AI_REQUEST_TIMEOUT_SECONDS[surface], register_drain))
     except BackendError:
         raise
     except Exception:

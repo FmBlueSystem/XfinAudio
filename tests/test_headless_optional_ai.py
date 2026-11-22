@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 from dataclasses import fields, is_dataclass
 from uuid import uuid4
 
@@ -832,3 +833,93 @@ def test_auto_authorize_is_default_off_and_persists_across_facade_restarts(fixtu
 
     reborn = OptionalAI(backend, transport=transport)
     assert call(reborn, "ai.status")["autoAuthorize"] is True
+
+
+@pytest.fixture
+def small_chat_budget(monkeypatch):
+    """S2: a provider call budget small enough for a test to outlive."""
+    from types import MappingProxyType
+
+    from xfinaudio.headless import ai_execution, ai_transport
+
+    budget = MappingProxyType({"chat": 0.25})
+    monkeypatch.setattr(ai_execution, "AI_REQUEST_TIMEOUT_SECONDS", budget)
+    monkeypatch.setattr(ai_transport, "AI_REQUEST_TIMEOUT_SECONDS", budget)
+
+
+def test_an_expired_provider_call_ends_the_chat_turn_with_a_timeout(fixture, small_chat_budget):
+    """S2: the turn ends with a timeout code and publishes nothing; the core stays up."""
+    import threading
+    import time
+
+    facade, transport, backend, _, root = fixture
+    configure(facade, root)
+    release = threading.Event()
+    transport.on_send = lambda: release.wait(1.5)
+    preview = prepare(facade, surface="chat", context={"reviewId": backend.review_id})
+    started = time.monotonic()
+    try:
+        with pytest.raises(BackendError) as failure:
+            run(facade, preview)
+    finally:
+        release.set()
+    assert failure.value.code == "ai_timeout"
+    assert time.monotonic() - started < 1.0, "the call ends at its budget, not when the provider answers"
+    assert not facade.results
+    assert call(facade, "ai.chat.history")["conversation"] == []
+
+
+class BlockingResponse:
+    """A response whose read blocks until the test releases it, like a provider that never answers."""
+
+    def __init__(self, release: threading.Event) -> None:
+        self.release = release
+        self.closed = False
+        self.reads = 0
+
+    def read(self, size: int = -1) -> bytes:
+        self.reads += 1
+        self.release.wait(2)
+        if self.closed:
+            raise ValueError("read of closed response")
+        return b'{"choices":[{"message":{"content":"late answer"}}]}'
+
+    def close(self) -> None:
+        self.closed = True
+
+    def __enter__(self) -> BlockingResponse:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+
+def test_cancelling_during_the_provider_call_ends_the_turn_as_cancelled(fixture, monkeypatch):
+    """S1: cancellation closes the running call, so the turn ends cancelled and publishes nothing."""
+    import threading
+
+    from xfinaudio.headless.cancellation import JobCancellationToken
+
+    facade, _, backend, _, root = fixture
+    configure(facade, root)
+    release = threading.Event()
+    response = BlockingResponse(release)
+    facade.transport = lambda request, *, timeout: response
+    preview = prepare(facade, surface="chat", context={"reviewId": backend.review_id})
+    token = JobCancellationToken()
+
+    def cancel_and_release() -> None:
+        token.cancel()
+        release.set()
+
+    timer = threading.Timer(0.15, cancel_and_release)
+    timer.start()
+    try:
+        result = run(facade, preview, token=token)
+    finally:
+        timer.cancel()
+        release.set()
+    assert result == {"cancelled": True, "result": None}
+    assert response.closed, "the running provider call is closed instead of being left to finish"
+    assert not facade.results
+    assert call(facade, "ai.chat.history")["conversation"] == []

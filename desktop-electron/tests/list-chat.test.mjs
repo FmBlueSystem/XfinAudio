@@ -763,3 +763,148 @@ test('S15: a new conversation or another review retires the period report', asyn
   await f.controller.newConversation();
   assert.equal(f.controller.period, null);
 });
+/** A turn whose prepare and provider call each stay open until the test releases them. */
+function openTurn(overrides = {}, hostOverrides = {}) {
+  const calls = []; const cancelled = []; const gate = {};
+  const api = {
+    aiChatHistory: async () => { calls.push(['history']); return { conversation: [], actions: [] }; },
+    aiChatReset: async () => { calls.push(['reset']); return { conversation: [], actions: [] }; },
+    prepareAiRequest: (input) => { calls.push(['prepare', input]); return new Promise((resolve) => { gate.prepare = () => resolve(preview(input)); }); },
+    runAiRequest: (input) => { calls.push(['run', input]); return new Promise((resolve) => { gate.run = (value = { cancelled: false, result: chatResult() }) => resolve(value); }); },
+    inspectAiPayload: async () => retained,
+    aiChatApply: async () => { throw new Error('unreachable'); },
+    ...overrides,
+  };
+  const controller = new ListChatController(api, {
+    canAct: () => true, changed: () => {},
+    perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } },
+    cancel: () => cancelled.push('cancel'), ...hostOverrides,
+  });
+  controller.setReview(uuid);
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  return { controller, calls, cancelled, gate, tick };
+}
+test('S1: a running turn names its phase and how long it has been running', async () => {
+  const realNow = Date.now; let clock = 1000; Date.now = () => clock;
+  const f = openTurn();
+  try {
+    f.controller.setRequest(question);
+    const turn = f.controller.send();
+    await f.tick();
+    assert.equal(f.controller.pending, 'send');
+    assert.equal(f.controller.phase, 'preparing');
+    assert.equal(f.controller.phaseText, 'Preparando la solicitud…');
+    assert.equal(f.controller.elapsedSeconds(1000), 0);
+    clock = 5400;
+    assert.equal(f.controller.elapsedSeconds(5400), 4, 'the panel counts whole seconds it has been waiting');
+    assert.equal(f.controller.canCancelTurn, true);
+    f.gate.prepare();
+    await f.tick();
+    assert.equal(f.controller.phase, 'confirming');
+    assert.equal(f.controller.phaseText, 'Esperando el diálogo de confirmación del sistema…');
+    f.controller.askStarted();
+    assert.equal(f.controller.phase, 'waiting');
+    assert.equal(f.controller.phaseText, 'Esperando la respuesta de la IA…');
+    f.gate.run();
+    await turn;
+    assert.equal(f.controller.phase, null);
+    assert.equal(f.controller.elapsedSeconds(clock), null);
+    assert.equal(f.controller.canCancelTurn, false);
+    assert.deepEqual(f.calls.filter(([kind]) => kind === 'run'), [['run', { previewId: uuid }]]);
+  } finally { Date.now = realNow; }
+});
+test('S1: cancelling ends the turn, says so in Spanish and ignores the answer that arrives later', async () => {
+  const f = openTurn();
+  f.controller.setRequest(question);
+  const turn = f.controller.send();
+  await f.tick();
+  assert.equal(f.controller.notice, '');
+  f.gate.prepare();
+  await f.tick();
+  f.gate.run();
+  f.controller.askStarted();
+  assert.equal(f.controller.phase, 'waiting');
+  f.controller.cancel();
+  assert.deepEqual(f.cancelled, ['cancel'], 'the app is asked to stop the turn');
+  assert.equal(f.controller.cancelling, true);
+  assert.equal(f.controller.pendingText, 'Cancelando la consulta…');
+  assert.equal(f.controller.canCancelTurn, false);
+  assert.equal(f.controller.notice, 'Consulta cancelada. La lista no cambió.');
+  assert.equal(f.controller.phase, null);
+  // The provider answers the turn nobody waits for any more: it is ignored.
+  f.gate.run();
+  await turn;
+  assert.deepEqual(f.controller.messages, [], 'nothing is appended after a cancelled turn');
+  assert.deepEqual(f.controller.actions, [], 'the list stays untouched');
+  assert.equal(f.controller.notice, 'Consulta cancelada. La lista no cambió.');
+  assert.equal(f.controller.error, '');
+  assert.equal(f.controller.pending, null);
+  assert.equal(f.controller.cancelling, false);
+  assert.equal(f.controller.request, question, 'the question stays in the box for a retry');
+});
+test('S1: cancelling before the provider is contacted never contacts it', async () => {
+  const f = openTurn();
+  f.controller.setRequest(question);
+  const turn = f.controller.send();
+  await f.tick();
+  f.controller.cancel();
+  f.gate.prepare();
+  await turn;
+  assert.deepEqual(f.calls.map(([kind]) => kind), ['prepare'], 'a cancelled turn sends nothing');
+  assert.deepEqual(f.controller.messages, []);
+  assert.equal(f.controller.notice, 'Consulta cancelada. La lista no cambió.');
+});
+test('S3: an automatic batch that applied nothing says so instead of staying silent', async () => {
+  const f = fixture({
+    runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [moveAction()] }) }),
+    aiChatApply: async () => { throw Object.assign(new Error('[stale_ai] stale'), { code: 'stale_ai' }); },
+  });
+  f.controller.setRequest(question);
+  await f.controller.send();
+  assert.equal(f.controller.autoApply, true);
+  assert.equal(f.controller.notice, 'No se aplicó ningún cambio de esta respuesta.');
+});
+test('S3: a reply that only proposes the screen-owned alternative says nothing was applied, because nothing was', async () => {
+  const f = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult({ actions: [variantAction()] }) }) });
+  f.controller.setRequest(question);
+  await f.controller.send();
+  assert.equal(f.controller.notice, '', 'the card itself says the change is still pending');
+  assert.equal(f.controller.actions.length, 1, 'the alternative stays as a card');
+});
+test('S3: an apply the panel refuses says why in the chat', async () => {
+  const stored = { aiChatHistory: async () => ({ conversation: conversation(question, reply), actions: [moveAction()] }) };
+  const f = fixture(stored);
+  await f.controller.load();
+  f.block();
+  await f.controller.apply(moveAction().actionId);
+  assert.equal(f.controller.notice, 'No se aplicó: espera a que termine la operación en curso.');
+  const g = fixture(stored);
+  await g.controller.load();
+  await g.controller.apply(uuid);
+  assert.equal(g.controller.notice, 'Ese cambio ya no está disponible: la última respuesta lo reemplazó.');
+  assert.deepEqual(g.controller.actions, [moveAction()], 'the cards stay as they were');
+});
+test('S2: a provider call that expired says so in Spanish and keeps the question', async () => {
+  const f = fixture({ runAiRequest: async () => { throw Object.assign(new Error('[ai_timeout] timed out'), { code: 'ai_timeout' }); } });
+  f.controller.setRequest(question);
+  await f.controller.send();
+  assert.equal(f.controller.error, 'El proveedor no respondió a tiempo. La consulta terminó sin cambios en la lista; puedes reintentarla.');
+  assert.equal(f.controller.request, question, 'the question stays for a retry');
+  assert.deepEqual(f.controller.messages, []);
+});
+test('S3: what the system could not store is shown beside the answer in Spanish', async () => {
+  const f = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult(), notes: ['dialog_preference_not_saved', 'auto_authorize_unavailable'] }) });
+  f.controller.setRequest(question);
+  await f.controller.send();
+  assert.deepEqual(f.controller.warnings, [
+    'No se pudo guardar «No volver a preguntar en cada consulta»; puedes activarlo en Ajustes.',
+    'No se pudo comprobar la autorización automática; la app volverá a pedir confirmación.',
+  ]);
+  assert.equal(f.controller.notice, '');
+});
+test('S3: an answer the host marks with an unknown note appends nothing', async () => {
+  const f = fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult(), notes: ['invented'] }) });
+  f.controller.setRequest(question);
+  await f.controller.send();
+  assert.deepEqual(f.controller.warnings, []);
+});
