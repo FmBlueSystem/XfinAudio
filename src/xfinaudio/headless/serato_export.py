@@ -9,7 +9,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import uuid4
 
 from xfinaudio.exporting.serato_crate import (
@@ -59,10 +59,14 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 # Every crate of a tree is bounded like the source: the same 500 track references.
 MAX_CRATE_TRACK_REFERENCES = 500
+# The three split choices the export screen offers; an absent one is today's contract.
+PreviewSplitMode = Literal["none", "every", "phases"]
+PREVIEW_SPLIT_MODES: tuple[str, ...] = ("none", "every", "phases")
+_SPLIT_MODE_ERROR = "split mode must be none, every or phases"
 SERATO_FIELDS = {
     "serato.registerDestination": {"seratoRoot"},
     "serato.suggestDestination": set(),
-    "serato.preview": {"source", "destinationId", "name", "segmentSize"},
+    "serato.preview": {"source", "destinationId", "name", "segmentSize", "splitMode"},
     "serato.confirmation": {"previewId"},
     "serato.commit": {"previewId", "confirmed"},
     "serato.receipt.resolve": {"receiptId"},
@@ -107,6 +111,13 @@ class Preview:
     parents: tuple[Path, ...] = ()
     # The whole tree of a split export, parent first; empty when the export writes one crate.
     crates: tuple[PreviewCrate, ...] = ()
+
+
+def validate_preview_split_mode(value: object) -> PreviewSplitMode:
+    """Refuse a split mode the options screen cannot offer: none, every or phases."""
+    if not isinstance(value, str) or value not in PREVIEW_SPLIT_MODES:
+        raise BackendError("invalid_params", _SPLIT_MODE_ERROR)
+    return cast(PreviewSplitMode, value)
 
 
 def _approved_crate(plan: SeratoExportPlan, destination: Destination) -> PreviewCrate:
@@ -195,7 +206,7 @@ class SeratoExporter:
         mapping[key] = value
 
     def execute(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        optional = {"name", "segmentSize"} if method == "serato.preview" else set()
+        optional = {"name", "segmentSize", "splitMode"} if method == "serato.preview" else set()
         required = SERATO_FIELDS[method] - optional
         if not required <= set(params):
             raise BackendError("invalid_params", "Missing export parameters")
@@ -267,17 +278,27 @@ class SeratoExporter:
         # An absent or empty name means the app names the crate: a generated set is named
         # from its strategy and the export date, inside the destination folder it writes to.
         name = crate_name(params["name"]) if params.get("name") else None
+        # S4: the screen splits by segments, by the set's own energy phases, or not at all.
+        # An absent mode is today's contract: the tramo size alone decides.
+        split_mode: PreviewSplitMode | None = None
+        if params.get("splitMode") is not None:
+            split_mode = validate_preview_split_mode(params["splitMode"])
         # A split size is only present when the DJ chose one on the options screen; absent
         # or null keeps today's single crate. An invalid size is refused before any work.
         segment_size = None
-        if params.get("segmentSize") is not None:
+        if params.get("segmentSize") is not None and split_mode != "phases":
+            # A phase split owes nothing to the tramo size the screen still holds (S4).
             try:
                 segment_size = validate_segment_size(params["segmentSize"])
             except ValueError as error:
                 raise BackendError("invalid_params", str(error)) from error
-            if isinstance(params["source"], dict) and params["source"].get("kind") == "metadata":
-                # A metadata worklist keeps its own naming: it is a worklist, not a set.
-                raise BackendError("invalid_params", "Segment size applies to a set export, not a metadata worklist")
+        # A metadata worklist keeps its own naming: it is a worklist, not a set, so neither
+        # a tramo size nor an energy split applies to it.
+        worklist = isinstance(params["source"], dict) and params["source"].get("kind") == "metadata"
+        if worklist and segment_size is not None:
+            raise BackendError("invalid_params", "Segment size applies to a set export, not a metadata worklist")
+        if worklist and split_mode == "phases":
+            raise BackendError("invalid_params", "Energy phases apply to a set export, not a metadata worklist")
         source = load_source(self.backend, params["source"])
         destination = self.destinations.get(opaque_id(params["destinationId"]))
         if destination is None:
@@ -320,7 +341,16 @@ class SeratoExporter:
                                     "backup_path": target_path.with_name(f"{target_path.name}.bak"),
                                 }
                             )
-                    elif segment_size is not None:
+                    elif split_mode == "phases":
+                        # One confirmation covers the tree: the parent with every track, then
+                        # one child per energy phase of the set in the same reviewed order,
+                        # or the parent alone with the reason when it has no phases (S4, S5).
+                        assert source.recommendation is not None
+                        tree = plan_serato_crate_tree(
+                            source.recommendation, library, crate_name=name, split_mode="phases"
+                        )
+                        plan = tree.parent
+                    elif segment_size is not None and split_mode != "none":
                         # One confirmation covers the tree: the parent with every track,
                         # then one child per segment in the same reviewed order.
                         assert source.recommendation is not None
@@ -375,7 +405,7 @@ class SeratoExporter:
             "parentsToCreate": [path.stem for path in parents],
             "backup": {"required": any(crate.target[0] is not None for crate in crates)},
         }
-        if segment_size is not None:
+        if (segment_size is not None and split_mode != "none") or (tree is not None and tree.children):
             # A split export names every crate to create or replace, parent first.
             summary["crates"] = [
                 {
@@ -385,6 +415,9 @@ class SeratoExporter:
                 }
                 for crate in crates
             ]
+        if tree is not None and tree.phase_reason is not None:
+            # S5: no phases were invented, the parent is exported alone and the preview says why.
+            summary["phaseReason"] = tree.phase_reason
         self._retain(
             self.previews,
             preview_id,

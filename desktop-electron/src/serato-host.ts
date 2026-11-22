@@ -1,6 +1,6 @@
 import path from 'node:path';
 import {lstat,realpath} from 'node:fs/promises';
-export interface Preview {previewId:string;filename:string;destinationLabel:string;trackCount:number;readiness:string;warnings:string[];blockers:string[];canCommit:boolean;parentsToCreate:string[];backup:{required:boolean};crates?:TreeCrate[];}
+export interface Preview {previewId:string;filename:string;destinationLabel:string;trackCount:number;readiness:string;warnings:string[];blockers:string[];canCommit:boolean;parentsToCreate:string[];backup:{required:boolean};crates?:TreeCrate[];phaseReason?:string;}
 export interface TreeCrate {name:string;trackCount:number;action:string;}
 export interface Receipt {receiptId:string;filename:string;destinationLabel:string;trackCount:number;validated:true;backupCreated:boolean;parentsCreated:string[];files?:{name:string;trackCount:number}[];}
 /** What one quick export answered: a receipt, a block, a missing destination, or a native cancellation. */
