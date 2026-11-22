@@ -270,7 +270,7 @@ summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
 #library-tools .surface { padding: 16px; margin-top: 12px; }
 #library-tools h3 { margin-top: 0; }
 #page-review > .section-heading { margin-bottom: 20px; }
-#export-review { margin: 0 0 16px 10px; }
+#export-review, #export-review-options { margin: 0 0 16px 10px; }
 #review-table { max-height: min(52vh, 620px); }
 #review-save .save-bar { margin-top: 14px; }
 .operation-status { margin-top: 12px; padding: 10px 14px; }
