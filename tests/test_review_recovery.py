@@ -10,7 +10,10 @@ from typing import Any
 import pytest
 
 from tests.test_headless_prep_parity import identity, seeded
-from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, SpectralProfile
+from xfinaudio.audio.danceability import DanceabilityProfile
+from xfinaudio.audio.loudness import LoudnessProfile, LoudnessStatus
+from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, EdgeSpectralProfile, SpectralProfile
+from xfinaudio.audio.tonal_profile import TonalProfile
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.common import BackendError
 from xfinaudio.headless.review_store import FIELDS, store_path
@@ -142,6 +145,60 @@ def analyzed(backend: HeadlessBackend, records: list[Any]) -> None:
         backend.repository.update_spectral_profile(record.path, profile)
 
 
+def _spectral(variant: int) -> SpectralProfile:
+    return SpectralProfile(
+        red_ratio=0.5 + 0.01 * variant,
+        green_ratio=0.3,
+        blue_ratio=0.2 - 0.01 * variant,
+        centroid_hz=1000 + variant,
+        rolloff_hz=2000 + variant,
+        dominant_color="BLUE",
+        analysis_version=CURRENT_ANALYSIS_VERSION,
+    )
+
+
+PROFILE_KINDS = ("spectral", "danceability", "edge", "loudness", "tonal")
+
+
+def refined(backend: HeadlessBackend, path: str, kind: str, variant: int) -> None:
+    """Rewrite one derived analysis profile of a listed track, as a later analysis pass does (S1)."""
+    if kind == "spectral":
+        assert backend.repository.update_spectral_profile(path, _spectral(variant))
+    elif kind == "danceability":
+        assert backend.repository.update_danceability_profile(
+            path,
+            DanceabilityProfile(
+                score=0.4 + 0.1 * variant,
+                pulse_clarity=0.5,
+                tempo_confidence=0.6,
+                percussive_ratio=0.7,
+            ),
+        )
+    elif kind == "edge":
+        assert backend.repository.update_edge_spectral_profile(
+            path, EdgeSpectralProfile(intro=_spectral(variant), outro=_spectral(variant))
+        )
+    elif kind == "loudness":
+        info = Path(path).stat()
+        assert backend.repository.update_loudness_profile(
+            path,
+            LoudnessProfile(
+                lufs_integrated=-9.0 - variant,
+                loudness_range_lra=6.0,
+                true_peak_dbtp=-1.0,
+                status=LoudnessStatus.MEASURED,
+                engine_fingerprint="test-engine",
+                source_mtime_ns=info.st_mtime_ns,
+                source_size_bytes=info.st_size,
+            ),
+        )
+    else:
+        assert backend.repository.update_tonal_profile(
+            path,
+            TonalProfile(tiv=(1.0, 0.0, 0.0, 0.0, 0.0, 10.0 * variant), tonal_coherence=0.5),
+        )
+
+
 def test_a_changed_library_drops_the_stored_review_with_an_explicit_notice(tmp_path: Path) -> None:
     backend, records, _ = generated(tmp_path)
     backend.repository.save_scan_results([records[0].model_copy(update={"bpm": 126}), *records[1:]])
@@ -170,6 +227,76 @@ def test_a_list_track_changed_on_disk_drops_the_stored_review(tmp_path: Path, mu
         target.unlink()
     restarted = stored_backend(backend)
     assert restarted.execute("review.resume", {}) == {"available": False, "review": None, "dropped": True}
+
+
+@pytest.mark.parametrize("kind", PROFILE_KINDS)
+def test_a_list_recovered_after_only_its_analysis_data_changed_uses_the_fresh_records(
+    tmp_path: Path, kind: str
+) -> None:
+    backend, records = seeded(tmp_path, 8)
+    analyzed(backend, records)
+    for record in records:
+        refined(backend, record.path, kind, 0)
+    result = backend.execute("prep.generate", {"targetTrackCount": 4})
+    order = [track["id"] for track in result["tracks"]]
+    listed = backend.review.recommendation.ordered_tracks
+    # A later analysis pass rewrites one derived profile of a listed track: the file,
+    # its tags and its recording identity are untouched.
+    refined(backend, listed[1].path, kind, 1)
+    restarted = stored_backend(backend)
+    resumed = restarted.execute("review.resume", {})
+    assert resumed["available"] is True
+    assert resumed["dropped"] is False
+    restored = resumed["review"]
+    assert [track["id"] for track in restored["tracks"]] == order
+    assert restored["reviewId"] == result["reviewId"]
+    # The recovered list carries the library's current records: every edit, which
+    # compares them with the library again, keeps working under its identity.
+    continues = restarted.execute("review.reorder", {"reviewId": restored["reviewId"], "trackIds": swapped(restored)})
+    assert continues["reviewId"] != restored["reviewId"]
+    assert [track["id"] for track in continues["tracks"]] == swapped(restored)
+
+
+def test_an_unreachable_list_track_keeps_the_stored_list_for_a_later_start(tmp_path: Path) -> None:
+    backend, records = seeded(tmp_path, 8)
+    analyzed(backend, records)
+    result = backend.execute("prep.generate", {"targetTrackCount": 4})
+    listed = backend.review.recommendation.ordered_tracks
+    target = Path(listed[1].path)
+    stored = store_path(backend.data_dir)
+    before = stored.read_bytes()
+    away = target.with_name(target.name + ".away")
+    target.rename(away)
+    # The drive is not ready: this start cannot verify the track, so it reports the list
+    # as not recoverable now and leaves the stored copy exactly as it was (S2).
+    restarted = stored_backend(backend)
+    assert restarted.execute("review.resume", {}) == {"available": False, "review": None, "dropped": True}
+    assert stored.read_bytes() == before
+    # The drive comes back: the next start recovers the very same list.
+    away.rename(target)
+    again = stored_backend(restarted)
+    resumed = again.execute("review.resume", {})
+    assert resumed["available"] is True
+    assert resumed["dropped"] is False
+    assert [track["id"] for track in resumed["review"]["tracks"]] == [track["id"] for track in result["tracks"]]
+
+
+def test_a_listed_track_replaced_by_another_recording_still_drops_and_clears(tmp_path: Path) -> None:
+    backend, records = seeded(tmp_path, 8)
+    analyzed(backend, records)
+    backend.execute("prep.generate", {"targetTrackCount": 4})
+    listed = backend.review.recommendation.ordered_tracks
+    Path(listed[1].path).write_bytes(b"another recording took this path")
+    stored = store_path(backend.data_dir)
+    restarted = stored_backend(backend)
+    assert restarted.execute("review.resume", {}) == {"available": False, "review": None, "dropped": True}
+    assert not stored.exists()
+    # The drop is final: a later start has nothing left to report.
+    assert stored_backend(restarted).execute("review.resume", {}) == {
+        "available": False,
+        "review": None,
+        "dropped": False,
+    }
 
 
 @pytest.mark.parametrize(

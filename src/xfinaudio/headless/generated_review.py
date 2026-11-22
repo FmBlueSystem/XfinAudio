@@ -84,7 +84,34 @@ MIN_REVIEW_TRACK_COUNT = 2
 MIN_PERIOD_YEAR = 1900
 MAX_PERIOD_YEAR = 2100
 TAG_WRITE_ACCEPTED = "A tag rewrite kept the same recording; the review source identity was refreshed"
+# The library derives these from the audio itself: a later analysis pass rewrites them
+# without the file, its tags or the recording identity the scan bound changing (S1).
+ANALYSIS_PROFILE_FIELDS = (
+    "spectral_profile",
+    "danceability_profile",
+    "edge_spectral_profile",
+    "loudness_profile",
+    "tonal_profile",
+)
 ReviewState = tuple[PrepCopilotVariantApplicationResult, frozenset[str], dict[str, Any]]
+
+
+def _same_listed_track(recorded: TrackRecord, current: TrackRecord) -> bool:
+    """Whether both records describe the same track, ignoring derived analysis data (S1).
+
+    A later analysis pass rewrites only the spectral, danceability, edge, loudness and
+    tonal profiles; the file, its tags and the recording the library scanned stay the same.
+    """
+    derived = dict.fromkeys(ANALYSIS_PROFILE_FIELDS)
+    return recorded.model_copy(update=derived) == current.model_copy(update=derived)
+
+
+def _renewed(recommendation: PlaylistRecommendation, records: dict[str, TrackRecord]) -> PlaylistRecommendation:
+    """The recommendation carrying the library's current record of every track it lists (S1)."""
+    tracks = [records.get(track.path, track) for track in recommendation.ordered_tracks]
+    if tracks == recommendation.ordered_tracks:
+        return recommendation
+    return recommendation.model_copy(update={"ordered_tracks": tracks})
 
 
 class GeneratedReview:
@@ -552,12 +579,41 @@ class GeneratedReview:
                 sources[track.path] = (track, current[1])
                 self._rewritten.add(track.path)
                 LOGGER.info(TAG_WRITE_ACCEPTED)
-        # Restore only when every reviewed track is still the exact library record it was saved with.
-        if any(sources.get(track.path, (None,))[0] != track for track in review.recommendation.ordered_tracks):
+        listed = review.recommendation.ordered_tracks
+        # A listed track the library can read now but no longer describes as the track it
+        # recorded is a real library change; a listed track the library cannot read at all
+        # -- a drive that is not ready, a file moved away -- says nothing about the list.
+        changed = [
+            track for track in listed if track.path in sources and not _same_listed_track(track, sources[track.path][0])
+        ]
+        unverified = [track for track in listed if track.path not in sources]
+        if changed or any(self._reachable(track.path) for track in unverified):
             LOGGER.warning("The list in progress was dropped because the library changed")
             clear_review(self.backend.data_dir)
             self.dropped = True
             return
+        if unverified:
+            # The stored copy is never deleted because this start could not verify a
+            # track: the next start, with the drive mounted, still recovers the list (S2).
+            LOGGER.warning(
+                "The list in progress could not be verified because %s is not reachable; it stays stored",
+                unverified[0].path,
+            )
+            self.dropped = True
+            return
+        # A later analysis pass rewrites only derived profile data, and the list comes
+        # back over the library's current records, which every later edit compares (S1).
+        renewed = {path: entry[0] for path, entry in sources.items()}
+        if any(track != renewed[track.path] for track in listed):
+            review = replace(review, recommendation=_renewed(review.recommendation, renewed))
+            plan = plan.model_copy(
+                update={
+                    "variants": [
+                        variant.model_copy(update={"recommendation": _renewed(variant.recommendation, renewed)})
+                        for variant in plan.variants
+                    ]
+                }
+            )
         self.backend.plan, self.backend.plan_id = plan, payload["planId"]
         self.sources, self.policy = sources, self._policy()
         self.saved_playlist = saved_playlist
@@ -594,6 +650,11 @@ class GeneratedReview:
         # checks. The binding re-reads the tracks the list holds and no other one, so a
         # change made while restoring is still refused.
         self.bind_plan(payload["planId"], (self.sources, self.policy, frozenset()))
+
+    def _reachable(self, path: str) -> bool:
+        """Whether the library can read this file now; an absent drive or moved file cannot."""
+        target = Path(path)
+        return any(_inside(target, root) for root in self.backend.roots)
 
     @staticmethod
     def _decode(stored: dict[str, Any]) -> PrepCopilotVariantApplicationResult:
