@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { SeratoExportController, parentCrateLabel } from '../.out/renderer/serato-export.js';
+import { createRequire } from 'node:module';
+import { SeratoExportController, crateTreeLines, parentCrateLabel } from '../.out/renderer/serato-export.js';
+const require = createRequire(import.meta.url);
 const source = { kind: 'review', reviewId: 'review-1' };
 const destination = { destinationId: 'destination-1', label: 'Subcrates · Disco DJ' };
 const preview = (patch = {}) => ({ previewId: 'preview-1', sourceRevision: 'revision-1', filename: 'Mi sesión.crate', destinationLabel: destination.label, trackCount: 2, readiness: 'needs_review', warnings: ['Revisa la transición'], blockers: [], canCommit: true, tracks: [{ id: 'a', title: 'A', artist: 'Artista' }, { id: 'b', title: 'B', artist: 'Artista' }], backup: { required: true }, ...patch });
@@ -158,4 +160,48 @@ test('a commit refused because Serato DJ is open keeps the preview so the user c
   assert.equal(f.controller.preview, previous); assert.equal(f.controller.canCommit, true); assert.equal(f.controller.receipt, null);
   assert.match(f.controller.error, /^Cierra Serato DJ antes de exportar\./); assert.doesNotMatch(f.controller.status, /No se pudo confirmar/);
   open = false; await f.controller.commit(); assert.deepEqual(f.controller.receipt, receipt); assert.equal(f.calls.filter(([operation]) => operation === 'commit').length, 2);
+});
+
+test('a split travels as segmentSize for that one export and is forgotten afterwards (S1)', async () => {
+  const f = fixture(); await f.ready();
+  assert.deepEqual(f.calls.at(-1), ['preview', { source, destinationId: destination.destinationId, name: 'Mi sesión' }], 'no split keeps today\'s preview request byte for byte');
+  assert.equal(f.controller.segmentSize, null);
+  f.controller.setSegmentSize(5);
+  assert.equal(f.controller.preview, null, 'changing the split invalidates the preview');
+  await f.controller.requestPreview();
+  assert.deepEqual(f.calls.at(-1), ['preview', { source, destinationId: destination.destinationId, name: 'Mi sesión', segmentSize: 5 }]);
+  assert.deepEqual(f.controller.preview, preview(), 'the receipt keeps the crate the core planned');
+  for (const invalid of [1, 51, 0, -2, 2.5, NaN, Infinity, '5', true]) { f.controller.setSegmentSize(invalid); assert.equal(f.controller.segmentSize, 5, `${String(invalid)} is not a valid tramo`); }
+  for (const accepted of [2, 3, 49, 50]) { f.controller.setSegmentSize(accepted); assert.equal(f.controller.segmentSize, accepted); }
+  f.controller.setSegmentSize(null); assert.equal(f.controller.segmentSize, null, 'no dividir is the single crate again');
+  f.controller.setSegmentSize(4); await f.controller.requestPreview(); await f.controller.commit();
+  assert.equal(f.controller.segmentSize, null, 'the split applies to that export only');
+  f.controller.setSegmentSize(4); f.controller.setSource({ kind: 'saved', playlistId: '2' }, 'Otra');
+  assert.equal(f.controller.segmentSize, null, 'a new export starts with today\'s single crate');
+});
+test('a tree receipt status says how many crates were written (S6)', async () => {
+  const files = [{ name: 'XfinAudio%%Sesión 14-nov.crate', trackCount: 12 }, { name: 'XfinAudio%%Sesión 14-nov%%1 (1-5).crate', trackCount: 5 }, { name: 'XfinAudio%%Sesión 14-nov%%3 (11-12).crate', trackCount: 2 }];
+  const f = fixture({ commitSeratoExport: async (input) => { f.calls.push(['commit', input]); return { ...receipt, filename: files[0].name, files }; } });
+  await f.ready(); await f.controller.commit();
+  assert.equal(f.controller.status, 'Árbol exportado a Serato: 3 crates', 'the receipt names the whole tree at once');
+  const single = fixture({ commitSeratoExport: async () => ({ ...receipt, files: [] }) }); await single.ready(); await single.controller.commit();
+  assert.equal(single.controller.status, 'Crate exportado y validado: Mi sesión.crate', 'a receipt without a tree reads exactly as before');
+  const unchanged = fixture(); await unchanged.ready(); await unchanged.controller.commit();
+  assert.equal(unchanged.controller.status, 'Crate exportado y validado: Mi sesión.crate', 'a receipt without the new field reads exactly as before');
+});
+test('the page and the native dialog phrase a crate tree identically (S4)', async () => {
+  const { crateTreeLines: nativeLines } = require('../.out/main/serato-host.js');
+  const crates = [{ name: 'XfinAudio%%Sesión 14-nov.crate', trackCount: 20, action: 'create' }, { name: 'XfinAudio%%Sesión 14-nov%%1 (1-5).crate', trackCount: 5, action: 'replace' }];
+  assert.deepEqual(crateTreeLines(crates), nativeLines(crates), 'the two Spanish copies must not drift');
+  assert.deepEqual(crateTreeLines(undefined), []); assert.deepEqual(crateTreeLines([]), []);
+});
+
+test('a metadata worklist never holds a tramo size', async () => {
+  const f = fixture();
+  f.controller.setSource({ kind: 'metadata', status: 'incomplete', missingField: 'bpm', trackIds: ['a'.repeat(64)] }, 'Reparar BPM');
+  await f.controller.chooseDestination();
+  f.controller.setSegmentSize(5);
+  assert.equal(f.controller.segmentSize, null, 'the core refuses a tramo size with a metadata worklist');
+  await f.controller.requestPreview();
+  assert.equal('segmentSize' in f.calls.at(-1)[1], false);
 });

@@ -61,3 +61,15 @@ test('an automatic crate name never relaxes the generated-set boundary',()=>{
  for(const name of ['  ','.','..','../Set','a/b','a\\b','A\nB','x'.repeat(201)])assert.throws(()=>validateRequest('quickSeratoExport',{source:review,name}));
  for(const source of [{kind:'review',reviewId:id,path:'/tmp/x'},{kind:'path',path:'/tmp/a'},{kind:'review'}])assert.throws(()=>validateRequest('quickSeratoExport',{source}));
 });
+
+test('the preview accepts a tramo size as a whole number of 2 to 50 tracks and nothing else (S1)',()=>{
+ const valid={source:{kind:'review',reviewId:id},destinationId:id,name:'Set'};
+ for(const segmentSize of [2,3,5,50]){const p={...valid,segmentSize};assert.deepEqual(validateRequest('previewSeratoExport',p),p);}
+ assert.deepEqual(validateRequest('previewSeratoExport',valid),valid,'no split sends no segment size at all');
+ for(const segmentSize of [1,51,0,-5,2.5,'5',true,[5],{tracks:5},null,Number.NaN,Number.MAX_SAFE_INTEGER])assert.throws(()=>validateRequest('previewSeratoExport',{...valid,segmentSize}),/Segment size/);
+});
+test('a one-click quick export accepts no tramo size, so it keeps today\'s single crate (S1)',()=>{
+ const p={source:{kind:'review',reviewId:id},name:'Set'};
+ assert.deepEqual(validateRequest('quickSeratoExport',p),p);
+ assert.throws(()=>validateRequest('quickSeratoExport',{...p,segmentSize:5}));
+});

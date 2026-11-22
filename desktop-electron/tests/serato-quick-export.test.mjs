@@ -204,3 +204,10 @@ test('an export refused because Serato DJ is open says so next to the button and
   open = false; await f.controller.export(source, 'Mi sesión');
   assert.equal(f.controller.tone, 'success'); assert.deepEqual(f.controller.receipt, receipt);
 });
+
+test('a one-click export never carries a split, so it writes today\'s single crate (S1)', async () => {
+  const f = fixture(); await f.controller.export(source, 'Mi sesión');
+  assert.deepEqual(f.calls, [['export', { source, name: 'Mi sesión' }]], 'the quick export asks for no tramo at all');
+  assert.equal(f.controller.notice, 'Crate «Mi sesión» exportado a Serato');
+  assert.equal(f.controller.detail, 'Mi sesión.crate · _Serato_ · dd · 2 pistas', 'the single-crate receipt reads exactly as before');
+});

@@ -13,7 +13,7 @@ const all = (node) => [node, ...node.children.flatMap(all)];
 const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
 function fixture() {
   const previous = globalThis.document; globalThis.document = { createElement: (tag) => new Element(tag) }; const root = new Element(); const calls = []; let available = true;
-  const controller = { source: { kind: 'saved', playlistId: 'saved-1' }, name: 'Sesión', destination: { destinationId: 'destination-1', label: 'Subcrates' }, destinationDetected: false, detectionMissed: false, preview: null, receipt: null, pending: null, canPreview: true, canCommit: false, error: '', status: '', setName: (value) => calls.push(['name', value]), chooseDestination: async () => calls.push(['choose']), requestPreview: async () => calls.push(['preview']), commit: async () => calls.push(['commit']), reveal: async () => calls.push(['reveal']) };
+  const controller = { source: { kind: 'saved', playlistId: 'saved-1' }, name: 'Sesión', destination: { destinationId: 'destination-1', label: 'Subcrates' }, destinationDetected: false, detectionMissed: false, preview: null, receipt: null, pending: null, canPreview: true, canCommit: false, error: '', status: '', segmentSize: null, setName: (value) => calls.push(['name', value]), setSegmentSize: (value) => { calls.push(['split', value]); controller.segmentSize = value; }, chooseDestination: async () => calls.push(['choose']), requestPreview: async () => calls.push(['preview']), commit: async () => calls.push(['commit']), reveal: async () => calls.push(['reveal']) };
   const render = createSeratoExportView(root, controller, { canAct: () => available }); render();
   return { root, controller, calls, render, get: (id) => all(root).find((node) => node.id === `serato-export-${id}`), block: () => { available = false; render(); }, restore: () => { globalThis.document = previous; } };
 }
@@ -81,5 +81,99 @@ test('a detected destination skips the required folder step and a miss explains 
     f.controller.destination = { destinationId: 'manual', label: '_Serato_' }; f.controller.detectionMissed = false; f.controller.canPreview = true; f.render();
     assert.equal(f.get('not-found').hidden, true, 'the notice disappears once a destination exists');
     assert.match(f.get('destination').textContent, /Destino seleccionado/);
+  } finally { f.restore(); }
+});
+
+test('the options screen offers «Dividir en tramos» with today\'s single crate as the default (S1)', () => {
+  const f = fixture(); try {
+    const label = all(f.root).find((node) => node.tagName === 'label' && /Dividir en tramos/.test(node.textContent));
+    assert.ok(label, 'the export options screen must offer the split control');
+    assert.equal(label.attrs.for, 'serato-export-split');
+    const split = f.get('split'); assert.ok(split, 'the split choice needs its own control');
+    assert.deepEqual(split.children.filter((node) => node.tagName === 'option').map((node) => [node.value, node.textContent]),
+      [['no', 'No dividir'], ['every', 'Cada N pistas']], 'the two choices are no split and every N tracks');
+    assert.equal(split.value, 'no', 'no split is the default, exactly today\'s single crate');
+    const size = f.get('split-size'); assert.ok(size, 'the tramo size needs its own number input');
+    assert.equal(size.value, '5', 'five tracks per tramo by default');
+    assert.equal(size.attrs.min, '2'); assert.equal(size.attrs.max, '50'); assert.equal(size.attrs['aria-invalid'], 'false');
+    assert.equal(size.disabled, true, 'the size only matters with a split');
+    assert.deepEqual(f.calls, [], 'rendering must never start an operation');
+    split.value = 'every'; f.render();
+    assert.equal(f.get('split-size').disabled, true, 'an unchanged controller state keeps the stored choice, not the typed one');
+  } finally { f.restore(); }
+});
+test('the split choice sends only a whole number of 2 to 50 tracks and can be turned off again (S1)', () => {
+  const f = fixture(); try {
+    const split = f.get('split'), size = () => f.get('split-size');
+    split.value = 'every'; split.dispatchEvent(new Event('change'));
+    assert.deepEqual(f.calls, [['split', 5]], 'choosing a split starts from five tracks per tramo');
+    f.render(); assert.equal(size().disabled, false); assert.equal(size().value, '5');
+    for (const typed of ['7', '2', '50']) { size().value = typed; size().dispatchEvent(new Event('input')); }
+    assert.deepEqual(f.calls, [['split', 5], ['split', 7], ['split', 2], ['split', 50]]);
+    for (const typed of ['1', '51', '0', '-3', '2.5', '', 'abc']) {
+      const count = f.calls.length; size().value = typed; size().dispatchEvent(new Event('input'));
+      assert.equal(f.calls.length, count, `${typed} is not a valid tramo`);
+      assert.equal(size().attrs['aria-invalid'], 'true', `${typed} must be visibly refused`);
+    }
+    split.value = 'no'; split.dispatchEvent(new Event('change'));
+    assert.deepEqual(f.calls.at(-1), ['split', null], 'no dividir clears the split for this export');
+    f.render(); assert.equal(size().disabled, true);
+  } finally { f.restore(); }
+});
+test('the preview lists every crate of the tree with its count, parent first and children indented (S4)', () => {
+  const f = fixture(); try {
+    const parent = 'XfinAudio%%Harmonic Journey 14-nov.crate';
+    f.controller.preview = { previewId: 'p', filename: parent, destinationLabel: 'Subcrates', trackCount: 20, readiness: 'ready', warnings: [], blockers: [], canCommit: true, backup: { required: false }, parentsToCreate: ['XfinAudio'], tracks: [{ title: 'Uno', artist: 'A' }], crates: [
+      { name: parent, trackCount: 20, action: 'create' },
+      { name: 'XfinAudio%%Harmonic Journey 14-nov%%1 (1-5).crate', trackCount: 5, action: 'create' },
+      { name: 'XfinAudio%%Harmonic Journey 14-nov%%4 (16-20).crate', trackCount: 5, action: 'replace' },
+    ] }; f.controller.canCommit = true; f.render();
+    const list = f.get('crates'); assert.ok(list, 'a split preview must list the whole tree');
+    assert.deepEqual(list.children.map((node) => node.textContent), [
+      '«XfinAudio › Harmonic Journey 14-nov» · 20 pistas · se crea',
+      '«XfinAudio › Harmonic Journey 14-nov › 1 (1-5)» · 5 pistas · se crea',
+      '«XfinAudio › Harmonic Journey 14-nov › 4 (16-20)» · 5 pistas · se reemplaza',
+    ], 'the parent comes first and every crate carries its own count and action');
+    assert.match(list.children[0].className, /crate-parent/); assert.doesNotMatch(list.children[0].className, /crate-child/);
+    for (const node of list.children.slice(1)) { assert.match(node.className, /crate-child/); assert.doesNotMatch(node.className, /crate-parent/); }
+    assert.match(text(f.get('proposal')), /Se escribirán 3 crates/);
+    f.controller.preview = { ...f.controller.preview, crates: undefined }; f.render();
+    assert.equal(f.get('proposal').children.some((node) => node.id === 'serato-export-crates'), false, 'without a split the preview reads exactly as before');
+    assert.doesNotMatch(text(f.get('proposal')), /Se escribirán|crates:/);
+    f.controller.preview = { previewId: 'single', filename: 'Set.crate', destinationLabel: 'Subcrates', trackCount: 2, readiness: 'ready', warnings: [], blockers: [], canCommit: true, backup: { required: false }, tracks: [{ title: 'Uno', artist: 'A' }], crates: [] }; f.render();
+    assert.doesNotMatch(text(f.get('proposal')), /Se escribirán/, 'an empty crate list adds nothing');
+  } finally { f.restore(); }
+});
+test('a tree receipt says how many crates were written and names each one (S6)', () => {
+  const f = fixture(); try {
+    f.controller.receipt = { receiptId: 'r', filename: 'XfinAudio%%Sesión 14-nov.crate', destinationLabel: 'Subcrates', trackCount: 12, validated: true, backupCreated: true, parentsCreated: ['XfinAudio'], files: [
+      { name: 'XfinAudio%%Sesión 14-nov.crate', trackCount: 12 },
+      { name: 'XfinAudio%%Sesión 14-nov%%1 (1-5).crate', trackCount: 5 },
+      { name: 'XfinAudio%%Sesión 14-nov%%3 (11-12).crate', trackCount: 2 },
+    ] }; f.render();
+    const receipt = f.get('receipt');
+    assert.match(text(receipt), /Crates escritos: 3/); assert.match(text(receipt), /Crate validado tras la escritura/);
+    const written = all(receipt).find((node) => node.id === 'serato-export-receipt-crates');
+    assert.ok(written, 'the receipt must name every crate it wrote');
+    assert.deepEqual(written.children.map((node) => node.textContent), [
+      '«XfinAudio › Sesión 14-nov» · 12 pistas',
+      '«XfinAudio › Sesión 14-nov › 1 (1-5)» · 5 pistas',
+      '«XfinAudio › Sesión 14-nov › 3 (11-12)» · 2 pistas',
+    ]);
+    assert.match(text(receipt), /crate padre/, 'the page says what «Mostrar crate exportado» opens');
+    assert.equal(f.get('reveal').disabled, false);
+    f.controller.receipt = { receiptId: 's', filename: 'Set.crate', destinationLabel: 'Subcrates', trackCount: 2, validated: true, backupCreated: false }; f.render();
+    assert.doesNotMatch(text(f.get('receipt')), /Crates escritos/, 'a single crate receipt reads exactly as before');
+    assert.equal(all(f.get('receipt')).some((node) => node.id === 'serato-export-receipt-crates'), false);
+  } finally { f.restore(); }
+});
+
+test('a metadata worklist export offers no split, because the core refuses one with it', () => {
+  const f = fixture(); try {
+    f.controller.source = { kind: 'metadata', status: 'complete', missingField: null, trackIds: ['a'.repeat(64)] }; f.render();
+    assert.equal(f.get('split').disabled, true, 'a worklist is not a set, so it is not split into tramos');
+    assert.equal(f.get('split-size').disabled, true);
+    f.controller.segmentSize = 5; f.render(); assert.equal(f.get('split').disabled, true);
+    assert.deepEqual(f.calls, [], 'showing a worklist never changes the split by itself');
   } finally { f.restore(); }
 });
