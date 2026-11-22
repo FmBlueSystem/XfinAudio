@@ -50,7 +50,7 @@ from xfinaudio.headless.serato_safety import (
     target_state,
     volume_root,
 )
-from xfinaudio.headless.serato_source import ExportSource, load_source
+from xfinaudio.headless.serato_source import ExportSource, load_source, source_unchanged
 from xfinaudio.quality.dj_readiness import validate_serato_round_trip
 
 if TYPE_CHECKING:
@@ -400,7 +400,12 @@ class SeratoExporter:
         assert preview.plan is not None
         return (PreviewCrate(preview.plan, preview.target),)
 
-    def _recheck(self, preview: Preview, *, target: bool = True) -> None:
+    def _recheck(self, preview: Preview) -> ExportSource:
+        """Reload and re-verify the whole source and every planned target once.
+
+        This is the one full verification a confirmed export makes: the returned source is
+        the binding every later guard compares against, without reloading anything.
+        """
         if not preview.summary["canCommit"] or preview.plan is None:
             raise BackendError("blocked_export", "Resolve export blockers before confirming")
         try:
@@ -411,16 +416,35 @@ class SeratoExporter:
             raise BackendError("stale_source", "The source changed; preview the export again")
         try:
             self._destination_current(preview.destination)
-            if target:
-                # Every crate of the tree keeps the stale-preview rule of a single crate.
-                for crate in self._planned_crates(preview):
-                    if (
-                        target_state(crate.plan.target_path) != crate.target
-                        or file_identity(crate.plan.backup_path) is not None
-                    ):
-                        raise OSError("Planned target or backup changed")
+            # Every crate of the tree keeps the stale-preview rule of a single crate.
+            for crate in self._planned_crates(preview):
+                if (
+                    target_state(crate.plan.target_path) != crate.target
+                    or file_identity(crate.plan.backup_path) is not None
+                ):
+                    raise OSError("Planned target or backup changed")
         except (OSError, RuntimeError) as error:
             raise BackendError("stale_destination", "The destination changed; preview the export again") from error
+        return fresh
+
+    @staticmethod
+    def _guard_binding(preview: Preview, verified: ExportSource) -> None:
+        """The guard every crate write runs: destination lineage plus a cheap source check.
+
+        The whole source is verified once, before the first write of the tree, and `verified`
+        is that binding. What remains per write is the destination lineage and the stat
+        identity of every scanned track, because a full reload cannot change what a confirmed
+        tree writes: each crate's bytes and target identity were bound at preview time, the
+        writer re-checks them itself, and this backend serializes one command at a time, so
+        no selector or catalogue edit can land between two crates of the same commit.
+        Reloading per crate cost ~30 s for a five-crate tree on an external drive (S3).
+        """
+        try:
+            SeratoExporter._destination_current(preview.destination)
+        except (OSError, RuntimeError) as error:
+            raise BackendError("stale_destination", "The destination changed; preview the export again") from error
+        if not source_unchanged(verified):
+            raise BackendError("stale_source", "The source changed; preview the export again")
 
     @staticmethod
     def _roll_back_tree(
@@ -441,7 +465,8 @@ class SeratoExporter:
         _remove_created_parent_crates(created, descriptor)
 
     def _commit(self, preview_id: str, preview: Preview) -> dict[str, Any]:
-        self._recheck(preview)
+        # One full source and target verification for the whole tree, inside this commit.
+        verified = self._recheck(preview)
         assert preview.plan is not None
         if len(self.receipts) >= 128:
             raise BackendError("export_limit", "Restart the application before creating more exports")
@@ -457,7 +482,7 @@ class SeratoExporter:
         def guard() -> None:
             nonlocal failure_code
             try:
-                self._recheck(preview, target=False)
+                self._guard_binding(preview, verified)
             except BackendError as error:
                 failure_code = error.code
                 raise OSError("Export binding changed") from error

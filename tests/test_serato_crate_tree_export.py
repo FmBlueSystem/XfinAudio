@@ -9,15 +9,23 @@ puts the folder back exactly as it was, and the receipt names every crate writte
 
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tests.test_headless_backend import tagged_flac
-from xfinaudio.exporting.serato_crate import build_serato_crate_bytes, parse_serato_crate_bytes
+from xfinaudio.exporting.serato_crate import (
+    SeratoExportPlan,
+    build_serato_crate_bytes,
+    parse_serato_crate_bytes,
+)
 from xfinaudio.headless import serato_export as serato_export_module
 from xfinaudio.headless.backend import HeadlessBackend
 from xfinaudio.headless.common import BackendError
+from xfinaudio.headless.serato_source import ExportSource
 from xfinaudio.quality.dj_readiness import DjReadinessCheck
 
 PARENT = "XfinAudio%%Sesión 14-nov"
@@ -263,3 +271,89 @@ def test_an_export_without_a_segment_size_keeps_todays_preview_commit_and_receip
     assert receipt["filename"] == f"{PARENT}.crate"
     assert receipt["trackCount"] == 12
     assert _crates(subcrates) == sorted(["XfinAudio.crate", f"{PARENT}.crate"])
+
+
+def _tree_of_five(tmp_path: Path) -> tuple[HeadlessBackend, dict[str, object], str, Path]:
+    """A twenty-track review split in four: the five-crate tree measured on the external drive."""
+    music = tmp_path / "music"
+    for index in range(20):
+        tagged_flac(music / f"{index}.flac", index)
+    serato = tmp_path / "_Serato_"
+    subcrates = serato / "Subcrates"
+    subcrates.mkdir(parents=True)
+    backend = HeadlessBackend(tmp_path / "data")
+    backend.execute("library.scan", {"root": str(music)})
+    review = backend.execute("prep.generate", {"targetTrackCount": 20})
+    destination = backend.execute("serato.registerDestination", {"seratoRoot": str(serato)})
+    return backend, {"kind": "review", "reviewId": review["reviewId"]}, destination["destinationId"], subcrates
+
+
+def _count_source_reloads(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
+    """Count the full source reloads a later call makes; the source itself loads as always."""
+    reloads: list[object] = []
+    original = serato_export_module.load_source
+
+    def counting(backend: HeadlessBackend, value: Any, **options: Any) -> ExportSource:
+        reloads.append(value)
+        return original(backend, value, **options)
+
+    monkeypatch.setattr(serato_export_module, "load_source", counting)
+    return lambda: len(reloads)
+
+
+def test_one_confirmed_tree_reads_the_source_once_for_the_whole_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, source, destination_id, subcrates = _tree_of_five(tmp_path)
+    preview = _preview(backend, source, destination_id, name=PARENT, segmentSize=5)
+    planned = preview["crates"]
+    assert isinstance(planned, list)
+    assert len(planned) == 5
+    reloads = _count_source_reloads(monkeypatch)
+
+    receipt = _commit(backend, preview)
+
+    # Five crates plus the ancestor crate they need, verified as one source.
+    files = receipt["files"]
+    assert isinstance(files, list)
+    assert len(files) == 5
+    assert len(_crates(subcrates)) == 6
+    assert reloads() == 1
+
+
+def test_one_confirmed_single_crate_reads_the_source_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    backend, source, destination_id, subcrates = _fixture(tmp_path)
+    preview = _preview(backend, source, destination_id, name=PARENT)
+    reloads = _count_source_reloads(monkeypatch)
+
+    receipt = _commit(backend, preview)
+
+    assert receipt["filename"] == f"{PARENT}.crate"
+    assert _crates(subcrates) == sorted(["XfinAudio.crate", f"{PARENT}.crate"])
+    assert reloads() == 1
+
+
+def test_a_source_track_that_changes_mid_tree_still_rolls_the_whole_tree_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, source, destination_id, subcrates = _fixture(tmp_path)
+    preview = _preview(backend, source, destination_id, name=PARENT, segmentSize=5)
+    track = tmp_path / "music" / "0.flac"
+    validated = serato_export_module.validate_serato_round_trip
+
+    def validate_then_change_one_track(plan: SeratoExportPlan, *, volume_root: Path | None = None) -> DjReadinessCheck:
+        check = validated(plan, volume_root=volume_root)
+        # One crate has landed and is validated; the scanned file changes before the next write.
+        stamp = track.stat()
+        os.utime(track, ns=(stamp.st_atime_ns, stamp.st_mtime_ns + 1_000_000))
+        return check
+
+    monkeypatch.setattr(serato_export_module, "validate_serato_round_trip", validate_then_change_one_track)
+
+    with pytest.raises(BackendError) as failure:
+        _commit(backend, preview)
+
+    assert failure.value.code == "stale_source"
+    assert str(failure.value) == "The crate could not be exported safely; inspect local diagnostics before retrying"
+    # Nothing of the tree survives a source that moved under the commit.
+    assert _crates(subcrates) == []

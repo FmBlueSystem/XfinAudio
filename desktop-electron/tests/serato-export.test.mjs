@@ -205,3 +205,17 @@ test('a metadata worklist never holds a tramo size', async () => {
   await f.controller.requestPreview();
   assert.equal('segmentSize' in f.calls.at(-1)[1], false);
 });
+test('a typed name is bounded by the crate file the core really writes, prefix included', async () => {
+  // The core nests every typed name under the XfinAudio parent crate, so the 240-byte cap
+  // applies to `XfinAudio%%<name>.crate` (11 + name + 6 bytes): the typed name keeps only
+  // the remaining budget, and a name that already carries the prefix is not doubled.
+  const f = fixture(); await f.ready();
+  for (const name of ['é'.repeat(111), `XfinAudio%%${'é'.repeat(111)}`]) {
+    f.controller.setName(name);
+    assert.equal(f.controller.canPreview, true, `${name.length} characters fit the 240-byte crate file`);
+  }
+  for (const name of ['é'.repeat(112), `XfinAudio%%${'é'.repeat(112)}`]) {
+    f.controller.setName(name);
+    assert.equal(f.controller.canPreview, false, `${name.length} characters do not fit the 240-byte crate file`);
+  }
+});

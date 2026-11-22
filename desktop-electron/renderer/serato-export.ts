@@ -73,10 +73,18 @@ export interface SeratoExportHost {
   /** Use the app-wide operation gate, without cancellation. Apply commit results even after navigation. */
   perform<T>(label: string, task: () => Promise<T>, apply: (value: T, currentRoute: boolean) => void, failure: (error: unknown) => void): Promise<void>;
 }
+/**
+ * The 240-byte file-name cap applies to the crate file the core really writes: every typed
+ * name is nested under the XfinAudio parent crate, and a name that already carries that
+ * prefix is not doubled, exactly as the host's `validateSeratoRequest` counts it.
+ */
+export function seratoCrateFileName(name: string): string {
+  return name.startsWith('XfinAudio%%') ? `${name}.crate` : `XfinAudio%%${name}.crate`;
+}
 export function validSeratoName(value: string): boolean {
   const name = value.trim();
   return Boolean(name) && name.length <= 200 && name !== '.' && name !== '..' && !/[\\/:\p{C}]/u.test(name)
-    && new TextEncoder().encode(`${name}.crate`).length <= 240;
+    && new TextEncoder().encode(seratoCrateFileName(name)).length <= 240;
 }
 /** Holds only opaque capabilities. Preview never writes; only the explicit commit invokes native confirmation. */
 export class SeratoExportController {

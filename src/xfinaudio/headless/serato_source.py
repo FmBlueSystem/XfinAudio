@@ -34,6 +34,9 @@ class ExportSource:
     blockers: list[str]
     variant: str | None
     metadata_records: tuple[TrackRecord, ...] | None = None
+    # One disk identity per path, exactly as this load read it, so a confirmed write can
+    # re-check the source without reloading it.
+    identities: tuple[tuple[object, ...] | None, ...] = ()
 
 
 def load_source(backend: HeadlessBackend, value: Any, *, checked: frozenset[str] | None = None) -> ExportSource:
@@ -91,6 +94,7 @@ def load_source(backend: HeadlessBackend, value: Any, *, checked: frozenset[str]
         raise BackendError("export_too_large", "Choose at most 500 track references for this export")
     snapshots = []
     tracks = []
+    identities: list[tuple[object, ...] | None] = []
     for path in paths:
         record = records.get(path)
         identity = None
@@ -100,6 +104,7 @@ def load_source(backend: HeadlessBackend, value: Any, *, checked: frozenset[str]
             identity = source_identity(Path(path))
         except (OSError, RuntimeError):
             pass
+        identities.append(identity)
         missing = record is None or identity is None
         if missing:
             blockers.append("A saved source is missing, changed, or outside the scanned library")
@@ -147,4 +152,28 @@ def load_source(backend: HeadlessBackend, value: Any, *, checked: frozenset[str]
         list(dict.fromkeys(blockers)),
         variant,
         metadata_records,
+        tuple(identities),
     )
+
+
+def source_unchanged(source: ExportSource) -> bool:
+    """Cheap re-check of a bound source: no reload, only the identities this load read.
+
+    A confirmed export verifies the whole source once before its first write; between
+    writes it only has to know that no scanned track became a different file, and that is
+    the stat-level identity ``load_source`` already collected. The stored records, the
+    engine assessment and the readiness report cannot change what a confirmed tree writes,
+    because every crate's bytes and target identity were bound at preview time, so a tree
+    of any size pays one reload instead of one per crate (S3).
+    """
+    if len(source.identities) != len(source.paths):
+        return False
+    for path, identity in zip(source.paths, source.identities, strict=True):
+        if identity is None:
+            return False
+        try:
+            if source_identity(path) != identity:
+                return False
+        except (OSError, RuntimeError):
+            return False
+    return True
