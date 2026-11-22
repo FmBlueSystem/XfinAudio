@@ -50,15 +50,20 @@ export class GeneratedReviewController {
   async load(): Promise<void> { await this.run('Leyendo evidencia local…', review => this.api.reviewDetails({ reviewId: review.reviewId }), value => this.host.applied(value)); }
   async compare(trackId: string): Promise<void> { await this.run('Comparando reemplazo local…', review => this.api.reviewCompare({ reviewId: review.reviewId, trackId }), value => { this.preview = value; this.previewTrackId = trackId; }); }
   async remove(trackId: string): Promise<void> { await this.run('Retirando pista y buscando reemplazo…', review => this.api.reviewRemove({ reviewId: review.reviewId, trackId }), value => { this.preview = null; this.host.applied(value); }); }
-  async move(trackId: string, direction: -1 | 1): Promise<void> {
-    const tracks = this.snapshot?.tracks ?? []; const index = tracks.findIndex(track => track.id === trackId);
+  // A repeated track shares one id, so `at` names the row the user chose; without it the first copy moves.
+  private row(trackId: string, at?: number): number {
+    const tracks = this.snapshot?.tracks ?? [];
+    return at !== undefined && Number.isInteger(at) && tracks[at]?.id === trackId ? at : tracks.findIndex(track => track.id === trackId);
+  }
+  async move(trackId: string, direction: -1 | 1, at?: number): Promise<void> {
+    const tracks = this.snapshot?.tracks ?? []; const index = this.row(trackId, at);
     if (index < 0 || index + direction < 0 || index + direction >= tracks.length) return;
     const ids = tracks.map(track => track.id); [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]];
     await this.run('Reordenando y recalculando transiciones…', review => this.api.reviewReorder({ reviewId: review.reviewId, trackIds: ids }), value => { this.preview = null; this.host.applied(value); });
   }
   // Position is 1..N: a jump of several places is one order, never a loop of ±1 moves.
-  async moveTo(trackId: string, position: number): Promise<void> {
-    const tracks = this.snapshot?.tracks ?? []; const index = tracks.findIndex(track => track.id === trackId);
+  async moveTo(trackId: string, position: number, at?: number): Promise<void> {
+    const tracks = this.snapshot?.tracks ?? []; const index = this.row(trackId, at);
     if (index < 0 || !Number.isInteger(position) || position < 1 || position > tracks.length || position === index + 1) return;
     const ids = tracks.map(track => track.id); const [moved] = ids.splice(index, 1); ids.splice(position - 1, 0, moved);
     await this.run('Moviendo la pista y recalculando transiciones…', review => this.api.reviewReorder({ reviewId: review.reviewId, trackIds: ids }), value => { this.preview = null; this.host.applied(value); });

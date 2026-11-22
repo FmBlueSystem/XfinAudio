@@ -176,3 +176,19 @@ test('known readiness states use Spanish and raw engine summary stays inside evi
     f.controller.details = null; f.render(); assert.equal(f.get('review-readiness-summary').hidden, false);
   } finally { f.restore(); }
 });
+
+test('small fixes S1: the second copy of a repeated track stays selected and is the one moved', () => {
+  const f = fixture(); try {
+    const sent = []; f.controller.move = (...args) => sent.push(['move', ...args]); f.controller.moveTo = (...args) => sent.push(['moveTo', ...args]);
+    const repeated = [tracks[0], tracks[1], tracks[0], tracks[2]];
+    f.controller.snapshot = { ...f.controller.snapshot, tracks: repeated }; f.render();
+    const selector = f.get('review-selected-track');
+    selector.value = 'a'; selector.selectedIndex = 2; selector.dispatchEvent(new Event('change'));
+    assert.equal(f.get('review-position').value, '3');
+    f.get('review-move-2-1').dispatchEvent(new Event('click'));
+    f.controller.snapshot = { ...f.controller.snapshot, tracks: [tracks[0], tracks[1], tracks[2], tracks[0]] }; f.render();
+    assert.equal(f.get('review-position').value, '4');
+    f.get('review-position').value = '1'; f.get('review-position-move-3').dispatchEvent(new Event('click'));
+    assert.deepEqual(sent, [['move', 'a', 1, 2], ['moveTo', 'a', 1, 3]]);
+  } finally { f.restore(); }
+});

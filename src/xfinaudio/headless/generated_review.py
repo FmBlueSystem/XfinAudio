@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime
@@ -1052,12 +1053,14 @@ class GeneratedReview:
         entering = None
         if method == "review.reorder":
             ids = params["trackIds"]
+            # A track's id comes from its path, so a repeated track shares one id:
+            # the order must name each id exactly as many times as the list holds it.
             tracks = {_public_track(track)["id"]: track for track in review.recommendation.ordered_tracks}
+            current_ids = [_public_track(track)["id"] for track in review.recommendation.ordered_tracks]
             if (
                 not isinstance(ids, list)
                 or any(not isinstance(item, str) for item in ids)
-                or len(ids) != len(tracks)
-                or set(ids) != set(tracks)
+                or Counter(ids) != Counter(current_ids)
             ):
                 raise BackendError("invalid_params", "Reorder requires each current track exactly once")
             paths = [tracks[item].path for item in ids]

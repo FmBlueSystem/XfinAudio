@@ -13,18 +13,20 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
   const notices = make('div', '', 'review-notice'); notices.id = 'review-readiness-notices';
   const label = make('label', 'Ajustar una pista'); label.setAttribute('for', 'review-selected-track');
   const selected = make('select'); selected.id = 'review-selected-track';
-  let selectedId = ''; let selectedIndex = 0; let positionedIndex = -1; let renderedTracks = ''; let requestedTrackId = ''; let comparisonTrackId = '';
+  let selectedId = ''; let selectedIndex = 0; let followIndex = -1; let positionedIndex = -1; let renderedTracks = ''; let requestedTrackId = ''; let comparisonTrackId = '';
   const button = (caption: string, action: () => void): HTMLButtonElement => {
     const node = make('button', caption, 'button subtle'); node.type = 'button';
     node.addEventListener('click', () => { if (!node.disabled && host.canAct() && !controller.pending) action(); }); return node;
   };
   const compare = button('Comparar reemplazo', () => { requestedTrackId = selectedId; void controller.compare(selectedId); });
   const remove = button('Retirar y completar', () => { void controller.remove(selectedId); });
-  const up = button('Subir', () => { void controller.move(selectedId, -1); });
-  const down = button('Bajar', () => { void controller.move(selectedId, 1); });
+  // A repeated track shares one id: the row index tells the controller which copy moves,
+  // and followIndex keeps that copy selected once the new order arrives.
+  const up = button('Subir', () => { followIndex = selectedIndex - 1; void controller.move(selectedId, -1, selectedIndex); });
+  const down = button('Bajar', () => { followIndex = selectedIndex + 1; void controller.move(selectedId, 1, selectedIndex); });
   const positionLabel = make('label', 'Posición'); positionLabel.setAttribute('for', 'review-position');
   const position = make('input'); position.type = 'number'; position.id = 'review-position'; position.min = '1'; position.step = '1';
-  const positionMove = button('Mover', () => { void controller.moveTo(selectedId, Number(position.value)); });
+  const positionMove = button('Mover', () => { followIndex = Number(position.value) - 1; void controller.moveTo(selectedId, Number(position.value), selectedIndex); });
   const undo = button('Deshacer', () => { void controller.undo(); }); undo.id = 'review-undo';
   const redo = button('Rehacer', () => { void controller.redo(); }); redo.id = 'review-redo';
   const historyStatus = make('p', '', 'field-hint'); historyStatus.id = 'review-history-status';
@@ -48,15 +50,18 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
     if (!controller.editable || !controller.snapshot) { selectedId = ''; return; }
     const blocked = !host.canAct() || controller.pending;
     const details = controller.details; const tracks = controller.snapshot.tracks;
-    const currentIndex = tracks.findIndex(track => track.id === selectedId);
-    selectedIndex = currentIndex >= 0 ? currentIndex : Math.min(selectedIndex, Math.max(0, tracks.length - 1));
+    if (tracks[selectedIndex]?.id !== selectedId) {
+      const followed = tracks[followIndex]?.id === selectedId ? followIndex : tracks.findIndex(track => track.id === selectedId);
+      followIndex = -1;
+      selectedIndex = followed >= 0 ? followed : Math.min(selectedIndex, Math.max(0, tracks.length - 1));
+    }
     selectedId = tracks[selectedIndex]?.id ?? '';
     const trackKey = JSON.stringify(tracks.map(track => [track.id, track.title, track.artist]));
     if (trackKey !== renderedTracks) {
       renderedTracks = trackKey; selected.replaceChildren();
       for (const [index, track] of tracks.entries()) { const option = make('option', `${index + 1}. ${track.title} · ${track.artist}`); option.value = track.id; selected.append(option); }
     }
-    selected.value = selectedId; selected.disabled = blocked || !tracks.length;
+    selected.value = selectedId; selected.selectedIndex = selectedIndex; selected.disabled = blocked || !tracks.length;
     const protectedIds = new Set(details?.protectedTrackIds ?? []); const protectedTrack = protectedIds.has(selectedId);
     compare.id = `review-compare-${selectedIndex}`; remove.id = `review-remove-${selectedIndex}`;
     compare.disabled = remove.disabled = blocked || !selectedId || protectedTrack;
@@ -100,6 +105,11 @@ export function createGeneratedReviewView(root: HTMLElement, controller: Generat
     use.hidden = !comparable; use.disabled = blocked || !comparable;
     preview.hidden = !comparison || comparisonTrackId !== selectedId;
   };
-  selected.addEventListener('change', () => { selectedId = selected.value; render(); });
+  selected.addEventListener('change', () => {
+    const tracks = controller.snapshot?.tracks ?? []; const row = selected.selectedIndex;
+    selectedId = selected.value; followIndex = -1;
+    selectedIndex = Number.isInteger(row) && tracks[row]?.id === selectedId ? row : tracks.findIndex(track => track.id === selectedId);
+    render();
+  });
   return render;
 }
