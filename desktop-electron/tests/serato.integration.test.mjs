@@ -27,16 +27,34 @@ test('real Qt-free Serato pipeline previews readonly, confirms once, validates b
   const dest=await host.choose(),input={source:{kind:'saved',playlistId:String(saved.id)},destinationId:dest.destinationId,name:'Serato fixture'};
   assert.equal(suggestions.length,1,'one destination choice asks the core once');
   assert.ok(suggestions[0]===null||suggestions[0].startsWith(temp+path.sep),`the core never proposes an _Serato_ folder outside the fixture (got ${suggestions[0]})`);
-  const preview=await host.preview(input);assert.equal(preview.canCommit,true);assert.equal(preview.trackCount,review.tracks.length);assert.deepEqual(await readdir(path.join(destination,'Subcrates')),[]);assert.equal(JSON.stringify(preview).includes(temp),false);
-  assert.deepEqual(await host.commit(preview.previewId),{cancelled:true});assert.deepEqual(await readdir(path.join(destination,'Subcrates')),[]);
+  // S1: every export is nested under the `XfinAudio` parent crate, which is created once as the
+  // empty crate (the same version TLV record, no track records) and never rewritten. A saved
+  // playlist export therefore leaves two files in `Subcrates`: the parent and the nested crate.
+  const tlv=(tag,payload)=>{const head=Buffer.alloc(8);head.write(tag,0,'latin1');head.writeUInt32BE(payload.length,4);return Buffer.concat([head,payload]);};
+  const emptyCrate=tlv('vrsn',Buffer.from('1.0/Serato ScratchLive Crate','utf16le').swap16());
+  const subcrates=path.join(destination,'Subcrates'),parent=path.join(subcrates,'XfinAudio.crate');
+  const listing=async()=>(await readdir(subcrates)).sort();
+  const preview=await host.preview(input);assert.equal(preview.canCommit,true);assert.equal(preview.trackCount,review.tracks.length);assert.deepEqual(await listing(),[]);assert.equal(JSON.stringify(preview).includes(temp),false);
+  assert.deepEqual(preview.parentsToCreate,['XfinAudio'],'the preview names the missing XfinAudio parent crate it will create');
+  assert.deepEqual(await host.commit(preview.previewId),{cancelled:true});assert.deepEqual(await listing(),[]);
   consent=true;const receipt=await host.commit(preview.previewId);assert.equal(receipt.validated,true);assert.equal(receipt.backupCreated,false);assert.equal(dialogs,2);
-  const target=path.join(destination,'Subcrates',receipt.filename),first=await readFile(target);
-  assert.equal(path.dirname(target),path.join(destination,'Subcrates'),'the crate lands in the fixture Subcrates folder');
+  assert.equal(receipt.filename,'XfinAudio%%Serato fixture.crate','a saved playlist export is nested under the XfinAudio parent crate');
+  assert.deepEqual(receipt.parentsCreated,['XfinAudio'],'the first export creates the XfinAudio parent crate');
+  const target=path.join(subcrates,receipt.filename),first=await readFile(target);
+  assert.equal(path.dirname(target),subcrates,'the crate lands in the fixture Subcrates folder');
   assert.ok(target.startsWith(temp+path.sep),'the crate lands inside the temporary fixture');
-  await host.reveal(receipt.receiptId);assert.deepEqual(shown,[target]);
-  assert.deepEqual(await host.commit(preview.previewId),receipt);assert.deepEqual(await readdir(path.dirname(target)),[receipt.filename]);
-  const replacement=await host.preview(input);assert.equal(replacement.backup.required,true);const updated=await host.commit(replacement.previewId);assert.equal(updated.backupCreated,true);assert.equal(updated.validated,true);
-  const entries=await readdir(path.dirname(target)),backup=entries.find(name=>name.includes('.bak'));assert.ok(backup);assert.deepEqual(await readFile(path.join(path.dirname(target),backup)),first);
+  assert.deepEqual(await readFile(parent),emptyCrate,'the parent crate is created empty, not as a copy of the export');
+  await host.reveal(receipt.receiptId);assert.deepEqual(shown,[target],'the receipt resolves to the exported crate, not to its parent');
+  assert.deepEqual(await host.commit(preview.previewId),receipt);assert.deepEqual(await listing(),[receipt.filename,'XfinAudio.crate'].sort());
+  const replacement=await host.preview(input);assert.equal(replacement.backup.required,true);
+  assert.deepEqual(replacement.parentsToCreate,[],'an existing parent crate is never created again');
+  const updated=await host.commit(replacement.previewId);assert.equal(updated.backupCreated,true);assert.equal(updated.validated,true);
+  assert.deepEqual(updated.parentsCreated,[],'the replace never rewrites the parent crate');
+  const entries=await listing(),backup=entries.find(name=>name.includes('.bak'));assert.ok(backup);
+  assert.deepEqual(await readFile(path.join(subcrates,backup)),first);
+  assert.equal(backup,receipt.filename+'.bak','the replace backs up the nested crate only');
+  assert.deepEqual(entries,[receipt.filename,receipt.filename+'.bak','XfinAudio.crate'].sort(),'the parent crate is neither replaced nor backed up');
+  assert.deepEqual(await readFile(parent),emptyCrate,'the parent crate keeps its exact empty content');
   const stale=await host.preview(input);await core.request('playlist.rename',{playlistId:saved.id,name:'Changed after preview'});await assert.rejects(host.commit(stale.previewId),error=>error.code==='stale_source');
   assert.equal(await readFile(path.join(destination,'database V2'),'utf8'),'DO NOT MODIFY');assert.deepEqual(await Promise.all(files.map(hash)),before);
  }finally{await host.waitForCommit();await core.close();await rm(temp,{recursive:true,force:true});}
