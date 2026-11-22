@@ -1,8 +1,8 @@
 # XfinAudio Next: Qt-free migration preview
 
-## Current 2.3.0 source candidate
+## Current 2.25.0 source candidate
 
-This is an unreleased beta/source candidate prepared after V12. The [migration scope](MIGRATION_SCOPE.md) and [2.3.0 notes](../docs/release-notes-v2.3.0.md) describe current functionality and limits. Real spectral/danceability/edge completion, preferences/watch, Live, optional AI, safe legacy import and Linux/Mac runtime recipes are implemented. Earlier checkpoints below are historical evidence, not a current missing-feature list. The original Qt installation and V12 native candidate are not rebuilt or relabeled by this metadata/CI follow-up. No release, automatic updater or binary redistribution clearance is claimed.
+The current version is 2.25.0. This is an unreleased beta/source candidate prepared after V12. The [migration scope](MIGRATION_SCOPE.md) and the [2.7.0 notes](../docs/release-notes-v2.7.0.md) describe current functionality and limits, including the current Serato export; the release notes for every later version are in the same folder. Real spectral/danceability/edge completion, preferences/watch, Live, optional AI, safe legacy import and Linux/Mac runtime recipes are implemented. Earlier checkpoints below are historical evidence, not a current missing-feature list. The original Qt installation and V12 native candidate are not rebuilt or relabeled by this metadata/CI follow-up. No release, automatic updater or binary redistribution clearance is claimed.
 
 CI uses the supported complete-manifest Python aggregate and runs every Electron test with an explicitly selected locked Qt-free interpreter; skipped or missing Node results fail the CI verification wrapper. Local `npm test` remains useful for focused development, but its optional skips alone are not release evidence.
 
@@ -90,9 +90,11 @@ Saved cards now offer Rename, Duplicate and Edit. The editor supports indexed re
 Combined Node verification passes 94 tests with all 3 real-core integrations and no skips. Focused Python verification passes 139 tests plus one explicitly Qt-only skip; the relevant legacy compatibility suite passed separately. Full v3 fresh-process verification passed all 3,439 tests at 94.37% combined coverage, with type/lint/format checks green. Native Studio programmatic testing also passed synthetic and 24-copy editor/preview/apply/save/draft/close-cancel/discard flows; original/copy hashes remained unchanged. Dialog choices were controlled test responses, not human acceptance.
 
 
-## Serato export checkpoint (v4)
+## Serato export (updated for 2.7.0+)
 
-From a reviewed selection or a saved playlist choose **Exportar a Serato**. Pick the existing `_Serato_` folder containing `Subcrates`, choose a crate name, inspect the read-only preview, then select **Exportar a Serato…**. A separate native confirmation shows the exact file/destination, track count and replacement/backup warning. The crate is written directly to the chosen destination. Other export formats are outside this workflow.
+The export no longer starts by asking for a folder, and it is two actions instead of a walk through separate screens. From a reviewed set on the review screen or from a saved playlist card, one **Exportar a Serato** click runs `_Serato_` detection and the read-only preview in the background and opens the system confirmation; confirming is the second action and the only write consent. Detection looks under each scanned library folder, then at the root of the music drive (a library in `/Volumes/dd/_Lossless/por_genero` uses `/Volumes/dd/_Serato_`), and finally in `~/Music` when that folder is on the same volume. The result is reported where you are, without changing screen: the receipt **Crate «name» exportado a Serato** with **Mostrar en Finder**, the blockers in Spanish when the preview refuses, or **Elegir carpeta** when nothing was found. **Opciones de exportación** keeps the export page for renaming the crate or changing the folder (**Cambiar carpeta _Serato_** once a folder is known). Nothing is written before the confirmation, and a missing destination is never opened as a dialog on its own.
+
+Crate names for generated sets are short and automatic — the style plus the export date, **Harmonic Journey 14-nov**, then **(2)** and **(3)** when that crate already exists, so an automatic name never replaces a different earlier export — while a name typed on the export page and a saved playlist's name are used exactly as they are. A nested crate such as **XfinAudio › Harmonic Journey 14-nov** also creates the parent crates it needs in the same confirmed export. A confirmed export is refused while Serato DJ Pro or Serato DJ Lite is running, because Serato rewrites its `_Serato_` folder when it quits: nothing is written, the app says in Spanish to close Serato and confirm again, and the preview stays valid so the retry needs no new preview. Other export formats are outside this workflow.
 
 - Current review or exact saved order; missing tracks and blocked readiness prevent export. An unsaved editor draft must be saved or discarded first.
 - Source, destination lineage, target identity and bytes are bound to an immutable preview. Changes require a fresh preview; no silent regeneration on commit.
@@ -103,11 +105,11 @@ From a reviewed selection or a saved playlist choose **Exportar a Serato**. Pick
 - Successful receipts can reveal only the verified exported file. Navigation does not lose a completed receipt. Export cannot be cancelled after publication begins, and application shutdown waits for it.
 - User-facing transport failures now use Spanish guidance; technical codes/details remain local diagnostics.
 
-All automated writes use temporary `_Serato_` folders, synthetic/copied tracks, and database V2 sentinels. A valid fixture crate does not prove live Serato import compatibility. No live export, signed build, public push, merge or release has occurred.
+The older single-screen flow this checkpoint first validated (pick `_Serato_`, choose a name, separate preview screen, then a confirmation) was replaced by the two-action export above; the evidence below still describes the same preview, backup and publication guarantees. All automated writes use temporary `_Serato_` folders, synthetic/copied tracks, and database V2 sentinels. A valid fixture crate does not prove live Serato import compatibility. No live export, signed build, public push, merge or release has occurred.
 
 Source handoffs can be built with `python scripts/create_source_archive.py CHECKOUT OUTPUT.tar.gz` where OUTPUT is outside the checkout. It excludes generated/dependency trees including dependency symlinks, rejects unexpected links/special files/sensitive configuration, and emits deterministic regular-file-only archives.
 
-Final v4 cloud checkpoint: 3,538 Python tests passed in 23 fresh-process batches at 94.29% combined coverage; full type/lint/format, release smoke, source-package hygiene and PyInstaller check-only pass. All 122 Node tests pass with four real-core integrations and no skips. Native v4 Serato verification remains pending; follow `QA_SERATO_V4.md` using temporary fixtures only. This does not mark the original monolithic release command as passed.
+Final v4 cloud checkpoint (historical): 3,538 Python tests passed in 23 fresh-process batches at 94.29% combined coverage; full type/lint/format, release smoke, source-package hygiene and PyInstaller check-only pass. All 122 Node tests pass with four real-core integrations and no skips. Native v4 Serato verification remains pending; follow `QA_SERATO_V4.md` using temporary fixtures only. This does not mark the original monolithic release command as passed.
 
 ## Live guidance checkpoint (v5)
 
