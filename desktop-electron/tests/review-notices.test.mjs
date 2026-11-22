@@ -64,6 +64,21 @@ const notices = [
   ['Strictest option: stays close to the requested genre focus and hard gates.', 'Opción más estricta: se mantiene cerca del enfoque de género solicitado y de los filtros estrictos.'],
   ['Middle option: allows tagged bridges while preserving the set intent.', 'Opción intermedia: permite conexiones entre géneros etiquetados y conserva la intención de la sesión.'],
   ['Exploratory option: allows broader bridges but keeps readiness checks visible.', 'Opción exploratoria: permite conexiones más amplias pero mantiene visibles las comprobaciones de preparación.'],
+  // optimizer.py and candidate_pool.py (small fixes S3)
+  ['Arc subset proven infeasible: mandatory path(s) not in the candidate pool: /m/a.mp3, /m/b.mp3', 'No hay una lista posible: hay pistas obligatorias fuera de las candidatas: /m/a.mp3, /m/b.mp3'],
+  ['Arc subset proven infeasible: 5 mandatory paths exceed target length 4', 'No hay una lista posible: las 5 pistas obligatorias superan el largo pedido de 4'],
+  ['Arc subset proven infeasible: one path cannot be both start and terminal for a multi-track target', 'No hay una lista posible: una misma pista no puede abrir y cerrar una lista de varias pistas'],
+  ['Arc subset proven infeasible: no candidate is BPM-compatible with the required start seam', 'No hay una lista posible: ninguna candidata tiene un BPM compatible con la pista de apertura'],
+  ['Arc subset proven infeasible: required end_path is unreachable within the available hops', 'No hay una lista posible: la pista de cierre no se alcanza con las pistas disponibles'],
+  ['Arc subset proven infeasible: mandatory paths cannot coexist in one BPM-valid path: /m/a.mp3, /m/b.mp3', 'No hay una lista posible: estas pistas obligatorias no caben juntas sin saltos de BPM: /m/a.mp3, /m/b.mp3'],
+  ['Arc subset proven infeasible: only 3 BPM-reachable candidates for target length 8', 'No hay una lista posible: solo 3 candidatas alcanzables por BPM para un largo de 8'],
+  ['Arc subset proven infeasible: mandatory paths cannot satisfy the fixed-end hop budget', 'No hay una lista posible: las pistas obligatorias no llegan a la pista de cierre con el largo pedido'],
+  ['Arc subset proven infeasible: only 6 candidates satisfy the fixed-end hop budget', 'No hay una lista posible: solo 6 candidatas llegan a la pista de cierre con el largo pedido'],
+  ['Arc subset beam search budget exhausted without a full path; this is not proof that none exists', 'La búsqueda se detuvo sin encontrar una lista completa; eso no prueba que no exista'],
+  ['Arc subset proven infeasible: no BPM-valid target-length path satisfies every mandatory control', 'No hay una lista posible: ninguna lista del largo pedido sin saltos de BPM cumple todos los controles obligatorios'],
+  ['Start track "Song A" is incomplete or unavailable and will be ignored.', 'La pista de apertura «Song A» tiene datos incompletos o no está disponible; se ignorará.'],
+  ['End track "Song B" is incomplete or unavailable and will be ignored.', 'La pista de cierre «Song B» tiene datos incompletos o no está disponible; se ignorará.'],
+  ['2 manually-ordered track(s) are incomplete or unavailable and will be ignored.', '2 pista(s) del orden manual tienen datos incompletos o no están disponibles; se ignorarán.'],
 ];
 
 for (const [english, spanish] of notices) {
@@ -74,7 +89,7 @@ for (const [english, spanish] of notices) {
 
 test('a notice that matches no pattern is shown unchanged', () => {
   for (const message of [
-    'Arc subset proven infeasible: no BPM-valid target-length path satisfies every mandatory control',
+    'Some future English notice nobody translated yet',
     'Cambios espectrales: red→blue (2 veces)',
     'Se descartaron 2 pista(s) generada(s) porque el salto entre BPM vecinos superó el 3.0%',
     'Tonalidad Camelot inválida',
