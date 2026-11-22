@@ -200,10 +200,13 @@ class HeadlessBackend:
 
         Every guard one assistant turn runs asks for the same library table, so reading it
         again per guard walked a large library several times per command (S3). A writer
-        that commits during the command still invalidates the rows through the revision.
+        that commits during the command still invalidates the rows through the revision,
+        and nothing is kept once the command ends.
         """
+        if not self._in_command():
+            return self.repository.list_display_tracks()
         cached = self._library_rows
-        if self._in_command() and cached is not None and cached[0] == revision:
+        if cached is not None and cached[0] == revision:
             return cached[1]
         rows = self.repository.list_display_tracks()
         self._library_rows = (revision, rows)

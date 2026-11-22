@@ -40,7 +40,8 @@ def load_source(backend: HeadlessBackend, value: Any, *, checked: frozenset[str]
     """Reload one export source; ``checked`` names the tracks whose disk identity it reads.
 
     A caller that loads the current review passes the tracks of its list, so the rest of
-    the library contributes its stored record without touching the disk.
+    the library contributes its stored record without touching the disk, and it is the
+    assistant context's own mode: every caller without ``checked`` checks it all (S3).
     """
     if (
         not isinstance(value, dict)
@@ -73,7 +74,9 @@ def load_source(backend: HeadlessBackend, value: Any, *, checked: frozenset[str]
         if review is None or backend.review_id != review_id:
             raise BackendError("stale_review", "Prepare a current review before exporting")
         try:
-            backend.review_actions.verify(review_id)
+            # An assistant turn reads the disk identity only of the tracks its list holds, so
+            # the rest of the library keeps its stored record and identity (S3).
+            backend.review_actions.verify(review_id, listed_only=checked is not None)
         except BackendError:
             blockers.append("Review sources or settings changed; generate a new review")
         recommendation = review.recommendation.model_copy(deep=True)

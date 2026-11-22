@@ -223,14 +223,23 @@ class GeneratedReview:
         self._refreshed = self._refreshed or final
         return self._snapshot
 
-    def _build_sources(self, checked: frozenset[str] | None, *, unread: bool = False) -> SourceSnapshot:
+    def _build_sources(
+        self, checked: frozenset[str] | None, *, unread: bool = False, listed_only: bool = False
+    ) -> SourceSnapshot:
         """Read the library sources exactly as they are now, for the ``checked`` paths.
 
-        Only the ``checked`` paths are read from disk; every other library track
-        contributes its stored record and the identity the generation recorded after a
-        single lexical containment test, so a review command never re-checks a track it
-        does not act on (S3). The result belongs to the caller: one command copies the
-        entries it asked for into its own snapshot.
+        Every library track is checked on disk, and the ``checked`` paths are the ones the
+        caller acts on: every other track contributes its stored record and the identity
+        the generation recorded, so a review command never re-reads a track it does not
+        act on. The result belongs to the caller: one command copies the entries it asked
+        for into its own snapshot.
+
+        ``listed_only`` is the assistant context's own mode (S3): a track outside
+        ``checked`` then keeps its stored record and identity behind a single lexical root
+        test instead of an existence check, so one prepared turn resolves tens of paths
+        and not every library file. Every other caller keeps the existence check, so a
+        deleted library track still leaves the snapshot -- and the candidate pools built
+        from it -- exactly as it always did.
 
         ``unread`` keeps every unlisted library track even before this review recorded
         anything about it, with its stored record and no identity: that is the whole
@@ -244,10 +253,10 @@ class GeneratedReview:
         stored_identities = self.backend.repository.load_scan_file_identities(read_paths)
         for track in tracks:
             path = Path(track.path)
-            # Membership is decided before anything touches the disk: a track this command
-            # does not act on keeps its stored record and identity, and a cheap lexical test
-            # is all that decides whether it still belongs to an authorized root (S3).
-            if checked is not None and track.path not in checked:
+            if listed_only and checked is not None and track.path not in checked:
+                # Decided before anything touches the disk: this turn never acts on the
+                # track, and a lexical test is all that decides whether it still belongs to
+                # an authorized root (S3).
                 if not any(path.is_relative_to(root) for root in self.backend.roots):
                     continue
                 stored = self.sources.get(track.path)
@@ -258,6 +267,13 @@ class GeneratedReview:
                 continue
             try:
                 if not any(_inside(path, root) for root in self.backend.roots):
+                    continue
+                if checked is not None and track.path not in checked:
+                    stored = self.sources.get(track.path)
+                    if stored is not None:
+                        result[track.path] = track, stored[1]
+                    elif unread:
+                        result[track.path] = track, None
                     continue
                 identity = source_identity(path)
                 recorded = stored_identities.get(track.path)
@@ -537,12 +553,20 @@ class GeneratedReview:
         """The tracks this review's list holds: the ones every edit acts on."""
         return frozenset(track.path for track in review.recommendation.ordered_tracks)
 
-    def verify(self, review_id: Any) -> PrepCopilotVariantApplicationResult:
+    def verify(self, review_id: Any, *, listed_only: bool = False) -> PrepCopilotVariantApplicationResult:
+        """Verify this review, checking every library track on disk unless ``listed_only``.
+
+        ``listed_only`` is the assistant context's own mode (S3): the tracks outside the
+        list keep their stored record and identity, so one prepared turn never walks the
+        whole library on disk. It builds its own snapshot instead of filling the command's,
+        so a review edit made later in the same command still sees every library file.
+        """
         opaque_id(review_id)
         review = self.backend.review
         if review is None or review_id != self.backend.review_id or review_id != self.review_id:
             raise BackendError("stale_review", "Open a current generated review before continuing")
-        current = self._sources(self._paths(review))
+        paths = self._paths(review)
+        current = self._build_sources(paths, listed_only=True) if listed_only else self._sources(paths)
         if self._policy() != self.policy or any(
             not self._same(self.sources.get(track.path), current.get(track.path))
             or current.get(track.path, (None,))[0] != track
