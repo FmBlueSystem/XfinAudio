@@ -6,10 +6,12 @@ import re
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from xfinaudio.exporting.serato_crate import SeratoExportPlan, build_serato_crate_bytes
+from xfinaudio.exporting.serato_crate_phases import PhaseSkipReason, plan_energy_phases
 from xfinaudio.library.models import MetadataStatus, TrackRecord
 from xfinaudio.recommendation.playlist_service import PlaylistRecommendation
 
@@ -25,6 +27,9 @@ _WHITESPACE = re.compile(r"\s+")
 _MIN_SEGMENT_SIZE = 2
 _MAX_SEGMENT_SIZE = 50
 _SEGMENT_SIZE_ERROR = "segment size must be an integer between 2 and 50 tracks"
+_SPLIT_MODE_ERROR = "split mode must be segments or phases"
+
+SplitMode = Literal["segments", "phases"]
 
 
 class SeratoLibrary(BaseModel):
@@ -54,6 +59,7 @@ class SeratoCrateTreePlan(BaseModel):
     children: tuple[SeratoExportPlan, ...] = ()
     ancestor_names: tuple[str, ...] = ()
     missing_ancestor_names: tuple[str, ...] = ()
+    phase_reason: PhaseSkipReason | None = None
 
     @property
     def plans(self) -> tuple[SeratoExportPlan, ...]:
@@ -309,6 +315,7 @@ def plan_serato_crate_tree(
     *,
     crate_name: str | None = None,
     segment_size: int | None = None,
+    split_mode: SplitMode | None = "segments",
     generated_at: datetime | None = None,
 ) -> SeratoCrateTreePlan:
     """Create a dry-run plan of one parent crate and one child crate per segment.
@@ -319,48 +326,63 @@ def plan_serato_crate_tree(
     segment may be shorter. `segment_size=None` means no split: the plan is exactly
     today's single crate. A segment size not smaller than the track count has nothing
     to split, so the plan also holds the parent only.
+
+    `split_mode="phases"` splits by the set's own energies instead: one child per energy
+    phase, named `<n> <Fase> (<first>-<last>)`. When the set has no phases the parent is
+    exported alone and `phase_reason` says why.
     """
+    if validate_split_mode(split_mode) == "phases":
+        return _phase_crate_tree_plan(recommendation, serato_folder, crate_name=crate_name, generated_at=generated_at)
     if segment_size is None:
-        parent = (
-            plan_serato_playlist_export(crate_name, recommendation, serato_folder)
-            if crate_name is not None
-            else plan_generated_serato_playlist_export(recommendation, serato_folder, generated_at=generated_at)
-        )
-        return SeratoCrateTreePlan(
-            parent=parent,
-            ancestor_names=parent_crate_names(parent.crate_name),
-            missing_ancestor_names=_missing_ancestor_names(parent.serato_root, parent.crate_name),
-        )
+        return _parent_only_tree_plan(recommendation, serato_folder, crate_name=crate_name, generated_at=generated_at)
 
     size = validate_segment_size(segment_size)
-    library, folder = _serato_library_and_folder(serato_folder)
-    relative_paths = tuple(
-        _to_serato_crate_path_for_library(Path(track.path), library) for track in recommendation.ordered_tracks
+    segments = _crate_tree_segments(len(recommendation.ordered_tracks), size)
+    return _split_crate_tree_plan(
+        recommendation,
+        serato_folder,
+        runs=tuple((first, last) for _number, first, last in segments),
+        leaf_names=tuple(f"{number} ({first}-{last})" for number, first, last in segments),
+        crate_name=crate_name,
+        generated_at=generated_at,
     )
-    segments = _crate_tree_segments(len(relative_paths), size)
-    leaf_names = tuple(f"{number} ({first}-{last})" for number, first, last in segments)
-    target_folder = folder / SERATO_SUBCRATES_DIR
-    if crate_name is None:
-        # An automatic tree is named for the whole tree: the parent and every child
-        # take the same, first number that is free for all of them.
-        parent_name = _unique_generated_crate_tree_path(
-            target_folder, _generated_crate_name(recommendation, generated_at=generated_at), leaf_names
-        ).stem
-    else:
-        # A typed or saved name keeps its exact-name semantics under the XfinAudio parent
-        # crate; its children follow it.
-        parent_name = nest_under_root_crate(crate_name)
-    parent = _crate_plan(parent_name, relative_paths, folder)
-    children = tuple(
-        _crate_plan(f"{parent_name}%%{leaf_name}", relative_paths[first - 1 : last], folder)
-        for leaf_name, (_number, first, last) in zip(leaf_names, segments, strict=True)
+
+
+def _phase_crate_tree_plan(
+    recommendation: PlaylistRecommendation,
+    serato_folder: SeratoLibrary | str | Path,
+    *,
+    crate_name: str | None,
+    generated_at: datetime | None,
+) -> SeratoCrateTreePlan:
+    """One child crate per energy phase of the set; the parent alone when it has none."""
+    phase_plan = plan_energy_phases(tuple(track.energy_level for track in recommendation.ordered_tracks))
+    if not phase_plan.phases:
+        # No journey to follow: the export is today's single crate and the preview says why.
+        return _parent_only_tree_plan(
+            recommendation,
+            serato_folder,
+            crate_name=crate_name,
+            generated_at=generated_at,
+            phase_reason=phase_plan.reason,
+        )
+    return _split_crate_tree_plan(
+        recommendation,
+        serato_folder,
+        runs=tuple((phase.first_position, phase.last_position) for phase in phase_plan.phases),
+        leaf_names=tuple(_sanitize_name(phase.label) for phase in phase_plan.phases),
+        crate_name=crate_name,
+        generated_at=generated_at,
     )
-    return SeratoCrateTreePlan(
-        parent=parent,
-        children=children,
-        ancestor_names=parent_crate_names(parent_name),
-        missing_ancestor_names=_missing_ancestor_names(folder, parent_name),
-    )
+
+
+def validate_split_mode(split_mode: object) -> SplitMode:
+    """Return the split mode of a tree plan; an absent mode means the segment mode."""
+    if split_mode is None or split_mode == "segments":
+        return "segments"
+    if split_mode == "phases":
+        return "phases"
+    raise ValueError(_SPLIT_MODE_ERROR)
 
 
 def _serato_library_and_folder(serato_folder: SeratoLibrary | str | Path) -> tuple[SeratoLibrary, Path]:
@@ -387,6 +409,28 @@ def validate_segment_size(segment_size: object) -> int:
     return segment_size
 
 
+def _parent_only_tree_plan(
+    recommendation: PlaylistRecommendation,
+    serato_folder: SeratoLibrary | str | Path,
+    *,
+    crate_name: str | None,
+    generated_at: datetime | None,
+    phase_reason: PhaseSkipReason | None = None,
+) -> SeratoCrateTreePlan:
+    """Today's single crate as a tree with no children, plus the reason a phase split gave up."""
+    parent = (
+        plan_serato_playlist_export(crate_name, recommendation, serato_folder)
+        if crate_name is not None
+        else plan_generated_serato_playlist_export(recommendation, serato_folder, generated_at=generated_at)
+    )
+    return SeratoCrateTreePlan(
+        parent=parent,
+        ancestor_names=parent_crate_names(parent.crate_name),
+        missing_ancestor_names=_missing_ancestor_names(parent.serato_root, parent.crate_name),
+        phase_reason=phase_reason,
+    )
+
+
 def _crate_tree_segments(track_count: int, segment_size: int) -> tuple[tuple[int, int, int], ...]:
     """One `(number, first index, last index)` per segment, 1-based and inclusive on both ends.
 
@@ -398,6 +442,47 @@ def _crate_tree_segments(track_count: int, segment_size: int) -> tuple[tuple[int
     return tuple(
         (number, start, min(start + segment_size - 1, track_count))
         for number, start in enumerate(range(1, track_count + 1, segment_size), start=1)
+    )
+
+
+def _split_crate_tree_plan(
+    recommendation: PlaylistRecommendation,
+    serato_folder: SeratoLibrary | str | Path,
+    *,
+    runs: tuple[tuple[int, int], ...],
+    leaf_names: tuple[str, ...],
+    crate_name: str | None,
+    generated_at: datetime | None,
+) -> SeratoCrateTreePlan:
+    """One parent crate over the whole set, one child per run named by the caller.
+
+    `runs` are 1-based and inclusive on both ends, in the same order as `leaf_names`.
+    """
+    library, folder = _serato_library_and_folder(serato_folder)
+    relative_paths = tuple(
+        _to_serato_crate_path_for_library(Path(track.path), library) for track in recommendation.ordered_tracks
+    )
+    target_folder = folder / SERATO_SUBCRATES_DIR
+    if crate_name is None:
+        # An automatic tree is named for the whole tree: the parent and every child
+        # take the same, first number that is free for all of them.
+        parent_name = _unique_generated_crate_tree_path(
+            target_folder, _generated_crate_name(recommendation, generated_at=generated_at), leaf_names
+        ).stem
+    else:
+        # A typed or saved name keeps its exact-name semantics under the XfinAudio parent
+        # crate; its children follow it.
+        parent_name = nest_under_root_crate(crate_name)
+    parent = _crate_plan(parent_name, relative_paths, folder)
+    children = tuple(
+        _crate_plan(f"{parent_name}%%{leaf_name}", relative_paths[first - 1 : last], folder)
+        for leaf_name, (first, last) in zip(leaf_names, runs, strict=True)
+    )
+    return SeratoCrateTreePlan(
+        parent=parent,
+        children=children,
+        ancestor_names=parent_crate_names(parent_name),
+        missing_ancestor_names=_missing_ancestor_names(folder, parent_name),
     )
 
 
@@ -591,6 +676,7 @@ __all__ = [
     "SeratoCrateTreePlan",
     "SeratoLibrary",
     "SeratoLibraryNotFoundError",
+    "SplitMode",
     "discover_serato_libraries",
     "plan_copilot_variant_serato_playlist_export",
     "plan_generated_serato_playlist_export",
@@ -603,4 +689,5 @@ __all__ = [
     "select_serato_library_for_tracks",
     "to_serato_crate_path",
     "validate_segment_size",
+    "validate_split_mode",
 ]

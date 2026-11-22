@@ -16,16 +16,27 @@ from xfinaudio.recommendation.strategies import default_strategy_registry
 
 GENERATED_AT = datetime(2026, 11, 14, 3, 5, 0)
 PARENT_NAME = "XfinAudio%%Harmonic Journey 14-nov"
+# A twenty-track journey: a quiet opening, a long climb, a three-track peak, a long tail.
+# Its four phases are tracks 1-4, 5-9, 10-12 and 13-20 (see test_serato_crate_phases.py).
+JOURNEY = (4, 4, 4, 4, 4, 6, 7, 8, 9, 10, 10, 10, 9, 8, 7, 6, 5, 4, 4, 4)
+FLAT = (5, 6, 5, 6, 5, 6, 5, 6, 5, 6, 5, 6, 5, 6, 5, 6, 5, 6, 5, 6)
 
 
-def _recommendation(track_count: int, *, root: Path, strategy: str = "harmonic_journey") -> PlaylistRecommendation:
+def _recommendation(
+    track_count: int,
+    *,
+    root: Path,
+    strategy: str = "harmonic_journey",
+    energies: tuple[int | None, ...] | None = None,
+) -> PlaylistRecommendation:
+    levels = energies if energies is not None else (5,) * track_count
     tracks = [
         TrackRecord(
             path=str(root / "dd" / "_Lossless" / f"Track {index:02d}.flac"),
             title=f"Track {index:02d}",
             bpm=120.0,
             camelot_key="8A",
-            energy_level=5,
+            energy_level=levels[index - 1],
             metadata_status="complete",
         )
         for index in range(1, track_count + 1)
@@ -251,3 +262,151 @@ def test_the_crate_tree_plan_and_planner_are_exported_from_the_package_api() -> 
 
     assert exported_planner is plan_serato_crate_tree
     assert exported_plan is SeratoCrateTreePlan
+
+
+def test_a_phase_split_names_each_child_after_its_phase_under_the_parent(tmp_path: Path) -> None:
+    subcrates, library = _subcrates(tmp_path)
+    recommendation = _recommendation(20, root=tmp_path, energies=JOURNEY)
+
+    plan = plan_serato_crate_tree(recommendation, library, crate_name="22 nov", split_mode="phases")
+
+    assert plan.phase_reason is None
+    assert plan.parent.crate_name == "XfinAudio%%22 nov"
+    assert plan.parent.relative_paths == tuple(f"_Lossless/Track {index:02d}.flac" for index in range(1, 21))
+    assert [child.crate_name for child in plan.children] == [
+        "XfinAudio%%22 nov%%1 Apertura (1-4)",
+        "XfinAudio%%22 nov%%2 Subida (5-9)",
+        "XfinAudio%%22 nov%%3 Pico (10-12)",
+        "XfinAudio%%22 nov%%4 Cierre (13-20)",
+    ]
+    assert [child.target_path.name for child in plan.children] == [
+        "XfinAudio%%22 nov%%1 Apertura (1-4).crate",
+        "XfinAudio%%22 nov%%2 Subida (5-9).crate",
+        "XfinAudio%%22 nov%%3 Pico (10-12).crate",
+        "XfinAudio%%22 nov%%4 Cierre (13-20).crate",
+    ]
+    assert all(child.target_path.parent == subcrates for child in plan.children)
+    assert plan.plans == (plan.parent, *plan.children)
+    # Every phase child holds exactly its own run of the ordered set, in the same order.
+    assert [child.track_count for child in plan.children] == [4, 5, 3, 8]
+    for child, (first, last) in zip(plan.children, [(1, 4), (5, 9), (10, 12), (13, 20)], strict=True):
+        expected = tuple(f"_Lossless/Track {index:02d}.flac" for index in range(first, last + 1))
+        assert child.relative_paths == expected
+        assert parse_serato_crate_bytes(child.crate_bytes).paths == expected
+    # Planning still writes nothing.
+    assert list(subcrates.iterdir()) == []
+
+
+def test_a_phase_split_of_an_automatic_name_moves_the_whole_tree_to_the_next_number(tmp_path: Path) -> None:
+    subcrates, library = _subcrates(tmp_path)
+    older_parent = subcrates / f"{PARENT_NAME}.crate"
+    older_parent.write_bytes(b"an older export")
+    recommendation = _recommendation(20, root=tmp_path, energies=JOURNEY)
+
+    plan = plan_serato_crate_tree(recommendation, library, split_mode="phases", generated_at=GENERATED_AT)
+
+    numbered = f"{PARENT_NAME} (2)"
+    assert plan.parent.crate_name == numbered
+    assert [child.crate_name for child in plan.children] == [
+        f"{numbered}%%1 Apertura (1-4)",
+        f"{numbered}%%2 Subida (5-9)",
+        f"{numbered}%%3 Pico (10-12)",
+        f"{numbered}%%4 Cierre (13-20)",
+    ]
+    assert list(subcrates.iterdir()) == [older_parent]
+    assert older_parent.read_bytes() == b"an older export"
+
+
+def test_a_phase_split_without_phases_exports_the_parent_only_and_says_why(tmp_path: Path) -> None:
+    subcrates, library = _subcrates(tmp_path)
+
+    flat = plan_serato_crate_tree(
+        _recommendation(20, root=tmp_path, energies=FLAT), library, split_mode="phases", generated_at=GENERATED_AT
+    )
+    short = plan_serato_crate_tree(
+        _recommendation(7, root=tmp_path, energies=JOURNEY[:7]), library, split_mode="phases", generated_at=GENERATED_AT
+    )
+    unmeasured = plan_serato_crate_tree(
+        _recommendation(20, root=tmp_path, energies=(None,) * 20),
+        library,
+        split_mode="phases",
+        generated_at=GENERATED_AT,
+    )
+    generated = plan_generated_serato_playlist_export(
+        _recommendation(20, root=tmp_path, energies=FLAT), library, generated_at=GENERATED_AT
+    )
+
+    assert flat.children == ()
+    assert flat.phase_reason == "flat"
+    assert flat.parent == generated
+    assert short.phase_reason == "too_few_tracks"
+    assert unmeasured.phase_reason == "too_few_energies"
+    assert list(subcrates.iterdir()) == []
+
+
+def test_every_n_and_no_split_keep_todays_plan_and_name_no_phase_reason(tmp_path: Path) -> None:
+    _subcrates_path, library = _subcrates(tmp_path)
+    recommendation = _recommendation(20, root=tmp_path, energies=JOURNEY)
+    generated = plan_generated_serato_playlist_export(recommendation, library, generated_at=GENERATED_AT)
+
+    no_split = plan_serato_crate_tree(recommendation, library, generated_at=GENERATED_AT)
+    explicit_segments = plan_serato_crate_tree(
+        recommendation, library, split_mode="segments", generated_at=GENERATED_AT
+    )
+    absent_mode = plan_serato_crate_tree(recommendation, library, split_mode=None, generated_at=GENERATED_AT)
+    every_three = plan_serato_crate_tree(recommendation, library, segment_size=3, generated_at=GENERATED_AT)
+
+    assert no_split.parent == generated
+    assert no_split.children == ()
+    assert no_split.phase_reason is None
+    # The energy of the tracks changes nothing when the DJ splits every N tracks.
+    assert explicit_segments == no_split == absent_mode
+    assert [child.crate_name for child in every_three.children] == [
+        f"{PARENT_NAME}%%1 (1-3)",
+        f"{PARENT_NAME}%%2 (4-6)",
+        f"{PARENT_NAME}%%3 (7-9)",
+        f"{PARENT_NAME}%%4 (10-12)",
+        f"{PARENT_NAME}%%5 (13-15)",
+        f"{PARENT_NAME}%%6 (16-18)",
+        f"{PARENT_NAME}%%7 (19-20)",
+    ]
+    assert every_three.phase_reason is None
+
+
+def test_a_segment_size_left_over_from_the_other_mode_changes_nothing_in_phases_mode(tmp_path: Path) -> None:
+    _subcrates_path, library = _subcrates(tmp_path)
+    recommendation = _recommendation(20, root=tmp_path, energies=JOURNEY)
+
+    phases = plan_serato_crate_tree(recommendation, library, crate_name="22 nov", split_mode="phases")
+    with_size = plan_serato_crate_tree(
+        recommendation, library, crate_name="22 nov", segment_size=5, split_mode="phases"
+    )
+
+    # The phase split derives its own boundaries: the size field is disabled in that mode,
+    # so a value still held by the options screen must not turn the tree into segments.
+    assert with_size == phases
+
+
+@pytest.mark.parametrize("split_mode", ["phase", "PHASES", "energy", "", 5, True])
+def test_an_unknown_split_mode_is_refused_with_a_clear_error(tmp_path: Path, split_mode: object) -> None:
+    subcrates, library = _subcrates(tmp_path)
+    recommendation = _recommendation(20, root=tmp_path, energies=JOURNEY)
+
+    with pytest.raises(ValueError, match="split mode must be segments or phases"):
+        plan_serato_crate_tree(
+            recommendation,
+            library,
+            split_mode=split_mode,  # type: ignore[arg-type]
+            generated_at=GENERATED_AT,
+        )
+
+    assert list(subcrates.iterdir()) == []
+
+
+def test_the_split_mode_validator_is_exported_from_the_package_api() -> None:
+    from xfinaudio.exporting import validate_split_mode as exported_validator  # noqa: PLC0415
+    from xfinaudio.exporting.serato_playlist_exporter import validate_split_mode  # noqa: PLC0415
+
+    assert exported_validator is validate_split_mode
+    assert validate_split_mode(None) == "segments"
+    assert validate_split_mode("phases") == "phases"
