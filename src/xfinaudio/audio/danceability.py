@@ -28,10 +28,13 @@ between the danceable and non-danceable groups.
 from __future__ import annotations
 
 import logging
+import os
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 from pydantic import BaseModel, ConfigDict, Field
 
 LOGGER = logging.getLogger(__name__)
@@ -56,6 +59,20 @@ _MAX_BEAT_LAG = 200
 # closes completely; above the ceiling it is fully open and stops interfering.
 _PERCUSSIVE_FLOOR = 0.30
 _PERCUSSIVE_CEILING = 0.52
+
+# librosa.decompose.hpss defaults, reproduced here: a 31-frame median along each
+# axis, then squared soft masks normalized against the larger of the two
+# medians. HPSS is ~90% of the analyzer's per-track cost and all of it is these
+# two median filters, which is why they are computed here, from the magnitude
+# alone and in parallel blocks.
+_HPSS_KERNEL = 31
+_HPSS_POWER = 2.0
+# At most two profile workers run at once (headless/profiles.py), so half the
+# cores each keeps one library pass inside the machine instead of thrashing it.
+_MAX_HPSS_WORKERS = 4
+# Selecting the median needs a contiguous window view, so rows are filtered in
+# batches that keep one thread's window buffer a few megabytes wide.
+_MEDIAN_BATCH_WINDOWS = 1_000_000
 
 # librosa emits these on every load that falls back from soundfile to audioread.
 for _noisy_message in (
@@ -192,12 +209,89 @@ def _tempo_confidence(onset_envelope: np.ndarray, sample_rate: float, librosa) -
     return float(np.clip(dominant * (dominant / mean) / 4.0, 0.0, 1.0))
 
 
-def _percussive_ratio(y: np.ndarray, librosa) -> float:  # noqa: ANN001
-    """Fraction of spectral energy that is transient rather than pitched."""
-    stft = librosa.stft(y, n_fft=_N_FFT, hop_length=_HOP_LENGTH)
-    harmonic, percussive = librosa.decompose.hpss(stft)
-    percussive_energy = float(np.abs(percussive).sum())
-    harmonic_energy = float(np.abs(harmonic).sum())
+def _hpss_workers() -> int:
+    """Threads for the median filters: bounded, and never zero."""
+    return min(_MAX_HPSS_WORKERS, max(1, (os.cpu_count() or 1) // 2))
+
+
+def _blocks(length: int, parts: int) -> list[tuple[int, int]]:
+    """Contiguous ``[start, stop)`` ranges covering ``length`` in ``parts`` pieces."""
+    if parts <= 1 or length <= 1:
+        return [(0, length)]
+    step = -(-length // parts)
+    return [(start, min(start + step, length)) for start in range(0, length, step)]
+
+
+def _median_rows(rows: np.ndarray) -> np.ndarray:
+    """Median-filter every row along its last axis, ``_HPSS_KERNEL`` frames wide."""
+    half = _HPSS_KERNEL // 2
+    out = np.empty_like(rows)
+    batch = max(1, _MEDIAN_BATCH_WINDOWS // max(1, rows.shape[-1] * _HPSS_KERNEL))
+    for start in range(0, rows.shape[0], batch):
+        stop = min(start + batch, rows.shape[0])
+        # Symmetric padding is scipy's mode="reflect" as librosa uses it: index -1
+        # reads element 0, -2 reads element 1, and so on. A median of an odd
+        # window is one of its own elements, so the k-th selection is exact.
+        padded = np.pad(rows[start:stop], ((0, 0), (half, half)), mode="symmetric")
+        windows = sliding_window_view(padded, _HPSS_KERNEL, axis=-1)
+        out[start:stop] = np.partition(windows, half, axis=-1)[..., half]
+    return out
+
+
+def _median_block(magnitude: np.ndarray, axis: int, start: int, stop: int) -> np.ndarray:
+    """Median along ``axis`` over one block of the axis the kernel does not touch.
+
+    A median is local, so the block of the other axis is independent: filtering
+    blocks separately and pasting them back gives the whole-array result, which
+    the equivalence test asserts against ``scipy.ndimage.median_filter``.
+
+    ``axis=1`` filters along time and returns ``(stop - start, frames)``;
+    ``axis=0`` filters along frequency and returns ``(frames, stop - start)``,
+    already transposed so the median axis is the last one.
+    """
+    if axis == 1:
+        return _median_rows(magnitude[start:stop, :])
+    return _median_rows(np.ascontiguousarray(magnitude[:, start:stop].T))
+
+
+def _hpss_median_magnitudes(magnitude: np.ndarray, *, workers: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """The two median-filtered magnitudes librosa's HPSS masks are built from."""
+    workers = _hpss_workers() if workers is None else max(1, int(workers))
+    harmonic = np.empty_like(magnitude)
+    percussive = np.empty_like(magnitude)
+    jobs = [(axis, start, stop) for axis in (1, 0) for start, stop in _blocks(magnitude.shape[1 - axis], workers)]
+
+    def place(axis: int, start: int, stop: int, values: np.ndarray) -> None:
+        if axis == 1:
+            harmonic[start:stop, :] = values
+        else:
+            percussive[:, start:stop] = values.T
+
+    if min(workers, len(jobs)) <= 1:
+        for axis, start, stop in jobs:
+            place(axis, start, stop, _median_block(magnitude, axis, start, stop))
+        return harmonic, percussive
+    with ThreadPoolExecutor(max_workers=min(workers, len(jobs)), thread_name_prefix="xfinaudio-hpss") as pool:
+        futures = [(job, pool.submit(_median_block, magnitude, *job)) for job in jobs]
+        for (axis, start, stop), future in futures:
+            place(axis, start, stop, future.result())
+    return harmonic, percussive
+
+
+def _percussive_ratio(y: np.ndarray, librosa, *, workers: int | None = None) -> float:  # noqa: ANN001
+    """Fraction of spectral energy that is transient rather than pitched.
+
+    Same arithmetic as ``librosa.decompose.hpss``: the soft masks normalize each
+    median against the larger of the two, so the phase librosa multiplies back in
+    cancels out of ``|harmonic| + |percussive|``. Only the magnitude and the two
+    masks are needed, which drops the complex products and their copies.
+    """
+    magnitude = np.abs(librosa.stft(y, n_fft=_N_FFT, hop_length=_HOP_LENGTH))
+    harmonic, percussive = _hpss_median_magnitudes(magnitude, workers=workers)
+    percussive_mask = librosa.util.softmask(percussive, harmonic, power=_HPSS_POWER, split_zeros=True)
+    harmonic_mask = librosa.util.softmask(harmonic, percussive, power=_HPSS_POWER, split_zeros=True)
+    percussive_energy = float(np.sum(magnitude * percussive_mask))
+    harmonic_energy = float(np.sum(magnitude * harmonic_mask))
     total = percussive_energy + harmonic_energy
     if total <= 0:
         return 0.0
