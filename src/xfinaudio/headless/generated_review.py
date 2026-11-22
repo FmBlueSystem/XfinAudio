@@ -102,8 +102,20 @@ def _same_listed_track(recorded: TrackRecord, current: TrackRecord) -> bool:
     A later analysis pass rewrites only the spectral, danceability, edge, loudness and
     tonal profiles; the file, its tags and the recording the library scanned stay the same.
     """
-    derived = dict.fromkeys(ANALYSIS_PROFILE_FIELDS)
+    derived: dict[str, Any] = dict.fromkeys(ANALYSIS_PROFILE_FIELDS)
     return recorded.model_copy(update=derived) == current.model_copy(update=derived)
+
+
+def _root_accessible(root: Path) -> bool:
+    """Whether one authorized library root is readable now, as a real directory.
+
+    An external drive that is not mounted, or a root the user moved away, is not: that
+    says nothing about the files a stored list holds (S2).
+    """
+    try:
+        return root.is_dir() and not root.is_symlink() and root.resolve(strict=True) == root
+    except (OSError, RuntimeError):
+        return False
 
 
 def _renewed(recommendation: PlaylistRecommendation, records: dict[str, TrackRecord]) -> PlaylistRecommendation:
@@ -596,13 +608,16 @@ class GeneratedReview:
                 LOGGER.info(TAG_WRITE_ACCEPTED)
         listed = review.recommendation.ordered_tracks
         # A listed track the library can read now but no longer describes as the track it
-        # recorded is a real library change; a listed track the library cannot read at all
-        # -- a drive that is not ready, a file moved away -- says nothing about the list.
+        # recorded is a real library change.
         changed = [
             track for track in listed if track.path in sources and not _same_listed_track(track, sources[track.path][0])
         ]
         unverified = [track for track in listed if track.path not in sources]
-        if changed or any(self._reachable(track.path) for track in unverified):
+        # A listed path the library cannot read is a file that left the library for good
+        # while its root is still there; only a root the core cannot read -- a drive that
+        # is not mounted yet -- leaves the file unverified and the list stored (S2).
+        removed = [track for track in unverified if self._root_ready(track.path)]
+        if changed or removed:
             LOGGER.warning("The list in progress was dropped because the library changed")
             clear_review(self.backend.data_dir)
             self.dropped = True
@@ -611,7 +626,7 @@ class GeneratedReview:
             # The stored copy is never deleted because this start could not verify a
             # track: the next start, with the drive mounted, still recovers the list (S2).
             LOGGER.warning(
-                "The list in progress could not be verified because %s is not reachable; it stays stored",
+                "The list in progress could not be verified because its drive is not reachable (%s); it is kept",
                 unverified[0].path,
             )
             self.dropped = True
@@ -666,10 +681,16 @@ class GeneratedReview:
         # change made while restoring is still refused.
         self.bind_plan(payload["planId"], (self.sources, self.policy, frozenset()))
 
-    def _reachable(self, path: str) -> bool:
-        """Whether the library can read this file now; an absent drive or moved file cannot."""
+    def _root_ready(self, path: str) -> bool:
+        """Whether the authorized roots that hold this path are readable now (S2).
+
+        A listed file missing under a root the core can read was removed from the library
+        for good. A root that is not there is a drive that is not mounted yet, which says
+        nothing about the file. A path no configured root holds any more belongs to no
+        library this start could ever restore, so it is treated as removed too.
+        """
         target = Path(path)
-        return any(_inside(target, root) for root in self.backend.roots)
+        return all(_root_accessible(root) for root in self.backend.roots if target.is_relative_to(root))
 
     @staticmethod
     def _decode(stored: dict[str, Any]) -> PrepCopilotVariantApplicationResult:

@@ -261,24 +261,55 @@ def test_an_unreachable_list_track_keeps_the_stored_list_for_a_later_start(tmp_p
     backend, records = seeded(tmp_path, 8)
     analyzed(backend, records)
     result = backend.execute("prep.generate", {"targetTrackCount": 4})
-    listed = backend.review.recommendation.ordered_tracks
-    target = Path(listed[1].path)
     stored = store_path(backend.data_dir)
     before = stored.read_bytes()
-    away = target.with_name(target.name + ".away")
-    target.rename(away)
-    # The drive is not ready: this start cannot verify the track, so it reports the list
-    # as not recoverable now and leaves the stored copy exactly as it was (S2).
+    root = backend.roots[0]
+    away = root.with_name(root.name + "-not-mounted")
+    # The external drive is not mounted: the whole authorized root is not there, so this
+    # start cannot verify any listed track and leaves the stored copy exactly as it was.
+    root.rename(away)
     restarted = stored_backend(backend)
     assert restarted.execute("review.resume", {}) == {"available": False, "review": None, "dropped": True}
     assert stored.read_bytes() == before
     # The drive comes back: the next start recovers the very same list.
-    away.rename(target)
+    away.rename(root)
     again = stored_backend(restarted)
     resumed = again.execute("review.resume", {})
     assert resumed["available"] is True
     assert resumed["dropped"] is False
     assert [track["id"] for track in resumed["review"]["tracks"]] == [track["id"] for track in result["tracks"]]
+
+
+def test_a_listed_track_file_removed_for_good_drops_and_clears_as_before(tmp_path: Path) -> None:
+    backend, records = seeded(tmp_path, 8)
+    analyzed(backend, records)
+    backend.execute("prep.generate", {"targetTrackCount": 4})
+    listed = backend.review.recommendation.ordered_tracks
+    stored = store_path(backend.data_dir)
+    assert stored.exists()
+    Path(listed[1].path).unlink()  # drive still mounted; the file is gone for good
+    restarted = stored_backend(backend)
+    assert restarted.execute("review.resume", {}) == {"available": False, "review": None, "dropped": True}
+    assert not stored.exists()
+
+
+def test_an_unverified_list_never_blocks_a_new_generation(tmp_path: Path) -> None:
+    backend, records = seeded(tmp_path, 8)
+    analyzed(backend, records)
+    first = backend.execute("prep.generate", {"targetTrackCount": 4})
+    root = backend.roots[0]
+    away = root.with_name(root.name + "-not-mounted")
+    root.rename(away)
+    restarted = stored_backend(backend)
+    assert restarted.execute("review.resume", {}) == {"available": False, "review": None, "dropped": True}
+    # The kept file never stands in the way of the next list the DJ asks for.
+    away.rename(root)
+    second = restarted.execute("prep.generate", {"targetTrackCount": 4})
+    assert second["reviewId"] != first["reviewId"]
+    assert json.loads(store_path(backend.data_dir).read_text(encoding="utf-8"))["reviewId"] == second["reviewId"]
+    resumed = stored_backend(restarted).execute("review.resume", {})
+    assert resumed["available"] is True
+    assert resumed["review"]["reviewId"] == second["reviewId"]
 
 
 def test_a_listed_track_replaced_by_another_recording_still_drops_and_clears(tmp_path: Path) -> None:
