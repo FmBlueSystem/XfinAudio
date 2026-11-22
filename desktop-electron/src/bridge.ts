@@ -15,9 +15,15 @@ export const CANCELLABLE_JOB_METHODS:ReadonlySet<string>=new Set([
 // Generous on purpose: ordinary reads walk the whole library and stat every
 // file, so a large library on a slow disk must not be mistaken for a hang.
 export const REQUEST_TIMEOUT_MS=120000;
-/** The deadline for one method: cancellable jobs have none, everything else the default. */
+/**
+ * Methods no fixed deadline may kill. A cancellable job owns its lifetime through
+ * cancellation; preparing an assistant turn owns it through the work itself, because it
+ * walks the library on disk and slow I/O there must not be reported as a hang (S4).
+ */
+export const UNDEADLINED_METHODS:ReadonlySet<string>=new Set([...CANCELLABLE_JOB_METHODS,'ai.prepare']);
+/** The deadline for one method: a method that owns its lifetime has none, everything else the default. */
 export function requestDeadline(method:string,defaultMs:number=REQUEST_TIMEOUT_MS):number|null {
-  if(CANCELLABLE_JOB_METHODS.has(method))return null;
+  if(UNDEADLINED_METHODS.has(method))return null;
   return Number.isFinite(defaultMs)&&defaultMs>0?defaultMs:null;
 }
 export interface BridgeOptions {

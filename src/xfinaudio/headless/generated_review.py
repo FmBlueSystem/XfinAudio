@@ -148,6 +148,11 @@ class GeneratedReview:
     def _policy(self) -> tuple[object, ...]:
         return self.backend.preferences.spectral_cohesion(), self.backend.preferences.loudness_band()
 
+    @property
+    def in_command(self) -> bool:
+        """Whether one core command is running, so its guards share one library read (S3)."""
+        return bool(self._scope_depth)
+
     @contextmanager
     def snapshot_scope(self) -> Iterator[None]:
         """Share one library source snapshot for the length of one core command.
@@ -164,6 +169,9 @@ class GeneratedReview:
             self._scope_depth -= 1
             if not self._scope_depth:
                 self._snapshot, self._fresh, self._refreshed = None, None, False
+                # The library rows one command read are not kept past it, so nothing stale
+                # and no second copy of a large library outlives the command (S3).
+                self.backend._forget_library_rows()
 
     def _sources(self, checked: frozenset[str] | None = None, *, final: bool = False) -> SourceSnapshot:
         """The library source snapshot, built at most twice inside one command.
@@ -207,30 +215,37 @@ class GeneratedReview:
         """Read the library sources exactly as they are now, for the ``checked`` paths.
 
         Only the ``checked`` paths are read from disk; every other library track
-        contributes its stored record and the identity the generation recorded, so a
-        review command never re-checks a track it does not act on. The result belongs to
-        the caller: one command copies the entries it asked for into its own snapshot.
+        contributes its stored record and the identity the generation recorded after a
+        single lexical containment test, so a review command never re-checks a track it
+        does not act on (S3). The result belongs to the caller: one command copies the
+        entries it asked for into its own snapshot.
 
         ``unread`` keeps every unlisted library track even before this review recorded
         anything about it, with its stored record and no identity: that is the whole
         library a restart restores, without reading the disk of the tracks it does not
-        list. A path whose file identity changed into a different recording, an
+        list. A checked path whose file identity changed into a different recording, an
         unreadable file or a replacement leaves the snapshot entirely (S5).
         """
         result = {}
         tracks = self.backend._records(checked=checked)
-        stored_identities = self.backend.repository.load_scan_file_identities([track.path for track in tracks])
+        read_paths = [track.path for track in tracks if checked is None or track.path in checked]
+        stored_identities = self.backend.repository.load_scan_file_identities(read_paths)
         for track in tracks:
             path = Path(track.path)
+            # Membership is decided before anything touches the disk: a track this command
+            # does not act on keeps its stored record and identity, and a cheap lexical test
+            # is all that decides whether it still belongs to an authorized root (S3).
+            if checked is not None and track.path not in checked:
+                if not any(path.is_relative_to(root) for root in self.backend.roots):
+                    continue
+                stored = self.sources.get(track.path)
+                if stored is not None:
+                    result[track.path] = track, stored[1]
+                elif unread:
+                    result[track.path] = track, None
+                continue
             try:
                 if not any(_inside(path, root) for root in self.backend.roots):
-                    continue
-                if checked is not None and track.path not in checked:
-                    stored = self.sources.get(track.path)
-                    if stored is not None:
-                        result[track.path] = track, stored[1]
-                    elif unread:
-                        result[track.path] = track, None
                     continue
                 identity = source_identity(path)
                 recorded = stored_identities.get(track.path)

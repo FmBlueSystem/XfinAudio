@@ -130,6 +130,9 @@ class HeadlessBackend:
         self.review_id: str | None = None
         self.review_blocked = True
         self._track_paths: dict[str, str] = {}
+        # The stored library rows one command already read, with the library revision they
+        # belong to; ``None`` outside a command, where every read stays fresh (S3).
+        self._library_rows: tuple[tuple[tuple[int, int], tuple[str, ...]], list[TrackRecord]] | None = None
         self._records()
         self.editor = PlaylistEditor(self)
         self.browse = LibraryBrowser(self)
@@ -187,11 +190,38 @@ class HeadlessBackend:
         # A discarded review must not come back after the next start.
         self.review_actions.clear_stored()
 
+    def _in_command(self) -> bool:
+        """Whether a core command is running, so its guards can share one library read (S3)."""
+        review = getattr(self, "review_actions", None)
+        return review is not None and review.in_command
+
+    def _stored_rows(self, revision: tuple[tuple[int, int], tuple[str, ...]]) -> list[TrackRecord]:
+        """The stored library rows: one read per command, a fresh read for every other call.
+
+        Every guard one assistant turn runs asks for the same library table, so reading it
+        again per guard walked a large library several times per command (S3). A writer
+        that commits during the command still invalidates the rows through the revision.
+        """
+        cached = self._library_rows
+        if self._in_command() and cached is not None and cached[0] == revision:
+            return cached[1]
+        rows = self.repository.list_display_tracks()
+        self._library_rows = (revision, rows)
+        return rows
+
+    def _forget_library_rows(self) -> None:
+        """Drop the rows one command read, so the next command reads them fresh (S3)."""
+        self._library_rows = None
+
     def _records(self, *, checked: frozenset[str] | None = None) -> list[TrackRecord]:
-        """The library records; only the ``checked`` tracks have their disk identity read."""
+        """The library records; only the ``checked`` tracks have their disk identity read.
+
+        The stored rows come from the one read this command already made, so a command's
+        guards share it instead of walking the library again per guard (S3).
+        """
         records = [
             record
-            for record in self.repository.list_display_tracks()
+            for record in self._stored_rows(self.library_revision())
             if any(Path(record.path).is_relative_to(root) for root in self.roots)
         ]
         records = current_records(self.repository, records, self.roots, checked=checked)
