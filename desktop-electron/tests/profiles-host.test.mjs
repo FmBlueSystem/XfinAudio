@@ -18,6 +18,7 @@ test('profile host remains exclusive through cancellation and drains active work
 });
 test('profile host failure releases the gate and progress projects bounded safe fields only',async()=>{
   const {ProfilesHost,profileProgress}=require('../.out/main/profiles-host.js');const host=new ProfilesHost({request:async()=>{throw Error('failure');},cancel:async()=>{},isClosing:()=>false});await assert.rejects(host.complete());assert.equal(host.busy,false);assert.deepEqual(await host.cancel(),{cancelled:false});
-  const valid={phase:'profiles',stage:'spectral',processedCount:2,totalCount:4,readyCount:2,failedCount:0};assert.deepEqual(profileProgress({...valid,fileName:'/private',message:'raw error',path:'/music'}),valid);
-  for(const patch of [{stage:'private'},{processedCount:5},{totalCount:-1},{readyCount:NaN},{failedCount:1.2},{phase:'other'}])assert.equal(profileProgress({...valid,...patch}),null);
+  const valid={phase:'profiles',stage:'spectral',processedCount:2,totalCount:4,readyCount:2,failedCount:0,estimatedRemainingSeconds:600};assert.deepEqual(profileProgress({...valid,fileName:'/private',message:'raw error',path:'/music'}),valid);
+  assert.deepEqual(profileProgress({...valid,estimatedRemainingSeconds:null}),{...valid,estimatedRemainingSeconds:null});
+  for(const patch of [{stage:'private'},{processedCount:5},{totalCount:-1},{readyCount:NaN},{failedCount:1.2},{phase:'other'},{estimatedRemainingSeconds:-1},{estimatedRemainingSeconds:'600'}])assert.equal(profileProgress({...valid,...patch}),null);
 });

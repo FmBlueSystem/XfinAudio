@@ -12,7 +12,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve)); const settle
 const prefs = (patch = {}) => ({ revision: 'a'.repeat(64), previewVolume: .25, watchLibrary: true, recoveryWarning: false, libraryLabels: ['DJ'], capabilities: { loudnessWriteback: false, providers: false, language: 'es' }, ...patch });
 const status = (patch = {}) => ({ revision: 1, changeState: 'restored', watchState: 'active', rootCount: 1, watchedCount: 1, ...patch });
 const tracks = ['a', 'b'].map((id) => ({ id: id.repeat(64), title: id, artist: 'DJ', bpm: 120, key: '8A', energy: 5, duration: 120, missing: false }));
-const profileStatus = (patch = {}) => ({state:'partial',totalTracks:2,readyCount:0,spectralReadyCount:0,danceabilityReadyCount:0,edgeReadyCount:0,pendingCount:2,failedCount:0,...patch});
+const profileStatus = (patch = {}) => { const value = {state:'partial',totalTracks:2,readyCount:0,spectralReadyCount:0,danceabilityReadyCount:0,edgeReadyCount:0,pendingCount:2,failedCount:0,estimatedRemainingSeconds:null,...patch}; return {...value,spectralPendingCount:value.totalTracks-value.spectralReadyCount,danceabilityPendingCount:value.totalTracks-value.danceabilityReadyCount,edgePendingCount:value.totalTracks-value.edgeReadyCount}; };
 const completion = (patch = {}) => ({cancelled:false,tracks,status:profileStatus({state:'complete',readyCount:2,spectralReadyCount:2,danceabilityReadyCount:2,edgeReadyCount:2,pendingCount:0}),completeCount:2,incompleteCount:0,...patch});
 let sequence = 0;
 async function fixture(overrides = {}) {
@@ -66,6 +66,38 @@ test('unavailable result is safe/retryable and core death disables profile opera
 test('watch-triggered rescan clears the paused old dirty notification and completes exactly once',async()=>{
   let finish,completed=0;const f=await fixture({rescanLibrary:()=>new Promise(resolve=>finish=resolve),completeProfiles:async()=>{completed++;return completion();}});try{
     f.event(status({revision:3,changeState:'changed'}));f.click('library-status-rescan');f.event(status({revision:4,changeState:'changed',watchState:'paused',watchedCount:0}));f.event(status({revision:5,changeState:'clean',watchState:'active'}));finish({tracks,count:2,cancelled:false});await settle();assert.equal(completed,1);assert.match(f.get('profiles-summary').textContent,/completos/i);
+  }finally{f.restore();}
+});
+test('stale library exposes one action that rescans and then completes profiles exactly once',async()=>{
+  let finish,completed=0,rescans=0;const f=await fixture({rescanLibrary:()=>{rescans++;return new Promise(resolve=>finish=resolve);},completeProfiles:async()=>{completed++;return completion();}});try{
+    f.event(status({revision:2,changeState:'changed'}));
+    assert.equal(f.get('profiles-rescan').hidden,false);assert.equal(f.get('profiles-rescan').textContent,'Reescanear y completar perfiles');assert.equal(f.get('profiles-rescan').disabled,false);assert.equal(f.get('profiles-retry').disabled,true);
+    f.click('profiles-retry');await settle();assert.equal(completed,0);
+    f.click('profiles-rescan');await settle();assert.equal(rescans,1);assert.equal(f.get('profiles-rescan').disabled,true);assert.equal(f.get('library-status-rescan').disabled,true);
+    // The rescan's own paused dirty status must not strand the chained completion.
+    f.event(status({revision:3,changeState:'changed',watchState:'paused',watchedCount:0}));
+    finish({tracks,count:2,cancelled:false});await settle();
+    assert.equal(completed,1);assert.match(f.get('profiles-summary').textContent,/completos/i);assert.equal(f.get('profiles-rescan').hidden,true);assert.equal(f.get('library-total').textContent,'2');
+  }finally{f.restore();}
+});
+test('a cancelled rescan keeps the stale library behind the rescan action',async()=>{
+  const f=await fixture({rescanLibrary:async()=>({tracks,count:2,cancelled:true})});try{
+    f.event(status({revision:2,changeState:'changed'}));
+    f.click('profiles-rescan');await settle();
+    assert.equal(f.calls.some(([kind])=>kind==='completeProfiles'),false);
+    assert.equal(f.get('profiles-retry').disabled,true);assert.equal(f.get('profiles-rescan').hidden,false);assert.equal(f.get('profiles-rescan').disabled,false);
+    assert.match(f.get('profiles-summary').textContent,/escanea/i);
+  }finally{f.restore();}
+});
+test('profiles status shows pending tracks per analysis and the measured remaining time',async()=>{
+  let finish;const measured=profileStatus({readyCount:0,spectralReadyCount:1,spectralPendingCount:1,danceabilityPendingCount:2,edgePendingCount:2,estimatedRemainingSeconds:12000});
+  const f=await fixture({getProfileStatus:async()=>measured,completeProfiles:()=>new Promise(resolve=>finish=resolve)});try{
+    const summary=()=>f.get('profiles-summary').textContent;
+    assert.match(summary(),/espectral 1 · bailabilidad 2 · bordes 2/);assert.match(summary(),/Faltan unas 3 h 20 min/);
+    f.click('profiles-retry');await settle();
+    f.progress({operation:'profiles.complete',phase:'profiles',jobId:'job',stage:'danceability',current:1,total:2,readyCount:0,failedCount:0,estimatedRemainingSeconds:600});
+    assert.match(summary(),/Faltan unos 10 min/);
+    finish(completion());await settle();assert.match(summary(),/Perfiles completos/);assert.doesNotMatch(summary(),/Faltan/);
   }finally{f.restore();}
 });
 test('failed rescan and cancelled folder picker never queue profiles',async()=>{

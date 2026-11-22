@@ -157,6 +157,7 @@ let libraryGeneration = 0;
 let profilesSnapshot:ProfileStatus|null=null;
 let profilesStale=false;
 let profilesError='';
+let profilesProgressEta:number|null=null;
 let profileAutoPending:number|null=null;
 let profileBootstrapPending=typeof api?.getProfileStatus==='function';
 let profileSettingsAttempted=false;
@@ -715,8 +716,8 @@ if(typeof api?.queryLibrary==='function'&&typeof api?.searchPlaylists==='functio
   deleted:id=>{playlists=playlists.filter(item=>item.id!==id);if(editor.draft?.id===id)editor.resetAfterScan();if(review?.savedPlaylistId===id){review=null;renderReview();}serato.invalidatePreview();invalidateAiSource();aiSavedSelection=null;renderPlaylists();},
   restored:playlist=>{playlists=[playlist,...playlists.filter(item=>item.id!==playlist.id)];invalidateAiSource();aiSavedSelection=null;renderPlaylists();},
 });
-const drawProfiles=createProfilesView(element('profiles-container'),{canAct:()=>coreAvailable&&!gate.busy&&profilesAvailable(),retry:()=>{void completeProfiles();}});
-renderProfiles=()=>{drawProfiles(profilesSnapshot,profilesStale,activeKind==='profiles',profilesError);renderContextStatus();};
+const drawProfiles=createProfilesView(element('profiles-container'),{canAct:()=>coreAvailable&&!gate.busy&&profilesAvailable(),retry:()=>{void completeProfiles();},rescanAndComplete:()=>{rescanAndCompleteProfiles();}});
+renderProfiles=()=>{drawProfiles(profilesSnapshot,profilesStale,activeKind==='profiles',profilesError,profilesProgressEta);renderContextStatus();};
 renderPreferences(); renderProfileSettings(); renderLoudness(); renderProfiles(); renderLibraryStatus(libraryStatus);
 function freezeAfterLegacy(reason='legacy_restart_required'):void{
   if(!restartRequired||reason==='legacy_recovery_required')coreFailure=reason==='legacy_recovery_required'?'Cierra XfinAudio y revisa el estado del perfil y sus copias antes de continuar. No se realizarán otras operaciones.':'Cierra y vuelve a abrir XfinAudio. Después, selecciona explícitamente tus carpetas musicales y vuelve a escanearlas.';
@@ -1513,7 +1514,7 @@ async function completeProfiles():Promise<void>{
   if(!coreAvailable||gate.busy||!profilesAvailable()||profilesStale)return;
   if(editor.dirty){showStatus('Tienes un borrador sin guardar','Guarda o descarta los cambios del editor antes de completar perfiles',true);navigate('editor',false);return;}
   editor.resetAfterScan();libraryGeneration++;invalidateAiSource();metadataReport=null;loudness.invalidateContext();serato.invalidatePreview();invalidatePrep();
-  profilesError='';const ids=new Set(library.map(track=>track.id));
+  profilesError='';profilesProgressEta=null;const ids=new Set(library.map(track=>track.id));
   // Profile completion that follows a scan is the second numbered step of the same job.
   if (jobSteps) jobSteps = { index: 2, total: 2, kind: 'profiles' };
   try {
@@ -1523,12 +1524,21 @@ async function completeProfiles():Promise<void>{
       profilesSnapshot=summary;applyLibrary({tracks:result.tracks,count:result.tracks.length});
       showStatus(result.cancelled?'Perfiles cancelados':summary.state==='complete'?'Perfiles completados':'Perfiles pendientes',`${summary.readyCount} de ${summary.totalTracks} pistas completas; los metadatos siguen disponibles`, false, result.cancelled ? 'cancelled' : 'done');
     },true,error=>{profilesError=userErrorMessage(error);renderProfiles();});
-  } finally { jobSteps = null; }
+  } finally { jobSteps = null; profilesProgressEta = null; if(profilesAvailable()) renderProfiles(); }
+}
+/**
+ * S1: a stale library leaves profiles blocked. The one visible action is the existing rescan whose
+ * completion already chains the profile step (2/2), so there is never a dead end.
+ */
+function rescanAndCompleteProfiles():void{
+  if(!coreAvailable||gate.busy||!profilesAvailable()||!api?.rescanLibrary||!libraryStatus?.rootCount)return;
+  scan(true);
 }
 function scan(registered = false): void {
   if (gate.busy || !coreAvailable || (registered && (!api.rescanLibrary || !libraryStatus?.rootCount))) return;
   if (editor.dirty) { showStatus('Tienes un borrador sin guardar', 'Guarda o descarta los cambios del editor antes de cambiar la biblioteca', true); navigate('editor', false); return; }
-  profileAutoPending=null;profilesSnapshot=null;profilesStale=false;profilesError='';
+  profileAutoPending=null;profilesSnapshot=null;profilesStale=false;profilesError='';profilesProgressEta=null;
+  renderProfiles();
   editor.resetAfterScan();
   libraryGeneration++; invalidateAiSource();
   aiLibraryFilter = null; aiFilterRevision++; aiSavedSelection = null;
@@ -1541,9 +1551,13 @@ function scan(registered = false): void {
     if (!result) { jobSteps = null; showStatus('Selección de carpeta cancelada', '', false, 'cancelled'); return; }
     preferenceLabelsPending=true;
     applyLibrary(result);
-    if(!result.cancelled&&profilesAvailable()){profilesStale=libraryStatus?.changeState==='changed';profileAutoPending=libraryGeneration;}
+    // A rescan that completes is what clears «Cambios detectados», so it also clears the
+    // staleness its own paused status published: the chained completion cannot be stranded by it.
+    // A cancelled rescan changed nothing, so it keeps whatever the watcher still reports.
+    if(profilesAvailable()){profilesStale=result.cancelled?libraryStatus?.changeState==='changed':false;if(!result.cancelled)profileAutoPending=libraryGeneration;}
     // Only a scan that really hands over to automatic profile completion has a second step.
     jobSteps = !result.cancelled && profilesAvailable() && !profilesStale ? { index: 1, total: 2, kind: 'scan' } : null;
+    renderProfiles();
     showStatus(result.cancelled?'Escaneo cancelado':'Biblioteca actualizada', `${library.length} pistas disponibles`, false, result.cancelled ? 'cancelled' : 'done');
   }, true);
 }
@@ -1776,6 +1790,11 @@ if (api) {
     if (activeJobId && event.jobId !== activeJobId) return;
     activeJobId = event.jobId;
     renderOperationProgress(event);
+    if(activeKind==='profiles'){
+      const remaining=(event as {estimatedRemainingSeconds?:unknown}).estimatedRemainingSeconds;
+      profilesProgressEta=Number.isSafeInteger(remaining)?remaining as number:null;
+      renderProfiles();
+    }
   });
   window.addEventListener('beforeunload', unsubscribe, { once: true });
   void loadCatalog();

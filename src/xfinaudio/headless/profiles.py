@@ -7,6 +7,7 @@ import logging
 import math
 import os
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -38,6 +39,11 @@ STAGES = (
 )
 # A tag write keeps the recording's duration; this is the tolerance the library allows.
 MAX_TAG_WRITE_DURATION_DELTA = 2.0
+
+
+def _clock() -> float:
+    """Monotonic seconds; one indirection so the remaining-time estimate stays testable."""
+    return time.monotonic()
 
 
 def dependencies_available() -> bool:
@@ -133,16 +139,42 @@ class ProfileCompletion:
         self.state = "idle"
         self.max_workers = max(1, min(2, (os.cpu_count() or 2) - 1))
         self._commit_lock = threading.RLock()
+        self._measurement_lock = threading.RLock()
+        # Seconds of decoding measured per stage; a run fills it as it commits tracks.
+        self.stage_seconds: dict[str, float] = {}
 
     def invalidate(self) -> None:
         self.failed.clear()
         self.state = "idle"
+        with self._measurement_lock:
+            self.stage_seconds.clear()
+
+    def _estimate_remaining(self, pending: dict[str, int]) -> int | None:
+        """Seconds left, from the per-track time this process measured and the pending work."""
+        if not any(pending.values()):
+            return 0
+        with self._measurement_lock:
+            measured = dict(self.stage_seconds)
+        known = [seconds for seconds in measured.values() if seconds > 0]
+        if not known:
+            return None
+        # A stage that has not run yet is estimated with the average already measured.
+        fallback = sum(known) / len(known)
+        total = sum(count * measured.get(stage, fallback) for stage, count in pending.items() if count)
+        return math.ceil(total)
+
+    def _measure(self, stage: str, analyzed: int, started: float) -> None:
+        if analyzed <= 0:
+            return
+        with self._measurement_lock:
+            self.stage_seconds[stage] = max(0.0, _clock() - started) / analyzed
 
     def status(self) -> dict[str, Any]:
         records = self.backend._records()
         counts = [sum(getattr(record, field) is not None for record in records) for _, field, _, _ in STAGES]
         ready = sum(all(getattr(record, field) is not None for _, field, _, _ in STAGES) for record in records)
         state = "idle" if not records else "complete" if ready == len(records) else self.state
+        pending = {stage: len(records) - count for (stage, _, _, _), count in zip(STAGES, counts, strict=True)}
         return {
             "state": state,
             "totalTracks": len(records),
@@ -150,8 +182,12 @@ class ProfileCompletion:
             "spectralReadyCount": counts[0],
             "danceabilityReadyCount": counts[1],
             "edgeReadyCount": counts[2],
+            "spectralPendingCount": pending["spectral"],
+            "danceabilityPendingCount": pending["danceability"],
+            "edgePendingCount": pending["edge"],
             "pendingCount": len(records) - ready,
             "failedCount": len(self.failed & {record.path for record in records}),
+            "estimatedRemainingSeconds": self._estimate_remaining(pending),
         }
 
     def execute(
@@ -194,14 +230,20 @@ class ProfileCompletion:
     def _complete(self, token: ScanCancellationToken, emit: Callable[[dict[str, Any]], None]) -> None:
         subscribe = getattr(token, "subscribe", None)
         retire = subscribe(self._drain_commits) if callable(subscribe) else lambda: None
+        pending = {
+            stage: sum(getattr(record, field) is None for record in self.backend._records())
+            for stage, field, _, _ in STAGES
+        }
         try:
             with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="xfinaudio-profile") as pool:
                 for stage, field, version, adapter in STAGES:
                     if token.is_cancelled:
                         break
                     paths = [Path(record.path) for record in self.backend._records() if getattr(record, field) is None]
-                    done = ready = failed = 0
+                    pending[stage] = len(paths)
+                    done = ready = failed = analyzed = 0
                     total = len(paths)
+                    started = _clock()
 
                     def progress(done: int, ready: int, failed: int, *, stage=stage, total=total) -> None:
                         emit(
@@ -212,6 +254,7 @@ class ProfileCompletion:
                                 "totalCount": total,
                                 "readyCount": ready,
                                 "failedCount": failed,
+                                "estimatedRemainingSeconds": self._estimate_remaining(pending),
                             }
                         )
 
@@ -235,9 +278,15 @@ class ProfileCompletion:
                             done += 1
                             ready += int(success)
                             failed += int(not success)
+                            pending[stage] -= int(success)
                             if not success:
                                 self.failed.add(str(path))
                             progress(done, ready, failed)
+                        analyzed += len(futures)
+                        # A cancelled batch measured unfinished decodes, so only a batch that
+                        # fully committed tells the honest per-track time of its stage.
+                        if done == analyzed:
+                            self._measure(stage, analyzed, started)
         finally:
             retire()
 

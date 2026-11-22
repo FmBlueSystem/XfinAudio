@@ -21,7 +21,7 @@ const review = (patch = {}) => ({ reviewId: 'c0ffee00-0000-4000-8000-00000000000
 const notice = 'La lista en curso ya no se puede recuperar porque la biblioteca cambió';
 const preferences = () => ({ revision: 'a'.repeat(64), previewVolume: 0.25, watchLibrary: true, recoveryWarning: false, libraryLabels: [], capabilities: { loudnessWriteback: false, providers: false, language: 'es' } });
 const libraryStatus = (revision = 2) => ({ revision, changeState: 'restored', watchState: 'active', rootCount: 1, watchedCount: 1 });
-const profileStatus = () => ({ state: 'complete', totalTracks: tracks.length, readyCount: tracks.length, spectralReadyCount: tracks.length, danceabilityReadyCount: tracks.length, edgeReadyCount: tracks.length, pendingCount: 0, failedCount: 0 });
+const profileStatus = () => ({ state: 'complete', totalTracks: tracks.length, readyCount: tracks.length, spectralReadyCount: tracks.length, danceabilityReadyCount: tracks.length, edgeReadyCount: tracks.length, spectralPendingCount: 0, danceabilityPendingCount: 0, edgePendingCount: 0, pendingCount: 0, failedCount: 0, estimatedRemainingSeconds: 0 });
 const prepSnapshot = () => ({ revision: 'a'.repeat(64), requiredTrackIds: [], excludedTrackIds: [], genreFocus: '', unavailableRequiredCount: 0, unavailableExcludedCount: 0, lastForm: { targetTrackCount: null, targetMinutes: null, strategy: null, slotRole: null, name: null, startTrackId: null, endTrackId: null, yearMin: null, yearMax: null } });
 
 let sequence = 0;

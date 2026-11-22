@@ -16,7 +16,7 @@ const tracks = ['a', 'b'].map((id) => ({ id: id.repeat(64), title: id, artist: '
 const review = (patch = {}) => ({ reviewId: 'review', name: 'Set', variant: 'balanced', readiness: 'ready', tracks, warnings: [], blockers: [], ...patch });
 const status = (patch = {}) => ({ revision: 1, changeState: 'restored', watchState: 'active', rootCount: 1, watchedCount: 1, ...patch });
 const prefs = (patch = {}) => ({ revision: 'a'.repeat(64), previewVolume: .25, watchLibrary: true, recoveryWarning: false, libraryLabels: ['DJ'], capabilities: { loudnessWriteback: false, providers: false, language: 'es' }, ...patch });
-const profileStatus = (patch = {}) => ({ state: 'partial', totalTracks: 2, readyCount: 0, spectralReadyCount: 0, danceabilityReadyCount: 0, edgeReadyCount: 0, pendingCount: 2, failedCount: 0, ...patch });
+const profileStatus = (patch = {}) => { const value = { state: 'partial', totalTracks: 2, readyCount: 0, spectralReadyCount: 0, danceabilityReadyCount: 0, edgeReadyCount: 0, pendingCount: 2, failedCount: 0, estimatedRemainingSeconds: null, ...patch }; return { ...value, spectralPendingCount: value.totalTracks - value.spectralReadyCount, danceabilityPendingCount: value.totalTracks - value.danceabilityReadyCount, edgePendingCount: value.totalTracks - value.edgeReadyCount }; };
 const completion = (patch = {}) => ({ cancelled: false, tracks, status: profileStatus({ state: 'complete', readyCount: 2, spectralReadyCount: 2, danceabilityReadyCount: 2, edgeReadyCount: 2, pendingCount: 0 }), completeCount: 2, incompleteCount: 0, ...patch });
 
 // ---- the shipped module, driven directly ---------------------------------------------
