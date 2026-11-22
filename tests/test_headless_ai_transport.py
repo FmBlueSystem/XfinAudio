@@ -393,3 +393,64 @@ def test_real_transport_stack_disables_environment_proxy_discovery_and_redirects
                 ask(path, binding, None)
             assert error.value.code == "ai_request_failed"
     assert len(requests) == 1 and requests[0].full_url == client.DEFAULT_ENDPOINT
+
+
+class SlowTransport:
+    """A transport that ignores the deadline it is given and blocks the caller."""
+
+    def __init__(self, release: threading.Event) -> None:
+        self.release = release
+        self.requests = 0
+
+    def __call__(self, request, *, timeout):
+        self.requests += 1
+        self.release.wait(1.5)
+        return io.BytesIO(b'{"choices":[{"message":{"content":"late answer"}}]}')
+
+
+def test_a_transport_that_ignores_its_timeout_is_cut_at_the_call_deadline(tmp_path, monkeypatch):
+    """S2: the app owns the bound, so a transport that never times out cannot hang the turn."""
+    import time
+
+    from xfinaudio.headless import ai_transport
+    from xfinaudio.headless.ai_transport import provider_request
+
+    path, binding = credential(tmp_path)
+    release = threading.Event()
+    fake = SlowTransport(release)
+    monkeypatch.setattr(ai_transport, "AI_REQUEST_TIMEOUT_SECONDS", {"library": 0.2})
+    started = time.monotonic()
+    try:
+        with pytest.raises(BackendError) as failure:
+            provider_request(
+                AiSettings(enabled=True, env_file=path),
+                binding,
+                lambda send: client.chat("Synthetic prompt", transport=send, timeout=0.2),
+                transport=fake,
+            )
+    finally:
+        release.set()
+    elapsed = time.monotonic() - started
+    assert failure.value.code == "ai_timeout"
+    assert elapsed < 1.0, f"the call must end at its own deadline, not when the transport decides: {elapsed}"
+    assert fake.requests == 1
+    assert not any(value in str(failure.value) for value in (str(path), "synthetic-fixture-token", "late answer"))
+
+
+def test_a_transport_timeout_ends_the_call_with_its_own_spanish_facing_code(tmp_path):
+    """S2: the timeout a real socket raises reaches the app as a timeout, not a generic failure."""
+    from xfinaudio.headless.ai_transport import provider_request
+
+    path, binding = credential(tmp_path)
+
+    def timed_out(request, *, timeout):
+        raise TimeoutError("synthetic socket timeout")
+
+    with pytest.raises(BackendError) as failure:
+        provider_request(
+            AiSettings(enabled=True, env_file=path),
+            binding,
+            lambda send: client.chat("Synthetic prompt", transport=send),
+            transport=timed_out,
+        )
+    assert failure.value.code == "ai_timeout"

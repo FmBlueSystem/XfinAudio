@@ -25,6 +25,29 @@ const CHAT_POSITION_LIMIT = 10000;
 export const LIST_CHAT_PENDING = 'El asistente está leyendo la lista…';
 export const LIST_CHAT_READ_AGAIN = 'El asistente volvió a leer la lista.';
 export const LIST_CHAT_CANCELLED = 'Envío cancelado: la pregunta sigue en el campo para reintentarla.';
+/** S1: the four phases of one turn, in the order the host goes through them. */
+export type ListChatPhase = 'preparing' | 'confirming' | 'waiting' | 'applying';
+export const LIST_CHAT_PHASE_TEXT: Record<ListChatPhase, string> = {
+  preparing: 'Preparando la solicitud…',
+  confirming: 'Esperando el diálogo de confirmación del sistema…',
+  waiting: 'Esperando la respuesta de la IA…',
+  applying: 'Aplicando los cambios propuestos…',
+};
+/** S1: said while the turn the DJ stopped is still ending in the core. */
+export const LIST_CHAT_CANCELLING = 'Cancelando la consulta…';
+/** S1: the short Spanish status a cancelled turn leaves behind; the list is untouched. */
+export const LIST_CHAT_TURN_CANCELLED = 'Consulta cancelada. La lista no cambió.';
+/** S3: a batch that went through none of its steps says so instead of staying silent. */
+export const LIST_CHAT_NOTHING_APPLIED = 'No se aplicó ningún cambio de esta respuesta.';
+/** S3: a card click the panel refuses explains itself in Spanish. */
+export const LIST_CHAT_APPLY_WAITING = 'No se aplicó: espera a que termine la operación en curso.';
+export const LIST_CHAT_APPLY_UNKNOWN = 'Ese cambio ya no está disponible: la última respuesta lo reemplazó.';
+/** S3: what the host could not store about this turn. The host sends codes, the panel owns the words. */
+export const LIST_CHAT_HOST_NOTES: Record<string, string> = {
+  dialog_preference_not_saved: 'No se pudo guardar «No volver a preguntar en cada consulta»; puedes activarlo en Ajustes.',
+  auto_authorize_unavailable: 'No se pudo comprobar la autorización automática; la app volverá a pedir confirmación.',
+};
+const HOST_NOTE_LIMIT = 2;
 export const LIST_CHAT_TOO_LONG = 'La petición admite como máximo 2000 caracteres.';
 export const LIST_CHAT_PROPOSED = 'Cambios propuestos';
 export const LIST_CHAT_APPLYING = 'Aplicando el cambio propuesto…';
@@ -80,7 +103,8 @@ export interface ListChatApi {
   aiChatHistory(): Promise<AiChatHistory>;
   aiChatReset(): Promise<AiChatHistory>;
   prepareAiRequest(input: { surface: AiSurface; request: string; context: AiContext }): Promise<AiPreview>;
-  runAiRequest(input: { previewId: string }): Promise<{ cancelled: boolean; result: AiResult | null }>;
+  /** The host may add the codes of what the native dialog could not store (S3). */
+  runAiRequest(input: { previewId: string }): Promise<{ cancelled: boolean; result: AiResult | null; notes?: unknown }>;
   inspectAiPayload(input: { previewId: string }): Promise<AiPayload>;
   aiChatApply(input: { actionId: string }): Promise<{ review: DetailedReview; actions: AiChatAction[]; extended?: ExtendedList; period?: AiChatPeriod }>;
   /** Optional until the host ships it: S9's batch undo is only offered when the core can undo. */
@@ -91,6 +115,8 @@ export type ListChatHost = Pick<OptionalAiHost, 'canAct' | 'changed' | 'perform'
   applied?(value: DetailedReview): void;
   /** Choosing an alternative belongs to the screen: it replaces the review, the plan and this conversation. */
   chooseVariant?(variant: PrepVariant): Promise<boolean>;
+  /** S1: the app's own cancel routing; only a running turn is stopped and nothing is applied. */
+  cancel?(): void;
 };
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -98,6 +124,12 @@ const text = (value: unknown, max: number): value is string => typeof value === 
 /** A release year inside S13's own window, 1900 to 2100; the core refuses everything else. */
 const yearInRange = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1900 && (value as number) <= 2100;
 function invalid(): never { throw Object.assign(new Error('Invalid AI response'), { code: 'invalid_ai_response' }); }
+/** S3: the codes a host may add to an answer. An unknown code appends nothing; it never throws. */
+function hostNotes(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > HOST_NOTE_LIMIT) invalid();
+  return value.flatMap((code) => typeof code === 'string' && Object.hasOwn(LIST_CHAT_HOST_NOTES, code) ? [LIST_CHAT_HOST_NOTES[code]] : []);
+}
 /** Exact `{role, text}` pairs only: the panel renders them, so nothing else may ride along. */
 function roleOf(value: unknown): AiChatMessage['role'] {
   if (value === 'user') return 'user';
@@ -265,6 +297,16 @@ export class ListChatController {
   /** Index of the reply the assistant announced it had re-read the list for; null when none. */
   readAgain: number | null = null;
   pending: 'load' | 'send' | 'reset' | 'inspect' | 'apply' | 'undo' | null = null;
+  /** S1: the phase of the turn in flight, or null when no turn is running. */
+  phase: ListChatPhase | null = null;
+  /** S1: true while the turn the DJ stopped is still ending. */
+  cancelling = false;
+  /** S3: what the host could not store about this turn, already in the panel's Spanish. */
+  warnings: string[] = [];
+  /** S1: when the running turn started; the view owns the timer that reads it. */
+  private turnStartedAt: number | null = null;
+  /** S1: the turn was stopped, so the answer that may still arrive must write nothing. */
+  private turnCancelled = false;
   /**
    * S9: with this on a reply's changes are applied as they arrive, exactly like «Aplicar todo».
    * It is on by default and lives as long as the app is open, not as long as one conversation.
@@ -283,6 +325,7 @@ export class ListChatController {
   constructor(api: ListChatApi, host: ListChatHost) { this.api = api; this.host = host; }
   get reviewId(): string { return this.review; }
   get pendingText(): string {
+    if (this.cancelling) return LIST_CHAT_CANCELLING;
     switch (this.pending) {
       case 'send': return LIST_CHAT_PENDING;
       case 'load': return 'Cargando la conversación…';
@@ -293,6 +336,15 @@ export class ListChatController {
       default: return '';
     }
   }
+  /** S1: the phase of the turn in flight in the panel's words; empty when no turn runs. */
+  get phaseText(): string { return this.phase === null ? '' : LIST_CHAT_PHASE_TEXT[this.phase]; }
+  /** S1: whole seconds the running turn has taken; null when no turn is running. */
+  elapsedSeconds(now: number): number | null {
+    if (this.turnStartedAt === null || !Number.isFinite(now)) return null;
+    return Math.max(0, Math.floor((now - this.turnStartedAt) / 1000));
+  }
+  /** S1: a turn can be stopped while the chat is sending it; applying a change is not cancellable. */
+  get canCancelTurn(): boolean { return this.pending === 'send' && !this.cancelling; }
   get canSend(): boolean {
     return !this.pending && this.host.canAct() && this.review !== '' && this.request.trim().length > 0 && this.request.length <= CHAT_REQUEST_LIMIT;
   }
@@ -317,7 +369,7 @@ export class ListChatController {
     this.generation++;
     this.review = next; this.saved = isSaved; this.messages = []; this.preview = null; this.payload = null; this.readAgain = null;
     this.actions = []; this.droppedActions = 0; this.autoBatch = null; this.period = null;
-    this.error = ''; this.notice = ''; this.loaded = false;
+    this.error = ''; this.notice = ''; this.loaded = false; this.warnings = [];
     this.host.changed();
   }
   /** S6: a saved list has no plan behind it, so a proposed alternative is never shown for it. */
@@ -356,13 +408,36 @@ export class ListChatController {
     if (code === 'stale_ai') { this.actions = []; this.droppedActions = 0; }
     this.host.changed();
   }
-  private async perform<T>(kind: NonNullable<ListChatController['pending']>, label: string, task: () => Promise<T>, apply: (value: T) => void): Promise<void> {
+  /** One long operation of the panel; S1's phase and its starting instant last exactly as long as it runs. */
+  private async perform<T>(kind: NonNullable<ListChatController['pending']>, label: string, task: () => Promise<T>, apply: (value: T) => void, phase: ListChatPhase | null = null): Promise<void> {
     if (this.pending || !this.host.canAct()) return;
-    const generation = this.generation; this.pending = kind; this.error = ''; this.notice = ''; this.host.changed();
+    const generation = this.generation; this.pending = kind; this.error = ''; this.notice = '';
+    this.phase = phase; this.turnStartedAt = phase === null ? null : Date.now(); this.cancelling = false;
+    this.host.changed();
     const failure = (error: unknown): void => { if (generation === this.generation) this.fail(error); };
     try { await this.host.perform(label, task, (value) => { if (generation === this.generation) apply(value); }, failure); }
     catch (error) { failure(error); }
-    finally { this.pending = null; this.host.changed(); }
+    finally { this.pending = null; this.phase = null; this.turnStartedAt = null; this.cancelling = false; this.host.changed(); }
+  }
+  /** S1: only a send turn has phases, and only while it was neither stopped nor finished. */
+  private setPhase(phase: ListChatPhase): void {
+    if (this.pending !== 'send' || this.turnCancelled || this.phase === phase) return;
+    this.phase = phase; this.host.changed();
+  }
+  /** S1: the host announces the provider job after the system dialog is answered, so that is «waiting». */
+  askStarted(): void { this.setPhase('waiting'); }
+  /**
+   * S1: stops the running turn. The generation bump makes the answer that may still arrive write
+   * nothing — no message, no card and no edit — and the host stops the call in the core. The
+   * question stays in the box so the DJ can send it again.
+   */
+  cancel(): void {
+    if (!this.canCancelTurn) return;
+    this.turnCancelled = true; this.cancelling = true; this.phase = null; this.turnStartedAt = null;
+    this.generation++;
+    this.notice = LIST_CHAT_TURN_CANCELLED; this.error = '';
+    this.host.changed();
+    this.host.cancel?.();
   }
   /** Reads the stored conversation once per review, on the panel's first open. */
   async load(): Promise<void> {
@@ -377,16 +452,25 @@ export class ListChatController {
   async send(): Promise<void> {
     if (!this.canSend) return;
     const message = this.request.trim(); const reviewId = this.review;
+    this.turnCancelled = false;
     await this.perform('send', LIST_CHAT_PENDING, async () => {
       const preview = previewCopy(await this.api.prepareAiRequest({ surface: CHAT_SURFACE, request: message, context: { reviewId } }));
-      return { preview, answer: await this.api.runAiRequest({ previewId: preview.previewId }) };
-    }, (value) => this.accept(value.preview, value.answer));
-    await this.autoApplyReply();
+      // The preview is disclosed and the host now asks for the system dialog's confirmation.
+      this.setPhase('confirming');
+      // A turn stopped while it was preparing never reaches the provider, and its answer is nobody's.
+      const answer = this.turnCancelled ? { cancelled: true, result: null } : await this.api.runAiRequest({ previewId: preview.previewId });
+      return { preview, answer };
+    }, (value) => this.accept(value.preview, value.answer), 'preparing');
+    const cancelled = this.turnCancelled;
+    this.turnCancelled = false;
+    // A stopped turn applies nothing: the list it would have changed is not its to change.
+    if (!cancelled) await this.autoApplyReply();
   }
-  private accept(preview: AiPreview, answer: { cancelled: boolean; result: AiResult | null } | null): void {
+  private accept(preview: AiPreview, answer: { cancelled: boolean; result: AiResult | null; notes?: unknown } | null): void {
     if (!answer || typeof answer.cancelled !== 'boolean') invalid();
     // The disclosure of the turn that was sent stays available beside its answer.
     this.preview = preview;
+    this.warnings = hostNotes(answer.notes);
     if (answer.cancelled) { this.notice = LIST_CHAT_CANCELLED; return; }
     const result = answer.result;
     if (!result || !uuid(result.resultId) || result.surface !== CHAT_SURFACE || result.kind !== 'chat') invalid();
@@ -408,9 +492,10 @@ export class ListChatController {
    * the screen's choice, never an apply in the core.
    */
   async apply(actionId: string): Promise<void> {
-    if (!this.applyEnabled) return;
+    // S3: a click the panel cannot honour says why instead of doing nothing at all.
+    if (!this.applyEnabled) { this.notice = LIST_CHAT_APPLY_WAITING; this.host.changed(); return; }
     const action = this.actions.find((item) => item.actionId === actionId);
-    if (!action) return;
+    if (!action) { this.notice = LIST_CHAT_APPLY_UNKNOWN; this.host.changed(); return; }
     await this.applyAction(action);
   }
   /**
@@ -451,7 +536,7 @@ export class ListChatController {
       if (!this.inBatch) this.autoBatch = null;
       this.handOff(review);
       applied = true;
-    });
+    }, 'applying');
     return applied;
   }
   /**
@@ -472,8 +557,9 @@ export class ListChatController {
         applied++; texts.push(listChatActionText(action));
       }
     } finally { this.inBatch = false; }
-    // Nothing went through: the error and the untouched cards already tell the whole story.
-    if (applied === 0) return;
+    // Nothing went through: S3 says so instead of leaving the batch silent. A reply with no
+    // applicable step (only a screen-owned alternative) returned above: its card speaks for it.
+    if (applied === 0) { this.notice = LIST_CHAT_NOTHING_APPLIED; this.host.changed(); return; }
     const notice = applied === batch.length ? listChatAutoApplied(applied) : listChatAppliedAll(applied, batch.length);
     this.autoBatch = { count: applied, notice, texts };
     this.notice = notice;
@@ -539,7 +625,7 @@ export class ListChatController {
       this.storeActions(actionsCopy(value?.actions)); this.droppedActions = 0;
       this.loaded = true;
       this.request = ''; this.readAgain = null; this.preview = null; this.payload = null; this.error = ''; this.notice = '';
-      this.period = null;
+      this.period = null; this.warnings = [];
     });
   }
   /** Read-only inspection of the exact body the last prepared turn would send. */

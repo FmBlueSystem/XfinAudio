@@ -122,7 +122,8 @@ test('while a turn runs the box and Enviar are disabled and a line says the assi
     f.get('request').value = question; f.get('request').dispatchEvent(new Event('input'));
     f.get('send').dispatchEvent(new Event('click'));
     assert.equal(f.get('pending').hidden, false);
-    assert.equal(f.get('pending').textContent, reading);
+    // S1: the line says the phase the turn is in and how long it has been running.
+    assert.equal(f.get('pending').textContent, 'Preparando la solicitud… · 0 s');
     assert.equal(f.get('send').disabled, true);
     assert.equal(f.get('request').disabled, true);
     assert.equal(f.get('reset').disabled, true);
@@ -538,5 +539,82 @@ test('S15: the report also shows after an automatic batch', async () => {
     assert.deepEqual(f.get('period-kept').children.map((node) => node.textContent), ['1. Apertura (1975) — protegida']);
     assert.equal(f.get('error').hidden, true);
     assert.equal(f.get('undo-batch').hidden, false);
+  } finally { f.restore(); }
+});
+/** A panel whose prepare and provider call stay open until the test releases them. */
+function phaseFixture() {
+  const previous = globalThis.document;
+  globalThis.document = { createElement: (tag) => new Element(tag) };
+  const gate = {}; const cancelled = []; const root = new Element(); let render = () => {};
+  const api = {
+    aiChatHistory: async () => ({ conversation: [], actions: [] }),
+    aiChatReset: async () => ({ conversation: [], actions: [] }),
+    prepareAiRequest: (input) => new Promise((resolve) => { gate.prepare = () => resolve({ previewId: uuid, surface: CHAT_SURFACE, recipient: 'https://api.nan.builders/v1/chat/completions', disclosure: ['Se comparten títulos y artistas, nunca rutas.'], requestPreview: input.request, firstTurn: true }); }),
+    runAiRequest: () => new Promise((resolve) => { gate.run = (value = { cancelled: false, result: chatResult() }) => resolve(value); }),
+    inspectAiPayload: async () => ({ previewId: uuid, surface: CHAT_SURFACE, recipient: 'https://api.nan.builders/v1/chat/completions', request: question, body: '{}', bytes: 2, truncated: false }),
+    aiChatApply: async () => { throw new Error('unreachable'); },
+  };
+  const controller = new ListChatController(api, {
+    canAct: () => true, changed: () => render(),
+    perform: async (_label, task, apply, fail) => { try { apply(await task(), true); } catch (error) { fail(error); } },
+    cancel: () => cancelled.push('cancel'),
+  });
+  render = createListChatView(root, controller, { idPrefix: 'list-chat' });
+  controller.setReview(uuid); render();
+  return { root, controller, gate, cancelled, render, get: (id) => all(root).find((node) => node.id === `list-chat-${id}`), restore: () => { globalThis.document = previous; } };
+}
+test('S1: while a turn runs the panel shows its phase, the elapsed seconds and an enabled «Cancelar»', async () => {
+  const realNow = Date.now; let clock = 1000; Date.now = () => clock;
+  const f = phaseFixture();
+  try {
+    f.controller.setRequest(question);
+    const turn = f.controller.send();
+    await tick();
+    assert.equal(f.get('pending').hidden, false);
+    assert.equal(f.get('pending').textContent, 'Preparando la solicitud… · 0 s');
+    assert.equal(f.get('cancel').textContent, 'Cancelar');
+    assert.equal(f.get('cancel').hidden, false);
+    assert.equal(f.get('cancel').disabled, false);
+    clock = 5400; f.render();
+    assert.equal(f.get('pending').textContent, 'Preparando la solicitud… · 4 s');
+    f.gate.prepare(); await tick();
+    assert.equal(f.get('pending').textContent, 'Esperando el diálogo de confirmación del sistema… · 4 s');
+    f.controller.askStarted(); f.render();
+    assert.equal(f.get('pending').textContent, 'Esperando la respuesta de la IA… · 4 s');
+    f.get('cancel').dispatchEvent(new Event('click'));
+    assert.deepEqual(f.cancelled, ['cancel']);
+    assert.equal(f.get('pending').textContent, 'Cancelando la consulta…');
+    assert.equal(f.get('cancel').hidden, true);
+    f.gate.run(); await turn;
+    assert.equal(f.get('pending').hidden, true);
+    assert.equal(f.get('notice').textContent, 'Consulta cancelada. La lista no cambió.');
+    assert.equal(f.get('conversation').children.length, 0);
+  } finally { Date.now = realNow; f.restore(); }
+});
+test('S1: no «Cancelar» is offered when nothing can be stopped or while a change is applied', async () => {
+  const f = await fixture();
+  try {
+    assert.equal(f.get('cancel').hidden, true);
+    f.controller.pending = 'apply'; f.render();
+    assert.equal(f.get('pending').hidden, false);
+    assert.equal(f.get('cancel').hidden, true, 'applying a change is not something to cancel');
+  } finally { f.restore(); }
+});
+test('S3: the chat lists in Spanish what the system could not store', async () => {
+  const f = await fixture({ runAiRequest: async () => ({ cancelled: false, result: chatResult(), notes: ['dialog_preference_not_saved'] }) });
+  try {
+    await sendReply(f);
+    assert.equal(f.get('warnings').hidden, false);
+    assert.deepEqual(f.get('warnings').children.map((node) => node.textContent), [
+      'No se pudo guardar «No volver a preguntar en cada consulta»; puedes activarlo en Ajustes.',
+    ]);
+  } finally { f.restore(); }
+});
+test('S3: a turn without notes shows no warnings line', async () => {
+  const f = await fixture();
+  try {
+    await sendReply(f);
+    assert.equal(f.get('warnings').hidden, true);
+    assert.equal(f.get('warnings').children.length, 0);
   } finally { f.restore(); }
 });

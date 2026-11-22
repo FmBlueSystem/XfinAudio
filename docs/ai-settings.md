@@ -103,6 +103,30 @@ forma explícita. **Cancelar** o cerrar el panel ignora la respuesta pendiente,
 pero no retira una petición que el proveedor ya recibió. Las funciones locales
 siguen disponibles sin clave ni conexión.
 
+## Asistente de lista: espera, cancelación y avisos
+
+Mientras un turno del Asistente de lista está en curso, el chat muestra el tiempo
+transcurrido y la fase exacta: preparar la solicitud, esperar el diálogo de
+confirmación del sistema, esperar la respuesta de la IA y aplicar los cambios
+propuestos. Ofrece **Cancelar** durante el envío: el turno termina, la app queda
+disponible y la lista no cambia; la pregunta sigue en el campo para reintentarla.
+Una respuesta que llegue después de cancelar se descarta y no modifica nada.
+
+Cada llamada al proveedor tiene un límite propio (120 s en el chat, menos en las
+demás acciones). Si se agota, el turno termina con el aviso
+«El proveedor no respondió a tiempo…» y no se aplica nada; el servicio local
+sigue funcionando y se puede reintentar cuando quieras. Un turno nunca espera
+más que ese límite por cada llamada que hace, incluida la segunda consulta de
+una búsqueda.
+
+El chat también dice, en español, lo que antes se perdía en silencio: cuando la
+aplicación automática no pudo aplicar ningún cambio de la respuesta, cuando el
+diálogo no pudo guardar la preferencia «No volver a preguntar en cada consulta»,
+cuando no se pudo comprobar la autorización automática y cuando un cambio
+propuesto ya no está disponible o hay una operación en curso. Los textos no
+implican que algo se haya aplicado: la lista solo cambia con un cambio aplicado
+y anunciado.
+
 Estas instrucciones describen el comportamiento implementado. La verificación
 actual usa credenciales sintéticas y transportes inyectados; no certifica una
 cuenta real de NaN. Consulta los [datos por acción y límites](ai-workflows.md).

@@ -10,6 +10,12 @@ interface Dependencies {
   isClosing:()=>boolean;
 }
 const failure=(code:string)=>Object.assign(new Error(`[${code}] Optional assistance unavailable`),{code});
+/**
+ * S3: what the system could not do while it asked for the turn, as fixed codes. The renderer
+ * owns the Spanish words, and the answer carries the codes so the chat can show them.
+ */
+export type OptionalAiNote='dialog_preference_not_saved'|'auto_authorize_unavailable';
+const NOTE_CODES:ReadonlySet<string>=new Set<OptionalAiNote>(['dialog_preference_not_saved','auto_authorize_unavailable']);
 /** Sensitive authority: native file selection, or persisted automatic authorization granted in Ajustes. */
 export class OptionalAiHost {
   /**
@@ -20,9 +26,17 @@ export class OptionalAiHost {
   private previews=new Map<string,boolean>();
   private cancelRequested=false;
   private active=false;
+  /** S3: the notes of the ask in flight; they travel with its answer and never postdate it. */
+  private notes:OptionalAiNote[]=[];
   busy=false;
   asking=false;
   constructor(private readonly dependencies:Dependencies) {}
+  /** S3: records what could not be stored or read. An unknown code is refused, a repeat is kept once. */
+  note(code:string):void {
+    if(!NOTE_CODES.has(code)||this.notes.includes(code as OptionalAiNote))return;
+    this.notes.push(code as OptionalAiNote);
+  }
+  private answered(value:any):any {return this.notes.length===0?value:{...value,notes:[...this.notes]};}
   private assertOpen():void {if(this.dependencies.isClosing())throw failure('core_stopped');}
   private async exclusive<T>(task:()=>Promise<T>):Promise<T> {
     this.assertOpen();if(this.busy)throw failure('busy');this.busy=true;
@@ -61,23 +75,23 @@ export class OptionalAiHost {
     return this.exclusive(async()=>{
       if(!this.previews.has(previewId))throw failure('stale_ai');
       const continuesConversation=this.previews.get(previewId)===true;
-      this.asking=true;this.cancelRequested=false;
+      this.asking=true;this.cancelRequested=false;this.notes=[];
       try{
         // Persisted automatic authorization (opt-in from Ajustes) replaces the
         // per-query ai.confirmation fetch and native dialog. Anything other
         // than === true keeps the dialog path (fail-closed).
         if(await this.dependencies.autoAuthorize()===true){
           this.previews.delete(previewId);this.active=true;
-          try{return await this.dependencies.request('ai.run',{previewId,confirmed:true});}finally{this.active=false;}
+          try{return this.answered(await this.dependencies.request('ai.run',{previewId,confirmed:true}));}finally{this.active=false;}
         }
         const summary=await this.dependencies.request('ai.confirmation',{previewId});
         if(summary.recipient!==AI_RECIPIENT)throw failure('ai_request_failed');
         // A later turn sends exactly what the first turn disclosed. The request still
         // re-runs ai.confirmation so a stale preview or configuration is caught here.
         const confirmed=continuesConversation||await this.dependencies.confirm(summary);this.assertOpen();
-        if(!confirmed||this.cancelRequested)return {cancelled:true,result:null};
+        if(!confirmed||this.cancelRequested)return this.answered({cancelled:true,result:null});
         this.previews.delete(previewId);this.active=true;
-        try{return await this.dependencies.request('ai.run',{previewId,confirmed:true});}finally{this.active=false;}
+        try{return this.answered(await this.dependencies.request('ai.run',{previewId,confirmed:true}));}finally{this.active=false;}
       }finally{this.asking=false;}
     });
   }

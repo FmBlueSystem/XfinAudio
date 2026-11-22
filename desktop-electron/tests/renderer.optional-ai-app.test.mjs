@@ -679,3 +679,38 @@ test('S18(b): the floating window shows «Asistente de lista» once', async () =
     assert.equal(f.get('list-chat-heading').hidden, true);
   } finally { f.restore(); }
 });
+test('S1: «Cancelar» in the list chat stops the turn, frees the app and ignores the late answer', async () => {
+  let release = null; let runs = 0;
+  const late = { resultId: aiUuid, surface: 'chat', kind: 'chat', title: 'Asistente de lista', text: 'Respuesta tardía', proposal: null, canApply: false, conversation: [{ role: 'user', text: 'Pregunta de la lista' }, { role: 'assistant', text: 'Respuesta tardía' }], listChanged: false, actions: [], droppedActions: 0 };
+  const f = await fixture({
+    runAiRequest: async (input) => { runs++; f.calls.push(['aiRun', input]); if (runs > 1) return { cancelled: false, result: late }; return new Promise((resolve) => { release = resolve; }); },
+    cancelCurrent: async () => { f.calls.push(['cancel']); release?.({ cancelled: true, result: null }); },
+  });
+  try {
+    await f.generate();
+    f.click('bot-window-toggle'); await settle();
+    f.get('list-chat-request').value = 'Pregunta de la lista';
+    f.get('list-chat-request').dispatchEvent(new Event('input'));
+    f.click('list-chat-send'); await settle();
+    assert.equal(f.get('list-chat-pending').hidden, false);
+    assert.equal(f.get('list-chat-pending').textContent, 'Esperando el diálogo de confirmación del sistema… · 0 s');
+    assert.equal(f.get('list-chat-cancel').textContent, 'Cancelar');
+    assert.equal(f.get('list-chat-cancel').hidden, false);
+    assert.equal(f.get('list-chat-cancel').disabled, false);
+    // The host announces the provider job only after the system dialog is answered.
+    f.progress({ jobId: 'ai-run-1', operation: 'ai.run', phase: 'started', message: 'Procesando…' });
+    assert.equal(f.get('list-chat-pending').textContent, 'Esperando la respuesta de la IA… · 0 s');
+    f.click('list-chat-cancel'); await settle();
+    assert.equal(f.calls.filter(([kind]) => kind === 'cancel').length, 1, 'the cancel reaches the host');
+    assert.equal(f.get('list-chat-notice').textContent, 'Consulta cancelada. La lista no cambió.');
+    assert.equal(f.get('list-chat-pending').hidden, true);
+    assert.equal(f.get('list-chat-conversation').children.length, 0, 'the late answer is never shown');
+    assert.equal(f.get('list-chat-error').hidden, true);
+    // The app is free again: the next turn goes all the way through.
+    f.get('list-chat-request').value = 'Otra pregunta';
+    f.get('list-chat-request').dispatchEvent(new Event('input'));
+    f.click('list-chat-send'); await settle();
+    assert.equal(f.calls.filter(([kind]) => kind === 'aiRun').length, 2);
+    assert.match(text(f.get('list-chat-conversation')), /Respuesta tardía/);
+  } finally { f.restore(); }
+});

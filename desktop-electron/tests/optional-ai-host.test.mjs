@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {mkdtemp,realpath,mkdir,writeFile,readFile,rm,symlink} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';
 const require=createRequire(import.meta.url),{OptionalAiHost}=require('../.out/main/optional-ai-host.js'),{validateRequest}=require('../.out/main/security.js'),{PythonBridge}=require('../.out/main/bridge.js'),{ListChatController,listChatActionText,listChatPeriodKept,listChatPeriodLine,listChatPeriodNotice}=require('../.out/renderer/list-chat.js'),{SHORT_LIST_NO_CANDIDATES}=require('../.out/renderer/short-list-notice.js');
 const id='11111111-1111-4111-8111-111111111111',rev='a'.repeat(64),recipient='https://api.nan.builders/v1/chat/completions',deferred=()=>{let resolve;return {promise:new Promise(r=>resolve=r),resolve:v=>resolve(v)}},python=process.env.XFIN_PYTHON,coreRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
-function fixture(){const calls=[];let choose=async()=>null,confirm=async()=>true,closing=false,endpoint=recipient,auto=false,firstTurn=true,prepared='editor';const host=new OptionalAiHost({request:async(method,params)=>{calls.push([method,params]);if(method==='ai.prepare'){prepared=String(params.surface);return {previewId:id,surface:prepared,firstTurn,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};}if(method==='ai.confirmation')return {previewId:id,surface:prepared,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};if(method==='ai.run')return {cancelled:false,result:{resultId:id}};return {revision:rev};},choose:()=>choose(),confirm:summary=>{calls.push(['dialog',summary]);return confirm();},cancel:async()=>{calls.push(['cancel']);return {cancelled:true};},autoAuthorize:async()=>auto,isClosing:()=>closing});return {host,calls,setChoose:v=>choose=v,setConfirm:v=>confirm=v,setAuto:v=>auto=v,setFirstTurn:v=>firstTurn=v,close:()=>closing=true,badEndpoint:()=>endpoint='https://elsewhere.example'};}
+function fixture(){const calls=[];let choose=async()=>null,confirm=async()=>true,closing=false,endpoint=recipient,auto=false,firstTurn=true,prepared='editor',runAnswer=async()=>({cancelled:false,result:{resultId:id}});const host=new OptionalAiHost({request:async(method,params)=>{calls.push([method,params]);if(method==='ai.prepare'){prepared=String(params.surface);return {previewId:id,surface:prepared,firstTurn,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};}if(method==='ai.confirmation')return {previewId:id,surface:prepared,recipient:endpoint,disclosure:['Solicitud sin pistas'],requestPreview:'Acorta a 2 temas'};if(method==='ai.run')return runAnswer();return {revision:rev};},choose:()=>choose(),confirm:summary=>{calls.push(['dialog',summary]);return confirm();},cancel:async()=>{calls.push(['cancel']);return {cancelled:true};},autoAuthorize:async()=>auto,isClosing:()=>closing});return {host,calls,setChoose:v=>choose=v,setConfirm:v=>confirm=v,setAuto:v=>auto=v,setFirstTurn:v=>firstTurn=v,setRun:v=>{runAnswer=v;},close:()=>closing=true,badEndpoint:()=>endpoint='https://elsewhere.example'};}
 test('prepare and declined native AI confirmation cannot send a provider request',async()=>{const f=fixture();await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});f.setConfirm(async()=>false);assert.deepEqual(await f.host.ask(id),{cancelled:true,result:null});assert.ok(!f.calls.some(([m])=>m==='ai.run'));});
 test('only an owned preview and fixed disclosed recipient can receive confirmed authority',async()=>{const f=fixture();await assert.rejects(f.host.ask(id));await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});await f.host.ask(id);assert.deepEqual(f.calls.find(([m])=>m==='ai.run'),['ai.run',{previewId:id,confirmed:true}]);const g=fixture();await g.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});g.badEndpoint();await assert.rejects(g.host.ask(id));assert.ok(!g.calls.some(([m])=>m==='ai.run'));});
 test('cancel or close while confirmation waits cannot turn a later yes into a request',async()=>{for(const close of [false,true]){const f=fixture(),wait=deferred();f.setConfirm(()=>wait.promise);await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});const asking=f.host.ask(id);await new Promise(r=>setImmediate(r));if(close)f.close();else assert.deepEqual(await f.host.cancel(),{cancelled:true});wait.resolve(true);if(close)await assert.rejects(asking);else assert.deepEqual(await asking,{cancelled:true,result:null});assert.ok(!f.calls.some(([m])=>m==='ai.run'));}});
@@ -448,4 +448,28 @@ test('the chat surface and its proposed changes agree with the Python core',{ski
    listChatPeriodLine({position:4,title:'Electron test 4',year:1989,reason:'no_candidate'}),
   ],['1. Electron test 1 (sin año) — protegida','4. Electron test 4 (1989) — no hay otra de esa época que mezcle'],'S15 says why each kept track stayed');
  }finally{await core.close();await rm(data,{recursive:true,force:true});}
+});
+test('S3: what the native dialog could not store travels with the answer as a fixed code',async()=>{
+  const f=fixture();
+  await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});
+  f.setConfirm(async()=>{f.host.note('dialog_preference_not_saved');f.host.note('dialog_preference_not_saved');f.host.note('invented');return true;});
+  assert.deepEqual(await f.host.ask(id),{cancelled:false,result:{resultId:id},notes:['dialog_preference_not_saved']},'one code per problem and nothing invented');
+});
+test('S3: an answer without notes keeps exactly the shape it had',async()=>{
+  const f=fixture();
+  await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});
+  assert.deepEqual(await f.host.ask(id),{cancelled:false,result:{resultId:id}});
+});
+test('S1/S2: cancelling while the provider call runs stops it through the core and ends the turn cancelled',async()=>{
+  const f=fixture(),wait=deferred();
+  f.setRun(()=>wait.promise);
+  await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});
+  const asking=f.host.ask(id);
+  await new Promise(r=>setImmediate(r));
+  assert.equal(f.host.busy,true);
+  assert.deepEqual(await f.host.cancel(),{cancelled:true});
+  assert.equal(f.calls.filter(([method])=>method==='cancel').length,1,'the core is asked to stop the running call');
+  wait.resolve({cancelled:true,result:null});
+  assert.deepEqual(await asking,{cancelled:true,result:null});
+  assert.equal(f.host.busy,false,'the turn is over and the host is free');
 });
