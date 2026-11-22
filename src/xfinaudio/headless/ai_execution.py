@@ -9,7 +9,7 @@ from xfinaudio.ai import nan_client
 from xfinaudio.ai.connection_test import PROBE_MESSAGE
 from xfinaudio.ai.grounded_evidence import explain_grounded_evidence
 from xfinaudio.ai.intent_copilot import extract_intent
-from xfinaudio.ai.list_chat import ChatAnswer, chat_with_list
+from xfinaudio.ai.list_chat import CallBudget, ChatAnswer, chat_with_list
 from xfinaudio.ai.saved_assists import interpret_saved_request
 from xfinaudio.ai.set_narrator import narrate_set
 from xfinaudio.ai.structured_assists import (
@@ -122,6 +122,8 @@ def execute_context(
             "rawText": answer.raw,
             "searches": list(searches),
             "ignoredSearches": [item.public() for item in answer.ignored_searches],
+            # S9b: the answers that could not be read, kept for the opt-in chat log only.
+            "repairs": list(answer.repairs),
         }
     elif surface == "review":
         text = narrate_set(
@@ -161,6 +163,8 @@ def _chat_turn(
     """
     data, surface = context.data, context.surface
     timeout = AI_REQUEST_TIMEOUT_SECONDS[surface]
+    # Every provider call this turn spends comes out of one budget, the repairs included.
+    budget = CallBudget()
 
     def send(search_results: Sequence[Mapping[str, Any]] = ()) -> ChatAnswer:
         return chat_with_list(
@@ -173,6 +177,7 @@ def _chat_turn(
             state=data["state"],
             transport=transport,
             timeout=timeout,
+            budget=budget,
         )
 
     answer = send()
@@ -193,9 +198,13 @@ def _chat_turn(
             shown.add(track_id)
             results.append(public_result(store.reference(track_id), record))
     final = send(results)
-    if answer.ignored_searches:
-        # The first answer's ignored searches are logged too: the second one only answers.
-        final = replace(final, ignored_searches=(*final.ignored_searches, *answer.ignored_searches))
+    # The first answer's ignored searches and repaired answers are kept in the log too:
+    # the second one only answers the results it was given.
+    final = replace(
+        final,
+        ignored_searches=(*final.ignored_searches, *answer.ignored_searches),
+        repairs=(*answer.repairs, *final.repairs),
+    )
     return final, tuple(match.public() for match in matches)
 
 

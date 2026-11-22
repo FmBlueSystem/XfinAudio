@@ -7,6 +7,7 @@ payload, endpoint, headers and timeout stay pinned by assertions.
 
 from __future__ import annotations
 
+import io
 import json
 import traceback
 import urllib.error
@@ -615,3 +616,119 @@ def test_chat_error_text_never_carries_a_key_loaded_from_the_env_file(
     error = excinfo.value
     rendered = "".join(traceback.format_exception(type(error), error, error.__traceback__))
     assert FILE_KEY not in rendered
+
+
+# --------------------------------------------------------------------------- S9a
+# One surface -- the list chat -- asks for a JSON answer at a low temperature, and a
+# provider that refuses ``response_format`` is asked once more without it.
+
+
+def http_bad_request(detail: str) -> urllib.error.HTTPError:
+    headers: Message[str, str] = Message()
+    return urllib.error.HTTPError(
+        CONFIGURED_ENDPOINT, 400, "Bad Request", headers, io.BytesIO(detail.encode("utf-8"))
+    )
+
+
+class SequenceTransport:
+    """A fake transport that returns or raises one queued outcome per call."""
+
+    def __init__(self, *outcomes: bytes | BaseException) -> None:
+        self.outcomes = list(outcomes)
+        self.requests: list[urllib.request.Request] = []
+
+    def __call__(self, request: urllib.request.Request, timeout: float | None = None) -> FakeResponse:
+        self.requests.append(request)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return FakeResponse(outcome)
+
+    def body(self, index: int) -> dict[str, Any]:
+        data = self.requests[index].data
+        assert data is not None, "the request carried no body"
+        decoded = json.loads(data.decode("utf-8"))
+        assert isinstance(decoded, dict)
+        return decoded
+
+
+def test_chat_sends_only_the_model_and_the_messages_unless_a_shape_is_requested(ai_env: None) -> None:
+    transport = FakeTransport(completion_body("ok"))
+
+    chat("hi", transport=transport)
+
+    assert set(payload_of(transport)) == {"model", "messages"}
+
+
+def test_chat_asks_for_a_json_object_and_a_temperature_when_requested(ai_env: None) -> None:
+    transport = FakeTransport(completion_body('{"reply": "ok", "actions": []}'))
+
+    chat("hi", json_object=True, temperature=0.2, transport=transport)
+
+    payload = payload_of(transport)
+    assert payload["response_format"] == {"type": "json_object"}
+    assert payload["temperature"] == 0.2
+    assert payload["messages"] == [{"role": "user", "content": "hi"}]
+
+
+def test_a_provider_that_rejects_the_json_object_is_asked_once_more_without_it(ai_env: None) -> None:
+    transport = SequenceTransport(
+        http_bad_request('{"error": {"message": "response_format is not supported"}}'),
+        completion_body('{"reply": "ok", "actions": []}'),
+    )
+
+    answer = chat("hi", json_object=True, temperature=0.2, transport=transport)
+
+    assert answer == '{"reply": "ok", "actions": []}'
+    assert len(transport.requests) == 2
+    first, retry = transport.body(0), transport.body(1)
+    assert first["response_format"] == {"type": "json_object"}
+    assert "response_format" not in retry
+    assert retry["temperature"] == first["temperature"] == 0.2
+    assert retry["messages"] == first["messages"]
+
+
+def test_a_rejection_that_does_not_name_the_json_object_is_not_retried(ai_env: None) -> None:
+    transport = SequenceTransport(http_bad_request('{"error": {"message": "unknown model"}}'))
+
+    with pytest.raises(NanRequestError) as excinfo:
+        chat("hi", json_object=True, temperature=0.2, transport=transport)
+
+    assert "400" in str(excinfo.value)
+    assert len(transport.requests) == 1
+
+
+def test_a_second_rejection_of_the_json_object_ends_the_call_after_one_retry(ai_env: None) -> None:
+    transport = SequenceTransport(
+        http_bad_request("response_format unavailable"),
+        http_bad_request("response_format unavailable"),
+    )
+
+    with pytest.raises(NanRequestError) as excinfo:
+        chat("hi", json_object=True, temperature=0.2, transport=transport)
+
+    assert "400" in str(excinfo.value)
+    assert len(transport.requests) == 2
+    assert "response_format" not in transport.body(1)
+
+
+def test_a_rejection_without_a_readable_body_is_not_retried(ai_env: None) -> None:
+    headers: Message[str, str] = Message()
+    transport = SequenceTransport(
+        urllib.error.HTTPError(CONFIGURED_ENDPOINT, 400, "Bad Request", headers, None)
+    )
+
+    with pytest.raises(NanRequestError) as excinfo:
+        chat("hi", json_object=True, transport=transport)
+
+    assert "400" in str(excinfo.value)
+    assert len(transport.requests) == 1
+
+
+def test_a_temperature_that_is_not_a_bounded_number_is_refused_before_any_call(ai_env: None) -> None:
+    transport = FakeTransport(completion_body("ok"))
+
+    with pytest.raises((ValueError, NanConfigError)):
+        chat("hi", temperature=9.5, transport=transport)
+
+    assert transport.requests == []

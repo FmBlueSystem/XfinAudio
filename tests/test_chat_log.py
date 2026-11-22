@@ -224,3 +224,74 @@ def test_a_turn_logs_each_ignored_search_with_its_reason(chat_setup, monkeypatch
     assert len(transport.bodies) == 1
     assert entries[0]["searches"] == []
     assert entries[0]["ignoredSearches"] == [{"raw": empty, "reason": "no query or filter"}]
+
+
+# -------------------------------------------------------------------------- S10
+# A failed, a cancelled and a repaired turn are measurable too: the log keeps the
+# question, the phase and the answer that could not be read, and still never a path.
+
+
+def test_a_cancelled_turn_is_logged_with_the_question_and_the_phase(chat_setup, monkeypatch):
+    from xfinaudio.library.scan_service import ScanCancellationToken
+
+    facade, transport, backend, _, _ = chat_setup
+    enable(monkeypatch)
+    token = ScanCancellationToken()
+    token.cancel()
+    assert turn(facade, backend.review_id, token=token) == {"cancelled": True, "result": None}
+    entries = log_entries(backend)
+    assert [entry["event"] for entry in entries] == ["turn_cancelled"]
+    assert entries[0]["message"] == QUESTION
+    assert entries[0]["surface"] == "chat"
+    assert entries[0]["phase"] == "before_send"
+    assert transport.bodies == []
+
+
+def test_a_turn_cancelled_while_the_provider_answers_logs_that_phase(chat_setup, monkeypatch):
+    from xfinaudio.library.scan_service import ScanCancellationToken
+
+    facade, transport, backend, _, _ = chat_setup
+    enable(monkeypatch)
+    token = ScanCancellationToken()
+    transport.on_send = token.cancel
+    assert turn(facade, backend.review_id, token=token) == {"cancelled": True, "result": None}
+    entries = log_entries(backend)
+    assert [entry["event"] for entry in entries] == ["turn_cancelled"]
+    assert entries[0]["phase"] == "after_send"
+
+
+def test_a_repaired_turn_is_logged_with_the_answer_that_could_not_be_read(chat_setup, monkeypatch):
+    facade, transport, backend, _, _ = chat_setup
+    enable(monkeypatch)
+    prose = "Quitaría la pista 3 porque rompe la energía."
+    transport.replies = [prose, answer(replace_at(3))]
+    turn(facade, backend.review_id)
+    entries = log_entries(backend)
+    assert [entry["event"] for entry in entries] == ["turn"]
+    assert entries[0]["repairs"] == [prose]
+    assert entries[0]["reply"] == "Propongo dos cambios."
+    assert entries[0]["actions"][0]["position"] == 3
+    text = log_path(backend).read_text(encoding="utf-8")
+    assert str(backend.data_dir) not in text and ".flac" not in text
+
+
+def test_a_structured_turn_logs_no_repair(chat_setup, monkeypatch):
+    facade, transport, backend, _, _ = chat_setup
+    enable(monkeypatch)
+    transport.reply = answer(replace_at(3))
+    turn(facade, backend.review_id)
+    entries = log_entries(backend)
+    assert [entry["event"] for entry in entries] == ["turn"]
+    assert entries[0]["repairs"] == []
+
+
+def test_a_turn_wholly_unreadable_is_logged_with_the_notice_the_dj_reads(chat_setup, monkeypatch):
+    facade, transport, backend, _, _ = chat_setup
+    enable(monkeypatch)
+    transport.replies = ["La pista 3 sobra.", "La pista 3 sobra."]
+    turn(facade, backend.review_id)
+    entries = log_entries(backend)
+    assert [entry["event"] for entry in entries] == ["turn"]
+    # Twice unreadable is not a failure: the DJ still reads the prose and the notice.
+    assert entries[0]["repairs"] == ["La pista 3 sobra."]
+    assert entries[0]["reply"].endswith("no se propone ningún cambio.")

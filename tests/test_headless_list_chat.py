@@ -9,17 +9,21 @@ import pytest
 
 from tests.test_headless_ai_context import setup as setup
 from xfinaudio.ai import nan_client
+from xfinaudio.ai.list_chat import UNFORMATTED_NOTICE
 from xfinaudio.headless.common import BackendError, _public_track
 from xfinaudio.library.scan_service import ScanCancellationToken
 
 QUESTION = "¿Qué pista quitarías y por qué?"
 REPLY = "Quitaría la pista 3 y movería la 4 al cierre."
+#: The answer the fake sends unless a test queues another one: one readable JSON object,
+#: the only shape a chat turn reads without asking the provider once more.
+STRUCTURED_REPLY = json.dumps({"reply": REPLY, "actions": []})
 
 
 class ChatTransport:
     """Fake provider that records each body, timeout and reply in order."""
 
-    def __init__(self, reply: str = REPLY):
+    def __init__(self, reply: str = STRUCTURED_REPLY):
         self.reply = reply
         # An answer that asks for a search is followed by the next answer in ``replies``.
         self.replies: list[str] = []
@@ -230,8 +234,55 @@ def test_a_failed_turn_appends_nothing_to_the_conversation(chat_setup, failure, 
         with pytest.raises(BackendError) as error:
             call(facade, "ai.run", params)
         assert error.value.code == code
+    if failure == "empty_reply":
+        # A blank answer is a broken response, not prose: it never costs a second call.
+        assert len(transport.bodies) == 1
+    elif failure == "oversized_reply":
+        # Prose twice: the turn asks once more, and the notice no longer fits the reply.
+        assert len(transport.bodies) == 2
     assert history(facade) == {"conversation": [], "actions": []}
     assert prepare(facade, review)["firstTurn"] is True
+
+
+def test_a_prose_answer_is_asked_again_once_and_the_notice_reaches_the_chat(chat_setup):
+    """S9b: the fake answers the repair with the same prose, so the DJ reads prose and a notice."""
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = REPLY
+    result = turn(facade, current_review_id(backend))["result"]
+    assert len(transport.bodies) == 2
+    repair = transport.bodies[1]["messages"][-1]
+    assert repair["role"] == "user"
+    assert "objeto JSON" in repair["content"] and "actions" in repair["content"]
+    assert transport.bodies[1]["messages"][:-1] == transport.bodies[0]["messages"]
+    assert result["text"] == f"{REPLY}\n\n{UNFORMATTED_NOTICE}"
+    assert result["actions"] == [] and result["droppedActions"] == 0
+    assert result["conversation"] == [
+        {"role": "user", "text": QUESTION},
+        {"role": "assistant", "text": f"{REPLY}\n\n{UNFORMATTED_NOTICE}"},
+    ]
+
+
+def test_a_prose_answer_repaired_into_the_structured_shape_publishes_its_change(chat_setup):
+    """S9b: the repair is what turns prose into the change the DJ can apply."""
+    facade, transport, backend, _, _ = chat_setup
+    transport.replies = [
+        REPLY,
+        json.dumps(
+            {
+                "reply": "Muevo la pista 4 al primer lugar.",
+                "actions": [{"type": "move", "position": 4, "to": 1, "reason": "Abre más suave"}],
+            }
+        ),
+    ]
+    result = turn(facade, current_review_id(backend))["result"]
+    assert len(transport.bodies) == 2
+    assert result["text"] == "Muevo la pista 4 al primer lugar."
+    assert result["droppedActions"] == 0
+    assert [action["type"] for action in result["actions"]] == ["move"]
+    assert result["conversation"] == [
+        {"role": "user", "text": QUESTION},
+        {"role": "assistant", "text": "Muevo la pista 4 al primer lugar."},
+    ]
 
 
 def test_chat_history_and_reset_are_exact_and_read_only(chat_setup):
