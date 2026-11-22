@@ -39,7 +39,8 @@ A prepared turn now checks on disk only the tracks of the list in progress and
 the tracks the request names, and reads the library once per command. On a
 200-track test library the same request went from 240 disk checks to 50 and from
 3 library reads to 1. Tracks outside the list keep their stored record and
-identity.
+identity. This bounded check belongs to the assistant turn (preparing it, the
+confirmation it re-checks and the run itself); no other command uses it.
 
 `ai.prepare` is no longer killed by the fixed 120 s request deadline, the same
 treatment `ai.run` already had, so slow disk I/O is not reported as a hang and
@@ -49,8 +50,10 @@ does not restart the core.
 
 - Staleness protections stay: a list track changed on disk still makes a
   prepared chat turn stale.
-- Generation, export and review guards still check every track they checked
-  before.
+- Extending, replacing, inserting and every review edit still check the unlisted
+  library files on disk exactly as before, so a deleted library track leaves the
+  candidate pool and the answer the same way it always did.
+- Generation and export guards still check every track they checked before.
 - Every other path that clears the store (scan, generate, select, completed
   profiles, a loudness run, a settings update, a cancelled preparation, opening
   a saved playlist) is unchanged.
@@ -58,7 +61,6 @@ does not restart the core.
 
 ## Known limitations
 
-- When a review edit names a library track that is outside the list and that
-  file was deleted, the refusal now reads «Proposed sources changed; prepare a
-  current review» instead of «The chosen track changed on disk; prepare a current
-  review». The error code is the same and nothing else changes.
+- A repeated track is still only distinguishable by its row, so the assistant's
+  single-track move cannot address one of its copies on its own; the full
+  assistant reorder works. This is unchanged from 2.25.0.
