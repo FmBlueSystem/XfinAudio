@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const status=(patch={})=>({state:'partial',totalTracks:2,readyCount:1,spectralReadyCount:2,danceabilityReadyCount:1,edgeReadyCount:1,pendingCount:1,failedCount:1,...patch});
+const status=(patch={})=>{const value={state:'partial',totalTracks:2,readyCount:1,spectralReadyCount:2,danceabilityReadyCount:1,edgeReadyCount:1,pendingCount:1,failedCount:1,estimatedRemainingSeconds:null,...patch};return {...value,spectralPendingCount:value.totalTracks-value.spectralReadyCount,danceabilityPendingCount:value.totalTracks-value.danceabilityReadyCount,edgePendingCount:value.totalTracks-value.edgeReadyCount};};
 test('profile status validates truthful bounded aggregate state and strips unrelated fields',async()=>{
   const {profileStatus}=await import('../.out/renderer/profiles.js');assert.deepEqual(profileStatus({...status(),path:'/private'}),status());
   for(const patch of [{state:'ready'},{readyCount:3},{pendingCount:0},{failedCount:-1},{edgeReadyCount:.5},{totalTracks:Infinity},{state:'complete'},{readyCount:2,edgeReadyCount:1,pendingCount:0}])assert.throws(()=>profileStatus(status(patch)));
@@ -14,3 +14,14 @@ test('cohesion settings stay local/dirty until revision-bound save and survive n
   for(const value of [NaN,Infinity,-1,2,'0.4',null])controller.setCohesion(value);assert.equal(controller.snapshot.spectralCohesion,.5);
 });
 test('unavailable summary does not claim unavailable engines when silent or unreadable excerpts may be the cause',async()=>{const {profileSummary}=await import('../.out/renderer/profiles.js');const summary=profileSummary(status({state:'unavailable'}),false,false);assert.match(summary,/^Perfiles no disponibles/);assert.doesNotMatch(summary,/Motores/);});
+test('summary names the pending tracks per analysis and the measured remaining time in Spanish',async()=>{
+  const {profileStatus,profileSummary,profileEta}=await import('../.out/renderer/profiles.js');
+  const value={state:'partial',totalTracks:4,readyCount:1,spectralReadyCount:4,danceabilityReadyCount:1,edgeReadyCount:1,spectralPendingCount:0,danceabilityPendingCount:3,edgePendingCount:3,pendingCount:3,failedCount:0,estimatedRemainingSeconds:12000};
+  assert.deepEqual(profileStatus({...value,path:'/private'}),value);
+  const summary=profileSummary(value,false,false);assert.match(summary,/Pendientes por análisis: espectral 0 · bailabilidad 3 · bordes 3\./);assert.match(summary,/Faltan unas 3 h 20 min\./);
+  assert.doesNotMatch(profileSummary({...value,estimatedRemainingSeconds:null},false,false),/Faltan/);
+  assert.match(profileSummary(value,false,false,600),/Faltan unos 10 min/);
+  assert.equal(profileEta(null),'');assert.equal(profileEta(0),'');assert.equal(profileEta(30),'Falta menos de un minuto');assert.equal(profileEta(600),'Faltan unos 10 min');assert.equal(profileEta(3600),'Falta 1 h');assert.equal(profileEta(12000),'Faltan unas 3 h 20 min');
+  for(const patch of [{spectralPendingCount:1},{danceabilityPendingCount:-1},{edgePendingCount:.5},{estimatedRemainingSeconds:-1},{estimatedRemainingSeconds:'600'},{estimatedRemainingSeconds:60,pendingCount:0,readyCount:4,spectralReadyCount:4,danceabilityReadyCount:4,edgeReadyCount:4,spectralPendingCount:0,danceabilityPendingCount:0,edgePendingCount:0}])
+    assert.throws(()=>profileStatus({...value,...patch}));
+});

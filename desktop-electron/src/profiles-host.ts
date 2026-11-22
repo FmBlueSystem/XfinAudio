@@ -21,11 +21,14 @@ export class ProfilesHost {
     try{await active;}catch{/* The bridge has already settled the terminal error. */}
   }
 }
-export function profileProgress(value:unknown):{phase:'profiles';stage:string;processedCount:number;totalCount:number;readyCount:number;failedCount:number}|null{
+export function profileProgress(value:unknown):{phase:'profiles';stage:string;processedCount:number;totalCount:number;readyCount:number;failedCount:number;estimatedRemainingSeconds:number|null}|null{
   if(!value||typeof value!=='object')return null;
   const data=value as Record<string,unknown>;
   if(data.phase!=='profiles'||!['spectral','danceability','edge'].includes(String(data.stage)))return null;
   for(const key of ['processedCount','totalCount','readyCount','failedCount'])if(!Number.isSafeInteger(data[key])||Number(data[key])<0||Number(data[key])>100000)return null;
   if(Number(data.processedCount)>Number(data.totalCount)||Number(data.readyCount)+Number(data.failedCount)!==Number(data.processedCount))return null;
-  return {phase:'profiles',stage:String(data.stage),processedCount:Number(data.processedCount),totalCount:Number(data.totalCount),readyCount:Number(data.readyCount),failedCount:Number(data.failedCount)};
+  // The measured estimate is optional: absent or null means the core has measured nothing yet.
+  const remaining=data.estimatedRemainingSeconds??null;
+  if(remaining!==null&&(!Number.isSafeInteger(remaining)||Number(remaining)<0||Number(remaining)>315360000))return null;
+  return {phase:'profiles',stage:String(data.stage),processedCount:Number(data.processedCount),totalCount:Number(data.totalCount),readyCount:Number(data.readyCount),failedCount:Number(data.failedCount),estimatedRemainingSeconds:remaining as number|null};
 }
