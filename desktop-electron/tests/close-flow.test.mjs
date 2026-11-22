@@ -21,3 +21,16 @@ test('clean close skips confirmation and failed confirmation never discards a dr
  const clean=new CloseFlow(()=>false,async()=>{prompts++;return true;},async()=>{},()=>{finish++;});await clean.request();assert.equal(prompts,0);assert.equal(finish,1);
  const failed=new CloseFlow(()=>true,async()=>{throw new Error('Dialog unavailable');},async()=>{throw new Error('Must not shutdown');},()=>{throw new Error('Must not quit');});await failed.request();assert.equal(failed.readyToQuit,false);
 });
+test('small fixes S4: a forced close skips the unsaved-changes dialog and still drains the core once',async()=>{
+ let prompts=0,shutdown=0,finished=0;
+ const flow=new CloseFlow(()=>true,async()=>{prompts++;return false;},async()=>{shutdown++;},()=>{finished++;});
+ await flow.request(true);assert.equal(prompts,0);assert.equal(shutdown,1);assert.equal(finished,1);assert.equal(flow.readyToQuit,true);
+ await flow.request(true);await flow.request();assert.equal(shutdown,1);assert.equal(finished,1);
+});
+test('small fixes S4: a forced close overrides an open dialog, and its later answer neither closes twice nor cancels',async()=>{
+ let answer,shutdown=0,finished=0;
+ const flow=new CloseFlow(()=>true,()=>new Promise(resolve=>{answer=resolve;}),async()=>{shutdown++;},()=>{finished++;});
+ const asked=flow.request();const forced=flow.request(true);assert.notEqual(forced,asked);
+ await forced;assert.equal(shutdown,1);assert.equal(finished,1);assert.equal(flow.readyToQuit,true);
+ answer(true);await asked;assert.equal(shutdown,1);assert.equal(finished,1);
+});

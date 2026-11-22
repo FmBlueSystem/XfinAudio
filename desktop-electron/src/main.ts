@@ -367,6 +367,13 @@ app.on('before-quit',event=>{
   void closeFlow.request().catch(error=>console.error(error));
 });
 app.on('window-all-closed',()=>app.quit());
+// A normal signal (kill, Ctrl+C) closes the app in order without asking; unsaved drafts are discarded.
+const quitOnSignal=(signal:NodeJS.Signals):void=>{
+  log.write(`received ${signal}: closing without the unsaved-changes dialog`);
+  void closeFlow.request(true).catch(error=>console.error(error));
+};
+process.on('SIGTERM',()=>quitOnSignal('SIGTERM'));
+process.on('SIGINT',()=>quitOnSignal('SIGINT'));
 app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.focus();}});
 process.on('uncaughtException',error=>{log.write(`uncaught exception: ${describeFailure(error)}`);console.error(error);});
 process.on('unhandledRejection',reason=>{log.write(`unhandled rejection: ${describeFailure(reason)}`);console.error(reason);});

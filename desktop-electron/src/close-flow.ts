@@ -9,17 +9,22 @@ export class CloseFlow {
     private readonly shutdown:()=>Promise<void>,
     private readonly finish:()=>void,
   ) {}
-  request():Promise<void> {
-    if(this.pending)return this.pending;
-    if(this.readyToQuit)return Promise.resolve();
-    this.pending=this.run().finally(()=>{this.pending=null;});
-    return this.pending;
+  /**
+   * `force` (a SIGTERM or SIGINT) skips the unsaved-changes dialog, even one already open,
+   * and discards unsaved drafts; the shutdown still drains the core exactly once.
+   */
+  request(force=false):Promise<void> {
+    if(this.readyToQuit&&!this.pending)return Promise.resolve();
+    if(this.pending&&(!force||this.isClosing||this.readyToQuit))return this.pending;
+    const run:Promise<void>=this.run(force).finally(()=>{if(this.pending===run)this.pending=null;});
+    this.pending=run;
+    return run;
   }
-  private async run():Promise<void> {
-    if(this.dirty()) {
+  private async run(force:boolean):Promise<void> {
+    if(!force&&this.dirty()) {
       let confirmed=false;
       try{confirmed=await this.confirmDiscard();}catch{return;}
-      if(!confirmed)return;
+      if(!confirmed||this.isClosing||this.readyToQuit)return;
     }
     this.isClosing=true;
     try{await this.shutdown();}
