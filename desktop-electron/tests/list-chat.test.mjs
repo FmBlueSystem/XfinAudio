@@ -525,7 +525,32 @@ test('S2: «Aplicar todo» stops at the first failure and still says how many ch
   assert.equal(f.controller.error, 'Revisa los datos de la operación y sus límites antes de intentarlo de nuevo.');
   assert.equal(f.applied.length, 1);
 });
-test('S2: «Aplicar todo» stops before a proposed alternative, which belongs to the screen', async () => {
+test('S6: «Aplicar todo» chooses a proposed alternative through the screen, last and counted', async () => {
+  const chosen = [];
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction(), variantAction()] }),
+    aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: [variantAction()] }; },
+  }, { chooseVariant: async (variant) => { chosen.push(variant); return true; } });
+  await f.controller.load();
+  await f.controller.applyAll();
+  assert.deepEqual(f.calls.filter(([kind]) => kind === 'apply').map(([, input]) => input.actionId), [removeAction().actionId], 'the steps bound to this list apply first');
+  assert.deepEqual(chosen, ['adventurous'], 'the alternative is chosen through the screen route, like its card');
+  assert.equal(f.controller.notice, 'Se aplicaron 2 de 2 cambios. Se cambió la alternativa. La conversación empieza de nuevo.');
+  assert.equal(f.controller.error, '');
+  assert.deepEqual(f.controller.actions, [], 'the new list replaces the cards');
+});
+test('S6: «Aplicar todo» does not choose the alternative when a step of the batch failed', async () => {
+  const chosen = [];
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction(), variantAction()] }),
+    aiChatApply: async () => { throw Object.assign(new Error('bad'), { code: 'invalid_params' }); },
+  }, { chooseVariant: async (variant) => { chosen.push(variant); return true; } });
+  await f.controller.load();
+  await f.controller.applyAll();
+  assert.deepEqual(chosen, [], 'a stopped batch never switches the list out from under its own steps');
+  assert.equal(f.controller.notice, 'Se aplicaron 0 de 2 cambios.');
+});
+test('S2: an app without the variant route says so instead of pretending the batch applied it', async () => {
   const f = fixture({
     aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction(), variantAction()] }),
     aiChatApply: async (input) => { f.calls.push(['apply', input]); return { review: appliedReview, actions: [variantAction()] }; },
@@ -534,6 +559,40 @@ test('S2: «Aplicar todo» stops before a proposed alternative, which belongs to
   await f.controller.applyAll();
   assert.equal(f.calls.filter(([kind]) => kind === 'apply').length, 1);
   assert.equal(f.controller.notice, 'Se aplicaron 1 de 2 cambios.');
+  assert.equal(f.controller.error, 'Actualiza la aplicación para cambiar de alternativa desde el asistente.');
+});
+test('S5: a card the core refuses is the only one that goes; the others stay and still apply', async () => {
+  const other = removeAction();
+  let pending = [moveAction(), other];
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: pending.map((item) => ({ ...item })) }),
+    aiChatApply: async (input) => {
+      f.calls.push(['apply', input]);
+      if (input.actionId === moveAction().actionId) { pending = [other]; throw Object.assign(new Error('[stale_ai] stale'), { code: 'stale_ai' }); }
+      return { review: appliedReview, actions: [] };
+    },
+  });
+  f.controller.setAutoApply(false);
+  await f.controller.load();
+  assert.equal(f.controller.actions.length, 2);
+  await f.controller.apply(moveAction().actionId);
+  assert.equal(f.controller.error, 'El contexto o la solicitud cambió. Prepara otra vista previa y revisa de nuevo el consentimiento.');
+  // S5: the refused card is gone and the reply's other card stayed, read from the core as it is now.
+  assert.deepEqual(f.controller.actions, [other]);
+  assert.equal(f.controller.droppedActions, 0);
+  await f.controller.apply(other.actionId);
+  assert.equal(f.applied.length, 1, 'the card that is still offered still applies');
+  assert.equal(f.controller.error, '');
+});
+test('S5: a card the core refuses is never offered again even when the core still lists it', async () => {
+  const f = fixture({
+    aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [moveAction(), removeAction()] }),
+    aiChatApply: async () => { throw Object.assign(new Error('[stale_ai] stale'), { code: 'stale_ai' }); },
+  });
+  f.controller.setAutoApply(false);
+  await f.controller.load();
+  await f.controller.apply(moveAction().actionId);
+  assert.deepEqual(f.controller.actions.map((item) => item.actionId), [removeAction().actionId]);
 });
 test('S2: «Aplicar todo» is refused while the app cannot act', async () => {
   const f = fixture({ aiChatHistory: async () => ({ conversation: conversation('Pregunta previa', 'Respuesta previa'), actions: [removeAction(), addAction()] }) });

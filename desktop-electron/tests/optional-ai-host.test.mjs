@@ -455,6 +455,29 @@ test('S3: what the native dialog could not store travels with the answer as a fi
   f.setConfirm(async()=>{f.host.note('dialog_preference_not_saved');f.host.note('dialog_preference_not_saved');f.host.note('invented');return true;});
   assert.deepEqual(await f.host.ask(id),{cancelled:false,result:{resultId:id},notes:['dialog_preference_not_saved']},'one code per problem and nothing invented');
 });
+test('S4: the dialog preference is stored after the approved turn runs, never before it',async()=>{
+  const f=fixture(),stored=[];
+  await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});
+  f.setConfirm(async()=>({confirmed:true,storePreference:async()=>{stored.push(f.calls.filter(([method])=>method==='ai.run').length);}}));
+  assert.deepEqual(await f.host.ask(id),{cancelled:false,result:{resultId:id}});
+  assert.deepEqual(stored,[1],'the preference is stored once the approved turn has run');
+  assert.deepEqual(f.calls.map(([method])=>method).filter((method)=>!['dialog','ai.prepare'].includes(method)),['ai.confirmation','ai.run'],'the save never precedes the turn it accompanies');
+});
+test('S4: a preference that could not be stored says so beside the answer it accompanied',async()=>{
+  const f=fixture();
+  await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});
+  f.setConfirm(async()=>({confirmed:true,storePreference:async()=>{throw new Error('settings unavailable');}}));
+  assert.deepEqual(await f.host.ask(id),{cancelled:false,result:{resultId:id},notes:['dialog_preference_not_saved']});
+});
+test('S4: a declined dialog stores nothing, and a plain yes still stores nothing',async()=>{
+  for(const answer of [false,{confirmed:false,storePreference:async()=>{throw new Error('unreachable')}},true]){
+    const f=fixture();
+    await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});
+    f.setConfirm(async()=>answer);
+    await f.host.ask(id);
+    assert.equal(f.calls.some(([method])=>method==='ai.run'),answer===true,'only a confirmed answer reaches the provider');
+  }
+});
 test('S3: an answer without notes keeps exactly the shape it had',async()=>{
   const f=fixture();
   await f.host.prepare({surface:'editor',request:'Acorta',context:{editId:id}});

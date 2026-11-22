@@ -1,10 +1,18 @@
 import path from 'node:path';
 import {lstat,realpath} from 'node:fs/promises';
 export const AI_RECIPIENT='https://api.nan.builders/v1/chat/completions';
+/**
+ * S4: what the native dialog answered. The dialog may also offer the persisted approval switch,
+ * and the preference it stores runs after the turn it approved, never before it.
+ */
+export interface OptionalAiConsent {
+  confirmed:boolean;
+  storePreference?:()=>Promise<void>;
+}
 interface Dependencies {
   request:(method:string,params:Record<string,unknown>)=>Promise<any>;
   choose:()=>Promise<string|null>;
-  confirm:(summary:any)=>Promise<boolean>;
+  confirm:(summary:any)=>Promise<boolean|OptionalAiConsent>;
   cancel:()=>Promise<unknown>;
   autoAuthorize:()=>Promise<boolean>;
   isClosing:()=>boolean;
@@ -88,10 +96,20 @@ export class OptionalAiHost {
         if(summary.recipient!==AI_RECIPIENT)throw failure('ai_request_failed');
         // A later turn sends exactly what the first turn disclosed. The request still
         // re-runs ai.confirmation so a stale preview or configuration is caught here.
-        const confirmed=continuesConversation||await this.dependencies.confirm(summary);this.assertOpen();
+        const consent=continuesConversation?true:await this.dependencies.confirm(summary);this.assertOpen();
+        const confirmed=typeof consent==='boolean'?consent:consent.confirmed===true;
+        const storePreference=typeof consent==='boolean'?null:consent.storePreference??null;
         if(!confirmed||this.cancelRequested)return this.answered({cancelled:true,result:null});
         this.previews.delete(previewId);this.active=true;
-        try{return this.answered(await this.dependencies.request('ai.run',{previewId,confirmed:true}));}finally{this.active=false;}
+        let answer:any=null;let failed:unknown=null;
+        try{answer=await this.dependencies.request('ai.run',{previewId,confirmed:true});}
+        catch(error){failed=error;}
+        finally{this.active=false;}
+        // S4: the dialog's own preference is stored once the turn it approved has run, so the
+        // save can never revoke that turn. S3: the chat says in Spanish when it was not stored.
+        if(storePreference){try{await storePreference();}catch{this.note('dialog_preference_not_saved');}}
+        if(failed)throw failed;
+        return this.answered(answer);
       }finally{this.asking=false;}
     });
   }

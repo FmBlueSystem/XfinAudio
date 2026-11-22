@@ -22,7 +22,7 @@ Environment credentials take precedence over file credentials. Existing launcher
 
 The panel displays the effective initial enable/file overrides. **Guardar ajustes de IA** explicitly persists the selected preference and changes subsequent runtime requests immediately. A later relaunch still respects explicit launch overrides. Failed saves preserve prior preferences. No restart is required for AI changes; changing UI language retains its existing restart requirement.
 
-The panel also offers **No volver a preguntar en cada consulta** — persisted automatic authorization, off by default. With it on, an already prepared query is sent without the per-send native confirmation dialog; turn it off in the panel to restore the dialog. Preparing a query still shows its disclosure first, and every other explicit action (connection test, credential changes, save/export) keeps its own confirmation. The native confirm dialog itself offers the same checkbox; ticking it and confirming persists the preference best-effort.
+The panel also offers **No volver a preguntar en cada consulta** — persisted automatic authorization, off by default. With it on, an already prepared query is sent without the per-send native confirmation dialog; turn it off in the panel to restore the dialog. Preparing a query still shows its disclosure first, and every other explicit action (connection test, credential changes, save/export) keeps its own confirmation. The native confirm dialog itself offers the same checkbox; ticking it and confirming persists the preference best-effort, and only after the approved query has run, so the save never revokes the query it accompanies.
 
 A list conversation asks its own consent once, independently of that setting: the native dialog appears on the first turn of a conversation and later turns of the same conversation are sent without it, because each turn discloses the same class of data. The conversation is kept in memory only. Saving different AI settings or choosing a different credential file starts a new conversation, so consent is asked again; the same applies to **Nueva conversación**, to discarding the generated list and to restarting the app.
 
@@ -88,9 +88,10 @@ el panel para recuperarlo. Preparar la consulta sigue mostrando su aviso de dato
 y las demás acciones explícitas (prueba de conexión, cambios de credencial,
 guardar/exportar) conservan sus confirmaciones. El diálogo nativo de confirmación
 ofrece la misma casilla; márcala y confirma para persistir la preferencia de
-forma best-effort. La conversación de la lista no depende de esta casilla: pide
-consentimiento en su primer turno y lo omite en los siguientes de esa conversación,
-porque cada turno envía la misma clase de datos.
+forma best-effort, y solo después de ejecutar la consulta aprobada, así el
+guardado nunca revoca la consulta que acompaña. La conversación de la lista no
+depende de esta casilla: pide consentimiento en su primer turno y lo omite en los
+siguientes de esa conversación, porque cada turno envía la misma clase de datos.
 
 La clave del entorno tiene prioridad sobre la del archivo. `XFINAUDIO_AI_ENABLED`
 y `XFINAUDIO_AI_ENV_FILE` pueden establecer preferencias al iniciar;
@@ -126,6 +127,15 @@ cuando no se pudo comprobar la autorización automática y cuando un cambio
 propuesto ya no está disponible o hay una operación en curso. Los textos no
 implican que algo se haya aplicado: la lista solo cambia con un cambio aplicado
 y anunciado.
+
+Cada tarjeta se aplica por separado: si una deja de poder aplicarse, solo esa
+desaparece y se informa el motivo, y el resto de la respuesta sigue disponible y
+aplicable contra la lista tal como está ahora. **Aplicar todo** aplica los pasos
+en el orden mostrado e incluye la alternativa propuesta, que se elige por la ruta
+de alternativas de la pantalla y va al final, porque reemplaza la lista entera. El
+turno siguiente recibe, además de los cambios aplicados desde la respuesta
+anterior, las propuestas de esa conversación que ya están en la lista, para no
+volver a proponerlas ni decir que no las ve.
 
 Estas instrucciones describen el comportamiento implementado. La verificación
 actual usa credenciales sintéticas y transportes inyectados; no certifica una
