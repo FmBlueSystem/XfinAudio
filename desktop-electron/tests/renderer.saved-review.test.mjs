@@ -6,7 +6,9 @@
  */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import test from 'node:test';
+const { validateRequest } = createRequire(import.meta.url)('../.out/main/security.js');
 class Element extends EventTarget {
   constructor(tag = 'div') { super(); this.tagName = tag; }
   get options() { return this.children.filter(node => node.tagName === 'option'); }
@@ -88,6 +90,36 @@ test('an opened saved list is editable, keeps its label, gets the bot and offers
     assert.equal(f.get('review-save-summary').textContent, 'Guardar como playlist nueva');
     assert.equal(f.get('save-playlist').textContent, 'Guardar como playlist nueva');
     assert.equal(f.get('save-playlist').disabled, false);
+  } finally { f.restore(); }
+});
+test('«Exportar a Serato» on an opened saved list sends the decimal id the shell accepts (S1)', async () => {
+  // The core answers `savedPlaylistId` as a JSON number (generated_review.py:518); the export
+  // source must carry the decimal string `validateRequest` requires, like every `listPlaylists` id.
+  const sent = [];
+  const f = await fixture({
+    openPlaylist: async (input) => { f.calls.push(['open', input]); return savedReview({ savedPlaylistId: 1 }); },
+    quickSeratoExport: async (input) => { sent.push(validateRequest('quickSeratoExport', input)); return { status: 'cancelled' }; },
+  });
+  try {
+    await f.openSaved();
+    f.click('export-review'); await settle();
+    assert.deepEqual(sent, [{ source: { kind: 'saved', playlistId: '1' }, name: 'Guardada' }], 'the click sends one validated saved source');
+    assert.equal(f.get('serato-quick-export-notice').textContent, 'Exportación cancelada', 'the click reached the shell instead of stopping silently');
+  } finally { f.restore(); }
+});
+test('a saved list saved in place keeps exporting its string id (S1)', async () => {
+  const sent = [];
+  const f = await fixture({
+    openPlaylist: async (input) => { f.calls.push(['open', input]); return savedReview({ savedPlaylistId: 1 }); },
+    savePlaylistReview: async (input) => { f.calls.push(['savePlaylistReview', input]); return { id: 1, name: 'Guardada', trackCount: 2 }; },
+    quickSeratoExport: async (input) => { sent.push(validateRequest('quickSeratoExport', input)); return { status: 'cancelled' }; },
+  });
+  try {
+    await f.openSaved();
+    f.selectTrack(0); f.click('review-remove-0'); await settle();
+    f.click('save-review-changes'); await settle();
+    f.click('export-review'); await settle();
+    assert.deepEqual(sent, [{ source: { kind: 'saved', playlistId: '1' }, name: 'Guardada' }], 'the id the shell stored exports as the same decimal string');
   } finally { f.restore(); }
 });
 test('an edited saved list offers «Guardar cambios en la playlist», saves it in place and says its name', async () => {

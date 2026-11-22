@@ -12,13 +12,16 @@ const id = (value: unknown): boolean => typeof value === 'string' && /^[a-f0-9]{
  * the read-only fallback the host used to fabricate for every saved list.
  */
 export function savedPlaylistReview(result: Record<string, unknown>): Record<string, unknown> {
-  const reviewId = result.reviewId;
-  if (typeof reviewId === 'string' && reviewId !== '') return result;
+  // The core answers the playlist id as a JSON number; every id the screen holds is the decimal
+  // string `listPlaylists` sends, so the review answers that one shape and exports unchanged.
+  const payload = typeof result.savedPlaylistId === 'number' ? { ...result, savedPlaylistId: String(result.savedPlaylistId) } : result;
+  const reviewId = payload.reviewId;
+  if (typeof reviewId === 'string' && reviewId !== '') return payload;
   // The read-only answer carries none of the review fields the screen reads, so the host
   // supplies them, as it always did for a saved list.
-  const missing = Number(result.missingTrackCount) || 0;
+  const missing = Number(payload.missingTrackCount) || 0;
   return {
-    ...result, savedPlaylistId: String(result.id), reviewId: '', variant: 'saved', canSave: false,
+    ...payload, savedPlaylistId: String(payload.id), reviewId: '', variant: 'saved', canSave: false,
     warnings: missing ? [`${missing} pistas no disponibles`] : [], blockers: [], readiness: 'needs_review',
   };
 }

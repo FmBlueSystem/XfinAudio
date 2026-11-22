@@ -128,6 +128,14 @@ test('opening a saved list keeps only the legacy fallback the host still owns', 
   const saved = {reviewId: '11111111-1111-4111-8111-111111111111', variant: 'saved', savedPlaylistId: '7', name: 'Set', canSave: true, canUndo: false, canRedo: false, tracks: [], editable: true};
   assert.equal(savedPlaylistReview(saved), saved, 'a saved list review must pass through untouched');
 
+  // S1: the core answers the playlist id as a JSON number; every id the renderer holds is a
+  // string (`listPlaylists` stringifies), so the review payload answers one shape.
+  assert.deepEqual(
+    savedPlaylistReview({reviewId: '11111111-1111-4111-8111-111111111111', variant: 'saved', savedPlaylistId: 7, name: 'Set', tracks: [], editable: true}),
+    {reviewId: '11111111-1111-4111-8111-111111111111', variant: 'saved', savedPlaylistId: '7', name: 'Set', tracks: [], editable: true},
+    'the numeric playlist id reaches the screen as the decimal string it exports with',
+  );
+
   // The read-only fallback has no review of its own and keeps exactly today's three additions.
   assert.deepEqual(
     savedPlaylistReview({id: 7, name: 'Set', tracks: [], missingTrackCount: 2, editable: false}),

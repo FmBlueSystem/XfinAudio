@@ -55,14 +55,21 @@ export class SeratoQuickExportController {
     try {
       // The result belongs to the controller, not to a route: the user stays where they were,
       // and a receipt must survive any navigation that happened while the dialog was open.
-      await this.host.perform(label, task, (value) => { apply(value); this.host.changed(); }, (error) => { this.clearResult(); this.explainRefusal(error); this.host.changed(); });
+      await this.host.perform(label, task, (value) => { apply(value); this.host.changed(); }, (error) => { this.clearResult(); this.explainRefusal(error, kind); this.host.changed(); });
     } catch { this.clearResult(); }
     finally { this.pending = null; this.host.changed(); }
   }
   /** Serato DJ open: nothing was written, and the notice next to the button says why (S13). */
-  private explainRefusal(error: unknown): void {
-    if (errorCode(error) !== 'serato_running') return;
-    this.notice = 'Serato DJ está abierto'; this.detail = userErrorMessage(error); this.tone = 'blocked';
+  private explainRefusal(error: unknown, kind: NonNullable<SeratoQuickExportController['pending']>): void {
+    if (errorCode(error) === 'serato_running') {
+      this.notice = 'Serato DJ está abierto'; this.detail = userErrorMessage(error); this.tone = 'blocked'; return;
+    }
+    // Any other refusal still answers next to the button, never only the generic bar (S2): a
+    // coded refusal names its own reason and an uncoded one keeps the generic Spanish answer.
+    // Revealing an exported crate is not an export, so that failure keeps the bar's answer.
+    if (kind === 'reveal') return;
+    this.tone = 'blocked'; this.notice = 'No se pudo iniciar la exportación a Serato';
+    this.detail = userErrorMessage(error);
   }
   private clearResult(): void {
     this.notice = ''; this.detail = ''; this.blockers = []; this.receipt = null;
