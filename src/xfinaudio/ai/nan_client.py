@@ -44,6 +44,16 @@ ENV_FILE_ENV = "XFINAUDIO_AI_ENV_FILE"
 #: so a caller can supply a fake and keep the adapter fully offline.
 Transport = Callable[..., Any]
 
+#: The JSON answer shape an OpenAI-compatible provider accepts.
+JSON_OBJECT_FORMAT = {"type": "json_object"}
+#: The field a provider names when it refuses that shape; the only rejection worth a retry.
+RESPONSE_FORMAT_FIELD = "response_format"
+#: How much of the provider's error body is read to recognise that rejection.
+MAX_ERROR_BODY_BYTES = 4 * 1024
+#: The temperature range an OpenAI-compatible provider accepts.
+MIN_TEMPERATURE = 0.0
+MAX_TEMPERATURE = 2.0
+
 
 @dataclass(frozen=True)
 class _RequestContext:
@@ -153,6 +163,8 @@ def chat(
     transport: Transport | None = None,
     env_file: Path | None = None,
     enabled: bool | None = None,
+    json_object: bool = False,
+    temperature: float | None = None,
 ) -> str:
     """Send one chat completion request and return the assistant's text.
 
@@ -168,8 +180,15 @@ def chat(
     and ``system`` are unused; when omitted, the body is built from ``message``
     and ``system`` exactly as before. An invalid conversation raises
     ``ValueError`` before any network call.
+
+    ``json_object`` and ``temperature`` shape the answer, and only the caller that
+    needs them sets them: the list chat asks for one JSON object at a low
+    temperature. A provider that refuses ``response_format`` with HTTP 400 naming
+    the field is asked once more without it, so one rejected request still ends
+    with an answer instead of a failed turn. Every attempt is one bounded call.
     """
     conversation = _validated_messages(messages) if messages is not None else None
+    _validated_temperature(temperature)
 
     if not (is_ai_enabled() if enabled is None or _REQUEST_CONTEXT.get() is not None else enabled):
         raise NanConfigError(
@@ -178,12 +197,65 @@ def chat(
         )
 
     api_key = _resolve_api_key(env_file)
-    request = _build_request(message, messages=conversation, system=system, model=model, api_key=api_key)
+    request = _build_request(
+        message,
+        messages=conversation,
+        system=system,
+        model=model,
+        api_key=api_key,
+        json_object=json_object,
+        temperature=temperature,
+    )
+    retry = (
+        _request_builder(
+            message,
+            messages=conversation,
+            system=system,
+            model=model,
+            api_key=api_key,
+            temperature=temperature,
+        )
+        if json_object
+        else None
+    )
     send = transport or _urlopen
+    return _parse_content(_send(send, request, timeout, retry))
+
+
+def _request_builder(
+    message: str,
+    *,
+    messages: Sequence[dict[str, str]] | None,
+    system: str | None,
+    model: str | None,
+    api_key: str,
+    temperature: float | None,
+) -> Callable[[], urllib.request.Request]:
+    """The same request without ``response_format``, built only if it is needed."""
+
+    def build() -> urllib.request.Request:
+        return _build_request(
+            message,
+            messages=messages,
+            system=system,
+            model=model,
+            api_key=api_key,
+            temperature=temperature,
+        )
+
+    return build
+
+
+def _send(
+    send: Transport, request: urllib.request.Request, timeout: float, retry: Callable[[], urllib.request.Request] | None
+) -> bytes:
+    """One request's body, retried at most once without the answer shape this provider refuses."""
     try:
         with send(request, timeout=timeout) as response:
-            raw_body = response.read()
+            return response.read()
     except urllib.error.HTTPError as exc:
+        if retry is not None and _rejects_json_object(exc):
+            return _send(send, retry(), timeout, None)
         raise NanRequestError(f"Nan Builders request failed with HTTP status {exc.code}.") from None
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, TimeoutError):
@@ -196,7 +268,29 @@ def chat(
     except ValueError:
         raise NanConfigError("Invalid API credential or request configuration.") from None
 
-    return _parse_content(raw_body)
+
+def _rejects_json_object(error: urllib.error.HTTPError) -> bool:
+    """Whether a 400 answer names ``response_format``: the one rejection a retry can fix."""
+    if error.code != 400:
+        return False
+    try:
+        body = error.read(MAX_ERROR_BODY_BYTES)
+    except Exception:
+        # A body the error object cannot expose is not evidence of this rejection.
+        return False
+    if not isinstance(body, bytes):
+        return False
+    return RESPONSE_FORMAT_FIELD in body.decode("utf-8", errors="ignore")
+
+
+def _validated_temperature(temperature: float | None) -> None:
+    """Accept only a bounded number, and never a whole number spelled as one."""
+    if temperature is None:
+        return
+    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+        raise ValueError("temperature must be a number between 0 and 2.")
+    if not MIN_TEMPERATURE <= temperature <= MAX_TEMPERATURE:
+        raise ValueError("temperature must be a number between 0 and 2.")
 
 
 def _resolve_api_key(env_file: Path | None = None) -> str:
@@ -257,6 +351,8 @@ def _build_request(
     system: str | None,
     model: str | None,
     api_key: str,
+    json_object: bool = False,
+    temperature: float | None = None,
 ) -> urllib.request.Request:
     request_messages: list[dict[str, str]] = []
     if messages is not None:
@@ -266,12 +362,24 @@ def _build_request(
             request_messages.append({"role": "system", "content": system})
         request_messages.append({"role": "user", "content": message})
 
-    body = json.dumps({"model": _resolve_model(model), "messages": request_messages}).encode("utf-8")
+    body = json.dumps(_body_fields(model, request_messages, json_object, temperature)).encode("utf-8")
     request = urllib.request.Request(_resolve_endpoint(), data=body, method="POST")
     request.add_header("Content-Type", "application/json")
     request.add_header("User-Agent", USER_AGENT)
     request.add_unredirected_header("Authorization", f"Bearer {api_key}")
     return request
+
+
+def _body_fields(
+    model: str | None, messages: Sequence[dict[str, str]], json_object: bool, temperature: float | None
+) -> dict[str, Any]:
+    """The provider body: the model and the conversation, plus the answer shape when asked."""
+    fields: dict[str, Any] = {"model": _resolve_model(model), "messages": list(messages)}
+    if temperature is not None:
+        fields["temperature"] = temperature
+    if json_object:
+        fields["response_format"] = dict(JSON_OBJECT_FORMAT)
+    return fields
 
 
 def _resolve_endpoint() -> str:

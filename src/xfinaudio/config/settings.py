@@ -13,6 +13,13 @@ from xfinaudio.recommendation.scoring import DEFAULT_WEIGHTS, ScoringWeights
 
 CURRENT_SETTINGS_VERSION = 1
 
+#: S11: the fixed allowlist of Nan models a confirmed request may name. The endpoint stays
+#: pinned; only this id varies, and only within this tuple, so a settings file can never send
+#: an arbitrary model name to the provider. ``nan_client.DEFAULT_MODEL`` names the same
+#: default for callers that run outside the app (a test pins both to the same value).
+AI_MODELS: tuple[str, ...] = ("deepseek-v4-flash", "glm5.3-flash", "qwen3.6")
+DEFAULT_AI_MODEL = AI_MODELS[0]
+
 
 class ScanSettings(BaseModel):
     """Configuration for read-only library scanning."""
@@ -87,7 +94,18 @@ class AiSettings(BaseModel):
     # confirmation dialog. Opt-in and revocable from the AI settings panel.
     auto_authorize: bool = False
     provider: Literal["nan"] = "nan"
+    # The chosen model id, restricted to the fixed allowlist. Older settings files without
+    # this key hydrate the default; an unknown value is refused instead of sent.
+    model: str = DEFAULT_AI_MODEL
     env_file: Path | None = None
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, value: str) -> str:
+        """Accept only an id from the fixed allowlist, never a free-form model name."""
+        if value not in AI_MODELS:
+            raise ValueError(f"Unsupported AI model: {value}")
+        return value
 
 
 class LoudnessSettings(BaseModel):
@@ -194,6 +212,8 @@ class AppSettings(BaseModel):
 
 
 __all__ = [
+    "AI_MODELS",
+    "DEFAULT_AI_MODEL",
     "AiSettings",
     "AppSettings",
     "AudioSettings",

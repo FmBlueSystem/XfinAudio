@@ -242,14 +242,18 @@ def test_chat_with_list_sends_instructions_the_stored_conversation_and_the_new_m
     backend, _, _ = setup
     recommendation, readiness = review_of(backend)
     facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
-    reply, transport = chat(
-        facts,
-        request="¿Cómo mejoro la curva de energía?",
-        conversation=[
-            {"role": "user", "text": "¿qué transiciones son las más débiles?"},
-            {"role": "assistant", "text": "La transición 2."},
-        ],
-    )
+    transport = ChatTransport(json.dumps({"reply": "Sugerencia sintética sobre la lista.", "actions": []}))
+    with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
+        reply = list_chat.chat_with_list(
+            facts,
+            "¿Cómo mejoro la curva de energía?",
+            [
+                {"role": "user", "text": "¿qué transiciones son las más débiles?"},
+                {"role": "assistant", "text": "La transición 2."},
+            ],
+            track_count=4,
+            transport=transport,
+        )
     assert reply.reply == "Sugerencia sintética sobre la lista."
     assert reply.actions == () and reply.dropped == 0
     messages = transport.bodies[0]["messages"]
@@ -273,8 +277,9 @@ def test_chat_instructions_ask_for_short_spanish_answers_and_concrete_suggestion
     assert "no alcanzan" in system
 
 
-@pytest.mark.parametrize("reply", ["", "   \n", "x" * 4001])
-def test_chat_rejects_an_empty_or_oversized_reply(setup, reply):
+@pytest.mark.parametrize("reply", ["", "   \n"])
+def test_chat_rejects_a_blank_reply_without_asking_again(setup, reply):
+    # A blank answer is a broken response, not prose that asks to be repaired.
     backend, _, _ = setup
     recommendation, readiness = review_of(backend)
     facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
@@ -287,14 +292,16 @@ def test_chat_rejects_an_empty_or_oversized_reply(setup, reply):
     assert len(transport.bodies) == 1
 
 
-def test_chat_accepts_a_reply_at_the_limit(setup):
+def test_chat_accepts_a_structured_reply_at_the_limit(setup):
     backend, _, _ = setup
     recommendation, readiness = review_of(backend)
     facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
-    transport = ChatTransport("x" * list_chat.MAX_REPLY_CHARS)
+    longest = "x" * list_chat.MAX_REPLY_CHARS
+    transport = ChatTransport(json.dumps({"reply": longest, "actions": []}))
     with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
         answer = list_chat.chat_with_list(facts, "Pregunta", [], track_count=4, transport=transport)
-    assert answer == list_chat.ChatAnswer("x" * list_chat.MAX_REPLY_CHARS, (), 0)
+    assert answer == list_chat.ChatAnswer(longest, (), 0)
+    assert len(transport.bodies) == 1
 
 
 def structured(*items: dict, reply: str = "Propongo dos cambios.") -> str:
@@ -1168,3 +1175,173 @@ def test_the_chat_instructions_state_that_a_period_change_only_applies_when_it_r
     # The rest of the prompt keeps its rules, unchanged and in order.
     assert "22. Cuando el DJ quiera mantener la lista en una década" in system
     assert "23. Un cambio period solo aplica" in system
+
+
+# --------------------------------------------------------------------------- S9
+# The turn asks for one JSON object at a low temperature, reads a few short examples,
+# and asks the model once more when the answer carried no JSON at all.
+
+
+class SequenceChatTransport:
+    """A fake provider that answers each call with the next queued text, then repeats it."""
+
+    def __init__(self, *replies: str) -> None:
+        self.replies = list(replies)
+        self.bodies: list[dict] = []
+
+    def __call__(self, request, *, timeout):
+        self.bodies.append(json.loads(request.data.decode("utf-8")))
+        content = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
+        return io.BytesIO(json.dumps({"choices": [{"message": {"content": content}}]}).encode())
+
+
+def facts_of(backend) -> str:
+    recommendation, readiness = review_of(backend)
+    return list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+
+
+def one_turn(facts: str, transport, *, request: str = "Cambia algo de la lista.", budget=None):
+    with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
+        return list_chat.chat_with_list(facts, request, [], track_count=4, transport=transport, budget=budget)
+
+
+def test_chat_asks_the_provider_for_a_json_object_with_a_low_temperature(setup):
+    """S9a: the list chat is the one surface that asks for a structured answer."""
+    backend, _, _ = setup
+    transport = ChatTransport('{"reply": "Nada que cambiar.", "actions": []}')
+    one_turn(facts_of(backend), transport)
+    body = transport.bodies[0]
+    assert body["response_format"] == {"type": "json_object"}
+    assert 0.2 <= body["temperature"] <= 0.3
+
+
+def test_every_example_answer_in_the_instructions_is_one_the_parser_accepts(setup):
+    """S9c: a few-shot answer that the real parser would drop would teach the wrong shape."""
+    backend, _, _ = setup
+    assert 2 <= len(list_chat.INSTRUCTION_EXAMPLES) <= 4
+    _, transport = chat(facts_of(backend))
+    system = transport.bodies[0]["messages"][0]["content"]
+    for example in list_chat.INSTRUCTION_EXAMPLES:
+        assert example in system
+        body = json.loads(example)
+        assert set(body) == {"reply", "actions"}
+        answer = list_chat.parse_answer(example, 4)
+        assert answer.reply.strip()
+        assert answer.dropped == 0 and answer.dropped_items == ()
+        assert len(answer.actions) == len(body["actions"])
+    kinds = {
+        action.type
+        for example in list_chat.INSTRUCTION_EXAMPLES
+        for action in list_chat.parse_answer(example, 4).actions
+    }
+    assert {"replace", "move"} <= kinds
+    assert any(not list_chat.parse_answer(example, 4).actions for example in list_chat.INSTRUCTION_EXAMPLES)
+
+
+def test_a_prose_answer_is_asked_again_once_and_then_yields_its_actions(setup):
+    """S9b: one repair turns prose into the structured change the DJ can apply."""
+    backend, _, _ = setup
+    prose = "La pista 2 sobra: rompe la curva de energía."
+    fixed = json.dumps(
+        {"reply": "Quito la pista 2.", "actions": [{"type": "remove", "position": 2, "reason": "Rompe la curva"}]}
+    )
+    transport = SequenceChatTransport(prose, fixed)
+    answer = one_turn(facts_of(backend), transport)
+    assert len(transport.bodies) == 2
+    repair = transport.bodies[1]["messages"][-1]
+    assert repair["role"] == "user" and list_chat.REPAIR_MESSAGE in repair["content"]
+    assert transport.bodies[1]["messages"][:-1] == transport.bodies[0]["messages"]
+    assert answer.reply == "Quito la pista 2."
+    assert [action.type for action in answer.actions] == ["remove"]
+    assert answer.repairs == (prose,)
+    assert list_chat.UNFORMATTED_NOTICE not in answer.reply
+
+
+def test_a_second_unreadable_answer_keeps_the_prose_and_adds_a_short_notice(setup):
+    backend, _, _ = setup
+    prose = "La pista 2 sobra: rompe la curva de energía."
+    transport = SequenceChatTransport(prose)
+    answer = one_turn(facts_of(backend), transport)
+    assert len(transport.bodies) == 2
+    assert answer.actions == () and answer.dropped == 0
+    assert answer.reply == f"{prose}\n\n{list_chat.UNFORMATTED_NOTICE}"
+    assert answer.repairs == (prose,)
+
+
+def test_a_structured_answer_is_never_asked_again(setup):
+    backend, _, _ = setup
+    transport = SequenceChatTransport('{"reply": "Nada que cambiar.", "actions": []}')
+    answer = one_turn(facts_of(backend), transport)
+    assert len(transport.bodies) == 1
+    assert answer.repairs == ()
+    assert list_chat.UNFORMATTED_NOTICE not in answer.reply
+
+
+def test_a_prose_answer_too_long_to_carry_the_notice_still_fails_the_turn(setup):
+    """The reply keeps its own limit: nothing is silently shortened to fit the notice."""
+    backend, _, _ = setup
+    transport = SequenceChatTransport("x" * (list_chat.MAX_REPLY_CHARS + 1))
+    with pytest.raises(ValueError):
+        one_turn(facts_of(backend), transport)
+    assert len(transport.bodies) == 2
+
+
+def test_the_repair_is_skipped_when_the_turn_spent_its_provider_calls(setup):
+    """S9b counts in the turn's own call budget: a spent budget never sends another call."""
+    backend, _, _ = setup
+    budget = list_chat.CallBudget(remaining=1)
+    transport = SequenceChatTransport("La pista 2 sobra.")
+    answer = one_turn(facts_of(backend), transport, budget=budget)
+    assert len(transport.bodies) == 1
+    assert budget.remaining == 0
+    assert answer.reply.endswith(list_chat.UNFORMATTED_NOTICE)
+
+
+def test_the_turn_budget_allows_four_provider_calls_and_then_refuses():
+    budget = list_chat.CallBudget()
+    assert [budget.take() for _ in range(5)] == [True, True, True, True, False]
+    assert budget.remaining == 0
+    assert list_chat.MAX_CHAT_CALLS == 4
+
+
+def hundred_track_recommendation(recommendation: PlaylistRecommendation) -> PlaylistRecommendation:
+    """The fixture review grown to the hundred tracks one turn may read."""
+    tracks = [
+        recommendation.ordered_tracks[0].model_copy(
+            update={
+                "path": f"/library/music/track-{index:03d}.flac",
+                "title": f"Pista {index}",
+                "artist": "Artista de prueba",
+                "genre": "House",
+                "bpm": 124.0,
+                "camelot_key": "8A",
+                "energy_level": 6,
+                "duration": 321.0,
+                "release_year": 1995,
+            }
+        )
+        for index in range(1, 101)
+    ]
+    transitions = [
+        recommendation.transition_scores[0].model_copy(
+            update={"left_path": tracks[index].path, "right_path": tracks[index + 1].path}
+        )
+        for index in range(len(tracks) - 1)
+    ]
+    return recommendation.model_copy(update={"ordered_tracks": tracks, "transition_scores": transitions})
+
+
+def test_a_hundred_track_turn_stays_inside_the_sixty_four_kibibyte_request_cap(setup):
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    hundred = hundred_track_recommendation(recommendation)
+    facts = list_chat.list_facts(hundred, readiness, {"opening": [], "closing": [], "required": []})
+    assert facts.count(" | ") >= 100
+    transport = ChatTransport('{"reply": "Nada que cambiar.", "actions": []}')
+    with request_context(enabled=True, key_provider=lambda: "dummy-test-only"):
+        list_chat.chat_with_list(facts, "Pregunta", [], track_count=100, transport=transport)
+    body = transport.bodies[0]
+    size = len(json.dumps(body).encode("utf-8"))
+    assert size <= 64 * 1024
+    # The examples are a few short answers, not a second prompt.
+    assert sum(len(example) for example in list_chat.INSTRUCTION_EXAMPLES) <= 900

@@ -42,16 +42,18 @@ class _Reference:
     binding: CredentialBinding | None
 
 
-def _asked(settings: AiSettings) -> tuple[bool, str, Path | None]:
+def _asked(settings: AiSettings) -> tuple[bool, str, str, Path | None]:
     """The part of the AI configuration a confirmed request is actually sent with.
 
     ``enabled`` and the provider configuration decide whether and to whom a turn is
-    sent, so a change there ends pending consent. The persisted approval switch
-    (``auto_authorize``) decides only whether the system dialog is asked first: it is
-    consent bookkeeping, never part of the request, so ticking it — as the dialog's own
-    «No volver a preguntar» does — must not revoke the turn the DJ just approved.
+    sent, so a change there ends pending consent. The chosen model (S11) travels in the
+    request body, so changing it changes what is sent and ends pending consent too. The
+    persisted approval switch (``auto_authorize``) decides only whether the system dialog
+    is asked first: it is consent bookkeeping, never part of the request, so ticking it —
+    as the dialog's own «No volver a preguntar» does — must not revoke the turn the DJ just
+    approved.
     """
-    return settings.enabled, settings.provider, settings.env_file
+    return settings.enabled, settings.provider, settings.model, settings.env_file
 
 
 def _grants_approval(previous: AiSettings, current: AiSettings) -> bool:
@@ -93,11 +95,12 @@ class _PayloadPreviewed(Exception):
     """Private abort raised once one provider body has been built and captured."""
 
 
-def _serialized_body(context: AssistContext, backend: HeadlessBackend) -> bytes:
+def _serialized_body(context: AssistContext, backend: HeadlessBackend, model: str) -> bytes:
     """Build the exact provider body for ``context`` with no network, key, or credential access.
 
     The surface builders run unchanged through the ordinary execution path with a capture
     transport, so the preview is the provider's real body rather than a re-derived copy. The
+    request context names the model the DJ chose (S11), so the preview shows it too. The
     captured request object is discarded: only its JSON body leaves this function, never the
     authorization header.
     """
@@ -111,7 +114,7 @@ def _serialized_body(context: AssistContext, backend: HeadlessBackend) -> bytes:
         raise _PayloadPreviewed
 
     try:
-        with request_context(enabled=True, key_provider=lambda: _UNUSED_PREVIEW_KEY):
+        with request_context(enabled=True, key_provider=lambda: _UNUSED_PREVIEW_KEY, model=model):
             execute_context(context, capture, backend)
     except _PayloadPreviewed:
         pass
@@ -140,6 +143,8 @@ def _parsed_chat_answer(answer: dict[str, Any]) -> bool:
     if not _parsed_searches(answer["searches"]):
         return False
     if not _parsed_ignored_searches(answer["ignoredSearches"]):
+        return False
+    if not _parsed_repairs(answer["repairs"]):
         return False
     if len(actions) > MAX_ACTIONS:
         return False
@@ -223,6 +228,13 @@ def _parsed_ignored_searches(searches: Any) -> bool:
     return True
 
 
+def _parsed_repairs(repairs: Any) -> bool:
+    """The answers the turn asked again for: at most one per request, each the provider text."""
+    if not isinstance(repairs, list) or len(repairs) > 2:
+        return False
+    return all(isinstance(item, str) for item in repairs)
+
+
 def _identity(value: Any) -> str:
     try:
         if not isinstance(value, str) or str(UUID(value)) != value:
@@ -238,7 +250,15 @@ def _published(answer: dict[str, Any]) -> dict[str, Any]:
 
 
 #: The fields one chat turn carries for the opt-in log only; never published to the DJ.
-_DIAGNOSTIC_FIELDS = ("actions", "droppedActions", "droppedItems", "rawText", "searches", "ignoredSearches")
+_DIAGNOSTIC_FIELDS = (
+    "actions",
+    "droppedActions",
+    "droppedItems",
+    "rawText",
+    "searches",
+    "ignoredSearches",
+    "repairs",
+)
 
 
 class OptionalAI:
@@ -281,7 +301,7 @@ class OptionalAI:
         # Fail-closed shapes: no unknown keys, and every required key present.
         # Only autoAuthorize (ai.settings.update) is optional, so older callers
         # that only send revision/enabled keep working.
-        required = AI_FIELDS[method] - {"autoAuthorize"}
+        required = AI_FIELDS[method] - {"autoAuthorize", "model"}
         if not isinstance(params, dict) or not set(params) <= AI_FIELDS[method] or not required <= set(params):
             raise BackendError("invalid_params", "Missing or unexpected optional assistance fields")
         try:
@@ -388,6 +408,8 @@ class OptionalAI:
             binding,
         )
         disclosure = context.disclosure
+        # S11: the confirmation names the model this request actually carries, not a default.
+        disclosure = (*disclosure, f"Modelo: {public['model']}")
         if public["credentialLabel"] is not None:
             disclosure = (*disclosure, f"Credencial seleccionada: {public['credentialLabel']}")
         self.preview = _Pending(str(uuid4()), reference, context, disclosure, self._epoch)
@@ -404,7 +426,7 @@ class OptionalAI:
         """
         pending = self._pending(params["previewId"])
         self._fresh(pending.reference)
-        body = _serialized_body(pending.context, self.backend)
+        body = _serialized_body(pending.context, self.backend, pending.reference.settings.model)
         truncated = len(body) > MAX_PAYLOAD_PREVIEW_BYTES
         text = body[:MAX_PAYLOAD_PREVIEW_BYTES].decode("utf-8", errors="ignore") if truncated else body.decode("utf-8")
         return {
@@ -514,7 +536,15 @@ class OptionalAI:
             answer = execute_context(context, transport, backend)
             expected = {"surface", "kind", "title", "text", "proposal", "canApply"}
             if context.surface == "chat":
-                expected |= {"actions", "droppedActions", "droppedItems", "rawText", "searches", "ignoredSearches"}
+                expected |= {
+                    "actions",
+                    "droppedActions",
+                    "droppedItems",
+                    "rawText",
+                    "searches",
+                    "ignoredSearches",
+                    "repairs",
+                }
             if (
                 not isinstance(answer, dict)
                 or set(answer) != expected
@@ -540,13 +570,18 @@ class OptionalAI:
             raise BackendError("confirmation_required", "Confirm this disclosed request before sending")
         pending = self._pending(params["previewId"])
         self.preview = None
-        cancelled = {"cancelled": True, "result": None}
+
+        def cancelled(phase: str) -> dict[str, Any]:
+            """S10: a cancelled turn is measurable too, so the log names where it ended."""
+            self._log("turn_cancelled", message=pending.context.request, surface=pending.context.surface, phase=phase)
+            return {"cancelled": True, "result": None}
+
         if token.is_cancelled:
-            return cancelled
+            return cancelled("before_send")
         self._fresh(pending.reference)
         emit({"phase": "ai", "processedCount": 0, "totalCount": 1})
         if token.is_cancelled:
-            return cancelled
+            return cancelled("before_send")
         # S1: cancelling a turn closes the call in flight, so the turn ends as cancelled and
         # nothing of the late answer that arrives after it is ever published.
         drains: list[Callable[[], None]] = []
@@ -572,19 +607,19 @@ class OptionalAI:
             )
         except BackendError as error:
             if token.is_cancelled:
-                return cancelled
+                return cancelled("during_send")
             self._log("turn_failed", message=pending.context.request, errorCode=error.code)
             raise
         finally:
             if unsubscribe is not None:
                 unsubscribe()
         if token.is_cancelled:
-            return cancelled
+            return cancelled("after_send")
         if pending.epoch != self._epoch:
             self._stale()
         context = self._fresh(pending.reference)
         if token.is_cancelled:
-            return cancelled
+            return cancelled("before_publish")
         # A successful chat turn is the only writer of the in-memory conversation and of
         # the changes the assistant proposed; a failed, refused or cancelled turn never
         # reaches this point.
@@ -617,6 +652,8 @@ class OptionalAI:
                 trackCount=context.data["trackCount"],
                 searches=answer["searches"],
                 ignoredSearches=answer["ignoredSearches"],
+                # S10: the answers a turn had to ask again for are measurable as well.
+                repairs=answer["repairs"],
             )
         result_id = str(uuid4())
         self.results[result_id] = _Completed(pending.reference, pending.context, copy.deepcopy(published))

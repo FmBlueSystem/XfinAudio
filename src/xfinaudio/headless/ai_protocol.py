@@ -19,7 +19,7 @@ AI_REQUEST_TIMEOUT_SECONDS = MappingProxyType(
 
 AI_FIELDS = {
     "ai.status": set(),
-    "ai.settings.update": {"revision", "enabled", "autoAuthorize"},
+    "ai.settings.update": {"revision", "enabled", "autoAuthorize", "model"},
     "ai.credential.set": {"revision", "path"},
     "ai.prepare": {"surface", "request", "context"},
     "ai.confirmation": {"previewId"},
