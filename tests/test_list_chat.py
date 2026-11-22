@@ -1134,3 +1134,37 @@ def test_a_replace_that_names_a_found_track_is_read_as_replace_with():
 
     assert [(action.type, action.position, action.ref) for action in answer.actions] == [("replace_with", 2, "L18")]
     assert answer.dropped == 0
+
+
+def test_the_conversation_state_states_the_proposals_the_dj_already_applied():
+    """S7: a later answer sees which of its own proposals are already in the list."""
+    line = "Mover la posición 1 a la posición 2: «Electron test 1» — XfinAudio Test"
+    state = list_chat.conversation_state((), (), (line,))
+    sections = state.splitlines()
+    header = next(line for line in sections if line.startswith("Cambios que propusiste y el DJ ya aplicó"))
+    assert "no las propongas otra vez" in header and "ni digas que no las ves" in header
+    assert f"- {line}" in sections
+    assert sections.index("Cambios aplicados desde tu última respuesta:") < sections.index(header)
+    # The found tracks stay the last section, so the state keeps its documented order.
+    assert sections.index(header) < len(sections) - 2
+    assert any(line.startswith("Pistas que ya encontraste") for line in sections)
+    # Nothing applied yet says nothing: the section is only there when it has a line.
+    assert "Cambios que propusiste" not in list_chat.conversation_state()
+
+
+def test_the_chat_instructions_state_that_a_period_change_only_applies_when_it_replaces_a_track(
+    setup,
+):
+    """S8: the model is told the rule the core enforces when it drops a period change."""
+    backend, _, _ = setup
+    recommendation, readiness = review_of(backend)
+    facts = list_chat.list_facts(recommendation, readiness, {"opening": [], "closing": [], "required": []})
+    _, transport = chat(facts)
+    system = transport.bodies[0]["messages"][0]["content"]
+    assert (
+        "Un cambio period solo aplica si reemplaza al menos una pista que hoy queda fuera del período: "
+        "si todas las pistas de la lista ya están dentro del rango, no propongas un period."
+    ) in system
+    # The rest of the prompt keeps its rules, unchanged and in order.
+    assert "22. Cuando el DJ quiera mantener la lista en una década" in system
+    assert "23. Un cambio period solo aplica" in system

@@ -572,6 +572,8 @@ _CURRENT_LIST = (
 )
 #: What the references of the found tracks mean in this conversation.
 _REFERENCE_RULE = "referencias válidas en esta conversación, de la más reciente a la más antigua"
+#: What the applied proposals of this conversation mean, stated beside the applied changes.
+_CONFIRMED_RULE = "propuestas tuyas que ya están en la lista: no las propongas otra vez ni digas que no las ves"
 
 _INSTRUCTIONS = (
     "Eres el asistente de lista de XfinAudio. Lees la lista que el DJ está armando y charlas "
@@ -645,6 +647,9 @@ _INSTRUCTIONS = (
     "22. Cuando el DJ quiera mantener la lista en una década o un período, propón un solo cambio "
     "period con yearMin y yearMax en vez de cambios pista por pista, y menciona en el reply las "
     "pistas protegidas que quedan fuera del período."
+    "\n"
+    "23. Un cambio period solo aplica si reemplaza al menos una pista que hoy queda fuera del "
+    "período: si todas las pistas de la lista ya están dentro del rango, no propongas un period."
 )
 
 
@@ -733,16 +738,22 @@ def list_facts(
     return redact_paths(facts, paths)
 
 
-def conversation_state(applied: Sequence[str] = (), found: Sequence[Mapping[str, Any]] = ()) -> str:
+def conversation_state(
+    applied: Sequence[str] = (),
+    found: Sequence[Mapping[str, Any]] = (),
+    confirmed: Sequence[str] = (),
+) -> str:
     """The state of the conversation the turn sends after the list facts.
 
-    Three parts, in Spanish: the list above is the current list as it is now (never the
+    Four parts, in Spanish: the list above is the current list as it is now (never the
     list the conversation started with), the changes the DJ applied to it since the
-    previous successful turn, oldest first, and the tracks earlier searches of this
-    conversation found and that are still usable, most recent first. A line names
-    positions and titles and never a file path or a track identity.
+    previous successful turn, oldest first, the proposals of this conversation that are
+    already applied (kept across turns, stated only once there is one) and the tracks
+    earlier searches of this conversation found and that are still usable, most recent
+    first. A line names positions and titles and never a file path or a track identity.
     """
     changes = [f"- {line}" for line in applied] or [f"- {_EMPTY_APPLIED}"]
+    done = [f"- {line}" for line in confirmed]
     tracks = [f"- {_found_line(item)}" for item in found[:MAX_FOUND_TRACKS]] or [f"- {_EMPTY_FOUND}"]
     lines = [
         "Estado de la conversación:",
@@ -751,9 +762,10 @@ def conversation_state(applied: Sequence[str] = (), found: Sequence[Mapping[str,
         "Cambios aplicados desde tu última respuesta:",
         *changes,
         "",
-        f"Pistas que ya encontraste ({_REFERENCE_RULE}):",
-        *tracks,
     ]
+    if done:
+        lines.extend((f"Cambios que propusiste y el DJ ya aplicó ({_CONFIRMED_RULE}):", *done, ""))
+    lines.extend((f"Pistas que ya encontraste ({_REFERENCE_RULE}):", *tracks))
     return "\n".join(lines)
 
 

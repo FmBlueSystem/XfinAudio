@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -40,6 +40,28 @@ class _Reference:
     settings_revision: str
     settings: AiSettings
     binding: CredentialBinding | None
+
+
+def _asked(settings: AiSettings) -> tuple[bool, str, Path | None]:
+    """The part of the AI configuration a confirmed request is actually sent with.
+
+    ``enabled`` and the provider configuration decide whether and to whom a turn is
+    sent, so a change there ends pending consent. The persisted approval switch
+    (``auto_authorize``) decides only whether the system dialog is asked first: it is
+    consent bookkeeping, never part of the request, so ticking it — as the dialog's own
+    «No volver a preguntar» does — must not revoke the turn the DJ just approved.
+    """
+    return settings.enabled, settings.provider, settings.env_file
+
+
+def _grants_approval(previous: AiSettings, current: AiSettings) -> bool:
+    """True only for the dialog's own consent grant: the approval switch going off to on.
+
+    Nothing a turn is sent with may change at the same time, and the switch must be the one
+    being granted. Every other save — including taking that switch away — changes consent, so
+    it revokes the retained preview and answers like any other configuration change.
+    """
+    return not previous.auto_authorize and current.auto_authorize and _asked(current) == _asked(previous)
 
 
 @dataclass(frozen=True)
@@ -266,9 +288,9 @@ class OptionalAI:
             if method == "ai.status":
                 return {**self.backend.preferences.get_ai(), "recipient": DEFAULT_ENDPOINT}
             if method == "ai.settings.update":
-                previous_revision = self.backend.preferences.revision
+                previous = self.backend.preferences.ai_settings()
                 result = self.backend.preferences.update_ai(params)
-                self._configuration_changed(previous_revision)
+                self._configuration_changed(previous)
                 return {**result, "recipient": DEFAULT_ENDPOINT}
             if method == "ai.credential.set":
                 path = params["path"]
@@ -276,9 +298,9 @@ class OptionalAI:
                     if not isinstance(path, str) or not path or len(path) > 4096 or "\x00" in path:
                         raise BackendError("invalid_params", "Choose a bounded credential file path")
                     path = bind_credential(Path(path)).path
-                previous_revision = self.backend.preferences.revision
+                previous_settings = self.backend.preferences.ai_settings()
                 result = self.backend.preferences.set_ai_credential({"revision": params["revision"], "path": path})
-                self._configuration_changed(previous_revision)
+                self._configuration_changed(previous_settings)
                 return {**result, "recipient": DEFAULT_ENDPOINT}
             if method == "ai.prepare":
                 preview = self._prepare(params)
@@ -409,15 +431,41 @@ class OptionalAI:
             preview["firstTurn"] = bool(pending.context.data["firstTurn"])
         return preview
 
-    def _configuration_changed(self, previous_revision: str) -> None:
+    def _configuration_changed(self, previous: AiSettings) -> None:
         """End pending consent and, on a real configuration change, the conversation.
 
         Consent is asked once per conversation, so a changed provider configuration
-        (settings or credential) starts a new conversation and discloses it again.
+        (settings or credential) starts a new conversation and discloses it again. Only the
+        dialog's own grant — the approval switch going from off to on while nothing a turn is
+        sent with changed — is exempt: it re-stamps the retained preview and answers instead
+        of revoking the turn it just approved. Taking that switch away revokes them exactly
+        like any other configuration change, because it withdraws the consent the saved turn
+        was granted under.
         """
+        current = self.backend.preferences.ai_settings()
+        if _grants_approval(previous, current):
+            self._restamp(current)
+            return
         self.invalidate()
-        if self.backend.preferences.revision != previous_revision:
-            self.backend.ai_conversation.reset()
+        self.backend.ai_conversation.reset()
+
+    def _restamp(self, settings: AiSettings) -> None:
+        """Keep the retained preview and answers fresh across a save that sends the same request.
+
+        Their freshness is decided by the request itself — the settings it would carry and
+        the settings revision the file now has — so a save that only wrote the approval
+        switch leaves them exactly as fresh as they were.
+        """
+
+        def restamped(reference: _Reference) -> _Reference:
+            return replace(reference, settings_revision=self.backend.preferences.revision, settings=settings)
+
+        if self.preview is not None:
+            self.preview = replace(self.preview, reference=restamped(self.preview.reference))
+        self.results = {
+            result_id: replace(completed, reference=restamped(completed.reference))
+            for result_id, completed in self.results.items()
+        }
 
     def _conversation(self, method: str) -> dict[str, Any]:
         """Return or clear the single in-memory conversation and its pending changes."""

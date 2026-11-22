@@ -286,7 +286,7 @@ def test_anything_that_discards_the_review_clears_the_conversation(chat_setup, d
     assert history(facade) == {"conversation": [], "actions": []}
 
 
-def test_a_change_of_the_ai_settings_clears_the_conversation_and_asks_consent_again(chat_setup):
+def test_the_approval_switch_alone_keeps_the_conversation_and_its_consent(chat_setup):
     facade, transport, backend, _, _ = chat_setup
     review = current_review_id(backend)
     turn(facade, review)
@@ -296,6 +296,37 @@ def test_a_change_of_the_ai_settings_clears_the_conversation_and_asks_consent_ag
         facade, "ai.settings.update", {"revision": status["revision"], "enabled": True, "autoAuthorize": True}
     )
     assert updated["autoAuthorize"] is True and updated["revision"] != status["revision"]
+    # S4: the approval switch changes nothing a turn sends, so it neither ends the
+    # conversation nor asks for consent again.
+    assert [message["role"] for message in history(facade)["conversation"]] == ["user", "assistant"]
+    assert prepare(facade, review, request="¿Y ahora?")["firstTurn"] is False
+    assert len(transport.bodies) == 1
+
+
+def test_taking_the_approval_switch_off_revokes_the_pending_consent(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    review = current_review_id(backend)
+    turn(facade, review)
+    pending = prepare(facade, review, request="¿Y ahora?")
+    status = call(facade, "ai.status")
+    call(facade, "ai.settings.update", {"revision": status["revision"], "enabled": True, "autoAuthorize": False})
+    # Only granting the approval switch is exempt: taking it away is a consent change, so the
+    # prepared turn is stale and the conversation asks for consent again.
+    with pytest.raises(BackendError) as failure:
+        call(facade, "ai.confirmation", {"previewId": pending["previewId"]})
+    assert failure.value.code == "stale_ai"
+    assert history(facade) == {"conversation": [], "actions": []}
+    assert prepare(facade, review, request="¿Y la tercera?")["firstTurn"] is True
+    assert len(transport.bodies) == 1
+
+
+def test_a_change_of_the_ai_configuration_clears_the_conversation_and_asks_consent_again(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    review = current_review_id(backend)
+    turn(facade, review)
+    assert history(facade)["conversation"]
+    status = call(facade, "ai.status")
+    call(facade, "ai.settings.update", {"revision": status["revision"], "enabled": False})
     assert history(facade) == {"conversation": [], "actions": []}
     assert prepare(facade, review)["firstTurn"] is True
     assert len(transport.bodies) == 1
@@ -580,3 +611,77 @@ def test_the_store_offers_the_tracks_it_found_most_recent_last_shown_first(chat_
     assert (first, second) == ("L1", "L2")
     assert store.references() == (("L2", "b" * 64), ("L1", "a" * 64))
     assert store.reference("a" * 64) == "L1"
+
+
+#: One proposal whose track and destination the fixture list always has.
+MOVE_ANSWER = {
+    "reply": "Movería la primera al segundo lugar.",
+    "actions": [{"type": "move", "position": 1, "to": 2, "reason": "Sube la energía del inicio"}],
+}
+
+
+def test_s4_saving_the_dialog_preference_during_an_approved_turn_keeps_its_turn_and_changes(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = json.dumps(MOVE_ANSWER)
+    review = current_review_id(backend)
+    preview = prepare(facade, review)
+    # «No volver a preguntar en cada consulta» is the dialog's own preference: ticking it
+    # saves the setting while the preview the DJ just approved still waits.
+    status = call(facade, "ai.status")
+    call(facade, "ai.settings.update", {"revision": status["revision"], "enabled": True, "autoAuthorize": True})
+    result = call(facade, "ai.run", {"previewId": preview["previewId"], "confirmed": True})["result"]
+    assert result["text"] == MOVE_ANSWER["reply"]
+    assert [action["type"] for action in result["actions"]] == ["move"]
+    assert [message["role"] for message in result["conversation"]] == ["user", "assistant"]
+    # The turn joined the conversation it was approved in, so consent is not due again.
+    assert prepare(facade, review, request="¿Y ahora?")["firstTurn"] is False
+    # And the change the approved turn proposed applies like any other card.
+    before = [track.title for track in backend.review.recommendation.ordered_tracks]
+    applied = call(facade, "ai.chat.apply", {"actionId": result["actions"][0]["actionId"]})
+    assert [track["title"] for track in applied["review"]["tracks"]] == [before[1], before[0], *before[2:]]
+
+
+def test_s5_one_stale_card_leaves_the_other_pending_changes_untouched_and_applicable(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = json.dumps(
+        {
+            "reply": "Dos cambios.",
+            "actions": [
+                {"type": "move", "position": 1, "to": 3, "reason": "Sube la energía del inicio"},
+                {"type": "remove", "position": 4, "reason": "Choca de tonalidad con la tercera"},
+            ],
+        }
+    )
+    result = turn(facade, current_review_id(backend))["result"]
+    move, remove = result["actions"]
+    first = call(facade, "ai.chat.apply", {"actionId": move["actionId"]})
+    assert [action["actionId"] for action in first["actions"]] == [remove["actionId"]]
+    # Clicking the same card again is the refusal a card whose track left the list gets.
+    with pytest.raises(BackendError) as failure:
+        call(facade, "ai.chat.apply", {"actionId": move["actionId"]})
+    assert failure.value.code == "stale_ai"
+    # Only the refused card is gone: the other proposal is still offered and still applies.
+    pending = history(facade)
+    assert [action["actionId"] for action in pending["actions"]] == [remove["actionId"]]
+    assert [message["role"] for message in pending["conversation"]] == ["user", "assistant"]
+    applied = call(facade, "ai.chat.apply", {"actionId": remove["actionId"]})
+    assert remove["title"] not in [track["title"] for track in applied["review"]["tracks"]]
+
+
+def test_s7_the_next_turn_states_the_proposal_the_dj_already_applied(chat_setup):
+    facade, transport, backend, _, _ = chat_setup
+    transport.reply = json.dumps(MOVE_ANSWER)
+    details = backend.execute("review.details", {"reviewId": current_review_id(backend)})
+    first, second = details["tracks"][0], details["tracks"][1]
+    action = turn(facade, details["reviewId"])["result"]["actions"][0]
+    applied = call(facade, "ai.chat.apply", {"actionId": action["actionId"]})
+    assert [track["title"] for track in applied["review"]["tracks"][:2]] == [second["title"], first["title"]]
+    transport.reply = json.dumps({"reply": "La lista ya tiene ese cambio.", "actions": []})
+    turn(facade, applied["review"]["reviewId"], request="¿Qué más cambiarías?")
+    system = transport.bodies[-1]["messages"][0]["content"]
+    marker = f"- Mover la posición 1 a la posición 2: «{first['title']}» — {first['artist']}"
+    assert "Cambios que propusiste y el DJ ya aplicó" in system
+    assert marker in system
+    # The marker outlives the turn that reports it: a later answer still sees the change.
+    turn(facade, applied["review"]["reviewId"], request="¿Y ahora?")
+    assert marker in transport.bodies[-1]["messages"][0]["content"]

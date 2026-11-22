@@ -111,14 +111,13 @@ const optionalAi=new OptionalAiHost({
     const detail=[`Destinatario: ${summary.recipient}`,...summary.disclosure,summary.requestPreview,'La petición puede generar consumo en tu proveedor. Cancelar después del envío descarta la respuesta; no puede recuperar los datos ya enviados.'].filter(Boolean).join('\n\n');
     const result=await dialog.showMessageBox(window!,{type:'warning',title:'Confirmar solicitud opcional a Nan Builders',message:'¿Enviar solo esta solicitud?',detail,buttons:['Cancelar','Enviar esta solicitud'],checkboxLabel:'No volver a preguntar en cada consulta (activa la IA; puedes revertirlo en Ajustes)',defaultId:0,cancelId:0,noLink:true});
     if(result.response!==1)return false;
-    if(result.checkboxChecked){
-      // Best-effort persistence of the explicit opt-out chosen in the dialog.
-      // A stale revision only means Ajustes must save it again; the current
-      // confirmed send proceeds either way, and S3 says in the chat what was
-      // not stored instead of swallowing the failure.
-      try{const status=await run('ai.status',{});await run('ai.settings.update',{revision:status.revision,enabled:true,autoAuthorize:true});}catch{optionalAi.note('dialog_preference_not_saved');/* Ajustes remains the reliable path. */}
-    }
-    return true;
+    if(!result.checkboxChecked)return true;
+    // S4: «No volver a preguntar» is stored after the approved turn runs, so the save can never
+    // revoke the turn the DJ just approved. It turns that switch on and nothing else: the enabled
+    // state and revision come from the settings the host read right before, so a deferred save
+    // never re-enables an AI the DJ turned off, and the chosen model is kept. S3 says in the chat
+    // when it could not be stored.
+    return {confirmed:true,storePreference:async status=>{await run('ai.settings.update',{revision:status.revision,enabled:status.enabled,autoAuthorize:true});}};
   },
   autoAuthorize:async()=>{try{const status=await run('ai.status',{});return status.autoAuthorize===true;}catch{optionalAi.note('auto_authorize_unavailable');return false;}},
   cancel:()=>current?.method==='ai.run'?core.request('cancel',{jobId:current.id}):Promise.resolve({cancelled:false}),

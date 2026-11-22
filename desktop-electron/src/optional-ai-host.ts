@@ -1,10 +1,27 @@
 import path from 'node:path';
 import {lstat,realpath} from 'node:fs/promises';
 export const AI_RECIPIENT='https://api.nan.builders/v1/chat/completions';
+/**
+ * S4: what the native dialog answered. The dialog may also offer the persisted approval switch,
+ * and the preference it stores runs after the turn it approved, never before it.
+ */
+export interface OptionalAiConsent {
+  confirmed:boolean;
+  storePreference?:(status:OptionalAiSettings)=>Promise<void>;
+}
+/**
+ * S4/Risk 2: the settings a deferred approval switch must respect. The save receives the
+ * revision and the enabled state the app reported right before it, so it turns that one
+ * switch on and can never re-enable an AI the DJ turned off, nor choose anything else.
+ */
+export interface OptionalAiSettings {
+  revision:string;
+  enabled:boolean;
+}
 interface Dependencies {
   request:(method:string,params:Record<string,unknown>)=>Promise<any>;
   choose:()=>Promise<string|null>;
-  confirm:(summary:any)=>Promise<boolean>;
+  confirm:(summary:any)=>Promise<boolean|OptionalAiConsent>;
   cancel:()=>Promise<unknown>;
   autoAuthorize:()=>Promise<boolean>;
   isClosing:()=>boolean;
@@ -88,12 +105,38 @@ export class OptionalAiHost {
         if(summary.recipient!==AI_RECIPIENT)throw failure('ai_request_failed');
         // A later turn sends exactly what the first turn disclosed. The request still
         // re-runs ai.confirmation so a stale preview or configuration is caught here.
-        const confirmed=continuesConversation||await this.dependencies.confirm(summary);this.assertOpen();
+        const consent=continuesConversation?true:await this.dependencies.confirm(summary);this.assertOpen();
+        const confirmed=typeof consent==='boolean'?consent:consent.confirmed===true;
+        const storePreference=typeof consent==='boolean'?null:consent.storePreference??null;
         if(!confirmed||this.cancelRequested)return this.answered({cancelled:true,result:null});
         this.previews.delete(previewId);this.active=true;
-        try{return this.answered(await this.dependencies.request('ai.run',{previewId,confirmed:true}));}finally{this.active=false;}
+        let answer:any=null;let failed:unknown=null;
+        try{answer=await this.dependencies.request('ai.run',{previewId,confirmed:true});}
+        catch(error){failed=error;}
+        finally{this.active=false;}
+        // S4: the dialog's own preference is stored once the turn it approved has run, so the
+        // save can never revoke that turn. S3: the chat says in Spanish when it was not stored.
+        if(storePreference)await this.storeConsent(storePreference);
+        if(failed)throw failed;
+        return this.answered(answer);
       }finally{this.asking=false;}
     });
+  }
+  /**
+   * S4/Risk 2: stores the dialog's approval switch once the turn it approved has run, and only
+   * while the DJ still has the AI enabled. The deferred save never re-enables the AI and never
+   * writes any other setting: it receives the enabled state and the revision this read saw, so
+   * a switch turned off during the turn — or a save that would contradict it — is not stored at
+   * all, and the chat says so in Spanish when the settings could not be read.
+   */
+  private async storeConsent(store:(status:OptionalAiSettings)=>Promise<void>):Promise<void> {
+    let status:any;
+    try{status=await this.dependencies.request('ai.status',{});}
+    catch{this.note('dialog_preference_not_saved');return;}
+    if(status?.enabled!==true)return;
+    if(typeof status.revision!=='string'){this.note('dialog_preference_not_saved');return;}
+    try{await store({revision:status.revision,enabled:status.enabled===true});}
+    catch{this.note('dialog_preference_not_saved');}
   }
   async cancel():Promise<{cancelled:boolean}> {
     if(!this.asking)return {cancelled:false};
