@@ -74,6 +74,19 @@ const reviewNotices:[RegExp,(...parts:string[])=>string][]=[
   [/^Strictest option: stays close to the requested genre focus and hard gates\.$/,()=>'Opción más estricta: se mantiene cerca del enfoque de género solicitado y de los filtros estrictos.'],
   [/^Middle option: allows tagged bridges while preserving the set intent\.$/,()=>'Opción intermedia: permite conexiones entre géneros etiquetados y conserva la intención de la sesión.'],
   [/^Exploratory option: allows broader bridges but keeps readiness checks visible\.$/,()=>'Opción exploratoria: permite conexiones más amplias pero mantiene visibles las comprobaciones de preparación.'],
+  [/^Arc subset proven infeasible: mandatory path\(s\) not in the candidate pool: (.+)$/,(_,paths)=>`No hay una lista posible: hay pistas obligatorias fuera de las candidatas: ${paths}`],
+  [/^Arc subset proven infeasible: (\d+) mandatory paths exceed target length (\d+)$/,(_,count,target)=>`No hay una lista posible: las ${count} pistas obligatorias superan el largo pedido de ${target}`],
+  [/^Arc subset proven infeasible: one path cannot be both start and terminal for a multi-track target$/,()=>'No hay una lista posible: una misma pista no puede abrir y cerrar una lista de varias pistas'],
+  [/^Arc subset proven infeasible: no candidate is BPM-compatible with the required start seam$/,()=>'No hay una lista posible: ninguna candidata tiene un BPM compatible con la pista de apertura'],
+  [/^Arc subset proven infeasible: required end_path is unreachable within the available hops$/,()=>'No hay una lista posible: la pista de cierre no se alcanza con las pistas disponibles'],
+  [/^Arc subset proven infeasible: mandatory paths cannot coexist in one BPM-valid path: (.+)$/,(_,paths)=>`No hay una lista posible: estas pistas obligatorias no caben juntas sin saltos de BPM: ${paths}`],
+  [/^Arc subset proven infeasible: only (\d+) BPM-reachable candidates for target length (\d+)$/,(_,count,target)=>`No hay una lista posible: solo ${count} candidatas alcanzables por BPM para un largo de ${target}`],
+  [/^Arc subset proven infeasible: mandatory paths cannot satisfy the fixed-end hop budget$/,()=>'No hay una lista posible: las pistas obligatorias no llegan a la pista de cierre con el largo pedido'],
+  [/^Arc subset proven infeasible: only (\d+) candidates satisfy the fixed-end hop budget$/,(_,count)=>`No hay una lista posible: solo ${count} candidatas llegan a la pista de cierre con el largo pedido`],
+  [/^Arc subset beam search budget exhausted without a full path; this is not proof that none exists$/,()=>'La búsqueda se detuvo sin encontrar una lista completa; eso no prueba que no exista'],
+  [/^Arc subset proven infeasible: no BPM-valid target-length path satisfies every mandatory control$/,()=>'No hay una lista posible: ninguna lista del largo pedido sin saltos de BPM cumple todos los controles obligatorios'],
+  [/^(Start|End) track "(.+)" is incomplete or unavailable and will be ignored\.$/,(_,side,title)=>`La pista de ${side==='Start'?'apertura':'cierre'} «${title}» tiene datos incompletos o no está disponible; se ignorará.`],
+  [/^(\d+) manually-ordered track\(s\) are incomplete or unavailable and will be ignored\.$/,(_,count)=>`${count} pista(s) del orden manual tienen datos incompletos o no están disponibles; se ignorarán.`],
 ];
 export function localizeReviewNotice(message:string):string {
   for(const [pattern,translate] of reviewNotices){const match=pattern.exec(message);if(match)return translate(...match);}
