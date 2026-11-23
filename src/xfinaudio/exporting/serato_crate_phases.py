@@ -4,6 +4,8 @@ The phases come from the tracks' own Mixed In Key energies (1-10), never from th
 strategy or from anything the planner invented: the list is normalised to its own range,
 a track without an energy takes the nearest known one, and an edge-clamped three-point
 moving average smooths the curve so a single odd track cannot open a phase of its own.
+A phase too short to stand on its own joins its nearest neighbour, and the run around the
+top of the curve is always called «Pico»: the peak is the one thing the DJ must still see.
 The result is a pure function of the ordered energies, so the same set always splits the
 same way.
 """
@@ -23,8 +25,10 @@ ENERGY_SPAN = ENERGY_MAX - ENERGY_MIN
 # excursion has no journey to tell: eight tracks is the floor the preview explains.
 MIN_TRACKS = 8
 MIN_KNOWN_ENERGIES = 2
-# A range under a fifth of the scale is a flat set, not a journey.
-FLAT_RANGE = 0.2
+# A range of two steps or less on the scale is a flat set, not a journey: a list that only
+# moves between, say, 6 and 8 (2/9 = 0.222) is almost even, while three steps (0.333) can
+# still rise.
+FLAT_RANGE = 0.25
 MIN_PHASE_TRACKS = 2
 # The plateau of the peak: the top of the curve within this distance of its maximum.
 PLATEAU_TOLERANCE = 0.1
@@ -90,9 +94,9 @@ class EnergyPhasePlan(BaseModel):
 def plan_energy_phases(energies: Sequence[int | None]) -> EnergyPhasePlan:
     """Split one ordered set by its own energies, or say why it cannot be split.
 
-    A set with fewer than eight tracks, fewer than two measured energies, or a range under
-    a fifth of the 1-10 scale gets no phases: the export keeps the parent alone and the
-    preview explains the reason.
+    A set with fewer than eight tracks, fewer than two measured energies, or a range of at
+    most two steps of the 1-10 scale gets no phases: the export keeps the parent alone and
+    the preview explains the reason.
     """
     values = tuple(energies)
     if len(values) < MIN_TRACKS:
@@ -110,7 +114,8 @@ def plan_energy_phases(energies: Sequence[int | None]) -> EnergyPhasePlan:
     curve = _smooth(tuple((value - lowest) / (highest - lowest) for value in filled))
     peak, plateau_end = _peak_plateau(curve)
     rise = _first_rise(curve, peak=peak)
-    runs = _merge_short_phases(_phase_runs(rise, peak, plateau_end, len(curve)), curve)
+    merged = _merge_short_phases(_phase_runs(rise, peak, plateau_end, len(curve)), curve)
+    runs = _name_peak_run(merged, peak=peak)
     if len(runs) < 2:
         # Every track ended in one phase: the set has one band, not a journey.
         return EnergyPhasePlan(reason="single_phase", curve=curve)
@@ -203,6 +208,20 @@ def _merge_short_phases(runs: _Runs, curve: tuple[float, ...]) -> _Runs:
         merged[target] = (keeper, min(keeper_start, start), max(keeper_end, end))
         del merged[short]
     return merged
+
+
+def _name_peak_run(runs: _Runs, *, peak: int) -> _Runs:
+    """Name the run that holds the top of the curve «Pico», whatever it merged into.
+
+    A merge keeps the absorbing neighbour's name, so a «Pico» shorter than the floor used to
+    vanish inside the run it joined. The top of the curve is that run's identity, not the
+    neighbour's: the run around it takes «Pico», and a plan that still has a «Pico» is
+    returned untouched.
+    """
+    return [
+        ("Pico", start, end) if start <= peak < end and name != "Pico" else (name, start, end)
+        for name, start, end in runs
+    ]
 
 
 def _mean(curve: tuple[float, ...], start: int, end: int) -> float:
