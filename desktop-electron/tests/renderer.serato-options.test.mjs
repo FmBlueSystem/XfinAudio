@@ -112,6 +112,26 @@ test('a saved playlist card opens «Opciones de exportación» with its own sour
     assert.deepEqual(f.exported, [], 'opening the options screen never starts an export');
   } finally { f.restore(); }
 });
+test('both entry points reach the same export screen, whose «Pistas por tramo» follows «Dividir en tramos» (S1)', async () => {
+  const f = await fixture();
+  const control = (suffix) => all(f.get('serato-container')).find((node) => node.id === `serato-export-${suffix}`);
+  try {
+    // The review screen and the saved-playlist card both open createSeratoExportView (app.ts), so one screen serves both.
+    await f.navigate('prep'); f.generated(); await settle();
+    f.click('export-review-options'); await settle();
+    assert.ok(control('split-size'), 'the review entry point renders the export screen');
+    assert.equal(control('split').value, 'no'); assert.equal(control('split-size').disabled, true, 'from the review screen the size starts disabled');
+    control('split').value = 'phases'; control('split').dispatchEvent(new Event('change')); await settle();
+    assert.equal(control('split-size').disabled, true, 'from the review screen «Por fases de energía» keeps it disabled');
+    await f.navigate('playlists'); await settle();
+    f.cardOptions().dispatchEvent(new Event('click')); await settle();
+    assert.equal(control('split').value, 'no', 'the saved-playlist entry point starts again on «Sin dividir»');
+    assert.equal(control('split-size').disabled, true, 'from a saved playlist the size starts disabled');
+    control('split').value = 'every'; control('split').dispatchEvent(new Event('change')); await settle();
+    assert.equal(control('split-size').disabled, false, '«Cada N pistas» enables it from the saved-playlist entry point');
+    assert.deepEqual(f.exported, [], 'no choice of split starts an export');
+  } finally { f.restore(); }
+});
 test('both new buttons follow the export gating: disabled while an operation runs (S2)', async () => {
   const gate = { hold: false }; let release;
   const f = await fixture({ listPlaylists: () => gate.hold ? new Promise((resolve) => { release = () => resolve([saved]); }) : Promise.resolve([saved]) });

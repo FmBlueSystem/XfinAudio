@@ -66,6 +66,8 @@ h2 { margin: 8px 0; font-size: 25px; font-weight: 560; letter-spacing: -.8px; }
 .search-box { display: flex; align-items: center; gap: 9px; background: #1d1f24; border: 1px solid #33363c; border-radius: 5px; padding: 0 10px; flex: 1; max-width: 390px; min-width: 130px; }
 .search-box > span { font-size: 25px; color: #8e959f; }
 input, select { background: #14161a; color: #e7e9ec; border: 1px solid #373b42; padding: 11px 12px; border-radius: 5px; font-size: 12px; }
+/* The tramo size exists only for «Cada N pistas»: author input colours override the browser default, so a disabled field needs its own state to look disabled (S1). */
+#serato-export-split-size:disabled { color: #6d7885; background: #101216; border-color: #2b2f35; cursor: not-allowed; }
 input::placeholder { color: #737983; }
 .search-box input { width: 100%; border: 0; background: transparent; padding: 10px 0; font-size: 11px; outline-offset: 1px; }
 select { padding: 9px 10px; font-size: 10px; color: #b9bec6; min-height: 35px; }

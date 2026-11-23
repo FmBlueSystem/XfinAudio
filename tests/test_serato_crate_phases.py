@@ -18,6 +18,15 @@ JOURNEY = (4, 4, 4, 4, 4, 6, 7, 8, 9, 10, 10, 10, 9, 8, 7, 6, 5, 4, 4, 4)
 ASCENDING = (2, 3, 4, 5, 6, 7, 8, 9, 10, 10)
 QUIET_OPENING_AND_DIP = (4, 5, 6, 7, 6, 5, 4, 5, 6, 7, 8, 9, 10, 10, 9, 8, 7, 6, 5, 4)
 FLAT = (5, 6, 5, 6, 5, 6, 5, 6, 5, 6, 5, 6)
+# The energies of the saved playlist «Sesión equilibrada» (20 tracks, read live on 2026-11-22):
+# a flat run of 7s with a single 8 at track 8, another 8 at track 11 and a 6 at track 17. The
+# whole list moves within two steps of the 1-10 scale, so it has no journey to split.
+LIVE_SESION_EQUILIBRADA = (7, 7, 7, 7, 7, 7, 7, 8, 7, 7, 8, 7, 7, 7, 7, 7, 6, 7, 7, 7)
+# A one-track peak whose phase merges into the climb before it: the climb takes the «Pico»
+# name, and the opening and the tail keep the names the merge gave them.
+SINGLE_PEAK_THEN_LOW_CLOSE = (7, 7, 5, 7, 9, 7, 9, 9, 5, 5, 9, 5)
+# A late one-track peak followed by a high close: the «Pico» merges into the run after it.
+LATE_PEAK_AND_HIGH_CLOSE = (10, 8, 8, 8, 10, 7, 10, 10, 10, 8)
 
 
 def _spans(plan: EnergyPhasePlan) -> list[tuple[int, str, int, int]]:
@@ -115,12 +124,41 @@ def test_a_set_without_a_journey_gets_no_phases_and_a_reason(
     assert plan.curve == ()
 
 
-def test_a_range_of_two_steps_clears_the_flat_floor_but_alternating_energies_name_no_phase() -> None:
-    # The flat floor is 0.2 of the 1-10 span: a range of one step (0.111) is flat, a range
-    # of two steps (0.222) is not. Alternating energies still make one flat band, so they
-    # name no phase either - and for their own reason, not the flat one.
-    narrow = (4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5)
-    wide = (4, 6, 4, 6, 4, 6, 4, 6, 4, 6, 4, 6)
+def test_a_two_step_range_is_flat_and_a_three_step_range_still_splits() -> None:
+    # The flat floor is 0.25 of the 1-10 span: two steps (0.222) is flat, three steps
+    # (0.333) is still a journey and splits.
+    two_steps = (6, 6, 6, 6, 6, 6, 7, 8, 6, 6, 6, 7, 6, 6)
+    three_steps = (5, 5, 5, 5, 6, 7, 8, 8, 8, 8)
+
+    assert max(two_steps) - min(two_steps) == 2
+    assert max(three_steps) - min(three_steps) == 3
+    assert plan_energy_phases(two_steps).reason == "flat"
+    assert plan_energy_phases(two_steps).phases == ()
+    assert plan_energy_phases(three_steps).reason is None
+    assert _spans(plan_energy_phases(three_steps)) == [
+        (1, "Apertura", 1, 3),
+        (2, "Subida", 4, 6),
+        (3, "Pico", 7, 10),
+    ]
+
+
+def test_the_live_almost_even_list_is_flat_and_exports_the_parent_alone() -> None:
+    # «Sesión equilibrada» spans 6-8, so it has no journey: the export keeps the parent alone
+    # and the preview explains «La energía de la lista es casi pareja».
+    plan = plan_energy_phases(LIVE_SESION_EQUILIBRADA)
+
+    assert plan.reason == "flat"
+    assert plan.phases == ()
+    assert plan.curve == ()
+    assert not plan.usable
+
+
+def test_a_range_of_three_steps_clears_the_flat_floor_but_alternating_energies_name_no_phase() -> None:
+    # A range of two steps is flat; a range of three steps is not. Alternating energies still
+    # make one flat band, so they name no phase either - and for their own reason, not the
+    # flat one.
+    narrow = (4, 6, 4, 6, 4, 6, 4, 6, 4, 6, 4, 6)
+    wide = (4, 7, 4, 7, 4, 7, 4, 7, 4, 7, 4, 7)
 
     assert plan_energy_phases(narrow).reason == "flat"
     assert plan_energy_phases(wide).reason == "single_phase"
@@ -143,7 +181,70 @@ def test_the_same_ordered_set_always_gives_the_same_phases() -> None:
     assert first.curve == second.curve
 
 
-@pytest.mark.parametrize("energies", [JOURNEY, ASCENDING, QUIET_OPENING_AND_DIP])
+def test_the_peak_keeps_its_name_when_a_short_pico_merges_into_the_run_before_it() -> None:
+    plan = plan_energy_phases(SINGLE_PEAK_THEN_LOW_CLOSE)
+
+    # The one-track «Pico» at track 7 merged into the climb before it: that run is the «Pico»
+    # now, and the opening and the tail keep the names the merge gave them.
+    assert _spans(plan) == [(1, "Apertura", 1, 3), (2, "Pico", 4, 7), (3, "Cierre", 8, 12)]
+
+
+def test_the_peak_keeps_its_name_when_a_short_pico_merges_into_the_close_after_it() -> None:
+    plan = plan_energy_phases(LATE_PEAK_AND_HIGH_CLOSE)
+
+    # The one-track «Pico» at track 8 merged into the close that follows it: that run is the
+    # «Pico» now, and the opening and the climb keep their names.
+    assert _spans(plan) == [(1, "Apertura", 1, 3), (2, "Subida", 4, 7), (3, "Pico", 8, 10)]
+    assert plan.phases[-1].name == "Pico"
+
+
+def test_the_renamed_peak_keeps_the_phase_order_and_the_contiguous_ranges() -> None:
+    order = ["Apertura", "Subida", "Pico", "Cierre"]
+
+    for energies in (SINGLE_PEAK_THEN_LOW_CLOSE, LATE_PEAK_AND_HIGH_CLOSE):
+        plan = plan_energy_phases(energies)
+        names = [phase.name for phase in plan.phases]
+
+        assert names.count("Pico") == 1
+        assert names == [name for name in order if name in names]
+        assert plan.phases[0].start == 0
+        assert plan.phases[-1].end == len(energies)
+        assert all(later.start == earlier.end for earlier, later in zip(plan.phases, plan.phases[1:], strict=False))
+
+
+@pytest.mark.parametrize(
+    ("energies", "spans"),
+    [
+        (
+            JOURNEY,
+            [(1, "Apertura", 1, 4), (2, "Subida", 5, 9), (3, "Pico", 10, 12), (4, "Cierre", 13, 20)],
+        ),
+        (ASCENDING, [(1, "Subida", 1, 8), (2, "Pico", 9, 10)]),
+        (QUIET_OPENING_AND_DIP, [(1, "Subida", 1, 12), (2, "Pico", 13, 14), (3, "Cierre", 15, 20)]),
+    ],
+)
+def test_a_list_that_already_had_a_pico_keeps_exactly_its_plan(
+    energies: tuple[int | None, ...],
+    spans: list[tuple[int, str, int, int]],
+) -> None:
+    # The peak naming only touches a plan that lost its «Pico»: these three span three or more
+    # steps, keep the plan they had before, down to the numbering and the track ranges.
+    plan = plan_energy_phases(energies)
+
+    assert "Pico" in [phase.name for phase in plan.phases]
+    assert _spans(plan) == spans
+
+
+@pytest.mark.parametrize(
+    "energies",
+    [
+        JOURNEY,
+        ASCENDING,
+        QUIET_OPENING_AND_DIP,
+        SINGLE_PEAK_THEN_LOW_CLOSE,
+        LATE_PEAK_AND_HIGH_CLOSE,
+    ],
+)
 def test_every_phase_holds_at_least_two_tracks_and_they_cover_the_set(
     energies: tuple[int | None, ...],
 ) -> None:
