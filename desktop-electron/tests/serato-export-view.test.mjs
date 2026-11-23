@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createSeratoExportView } from '../.out/renderer/serato-export-view.js';
 class Element extends EventTarget {
@@ -193,6 +194,38 @@ test('«Por fases de energía» disables the tramo size and explains what the ph
     split.value = 'every'; split.dispatchEvent(new Event('change'));
     assert.deepEqual(f.calls.at(-1), ['split', 5], 'changing back to every N tracks keeps the size it had');
   } finally { f.restore(); }
+});
+test('«Pistas por tramo» is disabled for «Sin dividir» and «Por fases de energía», enabled for «Cada N pistas», and keeps the number typed (S1)', () => {
+  const f = fixture(); try {
+    const split = f.get('split'), size = () => f.get('split-size');
+    const label = all(f.root).find((node) => node.tagName === 'label' && node.textContent === 'Pistas por tramo');
+    assert.ok(label, 'the size keeps its own label, so assistive tech reads which field is disabled');
+    assert.equal(label.attrs.for, 'serato-export-split-size');
+    assert.match(f.get('split-hint').textContent, /vale solo para esta exportación/, 'the help text still says the choice only applies to this export');
+    assert.equal(split.value, 'no'); assert.equal(size().disabled, true, '«Sin dividir» has no tramo size');
+    split.value = 'phases'; split.dispatchEvent(new Event('change')); f.render();
+    assert.equal(size().disabled, true, '«Por fases de energía» decides its own runs: the size cannot be edited');
+    assert.equal(size().hidden, false, 'the field stays in place, announced as disabled instead of disappearing');
+    split.value = 'no'; split.dispatchEvent(new Event('change')); f.render();
+    assert.equal(size().disabled, true, '«Sin dividir» disables it again');
+    split.value = 'every'; split.dispatchEvent(new Event('change')); f.render();
+    assert.equal(size().disabled, false, '«Cada N pistas» is the only choice with a number');
+    size().value = '12'; size().dispatchEvent(new Event('input')); f.render();
+    assert.equal(size().value, '12');
+    split.value = 'phases'; split.dispatchEvent(new Event('change')); f.render();
+    assert.equal(size().disabled, true); assert.equal(size().value, '12', 'the number typed earlier survives the phase choice');
+    split.value = 'every'; split.dispatchEvent(new Event('change')); f.render();
+    assert.equal(size().disabled, false); assert.equal(size().value, '12', 're-enabling shows the same number, not the default');
+    assert.deepEqual(f.calls.at(-1), ['split', 12], 'the kept number is what the export sends');
+  } finally { f.restore(); }
+});
+test('the disabled «Pistas por tramo» field also looks disabled in the dark theme (S1)', async () => {
+  const css = await readFile(new URL('../renderer/styles.css', import.meta.url), 'utf8');
+  const rule = /#serato-export-split-size:disabled\s*\{([^}]*)\}/.exec(css);
+  assert.ok(rule, 'author input colours beat the browser default, so the field must be styled disabled or it still looks editable');
+  assert.match(rule[1], /color:\s*#6d7885/, 'a disabled field uses the muted text colour the app already uses for disabled buttons');
+  assert.match(rule[1], /background:\s*#101216/);
+  assert.match(rule[1], /cursor:\s*not-allowed/);
 });
 test('a phases preview lists its phase crates like segments and explains a set it cannot split (S4, S5)', () => {
   const f = fixture(); try {
