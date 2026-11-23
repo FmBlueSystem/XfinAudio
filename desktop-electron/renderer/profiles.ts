@@ -3,24 +3,36 @@ export interface ProfileStatus {
   state:'idle'|'complete'|'partial'|'cancelled'|'unavailable';
   totalTracks:number;readyCount:number;spectralReadyCount:number;danceabilityReadyCount:number;edgeReadyCount:number;
   spectralPendingCount:number;danceabilityPendingCount:number;edgePendingCount:number;
+  edgeNotApplicableCount:number;
   pendingCount:number;failedCount:number;estimatedRemainingSeconds:number|null;
 }
 /** completeCount/incompleteCount retain library metadata meanings; status owns profile readiness. */
 export interface ProfileResult {cancelled:boolean;status:ProfileStatus;tracks:Track[];completeCount:number;incompleteCount:number;}
 export interface ProfilesApi {getProfileStatus():Promise<ProfileStatus>;completeProfiles():Promise<ProfileResult>;}
-const keys=['totalTracks','readyCount','spectralReadyCount','danceabilityReadyCount','edgeReadyCount','spectralPendingCount','danceabilityPendingCount','edgePendingCount','pendingCount','failedCount'] as const;
-const stages=[['spectralReadyCount','spectralPendingCount'],['danceabilityReadyCount','danceabilityPendingCount'],['edgeReadyCount','edgePendingCount']] as const;
+const keys=['totalTracks','readyCount','spectralReadyCount','danceabilityReadyCount','edgeReadyCount','spectralPendingCount','danceabilityPendingCount','edgePendingCount','edgeNotApplicableCount','pendingCount','failedCount'] as const;
+/** The edge stage ignores tracks shorter than this, so they never reach its windows. */
+const minEdgeTrackSeconds=65;
 export function profileStatus(value:ProfileStatus):ProfileStatus {
   const invalid=():never=>{throw Object.assign(new Error('Invalid profile summary'),{code:'profiles_unavailable'});};
   if(!value||!['idle','complete','partial','cancelled','unavailable'].includes(value.state))return invalid();
-  for(const key of keys)if(!Number.isSafeInteger(value[key])||value[key]<0||value[key]>100000||value[key]>value.totalTracks)return invalid();
+  // Older cores do not send the not-applicable count; zero keeps their meaning exact.
+  const status:ProfileStatus={...value,edgeNotApplicableCount:value.edgeNotApplicableCount??0};
+  for(const key of keys)if(!Number.isSafeInteger(status[key])||status[key]<0||status[key]>100000||status[key]>status.totalTracks)return invalid();
   // Per-analysis readiness and pending are two halves of the same total, never a guess.
-  if(value.readyCount+value.pendingCount!==value.totalTracks
-    ||stages.some(([ready,pending])=>value[ready]<value.readyCount||value[ready]+value[pending]!==value.totalTracks)
-    ||(value.state==='complete'&&value.pendingCount!==0))return invalid();
-  const remaining=value.estimatedRemainingSeconds;
-  if(remaining!==null&&(!Number.isSafeInteger(remaining)||remaining<0||remaining>315360000||(value.pendingCount===0&&remaining!==0)))return invalid();
-  return {state:value.state,...Object.fromEntries(keys.map(key=>[key,value[key]])),estimatedRemainingSeconds:remaining} as ProfileStatus;
+  if(status.readyCount+status.pendingCount!==status.totalTracks
+    ||status.spectralReadyCount<status.readyCount||status.spectralReadyCount+status.spectralPendingCount!==status.totalTracks
+    ||status.danceabilityReadyCount<status.readyCount||status.danceabilityReadyCount+status.danceabilityPendingCount!==status.totalTracks
+    // A short track is complete without an edge profile, so ready + not applicable + pending is the library.
+    ||status.edgeReadyCount+status.edgeNotApplicableCount+status.edgePendingCount!==status.totalTracks
+    ||(status.state==='complete'&&status.pendingCount!==0))return invalid();
+  const remaining=status.estimatedRemainingSeconds;
+  if(remaining!==null&&(!Number.isSafeInteger(remaining)||remaining<0||remaining>315360000||(status.pendingCount===0&&remaining!==0)))return invalid();
+  return {state:status.state,...Object.fromEntries(keys.map(key=>[key,status[key]])),estimatedRemainingSeconds:remaining} as ProfileStatus;
+}
+/** Spanish phrasing for tracks whose edge windows do not apply; empty when there are none. */
+export function profileShortTracksLabel(count:number|undefined):string {
+  if(typeof count!=='number'||!Number.isSafeInteger(count)||count<=0)return '';
+  return `${count} no aplican (menos de ${minEdgeTrackSeconds} s)`;
 }
 export const profileStageNames:Record<string,string>={spectral:'perfil espectral',danceability:'bailabilidad',edge:'bordes de entrada y salida'};
 /** Spanish rounding of a measured estimate; nothing is claimed without one. */
@@ -37,9 +49,11 @@ export function profileSummary(status:ProfileStatus|null,stale:boolean,pending:b
   if(!status)return pending?'Completando perfiles locales…':'Perfiles todavía sin consultar.';
   const label={idle:'Perfiles pendientes',complete:'Perfiles completos',partial:'Perfiles parciales',cancelled:'Análisis de perfiles cancelado',unavailable:'Perfiles no disponibles'}[status.state];
   const perStage=`Pendientes por análisis: espectral ${status.spectralPendingCount} · bailabilidad ${status.danceabilityPendingCount} · bordes ${status.edgePendingCount}.`;
+  // Short tracks are complete without edges, so they are named apart from the pending work.
+  const shortTracks=profileShortTracksLabel(status.edgeNotApplicableCount);
   // A running job reports its own measurement; the stored status is the last one it published.
   const eta=profileEta(remaining??status.estimatedRemainingSeconds);
-  return `${label}: ${status.readyCount} de ${status.totalTracks} pistas completas · ${status.pendingCount} pendientes · ${status.failedCount} fallidas. ${perStage}${eta?` ${eta}.`:''}${pending?' Análisis en curso…':''}`;
+  return `${label}: ${status.readyCount} de ${status.totalTracks} pistas completas · ${status.pendingCount} pendientes · ${status.failedCount} fallidas. ${perStage}${shortTracks?` ${shortTracks}.`:''}${eta?` ${eta}.`:''}${pending?' Análisis en curso…':''}`;
 }
 export function createProfilesView(root:HTMLElement,host:{canAct():boolean;retry():void;rescanAndComplete():void}):(status:ProfileStatus|null,stale:boolean,pending:boolean,error:string,remaining?:number|null)=>void {
   const section=document.createElement('section');section.className='surface review-notice';section.setAttribute('aria-label','Perfiles locales');

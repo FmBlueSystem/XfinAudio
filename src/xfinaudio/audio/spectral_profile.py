@@ -7,6 +7,7 @@ mel-frequency energy distribution without mutating the source file.
 from __future__ import annotations
 
 import logging
+import math
 import warnings
 from pathlib import Path
 from typing import Literal
@@ -81,6 +82,17 @@ class EdgeSpectralProfile(BaseModel):
     analysis_version: int = CURRENT_EDGE_ANALYSIS_VERSION
 
 
+def edge_profile_not_applicable(duration: float | None) -> bool:
+    """Whether a track is too short for the two fixed 30-second edge windows.
+
+    The edge stage keeps these tracks out of its queue instead of failing them:
+    the duration the scan already stored decides, with no extra decode.
+    """
+    if not isinstance(duration, (int, float)) or isinstance(duration, bool) or not math.isfinite(duration):
+        return False
+    return float(duration) < _MIN_EDGE_TRACK_SECONDS
+
+
 def format_spectral_color(profile: SpectralProfile | None, *, emoji_only: bool = False) -> str:
     """Return a human-readable color badge for a spectral profile.
 
@@ -145,6 +157,11 @@ def analyze_spectral_profile(path: Path | str) -> SpectralProfile | None:
     except Exception as exc:
         LOGGER.warning("Spectral analysis failed for %s: %s: %s", path, type(exc).__name__, exc)
         return None
+
+
+def _has_audio(samples: np.ndarray) -> bool:
+    """Whether a decoded window holds any non-zero sample."""
+    return bool(samples.size) and bool(np.any(samples))
 
 
 def _profile_from_samples(y: np.ndarray, sr: int | float, librosa: object) -> SpectralProfile | None:
@@ -236,6 +253,18 @@ def analyze_edge_spectral_profile(path: Path | str) -> EdgeSpectralProfile | Non
             offset=duration - _EDGE_WINDOW_SECONDS,
             duration=_EDGE_WINDOW_SECONDS,
         )
+        for window, samples in (("intro", intro_samples), ("outro", outro_samples)):
+            if not _has_audio(samples):
+                # A bootleg can end with minutes of exact digital silence: the window
+                # decodes cleanly and still has no spectrum to classify. That is a
+                # property of the recording, never a decode failure.
+                LOGGER.info(
+                    "Edge spectral analysis found digital silence in the %s window of %s: "
+                    "there is no spectrum to classify, and this is not a decode failure",
+                    window,
+                    audio_path,
+                )
+                return None
         intro = _profile_from_samples(intro_samples, intro_sr, librosa)
         outro = _profile_from_samples(outro_samples, outro_sr, librosa)
         if intro is None or outro is None:

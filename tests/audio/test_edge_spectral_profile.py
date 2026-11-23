@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import warnings
 from pathlib import Path
 
@@ -59,6 +60,27 @@ def test_edge_profile_returns_none_for_missing_file_and_silence(tmp_path: Path) 
 
     assert analyze_edge_spectral_profile(Path("/nonexistent/file.wav")) is None
     assert analyze_edge_spectral_profile(silent_path) is None
+
+
+def test_edge_profile_reports_a_silent_tail_as_silence_not_a_decode_failure(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A tail that is digital silence has no profile; it is not a decoder failure.
+
+    The Ricci bootleg of Sweet Dreams ends with 71.7 s of exact zeros, so the fixed
+    outro window decodes cleanly and still has no energy to classify.
+    """
+    path = tmp_path / "silent-tail.wav"
+    _write_tone_sections(path, [(30.0, 100.0), (10.0, 500.0), (30.0, 8000.0), (70.0, 0.0)])
+
+    with caplog.at_level(logging.INFO, logger="xfinaudio.audio.spectral_profile"):
+        profile = analyze_edge_spectral_profile(path)
+
+    assert profile is None
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("outro" in message and "silence" in message for message in messages), messages
+    # The reason is stated as silence, never as a failure or an exception.
+    assert [record.levelno for record in caplog.records if record.levelno >= logging.WARNING] == []
 
 
 def test_edge_profile_missing_file_does_not_trigger_audioread_fallback() -> None:

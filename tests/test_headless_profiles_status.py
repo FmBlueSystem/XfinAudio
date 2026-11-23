@@ -99,9 +99,10 @@ class _Backend:
         pass
 
 
-def _record(path: Path) -> SimpleNamespace:
+def _record(path: Path, duration: float | None = None) -> SimpleNamespace:
     return SimpleNamespace(
         path=str(path),
+        duration=duration,
         spectral_profile=None,
         danceability_profile=None,
         edge_spectral_profile=None,
@@ -166,6 +167,78 @@ def test_status_reports_pending_counts_per_analysis_and_keeps_the_summary_fields
     assert status["failedCount"] == 0
     # Nothing has been measured yet, so no remaining time is invented.
     assert status["estimatedRemainingSeconds"] is None
+
+
+def test_short_tracks_are_not_applicable_for_edges_and_never_queued(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path.resolve()
+    short = root / "short.flac"
+    long = root / "long.flac"
+    short.write_bytes(b"fLaC")
+    long.write_bytes(b"fLaC")
+    stored = SimpleNamespace(analysis_version=VERSION)
+    records = [_record(short, duration=40.0), _record(long, duration=300.0)]
+    records[0].spectral_profile = stored
+    records[0].danceability_profile = stored
+    backend = _Backend(records, root)
+    completion = _completion(backend)
+
+    status = completion.status()
+
+    # Under the edge minimum the edge stage does not apply: not pending, not failed.
+    assert status["edgeNotApplicableCount"] == 1
+    assert status["edgePendingCount"] == 1
+    assert status["edgeReadyCount"] == 0
+    assert status["failedCount"] == 0
+    # Spectral + danceability make the short track complete even without an edge profile.
+    assert status["readyCount"] == 1
+    assert status["pendingCount"] == 1
+
+    analysed: list[tuple[str, str]] = []
+
+    def analyzer(stage: str) -> type:
+        class RecordingAnalyzer:
+            def analyze(self, path: Path) -> SimpleNamespace:
+                analysed.append((stage, Path(path).name))
+                return SimpleNamespace(analysis_version=VERSION)
+
+        return RecordingAnalyzer
+
+    monkeypatch.setattr(
+        profiles_module,
+        "STAGES",
+        (
+            ("spectral", "spectral_profile", VERSION, analyzer("spectral")),
+            ("danceability", "danceability_profile", VERSION, analyzer("danceability")),
+            ("edge", "edge_spectral_profile", VERSION, analyzer("edge")),
+        ),
+    )
+    monkeypatch.setattr(profiles_module, "dependencies_available", lambda: True)
+    progress: list[dict[str, Any]] = []
+
+    result = completion.execute("profiles.complete", {}, ScanCancellationToken(), progress.append)
+
+    # Retrying never queues the short track for the edge stage either.
+    assert [name for stage, name in analysed if stage == "edge"] == ["long.flac"]
+    assert {event["totalCount"] for event in progress if event["stage"] == "edge"} == {1}
+    assert records[0].edge_spectral_profile is None
+    final = result["status"]
+    assert result["cancelled"] is False
+    assert final["state"] == "complete"
+    assert final["edgePendingCount"] == 0
+    assert final["edgeNotApplicableCount"] == 1
+    assert final["failedCount"] == 0
+
+
+def test_unknown_duration_keeps_the_edge_stage_pending(tmp_path: Path) -> None:
+    root, records = _library(tmp_path, 1)
+
+    status = _completion(_Backend(records, root)).status()
+
+    # Without a stored duration there is no evidence the track is short, so nothing changes.
+    assert status["edgeNotApplicableCount"] == 0
+    assert status["edgePendingCount"] == 1
 
 
 def test_status_estimates_the_remaining_time_from_measured_per_track_time(
