@@ -14,7 +14,7 @@ import type {PrepFormSnapshot, PrepSettingsApi} from './prep-settings.js';
 import {createPrepSettingsView} from './prep-settings-view.js';
 import {OfflineBrowseView,LIBRARY_COLUMNS} from './offline-browse.js';
 import type {OfflineBrowseApi} from './offline-browse.js';
-import {createProfilesView,profileStatus,profileStageNames} from './profiles.js';
+import {createProfilesView,profileShortTracksLabel,profileStatus,profileStageNames} from './profiles.js';
 import type {ProfilesApi,ProfileStatus} from './profiles.js';
 import {ProfileSettingsController,createProfileSettingsView} from './profile-settings.js';
 import { draftMessage } from './draft-notice.js';
@@ -751,7 +751,10 @@ function renderContextStatus(): void {
   if (libraryStatus?.watchState === 'unavailable') parts.push('Vigilancia no disponible: comprueba manualmente');
   else if (libraryStatus && libraryStatus.watchState !== 'active') parts.push(({starting:'Vigilancia iniciándose',disabled:'Vigilancia desactivada',paused:'Vigilancia en pausa'} as Record<string,string>)[libraryStatus.watchState]);
   if (activeKind === 'profiles') parts.push('Completando perfiles…');
-  else if (profilesSnapshot?.pendingCount) parts.push(`Perfiles: ${profilesSnapshot.pendingCount} pendientes · ${profilesSnapshot.failedCount} fallidos`);
+  else if (profilesSnapshot?.pendingCount || profilesSnapshot?.edgeNotApplicableCount) {
+    const shortTracks=profileShortTracksLabel(profilesSnapshot.edgeNotApplicableCount);
+    parts.push(`Perfiles: ${profilesSnapshot.pendingCount} pendientes · ${profilesSnapshot.failedCount} fallidos${shortTracks?` · ${shortTracks}`:''}`);
+  }
   if (profilesError) parts.push(profilesError);
   element('context-status-copy').textContent=parts.filter(Boolean).join(' · ');
   element('context-status').hidden=!library.length&&!profilesError&&libraryStatus?.changeState!=='changed';

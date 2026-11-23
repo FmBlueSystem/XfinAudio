@@ -15,7 +15,11 @@ from typing import TYPE_CHECKING, Any
 
 from xfinaudio.audio.analyzer import LibrosaDanceabilityAnalyzer, LibrosaEdgeSpectralAnalyzer, LibrosaSpectralAnalyzer
 from xfinaudio.audio.danceability import CURRENT_DANCEABILITY_VERSION
-from xfinaudio.audio.spectral_profile import CURRENT_ANALYSIS_VERSION, CURRENT_EDGE_ANALYSIS_VERSION
+from xfinaudio.audio.spectral_profile import (
+    CURRENT_ANALYSIS_VERSION,
+    CURRENT_EDGE_ANALYSIS_VERSION,
+    edge_profile_not_applicable,
+)
 from xfinaudio.headless.common import BackendError, _inside
 from xfinaudio.headless.serato_safety import source_identity
 from xfinaudio.library.models import TrackRecord
@@ -85,6 +89,18 @@ def same_recording(record: TrackRecord, path: Path) -> bool:
         and math.isfinite(duration)
         and abs(duration - expected) <= MAX_TAG_WRITE_DURATION_DELTA
     )
+
+
+def _needs_stage(record: TrackRecord, stage: str, field: str) -> bool:
+    """Whether ``record`` still owes work to ``stage``.
+
+    The edge stage skips tracks under the edge minimum: the duration the scan
+    already stored decides, so a short track is never queued, retried or
+    counted as failed for edges, and never needs another decode to say so.
+    """
+    if getattr(record, field) is not None:
+        return False
+    return not (stage == "edge" and edge_profile_not_applicable(record.duration))
 
 
 def current_records(
@@ -172,9 +188,23 @@ class ProfileCompletion:
     def status(self) -> dict[str, Any]:
         records = self.backend._records()
         counts = [sum(getattr(record, field) is not None for record in records) for _, field, _, _ in STAGES]
-        ready = sum(all(getattr(record, field) is not None for _, field, _, _ in STAGES) for record in records)
+        # Tracks whose stored duration is under the edge minimum have no edge stage at all.
+        edge_not_applicable = {
+            record.path
+            for record in records
+            if record.edge_spectral_profile is None and edge_profile_not_applicable(record.duration)
+        }
+        required = [field for stage, field, _, _ in STAGES if stage != "edge"]
+        ready = sum(
+            all(getattr(record, field) is not None for field in required)
+            and (record.edge_spectral_profile is not None or record.path in edge_not_applicable)
+            for record in records
+        )
         state = "idle" if not records else "complete" if ready == len(records) else self.state
-        pending = {stage: len(records) - count for (stage, _, _, _), count in zip(STAGES, counts, strict=True)}
+        pending = {
+            stage: sum(_needs_stage(record, stage, field) for record in records) for stage, field, _, _ in STAGES
+        }
+        failed = self.failed & {record.path for record in records}
         return {
             "state": state,
             "totalTracks": len(records),
@@ -185,8 +215,9 @@ class ProfileCompletion:
             "spectralPendingCount": pending["spectral"],
             "danceabilityPendingCount": pending["danceability"],
             "edgePendingCount": pending["edge"],
+            "edgeNotApplicableCount": len(edge_not_applicable),
             "pendingCount": len(records) - ready,
-            "failedCount": len(self.failed & {record.path for record in records}),
+            "failedCount": len(failed),
             "estimatedRemainingSeconds": self._estimate_remaining(pending),
         }
 
@@ -231,7 +262,7 @@ class ProfileCompletion:
         subscribe = getattr(token, "subscribe", None)
         retire = subscribe(self._drain_commits) if callable(subscribe) else lambda: None
         pending = {
-            stage: sum(getattr(record, field) is None for record in self.backend._records())
+            stage: sum(_needs_stage(record, stage, field) for record in self.backend._records())
             for stage, field, _, _ in STAGES
         }
         try:
@@ -239,7 +270,9 @@ class ProfileCompletion:
                 for stage, field, version, adapter in STAGES:
                     if token.is_cancelled:
                         break
-                    paths = [Path(record.path) for record in self.backend._records() if getattr(record, field) is None]
+                    paths = [
+                        Path(record.path) for record in self.backend._records() if _needs_stage(record, stage, field)
+                    ]
                     pending[stage] = len(paths)
                     done = ready = failed = analyzed = 0
                     total = len(paths)

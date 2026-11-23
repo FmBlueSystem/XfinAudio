@@ -12,7 +12,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve)); const settle
 const prefs = (patch = {}) => ({ revision: 'a'.repeat(64), previewVolume: .25, watchLibrary: true, recoveryWarning: false, libraryLabels: ['DJ'], capabilities: { loudnessWriteback: false, providers: false, language: 'es' }, ...patch });
 const status = (patch = {}) => ({ revision: 1, changeState: 'restored', watchState: 'active', rootCount: 1, watchedCount: 1, ...patch });
 const tracks = ['a', 'b'].map((id) => ({ id: id.repeat(64), title: id, artist: 'DJ', bpm: 120, key: '8A', energy: 5, duration: 120, missing: false }));
-const profileStatus = (patch = {}) => { const value = {state:'partial',totalTracks:2,readyCount:0,spectralReadyCount:0,danceabilityReadyCount:0,edgeReadyCount:0,pendingCount:2,failedCount:0,estimatedRemainingSeconds:null,...patch}; return {...value,spectralPendingCount:value.totalTracks-value.spectralReadyCount,danceabilityPendingCount:value.totalTracks-value.danceabilityReadyCount,edgePendingCount:value.totalTracks-value.edgeReadyCount}; };
+const profileStatus = (patch = {}) => { const value = {state:'partial',totalTracks:2,readyCount:0,spectralReadyCount:0,danceabilityReadyCount:0,edgeReadyCount:0,pendingCount:2,failedCount:0,estimatedRemainingSeconds:null,...patch}; return {...value,spectralPendingCount:value.totalTracks-value.spectralReadyCount,danceabilityPendingCount:value.totalTracks-value.danceabilityReadyCount,edgePendingCount:value.totalTracks-value.edgeReadyCount-(value.edgeNotApplicableCount??0),edgeNotApplicableCount:value.edgeNotApplicableCount??0}; };
 const completion = (patch = {}) => ({cancelled:false,tracks,status:profileStatus({state:'complete',readyCount:2,spectralReadyCount:2,danceabilityReadyCount:2,edgeReadyCount:2,pendingCount:0}),completeCount:2,incompleteCount:0,...patch});
 let sequence = 0;
 async function fixture(overrides = {}) {
@@ -106,4 +106,10 @@ test('failed rescan and cancelled folder picker never queue profiles',async()=>{
 test('profile completion counts are independent from metadata completeness for unavailable or already profiled tracks',async()=>{
  const unavailable=await fixture({completeProfiles:async()=>completion({status:profileStatus({state:'unavailable'}),completeCount:2,incompleteCount:0})});try{unavailable.click('profiles-retry');await settle();assert.match(unavailable.get('profiles-summary').textContent,/no disponibles/i);assert.equal(unavailable.get('profiles-error').hidden,true);assert.equal(unavailable.get('library-ready').textContent,'2');}finally{unavailable.restore();}
  const incompleteTracks=tracks.map((track,index)=>index?{...track,energy:null}:track);const profiled=await fixture({listLibrary:async()=>({tracks:incompleteTracks,count:2}),completeProfiles:async()=>completion({tracks:incompleteTracks,completeCount:1,incompleteCount:1})});try{profiled.click('profiles-retry');await settle();assert.match(profiled.get('profiles-summary').textContent,/completos: 2 de 2/i);assert.equal(profiled.get('profiles-error').hidden,true);assert.equal(profiled.get('library-ready').textContent,'1');}finally{profiled.restore();}
+});
+test('library status adds the short-track count only when some tracks do not apply for edges',async()=>{
+  const withShortTracks=await fixture({getProfileStatus:async()=>profileStatus({state:'complete',totalTracks:2,readyCount:2,spectralReadyCount:2,danceabilityReadyCount:2,edgeReadyCount:1,edgeNotApplicableCount:1,pendingCount:0})});
+  try{assert.match(withShortTracks.get('context-status-copy').textContent,/Perfiles: 0 pendientes · 0 fallidos · 1 no aplican \(menos de 65 s\)/);}finally{withShortTracks.restore();}
+  const withoutShortTracks=await fixture();
+  try{assert.match(withoutShortTracks.get('context-status-copy').textContent,/Perfiles: 2 pendientes · 0 fallidos(?! · )/);assert.doesNotMatch(withoutShortTracks.get('context-status-copy').textContent,/no aplican/);}finally{withoutShortTracks.restore();}
 });
